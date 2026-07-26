@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useGraphPalette } from '@/components/graph/graphPalette'
+import { phBasemapFragment } from '../basemap/phBasemap'
 import type { GlobePov, PlaceableScene } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
@@ -81,9 +82,24 @@ const NIGHT_EARTH_TILES =
 const FLY_TO_ALTITUDE = 1.0
 const FLY_TO_MS = 1200
 
-// The GIBS tile set tops out at level 8; past ~9 the overzoomed raster is
-// mush. PSY-1539 (street-level basemap) raises this ceiling deliberately.
-const MAX_ZOOM = 9
+// Globe → street handoff (PSY-1543): the Black Marble raster fades OUT and
+// the PH basemap's background fades IN across this zoom range. Bounds chosen
+// so the crossfade (a) starts only after the sphere more than fills a
+// desktop viewport (screen radius ≈ 512·2^z/2π px ⇒ ~1300 px at z4, so no
+// street style ever peeks past the sphere edge), (b) finishes exactly where
+// the sky's atmosphere-blend reaches 0 (z7 — one coordinated "descent"
+// moment), and (c) is fully done well before the GIBS raster's native z8
+// ceiling turns overzoomed tiles to mush. The basemap's road/boundary layers
+// are minzoom-gated from 5 in ph-dark-basemap.json, so city-lights pixels
+// dissolve into streets already drawn beneath them — no black void, no pop.
+const BLACK_MARBLE_FADE_START = 5.5
+const BLACK_MARBLE_FADE_END = 7
+
+// Street-zoom ceiling (PSY-1543). The OpenFreeMap vector source is maxzoom 14
+// and overzooms cleanly; 17 gives block-level framing for the PSY-1539 venue
+// pins without letting the camera dive into an empty ground plane. (The GIBS
+// raster no longer binds this — its layer is capped at the fade end.)
+const MAX_ZOOM = 17
 const MIN_ZOOM = 1
 
 // "Happening this week" pulse ring (PSY-1309 parity): a propagating stroked
@@ -360,6 +376,15 @@ export default function GlobeCanvas({
     const center: [number, number] = savedCamera?.center ?? [pov.lng, pov.lat]
     const zoom = savedCamera?.zoom ?? zoomForAltitude(pov.altitude)
 
+    // PH street basemap (PSY-1543): OpenFreeMap vector tiles restyled to the
+    // app's dark tokens, with its background ramped in across the Black
+    // Marble fade range (see phBasemapFragment for why the background must
+    // ramp rather than sit opaque).
+    const basemap = phBasemapFragment(
+      BLACK_MARBLE_FADE_START,
+      BLACK_MARBLE_FADE_END,
+    )
+
     const map = new maplibregl.Map({
       container,
       center,
@@ -380,6 +405,9 @@ export default function GlobeCanvas({
       style: {
         version: 8,
         projection: { type: 'globe' },
+        // Glyph server for the basemap's street/place labels (the scene
+        // labels stay DOM markers in the app font — no glyph dependency).
+        glyphs: basemap.glyphs,
         // Atmosphere: MapLibre's own halo, faded out as the globe fills the
         // viewport. The CSS halo (updateHalo) thickens it toward the shipped
         // three.js glow — screenshot comparison in the PR for sign-off.
@@ -399,20 +427,21 @@ export default function GlobeCanvas({
             0,
           ],
         },
-        // No background layer: space stays transparent so the CSS starfield
-        // and halo behind the canvas show through.
+        // The basemap's background layer is opacity-ramped (0 until the
+        // street fade), so space stays transparent at globe zooms and the
+        // CSS starfield and halo behind the canvas show through.
         sources: {
+          ...basemap.sources,
           nightEarth: {
             type: 'raster',
             tiles: [NIGHT_EARTH_TILES],
             tileSize: 256,
             maxzoom: 8,
-            // NOT rendered today (attributionControl: false keeps the
-            // chrome-free parity look; NASA imagery is public domain and
-            // GIBS attribution is requested, not required). Kept as
-            // provenance so enabling an AttributionControl — worth
-            // revisiting with the PSY-1539 street basemap, whose provider
-            // WILL require visible attribution — displays the right credit.
+            // Rendered by the AttributionControl below (PSY-1543), alongside
+            // the OpenFreeMap/OSM credit the openmaptiles source carries.
+            // NASA imagery is public domain and GIBS attribution is
+            // requested rather than required, but showing it costs nothing
+            // once the control exists for the OSM requirement.
             attribution: 'Imagery courtesy NASA GIBS (VIIRS Black Marble)',
           },
           // promoteId: features are keyed by slug so the hover feature-state
@@ -421,7 +450,29 @@ export default function GlobeCanvas({
           'scene-rings': { type: 'geojson', data: EMPTY_FC },
         },
         layers: [
-          { id: 'earth', type: 'raster', source: 'nightEarth' },
+          // Street basemap under the raster: at globe zooms the opaque Black
+          // Marble covers it (and its layers are minzoom-gated anyway); as
+          // the raster fades out across the handoff range the streets are
+          // already drawn beneath — no black frame between the two worlds.
+          ...basemap.layers,
+          {
+            id: 'earth',
+            type: 'raster',
+            source: 'nightEarth',
+            // Stop fetching/compositing GIBS tiles once fully transparent.
+            maxzoom: BLACK_MARBLE_FADE_END + 0.1,
+            paint: {
+              'raster-opacity': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                BLACK_MARBLE_FADE_START,
+                1,
+                BLACK_MARBLE_FADE_END,
+                0,
+              ],
+            },
+          },
           {
             // Under the dots so a ring never covers its own scene's dot —
             // the RING_ALTITUDE invariant of the shipped globe, by layer order.
@@ -486,6 +537,15 @@ export default function GlobeCanvas({
     // every input path (savedCamera deliberately persists only center/zoom).
     map.touchZoomRotate.disableRotation()
     map.keyboard.disableRotation()
+
+    // Attribution (PSY-1543): the OpenStreetMap credit is a license
+    // requirement (ODbL) now that street tiles ship, so the old chrome-free
+    // look gains an always-visible control (non-compact — OSM's guidance
+    // frowns on hidden-behind-an-icon attribution on desktop). Credit
+    // strings come from the sources above (OpenFreeMap/OSM + NASA GIBS);
+    // the dark restyle of MapLibre's default white pill lives in
+    // globals.css (.maplibregl-ctrl-attrib).
+    map.addControl(new maplibregl.AttributionControl({ compact: false }))
 
     // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
     // Closes over THIS map; nulled in cleanup, so after a hide/show cycle

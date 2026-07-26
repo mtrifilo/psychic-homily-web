@@ -244,3 +244,22 @@
   max-width: 100%;
   border-radius: 0.5rem;
 }
+
+/* PSY-1543: Atlas map attribution — restyle MapLibre's default white pill to
+ * the Atlas dark palette. The control carries the REQUIRED OpenStreetMap
+ * credit (plus OpenFreeMap and NASA GIBS), so keep it legible: muted at
+ * rest, readable on hover. The Atlas surface is deliberately dark in both
+ * app themes, so these values are static rather than token-driven. */
+.maplibregl-ctrl-attrib {
+  background: rgba(13, 8, 5, 0.72);
+  color: #9c8c7c;
+  font-size: 11px;
+}
+.maplibregl-ctrl-attrib a {
+  color: #b3a292;
+  text-decoration: none;
+}
+.maplibregl-ctrl-attrib a:hover {
+  color: #eee7d9;
+  text-decoration: underline;
+}

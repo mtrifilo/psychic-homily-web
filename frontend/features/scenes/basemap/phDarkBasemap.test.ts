@@ -1,0 +1,178 @@
+import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec'
+import type { StyleSpecification } from 'maplibre-gl'
+import phDarkBasemap from './ph-dark-basemap.json'
+import { phBasemapFragment } from './phBasemap'
+
+/**
+ * Guards for the PH dark basemap style (PSY-1543).
+ *
+ * The style JSON is hand-curated against the OpenMapTiles schema served by
+ * OpenFreeMap (see README.md in this directory). These tests pin the
+ * properties that break silently in production:
+ *  - spec validity (a malformed layer aborts the whole style load — the map
+ *    renders nothing, no partial fallback),
+ *  - every remote host being present in the app CSP's connect-src (MapLibre
+ *    fetches tiles AND glyphs via fetch(); a missing host = blank basemap
+ *    with only console CSP noise),
+ *  - fonts staying within OpenFreeMap's fixed glyph set (an unknown
+ *    fontstack 404s per label tile → labels silently absent),
+ *  - zero CARTO leftovers from the spike (ticket AC), and
+ *  - the merge contract GlobeCanvas relies on (background first, all vector
+ *    layers minzoom-gated, no id collisions with the scene layers).
+ */
+
+const FRONTEND_ROOT = path.resolve(__dirname, '../../..')
+const STYLE_PATH = path.join(FRONTEND_ROOT, 'features/scenes/basemap/ph-dark-basemap.json')
+
+const style = phDarkBasemap as unknown as StyleSpecification
+
+// OpenFreeMap's glyph server serves a fixed font set; these three are the
+// stacks verified available (HTTP 200 on 0-255.pbf, 2026-07-26). Space Mono
+// and other PH type-direction faces are NOT served — see README.md.
+const AVAILABLE_FONTS = new Set([
+  'Noto Sans Regular',
+  'Noto Sans Bold',
+  'Noto Sans Italic',
+])
+
+// Layer ids GlobeCanvas appends after the basemap fragment — a collision
+// would make the merged style invalid and abort the load.
+const GLOBE_CANVAS_LAYER_IDS = ['earth', 'scene-rings', 'scene-dots']
+const GLOBE_CANVAS_SOURCE_IDS = ['nightEarth', 'scenes', 'scene-rings']
+
+function collectRemoteUrls(s: StyleSpecification): string[] {
+  const urls: string[] = []
+  if (typeof s.glyphs === 'string') urls.push(s.glyphs)
+  if (typeof s.sprite === 'string') urls.push(s.sprite)
+  for (const source of Object.values(s.sources)) {
+    if ('url' in source && typeof source.url === 'string') urls.push(source.url)
+    if ('tiles' in source && Array.isArray(source.tiles)) {
+      urls.push(...source.tiles)
+    }
+  }
+  return urls.filter((u) => u.startsWith('http'))
+}
+
+describe('ph-dark-basemap.json', () => {
+  it('validates against the MapLibre style spec', () => {
+    const errors = validateStyleMin(style)
+    expect(errors).toEqual([])
+  })
+
+  it('contains zero CARTO references (PSY-1543 AC — the spike borrowed dark-matter)', () => {
+    const raw = readFileSync(STYLE_PATH, 'utf8')
+    expect(raw.toLowerCase()).not.toContain('carto')
+    expect(raw.toLowerCase()).not.toContain('dark-matter')
+  })
+
+  it('only references remote hosts allowlisted in the CSP connect-src', () => {
+    const remoteHosts = new Set(
+      collectRemoteUrls(style).map((u) => new URL(u).host),
+    )
+    expect(remoteHosts.size).toBeGreaterThan(0)
+    const nextConfig = readFileSync(
+      path.join(FRONTEND_ROOT, 'next.config.ts'),
+      'utf8',
+    )
+    const connectSrc = nextConfig
+      .split('\n')
+      .find((line) => line.includes("connect-src 'self'"))
+    expect(connectSrc).toBeDefined()
+    for (const host of remoteHosts) {
+      expect(connectSrc, `CSP connect-src is missing https://${host}`).toContain(
+        `https://${host}`,
+      )
+    }
+  })
+
+  it('uses only fontstacks the OpenFreeMap glyph server actually serves', () => {
+    const fonts = new Set<string>()
+    for (const layer of style.layers) {
+      const textFont =
+        layer.type === 'symbol' ? layer.layout?.['text-font'] : undefined
+      if (Array.isArray(textFont)) {
+        for (const f of textFont) if (typeof f === 'string') fonts.add(f)
+      }
+    }
+    expect(fonts.size).toBeGreaterThan(0)
+    for (const font of fonts) {
+      expect(AVAILABLE_FONTS.has(font), `unknown fontstack: ${font}`).toBe(true)
+    }
+  })
+
+  it('declares no sprite and uses no icons (no sprite host is CSP-allowlisted)', () => {
+    expect(style.sprite).toBeUndefined()
+    for (const layer of style.layers) {
+      if (layer.type === 'symbol') {
+        expect(
+          layer.layout && 'icon-image' in layer.layout,
+          `${layer.id} uses icon-image`,
+        ).toBeFalsy()
+      }
+    }
+  })
+
+  it('keeps every layer/source id clear of the GlobeCanvas scene layers', () => {
+    const ids = style.layers.map((l) => l.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const id of ids) {
+      expect(id.startsWith('ph-'), `${id} must be ph- prefixed`).toBe(true)
+      expect(GLOBE_CANVAS_LAYER_IDS).not.toContain(id)
+    }
+    for (const sourceId of Object.keys(style.sources)) {
+      expect(GLOBE_CANVAS_SOURCE_IDS).not.toContain(sourceId)
+    }
+  })
+
+  it('gates every non-background layer to zoom >= 5 (nothing renders or fetches at globe zooms)', () => {
+    for (const layer of style.layers) {
+      if (layer.type === 'background') continue
+      expect(
+        layer.minzoom,
+        `${layer.id} needs a minzoom >= 5`,
+      ).toBeGreaterThanOrEqual(5)
+    }
+  })
+
+  it('credits OpenStreetMap on the vector source (ODbL requirement)', () => {
+    const omt = style.sources.openmaptiles
+    expect(omt).toBeDefined()
+    expect('attribution' in omt && omt.attribution).toContain('OpenStreetMap')
+  })
+})
+
+describe('phBasemapFragment', () => {
+  it('starts with the background layer so the GlobeCanvas spread keeps it at the bottom', () => {
+    const { layers } = phBasemapFragment(5.5, 7)
+    expect(layers[0]?.type).toBe('background')
+  })
+
+  it('ramps background-opacity across the requested fade range', () => {
+    const { layers } = phBasemapFragment(5.5, 7)
+    const background = layers[0]
+    if (background.type !== 'background') throw new Error('unreachable')
+    expect(background.paint?.['background-opacity']).toEqual([
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      5.5,
+      0,
+      7,
+      1,
+    ])
+  })
+
+  it('passes glyphs and sources through from the style JSON', () => {
+    const fragment = phBasemapFragment(5.5, 7)
+    expect(fragment.glyphs).toBe(style.glyphs)
+    expect(Object.keys(fragment.sources)).toEqual(['openmaptiles'])
+  })
+
+  it('leaves non-background layers untouched', () => {
+    const { layers } = phBasemapFragment(5.5, 7)
+    expect(layers.slice(1)).toEqual(style.layers.slice(1))
+  })
+})
