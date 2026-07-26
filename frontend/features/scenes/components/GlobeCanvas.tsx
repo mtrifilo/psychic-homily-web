@@ -14,7 +14,11 @@ import type {
   VenuePin,
 } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
-import { CITY_VIEW_MIN_ZOOM, venuePinRadiusPx } from '../cityView'
+import {
+  CITY_VIEW_MIN_ZOOM,
+  labelledVenuePinIds,
+  venuePinRadiusPx,
+} from '../cityView'
 import {
   DOT_COLOR_BASE,
   DOT_COLOR_HOVERED,
@@ -381,9 +385,13 @@ export default function GlobeCanvas({
   // Venue name labels, as DOM markers for the same reasons the scene labels
   // are: app font, no glyph-server dependency. Anchored below the pin so the
   // name never covers the mark it belongs to.
+  const labelledVenueIds = useMemo(
+    () => labelledVenuePinIds(venues),
+    [venues],
+  )
   useEffect(() => {
     if (!mapReady || venues.length === 0) return
-    const markers = venues.map((v) => {
+    const markers = venues.filter((v) => labelledVenueIds.has(v.id)).map((v) => {
       const el = document.createElement('div')
       el.textContent = v.name
       el.style.cssText = [
@@ -407,7 +415,7 @@ export default function GlobeCanvas({
     return () => {
       for (const m of markers) m.remove()
     }
-  }, [mapReady, venues])
+  }, [mapReady, venues, labelledVenueIds])
 
   // Zoom controls, mounted only while city view is engaged — the mock's
   // street view has them, the globe deliberately stays chrome-free (and

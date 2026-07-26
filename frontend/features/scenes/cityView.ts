@@ -10,7 +10,7 @@
 
 import { haversineDistanceKm } from '@/lib/haversine'
 import type { VenueWithShowCount } from '@/features/venues/types'
-import type { PlaceableScene } from './components/globeTypes'
+import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
 
 // ── Engagement thresholds ─────────────────────────────────────────────────
@@ -161,6 +161,41 @@ export function venuePinRadiusPx(upcomingShowCount: number): number {
   return (
     VENUE_PIN_BASE_RADIUS_PX + Math.min(variable, VENUE_PIN_VARIABLE_MAX_PX)
   )
+}
+
+// ── Label declutter ───────────────────────────────────────────────────────
+// The centroid fallback puts EVERY venue without a servable street geocode on
+// the exact same point, so their name labels stamp on top of each other into
+// an unreadable smear. Same problem the globe solved for adjacent metros, so
+// same solution: drop the label of the less busy of any colliding pair, keyed
+// on great-circle distance rather than screen projection (a per-frame
+// projection pass would churn the marker set every frame — the reason
+// globeScale's declutter is great-circle too).
+//
+// The radius is calibrated for the case that actually bites: coincident and
+// near-coincident pins. It is deliberately NOT wide enough to thin out a dense
+// but genuinely distinct downtown block — two venues 200 m apart are two marks
+// worth naming, and a wider radius would silently hide real venues.
+export const VENUE_LABEL_DECLUTTER_KM = 0.2
+
+/** The subset of pins that keeps a name label. Busier venue wins a collision. */
+export function labelledVenuePinIds(
+  pins: readonly VenuePin[],
+  radiusKm: number = VENUE_LABEL_DECLUTTER_KM,
+): ReadonlySet<number> {
+  const kept: VenuePin[] = []
+  // Busiest first, so the venue a traveller most wants named is the one that
+  // survives a pile-up at the centroid.
+  const byActivity = [...pins].sort(
+    (a, b) => b.upcomingShowCount - a.upcomingShowCount,
+  )
+  for (const pin of byActivity) {
+    const collides = kept.some(
+      (k) => haversineDistanceKm(pin.lat, pin.lng, k.lat, k.lng) <= radiusKm,
+    )
+    if (!collides) kept.push(pin)
+  }
+  return new Set(kept.map((p) => p.id))
 }
 
 // ── Filters ───────────────────────────────────────────────────────────────

@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import type { VenueWithShowCount } from '@/features/venues/types'
-import type { PlaceableScene } from './components/globeTypes'
+import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import {
   CITY_VIEW_MIN_ZOOM,
+  VENUE_PIN_CAP_COUNT,
+  labelledVenuePinIds,
+  venuePinRadiusPx,
   cityDataUpdatedAt,
   cityGenreFamilies,
   cityRailStats,
@@ -135,6 +138,69 @@ describe('venuePinPosition (PSY-1536 privacy gate)', () => {
     expect(
       venuePinPosition(venue({ latitude: null, longitude: null })),
     ).toBeNull()
+  })
+})
+
+function pin(overrides: Partial<VenuePin> = {}): VenuePin {
+  return {
+    id: 1,
+    name: 'Mohawk',
+    lng: -97.7431,
+    lat: 30.2672,
+    upcomingShowCount: 14,
+    nextShowLabel: '',
+    precision: 'centroid',
+    ...overrides,
+  }
+}
+
+describe('venuePinRadiusPx', () => {
+  it('grows with the upcoming count', () => {
+    expect(venuePinRadiusPx(10)).toBeGreaterThan(venuePinRadiusPx(1))
+  })
+
+  it('caps, so one huge venue cannot swallow the block', () => {
+    expect(venuePinRadiusPx(VENUE_PIN_CAP_COUNT * 20)).toBe(
+      venuePinRadiusPx(VENUE_PIN_CAP_COUNT),
+    )
+  })
+
+  it('never returns NaN for malformed counts', () => {
+    expect(Number.isFinite(venuePinRadiusPx(Number.NaN))).toBe(true)
+    expect(Number.isFinite(venuePinRadiusPx(-5))).toBe(true)
+  })
+})
+
+describe('labelledVenuePinIds', () => {
+  it('labels every venue when none collide', () => {
+    const ids = labelledVenuePinIds([
+      pin({ id: 1, lat: 30.2672, lng: -97.7431 }),
+      pin({ id: 2, lat: 30.29, lng: -97.72 }),
+    ])
+    expect([...ids].sort()).toEqual([1, 2])
+  })
+
+  it('labels only the busiest of venues stacked on the city centroid', () => {
+    // The exact case the centroid fallback creates: several venues, one point.
+    const ids = labelledVenuePinIds([
+      pin({ id: 1, upcomingShowCount: 4 }),
+      pin({ id: 2, upcomingShowCount: 11 }),
+      pin({ id: 3, upcomingShowCount: 0 }),
+    ])
+    expect([...ids]).toEqual([2])
+  })
+
+  it('keeps both when a pair clears the declutter radius', () => {
+    // ~1 km apart, well outside the 200 m radius.
+    const ids = labelledVenuePinIds([
+      pin({ id: 1, lat: 30.2672 }),
+      pin({ id: 2, lat: 30.2762 }),
+    ])
+    expect([...ids].sort()).toEqual([1, 2])
+  })
+
+  it('is empty for no pins', () => {
+    expect(labelledVenuePinIds([]).size).toBe(0)
   })
 })
 
