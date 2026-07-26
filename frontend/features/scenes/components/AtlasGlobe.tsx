@@ -168,7 +168,12 @@ export function AtlasGlobe() {
     const resolve = (p: GlobePov) => {
       if (!settled) {
         settled = true
-        setPov(p)
+        // Identity-preserving on purpose: under Cache Components this effect
+        // SETUP re-runs on every show (the `settled` guard is a closure
+        // local), and GlobeCanvas keys its map-creation effect on pov — a
+        // fresh object per show would tear down and rebuild the map ~0–700ms
+        // after every nav-back. First resolution wins forever.
+        setPov((prev) => prev ?? p)
       }
     }
     const timer = setTimeout(() => resolve(DEFAULT_POV), GEO_TIMEOUT_MS)
