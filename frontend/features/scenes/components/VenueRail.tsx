@@ -5,6 +5,7 @@ import type { VenueWithShowCount } from '@/features/venues/types'
 import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import { GENRE_FAMILIES } from '../genreFamilies'
 import {
+  CITY_RAIL_WIDTH_PX,
   cityDataUpdatedAt,
   cityGenreFamilies,
   cityRailStats,
@@ -28,6 +29,12 @@ interface VenueRailProps {
   allVenues: readonly VenueWithShowCount[]
   /** Scene-level roster size ("35 LOCAL ARTISTS"); undefined while loading. */
   localArtistCount?: number
+  /**
+   * How many venues the city has in total, from the API. Greater than
+   * `allVenues.length` means the fetch cap truncated the list, which the rail
+   * must SAY rather than quietly present a partial city as the whole one.
+   */
+  totalVenueCount?: number
   loading?: boolean
   filters: CityVenueFilters
   onFiltersChange: (filters: CityVenueFilters) => void
@@ -55,6 +62,7 @@ export function VenueRail({
   venues,
   allVenues,
   localArtistCount,
+  totalVenueCount,
   loading = false,
   filters,
   onFiltersChange,
@@ -74,7 +82,11 @@ export function VenueRail({
     <aside
       aria-label={`Venues in ${cityLabel}`}
       data-testid="atlas-venue-rail"
-      className="flex h-full w-[360px] shrink-0 flex-col border-r border-border bg-card"
+      /* Width from the shared constant, not a Tailwind literal: AtlasGlobe
+         subtracts the SAME number to size the map canvas, and two
+         independently-editable copies of it would desync the two panes. */
+      style={{ width: CITY_RAIL_WIDTH_PX }}
+      className="flex h-full shrink-0 flex-col border-r border-border bg-card"
     >
       <header className="border-b border-border px-4 pb-3 pt-4">
         <div className="flex items-baseline gap-3">
@@ -95,6 +107,15 @@ export function VenueRail({
             <> · {localArtistCount} local artists</>
           )}
         </p>
+
+        {/* The list is one page deep. A city with more venues than the cap
+            would otherwise read as if it had exactly the cap — say so instead.
+            The API sorts busiest-first, so "busiest" is accurate. */}
+        {totalVenueCount !== undefined && totalVenueCount > allVenues.length && (
+          <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
+            showing the {allVenues.length} busiest of {totalVenueCount}
+          </p>
+        )}
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <FilterChip

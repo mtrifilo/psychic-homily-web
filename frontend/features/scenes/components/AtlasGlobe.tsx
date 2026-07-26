@@ -172,6 +172,15 @@ export function AtlasGlobe() {
     setFilters(NO_CITY_VENUE_FILTERS)
     setSelectedVenueId(null)
   }
+  // INVARIANT: a scene preview and city view never coexist. City view hides
+  // the globe chrome the panel lives in, which UNMOUNTS the panel without
+  // calling onClose — so without this the stale `selected` would pop the
+  // panel back open, unrequested and stealing focus, the moment the camera
+  // zoomed back out. Closing it on entry is also the honest reading: you
+  // stopped previewing the metro and started exploring inside it.
+  if (cityScene !== null && selected !== null) {
+    setSelected(null)
+  }
 
   // City-scoped, never bounding-box scoped (explicitly deferred): the rail
   // lists the venues of the scene's principal city. A metro-member city's
@@ -229,7 +238,6 @@ export function AtlasGlobe() {
         lat: position.lat,
         upcomingShowCount: venue.upcoming_show_count,
         nextShowLabel: nextDate ? `next ${nextDate}` : '',
-        precision: position.precision,
       })
     }
     return pins
@@ -385,6 +393,7 @@ export function AtlasGlobe() {
             venues={filteredVenues}
             allVenues={cityVenues}
             localArtistCount={sceneDetail?.stats.artist_count}
+            totalVenueCount={cityVenueData?.total}
             loading={venuesLoading}
             filters={filters}
             onFiltersChange={setFilters}

@@ -149,7 +149,6 @@ function pin(overrides: Partial<VenuePin> = {}): VenuePin {
     lat: 30.2672,
     upcomingShowCount: 14,
     nextShowLabel: '',
-    precision: 'centroid',
     ...overrides,
   }
 }

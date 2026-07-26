@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import type { MutableRefObject, ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListResponse } from '../types'
@@ -63,7 +63,11 @@ vi.mock('../hooks', () => ({
 
 // City view's venue list (PSY-1539). Tests that need venues override via
 // mockUseVenues; the default is an un-entered city view (no venues).
-const mockUseVenues = vi.fn(() => ({ data: undefined, isLoading: false }))
+const mockUseVenues = vi.fn<() => Record<string, unknown>>(() => ({
+  data: undefined,
+  isFetching: false,
+  isPlaceholderData: false,
+}))
 vi.mock('@/features/venues/hooks', () => ({
   useVenues: () => mockUseVenues(),
 }))
@@ -77,13 +81,26 @@ vi.mock('next/navigation', () => ({
 // fills the flyToRef seam with a spy so the drift handler's camera call is
 // observable without three.js.
 const flyToSpy = vi.fn()
+// City view (PSY-1539): the stub also captures the canvas's camera-settle
+// callback and the pin array, so a test can drive the camera the way the real
+// map does and assert what the map would have drawn — the whole
+// camera → city → fetch → filter → pins chain, without WebGL.
+let lastCanvasProps: {
+  onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
+  venues?: readonly { id: number; name: string }[]
+  cityLabel?: string | null
+  width?: number
+} = {}
 vi.mock('./GlobeCanvas', () => ({
-  default: ({
-    flyToRef,
-  }: {
+  default: (props: {
     flyToRef?: MutableRefObject<((scene: PlaceableScene) => void) | null>
+    onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
+    venues?: readonly { id: number; name: string }[]
+    cityLabel?: string | null
+    width?: number
   }) => {
-    if (flyToRef) flyToRef.current = flyToSpy
+    if (props.flyToRef) props.flyToRef.current = flyToSpy
+    lastCanvasProps = props
     return <div data-testid="globe-canvas" />
   },
 }))
@@ -253,6 +270,178 @@ describe('AtlasGlobe', () => {
       expect(
         screen.getByRole('complementary', { name: /Chicago, IL scene/ }),
       ).toBeInTheDocument()
+    })
+  })
+
+  // ── City view (PSY-1539) ────────────────────────────────────────────────
+  // The glue between camera settle, city resolution, the venue fetch and the
+  // pin array. jsdom can't render the map, but the canvas stub captures the
+  // props the map WOULD have drawn, so the chain is fully assertable.
+  describe('city view', () => {
+    const chicagoVenues = [
+      {
+        id: 1,
+        name: 'Empty Bottle',
+        city: 'Chicago',
+        state: 'IL',
+        verified: true,
+        latitude: 41.88,
+        longitude: -87.63,
+        upcoming_show_count: 14,
+        shows_this_week: 3,
+        updated_at: '2026-07-25T00:00:00Z',
+      },
+      {
+        id: 2,
+        name: 'Hideout',
+        city: 'Chicago',
+        state: 'IL',
+        verified: true,
+        latitude: 41.88,
+        longitude: -87.63,
+        upcoming_show_count: 4,
+        shows_this_week: 0,
+        updated_at: '2026-07-24T00:00:00Z',
+      },
+    ]
+
+    /** Drive the camera the way the real canvas does: settle events only. */
+    function settleCamera(lng: number, lat: number, zoom: number) {
+      act(() => {
+        lastCanvasProps.onCameraSettle?.({ lng, lat, zoom })
+      })
+    }
+
+    beforeEach(() => {
+      setMockContainerWidth(1400) // wide enough for the rail
+      mockUseScenes.mockReturnValue({
+        data: sampleData,
+        isLoading: false,
+        isError: false,
+      })
+      mockUseVenues.mockReturnValue({
+        data: { venues: chicagoVenues, total: 2 },
+        isFetching: false,
+        isPlaceholderData: false,
+      })
+    })
+
+    it('stays on the globe until the camera reaches street zoom', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+
+      settleCamera(-87.63, 41.88, 6)
+
+      expect(screen.queryByTestId('atlas-venue-rail')).not.toBeInTheDocument()
+      expect(lastCanvasProps.cityLabel).toBeNull()
+      expect(lastCanvasProps.venues).toEqual([])
+    })
+
+    it('opens the rail and pins the venues once the camera settles on a city', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+
+      settleCamera(-87.63, 41.88, 13)
+
+      expect(screen.getByTestId('atlas-venue-rail')).toBeInTheDocument()
+      expect(lastCanvasProps.cityLabel).toBe('Chicago, IL')
+      expect(lastCanvasProps.venues?.map((v) => v.name)).toEqual([
+        'Empty Bottle',
+        'Hideout',
+      ])
+    })
+
+    it('leaves the camera space for the rail rather than letting it overlay', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      const fullWidth = lastCanvasProps.width
+
+      settleCamera(-87.63, 41.88, 13)
+
+      // The map pane shrinks by exactly the rail's width — that is what keeps
+      // the rail off the map's bottom-left OSM attribution.
+      expect(lastCanvasProps.width).toBe((fullWidth ?? 0) - 360)
+    })
+
+    it('narrows the pins with the rail when a filter is applied', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+
+      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+
+      // One rail row, one pin — the same array feeds both.
+      expect(screen.getAllByRole('button', { name: /Empty Bottle/ })).toHaveLength(1)
+      expect(screen.queryByRole('button', { name: /Hideout/ })).not.toBeInTheDocument()
+      expect(lastCanvasProps.venues?.map((v) => v.name)).toEqual(['Empty Bottle'])
+    })
+
+    it('hands the screen back to the globe when the camera pulls out', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      expect(screen.getByTestId('atlas-venue-rail')).toBeInTheDocument()
+
+      settleCamera(-87.63, 41.88, 4)
+
+      expect(screen.queryByTestId('atlas-venue-rail')).not.toBeInTheDocument()
+      expect(lastCanvasProps.venues).toEqual([])
+      expect(
+        screen.getByRole('button', { name: /drift to a random scene/i }),
+      ).toBeInTheDocument()
+    })
+
+    // Regression: city view unmounts the globe chrome the scene preview lives
+    // in WITHOUT calling its onClose, so a retained selection used to pop the
+    // panel back open by itself the moment the camera zoomed out again.
+    it('does not resurrect a scene preview after a trip through city view', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      fireEvent.click(
+        screen.getByRole('button', { name: /drift to a random scene/i }),
+      )
+      expect(
+        screen.getByRole('complementary', { name: /Chicago, IL scene/ }),
+      ).toBeInTheDocument()
+
+      settleCamera(-87.63, 41.88, 13) // into city view
+      settleCamera(-87.63, 41.88, 4) // back out
+
+      expect(
+        screen.queryByRole('complementary', { name: /Chicago, IL scene/ }),
+      ).not.toBeInTheDocument()
+    })
+
+    // Regression: the venues query keeps previous data across a key change,
+    // which across a CITY change would show the previous city's venues with
+    // no loading state.
+    it('shows no venues while the fetch for a new city is still carrying old data', async () => {
+      mockUseVenues.mockReturnValue({
+        data: { venues: chicagoVenues, total: 2 },
+        isFetching: true,
+        isPlaceholderData: true,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+
+      settleCamera(-87.63, 41.88, 13)
+
+      expect(lastCanvasProps.venues).toEqual([])
+      expect(screen.getByText('Loading venues…')).toBeInTheDocument()
+    })
+
+    it('says so when the fetch cap truncated the city', async () => {
+      mockUseVenues.mockReturnValue({
+        data: { venues: chicagoVenues, total: 150 },
+        isFetching: false,
+        isPlaceholderData: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+
+      settleCamera(-87.63, 41.88, 13)
+
+      expect(screen.getByText('showing the 2 busiest of 150')).toBeInTheDocument()
     })
   })
 })

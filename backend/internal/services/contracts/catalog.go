@@ -447,8 +447,9 @@ type VenueWithShowCountResponse struct {
 	// DominantGenre is the venue's dominant genre-family key, or "" when no
 	// family holds a confident share. Same rule and same family keys as
 	// SceneListResponse.DominantGenre (one shared dominantGenreFamily), over
-	// the venue's own booking mass. See venueDominantGenres for why the mass
-	// is the venue's whole approved history rather than the upcoming slice.
+	// the venue's own booking mass: the tagged artists on its approved shows
+	// inside a fixed recent window, past and upcoming alike. venueDominantGenres
+	// owns the window and the reasons for it.
 	DominantGenre string `json:"dominant_genre,omitempty"`
 }
 

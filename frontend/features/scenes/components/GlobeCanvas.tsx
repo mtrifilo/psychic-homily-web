@@ -247,6 +247,7 @@ export default function GlobeCanvas({
   // Filled by the map effect (closes over that map), nulled in its cleanup —
   // callers must stay null-safe, same contract as flyToRef.
   const redrawStatusChipRef = useRef<(() => void) | null>(null)
+  const clearVenueHoverRef = useRef<(() => void) | null>(null)
   // The style-loaded map instance, in STATE so the data/label/ring effects
   // below re-run against each fresh map after a hide/show cycle.
   const [mapReady, setMapReady] = useState<maplibregl.Map | null>(null)
@@ -373,6 +374,12 @@ export default function GlobeCanvas({
       | maplibregl.GeoJSONSource
       | undefined
     src?.setData(venueFeatures)
+    // A rail filter chip is a DOM click, not a map pointer event, so it can
+    // delete the pin under the cursor without any mousemove/mouseleave firing.
+    // Without this the tooltip would keep describing a venue that is no longer
+    // on the map, over a pointer cursor pointing at nothing, until the user
+    // happened to move the mouse. Clear the hover whenever the pin set changes.
+    clearVenueHoverRef.current?.()
   }, [mapReady, venueFeatures])
 
   // Live id → pin lookup for the map handlers (feature properties carry only
@@ -436,6 +443,28 @@ export default function GlobeCanvas({
   useEffect(() => {
     redrawStatusChipRef.current?.()
   }, [mapReady, cityLabel, venues])
+
+  // ── Scene-mark handoff ────────────────────────────────────────────────────
+  // Scene dots are a GLOBE-scale abstraction: at street zoom the city is a
+  // rail of venues, not one aggregate dot sitting on top of the
+  // centroid-pinned venues underneath it.
+  //
+  // The handoff is driven by cityViewActive — React state that lands on camera
+  // SETTLE — rather than by a zoom-keyed maxzoom on the layers. A zoom key is
+  // evaluated by the GL renderer every frame, so a continuous pinch or wheel
+  // zoom through the threshold would blank the scene dots mid-gesture while
+  // the venue pins were still waiting on React, leaving one empty frame-run
+  // with neither layer drawn. Tying both sides to the same state means the
+  // dots hand over exactly when the rail appears.
+  useEffect(() => {
+    if (!mapReady) return
+    const visibility = cityViewActive ? 'none' : 'visible'
+    for (const layer of ['scene-dots', 'scene-rings']) {
+      if (mapReady.getLayer(layer)) {
+        mapReady.setLayoutProperty(layer, 'visibility', visibility)
+      }
+    }
+  }, [mapReady, cityViewActive])
 
   // PSY-1309 pulse rings. prefers-reduced-motion suppresses the animation
   // entirely (no ring features, no rAF loop) rather than freezing a ring frame.
@@ -656,11 +685,6 @@ export default function GlobeCanvas({
             id: 'scene-rings',
             type: 'circle',
             source: 'scene-rings',
-            // Scene marks are a GLOBE-scale abstraction: at street zoom the
-            // city is a rail of venues, not one aggregate dot sitting on top
-            // of the centroid-pinned venues. Handing off at the same zoom
-            // city view engages keeps one threshold for one transition.
-            maxzoom: CITY_VIEW_MIN_ZOOM,
             paint: {
               'circle-radius': 0,
               'circle-opacity': 0,
@@ -679,9 +703,6 @@ export default function GlobeCanvas({
             id: 'scene-dots',
             type: 'circle',
             source: 'scenes',
-            // See scene-rings: the scene abstraction ends where city view
-            // begins.
-            maxzoom: CITY_VIEW_MIN_ZOOM,
             layout: {
               'circle-sort-key': ['get', 'sortKey'],
             },
@@ -717,8 +738,11 @@ export default function GlobeCanvas({
           },
           {
             // Venue pins, ABOVE the scene marks so the two never fight during
-            // the handoff zoom. minzoom mirrors the scene layers' maxzoom:
-            // one threshold, both directions.
+            // the handoff. The scene marks hand off on React state (see the
+            // handoff effect); this minzoom is the pins' own floor, and it
+            // earns its keep on the way OUT: zooming back to the globe, it
+            // stops a not-yet-cleared pin set from painting city venues over
+            // the earth in the frames before React settles.
             id: 'venue-pins',
             type: 'circle',
             source: 'venues',
@@ -994,6 +1018,9 @@ export default function GlobeCanvas({
     map.on('mousemove', 'venue-pins', handleVenueMove)
     map.on('mouseleave', 'venue-pins', handleVenueLeave)
     map.on('click', 'venue-pins', handleVenueClick)
+    // Seam for the non-pointer paths that can invalidate a hover (a rail
+    // filter deleting the hovered pin). One function owns the teardown.
+    clearVenueHoverRef.current = handleVenueLeave
     // A stationary pointer with a moving camera would strand a hovered pin +
     // floating tooltip — same guard the scene layer needs.
     map.on('movestart', handleVenueLeave)
@@ -1064,6 +1091,7 @@ export default function GlobeCanvas({
       }
       if (flyToRef) flyToRef.current = null
       redrawStatusChipRef.current = null
+      clearVenueHoverRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
       map.remove()
     }
@@ -1130,13 +1158,15 @@ export default function GlobeCanvas({
         style={{ display: 'none' }}
       >
         <div ref={venueTooltipNameRef} className="text-sm text-foreground" />
+        {/* No "click for shows →" line yet. The mock draws one, but it
+            describes the finished feature across boards 01 AND 02: clicking a
+            pin today opens the selection seam, and the venue panel that would
+            actually show the shows is PSY-1540. A live CTA promising a payload
+            that does not exist is worse than no CTA. */}
         <div
           ref={venueTooltipMetaRef}
           className="font-mono text-[11px] text-muted-foreground"
         />
-        <div className="font-mono text-[11px] text-primary">
-          click for shows →
-        </div>
       </div>
     </div>
   )

@@ -53,13 +53,11 @@ export interface VenuePin {
   upcomingShowCount: number
   /** Preformatted tooltip line, e.g. "next Fri, Jul 31". '' when nothing booked. */
   nextShowLabel: string
-  /**
-   * Whether this pin is the venue's real street position or its city
-   * centroid. Carried for the verification harness and future affordances;
-   * the gate itself is already enforced upstream.
-   */
-  precision: 'street' | 'centroid'
 }
+// Deliberately no `precision` field. Which coordinate source a pin came from
+// is decided (and unit-tested) in cityView.venuePinPosition; carrying it down
+// here would be a value nothing reads, and DRAWING street and centroid pins
+// differently is a design decision the approved mock does not make.
 
 /** Camera state reported by GlobeCanvas once a movement settles. */
 export interface CameraSettle {
