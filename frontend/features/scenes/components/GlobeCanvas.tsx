@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useGraphPalette } from '@/components/graph/graphPalette'
-import { phBasemapFragment } from '../basemap/phBasemap'
+import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from '../basemap/phBasemap'
 import type { GlobePov, PlaceableScene } from './globeTypes'
 import { genreFamilyColor } from '../genreFamilies'
 import {
@@ -90,8 +90,11 @@ const FLY_TO_MS = 1200
 // the sky's atmosphere-blend reaches 0 (z7 — one coordinated "descent"
 // moment), and (c) is fully done well before the GIBS raster's native z8
 // ceiling turns overzoomed tiles to mush. The basemap's road/boundary layers
-// are minzoom-gated from 5 in ph-dark-basemap.json, so city-lights pixels
-// dissolve into streets already drawn beneath them — no black void, no pop.
+// switch on at PH_BASEMAP_MIN_ZOOM — half a zoom BEFORE the fade starts — so
+// city-lights pixels dissolve into streets already drawn beneath them: no
+// black void, no pop. Retuning the handoff means editing these two constants
+// and nothing else; the raster ramp, the raster cutoff and the atmosphere
+// ramp are all derived from them.
 const BLACK_MARBLE_FADE_START = 5.5
 const BLACK_MARBLE_FADE_END = 7
 
@@ -411,6 +414,12 @@ export default function GlobeCanvas({
         // Atmosphere: MapLibre's own halo, faded out as the globe fills the
         // viewport. The CSS halo (updateHalo) thickens it toward the shipped
         // three.js glow — screenshot comparison in the PR for sign-off.
+        //
+        // The atmosphere reaches 0 exactly at BLACK_MARBLE_FADE_END, on
+        // purpose: sky, raster and street basemap all resolve on the same
+        // zoom so the descent reads as ONE moment. Derived from the constant
+        // rather than repeating the literal, so retuning the handoff can't
+        // silently leave the atmosphere lingering over the street view.
         sky: {
           'sky-color': 'rgba(0,0,0,0)',
           'horizon-color': 'rgba(74,163,255,0.45)',
@@ -421,9 +430,9 @@ export default function GlobeCanvas({
             ['zoom'],
             0,
             1,
-            5,
+            PH_BASEMAP_MIN_ZOOM,
             0.6,
-            7,
+            BLACK_MARBLE_FADE_END,
             0,
           ],
         },
@@ -459,19 +468,13 @@ export default function GlobeCanvas({
             id: 'earth',
             type: 'raster',
             source: 'nightEarth',
-            // Stop fetching/compositing GIBS tiles once fully transparent.
-            maxzoom: BLACK_MARBLE_FADE_END + 0.1,
-            paint: {
-              'raster-opacity': [
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                BLACK_MARBLE_FADE_START,
-                1,
-                BLACK_MARBLE_FADE_END,
-                0,
-              ],
-            },
+            // Both halves of the crossfade come from phBasemapFragment, so
+            // this ramp is the background ramp's mirror BY CONSTRUCTION —
+            // retuning the handoff means editing the two constants above and
+            // nothing else. The maxzoom stops GIBS fetching/compositing once
+            // the raster is provably invisible.
+            maxzoom: basemap.rasterMaxZoom,
+            paint: { 'raster-opacity': basemap.rasterFadeOut },
           },
           {
             // Under the dots so a ring never covers its own scene's dot —

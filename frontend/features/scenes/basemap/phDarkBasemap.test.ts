@@ -4,7 +4,7 @@ import path from 'node:path'
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec'
 import type { StyleSpecification } from 'maplibre-gl'
 import phDarkBasemap from './ph-dark-basemap.json'
-import { phBasemapFragment } from './phBasemap'
+import { PH_BASEMAP_MIN_ZOOM, phBasemapFragment } from './phBasemap'
 
 /**
  * Guards for the PH dark basemap style (PSY-1543).
@@ -127,13 +127,13 @@ describe('ph-dark-basemap.json', () => {
     }
   })
 
-  it('gates every non-background layer to zoom >= 5 (nothing renders or fetches at globe zooms)', () => {
+  it('gates every non-background layer to PH_BASEMAP_MIN_ZOOM (nothing renders or fetches at globe zooms)', () => {
     for (const layer of style.layers) {
       if (layer.type === 'background') continue
       expect(
         layer.minzoom,
-        `${layer.id} needs a minzoom >= 5`,
-      ).toBeGreaterThanOrEqual(5)
+        `${layer.id} needs a minzoom >= ${PH_BASEMAP_MIN_ZOOM}`,
+      ).toBeGreaterThanOrEqual(PH_BASEMAP_MIN_ZOOM)
     }
   })
 
@@ -163,6 +163,36 @@ describe('phBasemapFragment', () => {
       7,
       1,
     ])
+  })
+
+  it('fades the raster out exactly as it fades the background in (the crossfade is symmetric)', () => {
+    const { layers, rasterFadeOut } = phBasemapFragment(5.5, 7)
+    const background = layers[0]
+    if (background.type !== 'background') throw new Error('unreachable')
+    // Same interpolation, same stops, swapped endpoints. An asymmetric pair
+    // is what produces the two failure modes this handoff exists to avoid:
+    // a black void (both near 0) or a double-drawn earth (both near 1).
+    expect(rasterFadeOut).toEqual(['interpolate', ['linear'], ['zoom'], 5.5, 1, 7, 0])
+    const [, , , bgStart, bgFrom, bgEnd, bgTo] = background.paint?.[
+      'background-opacity'
+    ] as unknown as [string, string[], string[], number, number, number, number]
+    const [, , , rStart, rFrom, rEnd, rTo] = rasterFadeOut as unknown as [
+      string,
+      string[],
+      string[],
+      number,
+      number,
+      number,
+      number,
+    ]
+    expect([rStart, rEnd]).toEqual([bgStart, bgEnd])
+    expect(rFrom + bgFrom).toBe(1)
+    expect(rTo + bgTo).toBe(1)
+  })
+
+  it('unmounts the raster only past the point the fade has reached zero', () => {
+    const { rasterMaxZoom } = phBasemapFragment(5.5, 7)
+    expect(rasterMaxZoom).toBeGreaterThan(7)
   })
 
   it('passes glyphs and sources through from the style JSON', () => {
