@@ -9,9 +9,7 @@ import {
   labelDeclutterRadiusKm,
   DOT_COLOR_FOLLOWED,
   labelMinCountForAltitude,
-  RING_ALTITUDE,
   altitudeForZoom,
-  sceneDotAltitude,
   sceneDotColor,
   sceneDotRadius,
   sceneDotRadiusPx,
@@ -71,39 +69,6 @@ describe('sceneDotRadius', () => {
     // NOT propagate a NaN radius into the merged three.js point geometry.
     expect(sceneDotRadius(NaN)).toBeCloseTo(0.28, 5)
     expect(sceneDotRadius(undefined as unknown as number)).toBeCloseTo(0.28, 5)
-  })
-})
-
-describe('sceneDotAltitude', () => {
-  it('gives less-dense dots a taller cylinder so they stack above denser ones', () => {
-    // The PSY-1324 occlusion fix: depth-tested cylinders mean equal heights let
-    // the larger disc swallow a smaller neighbor; inverse-count height makes
-    // the less-dense dot's top face always render above the denser one's.
-    expect(sceneDotAltitude(0)).toBeGreaterThan(sceneDotAltitude(10))
-    expect(sceneDotAltitude(10)).toBeGreaterThan(sceneDotAltitude(283))
-  })
-
-  it('still orders CAPPED dense scenes by count (the co-dense-neighbors case)', () => {
-    // The offset is keyed to the raw count, not the capped radius: two adjacent
-    // metros both past DOT_CAP_COUNT render equal-size dots, and a radius-keyed
-    // offset would z-fight them. 50 and 283 are both capped yet must stack.
-    expect(sceneDotRadius(50)).toBeCloseTo(sceneDotRadius(283), 5)
-    expect(sceneDotAltitude(50)).toBeGreaterThan(sceneDotAltitude(283))
-    expect(sceneDotAltitude(283)).toBeGreaterThan(sceneDotAltitude(10_000))
-  })
-
-  it('keeps the whole range subtle and above the pulse rings', () => {
-    // Range = base 0.008 + (0, 0.008] — max at count 0.
-    expect(sceneDotAltitude(0)).toBeCloseTo(0.016, 5)
-    for (const c of [0, 5, 49, 283, 10_000, NaN]) {
-      // Structural invariant: GlobeCanvas binds ringAltitude to RING_ALTITUDE.
-      expect(sceneDotAltitude(c)).toBeGreaterThan(RING_ALTITUDE)
-    }
-  })
-
-  it('treats non-finite counts like zero (inherits the radius guard)', () => {
-    expect(sceneDotAltitude(NaN)).toBeCloseTo(sceneDotAltitude(0), 5)
-    expect(sceneDotAltitude(undefined as unknown as number)).toBeCloseTo(sceneDotAltitude(0), 5)
   })
 })
 

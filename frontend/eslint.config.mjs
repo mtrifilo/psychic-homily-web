@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored maplibre-gl worker modules (PSY-1538): byte-identical copies
+    // of upstream dist files (pinned by maplibreVendored.test.ts) — not our
+    // code to lint.
+    "public/maplibre/**",
   ]),
   {
     // PSY-868 bundle boundary, enforced mechanically: the homepage sections

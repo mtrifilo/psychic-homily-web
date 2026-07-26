@@ -64,8 +64,9 @@ function GlobeLoadError({ onRetry }: { onRetry?: () => void }) {
   )
 }
 
-// react-globe.gl + three.js are heavy and window-bound — dynamic-import the
-// canvas with ssr:false so the chunk loads only here, on mount (PSY-1211).
+// maplibre-gl is heavy (~900 kB chunk) and window-bound — dynamic-import the
+// canvas with ssr:false so the chunk loads only here, on mount (PSY-1211
+// pattern, isolation re-verified for MapLibre in the PSY-1537 spike).
 const GlobeCanvas = dynamic(() => import('./GlobeCanvas'), {
   ssr: false,
   loading: ({ error, retry }) =>
@@ -94,9 +95,9 @@ export function AtlasGlobe() {
     const follows = myScenes?.following ?? []
     return follows.length > 0 ? new Set(follows.map((f) => f.slug)) : null
   }, [myScenes])
-  // Memoize so the points/labels array reference is stable until the data
-  // actually changes — react-globe.gl diffs pointsData by reference and would
-  // otherwise rebuild the three.js geometry on every click/resize render.
+  // Memoize so the scenes array reference is stable until the data actually
+  // changes — GlobeCanvas keys its GeoJSON rebuild and label-set memos on it,
+  // so a churning reference would re-run them on every click/resize render.
   const placeable = useMemo<PlaceableScene[]>(
     () => allScenes.filter(isPlaceableScene),
     [allScenes],
