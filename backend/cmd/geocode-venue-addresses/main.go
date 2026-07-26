@@ -25,9 +25,15 @@
 // endpoint while the live server is taking venue-write traffic (inline
 // geocoding shares the same budget from a separate process). Run it
 // off-hours, or point NOMINATIM_BASE_URL at a self-hosted instance.
+//
+// Steady-state reconciliation is handled by the in-server daily sweep
+// (catalog.StreetGeocodeSweep, PSY-1544), which shares the server's limiter;
+// this CLI remains for initial catalog-wide backfills, large imports, and
+// one-off dry-run inspection.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -76,7 +82,7 @@ func main() {
 	fmt.Printf("Target: ENVIRONMENT=%q  db=%s\n\n",
 		os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
 
-	report, err := catalog.BackfillVenueStreetGeocodes(database, geo.DefaultNominatim(), catalog.StreetGeocodeOptions{
+	report, err := catalog.BackfillVenueStreetGeocodes(context.Background(), database, geo.DefaultNominatim(), catalog.StreetGeocodeOptions{
 		DryRun: !confirm,
 		Limit:  limit,
 	})

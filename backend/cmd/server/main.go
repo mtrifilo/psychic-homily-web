@@ -226,6 +226,7 @@ func main() {
 		artistDiscographySweepCancel context.CancelFunc
 		artistLinksSweepCancel       context.CancelFunc
 		releaseLinksSweepCancel      context.CancelFunc
+		streetGeocodeSweepCancel     context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -379,6 +380,22 @@ func main() {
 		log.Printf("release links sweep disabled (set ENABLE_RELEASE_LINKS_SWEEP=1 to enable)")
 	}
 
+	// Start street-geocode sweep (PSY-1544: daily reconciliation of venue
+	// street-level pins for the write paths that skip inline Nominatim lookups —
+	// FindOrCreateVenue via show submission, data-sync import, contribution
+	// address edits). Default ON like the DISABLE_* workers — NOT opt-in like
+	// the ENABLE_* enrichment sweeps: it performs the exact deterministic write
+	// CreateVenue/UpdateVenue already make inline by default, and shares their
+	// geo.DefaultNominatim() limiter so combined traffic stays under the OSM
+	// 1 req/s budget.
+	if os.Getenv("DISABLE_STREET_GEOCODE_SWEEP") != "1" {
+		var streetGeocodeSweepCtx context.Context
+		streetGeocodeSweepCtx, streetGeocodeSweepCancel = context.WithCancel(context.Background())
+		sc.StreetGeocodeSweep.Start(streetGeocodeSweepCtx)
+	} else {
+		log.Printf("DISABLE_STREET_GEOCODE_SWEEP=1: skipping street geocode sweep startup")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -459,6 +476,10 @@ func main() {
 	if releaseLinksSweepCancel != nil {
 		releaseLinksSweepCancel()
 		sc.ReleaseLinksSweep.Stop()
+	}
+	if streetGeocodeSweepCancel != nil {
+		streetGeocodeSweepCancel()
+		sc.StreetGeocodeSweep.Stop()
 	}
 
 	// Graceful shutdown

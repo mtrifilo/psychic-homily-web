@@ -85,7 +85,14 @@ type StreetGeocodeReport struct {
 // coordinates for those whose address key doesn't match their stored geocode.
 // Idempotent: a second run over unchanged data performs no lookups and no
 // writes.
-func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts StreetGeocodeOptions) (*StreetGeocodeReport, error) {
+//
+// ctx cancellation stops the run between venues (and aborts an in-flight
+// lookup — the Nominatim client is context-aware down to its limiter wait),
+// returning the PARTIAL report alongside ctx.Err() so a caller shutting down
+// mid-run can still log what was accomplished. The scheduled sweep
+// (StreetGeocodeSweep) relies on this so server shutdown never waits behind
+// a slow Nominatim round trip.
+func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.AddressGeocoder, opts StreetGeocodeOptions) (*StreetGeocodeReport, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -98,13 +105,19 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 	}
 
 	var venues []catalogm.Venue
-	if err := db.Order("id").Find(&venues).Error; err != nil {
+	if err := db.WithContext(ctx).Order("id").Find(&venues).Error; err != nil {
 		return nil, fmt.Errorf("load venues: %w", err)
 	}
 
 	report := &StreetGeocodeReport{PrecisionCounts: make(map[string]int)}
 	geocoded := 0
 	for i := range venues {
+		// Between-venue cancellation gate: without it, a canceled ctx would
+		// fail every remaining lookup instantly and flood report.Errors with
+		// one context error per venue instead of stopping.
+		if err := ctx.Err(); err != nil {
+			return report, fmt.Errorf("backfill canceled after %d of %d venues: %w", report.Scanned, len(venues), err)
+		}
 		v := &venues[i]
 		report.Scanned++
 		q := streetGeocodeQuery(v)
@@ -121,7 +134,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 				report.Cleared++
 				report.Changes = append(report.Changes, change(v, StreetGeocodeCleared, key))
 				if !opts.DryRun {
-					if err := clearStreetGeocode(db, v.ID); err != nil {
+					if err := clearStreetGeocode(db, v); err != nil {
 						report.Errors = append(report.Errors, fmt.Sprintf("venue %d clear: %v", v.ID, err))
 					}
 				}
@@ -145,7 +158,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 		}
 		geocoded++
 
-		res, ok, err := geocodeWithTimeout(ag, q, timeout)
+		res, ok, err := geocodeWithTimeout(ctx, ag, q, timeout)
 		if err != nil {
 			c := change(v, StreetGeocodeError, key)
 			c.Err = err.Error()
@@ -168,7 +181,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 			if !opts.DryRun {
 				// Record the miss memo (key with NULL coords): clears any stale
 				// coords AND stops future runs from re-querying this key.
-				if err := recordStreetGeocodeMiss(db, v.ID, key); err != nil {
+				if err := recordStreetGeocodeMiss(db, v, key); err != nil {
 					report.Errors = append(report.Errors, fmt.Sprintf("venue %d record-miss: %v", v.ID, err))
 				}
 			}
@@ -188,7 +201,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 		report.Changes = append(report.Changes, c)
 
 		if !opts.DryRun {
-			if err := writeStreetGeocode(db, v.ID, res, key); err != nil {
+			if err := writeStreetGeocode(db, v, res, key); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("venue %d write: %v", v.ID, err))
 			}
 		}
@@ -196,16 +209,52 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 	return report, nil
 }
 
-func geocodeWithTimeout(ag geo.AddressGeocoder, q geo.AddressQuery, timeout time.Duration) (geo.AddressResult, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// geocodeWithTimeout bounds a single venue's lookup (limiter wait + retries
+// included) while inheriting the run ctx, so a canceled run aborts the
+// in-flight lookup immediately rather than riding out the per-venue timeout.
+func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, timeout time.Duration) (geo.AddressResult, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return ag.GeocodeAddress(ctx, q)
 }
 
+// streetGeocodeUpdateScope scopes a street-geocode write to the venue row
+// ONLY while its address-key columns still match the in-memory snapshot the
+// lookup was performed against. The backfill spends ≥1s per venue inside the
+// rate-limited lookup, and the scheduled sweep (PSY-1544) runs it alongside
+// live venue writes — without this guard, an inline address edit landing in
+// that window would be clobbered with the OLD address's result. A skipped
+// write (0 rows matched) is the correct outcome: the concurrent writer's
+// geocode stands, and if the row is still stale it is retried next run.
+// Guarding on raw column equality is stricter than key equality — the safe
+// direction (worst case is one extra retry, never a stale overwrite).
+func streetGeocodeUpdateScope(db *gorm.DB, v *catalogm.Venue) *gorm.DB {
+	scope := db.Model(&catalogm.Venue{}).
+		Where("id = ?", v.ID).
+		Where("city = ?", v.City).
+		Where("state = ?", v.State)
+	for _, col := range []struct {
+		name string
+		val  *string
+	}{
+		{"address", v.Address},
+		{"zipcode", v.Zipcode},
+		{"country", v.Country},
+	} {
+		if col.val == nil {
+			scope = scope.Where(col.name + " IS NULL")
+		} else {
+			scope = scope.Where(col.name+" = ?", *col.val)
+		}
+	}
+	return scope
+}
+
 // writeStreetGeocode persists a resolved street geocode and the address key
-// it was produced from.
-func writeStreetGeocode(db *gorm.DB, venueID uint, res geo.AddressResult, key string) error {
-	return db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(map[string]interface{}{
+// it was produced from, skipping silently if the row's address changed since
+// v was loaded (see streetGeocodeUpdateScope).
+func writeStreetGeocode(db *gorm.DB, v *catalogm.Venue, res geo.AddressResult, key string) error {
+	return streetGeocodeUpdateScope(db, v).Updates(map[string]interface{}{
 		"street_latitude":   res.Latitude,
 		"street_longitude":  res.Longitude,
 		"geocode_precision": res.Precision,
@@ -213,9 +262,10 @@ func writeStreetGeocode(db *gorm.DB, venueID uint, res geo.AddressResult, key st
 	}).Error
 }
 
-// clearStreetGeocode sets all four street-geocode columns to SQL NULL.
-func clearStreetGeocode(db *gorm.DB, venueID uint) error {
-	return db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(map[string]interface{}{
+// clearStreetGeocode sets all four street-geocode columns to SQL NULL,
+// skipping silently if the row's address changed since v was loaded.
+func clearStreetGeocode(db *gorm.DB, v *catalogm.Venue) error {
+	return streetGeocodeUpdateScope(db, v).Updates(map[string]interface{}{
 		"street_latitude":   (*float64)(nil),
 		"street_longitude":  (*float64)(nil),
 		"geocode_precision": (*string)(nil),
@@ -225,9 +275,10 @@ func clearStreetGeocode(db *gorm.DB, venueID uint) error {
 
 // recordStreetGeocodeMiss persists a miss memo: the attempted address key
 // with NULL coordinates. The read gate (streetGeocodeFresh) never serves it;
-// writers (streetGeocodeAttempted) skip re-querying it.
-func recordStreetGeocodeMiss(db *gorm.DB, venueID uint, key string) error {
-	return db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(map[string]interface{}{
+// writers (streetGeocodeAttempted) skip re-querying it. Skips silently if
+// the row's address changed since v was loaded.
+func recordStreetGeocodeMiss(db *gorm.DB, v *catalogm.Venue, key string) error {
+	return streetGeocodeUpdateScope(db, v).Updates(map[string]interface{}{
 		"street_latitude":   (*float64)(nil),
 		"street_longitude":  (*float64)(nil),
 		"geocode_precision": (*string)(nil),

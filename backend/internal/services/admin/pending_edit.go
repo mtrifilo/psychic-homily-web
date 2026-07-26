@@ -366,10 +366,10 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		// Nominatim inline, so when any component of the address key changes,
 		// clear the street fields rather than leave coordinates that belong to
 		// the OLD address. The API's freshness gate (streetGeocodeFresh) would
-		// hide the stale values anyway; clearing keeps the row honest. NOTE:
-		// re-resolution is NOT automatic — the venue's street pin stays gone
-		// until an operator runs the geocode-venue-addresses backfill CLI
-		// (follow-up ticket tracks scheduling it).
+		// hide the stale values anyway; clearing keeps the row honest.
+		// Re-resolution happens on the next daily street-geocode sweep
+		// (catalog.StreetGeocodeSweep) — the cleared geocoded_address key no
+		// longer matches, which is exactly what the reconciler queries for.
 		if addressChanged || zipcodeChanged || cityChanged || stateChanged || countryChanged {
 			updates["street_latitude"] = (*float64)(nil)
 			updates["street_longitude"] = (*float64)(nil)
