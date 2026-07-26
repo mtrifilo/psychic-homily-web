@@ -40,7 +40,10 @@ import {
   truncateTrail,
   type TraversalEntry,
 } from '@/components/graph/graphTraversalHistory'
-import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
+import {
+  useRandomArtistTarget,
+  type RandomArtistTargetResponse,
+} from '@/features/discovery/useRandomArtistTarget'
 import { useScenes } from '@/features/scenes/hooks/useScenes'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
@@ -77,6 +80,18 @@ function anchorFromArtist(artist: Artist): GraphAnchor {
 
 function anchorFromNode(node: ArtistGraphSelection): GraphAnchor {
   return { id: node.id, slug: node.slug, name: node.name }
+}
+
+// The random-target endpoint's contract, narrowed to a usable anchor: all
+// three fields must be present or the target is unusable. Shared by the
+// shuffle path and the zero-state fallback so the shape check can't drift.
+function anchorFromRandomTarget(
+  target: RandomArtistTargetResponse | undefined,
+): GraphAnchor | null {
+  if (!target?.artist_id || !target.artist_slug || !target.artist_name) {
+    return null
+  }
+  return { id: target.artist_id, slug: target.artist_slug, name: target.artist_name }
 }
 
 // Exact (case-insensitive) match only: the zero-state example button's
@@ -135,13 +150,9 @@ function RotatingExample({
       try {
         const result = await refetchFallback()
         if (cancelled) return
-        const target = result.isError ? undefined : result.data
-        if (target?.artist_id && target.artist_slug && target.artist_name) {
-          setFallback({
-            id: target.artist_id,
-            slug: target.artist_slug,
-            name: target.artist_name,
-          })
+        const anchor = anchorFromRandomTarget(result.isError ? undefined : result.data)
+        if (anchor) {
+          setFallback(anchor)
         }
       } catch {
         // Settle with no suggestion; the zero state still offers search and
@@ -187,7 +198,8 @@ function RotatingExample({
   // Modulo guard: the validated subset can shrink between renders (a click
   // failure evicts the name's cache entry and it revalidates empty), and a
   // stale index past the new length must never render undefined.
-  const active = choices.length > 0 ? choices[index % choices.length] : undefined
+  const activeIndex = choices.length > 0 ? index % choices.length : 0
+  const active = choices[activeIndex]
 
   if (!active) {
     // Nothing offerable yet: hold the name slot open while validation or the
@@ -207,7 +219,6 @@ function RotatingExample({
     }
     return null
   }
-  const activeIndex = index % choices.length
 
   return (
     <p className="text-sm text-muted-foreground">
@@ -634,21 +645,17 @@ export function GraphObservatory() {
       for (let attempt = 0; attempt < RANDOM_GRAPH_ATTEMPTS; attempt += 1) {
         const result = await refetchShuffle()
         if (requestGeneration !== lookupGeneration.current) return
-        const target = result.isError ? undefined : result.data
-        if (!target?.artist_id || !target.artist_slug || !target.artist_name) break
+        const anchor = anchorFromRandomTarget(result.isError ? undefined : result.data)
+        if (!anchor) break
 
-        const candidateGraph = await fetchArtistGraph(target.artist_id)
+        const candidateGraph = await fetchArtistGraph(anchor.id)
         if (requestGeneration !== lookupGeneration.current) return
         const hasCenterLink = candidateGraph.links.some(link =>
-          link.source_id === target.artist_id || link.target_id === target.artist_id,
+          link.source_id === anchor.id || link.target_id === anchor.id,
         )
         if (!hasCenterLink) continue
 
-        startAt({
-          id: target.artist_id,
-          slug: target.artist_slug,
-          name: target.artist_name,
-        })
+        startAt(anchor)
         return
       }
     } catch {
