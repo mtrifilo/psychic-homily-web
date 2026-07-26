@@ -561,7 +561,7 @@ function CommunityHealthSection() {
         />
         <StatCard
           label="New Collections (30d)"
-          value={data.new_collections_30d}
+          value={data.new_crates_30d}
           description="Collections created in the last 30 days"
         />
       </div>

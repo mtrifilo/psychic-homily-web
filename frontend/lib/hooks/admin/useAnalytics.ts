@@ -56,7 +56,12 @@ export interface CommunityHealth {
   active_contributors_30d: number
   contributions_per_week: WeeklyContribution[]
   request_fulfillment_rate: number
-  new_collections_30d: number // backend API field; displayed as "New Collections (30d)"
+  /**
+   * Collections created in the last 30 days. Wire field is `new_crates_30d` —
+   * same legacy "crate" vocabulary as `crate_items`. Mapped to the product term
+   * at the read site.
+   */
+  new_crates_30d: number
   top_contributors: TopContributor[]
 }
 
