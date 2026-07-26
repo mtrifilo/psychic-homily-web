@@ -346,6 +346,10 @@ func TestSanitizeTransportErr(t *testing.T) {
 		t.Errorf("sanitized error lost the wrapped cause: %v", got)
 	}
 	plain := errors.New("boring")
+	// Identity comparison is deliberate: the assertion is that the SAME error
+	// value comes back, not merely one that unwraps to it. errors.Is would pass
+	// on a wrapped copy and so cannot express "returned untouched".
+	//nolint:errorlint // intentional identity check, not a sentinel comparison
 	if sanitizeTransportErr(plain) != plain {
 		t.Errorf("non-url.Error must pass through unchanged")
 	}
