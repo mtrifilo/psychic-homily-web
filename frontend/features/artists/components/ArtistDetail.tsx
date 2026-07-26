@@ -55,6 +55,7 @@ import { EntityCollections } from '@/features/collections'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
+import { ArtistConnectionsSection } from './ArtistConnectionsSection'
 import { BillComposition } from './BillComposition'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { Button } from '@/components/ui/button'
@@ -1207,6 +1208,15 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           <ArtistShowsList artistId={artist.id} artistName={artist.name} />
 
           <DiscographyTab artistIdOrSlug={artistId} />
+
+          {/* Inline Connections ego map — reuses the sidebar's cached
+              useArtistGraph payload; [Expand] opens the same Dialog as the
+              header [Graph] and sidebar [Explore graph] links. */}
+          <ArtistConnectionsSection
+            artistId={artist.id}
+            artistName={artist.name}
+            onExpand={openGraphDialog}
+          />
 
           <BillComposition artistId={artist.id} defaultCollapsed />
 

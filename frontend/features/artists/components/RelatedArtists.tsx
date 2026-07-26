@@ -26,6 +26,11 @@ import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { ArtistGraphVisualization } from './ArtistGraph'
+import { SIMILAR_ARTISTS_ANCHOR } from './ArtistConnectionsSection'
+import {
+  compareByCenterEdgeScore,
+  maxCenterEdgeScoreByNeighbor,
+} from './egoNeighborRank'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { mergeEgoGraphs } from './mergeEgoGraphs'
 import { computeGraphDoi, selectSuggestedExpansions, doiWeightsForBias } from './graphDoi'
@@ -219,6 +224,11 @@ export function ArtistSimilarSidebar({
         artistLinks.get(otherId)!.links.push(link)
       }
     }
+    // Shared with the inline Connections map's top-N cap (egoNeighborRank), so
+    // the list and the canvas rank the same artists the same way.
+    const byCenterEdgeScore = compareByCenterEdgeScore(
+      maxCenterEdgeScoreByNeighbor(graph)
+    )
     sortedArtists = Array.from(artistLinks.values())
       .filter(a => a.links.length > 0)
       .sort((a, b) => {
@@ -230,15 +240,15 @@ export function ArtistSimilarSidebar({
           const bd = sidebarDoi.get(b.node.id) ?? -Infinity
           if (ad !== bd) return bd - ad
         }
-        const aScore = Math.max(...a.links.map(l => l.score))
-        const bScore = Math.max(...b.links.map(l => l.score))
-        if (bScore !== aScore) return bScore - aScore
-        return a.node.id - b.node.id // deterministic final tiebreak (stable order on score ties)
+        return byCenterEdgeScore(a.node, b.node)
       })
   }
 
   return (
-    <section>
+    // Anchor target for the Connections section's mobile teaser link-out
+    // (PSY-1472 convention — the id is single-sourced in
+    // ArtistConnectionsSection). scroll-mt-20 accounts for the sticky header.
+    <section id={SIMILAR_ARTISTS_ANCHOR} className="scroll-mt-20">
       <SectionHeader
         title="Similar artists"
         action={
