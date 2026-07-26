@@ -20,6 +20,10 @@ const (
 	defaultOutboxBatch        = 20
 	defaultOutboxStaleReclaim = 15 * time.Minute
 	defaultOutboxRetention    = 7 * 24 * time.Hour
+
+	// defaultFinalizeBudget caps the post-enrichment finalize writes only. It must be
+	// started after enrich returns — see runBatch (PSY-1569).
+	defaultFinalizeBudget = 30 * time.Second
 )
 
 // ImageEnrichOutboxPoller drains the image_enrich_queue transactional outbox
@@ -91,6 +95,8 @@ type ImageEnrichOutboxPoller struct {
 	batch        int
 	staleReclaim time.Duration
 	retention    time.Duration
+	// finalizeBudget caps the finalize writes alone; a field so tests can shrink it.
+	finalizeBudget time.Duration
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -110,8 +116,10 @@ func NewImageEnrichOutboxPoller(database *gorm.DB, enricher *Enricher) *ImageEnr
 		batch:        shared.EnvPositiveInt("IMAGE_ENRICH_OUTBOX_BATCH", defaultOutboxBatch),
 		staleReclaim: shared.EnvPositiveDuration("IMAGE_ENRICH_OUTBOX_STALE_RECLAIM_MINUTES", time.Minute, defaultOutboxStaleReclaim),
 		retention:    shared.EnvPositiveDuration("IMAGE_ENRICH_OUTBOX_RETENTION_HOURS", time.Hour, defaultOutboxRetention),
-		stopCh:       make(chan struct{}),
-		logger:       slog.Default(),
+
+		finalizeBudget: defaultFinalizeBudget,
+		stopCh:         make(chan struct{}),
+		logger:         slog.Default(),
 	}
 }
 
@@ -233,14 +241,22 @@ func (p *ImageEnrichOutboxPoller) runBatch(
 	items []catalogm.ImageEnrichQueueItem,
 	enrich func(context.Context, []uint) error,
 ) {
+	err := enrich(ctx, ids)
+
 	// Finalize writes must survive a shutdown-canceled tick ctx (otherwise a claimed
 	// row would be left `processing` until the next reclaim), but stay bounded so a
 	// hung DB write during shutdown can't wedge Stop()/wg.Wait() — WithoutCancel
 	// detaches from the tick cancel, the timeout caps it.
-	fctx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	//
+	// Built HERE, after enrich returns, and never before it (PSY-1569): the budget is
+	// for the finalize writes alone. Started earlier it also covers the provider
+	// lookups — a full batch of them routinely outruns 30s — so every finalize failed
+	// with "context deadline exceeded", the rows stranded in `processing`, and
+	// reclaimStale burned an attempt per tick until they went terminal. That stranded
+	// 1017 of 1359 production rows as `failed` for work that had actually succeeded.
+	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), p.finalizeBudget)
 	defer cancelFinalize()
 
-	err := enrich(ctx, ids)
 	// The shared enrichers don't check ctx inside their per-entity loop: a mid-loop
 	// cancellation (the common shutdown case — the lookup loop is slow, the up-front
 	// DB load is fast) is swallowed into their report and they return nil. Promote a
@@ -251,15 +267,15 @@ func (p *ImageEnrichOutboxPoller) runBatch(
 	}
 	switch {
 	case err == nil:
-		p.markDone(fctx, items)
+		p.markDone(finalizeCtx, items)
 		p.logger.Info("image-enrich outbox batch done", "table", table, "count", len(ids))
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		// Shutdown/timeout, not a provider failure — requeue WITHOUT counting it as
 		// an attempt, so a deploy mid-job can't burn the row toward `failed`.
-		p.requeueCanceled(fctx, items)
+		p.requeueCanceled(finalizeCtx, items)
 		p.logger.Info("image-enrich outbox batch canceled, requeued", "table", table, "count", len(ids))
 	default:
-		p.markFailedOrRetry(fctx, items, err)
+		p.markFailedOrRetry(finalizeCtx, items, err)
 		p.logger.Warn("image-enrich outbox: enrich failed", "table", table, "count", len(ids), "error", err)
 	}
 }
