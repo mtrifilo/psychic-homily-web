@@ -659,7 +659,7 @@ disabled at startup by setting the corresponding `DISABLE_*` env var to `"1"`.
 Any other value (including unset) leaves the service enabled, so local
 `go run ./cmd/server` keeps starting everything by default.
 
-The frontend E2E harness (`frontend/e2e/global-setup.ts`) sets all seven flags
+The frontend E2E harness (`frontend/e2e/global-setup.ts`) sets all eight flags
 to `"1"` so the E2E backend runs lean — no scheduled tickers, no log spam,
 no nondeterministic DB state changes from ambient background jobs.
 
@@ -672,6 +672,14 @@ no nondeterministic DB state changes from ambient background jobs.
 | `DISABLE_CLEANUP`                 | Account cleanup service (permanent deletion of soft-deleted)    |
 | `DISABLE_REMINDERS`               | Show reminder service (24h-before email reminders)              |
 | `DISABLE_RELATIONSHIP_DERIVATION` | Derived artist relationships (shared_bills + shared_label)      |
+| `DISABLE_STREET_GEOCODE_SWEEP`    | Daily venue street-geocode reconciliation via Nominatim (PSY-1544) |
+
+The street-geocode sweep's cadence and per-run network budget are tunable:
+`STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`) and
+`STREET_GEOCODE_SWEEP_LIMIT` (default `25` lookups per run). It shares the
+process-wide Nominatim client (and its 1 req/s limiter) with inline venue
+write-path geocoding, so it is safe alongside live traffic; large backlogs
+should still use the `geocode-venue-addresses` CLI off-hours.
 
 **Opt-in (default OFF) — image enrichment sweep (PSY-1246).** Unlike the
 `DISABLE_*` services above, the ongoing image-enrichment sweep is gated by an
