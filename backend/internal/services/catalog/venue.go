@@ -1,8 +1,10 @@
 package catalog
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -21,6 +23,12 @@ import (
 type VenueService struct {
 	db       *gorm.DB
 	geocoder geo.Geocoder
+	// addressGeocoder resolves street addresses to street-level coordinates
+	// over the network (Nominatim). Unlike the offline geocoder it can fail or
+	// be slow, so every use is log-and-continue — a venue write NEVER blocks or
+	// fails on it. nil disables street geocoding (tests construct the service
+	// bare; the backfill CLI covers anything skipped).
+	addressGeocoder geo.AddressGeocoder
 }
 
 // NewVenueService creates a new venue service
@@ -29,8 +37,9 @@ func NewVenueService(database *gorm.DB) *VenueService {
 		database = db.GetDB()
 	}
 	return &VenueService{
-		db:       database,
-		geocoder: geo.Default(),
+		db:              database,
+		geocoder:        geo.Default(),
+		addressGeocoder: geo.DefaultNominatim(),
 	}
 }
 
@@ -45,6 +54,75 @@ func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	}
 	v.Latitude, v.Longitude, v.Timezone = geo.LookupPointers(s.geocoder, v.City, v.State, country)
 	v.Metro = geo.MetroPointer(s.geocoder, v.City, v.State, country)
+}
+
+// streetGeocodeTimeout caps one inline street-geocode attempt, including time
+// spent waiting on the shared 1 req/s Nominatim limiter and retries.
+const streetGeocodeTimeout = 15 * time.Second
+
+// streetGeocodeQuery builds the Nominatim query — and, via Key(), the
+// canonical geocoded_address freshness key — for a venue's current location
+// fields. Every producer AND consumer of venues.geocoded_address must go
+// through this so the freshness comparison is exact.
+func streetGeocodeQuery(v *catalogm.Venue) geo.AddressQuery {
+	return geo.AddressQuery{
+		Street:  derefString(v.Address),
+		City:    v.City,
+		State:   v.State,
+		Zipcode: derefString(v.Zipcode),
+		Country: derefString(v.Country),
+	}
+}
+
+// streetGeocodeFresh reports whether the venue's stored street geocode was
+// produced from its CURRENT address key. False means either no geocode exists
+// or the address changed through a path that doesn't re-geocode inline (e.g. a
+// contribution edit) — stale coordinates must never be served.
+func streetGeocodeFresh(v *catalogm.Venue) bool {
+	return v.GeocodedAddress != nil &&
+		v.StreetLatitude != nil && v.StreetLongitude != nil &&
+		*v.GeocodedAddress == streetGeocodeQuery(v).Key()
+}
+
+// applyStreetGeocoding resolves and sets the venue's street-level coordinate
+// fields from its address via the network AddressGeocoder (PSY-1536).
+// Log-and-continue by contract: a failure or miss must NEVER block or fail the
+// venue write — the street fields are simply left NULL (never stale: they are
+// cleared before the lookup) and the geocode-venue-addresses backfill CLI
+// retries later. An unchanged address key short-circuits without a network
+// call.
+func (s *VenueService) applyStreetGeocoding(v *catalogm.Venue) {
+	q := streetGeocodeQuery(v)
+	if strings.TrimSpace(q.Street) == "" {
+		// No street address — nothing street-level can exist.
+		v.StreetLatitude, v.StreetLongitude, v.GeocodePrecision, v.GeocodedAddress = nil, nil, nil, nil
+		return
+	}
+	key := q.Key()
+	if v.GeocodedAddress != nil && *v.GeocodedAddress == key {
+		return // already geocoded from this exact address — keep it
+	}
+	// Clear first so an error/miss below can never leave coordinates that
+	// belong to a previous address.
+	v.StreetLatitude, v.StreetLongitude, v.GeocodePrecision, v.GeocodedAddress = nil, nil, nil, nil
+	if s.addressGeocoder == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), streetGeocodeTimeout)
+	defer cancel()
+	res, ok, err := s.addressGeocoder.GeocodeAddress(ctx, q)
+	if err != nil {
+		slog.Warn("street geocoding failed; continuing without street coords",
+			"venue", v.Name, "address", key, "error", err)
+		return
+	}
+	if !ok {
+		return // clean miss — the backfill CLI will retry on a future run
+	}
+	v.StreetLatitude = &res.Latitude
+	v.StreetLongitude = &res.Longitude
+	v.GeocodePrecision = &res.Precision
+	v.GeocodedAddress = &key
 }
 
 // CreateVenue creates a new venue
@@ -99,6 +177,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 	}
 
 	s.applyGeocoding(venue)
+	s.applyStreetGeocoding(venue)
 
 	if err := s.db.Create(venue).Error; err != nil {
 		return nil, fmt.Errorf("failed to create venue: %w", err)
@@ -304,6 +383,39 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 		updates["metro"] = effective.Metro
 	}
 
+	// Street-level geocode (PSY-1536): recompute when any component of the
+	// address key (address, city, state, country, zipcode) changes. The
+	// effective venue mirrors the VERBATIM column writes above (not the
+	// coalesced duplicate-check values) so the stored geocoded_address key
+	// always matches what streetGeocodeFresh recomputes at read time. An
+	// update that doesn't actually change the key short-circuits inside
+	// applyStreetGeocoding without a network call; a geocode failure writes
+	// NULLs (never stale coords under a new address) and the venue update
+	// itself always proceeds.
+	if req.Address != nil || req.City != nil || req.State != nil || req.Country != nil || req.Zipcode != nil {
+		effective := currentVenue
+		if req.Address != nil {
+			effective.Address = req.Address
+		}
+		if req.City != nil {
+			effective.City = *req.City
+		}
+		if req.State != nil {
+			effective.State = *req.State
+		}
+		if req.Country != nil {
+			effective.Country = req.Country
+		}
+		if req.Zipcode != nil {
+			effective.Zipcode = req.Zipcode
+		}
+		s.applyStreetGeocoding(&effective)
+		updates["street_latitude"] = effective.StreetLatitude
+		updates["street_longitude"] = effective.StreetLongitude
+		updates["geocode_precision"] = effective.GeocodePrecision
+		updates["geocoded_address"] = effective.GeocodedAddress
+	}
+
 	// Update the venue
 	if len(updates) > 0 {
 		err = s.db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(updates).Error
@@ -463,6 +575,11 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	}
 
 	s.applyGeocoding(&venue)
+	// Street-level geocoding (PSY-1536) is deliberately NOT done inline here:
+	// this is the bulk ingest/show-import seam, and blocking each created venue
+	// on Nominatim's 1 req/s budget would stall imports. The street fields
+	// start NULL (nothing to expose or go stale); the geocode-venue-addresses
+	// backfill CLI resolves them afterwards.
 
 	if err := query.Create(&venue).Error; err != nil {
 		return nil, false, fmt.Errorf("failed to create venue: %w", err)
@@ -530,24 +647,40 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 		address = venue.Address
 		zipcode = venue.Zipcode
 	}
+	// Street-precise coordinates (PSY-1536) follow the same privacy gate as
+	// address/zipcode: VERIFIED venues only, so DIY/house venues are never
+	// street-mapped before human review. The freshness check additionally
+	// drops a geocode whose address has since changed through a path that
+	// doesn't re-geocode inline (contribution edit, data-sync) — stale street
+	// coordinates are never served regardless of which writer touched the row.
+	var streetLat, streetLng *float64
+	var geocodePrecision *string
+	if venue.Verified && streetGeocodeFresh(venue) {
+		streetLat = venue.StreetLatitude
+		streetLng = venue.StreetLongitude
+		geocodePrecision = venue.GeocodePrecision
+	}
 
 	return &contracts.VenueDetailResponse{
-		ID:          venue.ID,
-		Slug:        slug,
-		Name:        venue.Name,
-		Address:     address,
-		City:        venue.City,
-		State:       venue.State,
-		Country:     venue.Country,
-		Latitude:    venue.Latitude,
-		Longitude:   venue.Longitude,
-		Timezone:    venue.Timezone,
-		Zipcode:     zipcode,
-		Capacity:    venue.Capacity, // not redacted — capacity is not sensitive
-		Description: venue.Description,
-		ImageURL:    venue.ImageURL,
-		Verified:    venue.Verified,
-		SubmittedBy: venue.SubmittedBy,
+		ID:               venue.ID,
+		Slug:             slug,
+		Name:             venue.Name,
+		Address:          address,
+		City:             venue.City,
+		State:            venue.State,
+		Country:          venue.Country,
+		Latitude:         venue.Latitude,
+		Longitude:        venue.Longitude,
+		StreetLatitude:   streetLat,
+		StreetLongitude:  streetLng,
+		GeocodePrecision: geocodePrecision,
+		Timezone:         venue.Timezone,
+		Zipcode:          zipcode,
+		Capacity:         venue.Capacity, // not redacted — capacity is not sensitive
+		Description:      venue.Description,
+		ImageURL:         venue.ImageURL,
+		Verified:         venue.Verified,
+		SubmittedBy:      venue.SubmittedBy,
 		Social: contracts.SocialResponse{
 			Instagram:  venue.Social.Instagram,
 			Facebook:   venue.Social.Facebook,

@@ -1,0 +1,237 @@
+package geo
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// newTestClient returns a client pointed at the stub server with a tiny
+// request interval so tests stay fast.
+func newTestClient(baseURL string) *NominatimClient {
+	c := NewNominatimClient(baseURL)
+	c.minInterval = time.Millisecond
+	return c
+}
+
+func TestAddressQueryKey(t *testing.T) {
+	tests := []struct {
+		name string
+		q    AddressQuery
+		want string
+	}{
+		{
+			name: "all components",
+			q:    AddressQuery{Street: "130 N Central Ave", City: "Phoenix", State: "AZ", Zipcode: "85004", Country: "USA"},
+			want: "130 N Central Ave, Phoenix, AZ, 85004, USA",
+		},
+		{
+			name: "empty components dropped",
+			q:    AddressQuery{Street: "1 Main St", City: "London", State: "", Zipcode: "", Country: "UK"},
+			want: "1 Main St, London, UK",
+		},
+		{
+			name: "whitespace trimmed and dropped",
+			q:    AddressQuery{Street: "  1 Main St ", City: " Phoenix", State: "  "},
+			want: "1 Main St, Phoenix",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.q.Key(); got != tt.want {
+				t.Errorf("Key() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNominatimGeocodeAddress_StructuredQueryAndParse(t *testing.T) {
+	var gotQuery map[string]string
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		gotQuery = map[string]string{}
+		for k := range r.URL.Query() {
+			gotQuery[k] = r.URL.Query().Get(k)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"lat":"33.448227","lon":"-112.073069","osm_type":"way","category":"building","type":"yes","addresstype":"building"}]`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	res, ok, err := c.GeocodeAddress(context.Background(), AddressQuery{
+		Street: "130 N Central Ave", City: "Phoenix", State: "AZ", Zipcode: "85004", Country: "USA",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected a hit")
+	}
+	if res.Latitude != 33.448227 || res.Longitude != -112.073069 {
+		t.Errorf("coords = %f,%f", res.Latitude, res.Longitude)
+	}
+	if res.Precision != PrecisionRooftop {
+		t.Errorf("precision = %q, want rooftop", res.Precision)
+	}
+
+	// Structured params per the Nominatim search API.
+	want := map[string]string{
+		"format": "jsonv2", "limit": "1", "addressdetails": "0",
+		"street": "130 N Central Ave", "city": "Phoenix", "state": "AZ",
+		"postalcode": "85004", "country": "USA",
+	}
+	for k, v := range want {
+		if gotQuery[k] != v {
+			t.Errorf("query param %s = %q, want %q", k, gotQuery[k], v)
+		}
+	}
+	// OSM usage policy: identifying User-Agent, not a stock library UA.
+	if gotUA != nominatimUserAgent {
+		t.Errorf("User-Agent = %q, want %q", gotUA, nominatimUserAgent)
+	}
+}
+
+func TestNominatimGeocodeAddress_EmptyStreetIsMissWithoutRequest(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	_, ok, err := c.GeocodeAddress(context.Background(), AddressQuery{Street: "  ", City: "Phoenix"})
+	if err != nil || ok {
+		t.Fatalf("expected clean miss, got ok=%v err=%v", ok, err)
+	}
+	if called {
+		t.Error("no request should be made for an empty street")
+	}
+}
+
+func TestNominatimGeocodeAddress_NoResultsIsMiss(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	_, ok, err := c.GeocodeAddress(context.Background(), AddressQuery{Street: "999 Nowhere Ln", City: "Phoenix"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("expected miss")
+	}
+}
+
+func TestNominatimGeocodeAddress_RetriesOn429ThenSucceeds(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"lat":"51.5","lon":"-0.1","osm_type":"node","category":"place","type":"house","addresstype":"place"}]`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	// Short-circuit the retry backoff by using a context deadline generous
+	// enough for the 2s backoff but bounding the test.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, ok, err := c.GeocodeAddress(ctx, AddressQuery{Street: "1 Main St", City: "London"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected a hit after retry")
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("calls = %d, want 2", got)
+	}
+	if res.Precision != PrecisionRooftop {
+		t.Errorf("address node precision = %q, want rooftop", res.Precision)
+	}
+}
+
+func TestNominatimGeocodeAddress_NonRetryableStatusFailsFast(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	_, ok, err := c.GeocodeAddress(context.Background(), AddressQuery{Street: "1 Main St", City: "London"})
+	if err == nil || ok {
+		t.Fatalf("expected error, got ok=%v err=%v", ok, err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1 (403 must not be retried)", got)
+	}
+}
+
+func TestNominatimGeocodeAddress_OutOfRangeCoordinatesRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"lat":"91.0","lon":"0.0","osm_type":"node","category":"place","type":"house","addresstype":"place"}]`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	_, ok, err := c.GeocodeAddress(context.Background(), AddressQuery{Street: "1 Main St"})
+	if err == nil || ok {
+		t.Fatalf("expected out-of-range error, got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestNominatimGeocodeAddress_EnforcesMinInterval(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	c.minInterval = 120 * time.Millisecond
+
+	start := time.Now()
+	for i := 0; i < 3; i++ {
+		if _, _, err := c.GeocodeAddress(context.Background(), AddressQuery{Street: "1 Main St"}); err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+	}
+	// Three requests need at least two full intervals between them.
+	if elapsed := time.Since(start); elapsed < 240*time.Millisecond {
+		t.Errorf("3 requests completed in %v; rate limiter not enforcing %v spacing", elapsed, c.minInterval)
+	}
+}
+
+func TestPrecisionForResult(t *testing.T) {
+	tests := []struct {
+		name string
+		r    nominatimResult
+		want string
+	}{
+		{"building", nominatimResult{OSMType: "way", Category: "building", Type: "yes", AddressType: "building"}, PrecisionRooftop},
+		{"amenity POI", nominatimResult{OSMType: "node", Category: "amenity", Type: "bar", AddressType: "amenity"}, PrecisionRooftop},
+		{"address node", nominatimResult{OSMType: "node", Category: "place", Type: "house", AddressType: "place"}, PrecisionRooftop},
+		{"interpolated house number", nominatimResult{OSMType: "way", Category: "place", Type: "house", AddressType: "place"}, PrecisionInterpolated},
+		{"road match", nominatimResult{OSMType: "way", Category: "highway", Type: "residential", AddressType: "road"}, PrecisionInterpolated},
+		{"city fallback", nominatimResult{OSMType: "relation", Category: "boundary", Type: "administrative", AddressType: "city"}, PrecisionCity},
+		{"suburb fallback", nominatimResult{OSMType: "node", Category: "place", Type: "suburb", AddressType: "suburb"}, PrecisionCity},
+		{"postcode fallback", nominatimResult{OSMType: "node", Category: "place", Type: "postcode", AddressType: "postcode"}, PrecisionCity},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := precisionForResult(tt.r); got != tt.want {
+				t.Errorf("precisionForResult(%+v) = %q, want %q", tt.r, got, tt.want)
+			}
+		})
+	}
+}

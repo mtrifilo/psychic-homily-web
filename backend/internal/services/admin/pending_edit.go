@@ -360,6 +360,20 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		_, cityChanged := updates["city"]
 		_, stateChanged := updates["state"]
 		_, countryChanged := updates["country"]
+		_, addressChanged := updates["address"]
+		_, zipcodeChanged := updates["zipcode"]
+		// Street-level geocode (PSY-1536): the contribution path does not call
+		// Nominatim inline, so when any component of the address key changes,
+		// clear the street fields rather than leave coordinates that belong to
+		// the OLD address. The API's freshness gate (streetGeocodeFresh) would
+		// hide the stale values anyway; clearing keeps the row honest and lets
+		// the geocode-venue-addresses backfill re-resolve it.
+		if addressChanged || zipcodeChanged || cityChanged || stateChanged || countryChanged {
+			updates["street_latitude"] = (*float64)(nil)
+			updates["street_longitude"] = (*float64)(nil)
+			updates["geocode_precision"] = (*string)(nil)
+			updates["geocoded_address"] = (*string)(nil)
+		}
 		if cityChanged || stateChanged || countryChanged {
 			var current catalogm.Venue
 			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {

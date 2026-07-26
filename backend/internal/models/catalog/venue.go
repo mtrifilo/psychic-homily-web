@@ -28,12 +28,24 @@ type Venue struct {
 	// Metro is the US Census CBSA code the venue's (city, state, country) rolls up
 	// to, set alongside the geocoding in applyGeocoding. DERIVED; NULL on a miss.
 	// Internal grouping key, not exposed in the API. (PSY-1255 step B)
-	Metro       *string `json:"-" gorm:"column:metro;size:10"`
-	Description *string `json:"description,omitempty" gorm:"column:description;type:text"`
-	ImageURL    *string `json:"image_url,omitempty" gorm:"column:image_url"`
-	Social      Social  `gorm:"embedded"`
-	Verified    bool
-	SubmittedBy *uint `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue
+	Metro *string `json:"-" gorm:"column:metro;size:10"`
+	// Street-level geocoding (PSY-1536): coordinates of Address resolved via
+	// Nominatim (network, applyStreetGeocoding + the geocode-venue-addresses
+	// backfill CLI). Distinct from the centroid Latitude/Longitude above, which
+	// stay untouched. GeocodePrecision is rooftop|interpolated|city.
+	// GeocodedAddress is the exact address key the coordinates were produced
+	// from — internal freshness marker (streetGeocodeFresh), never exposed;
+	// street coords are served ONLY for verified venues whose stored key still
+	// matches the current address (see buildVenueResponse).
+	StreetLatitude   *float64 `gorm:"column:street_latitude;type:numeric(9,6)"`
+	StreetLongitude  *float64 `gorm:"column:street_longitude;type:numeric(9,6)"`
+	GeocodePrecision *string  `gorm:"column:geocode_precision;size:20"`
+	GeocodedAddress  *string  `json:"-" gorm:"column:geocoded_address"`
+	Description      *string  `json:"description,omitempty" gorm:"column:description;type:text"`
+	ImageURL         *string  `json:"image_url,omitempty" gorm:"column:image_url"`
+	Social           Social   `gorm:"embedded"`
+	Verified         bool
+	SubmittedBy      *uint `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue
 
 	// Data provenance fields
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`

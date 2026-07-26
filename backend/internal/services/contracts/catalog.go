@@ -388,25 +388,32 @@ type UpdateVenueRequest struct {
 
 // VenueDetailResponse represents the venue data returned to clients
 type VenueDetailResponse struct {
-	ID          uint           `json:"id"`
-	Slug        string         `json:"slug"`
-	Name        string         `json:"name"`
-	Address     *string        `json:"address"`
-	City        string         `json:"city"`
-	State       string         `json:"state"`
-	Country     *string        `json:"country,omitempty"`
-	Latitude    *float64       `json:"latitude,omitempty"`  // Geocoded city centroid (PSY-985)
-	Longitude   *float64       `json:"longitude,omitempty"` // Geocoded city centroid (PSY-985)
-	Timezone    *string        `json:"timezone"`            // IANA zone resolved from location (PSY-985)
-	Zipcode     *string        `json:"zipcode"`
-	Capacity    *int           `json:"capacity"` // Venue capacity (PSY-1179); not redacted for unverified venues
-	Description *string        `json:"description,omitempty"`
-	ImageURL    *string        `json:"image_url"`    // Optional venue photo (PSY-521)
-	Verified    bool           `json:"verified"`     // Admin-verified as legitimate venue
-	SubmittedBy *uint          `json:"submitted_by"` // User ID who originally submitted this venue
-	Social      SocialResponse `json:"social"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	ID        uint     `json:"id"`
+	Slug      string   `json:"slug"`
+	Name      string   `json:"name"`
+	Address   *string  `json:"address"`
+	City      string   `json:"city"`
+	State     string   `json:"state"`
+	Country   *string  `json:"country,omitempty"`
+	Latitude  *float64 `json:"latitude,omitempty"`  // Geocoded city centroid (PSY-985)
+	Longitude *float64 `json:"longitude,omitempty"` // Geocoded city centroid (PSY-985)
+	// Street-precise coordinates of the venue's address (PSY-1536, Nominatim).
+	// Present ONLY for verified venues with a fresh geocode — unverified venues
+	// always omit them (mirrors the address/zipcode redaction, protecting
+	// DIY/house venues from being street-mapped before human review).
+	StreetLatitude   *float64       `json:"street_latitude,omitempty"`
+	StreetLongitude  *float64       `json:"street_longitude,omitempty"`
+	GeocodePrecision *string        `json:"geocode_precision,omitempty"` // rooftop|interpolated|city
+	Timezone         *string        `json:"timezone"`                    // IANA zone resolved from location (PSY-985)
+	Zipcode          *string        `json:"zipcode"`
+	Capacity         *int           `json:"capacity"` // Venue capacity (PSY-1179); not redacted for unverified venues
+	Description      *string        `json:"description,omitempty"`
+	ImageURL         *string        `json:"image_url"`    // Optional venue photo (PSY-521)
+	Verified         bool           `json:"verified"`     // Admin-verified as legitimate venue
+	SubmittedBy      *uint          `json:"submitted_by"` // User ID who originally submitted this venue
+	Social           SocialResponse `json:"social"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 // VenueWithShowCountResponse includes upcoming show count for a venue.

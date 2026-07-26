@@ -477,6 +477,9 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 
 	// PSY-985: geocode imported venues so timezone/coordinates are populated like
 	// the VenueService create path (nil on a miss → legacy state->tz fallback).
+	// Street-level geocoding (PSY-1536) is deliberately skipped on this bulk
+	// import seam — new rows start with NULL street fields and the
+	// geocode-venue-addresses backfill CLI resolves them afterwards.
 	newVenue.Latitude, newVenue.Longitude, newVenue.Timezone = geo.LookupPointers(geo.Default(), newVenue.City, newVenue.State, "")
 	newVenue.Metro = geo.MetroPointer(geo.Default(), newVenue.City, newVenue.State, "") // PSY-1255 step B
 
