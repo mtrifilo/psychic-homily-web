@@ -101,6 +101,21 @@ const (
 // (PSY-1155) re-attempts it. Widen RADIO_BACKFILL_INTERVAL_HOURS for slow providers.
 const RadioBackfillMaxAttempts = 5
 
+// RadioStrandedWindowlessReopenWindow bounds how long after its air date a stranded
+// windowless episode may have its playlist give-up re-opened (PSY-1558). Past it the
+// episode keeps its terminal 'unavailable' and is never re-fetched again.
+//
+// Without a bound the re-open is unconditional, so RadioBackfillMaxAttempts has never
+// actually terminated anything for windowless episodes: the sweep re-opens the row to
+// (pending, 0), the fetch finds no playlist upstream, the attempt counter burns back to
+// the cap, and the next cycle re-opens it again — forever. On production that was 269
+// zero-yield backfill runs a day across 23 episodes, one of them re-tried 105 times.
+//
+// Three days is the give-up point: an upstream tracklist that has not been published
+// three days after air was never logged (NTS publish lag is 0–2 days per PSY-1556), so
+// past the window the empty playlist is a permanent condition, not a transient one.
+const RadioStrandedWindowlessReopenWindow = 3 * 24 * time.Hour
+
 // ComputeEpisodeStatus derives an episode's lifecycle status from its FROZEN air
 // window, playlist completeness, and the current time (PSY-1152).
 //
@@ -262,17 +277,24 @@ func NormalizeWindowHealPlaylistState(hadWindow bool, startsAt *time.Time, playl
 }
 
 // NormalizeStrandedWindowlessPlaylistState re-opens backfill for a windowless aired
-// episode that gave up with zero plays (PSY-1287). Lets the backfill candidate query
-// find the show again so a re-list can heal the window from a corrected schedule.
-// A windowless episode with real plays is left untouched.
-func NormalizeStrandedWindowlessPlaylistState(startsAt *time.Time, playlistState string, attempts, playCount int, now time.Time) (state string, newAttempts int) {
+// episode that gave up with zero plays (PSY-1287), for RadioStrandedWindowlessReopenWindow
+// after its air date. Lets the backfill candidate query find the show again so a re-list
+// can heal the window from a corrected schedule. A windowless episode with real plays is
+// left untouched, and so is one whose reopen window has closed — that give-up is final.
+//
+// The window is what terminates the re-open (PSY-1558). The original guard here —
+// ComputeEpisodeStatus(nil, nil, pending, now) != aired — could never fire, because a
+// windowless episode is classified aired unconditionally; it read as a bound but was
+// inoperative, which is how the re-open ran forever. airDate is the episode's air_date;
+// a zero value fails closed (no re-open) since an unknown air date cannot be bounded.
+func NormalizeStrandedWindowlessPlaylistState(airDate time.Time, startsAt *time.Time, playlistState string, attempts, playCount int, now time.Time) (state string, newAttempts int) {
 	if startsAt != nil || playCount != 0 {
 		return playlistState, attempts
 	}
 	if playlistState != RadioPlaylistStateUnavailable {
 		return playlistState, attempts
 	}
-	if ComputeEpisodeStatus(nil, nil, RadioPlaylistStatePending, now) != RadioEpisodeStatusAired {
+	if airDate.IsZero() || now.Sub(airDate) > RadioStrandedWindowlessReopenWindow {
 		return playlistState, attempts
 	}
 	return RadioPlaylistStatePending, 0
