@@ -243,6 +243,13 @@ describe('ArtistConnectionsSection', () => {
     expect(screen.queryByTestId('connections-canvas')).not.toBeInTheDocument()
     const link = screen.getByRole('link', { name: /see similar artists/i })
     expect(link).toHaveAttribute('href', `#${SIMILAR_ARTISTS_ANCHOR}`)
+    // The copy points at [Expand], so pin the two together: unlike the sibling
+    // graph surfaces, this section keeps [Expand] visible below the gate, and
+    // ArtistGraphDialog does draw a canvas there. Gating it would strand the copy.
+    expect(
+      screen.getByText(/Best on a larger screen, or open the full map\./)
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument()
     // The count line still discloses scale on mobile.
     expect(screen.getByText(/Top 14 of 16 connected artists/)).toBeInTheDocument()
   })
