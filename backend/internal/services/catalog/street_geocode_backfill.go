@@ -38,15 +38,15 @@ type StreetGeocodeOptions struct {
 
 const defaultStreetGeocodeBackfillTimeout = 30 * time.Second
 
-// Street-geocode backfill actions, one per scanned venue that needs anything.
+// Street-geocode backfill actions, one per scanned venue that needed anything.
+// Venues that needed nothing (stored key matches, or no address and nothing
+// stored) only bump the Unchanged/NoAddress counters — no Change row.
 const (
-	StreetGeocodeSet       = "set"        // fields were NULL, now populated
-	StreetGeocodeUpdated   = "updated"    // address changed since the last geocode; re-resolved
-	StreetGeocodeMiss      = "miss"       // address didn't resolve; any stale fields cleared
-	StreetGeocodeCleared   = "cleared"    // address removed/blank; stale fields cleared
-	StreetGeocodeUnchanged = "unchanged"  // stored key matches — skipped, no network call
-	StreetGeocodeNoAddress = "no-address" // no address and nothing stored — nothing to do
-	StreetGeocodeError     = "error"      // lookup failed (transport/service); left as-is
+	StreetGeocodeSet     = "set"     // fields were NULL, now populated
+	StreetGeocodeUpdated = "updated" // address changed since the last geocode; re-resolved
+	StreetGeocodeMiss    = "miss"    // address didn't resolve; any stale fields cleared
+	StreetGeocodeCleared = "cleared" // address removed/blank; stale fields cleared
+	StreetGeocodeError   = "error"   // lookup failed (transport/service); left as-is
 )
 
 // StreetGeocodeChange is one venue's outcome in the report.
@@ -116,7 +116,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 				report.Cleared++
 				report.Changes = append(report.Changes, change(v, StreetGeocodeCleared, key))
 				if !opts.DryRun {
-					if err := writeStreetGeocode(db, v.ID, nil); err != nil {
+					if err := clearStreetGeocode(db, v.ID); err != nil {
 						report.Errors = append(report.Errors, fmt.Sprintf("venue %d clear: %v", v.ID, err))
 					}
 				}
@@ -126,8 +126,9 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 			continue
 		}
 
-		if v.GeocodedAddress != nil && *v.GeocodedAddress == key &&
-			v.StreetLatitude != nil && v.StreetLongitude != nil {
+		// Same freshness predicate the API read gate uses — the single
+		// definition of "this geocode belongs to the current address".
+		if streetGeocodeFresh(v) {
 			report.Unchanged++
 			continue
 		}
@@ -153,7 +154,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 			// (the matching case was skipped above) — it must not survive a
 			// miss on the current one.
 			if hasStored && !opts.DryRun {
-				if err := writeStreetGeocode(db, v.ID, nil); err != nil {
+				if err := clearStreetGeocode(db, v.ID); err != nil {
 					report.Errors = append(report.Errors, fmt.Sprintf("venue %d clear-on-miss: %v", v.ID, err))
 				}
 			}
@@ -163,11 +164,9 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 		action := StreetGeocodeSet
 		if hasStored {
 			action = StreetGeocodeUpdated
-		}
-		if action == StreetGeocodeSet {
-			report.Set++
-		} else {
 			report.Updated++
+		} else {
+			report.Set++
 		}
 		report.PrecisionCounts[res.Precision]++
 		c := change(v, action, key)
@@ -175,7 +174,7 @@ func BackfillVenueStreetGeocodes(db *gorm.DB, ag geo.AddressGeocoder, opts Stree
 		report.Changes = append(report.Changes, c)
 
 		if !opts.DryRun {
-			if err := writeStreetGeocode(db, v.ID, &streetGeocodeWrite{result: res, key: key}); err != nil {
+			if err := writeStreetGeocode(db, v.ID, res, key); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("venue %d write: %v", v.ID, err))
 			}
 		}
@@ -189,28 +188,25 @@ func geocodeWithTimeout(ag geo.AddressGeocoder, q geo.AddressQuery, timeout time
 	return ag.GeocodeAddress(ctx, q)
 }
 
-// streetGeocodeWrite bundles a hit with the address key it was produced from.
-type streetGeocodeWrite struct {
-	result geo.AddressResult
-	key    string
+// writeStreetGeocode persists a resolved street geocode and the address key
+// it was produced from.
+func writeStreetGeocode(db *gorm.DB, venueID uint, res geo.AddressResult, key string) error {
+	return db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(map[string]interface{}{
+		"street_latitude":   res.Latitude,
+		"street_longitude":  res.Longitude,
+		"geocode_precision": res.Precision,
+		"geocoded_address":  key,
+	}).Error
 }
 
-// writeStreetGeocode persists a venue's street-geocode fields; a nil write
-// clears all four to SQL NULL.
-func writeStreetGeocode(db *gorm.DB, venueID uint, w *streetGeocodeWrite) error {
-	updates := map[string]interface{}{
+// clearStreetGeocode sets all four street-geocode columns to SQL NULL.
+func clearStreetGeocode(db *gorm.DB, venueID uint) error {
+	return db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(map[string]interface{}{
 		"street_latitude":   (*float64)(nil),
 		"street_longitude":  (*float64)(nil),
 		"geocode_precision": (*string)(nil),
 		"geocoded_address":  (*string)(nil),
-	}
-	if w != nil {
-		updates["street_latitude"] = w.result.Latitude
-		updates["street_longitude"] = w.result.Longitude
-		updates["geocode_precision"] = w.result.Precision
-		updates["geocoded_address"] = w.key
-	}
-	return db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(updates).Error
+	}).Error
 }
 
 func change(v *catalogm.Venue, action, key string) StreetGeocodeChange {
