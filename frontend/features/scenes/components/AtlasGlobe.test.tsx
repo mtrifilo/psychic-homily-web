@@ -57,6 +57,15 @@ vi.mock('../hooks', () => ({
   // The preview panel (opened by the drift tests) reads the scene's this-week
   // shows (PSY-1309); a quiet week is the neutral default here.
   useSceneShows: () => ({ data: { shows: [] }, isLoading: false }),
+  // City view (PSY-1539) reads the scene's roster size for the rail header.
+  useSceneDetail: () => ({ data: undefined }),
+}))
+
+// City view's venue list (PSY-1539). Tests that need venues override via
+// mockUseVenues; the default is an un-entered city view (no venues).
+const mockUseVenues = vi.fn(() => ({ data: undefined, isLoading: false }))
+vi.mock('@/features/venues/hooks', () => ({
+  useVenues: () => mockUseVenues(),
 }))
 
 // AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
