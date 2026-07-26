@@ -241,7 +241,9 @@ func (c *NominatimClient) GeocodeAddress(ctx context.Context, q AddressQuery) (A
 func sanitizeTransportErr(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
-		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
+		// Recurse: a redirect/proxy chain can nest another *url.Error inside
+		// the cause, which would re-embed a URL through the unwrapped error.
+		return fmt.Errorf("%s: %w", ue.Op, sanitizeTransportErr(ue.Err))
 	}
 	return err
 }
