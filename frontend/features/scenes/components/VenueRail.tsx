@@ -179,7 +179,10 @@ export function VenueRail({
             listed venues. The edit/contributor counts the mock also shows, and
             the confirm action, are PSY-1542's data; the control is rendered
             disabled here so the shape is right and the wiring lands there. */}
-        <p className="font-mono text-[11px] leading-4 text-muted-foreground">
+        <p
+          data-testid="rail-provenance"
+          className="font-mono text-[11px] leading-4 text-muted-foreground"
+        >
           <span className="text-muted-foreground/70">DATA</span>{' '}
           {updatedAt ? `updated ${formatTimeAgo(updatedAt)}` : 'no update recorded'}
         </p>
