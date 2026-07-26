@@ -211,28 +211,23 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 	c := NewMusicBrainzClient()
 	// Shorten the interval so the test stays fast while still proving the
 	// throttle blocks for ~one interval; the production interval is mbRateLimit.
-	// 200ms (not, say, 50ms) gives the first-call lower-bound assertion below
-	// generous margin: the first throttle does only a lock + time.Now(), so the
-	// "< rateLimit" check would only flake if a loaded/GC-starved CI box stalled
-	// that for >200ms — far less likely than a tighter window.
+	// 200ms (not, say, 50ms) leaves the first-call "< rateLimit" check generous
+	// margin, since that call does only a lock plus time.Now().
 	c.rateLimit = 200 * time.Millisecond
 
 	ctx := context.Background()
 
-	// t0 anchors the spacing assertion to the SAME origin the throttle's timer
-	// derives from. The second call cannot return before lastReq+rateLimit, and
-	// the first call sets lastReq at or after t0, so time.Since(t0) >= rateLimit
-	// holds unconditionally. Re-anchoring the stopwatch AFTER the first call
-	// would not: the throttle sets lastReq at the END of call 1, so any wall time
-	// spent between that write and the re-anchor is silently subtracted from the
-	// measured wait, and the assertion would then pass only when timer overshoot
-	// happened to exceed that bookkeeping gap (PSY-1559).
+	// Anchor BOTH assertions to a single t0 taken before either call. The first
+	// call sets lastReq at or after t0, and the second cannot return before
+	// lastReq+rateLimit, so time.Since(t0) >= rateLimit holds unconditionally.
+	// Re-anchoring the stopwatch after the first call would not: throttle writes
+	// lastReq at the END of the call, so wall time between that write and the
+	// re-anchor is silently subtracted from the measured wait, leaving the
+	// assertion to pass only when timer overshoot exceeded that gap.
 	t0 := time.Now()
 
-	firstStart := time.Now()
 	assert.NoError(t, c.throttle(ctx)) // first slot is free
-	firstElapsed := time.Since(firstStart)
-	assert.Less(t, firstElapsed, c.rateLimit,
+	assert.Less(t, time.Since(t0), c.rateLimit,
 		"first throttle should not block (lastReq is zero)")
 
 	assert.NoError(t, c.throttle(ctx)) // second must wait one interval
