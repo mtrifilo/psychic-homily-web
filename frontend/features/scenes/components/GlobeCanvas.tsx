@@ -329,6 +329,10 @@ export default function GlobeCanvas({
         element: el,
         anchor: 'top',
         offset: [0, Math.ceil(sceneDotRadiusPx(s.upcoming_show_count)) + 3],
+        // Fully hide labels occluded behind the globe — MapLibre's default
+        // fades them to 0.2 opacity, which ghosts far-side city names over
+        // the sphere; the old depth-tested 3D labels were fully hidden.
+        opacityWhenCovered: '0',
       })
         .setLngLat([s.longitude, s.latitude])
         .addTo(mapReady)
@@ -363,6 +367,16 @@ export default function GlobeCanvas({
       minZoom: MIN_ZOOM,
       maxZoom: MAX_ZOOM,
       attributionControl: false,
+      // Parity with the shipped globe: spin + zoom only. MapLibre's default
+      // pitch/rotate gestures would let a user tilt the horizon with NO
+      // reset affordance (no compass control), detaching the CSS halo from
+      // the sphere outline; double-click zoom would fire an unrequested
+      // flight on a double-clicked dot. Rotation is further disabled on the
+      // touch + keyboard handlers below.
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
+      doubleClickZoom: false,
       style: {
         version: 8,
         projection: { type: 'globe' },
@@ -393,6 +407,12 @@ export default function GlobeCanvas({
             tiles: [NIGHT_EARTH_TILES],
             tileSize: 256,
             maxzoom: 8,
+            // NOT rendered today (attributionControl: false keeps the
+            // chrome-free parity look; NASA imagery is public domain and
+            // GIBS attribution is requested, not required). Kept as
+            // provenance so enabling an AttributionControl — worth
+            // revisiting with the PSY-1539 street basemap, whose provider
+            // WILL require visible attribution — displays the right credit.
             attribution: 'Imagery courtesy NASA GIBS (VIIRS Black Marble)',
           },
           // promoteId: features are keyed by slug so the hover feature-state
@@ -414,6 +434,12 @@ export default function GlobeCanvas({
               'circle-stroke-color': RING_COLOR,
               'circle-stroke-width': 1.5,
               'circle-stroke-opacity': 0,
+              // Zero out MapLibre's default 300ms paint transitions: the rAF
+              // loop drives these two properties as a sawtooth, and a
+              // retargeted ease would smear it — the ring would collapse
+              // inward at each cycle wrap instead of restarting at center.
+              'circle-radius-transition': { duration: 0, delay: 0 },
+              'circle-stroke-opacity-transition': { duration: 0, delay: 0 },
             },
           },
           {
@@ -456,11 +482,16 @@ export default function GlobeCanvas({
         ],
       },
     })
+    // See the constructor options: bearing/pitch must stay locked at 0 on
+    // every input path (savedCamera deliberately persists only center/zoom).
+    map.touchZoomRotate.disableRotation()
+    map.keyboard.disableRotation()
+
     // Fill the parent's fly-to seam (PSY-1308, reused by search/Drift).
     // Closes over THIS map; nulled in cleanup, so after a hide/show cycle
     // the seam always points at the live instance. MapLibre honors
-    // prefers-reduced-motion natively (respectPrefersReducedMotion defaults
-    // true), degrading the flight to a jump cut.
+    // prefers-reduced-motion natively — flyTo degrades to a jump cut unless
+    // the animation is marked `essential` (verified in the v6 bundle).
     if (flyToRef) {
       flyToRef.current = (scene: PlaceableScene) => {
         map.flyTo({
@@ -483,9 +514,16 @@ export default function GlobeCanvas({
     w.__atlasMap = map
     w.__atlasMapLoaded = false
 
+    // Dots/labels/rings mount on 'style.load' (style parsed, sources
+    // registered), NOT 'load': 'load' additionally waits for every in-view
+    // GIBS raster tile, and a hanging third-party tile response would hold
+    // the page's actual content — locally-available scene data — hostage to
+    // the basemap. The harness flag stays on 'load' (full first render).
+    map.on('style.load', () => {
+      setMapReady(map)
+    })
     map.on('load', () => {
       w.__atlasMapLoaded = true
-      setMapReady(map)
     })
 
     // CSS halo sized to the globe's screen radius (it grows past the viewport
@@ -561,14 +599,24 @@ export default function GlobeCanvas({
       // inject markup (the old canvas needed an escapeHtml for this).
       tooltip.textContent = `${scene.city}, ${scene.state} · ${scene.upcoming_show_count} upcoming${week}`
       tooltip.style.display = 'block'
-      tooltip.style.left = `${e.point.x + 12}px`
-      tooltip.style.top = `${e.point.y + 12}px`
+      // Flip the offset near the right/bottom edges so edge-of-viewport
+      // scenes don't get their tooltip clipped by the overflow-hidden wrap.
+      const bounds = map.getContainer().getBoundingClientRect()
+      const flipX = e.point.x + 12 + tooltip.offsetWidth > bounds.width
+      const flipY = e.point.y + 12 + tooltip.offsetHeight > bounds.height
+      tooltip.style.left = `${flipX ? e.point.x - 12 - tooltip.offsetWidth : e.point.x + 12}px`
+      tooltip.style.top = `${flipY ? e.point.y - 12 - tooltip.offsetHeight : e.point.y + 12}px`
     }
     const handleLeave = () => {
       setHoverState(null)
       map.getCanvas().style.cursor = ''
       if (tooltipRef.current) tooltipRef.current.style.display = 'none'
     }
+    // Camera motion under a STATIONARY pointer (wheel zoom, keyboard zoom,
+    // fly-to) slides dots out from under the cursor without any mouse event,
+    // which would strand a stale highlight + floating tooltip. Any camera
+    // movement clears the hover; the next real mousemove re-establishes it.
+    map.on('movestart', handleLeave)
     const handleClick = (
       e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     ) => {

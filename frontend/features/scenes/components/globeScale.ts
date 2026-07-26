@@ -94,8 +94,17 @@ export function altitudeForZoom(zoom: number): number {
 // DOM-marker labels take CSS pixels. One knob each, calibrated so the default
 // continental POV renders the same visual weight as the shipped globe
 // (0.28–0.5 unit dots ⇔ ~3.4–6 px radius; 0.5–0.85 unit labels ⇔ ~11–19 px
-// text). The sqrt/cap semantics stay in the unit functions above — these are
-// pure unit conversions, so the calibrated curve can't drift between layers.
+// text). The sqrt/cap COUNT curve is shared with the unit functions above,
+// so it can't drift between layers.
+//
+// DELIBERATE semantic change vs the shipped globe: angular sizing grew
+// on-screen as the camera descended; these px sizes are ZOOM-CONSTANT, so
+// the calibration match is exact only at the default POV and dots read
+// relatively smaller (but never blurrier or overlapping) at fly-to/metro
+// zooms. Chosen because constant px stays legible at the deeper zooms this
+// port unlocks (z→9, PSY-1539 street level next); if zoom growth is wanted
+// later, interpolate the radius on ['zoom'] in the canvas — don't bend
+// these knobs.
 const DOT_PX_PER_RADIUS_UNIT = 12
 const LABEL_PX_PER_SIZE_UNIT = 22
 
