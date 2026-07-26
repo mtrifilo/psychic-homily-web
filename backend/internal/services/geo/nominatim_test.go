@@ -2,8 +2,11 @@ package geo
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -297,5 +300,53 @@ func TestPrecisionForResult(t *testing.T) {
 				t.Errorf("precisionForResult(%+v) = %q, want %q", tt.r, got, tt.want)
 			}
 		})
+	}
+}
+
+// A transport failure must not leak the request URL — net/http wraps it in
+// *url.Error whose message embeds the full query string, which carries the
+// venue's street address (potentially a private home address that callers
+// deliberately keep out of logs).
+func TestNominatimDoSearch_TransportErrorRedactsURL(t *testing.T) {
+	// A listener that is closed immediately gives a deterministic
+	// connection-refused address with no live server.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+
+	const street = "742 Evergreen Terrace"
+	c := newTestClient("http://" + addr)
+	endpoint := c.baseURL + "/search?street=" + url.QueryEscape(street)
+	_, ok, _, err := c.doSearch(context.Background(), endpoint)
+	if ok || err == nil {
+		t.Fatalf("expected transport error, got ok=%v err=%v", ok, err)
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "Evergreen") || strings.Contains(msg, url.QueryEscape(street)) || strings.Contains(msg, "street=") {
+		t.Errorf("transport error leaks the request URL/address: %q", msg)
+	}
+	if !strings.Contains(msg, "refused") && !strings.Contains(msg, "connect") {
+		t.Errorf("sanitized error should keep the underlying cause, got %q", msg)
+	}
+}
+
+// The sanitizer must preserve error-chain semantics (errors.Is on the cause)
+// while dropping the URL, and must pass non-url.Error values through.
+func TestSanitizeTransportErr(t *testing.T) {
+	cause := context.DeadlineExceeded
+	ue := &url.Error{Op: "Get", URL: "https://nominatim.example/search?street=1+Private+Rd", Err: cause}
+	got := sanitizeTransportErr(ue)
+	if strings.Contains(got.Error(), "Private") || strings.Contains(got.Error(), "search?") {
+		t.Errorf("sanitized error still contains the URL: %q", got.Error())
+	}
+	if !errors.Is(got, context.DeadlineExceeded) {
+		t.Errorf("sanitized error lost the wrapped cause: %v", got)
+	}
+	plain := errors.New("boring")
+	if sanitizeTransportErr(plain) != plain {
+		t.Errorf("non-url.Error must pass through unchanged")
 	}
 }

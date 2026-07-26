@@ -20,6 +20,7 @@ package geo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -227,6 +228,24 @@ func (c *NominatimClient) GeocodeAddress(ctx context.Context, q AddressQuery) (A
 	return AddressResult{}, false, lastErr
 }
 
+// sanitizeTransportErr strips the request URL from an error before it leaves
+// the client: net/http wraps request/transport failures in *url.Error, whose
+// Error() string embeds the FULL request URL — and the Nominatim query string
+// carries the venue's street address, which must never reach logs or wrapped
+// errors (callers log these errors, and an unverified submission may be a
+// private home address; see the deliberate address-free failure log in
+// applyStreetGeocoding). Only the operation and the underlying cause survive.
+// The cause stays wrapped so errors.Is/As (context.DeadlineExceeded, net
+// errors, ...) keep working; it names at most the Nominatim host, never the
+// query.
+func sanitizeTransportErr(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
+	}
+	return err
+}
+
 // searchOutcome carries retry metadata for a failed doSearch attempt.
 type searchOutcome struct {
 	retryable  bool
@@ -288,7 +307,8 @@ func (c *NominatimClient) doSearch(ctx context.Context, endpoint string) (res Ad
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return AddressResult{}, false, searchOutcome{}, fmt.Errorf("nominatim: build request: %w", err)
+		// A parse failure is a *url.Error embedding the raw URL — sanitize.
+		return AddressResult{}, false, searchOutcome{}, fmt.Errorf("nominatim: build request: %w", sanitizeTransportErr(err))
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 
@@ -297,7 +317,7 @@ func (c *NominatimClient) doSearch(ctx context.Context, endpoint string) (res Ad
 		if ctx.Err() != nil {
 			return AddressResult{}, false, searchOutcome{}, ctx.Err()
 		}
-		return AddressResult{}, false, searchOutcome{retryable: true}, fmt.Errorf("nominatim: request: %w", err)
+		return AddressResult{}, false, searchOutcome{retryable: true}, fmt.Errorf("nominatim: request: %w", sanitizeTransportErr(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
