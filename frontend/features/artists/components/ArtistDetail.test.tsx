@@ -128,8 +128,11 @@ vi.mock('@/features/tags', () => ({
   AddTagDialog: (): null => null,
 }))
 
+// The real AsHeardOn renders its own "As Heard On" SectionHeader and
+// self-hides when empty; the mock keeps the header so sidebar section order
+// stays assertable.
 vi.mock('@/features/radio', () => ({
-  AsHeardOn: (): null => null,
+  AsHeardOn: () => <h3>As Heard On</h3>,
 }))
 
 vi.mock('@/features/collections', () => ({
@@ -146,7 +149,9 @@ vi.mock('@/features/charts', () => ({
 // rendering the real ForceGraph2D-backed dialog. The real Dialog routes every
 // close path (X, Escape, backdrop) through this same `onOpenChange`.
 vi.mock('./RelatedArtists', () => ({
-  ArtistSimilarSidebar: (): null => null,
+  // Renders its own "Similar artists" SectionHeader in the real component;
+  // the mock keeps it so sidebar section order stays assertable.
+  ArtistSimilarSidebar: () => <h3>Similar artists</h3>,
   ArtistGraphDialog: ({
     open,
     onOpenChange,
@@ -580,6 +585,48 @@ describe('ArtistDetail', () => {
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.getByTestId('social-links')).toBeInTheDocument()
+    })
+
+    it('orders Links and As Heard On above the unbounded Similar artists list', () => {
+      // Similar artists has no length cap, so short fixed-height blocks have
+      // to sit above it or they scroll off-screen on well-connected artists.
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          stats: {
+            releases: 5,
+            labels: 2,
+            shows_tracked: 13,
+            similar_artists: 8,
+            festival_appearances: 3,
+          },
+          social: {
+            instagram: 'https://instagram.com/test',
+            facebook: null,
+            twitter: null,
+            youtube: null,
+            spotify: null,
+            soundcloud: null,
+            bandcamp: null,
+            website: null,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const sidebarSlot = screen.getByTestId('sidebar-slot')
+      const headings = Array.from(sidebarSlot.querySelectorAll('h3')).map(
+        h => h.textContent
+      )
+      const expected = [
+        'Statistics',
+        'Links',
+        'As Heard On',
+        'Similar artists',
+      ]
+
+      expect(headings.filter(h => h && expected.includes(h))).toEqual(expected)
     })
 
     it('hides the links section when the artist has no social links', () => {
