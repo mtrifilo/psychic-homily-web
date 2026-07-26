@@ -1,9 +1,15 @@
 import { execSync, spawn, type ChildProcess } from 'child_process'
-import { chromium, type FullConfig } from '@playwright/test'
+import {
+  chromium,
+  type Browser,
+  type FullConfig,
+  type Page,
+} from '@playwright/test'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as net from 'net'
 import * as http from 'http'
+import pLimit from 'p-limit'
 
 const BACKEND_DIR = path.resolve(__dirname, '../../backend')
 const PID_FILE = path.resolve(__dirname, '.backend-pid')
@@ -19,7 +25,9 @@ const TEST_PASSWORD = 'e2e-test-password-123'
 // authenticated user (worker index → user N), avoiding cross-worker races
 // on shared user state (saved_shows, favorite_venues, submissions, etc.).
 // Must match the seeded user count in setup-db.sh and the local workers
-// cap in playwright.config.ts.
+// cap in playwright.config.ts. It also sets how much work captureAuthState
+// has to push through AUTH_CAPTURE_CONCURRENCY below — raising it adds
+// batches, and so adds setup wall time. Check that constant too.
 const USER_COUNT = 5
 
 function userEmailForWorker(workerIndex: number): string {
@@ -211,61 +219,140 @@ function startBackend(): ChildProcess {
   return proc
 }
 
+// PSY-1557: how many logins may load /auth at the same time.
+//
+// The original code ran all USER_COUNT + 1 captures through a single
+// Promise.all. Six simultaneous page loads do NOT cost the same as one against
+// a Next.js dev server: measured here, a lone login's navigation took ~2.1s,
+// while the same navigation inside the six-way burst took 8-28s depending on
+// machine load. The dev server serves each page as hundreds of separate module
+// requests, so concurrent loads contend for it instead of overlapping. Since
+// page.goto's default navigation timeout is 30s, a loaded machine (several
+// dispatch stacks running at once) pushed the burst past that limit and failed
+// global-setup outright.
+//
+// Warming /auth first was measured too and is NOT sufficient on its own — it
+// removes only the one-time compile (~1.6-2.9s), not the per-request
+// contention. Bounding concurrency is what keeps the tail in check.
+//
+// Numbers above measured 2026-07-26 (PSY-1557) on a 10-core machine, cold
+// .next, with a sibling dev server compiling — re-measure before trusting
+// them across a Next.js or Playwright upgrade.
+const AUTH_CAPTURE_CONCURRENCY = 2
+
+// Budget for the two waits that load /auth itself — the navigation and the
+// form render. They cover one continuous stretch of dev-server compilation
+// under contention, so they must move together; splitting them just moves the
+// failure from one line to the next.
+const AUTH_PAGE_TIMEOUT_MS = 60_000
+
+// The post-login redirect gets its own, smaller budget on purpose. It lands on
+// `/`, which globalSetup has already warmed via waitForUrl before any capture
+// starts, so it does NOT carry the cold-compile risk that /auth does — and the
+// measurements bear that out: worst observed was 9.4s (under the old unbounded
+// 6-way burst) and 1.5s once concurrency was capped. 30s is ~3x the worst
+// value ever recorded here, while keeping the per-login ceiling low enough to
+// stay useful: the whole phase's worst case scales as
+// ceil(logins / AUTH_CAPTURE_CONCURRENCY) x (2 x AUTH_PAGE_TIMEOUT_MS +
+// POST_LOGIN_REDIRECT_TIMEOUT_MS), which has to stay diagnosable inside the
+// e2e-smoke job budget rather than being killed by it.
+const POST_LOGIN_REDIRECT_TIMEOUT_MS = 30_000
+
+// Readiness budget for a server process to answer at all. Deliberately NOT
+// AUTH_PAGE_TIMEOUT_MS: that one covers page compilation under contention,
+// this one covers process boot. They happen to be equal today; keep them
+// separate so tuning one doesn't silently retune the other.
+const SERVER_READY_TIMEOUT_MS = 60_000
+
+type SeededLogin = {
+  email: string
+  password: string
+  authFile: string
+}
+
+async function captureStorageState(
+  browser: Browser,
+  login: SeededLogin
+): Promise<void> {
+  const context = await browser.newContext()
+  try {
+    const page = await context.newPage()
+    await loginAs(page, login.email, login.password)
+    await context.storageState({ path: path.join(AUTH_DIR, login.authFile) })
+    // Per-login progress: when a login is the thing that hangs, this is what
+    // tells you which one, and how far the batch got, instead of leaving an
+    // outer job timeout with nothing to go on.
+    log(`  captured ${login.authFile}`)
+  } finally {
+    // Never let a teardown failure replace the real error: if one capture
+    // rejects, the shared browser is closed while siblings are still in
+    // flight, so their context.close() can fail for reasons that have nothing
+    // to do with why the run actually failed. Log rather than discard, so a
+    // close failure that ISN'T that race still leaves a trace.
+    await context
+      .close()
+      .catch((err) => log(`  warn: close failed for ${login.authFile}: ${err}`))
+  }
+}
+
 async function captureAuthState() {
   log(`Capturing auth state for ${USER_COUNT} regular users + 1 admin...`)
   fs.mkdirSync(AUTH_DIR, { recursive: true })
 
+  const logins: SeededLogin[] = [
+    ...Array.from({ length: USER_COUNT }, (_, i) => ({
+      email: userEmailForWorker(i),
+      password: TEST_PASSWORD,
+      authFile: userAuthFileForWorker(i),
+    })),
+    {
+      email: TEST_ADMIN.email,
+      password: TEST_ADMIN.password,
+      authFile: 'admin.json',
+    },
+  ]
+
   const browser = await chromium.launch()
 
-  // Capture all users in parallel so global-setup overhead stays within budget
-  // (each login is ~1s; serial would scale linearly with user count).
-  const captureTasks: Promise<void>[] = []
+  // Still parallel — global-setup overhead has to stay within budget, and
+  // serial would scale linearly with user count — but capped (see
+  // AUTH_CAPTURE_CONCURRENCY).
+  const limit = pLimit(AUTH_CAPTURE_CONCURRENCY)
 
-  for (let i = 0; i < USER_COUNT; i++) {
-    captureTasks.push((async () => {
-      const context = await browser.newContext()
-      const page = await context.newPage()
-      await loginAs(page, userEmailForWorker(i), TEST_PASSWORD)
-      await context.storageState({
-        path: path.join(AUTH_DIR, userAuthFileForWorker(i)),
-      })
-      await context.close()
-    })())
+  try {
+    await Promise.all(
+      logins.map((login) => limit(() => captureStorageState(browser, login)))
+    )
+  } finally {
+    await browser.close()
   }
-
-  captureTasks.push((async () => {
-    const adminContext = await browser.newContext()
-    const adminPage = await adminContext.newPage()
-    await loginAs(adminPage, TEST_ADMIN.email, TEST_ADMIN.password)
-    await adminContext.storageState({
-      path: path.join(AUTH_DIR, 'admin.json'),
-    })
-    await adminContext.close()
-  })())
-
-  await Promise.all(captureTasks)
-  await browser.close()
   log('Auth state captured.')
 }
 
-async function loginAs(
-  page: Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>['newPage']>>,
-  email: string,
-  password: string
-) {
-  await page.goto('http://localhost:3000/auth')
+async function loginAs(page: Page, email: string, password: string) {
+  // PSY-1557: navigating here can be far slower than Playwright's 30s default
+  // — dev-server compilation plus contention from the other captures. Without
+  // an explicit budget a loaded machine turns a merely-slow setup into a hard
+  // global-setup failure.
+  await page.goto('http://localhost:3000/auth', {
+    timeout: AUTH_PAGE_TIMEOUT_MS,
+  })
 
   // Wait for login form to render (handles dev compilation + React hydration + auth check)
-  await page.locator('#email').waitFor({ state: 'visible', timeout: 60_000 })
+  await page
+    .locator('#email')
+    .waitFor({ state: 'visible', timeout: AUTH_PAGE_TIMEOUT_MS })
 
   // Fill login form — use ID selectors for reliability during setup
   await page.locator('#email').fill(email)
   await page.locator('#password').fill(password)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 
-  // Wait for redirect away from /auth (successful login)
+  // Wait for redirect away from /auth (successful login). See
+  // POST_LOGIN_REDIRECT_TIMEOUT_MS for why this one is deliberately smaller
+  // than the two waits above.
   await page.waitForURL((url) => !url.pathname.startsWith('/auth'), {
-    timeout: 15_000,
+    timeout: POST_LOGIN_REDIRECT_TIMEOUT_MS,
   })
 }
 
@@ -288,12 +375,12 @@ export default async function globalSetup(_config: FullConfig) {
 
   // 4. Wait for backend health
   log('Waiting for backend health check...')
-  await waitForUrl('http://localhost:8080/health', 60_000)
+  await waitForUrl('http://localhost:8080/health', SERVER_READY_TIMEOUT_MS)
   log('Backend is healthy.')
 
   // 5. Wait for frontend (started by Playwright webServer config)
   log('Waiting for frontend...')
-  await waitForUrl('http://localhost:3000', 60_000)
+  await waitForUrl('http://localhost:3000', SERVER_READY_TIMEOUT_MS)
   log('Frontend is ready.')
 
   // 6. Capture auth state
