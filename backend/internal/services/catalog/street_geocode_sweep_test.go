@@ -110,6 +110,37 @@ func (suite *VenueServiceIntegrationTestSuite) TestSweep_LimitBoundsNetworkBudge
 	suite.Equal(3, stub.calls, "the next tick picks up where the limit stopped")
 }
 
+// TestSweep_ConcurrentAddressEditNotClobbered asserts the write guard: a
+// live venue write that changes the address (and geocodes it inline) WHILE
+// the sweep's lookup for the OLD address is in flight must win — the sweep's
+// now-stale result is dropped, not written over the fresher one.
+func (suite *VenueServiceIntegrationTestSuite) TestSweep_ConcurrentAddressEditNotClobbered() {
+	seeded := suite.seedVenueRow("Sweep Race", "130 N Central Ave")
+
+	stub := hitStub(33.448227, -112.073069, geo.PrecisionRooftop)
+	stub.onCall = func() {
+		// Concurrent inline UpdateVenue: new address + its own geocode land
+		// while the sweep's lookup for the old address is still running.
+		suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Where("id = ?", seeded.ID).Updates(map[string]interface{}{
+			"address":           "500 New Rd",
+			"street_latitude":   40.0,
+			"street_longitude":  -74.0,
+			"geocode_precision": geo.PrecisionRooftop,
+			"geocoded_address":  "500 New Rd, Phoenix, AZ",
+		}).Error)
+	}
+
+	suite.sweepWithStub(stub, 0).RunSweepNow(context.Background())
+	suite.Equal(1, stub.calls)
+
+	v := suite.loadVenue(seeded.ID)
+	suite.Require().NotNil(v.GeocodedAddress)
+	suite.Equal("500 New Rd, Phoenix, AZ", *v.GeocodedAddress,
+		"the concurrent writer's fresher geocode must survive the sweep's stale write")
+	suite.Require().NotNil(v.StreetLatitude)
+	suite.InDelta(40.0, *v.StreetLatitude, 1e-6)
+}
+
 // TestSweep_CanceledContextAbortsCycle asserts the shutdown property: a
 // canceled ctx (main.go cancels before Stop) aborts the cycle between venues
 // instead of grinding through the remaining lookups.

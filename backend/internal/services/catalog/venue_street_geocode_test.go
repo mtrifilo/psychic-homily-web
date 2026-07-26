@@ -21,11 +21,17 @@ type stubAddressGeocoder struct {
 	err       error
 	calls     int
 	lastQuery geo.AddressQuery
+	// onCall, when set, runs inside GeocodeAddress — lets a test simulate a
+	// concurrent DB write landing while a lookup is in flight.
+	onCall func()
 }
 
 func (s *stubAddressGeocoder) GeocodeAddress(_ context.Context, q geo.AddressQuery) (geo.AddressResult, bool, error) {
 	s.calls++
 	s.lastQuery = q
+	if s.onCall != nil {
+		s.onCall()
+	}
 	return s.result, s.ok, s.err
 }
 
