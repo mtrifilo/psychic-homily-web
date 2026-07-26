@@ -140,6 +140,11 @@ func (s *RadioSyncSuite) TestVolumeAnomaly_IgnoresShowScopedRuns() {
 		}).Error)
 	}
 
+	// The guard needs consecutive empty STATION sweeps (PSY-1555). The scoped zeros above
+	// deliberately do not count toward it — if they did, a busy slot-fetch schedule could
+	// manufacture a streak on its own.
+	s.seedLowStreak(st.ID, 0, time.Now().Add(-15*time.Minute))
+
 	anomaly, _ := s.svc.detectVolumeAnomaly(st.ID, 0, 0)
 	s.True(anomaly,
 		"a zero-play sweep against the 100-play baseline must still flag — scoped runs must not dilute the mean")
