@@ -25,7 +25,9 @@ const TEST_PASSWORD = 'e2e-test-password-123'
 // authenticated user (worker index → user N), avoiding cross-worker races
 // on shared user state (saved_shows, favorite_venues, submissions, etc.).
 // Must match the seeded user count in setup-db.sh and the local workers
-// cap in playwright.config.ts.
+// cap in playwright.config.ts. It also sets how much work captureAuthState
+// has to push through AUTH_CAPTURE_CONCURRENCY below — raising it adds
+// batches, and so adds setup wall time. Check that constant too.
 const USER_COUNT = 5
 
 function userEmailForWorker(workerIndex: number): string {
@@ -232,13 +234,35 @@ function startBackend(): ChildProcess {
 // Warming /auth first was measured too and is NOT sufficient on its own — it
 // removes only the one-time compile (~1.6-2.9s), not the per-request
 // contention. Bounding concurrency is what keeps the tail in check.
+//
+// Numbers above measured 2026-07-26 (PSY-1557) on a 10-core machine, cold
+// .next, with a sibling dev server compiling — re-measure before trusting
+// them across a Next.js or Playwright upgrade.
 const AUTH_CAPTURE_CONCURRENCY = 2
 
-// Budget for loading /auth during setup. Both the navigation and the form wait
-// that follows it must use this: they cover one continuous stretch of
-// dev-server compilation plus contention, so letting them drift apart would
-// just move the failure from one line to the next.
+// Budget for the two waits that load /auth itself — the navigation and the
+// form render. They cover one continuous stretch of dev-server compilation
+// under contention, so they must move together; splitting them just moves the
+// failure from one line to the next.
 const AUTH_PAGE_TIMEOUT_MS = 60_000
+
+// The post-login redirect gets its own, smaller budget on purpose. It lands on
+// `/`, which globalSetup has already warmed via waitForUrl before any capture
+// starts, so it does NOT carry the cold-compile risk that /auth does — and the
+// measurements bear that out: worst observed was 9.4s (under the old unbounded
+// 6-way burst) and 1.5s once concurrency was capped. 30s is ~3x the worst
+// value ever recorded here, while keeping the per-login ceiling low enough to
+// stay useful: the whole phase's worst case scales as
+// ceil(logins / AUTH_CAPTURE_CONCURRENCY) x (2 x AUTH_PAGE_TIMEOUT_MS +
+// POST_LOGIN_REDIRECT_TIMEOUT_MS), which has to stay diagnosable inside the
+// e2e-smoke job budget rather than being killed by it.
+const POST_LOGIN_REDIRECT_TIMEOUT_MS = 30_000
+
+// Readiness budget for a server process to answer at all. Deliberately NOT
+// AUTH_PAGE_TIMEOUT_MS: that one covers page compilation under contention,
+// this one covers process boot. They happen to be equal today; keep them
+// separate so tuning one doesn't silently retune the other.
+const SERVER_READY_TIMEOUT_MS = 60_000
 
 type SeededLogin = {
   email: string
@@ -255,8 +279,19 @@ async function captureStorageState(
     const page = await context.newPage()
     await loginAs(page, login.email, login.password)
     await context.storageState({ path: path.join(AUTH_DIR, login.authFile) })
+    // Per-login progress: when a login is the thing that hangs, this is what
+    // tells you which one, and how far the batch got, instead of leaving an
+    // outer job timeout with nothing to go on.
+    log(`  captured ${login.authFile}`)
   } finally {
-    await context.close()
+    // Never let a teardown failure replace the real error: if one capture
+    // rejects, the shared browser is closed while siblings are still in
+    // flight, so their context.close() can fail for reasons that have nothing
+    // to do with why the run actually failed. Log rather than discard, so a
+    // close failure that ISN'T that race still leaves a trace.
+    await context
+      .close()
+      .catch((err) => log(`  warn: close failed for ${login.authFile}: ${err}`))
   }
 }
 
@@ -313,9 +348,11 @@ async function loginAs(page: Page, email: string, password: string) {
   await page.locator('#password').fill(password)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 
-  // Wait for redirect away from /auth (successful login)
+  // Wait for redirect away from /auth (successful login). See
+  // POST_LOGIN_REDIRECT_TIMEOUT_MS for why this one is deliberately smaller
+  // than the two waits above.
   await page.waitForURL((url) => !url.pathname.startsWith('/auth'), {
-    timeout: 15_000,
+    timeout: POST_LOGIN_REDIRECT_TIMEOUT_MS,
   })
 }
 
@@ -338,12 +375,12 @@ export default async function globalSetup(_config: FullConfig) {
 
   // 4. Wait for backend health
   log('Waiting for backend health check...')
-  await waitForUrl('http://localhost:8080/health', 60_000)
+  await waitForUrl('http://localhost:8080/health', SERVER_READY_TIMEOUT_MS)
   log('Backend is healthy.')
 
   // 5. Wait for frontend (started by Playwright webServer config)
   log('Waiting for frontend...')
-  await waitForUrl('http://localhost:3000', 60_000)
+  await waitForUrl('http://localhost:3000', SERVER_READY_TIMEOUT_MS)
   log('Frontend is ready.')
 
   // 6. Capture auth state
