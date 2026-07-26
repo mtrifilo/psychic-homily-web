@@ -36,23 +36,21 @@ const h = vi.hoisted(() => ({
 vi.mock('next/dynamic', async () => {
   const React = await import('react')
 
+  // `ref` is a plain prop on React 19 function components, so these stubs take
+  // it as one rather than going through forwardRef (which would mean reading a
+  // ref during render).
+
   // The loaded chunk. Only this component ever touches the ref — mirroring
   // next/dynamic, where the loading fallback is a DIFFERENT element that
   // forwards nothing.
-  const LoadedGraph = React.forwardRef(function LoadedGraph(
-    _props: Record<string, unknown>,
-    ref: React.Ref<unknown>
-  ) {
-    React.useImperativeHandle(ref, () => h.graph, [])
+  function LoadedGraph({ graphRef }: { graphRef: React.Ref<unknown> }) {
+    React.useImperativeHandle(graphRef, () => h.graph, [])
     return React.createElement('div', { 'data-testid': 'force-graph' })
-  })
+  }
 
   return {
     default: () =>
-      React.forwardRef(function ForceGraph2DStub(
-        props: Record<string, unknown>,
-        ref: React.Ref<unknown>
-      ) {
+      function ForceGraph2DStub({ ref }: { ref?: React.Ref<unknown> }) {
         const [chunkLoaded, setChunkLoaded] = React.useState(
           !h.deferMount.value
         )
@@ -68,8 +66,8 @@ vi.mock('next/dynamic', async () => {
         if (!chunkLoaded) {
           return React.createElement('div', { 'data-testid': 'graph-skeleton' })
         }
-        return React.createElement(LoadedGraph, { ...props, ref })
-      }),
+        return React.createElement(LoadedGraph, { graphRef: ref ?? null })
+      },
   }
 })
 

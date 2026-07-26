@@ -55,6 +55,10 @@ import {
   useContainerWidth,
   GRAPH_BREAKPOINT_PX,
 } from '@/components/graph/useContainerWidth'
+import {
+  compareByCenterEdgeScore,
+  maxCenterEdgeScoreByNeighbor,
+} from './egoNeighborRank'
 import { useArtistGraph } from '../hooks/useArtistGraph'
 import { useArtistGraphCard } from '../hooks/useArtistGraphCard'
 import { ArtistGraphVisualization } from './ArtistGraph'
@@ -77,10 +81,10 @@ export const CONNECTIONS_NEIGHBOR_CAP = 14
 const CONNECTIONS_CANVAS_HEIGHT = 360
 
 /**
- * Height reserved for the pre-measurement skeleton: teaser height below the
- * 640px canvas gate, canvas height above it. The `sm` value tracks
- * CONNECTIONS_CANVAS_HEIGHT by hand (Tailwind arbitrary values can't read
- * the const) and approximates the settled box from BELOW — the rendered
+ * Height reserved for the pre-measurement skeleton: the shared teaser height
+ * below the 640px canvas gate (whichever box lands there is that tall), the
+ * canvas height above it. The `sm` value tracks CONNECTIONS_CANVAS_HEIGHT by
+ * hand (Tailwind arbitrary values can't read the const) and approximates the settled box from BELOW — the rendered
  * surface is ~30px taller, because ArtistGraphVisualization stacks the
  * EgoTypeLegend under the canvas inside its bordered container. Reserving
  * the canvas height rather than the exact total is the same accepted
@@ -88,7 +92,7 @@ const CONNECTIONS_CANVAS_HEIGHT = 360
  * in practice: useContainerWidth measures via a callback ref during commit,
  * so this skeleton is typically replaced before the browser paints it.
  */
-const PLACEHOLDER_HEIGHT_CLASS = 'h-[240px] sm:h-[360px]'
+const PLACEHOLDER_HEIGHT_CLASS = `${GRAPH_TEASER_HEIGHT_CLASS} sm:h-[360px]`
 
 export interface CappedEgoGraph {
   graph: ArtistGraph
@@ -99,41 +103,22 @@ export interface CappedEgoGraph {
 }
 
 /**
- * Cap the ego payload to the top `cap` neighbors by max center-edge score,
- * ties breaking on ascending id. That is deliberately the SAME comparator
- * the sidebar Similar-artists list uses in its default "relevant" mode
- * (RelatedArtists), including its center-connected filter — the two
- * surfaces read off one payload, so they must not disagree about which
- * artists rank highest. (The sidebar's opt-in Discovery sort modes re-order
- * by DOI; this canvas has no mode toggle and always shows the default
- * ranking.)
+ * Cap the ego payload to the top `cap` neighbors by the shared ego ranking
+ * (egoNeighborRank) — the same order and the same center-connected filter the
+ * sidebar Similar-artists list uses in its default "relevant" mode, so the two
+ * surfaces can't disagree about who ranks highest. (The sidebar's opt-in
+ * Discovery sort modes re-order by DOI; this canvas has no mode toggle and
+ * always shows the default ranking.)
  *
  * Kept links are those with both endpoints still on canvas, so
  * cross-connections among kept neighbors survive and dangling ones drop.
  */
 export function capEgoNeighbors(graph: ArtistGraph, cap: number): CappedEgoGraph {
-  const maxCenterScore = new Map<number, number>()
-  for (const link of graph.links) {
-    const otherId =
-      link.source_id === graph.center.id
-        ? link.target_id
-        : link.target_id === graph.center.id
-          ? link.source_id
-          : null
-    if (otherId === null) continue
-    const prev = maxCenterScore.get(otherId)
-    if (prev === undefined || link.score > prev) {
-      maxCenterScore.set(otherId, link.score)
-    }
-  }
+  const maxCenterScore = maxCenterEdgeScoreByNeighbor(graph)
 
   const connected = graph.nodes.filter(node => maxCenterScore.has(node.id))
   const kept = [...connected]
-    .sort((a, b) => {
-      const scoreDiff = maxCenterScore.get(b.id)! - maxCenterScore.get(a.id)!
-      if (scoreDiff !== 0) return scoreDiff
-      return a.id - b.id
-    })
+    .sort(compareByCenterEdgeScore(maxCenterScore))
     .slice(0, cap)
 
   const keptIds = new Set<number>([graph.center.id, ...kept.map(n => n.id)])
