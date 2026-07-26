@@ -91,10 +91,12 @@ const RING_MAX_RADIUS_PX = 30
 const RING_MAX_OPACITY = 0.55
 const RING_COLOR = '#ff7a3c'
 
-// Atmosphere glow (PSY-1284-era visual: #4aa3ff at altitude 0.18). MapLibre's
-// sky/atmosphere is thinner than the three.js halo, so a CSS box-shadow halo
-// sized to the globe's screen radius supplements it (see updateHalo).
-const HALO_COLOR = 'rgba(74, 163, 255, 0.32)'
+// Atmosphere glow (matches the shipped globe's #4aa3ff three.js halo).
+// MapLibre's sky/atmosphere renders thinner and sun-angled, so a two-layer
+// CSS box-shadow halo sized to the globe's screen radius supplements it:
+// a tight rim plus a wide falloff, approximating the old uniform glow.
+const HALO_SHADOW =
+  '0 0 90px 24px rgba(74, 163, 255, 0.42), 0 0 220px 80px rgba(74, 163, 255, 0.18)'
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -449,19 +451,19 @@ export default function GlobeCanvas({
     mapRef.current = map
 
     // Verification seam for the browser-automation aliveness harness
-    // (getCenter drag assertions + first-idle readiness gate). Deliberately
-    // tiny and stateless — remove-safe.
+    // (getCenter drag assertions + readiness gate). Gated on 'load', NOT
+    // 'idle': the pulse-ring rAF loop changes paint properties every frame,
+    // so the map never idles while rings are animating. Deliberately tiny
+    // and stateless — remove-safe.
     const w = window as unknown as {
       __atlasMap?: maplibregl.Map | null
-      __atlasMapIdle?: boolean
+      __atlasMapLoaded?: boolean
     }
     w.__atlasMap = map
-    w.__atlasMapIdle = false
-    map.once('idle', () => {
-      w.__atlasMapIdle = true
-    })
+    w.__atlasMapLoaded = false
 
     map.on('load', () => {
+      w.__atlasMapLoaded = true
       setMapReady(map)
     })
 
@@ -551,7 +553,7 @@ export default function GlobeCanvas({
       }
       if (w.__atlasMap === map) {
         w.__atlasMap = null
-        w.__atlasMapIdle = false
+        w.__atlasMapLoaded = false
       }
       mapRef.current = null
       setMapReady((prev) => (prev === map ? null : prev))
@@ -579,9 +581,14 @@ export default function GlobeCanvas({
         ref={haloRef}
         aria-hidden="true"
         className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
-        style={{ boxShadow: `0 0 90px 28px ${HALO_COLOR}` }}
+        style={{ boxShadow: HALO_SHADOW }}
       />
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* Inline position/inset, NOT Tailwind classes: maplibre-gl.css sets
+          `.maplibregl-map { position: relative }` on this node at map init,
+          which ties with the `absolute` utility class and (depending on
+          stylesheet order) collapses the container to 0 height — the canvas
+          then falls back to its 300px default. Inline style always wins. */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
       <div
         ref={tooltipRef}
         className="pointer-events-none absolute z-10 rounded border border-border bg-background/90 px-2 py-1 text-xs text-foreground backdrop-blur"
