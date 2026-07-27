@@ -1,0 +1,31 @@
+-- PSY-1570 follow-up: gather statistics for the expression indexes added by
+-- 20260726230000, so the planner will actually use them.
+--
+-- Creating an expression index does NOT populate statistics for the indexed
+-- expression; only ANALYZE does. Until it runs, the planner has no selectivity
+-- estimate for radio_normalize_name(col) and falls back to a default that loses
+-- to a primary-key walk for the ORDER BY id LIMIT n query shape. Observed on
+-- production immediately after 20260726230000 applied:
+--
+--   releases: Index Scan using releases_pkey + Filter,
+--             Rows Removed by Filter: 20397, 5166 buffers, 80.4 ms
+--   artists:  Index Scan using artists_pkey + Filter,
+--             Rows Removed by Filter: 5687,  3128 buffers, 23.7 ms
+--
+-- i.e. the new indexes sat unused. After ANALYZE, same queries:
+--
+--   releases: Index Scan using idx_releases_norm_title, 5 buffers, ~0.02 ms
+--   artists:  Index Scan using idx_artists_norm_name,   5 buffers, ~0.13 ms
+--
+-- autoanalyze would eventually have fixed this on its own, but "eventually" is
+-- load-bearing: prod's last analyze on releases was three days old at the time,
+-- so the index the migration exists to add would have been dead weight for days.
+-- Both prod and stage were confirmed in that state (last_analyze = never for all
+-- three tables) before this migration was written.
+--
+-- ANALYZE is transaction-safe (unlike VACUUM), so this is fine in a
+-- multi-statement migration file. On a fresh/empty database it is a cheap no-op
+-- and normal autoanalyze takes over once data lands.
+ANALYZE radio_plays;
+ANALYZE releases;
+ANALYZE artists;
