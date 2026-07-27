@@ -9,7 +9,9 @@
  */
 
 import { haversineDistanceKm } from '@/lib/haversine'
-import type { VenueWithShowCount } from '@/features/venues/types'
+import type { Venue, VenueWithShowCount } from '@/features/venues/types'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { formatInTimezone } from '@/lib/utils/timeUtils'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
 
@@ -46,6 +48,26 @@ export const CITY_VIEW_MIN_VIEWPORT_PX = 900
 
 // One page of venues is enough for a city rail; the endpoint caps limit at 100.
 export const CITY_VENUE_FETCH_LIMIT = 100
+
+// ── Venue panel (PSY-1540) ────────────────────────────────────────────────
+// The panel's fixed width, from the mock. It floats over the map's RIGHT edge
+// while the rail sits beside the map's left, so the two never fight for the
+// same pixels — and neither goes near the bottom-left attribution control.
+export const CITY_VENUE_PANEL_WIDTH_PX = 384
+
+// How far the panel's bottom edge stays clear of the map frame. The map's
+// attribution control is docked bottom-LEFT and the ODbL makes it a licensing
+// requirement to keep it visible (PSY-1543's adversarial review found a panel
+// hiding it outright). A right-docked panel only reaches the credit when the
+// map pane is narrow enough that 384px of panel spans into it — so rather than
+// depend on the pane being wide, the panel simply stops above the credit's
+// strip. Same ~30px strip the "N more scenes" link clears with bottom-11.
+export const CITY_VENUE_PANEL_BOTTOM_INSET_PX = 36
+
+// How many show rows the panel lists before deferring to "view all N →". The
+// mock draws five; past that the panel stops being a glance and the venue page
+// is the better surface.
+export const VENUE_PANEL_SHOW_ROWS = 5
 
 // ── Which city owns the camera ────────────────────────────────────────────
 
@@ -324,4 +346,93 @@ export function formatNextShowDate(isoDate: string | undefined | null): string {
     month: 'short',
     day: 'numeric',
   })
+}
+
+// ── Venue panel copy (PSY-1540) ───────────────────────────────────────────
+
+/**
+ * "FRI 7/31" — the panel's mono date column, in the VENUE's timezone.
+ *
+ * Unlike `formatNextShowDate` above, the input here is a full timestamp from
+ * `GET /venues/{id}/shows` rather than a pre-resolved date string, so the zone
+ * conversion has to happen here: a 9pm Friday show in Austin read in a
+ * European viewer's zone is Saturday, and the panel is describing the venue's
+ * calendar, not the reader's. `resolveShowTimezone` is the app-wide chain —
+ * the venue's IANA zone when known, the US state map as the pre-backfill
+ * fallback (PSY-985/986).
+ *
+ * Returns '' for a missing or unparseable timestamp so the caller renders an
+ * empty column rather than "Invalid Date".
+ */
+export function formatPanelShowDate(
+  eventDate: string | null | undefined,
+  state: string | null | undefined,
+  timezone: string | null | undefined,
+): string {
+  if (!eventDate) return ''
+  if (Number.isNaN(new Date(eventDate).getTime())) return ''
+  return formatInTimezone(eventDate, resolveShowTimezone(state, timezone), {
+    weekday: 'short',
+    month: 'numeric',
+    day: 'numeric',
+  })
+    .replace(',', '')
+    .toUpperCase()
+}
+
+/**
+ * The panel's mono identity line, e.g. "1502 E 6th St · cap ~250 · Austin, TX".
+ *
+ * PRIVACY GATE (PSY-1536): `address` is one of the fields the API redacts for
+ * unverified venues — `buildVenueResponse` serves it only when `verified` — so
+ * an unverified venue arrives here with `address` already null and this line
+ * simply omits that segment. This function must never reconstruct a street
+ * address from another field for the same reason `venuePinPosition` must never
+ * reconstruct a street coordinate: the redaction is the product decision, and
+ * a panel that leaked what the map withholds would defeat it.
+ *
+ * Capacity is deliberately NOT gated — the backend serves it for unverified
+ * venues too, on the stated grounds that a room size is not sensitive.
+ *
+ * The mock also draws a neighborhood ("East Austin") and an age policy
+ * ("21+ varies"). Neither is in the venue model, and inventing them is exactly
+ * the fabrication the rail's disabled "All ages" chip already refuses to do,
+ * so both segments are absent rather than guessed.
+ */
+export function venuePanelIdentityLine(
+  venue: Pick<Venue, 'address' | 'capacity' | 'city' | 'state'>,
+): string {
+  const parts: string[] = []
+  const address = venue.address?.trim()
+  if (address) parts.push(address)
+  if (typeof venue.capacity === 'number' && venue.capacity > 0) {
+    parts.push(`cap ~${venue.capacity}`)
+  }
+  const place = [venue.city?.trim(), venue.state?.trim()]
+    .filter(Boolean)
+    .join(', ')
+  if (place) parts.push(place)
+  return parts.join(' · ')
+}
+
+/**
+ * How many upcoming shows to CLAIM the venue has.
+ *
+ * `total` is the endpoint's unfiltered count and `listed` is what survived
+ * client-side de-duplication of the fetched page (the venue page's shared
+ * `dedupVenueShows`). When the page was truncated by the fetch limit, `total`
+ * is the only honest number available. When it wasn't, the deduped length is
+ * the more honest one — `total` would double-count the duplicate rows the
+ * reader can plainly see are gone.
+ */
+export function venuePanelShowCount(args: {
+  total: number | undefined
+  listed: number
+  fetched: number
+  limit: number
+}): number {
+  const { total, listed, fetched, limit } = args
+  const truncated = fetched >= limit
+  if (truncated && typeof total === 'number' && total > listed) return total
+  return listed
 }

@@ -1158,15 +1158,16 @@ export default function GlobeCanvas({
         style={{ display: 'none' }}
       >
         <div ref={venueTooltipNameRef} className="text-sm text-foreground" />
-        {/* No "click for shows →" line yet. The mock draws one, but it
-            describes the finished feature across boards 01 AND 02: clicking a
-            pin today opens the selection seam, and the venue panel that would
-            actually show the shows is PSY-1540. A live CTA promising a payload
-            that does not exist is worse than no CTA. */}
         <div
           ref={venueTooltipMetaRef}
           className="font-mono text-[11px] text-muted-foreground"
         />
+        {/* The mock's CTA, held back by PSY-1539 because clicking a pin then
+            opened only a selection seam. PSY-1540 built the panel it promises,
+            so the promise is now true. Static text, so it needs no ref. */}
+        <div className="font-mono text-[11px] text-primary">
+          click for shows →
+        </div>
       </div>
     </div>
   )
