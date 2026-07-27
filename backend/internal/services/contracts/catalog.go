@@ -1231,4 +1231,12 @@ type SceneServiceInterface interface {
 	// drop bands the cursor then advances past). The weekly digest's "new
 	// bands based here" stream (PSY-1342). Same roster scope as GetActiveArtists.
 	GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]SceneNewArtist, int, error)
+	// GetSceneShowsInRange returns the scene's approved shows in the half-open
+	// window [from, to), rendering dates in loc. Shared by the digest email and
+	// the weekly city page so the two can never disagree about a scene's shows.
+	GetSceneShowsInRange(city, state string, from, to time.Time, loc *time.Location, limit int) ([]SceneShowSummary, error)
+	// GetSceneWeek returns one ISO week of a scene's shows grouped by day,
+	// computed in the SCENE's timezone. weekKey is an ISO week key
+	// ("2026-W31") or "" for the scene's current week.
+	GetSceneWeek(city, state, weekKey string) (*SceneWeekResponse, error)
 }

@@ -174,11 +174,15 @@ func (s *SceneService) GetSceneWeek(city, state, weekKey string) (*contracts.Sce
 	// Pre-seed all seven days so quiet nights render as empty rather than
 	// vanishing, then bucket by the scene-local date the query already
 	// formatted.
+	// Seeded with empty (non-nil) slices so a quiet day marshals as `[]` rather
+	// than `null`. A nil slice would force every client to handle two shapes
+	// for "no shows", and a TS type declaring `shows: Show[]` would silently
+	// receive null.
 	byDate := make(map[string][]contracts.SceneShowSummary, 7)
 	days := make([]contracts.SceneWeekDay, 0, 7)
 	for i := 0; i < 7; i++ {
 		key := start.AddDate(0, 0, i).Format("2006-01-02")
-		byDate[key] = nil
+		byDate[key] = []contracts.SceneShowSummary{}
 		days = append(days, contracts.SceneWeekDay{Date: key})
 	}
 	for _, sh := range shows {
@@ -194,8 +198,15 @@ func (s *SceneService) GetSceneWeek(city, state, weekKey string) (*contracts.Sce
 	if err != nil {
 		return nil, err
 	}
+	if venues == nil {
+		venues = []string{}
+	}
 
 	return &contracts.SceneWeekResponse{
+		// Canonical slug, not whatever the caller asked for: a metro MEMBER
+		// slug (mesa-az) resolves to its principal city (phoenix-az), and the
+		// client builds prev/next week URLs from this.
+		Slug:          buildSceneSlug(city, state),
 		SceneName:     fmt.Sprintf("%s, %s", city, state),
 		City:          city,
 		State:         state,
