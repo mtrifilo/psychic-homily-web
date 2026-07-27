@@ -185,11 +185,20 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   // this guard is what actually stops a second write — not the browser.
   const confirmInert = confirm.isPending || hasConfirmed
 
+  // ONE sign-in destination for both routes into it — the pre-tap redirect below
+  // and the expired-session link under the error. They were built separately and
+  // had already drifted (one preserved the query string, the other dropped it).
+  // /atlas carries no URL state today so the drift was invisible, which is
+  // exactly what makes it a trap for whoever adds some.
+  const signInHref = () => {
+    const search = typeof window === 'undefined' ? '' : window.location.search
+    return `/auth?returnTo=${encodeURIComponent(`${pathname}${search}`)}`
+  }
+
   const handleConfirm = () => {
     if (confirmInert) return
     if (!isAuthenticated) {
-      const returnTo = `${pathname}${window.location.search}`
-      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
+      router.push(signInHref())
       return
     }
     confirm.mutate(venue.id)
@@ -299,7 +308,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
                 <>
                   {' '}
                   <Link
-                    href={`/auth?returnTo=${encodeURIComponent(pathname)}`}
+                    href={signInHref()}
                     className="underline underline-offset-4"
                   >
                     Sign in
