@@ -4,7 +4,7 @@ import { renderWithProviders } from '@/test/utils'
 import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { ArtistGraph } from '../types'
 
-// PSY-1575: at desktop width the Connections count line promises "click a name
+// At desktop width the Connections count line promises "click a name
 // to see how it connects", but the canvas below it sits in a
 // GraphSectionErrorBoundary mounted with NO fallback — it self-hides. A failed
 // react-force-graph-2d chunk fetch (the dominant trigger: a deploy rotates the

@@ -20,8 +20,8 @@
  *     a visible state (/explore's posture).
  *   - `onError`: optional notification so a SELF-HIDING consumer can retract copy
  *     that sits OUTSIDE this boundary and only makes sense with the canvas present
- *     (ArtistConnectionsSection's "click a name" clause — PSY-1575). Purely
- *     additive: what this boundary itself renders is unchanged either way.
+ *     (a "click a name"-style interaction instruction above it). Purely additive:
+ *     what this boundary itself renders is unchanged either way.
  *
  * NOTE on recovery: the boundary deliberately does NOT offer an in-place "reset".
  * next/dynamic wraps the import in a module-scoped React.lazy that permanently
