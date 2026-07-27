@@ -32,7 +32,7 @@
  * the sidebar Similar-artists list anchor instead of a canvas.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { BracketLink, SectionHeader } from '@/components/shared'
 import {
   ArtistContextPanel,
@@ -157,6 +157,14 @@ export function ArtistConnectionsSection({
   })
   const { refCallback, containerWidth } = useContainerWidth()
 
+  // A caught graph failure is remembered PER ARTIST rather than as a bare
+  // boolean, and compared during render rather than synced by an effect: this
+  // component sits at a stable position across artist routes, so a bare flag
+  // could outlive the artist it was observed for and permanently suppress the
+  // interaction clause for a healthy graph.
+  const [failedArtistId, setFailedArtistId] = useState<number | null>(null)
+  const graphFailed = failedArtistId === artistId
+
   const capped = useMemo(
     () => (graph ? capEgoNeighbors(graph, CONNECTIONS_NEIGHBOR_CAP) : null),
     [graph]
@@ -213,9 +221,11 @@ export function ArtistConnectionsSection({
   // isn't a gate — the two disagree in the narrow band where the column is
   // under 640 while the viewport is over it.
   //
-  // NOT covered: a chunk-load failure. `GraphSectionErrorBoundary` below is
-  // mounted with no `fallback`, so it self-hides and the clause can outlive
-  // its canvas on that path (PSY-1575).
+  // A chunk-load failure is the gate's SECOND input, not an exception to it:
+  // the boundary below still self-hides (no `fallback`), but it reports the
+  // catch via `onError`, and `graphFailed` retracts the clause with it — the
+  // section keeps its header and count, and only the promise of interaction
+  // goes away.
   //
   // Pre-measurement (`null`) counts as no canvas: the skeleton paint must not
   // flash a "click a name" instruction that then disappears on mobile.
@@ -236,7 +246,7 @@ export function ArtistConnectionsSection({
           desktop-only — below the gate there are no names to click. */}
       <p className="text-sm text-muted-foreground mb-2">
         {sentenceCase(phrase)}
-        {graphAvailable && ' · click a name to see how it connects'}
+        {graphAvailable && !graphFailed && ' · click a name to see how it connects'}
       </p>
 
       {/* Pre-measurement: hold the box height so the settle can't shift the
@@ -256,8 +266,20 @@ export function ArtistConnectionsSection({
 
       {graphAvailable && (
         // Contain a graph chunk-load failure to this section (self-hide, no
-        // fallback) — a graph problem must never dent the artist page.
-        <GraphSectionErrorBoundary sentryTag="artist-connections-section">
+        // fallback) — a graph problem must never dent the artist page — and
+        // report the catch upward so the count line's interaction clause goes
+        // with the canvas instead of promising names nothing renders.
+        //
+        // Keyed by artist for the same reason `graphFailed` is: the boundary
+        // latches `failed` for its lifetime and offers no reset, so without
+        // the key a failure on one artist would keep the canvas hidden after
+        // navigating to the next one while `graphFailed` had already reset —
+        // the same clause/canvas split, inverted.
+        <GraphSectionErrorBoundary
+          key={artistId}
+          sentryTag="artist-connections-section"
+          onError={() => setFailedArtistId(artistId)}
+        >
           <GraphPanelHost
             canvasWrapRef={canvasWrapRef}
             panel={

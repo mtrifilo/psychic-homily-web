@@ -18,6 +18,10 @@
  *   - `fallback`: what to render on error. Omit it to SELF-HIDE (render nothing —
  *     the homepage's posture: the section just disappears). Provide a node to show
  *     a visible state (/explore's posture).
+ *   - `onError`: optional notification so a SELF-HIDING consumer can retract copy
+ *     that sits OUTSIDE this boundary and only makes sense with the canvas present
+ *     (a "click a name"-style interaction instruction above it). Purely additive:
+ *     what this boundary itself renders is unchanged either way.
  *
  * NOTE on recovery: the boundary deliberately does NOT offer an in-place "reset".
  * next/dynamic wraps the import in a module-scoped React.lazy that permanently
@@ -40,6 +44,8 @@ interface GraphSectionErrorBoundaryProps {
   sentryTag: string
   /** Rendered on error. Omit to self-hide (render nothing). */
   fallback?: ReactNode
+  /** Notified once when a failure is caught, after it is reported to Sentry. */
+  onError?: (error: unknown) => void
 }
 
 interface GraphSectionErrorBoundaryState {
@@ -63,6 +69,7 @@ export class GraphSectionErrorBoundary extends Component<
     Sentry.captureException(error, {
       tags: { section: this.props.sentryTag },
     })
+    this.props.onError?.(error)
   }
 
   render() {
