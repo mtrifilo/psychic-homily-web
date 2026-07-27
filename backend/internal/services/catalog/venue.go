@@ -832,7 +832,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		}
 		// data_source is not part of the serialized venue response (it is an
 		// internal provenance column), so carry it alongside for the stamp.
-		dataSources[vc.Venue.ID] = vc.Venue.DataSource
+		dataSources[vc.ID] = vc.DataSource
 	}
 
 	// Atlas venue-rail payload (next show, this-week slice, dominant genre) for
