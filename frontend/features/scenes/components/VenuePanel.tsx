@@ -40,12 +40,20 @@ interface VenuePanelProps {
   venue: VenueWithShowCount
   onClose: () => void
   /**
-   * PSY-1541's artist drill-in seam. A show row is a button, not a link,
-   * because the drill-in opens IN the Atlas rather than navigating away; until
-   * 1541 lands there is nothing to open, so rows render inert when this is
-   * undefined rather than pretending to be actionable.
+   * The artist drill-in seam (PSY-1541). A show row is a button, not a link,
+   * because the drill-in opens IN the Atlas rather than navigating away; rows
+   * render inert when this is undefined rather than pretending to be
+   * actionable.
+   *
+   * `listedShows` is the second argument because the drill-in's `‹ ›` stepper
+   * walks THE LIST YOU DRILLED IN FROM (a locked user decision, 2026-07-25),
+   * not the one show you clicked. It is exactly the rows this panel is
+   * drawing — deduped and truncated to VENUE_PANEL_SHOW_ROWS — so "2 of 5"
+   * means the same thing as reading these rows top to bottom, and the panel
+   * that owns the list is the one that hands it over rather than the caller
+   * re-deriving it from a differently-parameterized fetch.
    */
-  onShowSelect?: (show: VenueShow) => void
+  onShowSelect?: (show: VenueShow, listedShows: VenueShow[]) => void
 }
 
 /**
@@ -259,6 +267,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
                     <ShowRow
                       show={show}
                       venue={venue}
+                      listedShows={visible}
                       onSelect={onShowSelect}
                     />
                   </li>
@@ -301,11 +310,13 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
 function ShowRow({
   show,
   venue,
+  listedShows,
   onSelect,
 }: {
   show: VenueShow
   venue: VenueWithShowCount
-  onSelect?: (show: VenueShow) => void
+  listedShows: VenueShow[]
+  onSelect?: (show: VenueShow, listedShows: VenueShow[]) => void
 }) {
   // Per-show `state` first, venue's as the fallback — the same precedence
   // VenueShowsList uses, so the two surfaces can't disagree about a date.
@@ -359,7 +370,7 @@ function ShowRow({
   return (
     <button
       type="button"
-      onClick={() => onSelect(show)}
+      onClick={() => onSelect(show, listedShows)}
       className="flex w-full gap-3 border-b border-border/60 px-4 py-2.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {body}

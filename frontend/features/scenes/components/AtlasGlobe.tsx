@@ -34,8 +34,16 @@ import {
   venuePinPosition,
   type CityVenueFilters,
 } from '../cityView'
+import {
+  buildArtistSteps,
+  clampStepIndex,
+  firstStepIndexForShow,
+  type ArtistStep,
+} from '../artistDrillIn'
+import type { VenueShow } from '@/features/venues/types'
 import { VenueRail } from './VenueRail'
 import { VenuePanel } from './VenuePanel'
+import { ArtistPanel } from './ArtistPanel'
 import { pickDriftScene } from './drift'
 import { AtlasSearch } from './AtlasSearch'
 import { GenreLegend } from './GenreLegend'
@@ -56,6 +64,16 @@ const EMPTY_SCENES: SceneListItem[] = []
 // pin/filter memos on every render (the identity-churn class of bug PSY-1538
 // shipped a HIGH for).
 const EMPTY_VENUES: VenueWithShowCount[] = []
+
+/**
+ * An open artist drill-in (PSY-1541): the list the user drilled in FROM, and
+ * where in it they currently are. Captured once at drill-in time — see
+ * `handleShowSelect` for why the list is state rather than a derivation.
+ */
+interface ArtistDrillIn {
+  steps: ArtistStep[]
+  index: number
+}
 
 function GlobeSkeleton() {
   return <div className="h-full w-full animate-pulse bg-muted/10" aria-hidden="true" />
@@ -167,11 +185,13 @@ export function AtlasGlobe() {
   // filters against the new city's venues).
   const [filters, setFilters] = useState<CityVenueFilters>(NO_CITY_VENUE_FILTERS)
   const [selectedVenueId, setSelectedVenueId] = useState<number | null>(null)
+  const [drillIn, setDrillIn] = useState<ArtistDrillIn | null>(null)
   const [filtersCitySlug, setFiltersCitySlug] = useState<string | null>(null)
   if (citySlug !== filtersCitySlug) {
     setFiltersCitySlug(citySlug)
     setFilters(NO_CITY_VENUE_FILTERS)
     setSelectedVenueId(null)
+    setDrillIn(null)
   }
   // INVARIANT: a scene preview and city view never coexist. City view hides
   // the globe chrome the panel lives in, which UNMOUNTS the panel without
@@ -249,10 +269,17 @@ export function AtlasGlobe() {
   // second click on an open pin closes what the first click opened.
   const handleVenueSelect = useCallback((venueId: number) => {
     setSelectedVenueId((prev) => (prev === venueId ? null : venueId))
+    // A drill-in belongs to the venue it was opened from. Picking any venue —
+    // including re-picking this one to close it — ends that drill-in rather
+    // than leaving an artist panel breadcrumbed to a venue you just left.
+    setDrillIn(null)
   }, [])
   // The panel's own dismissals (✕, Escape) close unconditionally — a toggle
   // would reopen the panel if the same venue were somehow re-reported.
-  const handleVenuePanelClose = useCallback(() => setSelectedVenueId(null), [])
+  const handleVenuePanelClose = useCallback(() => {
+    setSelectedVenueId(null)
+    setDrillIn(null)
+  }, [])
 
   // The panel renders from the row the rail already fetched, so opening it
   // costs no venue request — only the shows request it makes itself. Resolved
@@ -268,6 +295,53 @@ export function AtlasGlobe() {
         : (filteredVenues.find((v) => v.id === selectedVenueId) ?? null),
     [filteredVenues, selectedVenueId],
   )
+
+  // INVARIANT: a drill-in never outlives the panel it breadcrumbs back to. The
+  // venue can drop out from under it — a filter change excludes it, a city
+  // hand-off empties the list — and an artist panel whose "← Hotel Vegas"
+  // returns to nothing is a dead end. Cleared during render, not in an effect,
+  // for the reason the filter reset above is: an effect would paint one frame
+  // of the orphaned panel first.
+  if (selectedVenue === null && drillIn !== null) {
+    setDrillIn(null)
+  }
+
+  // ── Artist drill-in (PSY-1541) ────────────────────────────────────────────
+  // The stepper walks the list you drilled in FROM (locked user decision,
+  // 2026-07-25), so the originating list is captured ONCE here, at drill-in
+  // time, and carried in state alongside the index. Deliberately not derived
+  // per render from the venue's shows: this array feeds the artist panel's
+  // query keys, and a reference that churned per render would re-key them
+  // every frame — the identity-churn class of bug PSY-1538 shipped a HIGH for,
+  // and the one that hides from a local pass.
+  const handleShowSelect = useCallback(
+    (show: VenueShow, listedShows: VenueShow[]) => {
+      const steps = buildArtistSteps(listedShows)
+      const index = firstStepIndexForShow(steps, show.id)
+      // -1 means the clicked show contributed no steppable artist (an empty or
+      // entirely id-less bill). Opening on some OTHER show's headliner because
+      // this one had no bill would be worse than not opening, so do nothing —
+      // the venue panel stays put, which is what the click looked like anyway.
+      if (index < 0) return
+      setDrillIn({ steps, index })
+    },
+    [],
+  )
+  // Pop ONE level. The venue panel is remounted by this, not revealed: its
+  // shows are already in the React Query cache, so it comes back instantly
+  // with the same rows, count and "view all" state it had.
+  const handleDrillInBack = useCallback(() => setDrillIn(null), [])
+  const handleDrillInClose = useCallback(() => {
+    setDrillIn(null)
+    setSelectedVenueId(null)
+  }, [])
+  const handleDrillInStep = useCallback((nextIndex: number) => {
+    setDrillIn((prev) =>
+      prev === null
+        ? prev
+        : { steps: prev.steps, index: clampStepIndex(prev.steps, nextIndex) },
+    )
+  }, [])
 
   // "← globe": fly back out to the globe's landing altitude over the city you
   // were in, which drops the camera below the city-view threshold and hands
@@ -440,19 +514,37 @@ export function AtlasGlobe() {
             }
             onCameraSettle={handleCameraSettle}
           />
-          {/* Venue panel (PSY-1540). Docked to the map pane's right edge, so
-              it sits opposite the rail and clear of the bottom-left
-              attribution control. Outside the globe-chrome branch because it
-              belongs to city view, which is precisely when that chrome is
-              hidden. `onShowSelect` is deliberately not passed: the artist
-              drill-in a show row opens is PSY-1541, and an inert row is
-              honest where a dead click target would not be. */}
-          {selectedVenue && (
-            <VenuePanel
-              key={selectedVenue.id}
-              venue={selectedVenue}
-              onClose={handleVenuePanelClose}
+          {/* The Atlas panel stack (PSY-1540 venue → PSY-1541 artist). Docked
+              to the map pane's right edge, so it sits opposite the rail and
+              clear of the bottom-left attribution control. Outside the
+              globe-chrome branch because it belongs to city view, which is
+              precisely when that chrome is hidden.
+
+              The drill-in REPLACES the venue panel rather than stacking over
+              it, which is what makes Escape pop exactly one level: only one
+              Atlas panel is ever on Radix's layer stack, so its own onDismiss
+              is the whole contract (artist → venue → closed). Stacking both
+              would put two DismissableLayers up and leave the venue panel
+              audible to screen readers behind a panel that covers it. */}
+          {selectedVenue && drillIn ? (
+            <ArtistPanel
+              steps={drillIn.steps}
+              index={drillIn.index}
+              onStep={handleDrillInStep}
+              scopeLabel={`upcoming at ${selectedVenue.name}`}
+              backLabel={selectedVenue.name}
+              onBack={handleDrillInBack}
+              onClose={handleDrillInClose}
             />
+          ) : (
+            selectedVenue && (
+              <VenuePanel
+                key={selectedVenue.id}
+                venue={selectedVenue}
+                onClose={handleVenuePanelClose}
+                onShowSelect={handleShowSelect}
+              />
+            )
           )}
           {globeChromeVisible && (
             <>

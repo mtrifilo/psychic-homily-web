@@ -75,6 +75,15 @@ export const CITY_VENUE_PANEL_BOTTOM_INSET_PX = 36
 // is the better surface.
 export const VENUE_PANEL_SHOW_ROWS = 5
 
+// ── Artist drill-in (PSY-1541) ────────────────────────────────────────────
+// How many upcoming shows the artist panel lists under NEXT SHOWS. The mock
+// (board 03 "Artist drill-in", node 1154:6) draws two, and two is also the
+// point past which the drill-in stops being a glance at "are they playing
+// again" and starts duplicating the artist page's show table. Doubles as the
+// `limit` on the artist-shows request, so the panel never fetches rows it
+// won't draw.
+export const ARTIST_PANEL_NEXT_SHOW_ROWS = 2
+
 // ── Which city owns the camera ────────────────────────────────────────────
 
 export interface CameraPosition {
