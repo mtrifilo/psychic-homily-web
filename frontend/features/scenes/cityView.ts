@@ -55,13 +55,14 @@ export const CITY_VENUE_FETCH_LIMIT = 100
 // same pixels — and neither goes near the bottom-left attribution control.
 export const CITY_VENUE_PANEL_WIDTH_PX = 384
 
-// How far the panel's bottom edge stays clear of the map frame. The map's
-// attribution control is docked bottom-LEFT and the ODbL makes it a licensing
-// requirement to keep it visible (PSY-1543's adversarial review found a panel
-// hiding it outright). A right-docked panel only reaches the credit when the
-// map pane is narrow enough that 384px of panel spans into it — so rather than
-// depend on the pane being wide, the panel simply stops above the credit's
-// strip. Same ~30px strip the "N more scenes" link clears with bottom-11.
+// How far the panel's bottom edge stays clear of the map frame, as a cap on
+// its height rather than a fixed bottom anchor. The map's attribution control
+// is docked bottom-LEFT and the ODbL makes it a licensing requirement to keep
+// it visible (PSY-1543's adversarial review found a panel hiding it outright).
+// A right-docked panel only reaches the credit when the map pane is narrow
+// enough that 384px of panel spans into it — so rather than depend on the pane
+// being wide, the panel simply cannot grow into the credit's strip. Same ~30px
+// strip the "N more scenes" link clears with bottom-11.
 export const CITY_VENUE_PANEL_BOTTOM_INSET_PX = 36
 
 // How many show rows the panel lists before deferring to "view all N →". The
