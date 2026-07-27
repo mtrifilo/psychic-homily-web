@@ -221,10 +221,11 @@ export function ArtistConnectionsSection({
   // isn't a gate — the two disagree in the narrow band where the column is
   // under 640 while the viewport is over it.
   //
-  // A chunk-load failure is the second input, not an exception: the boundary
-  // below still self-hides (no `fallback`), but it now reports the catch via
-  // `onError`, and `graphFailed` retracts the clause with it — so the section
-  // keeps its header and count while the promise of interaction goes away.
+  // A chunk-load failure is the gate's SECOND input, not an exception to it:
+  // the boundary below still self-hides (no `fallback`), but it reports the
+  // catch via `onError`, and `graphFailed` retracts the clause with it — the
+  // section keeps its header and count, and only the promise of interaction
+  // goes away.
   //
   // Pre-measurement (`null`) counts as no canvas: the skeleton paint must not
   // flash a "click a name" instruction that then disappears on mobile.
@@ -270,10 +271,10 @@ export function ArtistConnectionsSection({
         // with the canvas instead of promising names nothing renders.
         //
         // Keyed by artist for the same reason `graphFailed` is: the boundary
-        // latches `failed` for its lifetime, so without the key a failure on
-        // one artist would keep the canvas hidden after navigating to the
-        // next one while `graphFailed` had already reset — the exact split
-        // this ticket closes, inverted.
+        // latches `failed` for its lifetime and offers no reset, so without
+        // the key a failure on one artist would keep the canvas hidden after
+        // navigating to the next one while `graphFailed` had already reset —
+        // the same clause/canvas split, inverted.
         <GraphSectionErrorBoundary
           key={artistId}
           sentryTag="artist-connections-section"
