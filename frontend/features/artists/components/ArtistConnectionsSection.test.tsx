@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, act } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type { ArtistGraph, ArtistGraphLink, ArtistGraphNode } from '../types'
@@ -56,26 +56,15 @@ vi.mock('../hooks/useArtistGraph', () => ({
   useArtistGraph: vi.fn(() => ({ data: mockGraph, isLoading: false })),
 }))
 
-// Width override hatch: the real useContainerWidth measures during commit, so
-// the pre-measurement (`null`) state is unobservable from a settled render.
-// Default `undefined` = pass the real hook through untouched, so every other
-// test still exercises the genuine ResizeObserver path.
-const widthState = vi.hoisted(() => ({
-  override: undefined as number | null | undefined,
-}))
-
+// Spy on the real hook rather than replacing it: the ResizeObserver shim owns
+// width for every test, so `fireResize` keeps working. A test that needs the
+// pre-measurement (`null`) state — unobservable once the shim measures during
+// commit — overrides that single render with `mockReturnValueOnce`, the same
+// `vi.mocked(...)` idiom this file already uses for `useArtistGraph`.
 vi.mock('@/components/graph/useContainerWidth', async importOriginal => {
   const actual =
     await importOriginal<typeof import('@/components/graph/useContainerWidth')>()
-  return {
-    ...actual,
-    useContainerWidth: () => {
-      const measured = actual.useContainerWidth()
-      return widthState.override === undefined
-        ? measured
-        : { ...measured, containerWidth: widthState.override }
-    },
-  }
+  return { ...actual, useContainerWidth: vi.fn(actual.useContainerWidth) }
 })
 
 vi.mock('../hooks/useArtistGraphCard', () => ({
@@ -126,6 +115,10 @@ import {
   SIMILAR_ARTISTS_ANCHOR,
 } from './ArtistConnectionsSection'
 import { useArtistGraph } from '../hooks/useArtistGraph'
+import {
+  useContainerWidth,
+  GRAPH_BREAKPOINT_PX,
+} from '@/components/graph/useContainerWidth'
 
 describe('capEgoNeighbors', () => {
   it('caps to the top N neighbors by max center-edge score', () => {
@@ -174,11 +167,22 @@ describe('capEgoNeighbors', () => {
   })
 })
 
+/**
+ * The count line is the only <p> the section renders directly. Grabbed by
+ * element (not by text) so assertions can read raw `textContent` — the
+ * whitespace-collapsing default normalizer behind getByText would hide a
+ * spacing regression in the desktop clause.
+ */
+function countLine(): HTMLParagraphElement {
+  const el = document.querySelector<HTMLParagraphElement>('section > p')
+  if (!el) throw new Error('count line not rendered')
+  return el
+}
+
 describe('ArtistConnectionsSection', () => {
   let resizeObserver: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
-    widthState.override = undefined
     resizeObserver = installImmediateResizeObserver()
     // Re-seed per test so an override can't leak (no test-order coupling).
     vi.mocked(useArtistGraph).mockImplementation(
@@ -205,9 +209,12 @@ describe('ArtistConnectionsSection', () => {
   it('renders the header, truncated count line, and the capped 360px canvas', () => {
     renderSection()
     expect(screen.getByRole('heading', { name: 'Connections' })).toBeInTheDocument()
-    expect(
-      screen.getByText(/Top 14 of 16 connected artists · click a name to see how it connects/)
-    ).toBeInTheDocument()
+    // Raw textContent, NOT getByText: the default normalizer trims and
+    // collapses whitespace, so it would pass a regressed `{' '}{clause}`
+    // double space. The desktop line must stay byte-identical.
+    expect(countLine().textContent).toBe(
+      'Top 14 of 16 connected artists · click a name to see how it connects'
+    )
     const canvas = screen.getByTestId('connections-canvas')
     expect(canvas).toHaveAttribute('data-node-count', '14')
     expect(canvas).toHaveAttribute('data-height', '360')
@@ -274,17 +281,36 @@ describe('ArtistConnectionsSection', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument()
     // The count line still discloses scale on mobile, WITHOUT the desktop-only
-    // interaction clause — there are no names to click below the gate.
-    expect(screen.getByText('Top 14 of 16 connected artists')).toBeInTheDocument()
-    expect(screen.queryByText(/click a name to see how it connects/)).not.toBeInTheDocument()
+    // interaction clause — there are no names to click below the gate. Raw
+    // textContent so a stray separator or trailing space can't slip past the
+    // default normalizer.
+    expect(countLine().textContent).toBe('Top 14 of 16 connected artists')
+  })
+
+  it('keeps the clause at exactly the breakpoint — the gate is inclusive', () => {
+    // The one width the ticket names ("at/above 640px") and the only value
+    // that catches a `>=` → `>` slip; every other test sits well clear of it.
+    resizeObserver.setWidth(GRAPH_BREAKPOINT_PX)
+    renderSection()
+    act(() => resizeObserver.fireResize(GRAPH_BREAKPOINT_PX))
+    expect(countLine().textContent).toBe(
+      'Top 14 of 16 connected artists · click a name to see how it connects'
+    )
+    expect(screen.getByTestId('connections-canvas')).toBeInTheDocument()
   })
 
   it('holds the skeleton and omits the interaction clause before measurement', () => {
-    widthState.override = null
+    vi.mocked(useContainerWidth).mockReturnValueOnce({
+      refCallback: () => {},
+      containerWidth: null,
+    })
     renderSection()
     // Count line paints immediately; the clause must not flash and vanish.
-    expect(screen.getByText('Top 14 of 16 connected artists')).toBeInTheDocument()
-    expect(screen.queryByText(/click a name to see how it connects/)).not.toBeInTheDocument()
+    expect(countLine().textContent).toBe('Top 14 of 16 connected artists')
+    // The skeleton is the whole point of this branch — it reserves the box so
+    // the settle can't shift the sections below. Assert it, or deleting the
+    // branch would leave every assertion here green.
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
     // Neither width branch has committed yet.
     expect(screen.queryByTestId('connections-canvas')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /see similar artists/i })).not.toBeInTheDocument()
