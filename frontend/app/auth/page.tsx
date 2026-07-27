@@ -630,7 +630,7 @@ function AuthPageContent() {
             Welcome to Psychic Homily
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Join the music community
+            You&apos;re welcome to join our community.
           </p>
         </div>
 
