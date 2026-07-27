@@ -123,7 +123,7 @@ function VerifyEmailContent() {
             </CardHeader>
             <CardContent className="text-center space-y-4">
               <p className="text-sm text-muted-foreground">
-                You can now submit shows to the Arizona music calendar.
+                You can now submit shows to the calendar.
               </p>
               <div className="flex flex-col gap-2">
                 <Button asChild className="gap-2">

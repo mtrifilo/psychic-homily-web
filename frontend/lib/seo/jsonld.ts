@@ -7,6 +7,7 @@
 
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { toZonedISOString } from '@/lib/utils/timeUtils'
+import { SITE_DESCRIPTION } from '@/lib/seo/siteMetadata'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -158,7 +159,7 @@ export function generateOrganizationSchema(): OrganizationSchema {
     '@type': 'Organization',
     name: 'Psychic Homily',
     url: 'https://psychichomily.com',
-    description: 'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
+    description: SITE_DESCRIPTION,
     logo: 'https://psychichomily.com/og-image.jpg',
   }
 }

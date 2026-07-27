@@ -47,6 +47,7 @@ import {
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
+import { SITE_DESCRIPTION } from '@/lib/seo/siteMetadata'
 import InternalTrafficAnalytics from '@/components/analytics/InternalTrafficAnalytics'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 
@@ -60,10 +61,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL('https://psychichomily.com'),
   title: {
-    default: 'Psychic Homily | Arizona Music Community',
+    default: 'Psychic Homily',
     template: '%s | Psychic Homily',
   },
-  description: 'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
+  description: SITE_DESCRIPTION,
   openGraph: {
     type: 'website',
     locale: 'en_US',

@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
+import { SITE_DESCRIPTION } from '@/lib/seo/siteMetadata'
 
 // PSY-389: logged-out discovery landing ("This is not a mirage"). Drops the old
 // "Arizona Music Community" framing. NOTE: Next.js does NOT apply a layout's
@@ -19,15 +20,13 @@ import { generateWebSiteSchema } from '@/lib/seo/jsonld'
 // logged-in customizable dashboard is a separate project (out of scope).
 export const metadata = {
   title: { absolute: 'Discover live music | Psychic Homily' },
-  description:
-    'Find upcoming live shows in any city, dig into artists, labels, releases, and freeform radio — the underground, mapped link by link.',
+  description: SITE_DESCRIPTION,
   alternates: {
     canonical: 'https://psychichomily.com',
   },
   openGraph: {
     title: 'Psychic Homily',
-    description:
-      'Find upcoming live shows in any city, dig into artists, labels, releases, and freeform radio — the underground, mapped link by link.',
+    description: SITE_DESCRIPTION,
     url: '/',
     type: 'website',
   },
