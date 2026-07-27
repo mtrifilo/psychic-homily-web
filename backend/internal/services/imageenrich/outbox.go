@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -24,6 +23,14 @@ const (
 	// defaultFinalizeBudget caps the post-enrichment finalize writes only. It must be
 	// started after enrich returns — see runBatch (PSY-1569).
 	defaultFinalizeBudget = 30 * time.Second
+
+	// strandedInProcessing is the last_error written when reclaim gives up on a row
+	// that exhausted its attempts while stuck in `processing`. Load-bearing as a
+	// SENTINEL, not just a message: it distinguishes "the machinery lost this row"
+	// from a genuine provider failure, which is what made the PSY-1569 recovery
+	// query possible (1017 rows, every one carrying this string and none a real
+	// error). Do not reword it without a plan for the rows already carrying it.
+	strandedInProcessing = "stranded in processing after max attempts"
 )
 
 // ImageEnrichOutboxPoller drains the image_enrich_queue transactional outbox
@@ -85,11 +92,20 @@ const (
 //     the late write can still hit the row; correctness then rests on the enrichers
 //     being idempotent (fill-when-empty), so whichever worker wins the entity is
 //     imaged once and the row ends terminal. staleReclaim must exceed the worst-case
-//     batch wall-clock to keep even that ABA case rare (batch=20 at ~1 req/s is
-//     ~1-2 min, well under the 15 min default).
+//     batch wall-clock to keep even that ABA case rare.
+//
+// That last margin is thinner than this doc used to claim. It estimated "batch=20
+// at ~1 req/s is ~1-2 min, well under the 15 min default"; measured on production
+// during the PSY-1569 recovery, real batches ran 9-14 minutes against the same 15
+// minute default. Re-measure before growing batch or accepting slower providers.
 type ImageEnrichOutboxPoller struct {
 	db       *gorm.DB
 	enricher *Enricher // shared engine: enrichers + the one MB client (PSY-1208/1266); see type doc
+
+	// queue owns claim/finalize/reclaim/prune. These mechanics were built here
+	// (PSY-1247) and extracted to shared in PSY-1572 so enrichment_queue, which
+	// had none of them, stops being able to strand rows permanently.
+	queue *shared.JobQueue[catalogm.ImageEnrichQueueItem]
 
 	interval     time.Duration
 	batch        int
@@ -110,8 +126,15 @@ func NewImageEnrichOutboxPoller(database *gorm.DB, enricher *Enricher) *ImageEnr
 		database = db.GetDB()
 	}
 	return &ImageEnrichOutboxPoller{
-		db:           database,
-		enricher:     enricher,
+		db:       database,
+		enricher: enricher,
+		queue: shared.NewJobQueue[catalogm.ImageEnrichQueueItem](database, "image-enrich outbox",
+			shared.QueueStatuses{
+				Pending:    catalogm.ImageEnrichStatusPending,
+				Processing: catalogm.ImageEnrichStatusProcessing,
+				Failed:     catalogm.ImageEnrichStatusFailed,
+				Terminal:   []string{catalogm.ImageEnrichStatusDone, catalogm.ImageEnrichStatusFailed},
+			}, slog.Default()),
 		interval:     shared.EnvPositiveDuration("IMAGE_ENRICH_OUTBOX_INTERVAL_SECONDS", time.Second, defaultOutboxInterval),
 		batch:        shared.EnvPositiveInt("IMAGE_ENRICH_OUTBOX_BATCH", defaultOutboxBatch),
 		staleReclaim: shared.EnvPositiveDuration("IMAGE_ENRICH_OUTBOX_STALE_RECLAIM_MINUTES", time.Minute, defaultOutboxStaleReclaim),
@@ -197,35 +220,11 @@ func (p *ImageEnrichOutboxPoller) processTick(ctx context.Context) {
 	}
 }
 
-// claimBatch atomically claims up to `batch` pending rows: it SELECTs them FOR
-// UPDATE SKIP LOCKED (so concurrent pollers never grab the same row) and flips
-// them to `processing`, incrementing attempts, in the same short transaction. The
-// row locks release at commit; enrichment then runs outside the transaction.
-//
-// The returned items carry their PRE-increment attempts (scanned before the
-// update), so finalize reasons about the post-increment count as item.Attempts+1.
+// claimBatch delegates to the shared mechanics. The claim semantics (FOR UPDATE
+// SKIP LOCKED, atomic flip to `processing`, PRE-increment attempts on the returned
+// rows) are documented on shared.JobQueue.Claim.
 func (p *ImageEnrichOutboxPoller) claimBatch(ctx context.Context) ([]catalogm.ImageEnrichQueueItem, error) {
-	var items []catalogm.ImageEnrichQueueItem
-	err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if ferr := tx.
-			Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsSkipLocked}).
-			Where("status = ? AND attempts < max_attempts", catalogm.ImageEnrichStatusPending).
-			Order("created_at ASC").
-			Limit(p.batch).
-			Find(&items).Error; ferr != nil {
-			return ferr
-		}
-		if len(items) == 0 {
-			return nil
-		}
-		return tx.Model(&catalogm.ImageEnrichQueueItem{}).
-			Where("id IN ?", itemIDs(items)).
-			Updates(map[string]interface{}{
-				"status":   catalogm.ImageEnrichStatusProcessing,
-				"attempts": gorm.Expr("attempts + 1"),
-			}).Error
-	})
-	return items, err
+	return p.queue.Claim(ctx, p.batch)
 }
 
 // runBatch runs the enricher over the ids, then finalizes the claimed job rows:
@@ -334,54 +333,18 @@ func (p *ImageEnrichOutboxPoller) requeueCanceled(ctx context.Context, items []c
 	})
 }
 
-// finalize applies a terminal/requeue update to the given job ids, guarded by
-// status='processing' so a row reclaimed/finalized by another worker since this
-// worker claimed it is left untouched (no lost-update / state clobber).
+// finalize delegates to the shared mechanics (status='processing' guard, error
+// logged). See shared.JobQueue.Finalize for what the guard does and does not cover.
 func (p *ImageEnrichOutboxPoller) finalize(ctx context.Context, ids []uint, updates map[string]interface{}) {
-	if len(ids) == 0 {
-		return
-	}
-	if err := p.db.WithContext(ctx).Model(&catalogm.ImageEnrichQueueItem{}).
-		Where("id IN ? AND status = ?", ids, catalogm.ImageEnrichStatusProcessing).
-		Updates(updates).Error; err != nil {
-		p.logger.Error("image-enrich outbox: finalize failed", "error", err)
-	}
+	p.queue.Finalize(ctx, ids, updates)
 }
 
-// reclaimStale recovers rows orphaned by a worker crash. A row stuck in
-// `processing` past staleReclaim is returned to `pending` if it still has attempts
-// left, or marked `failed` if it has exhausted max_attempts — the latter is
-// essential: leaving an exhausted row `pending` would zombie it (the claim filter
-// is attempts < max_attempts, so it never re-claims, never finalizes, and forever
-// holds the entity's slot in the one-active-job-per-entity unique index).
+// reclaimStale delegates to the shared mechanics. staleReclaim must exceed the
+// worst-case batch wall-clock — measured at 9-14 minutes for a 20-item batch on
+// production (PSY-1569), against a 15 minute default. That margin is thinner than
+// this type's original doc claimed; revisit it if batch or provider latency grows.
 func (p *ImageEnrichOutboxPoller) reclaimStale(ctx context.Context) {
-	cutoff := time.Now().Add(-p.staleReclaim)
-
-	// Two statements, not one: their attempts predicates are disjoint AND the first
-	// moves its matched rows out of `processing`, so no row is hit by both and none
-	// escapes both. Do NOT merge them into one UPDATE — the split is what keeps the
-	// retry/fail partition clean.
-	retry := p.db.WithContext(ctx).Model(&catalogm.ImageEnrichQueueItem{}).
-		Where("status = ? AND updated_at < ? AND attempts < max_attempts", catalogm.ImageEnrichStatusProcessing, cutoff).
-		Update("status", catalogm.ImageEnrichStatusPending)
-	if retry.Error != nil {
-		p.logger.Error("image-enrich outbox: reclaim (retry) failed", "error", retry.Error)
-	}
-
-	failed := p.db.WithContext(ctx).Model(&catalogm.ImageEnrichQueueItem{}).
-		Where("status = ? AND updated_at < ? AND attempts >= max_attempts", catalogm.ImageEnrichStatusProcessing, cutoff).
-		Updates(map[string]interface{}{
-			"status":     catalogm.ImageEnrichStatusFailed,
-			"last_error": "stranded in processing after max attempts",
-		})
-	if failed.Error != nil {
-		p.logger.Error("image-enrich outbox: reclaim (fail) failed", "error", failed.Error)
-	}
-
-	if n := retry.RowsAffected + failed.RowsAffected; n > 0 {
-		p.logger.Warn("image-enrich outbox: reclaimed stale processing rows",
-			"requeued", retry.RowsAffected, "failed", failed.RowsAffected)
-	}
+	p.queue.ReclaimStale(ctx, p.staleReclaim, strandedInProcessing)
 }
 
 // pruneTerminal deletes done/failed rows older than the retention window, keeping a
@@ -389,24 +352,11 @@ func (p *ImageEnrichOutboxPoller) reclaimStale(ctx context.Context) {
 // prune decision in PSY-1247). The active-state partial indexes don't cover this
 // scan, but the terminal-row set stays small precisely because this prunes it.
 func (p *ImageEnrichOutboxPoller) pruneTerminal(ctx context.Context) {
-	cutoff := time.Now().Add(-p.retention)
-	res := p.db.WithContext(ctx).
-		Where("status IN ? AND updated_at < ?",
-			[]string{catalogm.ImageEnrichStatusDone, catalogm.ImageEnrichStatusFailed}, cutoff).
-		Delete(&catalogm.ImageEnrichQueueItem{})
-	if res.Error != nil {
-		p.logger.Error("image-enrich outbox: prune failed", "error", res.Error)
-		return
-	}
-	if res.RowsAffected > 0 {
-		p.logger.Info("image-enrich outbox: pruned terminal rows", "count", res.RowsAffected)
+	if n := p.queue.PruneTerminal(ctx, p.retention); n > 0 {
+		p.logger.Info("image-enrich outbox: pruned terminal rows", "count", n)
 	}
 }
 
 func itemIDs(items []catalogm.ImageEnrichQueueItem) []uint {
-	ids := make([]uint, len(items))
-	for i, it := range items {
-		ids[i] = it.ID
-	}
-	return ids
+	return shared.QueueRowIDs(items)
 }
