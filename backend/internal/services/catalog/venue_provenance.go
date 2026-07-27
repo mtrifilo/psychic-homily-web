@@ -61,6 +61,13 @@ func (s *VenueService) ConfirmVenue(venueID uint, userID uint) (*contracts.Venue
 		"INSERT INTO venue_confirmations (user_id, venue_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
 		userID, venue.ID,
 	).Error; err != nil {
+		// The venue (or the user) can be deleted between the lookup above and
+		// this insert. That is a 404, not a server fault — reuse the same
+		// not-found the lookup would have produced rather than surfacing a raw
+		// constraint violation as a 500.
+		if errors.Is(err, gorm.ErrForeignKeyViolated) {
+			return nil, apperrors.ErrVenueNotFound(venueID)
+		}
 		return nil, fmt.Errorf("failed to confirm venue: %w", err)
 	}
 

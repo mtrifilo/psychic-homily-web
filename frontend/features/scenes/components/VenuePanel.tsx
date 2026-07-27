@@ -190,13 +190,17 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
 
   const provenanceSegments = venueProvenanceSegments(provenance)
 
+  // The control stays in the tab order while inert (see the button below), so
+  // this guard is what actually stops a second write — not the browser.
+  const confirmInert = confirm.isPending || hasConfirmed
+
   const handleConfirm = () => {
+    if (confirmInert) return
     if (!isAuthenticated) {
       const returnTo = `${pathname}${window.location.search}`
       router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
       return
     }
-    if (confirm.isPending || hasConfirmed) return
     confirm.mutate(venue.id)
   }
 
@@ -257,17 +261,28 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <FollowButton entityType="venues" entityId={venue.id} />
+            {/* `aria-disabled`, NOT the native `disabled` attribute — the same
+                rule ArtistPanel's stepper follows (PSY-1540's review): the
+                native attribute drops the control out of the tab order, so a
+                keyboard or screen-reader user who tabs back to the panel after
+                confirming never lands on it and never hears that their
+                confirmation registered. This stays focusable and says so in its
+                accessible name; the click is inert on our side (handleConfirm
+                returns early) rather than the browser's. */}
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handleConfirm}
-              disabled={confirm.isPending || hasConfirmed}
+              aria-disabled={confirmInert || undefined}
+              className={confirmInert ? 'cursor-not-allowed opacity-70' : undefined}
               data-testid="venue-panel-confirm"
               aria-label={
                 hasConfirmed
                   ? `You confirmed ${venue.name}’s info is current`
-                  : `Confirm ${venue.name}’s info is current`
+                  : confirm.isPending
+                    ? `Confirming ${venue.name}’s info is current`
+                    : `Confirm ${venue.name}’s info is current`
               }
             >
               {hasConfirmed

@@ -247,7 +247,14 @@ describe('VenuePanel', () => {
     })
     const button = screen.getByTestId('venue-panel-confirm')
     expect(button).toHaveTextContent('✓ Confirmed')
-    expect(button).toBeDisabled()
+    // aria-disabled, NOT native disabled: a natively disabled button leaves the
+    // tab order, so a keyboard user tabbing back to the panel would never land
+    // on it and never hear that their confirmation registered.
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(button).not.toBeDisabled()
+    expect(button).toHaveAccessibleName(
+      'You confirmed Hotel Vegas’s info is current',
+    )
     // The stamp reflects the count the mutation just returned, not the stale
     // one the rail's list was fetched with.
     expect(
@@ -256,6 +263,45 @@ describe('VenuePanel', () => {
 
     fireEvent.click(button)
     expect(mockConfirmMutate).not.toHaveBeenCalled()
+  })
+
+  it('says it is working, and refuses a second write, while in flight', () => {
+    mockUseVenueConfirm.mockReturnValue({
+      mutate: mockConfirmMutate,
+      isPending: true,
+      data: undefined,
+      error: null,
+    })
+    renderPanel()
+    const button = screen.getByTestId('venue-panel-confirm')
+    expect(button).toHaveTextContent('Confirming…')
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(button).not.toBeDisabled()
+
+    fireEvent.click(button)
+    expect(mockConfirmMutate).not.toHaveBeenCalled()
+  })
+
+  it('stamps a confirmation on a venue that had no provenance at all', () => {
+    // A venue nobody has touched arrives with no stamp object; the first
+    // confirmation must still produce a readable one rather than nothing.
+    mockUseVenueConfirm.mockReturnValue({
+      mutate: mockConfirmMutate,
+      isPending: false,
+      data: {
+        confirmation_count: 1,
+        last_confirmed_at: '2026-07-27T10:00:00Z',
+        viewer_has_confirmed: true,
+      },
+      error: null,
+    })
+    renderPanel({ venue: venue({ provenance: undefined }) })
+    expect(
+      screen.getByTestId('venue-panel-provenance').textContent,
+    ).toContain('1 confirmation')
+    expect(
+      screen.getByTestId('venue-panel-provenance').textContent,
+    ).toContain('community')
   })
 
   it('surfaces a rate-limited confirm inline instead of failing silently', () => {

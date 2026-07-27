@@ -186,6 +186,68 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceStamp() {
 	suite.False(got.Provenance.UpdatedAt.IsZero())
 }
 
+// TestGetVenueBySlug_ProvenanceStamp covers the OTHER venue-detail entry
+// point. The venue page addresses venues by slug, so a stamp wired only into
+// the numeric lookup would be invisible on the surface most readers use.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueBySlug_ProvenanceStamp() {
+	user := suite.createTestUser()
+	// CreateVenue (not the raw fixture) because it is what assigns the slug.
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name: "Provenance By Slug", City: "Austin", State: "TX",
+	}, true)
+	suite.Require().NoError(err)
+
+	suite.createApprovedVenueEdit(created.ID, user.ID)
+	_, err = suite.venueService.ConfirmVenue(created.ID, user.ID)
+	suite.Require().NoError(err)
+
+	got, err := suite.venueService.GetVenueBySlug(created.Slug)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(got.Provenance)
+	suite.Equal(1, got.Provenance.EditCount)
+	suite.Equal(1, got.Provenance.ContributorCount)
+	suite.Equal(1, got.Provenance.ConfirmationCount)
+}
+
+// TestGetVenue_ProvenanceReportsIngestSource proves the data_source column
+// reaches the stamp through the real read path, not just through the unit test
+// that calls buildVenueProvenance directly.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceReportsIngestSource() {
+	venue := suite.createTestVenue("Provenance Ingest", "Austin", "TX", true)
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", venue.ID).
+		Update("data_source", "venue_ingest").Error)
+
+	got, err := suite.venueService.GetVenue(venue.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(got.Provenance)
+	suite.Equal([]string{contracts.VenueProvenanceSourceIngest}, got.Provenance.Sources)
+}
+
+// TestGetVenuesWithShowCounts_ProvenanceCarriesDataSource walks the list path's
+// own data_source plumbing: the column is not part of the serialized venue
+// response, so it is carried alongside and could silently key to the wrong row.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ProvenanceCarriesDataSource() {
+	ingested := suite.createTestVenue("Rail Ingest Source", "Austin", "TX", true)
+	suite.createTestVenue("Rail No Source", "Austin", "TX", true)
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", ingested.ID).
+		Update("data_source", "venue_ingest").Error)
+
+	venues, _, err := suite.venueService.GetVenuesWithShowCounts(
+		contracts.VenueListFilters{City: "Austin", State: "TX", IncludeRailFields: true}, 50, 0)
+	suite.Require().NoError(err)
+
+	withSource := suite.findVenueResponse(venues, "Rail Ingest Source")
+	suite.Require().NotNil(withSource.Provenance)
+	suite.Equal([]string{contracts.VenueProvenanceSourceIngest}, withSource.Provenance.Sources,
+		"the ingest source must land on the venue it belongs to")
+
+	without := suite.findVenueResponse(venues, "Rail No Source")
+	suite.Require().NotNil(without.Provenance)
+	suite.Empty(without.Provenance.Sources, "an unpopulated data_source must not borrow a neighbour's")
+}
+
 // TestGetVenue_ProvenanceExcludesUnappliedEdits pins the count's meaning: a
 // proposal that was never applied did not change what the reader is looking
 // at, so counting it would overstate how curated the listing is.
