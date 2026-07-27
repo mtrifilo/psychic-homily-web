@@ -21,8 +21,39 @@ import (
 	"psychic-homily-backend/internal/services"
 )
 
+// subAPIConfig builds the Huma config for a SUB-API — one of the extra
+// humachi.New instances that exist purely to carry their own rate-limit
+// middleware (chi.Group gives them a middleware stack, not a separate routing
+// tree). It is DefaultConfig with the documentation routes suppressed.
+//
+// Without this, every sub-API registered its own /openapi.json, /openapi.yaml
+// and /docs on the shared routing tree. chi silently replaces a duplicate
+// method+path rather than erroring, so the last instance registered won — and it
+// was never the main API. Production served a spec titled "Psychic Homily Entity
+// Reports" describing 8 report routes instead of the whole surface (PSY-1554),
+// and which fragment won changed as route groups came and went.
+//
+// Huma skips registering these routes entirely when the path is empty
+// (`if config.OpenAPIPath != ""` in huma/api.go), so blanking them is the
+// supported way to opt out — no throwaway paths needed.
+//
+// SchemasPath is deliberately LEFT ALONE. DefaultConfig wires a
+// SchemaLinkTransformer from it that injects a `$schema` field into response
+// BODIES; blanking it would change those emitted values, i.e. a wire-contract
+// change, for no benefit here. The consequence is that /schemas/{schema} is
+// still last-wins across instances — pre-existing, unchanged by this, and worth
+// its own ticket if the schemas endpoint ever gets consumers.
+func subAPIConfig(title string) huma.Config {
+	cfg := huma.DefaultConfig(title, "1.0.0")
+	cfg.OpenAPIPath = ""
+	cfg.DocsPath = ""
+	return cfg
+}
+
 // SetupRoutes configures all API routes
 func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Config) huma.API {
+	// The ONLY instance that should serve /openapi.json and /docs. Every other
+	// humachi.New in this package must use subAPIConfig — see its doc comment.
 	api := humachi.New(router, huma.DefaultConfig("Psychic Homily", "1.0.0"))
 
 	// Add request ID middleware to all Huma routes

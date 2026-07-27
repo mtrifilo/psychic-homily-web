@@ -56,7 +56,7 @@ func setupAuthRoutes(rc RouteContext) {
 		r.Use(authRateLimiter)
 
 		// Create a sub-API for rate-limited routes
-		rateLimitedAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Auth", "1.0.0"))
+		rateLimitedAPI := humachi.New(r, subAPIConfig("Psychic Homily Auth"))
 		rateLimitedAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 		huma.Post(rateLimitedAPI, "/auth/login", authHandler.LoginHandler)
@@ -189,7 +189,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 	rc.Router.Group(func(r chi.Router) {
 		r.Use(passkeyRateLimiter)
 
-		passkeyAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Passkey", "1.0.0"))
+		passkeyAPI := humachi.New(r, subAPIConfig("Psychic Homily Passkey"))
 		passkeyAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
 		// Public passkey login endpoints (no auth required)

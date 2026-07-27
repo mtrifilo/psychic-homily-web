@@ -577,3 +577,138 @@ func TestRouteRegistration(t *testing.T) {
 		}
 	})
 }
+
+// TestServedOpenAPISpecIsTheWholeAPI locks PSY-1554: the spec served at
+// /openapi.json must be the MAIN API, not a fragment from one of the
+// rate-limit sub-instances.
+//
+// The bug this guards against is silent by construction. Every sub-API built
+// with a bare huma.DefaultConfig registers its own /openapi.json on the shared
+// chi routing tree, and chi REPLACES a duplicate method+path instead of
+// erroring — so the last instance registered wins with no warning at all.
+// Production served a spec titled "Psychic Homily Entity Reports" with 8 paths.
+//
+// TestSetupRoutes already fetched this endpoint and only asserted an "openapi"
+// key was present, which a fragment satisfies just as well. Hence the title,
+// volume, and cross-group sampling below: a future sub-API that forgets
+// subAPIConfig has to fail something.
+func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	req := httptest.NewRequest("GET", "/openapi.json", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /openapi.json = %d, want 200", w.Code)
+	}
+
+	var spec struct {
+		Info struct {
+			Title string `json:"title"`
+		} `json:"info"`
+		Paths map[string]map[string]interface{} `json:"paths"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	if spec.Info.Title != "Psychic Homily" {
+		t.Errorf("served spec title = %q, want %q — a sub-API instance has shadowed the main spec; "+
+			"every extra humachi.New must use subAPIConfig", spec.Info.Title, "Psychic Homily")
+	}
+
+	// Volume check. The real surface is in the hundreds; the shadowing fragment
+	// had 8. A floor well above that catches shadowing without being brittle as
+	// routes come and go.
+	if len(spec.Paths) < 100 {
+		t.Errorf("served spec describes %d paths, want >=100 — this looks like a fragment, not the API", len(spec.Paths))
+	}
+
+	// Cross-group sampling across route groups, so a future sub-API that shadows
+	// the spec makes whole groups disappear here.
+	for _, path := range []string{
+		"/shows",
+		"/artists",
+		"/tags",
+		"/radio-stations",
+		"/auth/profile",
+		"/venues",
+	} {
+		if _, ok := spec.Paths[path]; !ok {
+			t.Errorf("served spec is missing %q", path)
+		}
+	}
+}
+
+// TestSubAPIOperationsAreAbsentFromSpec is a CHARACTERIZATION test: it documents
+// a real, known gap rather than asserting desired behaviour.
+//
+// Suppressing the sub-APIs' doc routes stops them shadowing the main spec, but it
+// does NOT merge their operations into it — each humachi.New owns a separate
+// OpenAPI document, so the 27 operations registered on rate-limited sub-instances
+// remain undocumented. That includes the whole auth surface (login, register,
+// magic-link, passkey, account recovery), show create, tag create/vote, and the
+// report endpoints.
+//
+// PSY-1554 deliberately scoped to restoring a correct spec; merging these
+// requires moving rate limiting from chi middleware onto huma groups, which
+// touches auth and is its own change. This test pins the gap so it stays visible
+// and cannot silently grow.
+//
+// WHEN THE CONSOLIDATION LANDS, THIS TEST SHOULD FAIL — flip the assertions
+// rather than deleting the coverage.
+func TestSubAPIOperationsAreAbsentFromSpec(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	req := httptest.NewRequest("GET", "/openapi.json", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var spec struct {
+		Paths map[string]map[string]interface{} `json:"paths"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	for _, path := range []string{
+		"/auth/login",
+		"/auth/register",
+		"/shows/ai-process",
+		"/artists/{artist_id}/report",
+	} {
+		if _, ok := spec.Paths[path]; ok {
+			t.Errorf("%q is now IN the served spec — the sub-API consolidation appears to have landed; "+
+				"move this path into TestServedOpenAPISpecIsTheWholeAPI instead of leaving it asserted absent", path)
+		}
+	}
+}
+
+// TestSubAPIsDoNotRegisterDocRoutes is the direct unit-level guard on the fix:
+// subAPIConfig must leave the documentation paths empty, which is what makes
+// Huma skip registering them (`if config.OpenAPIPath != ""`).
+func TestSubAPIsDoNotRegisterDocRoutes(t *testing.T) {
+	c := subAPIConfig("Psychic Homily Test Sub-API")
+
+	if c.OpenAPIPath != "" {
+		t.Errorf("subAPIConfig OpenAPIPath = %q, want empty so Huma skips registering it", c.OpenAPIPath)
+	}
+	if c.DocsPath != "" {
+		t.Errorf("subAPIConfig DocsPath = %q, want empty", c.DocsPath)
+	}
+	// Deliberately still set: the SchemaLinkTransformer built from it injects
+	// `$schema` into response BODIES, so blanking it would change the wire
+	// contract. See subAPIConfig's doc comment.
+	if c.SchemasPath == "" {
+		t.Error("subAPIConfig must NOT blank SchemasPath — it feeds the response-body $schema transformer")
+	}
+	if c.Info == nil || c.Info.Title != "Psychic Homily Test Sub-API" {
+		t.Error("subAPIConfig must preserve the title it was given")
+	}
+}
