@@ -26,7 +26,7 @@ func setupShowReportRoutes(rc RouteContext) {
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		))
-		reportAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Reports", "1.0.0"))
+		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Reports"))
 		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 		huma.Post(reportAPI, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
@@ -53,7 +53,7 @@ func setupArtistReportRoutes(rc RouteContext) {
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		))
-		reportAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Artist Reports", "1.0.0"))
+		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Artist Reports"))
 		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 		huma.Post(reportAPI, "/artists/{artist_id}/report", artistReportHandler.ReportArtistHandler)
@@ -82,7 +82,7 @@ func setupEntityReportRoutes(rc RouteContext) {
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		))
-		reportAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Entity Reports", "1.0.0"))
+		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Entity Reports"))
 		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 		huma.Post(reportAPI, "/artists/{entity_id}/report", entityReportHandler.ReportArtistHandler)

@@ -42,7 +42,7 @@ func setupShowRoutes(rc RouteContext) {
 			middleware.ShowCreateRequestsPerHour,
 			time.Hour,
 		))
-		showCreateAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Show Create", "1.0.0"))
+		showCreateAPI := humachi.New(r, subAPIConfig("Psychic Homily Show Create"))
 		showCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		showCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 		huma.Post(showCreateAPI, "/shows", showHandler.CreateShowHandler)
@@ -57,7 +57,7 @@ func setupShowRoutes(rc RouteContext) {
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		))
-		aiProcessAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily AI Process", "1.0.0"))
+		aiProcessAPI := humachi.New(r, subAPIConfig("Psychic Homily AI Process"))
 		aiProcessAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		aiProcessAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 		huma.Post(aiProcessAPI, "/shows/ai-process", showHandler.AIProcessShowHandler)

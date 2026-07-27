@@ -45,7 +45,7 @@ func setupTagRoutes(rc RouteContext) {
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)))
-		tagCreateAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Create", "1.0.0"))
+		tagCreateAPI := humachi.New(r, subAPIConfig("Psychic Homily Tag Create"))
 		tagCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		tagCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 		huma.Post(tagCreateAPI, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
@@ -63,7 +63,7 @@ func setupTagRoutes(rc RouteContext) {
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)))
-		tagVoteAPI := humachi.New(r, huma.DefaultConfig("Psychic Homily Tag Vote", "1.0.0"))
+		tagVoteAPI := humachi.New(r, subAPIConfig("Psychic Homily Tag Vote"))
 		tagVoteAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
 		tagVoteAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 		huma.Post(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
