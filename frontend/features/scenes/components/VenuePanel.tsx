@@ -5,7 +5,10 @@ import Link from 'next/link'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { FollowButton } from '@/components/shared'
+// Deep import, not the `@/components/shared` barrel: the barrel drags in every
+// shared component (and their AuthContext/router dependencies) for one button,
+// and it is the path the Atlas suites already mock.
+import { FollowButton } from '@/components/shared/FollowButton'
 import { dedupVenueShows } from '@/features/shows'
 import { useVenueShows } from '@/features/venues/hooks'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
