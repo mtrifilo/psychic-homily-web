@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -64,6 +65,12 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 		{http.MethodDelete, "/venues/9/follow", true},
 		{http.MethodPost, "/scenes/phoenix-az/follow", true},
 		{http.MethodDelete, "/scenes/phoenix-az/follow", true},
+		// PSY-1542 venue confirm-current. Only the venues collection matches —
+		// the pattern is anchored so a sibling /artists/1/confirm cannot ride
+		// this budget by accident if one is ever added.
+		{http.MethodPost, "/venues/42/confirm", true},
+		{http.MethodPost, "/artists/42/confirm", false},
+		{http.MethodGet, "/venues/42/confirm", false},
 		// Reads and read-shaped helpers are NOT mutations.
 		{http.MethodGet, "/saved-shows/42", false},
 		{http.MethodGet, "/saved-shows", false},
@@ -161,6 +168,53 @@ func TestEngagementMutationRateLimiter_SaveAndFollowShareCounter(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusTooManyRequests {
 		t.Errorf("follow after save budget exhausted: status = %d, want 429 (save+follow share one counter)", rr.Code)
+	}
+}
+
+// PSY-1542: venue confirmations are freshness EVIDENCE, so the ability to
+// mass-produce them cheaply is the abuse worth bounding. Confirming past the
+// burst cap must 429 with a usable Retry-After, and the budget is shared with
+// the other engagement toggles so a farmer cannot spend a fresh allowance on
+// confirmations after exhausting one on follows.
+func TestEngagementMutationRateLimiter_VenueConfirmIsLimited(t *testing.T) {
+	jwtService := newEngagementJWTService()
+	token := engagementToken(t, jwtService, 1)
+	mw := EngagementMutationRateLimiter(jwtService, enableEngagementEnv)
+	handler := mw(okRoutesHandler())
+
+	confirm := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.RemoteAddr = "7.7.7.12:100"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Confirming a DIFFERENT venue each time — the ceiling is per user, not
+	// per venue, so walking a city's venue list cannot evade it.
+	for i := 0; i < middleware.EngagementMutationBurstPerMinute; i++ {
+		if rr := confirm(fmt.Sprintf("/venues/%d/confirm", i+1)); rr.Code != http.StatusOK {
+			t.Fatalf("confirm %d within cap: status = %d, want 200", i, rr.Code)
+		}
+	}
+
+	rr := confirm("/venues/999/confirm")
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("confirm past the burst cap: status = %d, want 429", rr.Code)
+	}
+	if rr.Header().Get("Retry-After") != "60" {
+		t.Errorf("Retry-After = %q, want 60 (the client surfaces this via ApiError.retryAfter)", rr.Header().Get("Retry-After"))
+	}
+
+	// Shared budget: a follow from the same user is now rejected too.
+	req := httptest.NewRequest(http.MethodPost, "/artists/5/follow", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.RemoteAddr = "7.7.7.12:100"
+	followRR := httptest.NewRecorder()
+	handler.ServeHTTP(followRR, req)
+	if followRR.Code != http.StatusTooManyRequests {
+		t.Errorf("follow after confirm budget exhausted: status = %d, want 429 (one shared counter)", followRR.Code)
 	}
 }
 
