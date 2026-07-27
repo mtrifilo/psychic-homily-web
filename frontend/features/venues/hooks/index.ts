@@ -11,6 +11,11 @@ export {
 export { useVenueSearch } from './useVenueSearch'
 
 export {
+  useVenueConfirm,
+  formatVenueConfirmError,
+} from './useVenueConfirm'
+
+export {
   useVenueUpdate,
   useVenueDelete,
 } from './useVenueEdit'
