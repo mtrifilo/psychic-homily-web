@@ -555,8 +555,30 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 // that. VenueName is the first venue on the bill (MIN by name: deterministic,
 // and multi-venue shows are rare).
 func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, limit int) ([]contracts.SceneShowSummary, error) {
+	now := time.Now().UTC()
+	// time.UTC preserves this method's original date formatting exactly — the
+	// weekly city page passes the scene's own zone instead (see
+	// GetSceneShowsInRange).
+	return s.GetSceneShowsInRange(city, state, now, now.AddDate(0, 0, windowDays), time.UTC, limit)
+}
+
+// GetSceneShowsInRange returns the scene's approved shows in the half-open
+// window [from, to), soonest first (id as the same-date tiebreak), capped at
+// limit. This is the shared engine behind both GetSceneUpcomingShows (a
+// rolling window from now) and the weekly city page (a fixed calendar week),
+// so the digest email and the public page can never disagree about which shows
+// belong to a scene.
+//
+// `loc` is the zone EventDate is rendered in. It matters: a show at 21:00
+// Sunday in Chicago is 02:00 Monday UTC, so formatting in UTC would file it
+// under the wrong day — and, at a week boundary, under the wrong week.
+// Callers that group by day MUST pass the scene's own location.
+func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Time, loc *time.Location, limit int) ([]contracts.SceneShowSummary, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+	if loc == nil {
+		loc = time.UTC
 	}
 
 	scope := s.scopeFor(city, state)
@@ -567,8 +589,8 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 	}
 
 	vp, vargs := scope.venuePredicate("v")
-	now := time.Now().UTC()
-	windowEnd := now.AddDate(0, 0, windowDays)
+	now := from
+	windowEnd := to
 
 	type showRow struct {
 		ID        uint      `gorm:"column:id"`
@@ -613,7 +635,7 @@ func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, lim
 			ID:          r.ID,
 			Slug:        r.Slug,
 			Title:       r.Title,
-			EventDate:   r.EventDate.UTC().Format("2006-01-02"),
+			EventDate:   r.EventDate.In(loc).Format("2006-01-02"),
 			VenueName:   r.VenueName,
 			ArtistNames: artistsByShow[r.ID],
 		}
