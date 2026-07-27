@@ -213,7 +213,7 @@ export function ArtistConnectionsSection({
   // Pre-measurement (`null`) counts as NOT desktop: the skeleton paint must
   // not flash a "click a name" instruction that then disappears on mobile.
   const isMeasured = containerWidth !== null
-  const isDesktop = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  const isDesktop = isMeasured && containerWidth >= GRAPH_BREAKPOINT_PX
 
   return (
     <section ref={refCallback} className="min-w-0">
