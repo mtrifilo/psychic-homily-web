@@ -15,6 +15,24 @@ import { test, expect } from '../fixtures'
 // admin-seeded target. Wilson-score math is Go-tested (see
 // backend/internal/services/engagement/comment_vote_service_test.go).
 
+// Every locator below resolves through the user-visible document root
+// rather than the whole page.
+//
+// While React streams SSR it keeps a hidden staging container in <body>
+// (`div#S:1[hidden]`) next to the live tree, so for a few hundred
+// milliseconds after load the comments section exists TWICE in the DOM:
+// once in the hidden staging tree, once under `main`. A page-level
+// `getByTestId('comment-thread')` matches both, and a Playwright
+// strict-mode violation ABORTS the retry loop instead of retrying — so
+// the assertion dies in well under a second of its 10s timeout. Users
+// never see the staging tree; only the test does.
+//
+// Scoping to `main` excludes the staging container by construction. Do
+// NOT swap this for `.first()`/`.last()`: those pick between a stale and
+// a live tree by DOM order, and would silently assert against the wrong
+// one if that order ever changed.
+const VISIBLE_MAIN = 'main#main-content'
+
 const CREATE_VENUE_SLUG = 'e2e-comment-create'
 const CREATE_VENUE_NAME = 'E2E [comment-create]'
 
@@ -34,10 +52,11 @@ test.describe('Comments (general)', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage }) => {
       await authenticatedPage.goto(`/venues/${CREATE_VENUE_SLUG}`)
+      const main = authenticatedPage.locator(VISIBLE_MAIN)
 
       // Confirm we loaded the right venue before we mutate.
       await expect(
-        authenticatedPage.getByRole('heading', {
+        main.getByRole('heading', {
           level: 1,
           name: CREATE_VENUE_NAME,
         })
@@ -45,7 +64,7 @@ test.describe('Comments (general)', () => {
 
       // Wait for the thread region to mount (hydrates client-side after
       // the initial venue fetch).
-      const thread = authenticatedPage.getByTestId('comment-thread')
+      const thread = main.getByTestId('comment-thread')
       await expect(thread).toBeVisible({ timeout: 10_000 })
 
       const uniqueBody = `E2E comment create ${Date.now()}`
@@ -92,15 +111,16 @@ test.describe('Comments (general)', () => {
     'authenticated user upvotes a comment',
     async ({ authenticatedPage }) => {
       await authenticatedPage.goto(`/venues/${VOTE_VENUE_SLUG}`)
+      const main = authenticatedPage.locator(VISIBLE_MAIN)
 
       await expect(
-        authenticatedPage.getByRole('heading', {
+        main.getByRole('heading', {
           level: 1,
           name: VOTE_VENUE_NAME,
         })
       ).toBeVisible({ timeout: 10_000 })
 
-      const thread = authenticatedPage.getByTestId('comment-thread')
+      const thread = main.getByTestId('comment-thread')
       await expect(thread).toBeVisible({ timeout: 10_000 })
 
       // Locate the admin-seeded target comment by its body text and climb
@@ -158,15 +178,16 @@ test.describe('Comments (general)', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage }) => {
       await authenticatedPage.goto(`/venues/${REPLY_VENUE_SLUG}`)
+      const main = authenticatedPage.locator(VISIBLE_MAIN)
 
       await expect(
-        authenticatedPage.getByRole('heading', {
+        main.getByRole('heading', {
           level: 1,
           name: REPLY_VENUE_NAME,
         })
       ).toBeVisible({ timeout: 10_000 })
 
-      const thread = authenticatedPage.getByTestId('comment-thread')
+      const thread = main.getByTestId('comment-thread')
       await expect(thread).toBeVisible({ timeout: 10_000 })
 
       // Locate the admin-seeded parent comment.
