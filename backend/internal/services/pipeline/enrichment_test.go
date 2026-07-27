@@ -279,20 +279,32 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 // completion with the TEST's clock, so no assertion below compares two values
 // the subject wrote to itself. The trailing c.lastReq checks only corroborate.
 func TestMusicBrainzClient_ThrottleSpacesConcurrentCallers(t *testing.T) {
-	// Callers serialize by construction, so the test costs (callers-1) *
-	// rateLimit. Four is the smallest N that yields more than one adjacent gap
-	// to check while keeping a -count=50 -race run in the tens of seconds.
-	const callers = 4
+	// Callers serialize BY CONSTRUCTION, so the test costs (callers-1) *
+	// rateLimit and every extra caller is bought with a full interval. Three is
+	// enough: it already produces a caller queued behind two others and two
+	// independent adjacent gaps to check, and both mutants this test exists to
+	// kill (see below) died 20/20 runs at this N. Raising it buys runtime, not
+	// signal.
+	const callers = 3
 
 	c := NewMusicBrainzClient()
-	// Shortened for runtime, as in the sequential test. 100ms still leaves the
-	// per-gap tolerance below an order of magnitude below the signal a broken
-	// throttle produces (concurrent grants land ~0ms apart, not ~90ms).
+	// Shortened for runtime, as in the sequential test; the production interval
+	// is mbRateLimit. Nothing below depends on the value except the per-gap
+	// slack, which is sized against measured jitter (see bound 2).
 	c.rateLimit = 100 * time.Millisecond
 
-	// Every goroutine parks on release, so all of them are already running when
-	// the clock starts. Starting them staggered would let the throttle satisfy
-	// the spacing invariant without ever having to arbitrate contention.
+	// Two-stage gate, and BOTH stages are load-bearing. close(release) alone
+	// would wake whichever goroutines happen to exist, but `go func()` only
+	// guarantees a goroutine is created, not scheduled — the spawn loop can
+	// finish before any of them has run a single statement. ready.Wait() blocks
+	// until every caller has actually executed and parked on the receive, so the
+	// close hits N runnable goroutines at once.
+	//
+	// This matters for what the test can DETECT, not for whether it passes: the
+	// assertions below are lower bounds, so callers trickling in more than a
+	// rateLimit apart would still satisfy them — while never contending, which
+	// is the entire property under test. Dropping the ready stage would leave a
+	// test that quietly stops discriminating on a loaded machine.
 	release := make(chan struct{})
 	var ready, done sync.WaitGroup
 	ready.Add(callers)
@@ -333,16 +345,19 @@ func TestMusicBrainzClient_ThrottleSpacesConcurrentCallers(t *testing.T) {
 	}
 
 	// Bound 2 — per-adjacent-pair, which bound 1 alone does not give: a throttle
-	// that stalls once and then releases everyone at once (e.g. grants at 600,
-	// 601, 602, 603ms) satisfies every cumulative floor while firing four
-	// requests in one interval. Unlike bound 1 this compares two independently
-	// scheduled stamps, so it needs slack for the gap between a grant and the
-	// goroutine recording it. Sizing is measured, not guessed: over 65 runs
-	// (195 gaps) under -race, idle and under 12 competing CPU hogs, the smallest
-	// observed margin over rateLimit was +1.00ms — the floor is timer overshoot,
-	// and recording jitter never ate into it. 10ms is 10x that floor, while a
-	// real violation collapses the gap to single-digit MICROseconds, so the
-	// tolerance sits ~3 orders of magnitude away from the signal.
+	// that stalls once and then releases everyone at once (grants at 200, 200.1,
+	// 200.2ms) clears every cumulative floor while firing all three requests in
+	// one interval. Confirmed by mutation, not argued: that variant passes bound
+	// 1 untouched and fails only here.
+	//
+	// Unlike bound 1 this compares two independently scheduled stamps, so it
+	// needs slack for the gap between a grant and the goroutine recording it.
+	// The size is measured, not guessed: over 195 gaps under -race, idle and
+	// under 12 competing CPU hogs, the smallest observed margin over rateLimit
+	// was +1.00ms — the floor is timer overshoot, and recording jitter never ate
+	// into it. 10ms is 10x that floor, while a real violation collapses the gap
+	// to single-digit MICROseconds, leaving the tolerance ~3 orders of magnitude
+	// clear of the signal on both sides.
 	const slack = 10 * time.Millisecond
 	for i := 1; i < len(granted); i++ {
 		assert.GreaterOrEqual(t, granted[i].Sub(granted[i-1]), c.rateLimit-slack,
