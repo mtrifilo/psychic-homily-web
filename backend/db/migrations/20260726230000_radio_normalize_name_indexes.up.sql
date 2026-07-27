@@ -41,6 +41,20 @@ AS $function$
   $function$;
 
 -- STEP 2: the indexes.
+--
+-- Plain (non-CONCURRENT) CREATE INDEX on purpose, same tradeoff the
+-- charts_cost_indexes and unaccent migrations document: golang-migrate sends a
+-- multi-statement file as one Exec, which Postgres treats as an implicit
+-- transaction block, and CONCURRENTLY cannot run inside one. Splitting this
+-- into four single-statement migrations would allow CONCURRENTLY, but the
+-- function fix and the indexes that depend on it would then be separately
+-- appliable — a half-applied state where the indexes exist without the
+-- qualified function is not worth buying.
+--
+-- The SHARE lock blocks writes for the build's duration. Measured on the
+-- 238,125-row reproduction: all three indexes build in 348 ms total inside one
+-- transaction. Migrations run at container boot before the server serves
+-- traffic, so that window costs nothing.
 
 -- Hot query (2287 calls, mean 1473ms, ~56 min total DB time), from
 -- MatchUnmatchedPlaysForArtistName:
@@ -63,16 +77,16 @@ AS $function$
 -- Measured on the 238,125-row reproduction (Postgres 17.7):
 --   force=true   127.258 ms (parallel seq scan, 1905 buffers) -> 0.067 ms (9 buffers)
 --   force=false   85.983 ms                                   -> 0.040 ms
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_radio_plays_norm_artist_name
+CREATE INDEX IF NOT EXISTS idx_radio_plays_norm_artist_name
     ON radio_plays (radio_normalize_name(artist_name))
     WHERE artist_id IS NULL;
 
 -- 6118 calls, mean 120ms, ~12 min total.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_releases_norm_title
+CREATE INDEX IF NOT EXISTS idx_releases_norm_title
     ON releases (radio_normalize_name(title));
 
 -- 8714 calls, mean 22ms; also serves the id/slug-only variant of the lookup.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_artists_norm_name
+CREATE INDEX IF NOT EXISTS idx_artists_norm_name
     ON artists (radio_normalize_name(name));
 
 -- Deliberately NOT indexed: labels (24 rows) and artist_aliases (10 rows) use

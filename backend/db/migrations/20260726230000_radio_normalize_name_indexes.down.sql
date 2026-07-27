@@ -5,9 +5,9 @@
 -- Restoring the unqualified call re-introduces the "cannot be indexed"
 -- limitation, which is correct for a rollback — it is the state this migration
 -- was applied against. No data is lost either way.
-DROP INDEX CONCURRENTLY IF EXISTS idx_artists_norm_name;
-DROP INDEX CONCURRENTLY IF EXISTS idx_releases_norm_title;
-DROP INDEX CONCURRENTLY IF EXISTS idx_radio_plays_norm_artist_name;
+DROP INDEX IF EXISTS idx_artists_norm_name;
+DROP INDEX IF EXISTS idx_releases_norm_title;
+DROP INDEX IF EXISTS idx_radio_plays_norm_artist_name;
 
 CREATE OR REPLACE FUNCTION public.radio_normalize_name(text)
     RETURNS text
