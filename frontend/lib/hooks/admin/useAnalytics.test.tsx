@@ -160,7 +160,7 @@ describe('useAnalytics hooks', () => {
           { week: '2026-W11', count: 20 },
         ],
         request_fulfillment_rate: 0.72,
-        new_collections_30d: 8,
+        new_crates_30d: 8,
         top_contributors: [
           { user_id: 1, username: 'alice', display_name: 'Alice', count: 50 },
           { user_id: 2, username: 'bob', count: 35 },

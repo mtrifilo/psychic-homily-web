@@ -94,7 +94,7 @@ const mockCommunityData = {
     { week: '2026-W11', count: 20 },
   ],
   request_fulfillment_rate: 0.72,
-  new_collections_30d: 8, // API field name; displayed as "New Collections (30d)"
+  new_crates_30d: 8, // wire field (legacy vocabulary); displayed as "New Collections (30d)"
   top_contributors: [
     { user_id: 1, username: 'alice', display_name: 'Alice M.', count: 50 },
     { user_id: 2, username: 'bob', count: 35 },
