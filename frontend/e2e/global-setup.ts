@@ -24,10 +24,13 @@ const TEST_PASSWORD = 'e2e-test-password-123'
 // PSY-431: seed N regular users so each Playwright worker gets its own
 // authenticated user (worker index → user N), avoiding cross-worker races
 // on shared user state (saved_shows, favorite_venues, submissions, etc.).
-// Must match the seeded user count in setup-db.sh and the local workers
-// cap in playwright.config.ts. It also sets how much work captureAuthState
-// has to push through AUTH_CAPTURE_CONCURRENCY below — raising it adds
-// batches, and so adds setup wall time. Check that constant too.
+// Must match the seeded user count in setup-db.sh. It is a ceiling on the
+// worker count, not a target: the local cap in playwright.config.ts is 2 for
+// dev-server-contention reasons, and the fixture maps workerIndex % USER_COUNT,
+// so seeding more users than workers is harmless. It also sets how much work
+// captureAuthState has to push through AUTH_CAPTURE_CONCURRENCY below —
+// raising it adds batches, and so adds setup wall time. Check that constant
+// too.
 const USER_COUNT = 5
 
 function userEmailForWorker(workerIndex: number): string {
