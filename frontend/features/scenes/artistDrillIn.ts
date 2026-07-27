@@ -178,8 +178,12 @@ export function artistStepAnnouncement(args: {
  * "6 similar" would lose the noun. Empty segments are dropped, and an artist
  * with nothing to say returns '' so the caller omits the heading entirely.
  *
- * Labels and stations are capped: the line is one row of a 384px panel, and an
- * artist on eight compilations would push the whole thing into a paragraph.
+ * Labels and stations are capped so the line stays a GLANCE rather than a
+ * paragraph — an artist on eight compilations would otherwise list all eight.
+ * The cap bounds the open-ended segments only; a maximally-connected artist
+ * still renders six segments and is allowed to wrap to a second line, which is
+ * why the caller does not clamp it. Truncating mid-name would be worse than
+ * wrapping: these are the connections the panel exists to advertise.
  */
 export function artistConnectionsLine(card: ArtistGraphCard): string {
   const parts: string[] = []

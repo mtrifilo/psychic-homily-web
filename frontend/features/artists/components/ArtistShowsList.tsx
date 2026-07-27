@@ -12,6 +12,10 @@ import { NotifyMeButton } from '@/features/notifications'
 import { dedupArtistShows } from '@/features/shows'
 import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
 import { useArtistShows } from '../hooks/useArtists'
+import {
+  ARTIST_SHOWS_PAGE_LIMIT,
+  ARTIST_SHOWS_VIEWER_TIMEZONE,
+} from '../api'
 import type { ArtistShow } from '../types'
 
 interface ArtistShowsListProps {
@@ -19,8 +23,6 @@ interface ArtistShowsListProps {
   artistName: string
   className?: string
 }
-
-const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 function ShowsLoader() {
   return (
@@ -149,19 +151,23 @@ export function ArtistShowsList({
   className,
 }: ArtistShowsListProps) {
   const [pastOpen, setPastOpen] = useState(false)
+  // The shared page + timezone, NOT local literals: `artistQueryKeys.shows()`
+  // keys only on artist id + time filter, so every artist-shows caller shares
+  // one cache entry and must therefore request the same page. See
+  // ARTIST_SHOWS_PAGE_LIMIT for what goes wrong when they don't.
   const upcoming = useArtistShows({
     artistId,
-    timezone: TIMEZONE,
+    timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
     enabled: true,
-    limit: 50,
+    limit: ARTIST_SHOWS_PAGE_LIMIT,
   })
   const past = useArtistShows({
     artistId,
-    timezone: TIMEZONE,
+    timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'past',
     enabled: true,
-    limit: 50,
+    limit: ARTIST_SHOWS_PAGE_LIMIT,
   })
 
   const upcomingShows = upcoming.data?.shows

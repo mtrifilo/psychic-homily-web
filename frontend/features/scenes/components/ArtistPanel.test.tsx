@@ -3,6 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { ArtistGraphCard } from '@/features/artists/types'
 import type { ArtistStep } from '../artistDrillIn'
+import { ARTIST_SHOWS_PAGE_LIMIT } from '@/features/artists/api'
+import { ARTIST_PANEL_NEXT_SHOW_ROWS } from '../cityView'
 
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: ReactNode }) => (
@@ -327,11 +329,54 @@ describe('ArtistPanel', () => {
       )
     })
 
-    it('requests only the rows it draws', () => {
+    // Regression (adversarial review): `artistQueryKeys.shows()` keys only on
+    // artist id + time filter, so this panel and the artist page's own shows
+    // list SHARE one cache entry. Asking for two rows here would hand the
+    // artist page a two-row list for the whole 5-minute staleTime whenever a
+    // reader arrived via "Open artist page →". Request the shared page; slice
+    // for display.
+    it('requests the same page the artist page does, so the two share one cache entry', () => {
       renderPanel()
       expect(mockUseArtistShows).toHaveBeenCalledWith(
-        expect.objectContaining({ artistId: 10, limit: 2, timeFilter: 'upcoming' }),
+        expect.objectContaining({
+          artistId: 10,
+          timeFilter: 'upcoming',
+          limit: ARTIST_SHOWS_PAGE_LIMIT,
+        }),
       )
+      expect(ARTIST_SHOWS_PAGE_LIMIT).toBeGreaterThan(ARTIST_PANEL_NEXT_SHOW_ROWS)
+    })
+
+    it('still draws only the two rows the mock calls for', () => {
+      mockUseArtistShows.mockReturnValue({
+        data: {
+          shows: Array.from({ length: 9 }, (_, i) => ({
+            id: 900 + i,
+            slug: `s${i}`,
+            title: '',
+            event_date: '2026-08-02T02:00:00Z',
+            price: null,
+            age_requirement: null,
+            venue: {
+              id: 1,
+              slug: 'here',
+              name: `Venue ${i}`,
+              city: 'Austin',
+              state: 'TX',
+              timezone: 'America/Chicago',
+            },
+            artists: [],
+          })),
+          artist_id: 10,
+          total: 9,
+        },
+      })
+      renderPanel()
+      // The rows render as one joined line ("SAT 8/1 · Venue 0 · 9:00 PM"),
+      // so match on a substring rather than the venue name alone.
+      expect(screen.getByText(/Venue 0/)).toBeInTheDocument()
+      expect(screen.getByText(/Venue 1/)).toBeInTheDocument()
+      expect(screen.queryByText(/Venue 2/)).not.toBeInTheDocument()
     })
 
     // No route error boundary on /atlas — an absent bill must degrade, not

@@ -498,6 +498,29 @@ describe('AtlasGlobe', () => {
       ).toBeInTheDocument()
     })
 
+    // The drill-in has no restore-focus-to-opener cleanup of its own (the show
+    // row it opened from is already unmounted by then). The return path is
+    // covered by the panel handed back to: VenuePanel remounts and focuses its
+    // own close control, so a keyboard user lands INSIDE the venue panel
+    // rather than back at the top of the document.
+    it('lands keyboard focus in the venue panel on the way back', async () => {
+      await drillIntoFirstShow()
+
+      fireEvent.click(
+        within(screen.getByTestId('atlas-artist-panel')).getByRole('button', {
+          name: /Empty Bottle/,
+        }),
+      )
+
+      const venuePanel = screen.getByTestId('atlas-venue-panel')
+      expect(venuePanel).toContainElement(
+        document.activeElement as HTMLElement | null,
+      )
+      expect(
+        screen.getByRole('button', { name: 'Close Empty Bottle panel' }),
+      ).toHaveFocus()
+    })
+
     // Escape pops ONE level per keystroke: artist → venue → closed.
     it('pops one level per Escape', async () => {
       await drillIntoFirstShow()
@@ -531,14 +554,49 @@ describe('AtlasGlobe', () => {
       expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
     })
 
+    // The render-phase orphan guard, exercised through the filter path it was
+    // written for: Hideout has no shows this week, so applying "This week"
+    // drops it from `filteredVenues` while its selection ID survives. An
+    // artist panel whose "← Hideout" returns to nothing is the dead end this
+    // prevents.
     it('drops the drill-in when a filter excludes its venue', async () => {
+      mockUseVenueShows.mockReturnValue({
+        data: { shows: venueWeek, venue_id: 2, total: 2 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      act(() => {
+        lastCanvasProps.onVenueSelect?.(2) // Hideout: 0 shows this week
+      })
+      fireEvent.click(
+        screen.getByRole('button', { name: /Bottle Fest night one/ }),
+      )
+      expect(screen.getByTestId('atlas-artist-panel')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+
+      // Clearing the filter restores the VENUE panel — the user's own
+      // selection coming back — but NOT the drill-in, which was discarded.
+      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      expect(
+        screen.getByRole('heading', { name: 'Hideout' }),
+      ).toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+    })
+
+    it('drops the drill-in when another venue is selected', async () => {
       await drillIntoFirstShow()
-      // Empty Bottle has shows this week, so invert: filter to a genre neither
-      // venue claims by picking the venue with none, then confirm via the
-      // simpler path — selecting the OTHER venue ends this drill-in.
+
       act(() => {
         lastCanvasProps.onVenueSelect?.(2)
       })
+
       expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
       expect(
         screen.getByRole('heading', { name: 'Hideout' }),

@@ -11,6 +11,10 @@ import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { parseSpotifyEmbed } from '@/lib/spotify'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { useArtistShows } from '@/features/artists/hooks/useArtists'
+import {
+  ARTIST_SHOWS_PAGE_LIMIT,
+  ARTIST_SHOWS_VIEWER_TIMEZONE,
+} from '@/features/artists/api'
 import type { ArtistShow } from '@/features/artists/types'
 import { formatShowTime } from '@/lib/utils/formatters'
 import {
@@ -68,11 +72,17 @@ interface ArtistPanelProps {
  * verbatim — the two are the same panel at different depths of one stack, and
  * they must not disagree about Escape or about clearing the map's bottom-left
  * attribution control (an ODbL licensing requirement). See VenuePanel's own
- * doc for why neither uses `GraphPanelShell`. This is the SECOND three-region
- * panel; VenuePanel's note asks that a THIRD promote the variant into the
- * shell rather than copy it again, and that still stands — the extraction is
- * deliberately not done here because VenuePanel is in review on the branch this
- * one stacks on, and restructuring it under review would conflict on rebase.
+ * doc for why neither uses `GraphPanelShell`.
+ *
+ * This is the SECOND three-region panel, and VenuePanel's note asks that a
+ * THIRD promote the variant into a shared shell rather than copy it again —
+ * that rule is being followed, not deferred. Two instances is the point at
+ * which the shape is visible but not yet proven: the panels already differ in
+ * their header (a breadcrumb + stepper here, a name + follow/confirm actions
+ * there) and in what "dismiss" means (this one pops a level; that one closes),
+ * so an extraction today would be guessing at which of those the third caller
+ * shares. Extract on the third, when the common shape is evidence instead of
+ * prediction.
  *
  * Escape pops ONE level. The panel is rendered INSTEAD of the venue panel
  * rather than over it, so there is exactly one Atlas panel on Radix's layer
@@ -89,10 +99,8 @@ export function ArtistPanel({
   onClose,
 }: ArtistPanelProps) {
   const backRef = useRef<HTMLButtonElement>(null)
-  const sectionRef = useRef<HTMLElement>(null)
 
-  // Focus the breadcrumb on open and hand focus back on close — VenuePanel's
-  // move and containment guard, for the reason PSY-1540's review raised: the
+  // Focus the breadcrumb on open, for the reason PSY-1540's review raised: the
   // panel opens from a show ROW, and a keyboard user left standing on that row
   // would have to tab through the rest of the venue's shows to reach what
   // their keystroke just opened. The breadcrumb (not the ✕) is the target
@@ -100,26 +108,16 @@ export function ArtistPanel({
   //
   // Mount-only, and the panel deliberately does NOT remount per step — moving
   // focus on every `›` press would rip it off the button being pressed.
+  //
+  // There is deliberately NO restore-focus-to-the-opener cleanup here, unlike
+  // VenuePanel's. It would be dead code: this panel REPLACES the venue panel,
+  // so React unmounts the clicked show row in the same commit that mounts
+  // this, and the row is already gone (with `document.activeElement` reset to
+  // `<body>`) by the time a passive effect could capture it. The return path
+  // is covered instead by the panel we hand back to — VenuePanel remounts and
+  // focuses its own close button, which the AtlasGlobe suite asserts.
   useEffect(() => {
-    const section = sectionRef.current
-    const opener = document.activeElement
     backRef.current?.focus()
-    return () => {
-      const active = document.activeElement
-      const focusIsOurs =
-        active === document.body ||
-        (active instanceof HTMLElement &&
-          section !== null &&
-          section.contains(active))
-      if (
-        focusIsOurs &&
-        opener instanceof HTMLElement &&
-        opener.isConnected &&
-        opener !== document.body
-      ) {
-        opener.focus()
-      }
-    }
   }, [])
 
   const total = steps.length
@@ -143,9 +141,20 @@ export function ArtistPanel({
     enabled: Boolean(nextStep),
   })
 
+  // Requests the SAME page the artist page does, and slices for display —
+  // deliberately not a `limit: 2` request for the two rows drawn.
+  // `artistQueryKeys.shows()` keys only on artist id + time filter, NOT on
+  // limit or timezone, so this shares one cache entry with the artist page's
+  // own shows list. Asking for two rows here would therefore hand the ARTIST
+  // PAGE a two-row list for the next five minutes whenever a reader arrived
+  // via this panel's own "Open artist page →" — silently hiding real upcoming
+  // shows on the artist's canonical surface. Same rule, same reason, as
+  // VenuePanel and VENUE_SHOWS_PAGE_LIMIT; the constants live beside the query
+  // key so the agreement can't drift.
   const { data: showsData } = useArtistShows({
     artistId: current?.artistId ?? 0,
-    limit: ARTIST_PANEL_NEXT_SHOW_ROWS,
+    limit: ARTIST_SHOWS_PAGE_LIMIT,
+    timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
     enabled: Boolean(current),
   })
@@ -195,7 +204,6 @@ export function ArtistPanel({
       onFocusOutside={(e) => e.preventDefault()}
     >
       <section
-        ref={sectionRef}
         aria-label={`${artistName} — artist details`}
         data-testid="atlas-artist-panel"
         style={{
