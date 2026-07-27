@@ -92,69 +92,67 @@ func (s *EnrichmentService) QueueShowForEnrichment(showID uint, enrichmentType s
 	return s.db.Create(item).Error
 }
 
-// ProcessQueue processes pending enrichment items in batch.
+// ProcessQueue claims and processes a batch of pending enrichment items.
 // Returns the number of items processed.
+//
+// Runs on the shared job-queue mechanics (PSY-1572). Before that it hand-rolled
+// its own draining and was missing every safety net the image-enrich outbox had:
+// no SKIP LOCKED (two pollers claimed the same rows), a non-atomic
+// select-then-mark (a TOCTOU window), no `status = processing` guard on the
+// finalize writes, unchecked write errors, and — worst — no stale reclaim at all.
+// Since the claim filter only looks at `pending`, a row left in `processing` by a
+// crash, a deploy mid-batch, or a silently-failed write was a PERMANENT zombie.
+// PSY-1569 was that exact failure on the other queue, where reclaim existed and
+// made the 1017 affected rows recoverable; here nothing would have recovered them.
 func (s *EnrichmentService) ProcessQueue(ctx context.Context, batchSize int) (int, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
-
 	if batchSize <= 0 {
-		batchSize = 10
+		batchSize = DefaultEnrichmentBatchSize
 	}
 
-	// Fetch pending items ordered by creation time
-	var items []adminm.EnrichmentQueueItem
-	err := s.db.Where("status = ? AND attempts < max_attempts", adminm.EnrichmentStatusPending).
-		Order("created_at ASC").
-		Limit(batchSize).
-		Find(&items).Error
+	// Recover rows orphaned by an earlier crash/deploy before claiming new work,
+	// so a stranded row rejoins the queue instead of holding its slot forever.
+	s.queue().ReclaimStale(ctx, enrichmentStaleReclaim, enrichmentStrandedError)
+
+	items, err := s.queue().Claim(ctx, batchSize)
 	if err != nil {
-		return 0, fmt.Errorf("failed to fetch pending enrichment items: %w", err)
+		return 0, fmt.Errorf("failed to claim pending enrichment items: %w", err)
 	}
 
 	processed := 0
 	for _, item := range items {
 		select {
 		case <-ctx.Done():
+			// Leave the remaining claimed rows in `processing`; ReclaimStale returns
+			// them on a later tick. Previously this path stranded them permanently.
 			return processed, ctx.Err()
 		default:
 		}
 
-		// Mark as processing
-		s.db.Model(&item).Updates(map[string]interface{}{
-			"status":   adminm.EnrichmentStatusProcessing,
-			"attempts": item.Attempts + 1,
-		})
-
-		// Run enrichment
+		// item.Attempts is the PRE-claim count; the claim already incremented the row.
 		result, err := s.EnrichShow(ctx, item.ShowID)
 		if err != nil {
 			errStr := err.Error()
+			status := adminm.EnrichmentStatusPending // retry on a later tick
 			if item.Attempts+1 >= item.MaxAttempts {
-				// Max retries exceeded — mark as failed
-				s.db.Model(&item).Updates(map[string]interface{}{
-					"status":     adminm.EnrichmentStatusFailed,
-					"last_error": errStr,
-				})
-			} else {
-				// Retry later — reset to pending
-				s.db.Model(&item).Updates(map[string]interface{}{
-					"status":     adminm.EnrichmentStatusPending,
-					"last_error": errStr,
-				})
+				status = adminm.EnrichmentStatusFailed
 			}
+			s.queue().Finalize(ctx, []uint{item.ID}, map[string]interface{}{
+				"status":     status,
+				"last_error": errStr,
+			})
 			s.logger.Warn("enrichment failed",
 				"show_id", item.ShowID,
 				"attempt", item.Attempts+1,
 				"error", err,
 			)
 		} else {
-			// Success — store results
 			resultJSON, _ := json.Marshal(result)
 			raw := json.RawMessage(resultJSON)
 			now := time.Now()
-			s.db.Model(&item).Updates(map[string]interface{}{
+			s.queue().Finalize(ctx, []uint{item.ID}, map[string]interface{}{
 				"status":       adminm.EnrichmentStatusCompleted,
 				"results":      &raw,
 				"completed_at": &now,
@@ -169,6 +167,20 @@ func (s *EnrichmentService) ProcessQueue(ctx context.Context, batchSize int) (in
 	}
 
 	return processed, nil
+}
+
+// queue builds the shared mechanics for enrichment_queue. Constructed per call
+// rather than cached on the struct because EnrichmentService is built in several
+// places (including tests) that assign s.db directly after construction; binding
+// the queue at construction time would capture a nil or stale handle.
+func (s *EnrichmentService) queue() *shared.JobQueue[adminm.EnrichmentQueueItem] {
+	return shared.NewJobQueue[adminm.EnrichmentQueueItem](s.db, "enrichment queue",
+		shared.QueueStatuses{
+			Pending:    adminm.EnrichmentStatusPending,
+			Processing: adminm.EnrichmentStatusProcessing,
+			Failed:     adminm.EnrichmentStatusFailed,
+			Terminal:   []string{adminm.EnrichmentStatusCompleted, adminm.EnrichmentStatusFailed},
+		}, s.logger)
 }
 
 // EnrichShow runs all applicable enrichment steps for a single show.

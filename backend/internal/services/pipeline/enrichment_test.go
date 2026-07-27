@@ -779,3 +779,135 @@ func TestEnrichmentIntegrationTestSuite(t *testing.T) {
 	}
 	suite.Run(t, new(EnrichmentIntegrationTestSuite))
 }
+
+// --- PSY-1572: the safety mechanics enrichment_queue previously lacked ---
+
+// TestProcessQueue_ReclaimsStrandedRow is the headline gap. A row left in
+// `processing` — by a crash, a deploy mid-batch, or a finalize write that failed
+// silently — used to be a PERMANENT zombie: the claim filter only looks at
+// `pending`, so nothing ever selected it again. ReclaimStale must return it.
+func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_ReclaimsStrandedRow() {
+	showID, _ := s.createTestShowWithArtist()
+
+	// A row stranded in `processing` longer ago than the reclaim window, with
+	// attempts left — the crash/deploy shape.
+	stranded := &adminm.EnrichmentQueueItem{
+		ShowID:         showID,
+		Status:         adminm.EnrichmentStatusProcessing,
+		Attempts:       1,
+		MaxAttempts:    3,
+		EnrichmentType: adminm.EnrichmentTypeAll,
+	}
+	s.Require().NoError(s.db.Create(stranded).Error)
+	s.Require().NoError(s.db.Model(stranded).
+		UpdateColumn("updated_at", time.Now().Add(-enrichmentStaleReclaim-time.Minute)).Error)
+
+	processed, err := s.svc.ProcessQueue(s.ctx, 10)
+	s.Require().NoError(err)
+	s.Equal(1, processed, "the stranded row must be reclaimed and then processed")
+
+	var got adminm.EnrichmentQueueItem
+	s.Require().NoError(s.db.First(&got, stranded.ID).Error)
+	s.Equal(adminm.EnrichmentStatusCompleted, got.Status, "reclaimed row must reach a terminal state, not zombie")
+}
+
+// TestProcessQueue_FailsExhaustedStrandedRow: a stranded row with NO attempts left
+// must be marked failed, not left pending. Leaving it pending would zombie it a
+// second way — the claim filter is attempts < max_attempts, so it would never be
+// re-claimed and never finalize. The sentinel distinguishes it from a real failure.
+func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_FailsExhaustedStrandedRow() {
+	showID := s.createTestShow()
+
+	exhausted := &adminm.EnrichmentQueueItem{
+		ShowID:         showID,
+		Status:         adminm.EnrichmentStatusProcessing,
+		Attempts:       3,
+		MaxAttempts:    3,
+		EnrichmentType: adminm.EnrichmentTypeAll,
+	}
+	s.Require().NoError(s.db.Create(exhausted).Error)
+	s.Require().NoError(s.db.Model(exhausted).
+		UpdateColumn("updated_at", time.Now().Add(-enrichmentStaleReclaim-time.Minute)).Error)
+
+	_, err := s.svc.ProcessQueue(s.ctx, 10)
+	s.Require().NoError(err)
+
+	var got adminm.EnrichmentQueueItem
+	s.Require().NoError(s.db.First(&got, exhausted.ID).Error)
+	s.Equal(adminm.EnrichmentStatusFailed, got.Status)
+	s.Require().NotNil(got.LastError)
+	s.Equal(enrichmentStrandedError, *got.LastError,
+		"must carry the sentinel so machinery loss is distinguishable from a real enrichment failure")
+}
+
+// TestProcessQueue_DoesNotReclaimFreshProcessing: the reclaim window must not fire
+// on work that is still legitimately running. Reclaiming early burns an attempt on
+// a row that is succeeding — the PSY-1569 failure mode.
+func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_DoesNotReclaimFreshProcessing() {
+	showID := s.createTestShow()
+
+	fresh := &adminm.EnrichmentQueueItem{
+		ShowID:         showID,
+		Status:         adminm.EnrichmentStatusProcessing,
+		Attempts:       1,
+		MaxAttempts:    3,
+		EnrichmentType: adminm.EnrichmentTypeAll,
+	}
+	s.Require().NoError(s.db.Create(fresh).Error)
+
+	processed, err := s.svc.ProcessQueue(s.ctx, 10)
+	s.Require().NoError(err)
+	s.Equal(0, processed, "an in-flight row must not be claimed")
+
+	var got adminm.EnrichmentQueueItem
+	s.Require().NoError(s.db.First(&got, fresh.ID).Error)
+	s.Equal(adminm.EnrichmentStatusProcessing, got.Status, "still in flight")
+	s.Equal(1, got.Attempts, "no attempt burned on work that is still running")
+}
+
+// TestProcessQueue_ClaimIsAtomic: the claim must flip rows to `processing` and
+// increment attempts atomically. Previously the SELECT and the mark-as-processing
+// were separate unlocked statements — a TOCTOU window two pollers could both pass.
+func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_ClaimIsAtomic() {
+	showID := s.createTestShow() // no artist: EnrichShow errors, so the row stays observable
+	s.Require().NoError(s.svc.QueueShowForEnrichment(showID, adminm.EnrichmentTypeArtistMatch))
+
+	_, err := s.svc.ProcessQueue(s.ctx, 10)
+	s.Require().NoError(err)
+
+	var got adminm.EnrichmentQueueItem
+	s.Require().NoError(s.db.Where("show_id = ?", showID).First(&got).Error)
+	s.Equal(1, got.Attempts, "claim increments exactly once, in the same tx as the status flip")
+}
+
+// TestProcessQueue_ConcurrentClaimsAreDisjoint: FOR UPDATE SKIP LOCKED means two
+// concurrent pollers never claim the same row. Without it both selected the same
+// pending rows and enriched them twice.
+func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_ConcurrentClaimsAreDisjoint() {
+	const n = 6
+	for i := 0; i < n; i++ {
+		showID, _ := s.createTestShowWithArtist()
+		s.Require().NoError(s.svc.QueueShowForEnrichment(showID, adminm.EnrichmentTypeAll))
+	}
+
+	var wg sync.WaitGroup
+	counts := make([]int, 2)
+	errs := make([]error, 2)
+	for i := range counts {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			counts[idx], errs[idx] = s.svc.ProcessQueue(s.ctx, n)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		s.Require().NoError(err, "poller %d", i)
+	}
+	s.Equal(n, counts[0]+counts[1], "every row processed exactly once across both pollers")
+
+	var processedTwice int64
+	s.db.Model(&adminm.EnrichmentQueueItem{}).Where("attempts > 1").Count(&processedTwice)
+	s.Zero(processedTwice, "no row may be claimed by both pollers")
+}

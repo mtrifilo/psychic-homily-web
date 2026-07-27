@@ -41,3 +41,7 @@ type EnrichmentQueueItem struct {
 }
 
 func (EnrichmentQueueItem) TableName() string { return "enrichment_queue" }
+
+// QueueRowID implements shared.QueueRow so the shared job-queue mechanics
+// (PSY-1572) can address this table's rows.
+func (e EnrichmentQueueItem) QueueRowID() uint { return e.ID }
