@@ -154,15 +154,19 @@ function formatPercent(value: number): string {
 
 /** Build unified chart data from multiple series keyed by month */
 function mergeMonthlyData(
-  series: Record<string, MonthlyCount[]>
+  series: Record<string, MonthlyCount[] | null>
 ): Record<string, string | number>[] {
   const monthMap = new Map<string, Record<string, string | number>>()
   for (const [key, data] of Object.entries(series)) {
-    // A series can be absent when the API contract drifts from this hand-written
-    // type (it did: the UI read `collection_items` while the wire sends
-    // `crate_items`). `for...of undefined` throws, and because the whole admin
-    // console sits behind one error boundary, a single renamed field took down
-    // every tab. Skip unusable series so the rest of the dashboard still renders.
+    // The wire genuinely sends null for an empty series — the generated types
+    // say so (PSY-1550), which is why the parameter admits null rather than
+    // pretending otherwise.
+    //
+    // The runtime guard predates that and stays: `for...of undefined` throws,
+    // and because the whole admin console sits behind one error boundary, a
+    // single unusable series took down every tab (PSY-1547). Types now catch a
+    // renamed field at compile time; this keeps the blast radius small if
+    // something still arrives in a shape nobody predicted.
     if (!Array.isArray(data)) continue
     for (const item of data) {
       if (!monthMap.has(item.month)) {
@@ -538,7 +542,7 @@ function CommunityHealthSection() {
   if (error) return <ErrorState message="Failed to load community health." />
   if (!data) return null
 
-  const weeklyData = data.contributions_per_week.map(
+  const weeklyData = (data.contributions_per_week ?? []).map(
     (w: WeeklyContribution) => ({
       week: formatWeek(w.week),
       count: w.count,
@@ -559,9 +563,13 @@ function CommunityHealthSection() {
           value={formatPercent(data.request_fulfillment_rate)}
           description="Percentage of requests that have been fulfilled"
         />
+        {/* Wire field is `new_crates_30d` (legacy vocabulary, same as
+            `crate_items`); the product term stays in the label. This read
+            `new_collections_30d` until PSY-1550 and silently rendered
+            undefined — the generated types turned it into a compile error. */}
         <StatCard
           label="New Collections (30d)"
-          value={data.new_collections_30d}
+          value={data.new_crates_30d}
           description="Collections created in the last 30 days"
         />
       </div>
@@ -599,13 +607,13 @@ function CommunityHealthSection() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {data.top_contributors.length === 0 ? (
+          {(data.top_contributors ?? []).length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
               No contributions in the last 30 days.
             </p>
           ) : (
             <div className="divide-y divide-border">
-              {data.top_contributors.map(
+              {(data.top_contributors ?? []).map(
                 (contributor: TopContributor, index: number) => (
                   <div
                     key={contributor.user_id}

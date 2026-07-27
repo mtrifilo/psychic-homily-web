@@ -135,3 +135,6 @@ dispatch-stack/
 
 # Linear CLI config
 .linear.toml
+
+# Compiled cmd/ binaries left behind by `go build ./cmd/...` (PSY-1550)
+backend/openapi-spec
