@@ -19,6 +19,13 @@ func setupVenueRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/bill-network", venueHandler.GetVenueBillNetworkHandler)
 
+	// PSY-1542: community freshness. Any authenticated user at any trust tier
+	// can confirm a venue's info is current — it is the cheapest contribution
+	// on-ramp, so it is deliberately NOT trust-gated. Idempotent: a repeat
+	// confirm no-ops and returns the same aggregate. Throttled by the shared
+	// engagement-mutation limiter (engagement_mutation_rate_limit.go).
+	huma.Post(rc.Protected, "/venues/{venue_id}/confirm", venueHandler.ConfirmVenueHandler)
+
 	// Admin venue endpoints (PSY-423: rc.Admin enforces auth + IsAdmin)
 	huma.Post(rc.Admin, "/admin/venues", venueHandler.AdminCreateVenueHandler)
 	huma.Put(rc.Admin, "/venues/{venue_id}", venueHandler.UpdateVenueHandler)

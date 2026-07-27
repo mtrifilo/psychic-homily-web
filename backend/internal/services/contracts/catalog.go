@@ -414,6 +414,69 @@ type VenueDetailResponse struct {
 	Social           SocialResponse `json:"social"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`
+	// Provenance is the freshness/attribution stamp (PSY-1542). Filled on
+	// venue detail and on the Atlas city-scoped list (IncludeRailFields);
+	// omitted elsewhere so the venue browse page pays nothing for it.
+	Provenance *VenueProvenance `json:"provenance,omitempty"`
+}
+
+// Venue provenance source keys. The set is deliberately small and each member
+// is backed by a fact we actually store — nothing here is inferred.
+const (
+	// VenueProvenanceSourceIngest is emitted when venues.data_source is set,
+	// which is the column the enrichment/ingest writers own. NOTE: no live
+	// writer populates it for venues today, so this key is rare in practice
+	// and clients must render the source segment only when it is present.
+	VenueProvenanceSourceIngest = "ingest"
+	// VenueProvenanceSourceCommunity is emitted when at least one human has
+	// touched the venue — an approved entity edit, or a confirmation.
+	VenueProvenanceSourceCommunity = "community"
+)
+
+// VenueProvenance is the "how fresh is this, and who says so" stamp rendered
+// on the Atlas venue panel and the city rail (PSY-1542).
+//
+// It exists because a crowdsourced venue map dies of undetectable staleness:
+// a reader can only trust a listing if the page tells them when it was last
+// touched and by how many people. Every field is an aggregate over rows we
+// already keep — nothing is denormalised onto venues, matching the
+// no-counter-column precedent from likes.
+//
+// Honest degradation matters more than a complete-looking stamp: any count
+// that cannot be sourced comes back zero and the client omits that segment
+// rather than inventing a number.
+type VenueProvenance struct {
+	// UpdatedAt is venues.updated_at — the last write of any kind to the row.
+	UpdatedAt time.Time `json:"updated_at"`
+	// EditCount is the number of APPROVED community edits to this venue
+	// (pending_entity_edits, status=approved). Pending and rejected edits are
+	// excluded: they never changed what the reader is looking at. This is the
+	// canonical per-venue edit event — the venue update path does not write
+	// entity_edit_audit_logs (only artist/label/release/festival do), so
+	// counting that table here would report zero for every venue.
+	EditCount int `json:"edit_count"`
+	// ContributorCount is the number of DISTINCT users behind EditCount.
+	ContributorCount int `json:"contributor_count"`
+	// ConfirmationCount is how many distinct users have tapped "confirm info".
+	ConfirmationCount int `json:"confirmation_count"`
+	// LastConfirmedAt is the most recent confirmation, nil when there is none.
+	LastConfirmedAt *time.Time `json:"last_confirmed_at,omitempty"`
+	// Sources lists the VenueProvenanceSource* keys that apply, in a stable
+	// order (ingest before community). Empty when neither applies.
+	Sources []string `json:"sources"`
+}
+
+// VenueConfirmationResponse is returned by POST /venues/{venue_id}/confirm.
+//
+// It carries the post-mutation aggregate so the client never needs a
+// follow-up read, plus ViewerHasConfirmed — which is always true on a
+// successful confirm, including the idempotent repeat. Reads deliberately do
+// NOT carry viewer state: GET /venues is a public, cacheable endpoint and
+// per-viewer fields there would poison a shared cache.
+type VenueConfirmationResponse struct {
+	ConfirmationCount  int        `json:"confirmation_count"`
+	LastConfirmedAt    *time.Time `json:"last_confirmed_at,omitempty"`
+	ViewerHasConfirmed bool       `json:"viewer_has_confirmed"`
 }
 
 // VenueWithShowCountResponse includes upcoming show count for a venue.
@@ -1149,6 +1212,10 @@ type VenueServiceInterface interface {
 	// requested time window. Window is one of "all", "12m", "year"; Year
 	// is required iff Window=="year". Empty Window defaults to "all".
 	GetVenueBillNetwork(venueID uint, window string, year *int) (*VenueBillNetworkResponse, error)
+	// ConfirmVenue records that userID vouches for this venue's info being
+	// current (PSY-1542). Idempotent: a repeat confirm is a no-op that returns
+	// the same aggregate, never an error.
+	ConfirmVenue(venueID uint, userID uint) (*VenueConfirmationResponse, error)
 }
 
 // ──────────────────────────────────────────────

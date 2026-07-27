@@ -4256,6 +4256,7 @@ type MockVenueService struct {
 	GetUnverifiedVenuesFn      func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
 	GetVenueGenreProfileFn     func(uint) ([]contracts.GenreCount, error)
 	GetVenueBillNetworkFn      func(uint, string, *int) (*contracts.VenueBillNetworkResponse, error)
+	ConfirmVenueFn             func(uint, uint) (*contracts.VenueConfirmationResponse, error)
 }
 
 func (m *MockVenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
@@ -4357,6 +4358,12 @@ func (m *MockVenueService) GetVenueGenreProfile(venueID uint) ([]contracts.Genre
 func (m *MockVenueService) GetVenueBillNetwork(venueID uint, window string, year *int) (*contracts.VenueBillNetworkResponse, error) {
 	if m.GetVenueBillNetworkFn != nil {
 		return m.GetVenueBillNetworkFn(venueID, window, year)
+	}
+	return nil, nil
+}
+func (m *MockVenueService) ConfirmVenue(venueID uint, userID uint) (*contracts.VenueConfirmationResponse, error) {
+	if m.ConfirmVenueFn != nil {
+		return m.ConfirmVenueFn(venueID, userID)
 	}
 	return nil, nil
 }

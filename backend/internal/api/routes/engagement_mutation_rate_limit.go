@@ -40,15 +40,23 @@ func IsEngagementMutationRateLimitEnabled(getenv func(string) string) bool {
 //   - /saved-shows/{show_id}        (save/unsave show)
 //   - /saved-releases/{release_id}  (save/unsave release)
 //   - /{entity_type}/{entity_id}/follow AND /scenes/{slug}/follow (follow/unfollow)
+//   - /venues/{venue_id}/confirm    (PSY-1542 venue confirm-current)
 //
 // Both follow shapes are three-segment paths ending in /follow, so one pattern
 // covers them. Read-shaped helpers are deliberately NOT matched: /follows/batch
 // (POST body of ids) does not end in /follow, and the save-count batch paths are
 // on the public-read allowlist — both stay off the mutation budget per policy.
+//
+// Venue confirm joins the SHARED budget rather than getting its own: it is the
+// same class of one-tap authenticated toggle, and a separate budget would let a
+// farmer spend a full allowance on confirmations while still spending a full
+// allowance on follows. Confirmation counts are freshness evidence, so cheap
+// mass-confirming is exactly the abuse this ceiling exists to bound.
 var engagementMutationPathPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^/saved-shows/[^/]+$`),
 	regexp.MustCompile(`^/saved-releases/[^/]+$`),
 	regexp.MustCompile(`^/[^/]+/[^/]+/follow$`),
+	regexp.MustCompile(`^/venues/[^/]+/confirm$`),
 }
 
 // isEngagementMutationRequest reports whether a request is an in-scope
