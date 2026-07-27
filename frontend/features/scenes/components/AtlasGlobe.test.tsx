@@ -78,6 +78,15 @@ const mockUseVenueShows = vi.fn<() => Record<string, unknown>>(() => ({
 vi.mock('@/features/venues/hooks', () => ({
   useVenues: () => mockUseVenues(),
   useVenueShows: () => mockUseVenueShows(),
+  // VenuePanel's confirm mutation (PSY-1542). Inert here — the panel's own
+  // suite covers the confirm behaviour; this file's concern is the stack.
+  useVenueConfirm: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    data: undefined,
+    error: null,
+  }),
+  formatVenueConfirmError: () => null,
 }))
 
 // The artist drill-in's own fetches (PSY-1541). AtlasGlobe statically imports
@@ -99,9 +108,19 @@ vi.mock('@/components/shared/MusicEmbed', () => ({
   MusicEmbed: () => <div data-testid="music-embed" />,
 }))
 
+// VenuePanel's confirm control is auth-gated (PSY-1542) and AuthContext has no
+// provider in this file. Signed-in is the interesting default: it keeps the
+// control live so the panel renders the same shape the real app does.
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: true }),
+}))
+
 // AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  // VenuePanel's confirm control reads the pathname to build its auth
+  // return-to (PSY-1542).
+  usePathname: () => '/atlas',
 }))
 
 // Stub the WebGL canvas for the desktop-branch tests (PSY-1308 Drift): it

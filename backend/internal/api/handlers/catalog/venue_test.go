@@ -48,9 +48,12 @@ func TestDeleteVenueHandler_InvalidID(t *testing.T) {
 // ID Parsing Boundary Tests
 // ============================================================================
 
+// The venue-detail read goes through GetVenueDetail, which owns the
+// id-or-slug resolution (and the provenance stamp). These pin that every odd
+// path param still lands on a clean 404 rather than a 500 or a nil response.
 func TestGetVenueHandler_ZeroID(t *testing.T) {
 	mock := &testhelpers.MockVenueService{
-		GetVenueFn: func(venueID uint) (*contracts.VenueDetailResponse, error) {
+		GetVenueDetailFn: func(string) (*contracts.VenueDetailResponse, error) {
 			return nil, apperrors.ErrVenueNotFound(0)
 		},
 	}
@@ -61,8 +64,8 @@ func TestGetVenueHandler_ZeroID(t *testing.T) {
 
 func TestGetVenueHandler_VeryLargeID(t *testing.T) {
 	mock := &testhelpers.MockVenueService{
-		GetVenueFn: func(venueID uint) (*contracts.VenueDetailResponse, error) {
-			return nil, apperrors.ErrVenueNotFound(venueID)
+		GetVenueDetailFn: func(string) (*contracts.VenueDetailResponse, error) {
+			return nil, apperrors.ErrVenueNotFound(0)
 		},
 	}
 	h := NewVenueHandler(mock, nil, nil, nil)
@@ -71,14 +74,45 @@ func TestGetVenueHandler_VeryLargeID(t *testing.T) {
 }
 
 func TestGetVenueHandler_OverflowID(t *testing.T) {
+	// Too large for uint32 — GetVenueDetail's ParseUint fails and it falls
+	// through to the slug branch, which finds nothing.
+	var got string
 	mock := &testhelpers.MockVenueService{
-		GetVenueBySlugFn: func(slug string) (*contracts.VenueDetailResponse, error) {
+		GetVenueDetailFn: func(idOrSlug string) (*contracts.VenueDetailResponse, error) {
+			got = idOrSlug
 			return nil, apperrors.ErrVenueNotFound(0)
 		},
 	}
 	h := NewVenueHandler(mock, nil, nil, nil)
 	_, err := h.GetVenueHandler(context.Background(), &GetVenueRequest{VenueID: "99999999999"})
 	testhelpers.AssertHumaError(t, err, 404)
+	if got != "99999999999" {
+		t.Errorf("service received %q, want the raw path param", got)
+	}
+}
+
+// The detail read must carry the provenance stamp straight through.
+func TestGetVenueHandler_CarriesProvenance(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		GetVenueDetailFn: func(string) (*contracts.VenueDetailResponse, error) {
+			return &contracts.VenueDetailResponse{
+				ID:   7,
+				Name: "Hotel Vegas",
+				Provenance: &contracts.VenueProvenance{
+					EditCount: 4, ContributorCount: 2, ConfirmationCount: 7,
+					Sources: []string{contracts.VenueProvenanceSourceCommunity},
+				},
+			}, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+	resp, err := h.GetVenueHandler(context.Background(), &GetVenueRequest{VenueID: "7"})
+	if err != nil {
+		t.Fatalf("GetVenueHandler: %v", err)
+	}
+	if resp.Body.Provenance == nil || resp.Body.Provenance.ConfirmationCount != 7 {
+		t.Errorf("provenance = %+v, want the stamp the service returned", resp.Body.Provenance)
+	}
 }
 
 func TestUpdateVenueHandler_ZeroID(t *testing.T) {

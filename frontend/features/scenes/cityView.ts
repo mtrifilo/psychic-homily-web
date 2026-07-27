@@ -9,7 +9,11 @@
  */
 
 import { haversineDistanceKm } from '@/lib/haversine'
-import type { Venue, VenueWithShowCount } from '@/features/venues/types'
+import type {
+  Venue,
+  VenueProvenance,
+  VenueWithShowCount,
+} from '@/features/venues/types'
 import { LOCATION_UNKNOWN, formatLocation } from '@/lib/formatLocation'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
@@ -326,6 +330,143 @@ export function cityDataUpdatedAt(
     }
   }
   return newest
+}
+
+/**
+ * The city-wide contribution totals for the rail footer (PSY-1542).
+ *
+ * Edits and confirmations are SUMS, which is sound: each is a count of rows,
+ * and rows for different venues are disjoint.
+ *
+ * Distinct CONTRIBUTORS deliberately has no city-wide equivalent. Each venue
+ * reports how many distinct people edited IT; the same person editing two
+ * venues appears in both counts, so summing would overstate the city's
+ * contributor base — and there is no way to recover the true distinct count
+ * from per-venue totals. Rather than ship a plausible-looking number that is
+ * wrong whenever anyone maintains more than one venue, the rail states what it
+ * can defend and leaves contributors to the venue panel, where the count is
+ * exact.
+ */
+export interface CityContributionCounts {
+  editCount: number
+  confirmationCount: number
+}
+
+export function cityContributionCounts(
+  venues: readonly VenueWithShowCount[],
+): CityContributionCounts {
+  let editCount = 0
+  let confirmationCount = 0
+  for (const v of venues) {
+    editCount += v.provenance?.edit_count ?? 0
+    confirmationCount += v.provenance?.confirmation_count ?? 0
+  }
+  return { editCount, confirmationCount }
+}
+
+/**
+ * The rail footer's contribution segments, ready to join with " · ".
+ *
+ * Same omit-the-zero rule as `venueProvenanceSegments`, and deliberately the
+ * same shape: the two provenance lines on screen at once must not drift into
+ * two different ways of saying "3 edits".
+ */
+export function cityContributionSegments(
+  counts: CityContributionCounts,
+): string[] {
+  const segments: string[] = []
+  if (counts.editCount > 0) {
+    segments.push(
+      `${counts.editCount} ${counts.editCount === 1 ? 'edit' : 'edits'}`,
+    )
+  }
+  if (counts.confirmationCount > 0) {
+    segments.push(
+      `${counts.confirmationCount} ${counts.confirmationCount === 1 ? 'confirmation' : 'confirmations'}`,
+    )
+  }
+  return segments
+}
+
+/**
+ * Fold a just-returned confirmation into a venue's stamp.
+ *
+ * The point is that NEITHER side is authoritative for long. The mutation's
+ * response is fresher than the list the panel was rendered from — for a moment.
+ * Then the invalidated list refetches, and if anyone else confirmed the same
+ * venue in the meantime the LIST is the fresher of the two. Preferring the
+ * mutation unconditionally would leave an open panel stuck on the count from
+ * your own tap while the rail beside it showed a higher one: two stamps
+ * disagreeing about the same venue on the same screen, on a feature whose whole
+ * job is making staleness visible.
+ *
+ * So take the later of the two timestamps and the higher of the two counts.
+ * Confirmations are only ever added, so "higher" is always "newer" — there is
+ * no delete path that could make a smaller count the correct one.
+ */
+export function mergeVenueConfirmation(
+  base: VenueProvenance | undefined,
+  confirmed: { confirmation_count: number; last_confirmed_at?: string } | undefined,
+  fallbackUpdatedAt: string,
+): VenueProvenance | undefined {
+  if (!confirmed) return base
+
+  const baseTime = base?.last_confirmed_at
+  const lastConfirmedAt =
+    baseTime && confirmed.last_confirmed_at
+      ? (Date.parse(baseTime) > Date.parse(confirmed.last_confirmed_at)
+          ? baseTime
+          : confirmed.last_confirmed_at)
+      : (confirmed.last_confirmed_at ?? baseTime)
+
+  const sources = base?.sources ?? []
+
+  return {
+    updated_at: base?.updated_at ?? fallbackUpdatedAt,
+    edit_count: base?.edit_count ?? 0,
+    contributor_count: base?.contributor_count ?? 0,
+    confirmation_count: Math.max(
+      confirmed.confirmation_count,
+      base?.confirmation_count ?? 0,
+    ),
+    last_confirmed_at: lastConfirmedAt,
+    // A confirmation IS community provenance, so the source list gains
+    // "community" the moment the first one lands.
+    sources: sources.includes('community') ? sources : [...sources, 'community'],
+  }
+}
+
+/**
+ * The provenance segments for one venue, ready to join with " · ".
+ *
+ * A zero count is OMITTED rather than rendered as "0 edits": a stamp that
+ * lists what it doesn't have reads as broken, and the absence of a segment
+ * already says the same thing more quietly. The timestamp segment is the
+ * caller's — it needs relative-time formatting this pure helper doesn't do.
+ */
+export function venueProvenanceSegments(
+  provenance: VenueProvenance | undefined,
+): string[] {
+  if (!provenance) return []
+  const segments: string[] = []
+
+  if (provenance.edit_count > 0) {
+    const edits = `${provenance.edit_count} ${provenance.edit_count === 1 ? 'edit' : 'edits'}`
+    segments.push(
+      provenance.contributor_count > 0
+        ? `${edits} by ${provenance.contributor_count} ${provenance.contributor_count === 1 ? 'contributor' : 'contributors'}`
+        : edits,
+    )
+  }
+  if (provenance.confirmation_count > 0) {
+    segments.push(
+      `${provenance.confirmation_count} ${provenance.confirmation_count === 1 ? 'confirmation' : 'confirmations'}`,
+    )
+  }
+  if (provenance.sources.length > 0) {
+    segments.push(provenance.sources.join(' + '))
+  }
+  return segments
 }
 
 // ── Row copy ──────────────────────────────────────────────────────────────

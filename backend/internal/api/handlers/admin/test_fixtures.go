@@ -95,6 +95,16 @@ var testFixtureAllowlist = []testFixtureScope{
 		},
 	},
 	{
+		// PSY-1542: per-user venue confirmations; FK to users with ON DELETE
+		// CASCADE. Reset like collection_likes so a fresh-slate E2E run does
+		// not inherit a prior run's confirmations into the freshness stamp.
+		displayName: "venue_confirmations",
+		delete: func(tx *gorm.DB, userID uint) (int64, error) {
+			res := tx.Where("user_id = ?", userID).Delete(&catalogm.VenueConfirmation{})
+			return res.RowsAffected, res.Error
+		},
+	},
+	{
 		displayName: "collections",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
 			res := tx.
