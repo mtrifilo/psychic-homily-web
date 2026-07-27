@@ -56,6 +56,28 @@ vi.mock('../hooks/useArtistGraph', () => ({
   useArtistGraph: vi.fn(() => ({ data: mockGraph, isLoading: false })),
 }))
 
+// Width override hatch: the real useContainerWidth measures during commit, so
+// the pre-measurement (`null`) state is unobservable from a settled render.
+// Default `undefined` = pass the real hook through untouched, so every other
+// test still exercises the genuine ResizeObserver path.
+const widthState = vi.hoisted(() => ({
+  override: undefined as number | null | undefined,
+}))
+
+vi.mock('@/components/graph/useContainerWidth', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('@/components/graph/useContainerWidth')>()
+  return {
+    ...actual,
+    useContainerWidth: () => {
+      const measured = actual.useContainerWidth()
+      return widthState.override === undefined
+        ? measured
+        : { ...measured, containerWidth: widthState.override }
+    },
+  }
+})
+
 vi.mock('../hooks/useArtistGraphCard', () => ({
   useArtistGraphCard: vi.fn(() => ({ data: undefined, isError: false })),
 }))
@@ -156,6 +178,7 @@ describe('ArtistConnectionsSection', () => {
   let resizeObserver: ReturnType<typeof installImmediateResizeObserver>
 
   beforeEach(() => {
+    widthState.override = undefined
     resizeObserver = installImmediateResizeObserver()
     // Re-seed per test so an override can't leak (no test-order coupling).
     vi.mocked(useArtistGraph).mockImplementation(
@@ -250,8 +273,21 @@ describe('ArtistConnectionsSection', () => {
       screen.getByText(/Best on a larger screen, or open the full map\./)
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument()
-    // The count line still discloses scale on mobile.
-    expect(screen.getByText(/Top 14 of 16 connected artists/)).toBeInTheDocument()
+    // The count line still discloses scale on mobile, WITHOUT the desktop-only
+    // interaction clause — there are no names to click below the gate.
+    expect(screen.getByText('Top 14 of 16 connected artists')).toBeInTheDocument()
+    expect(screen.queryByText(/click a name to see how it connects/)).not.toBeInTheDocument()
+  })
+
+  it('holds the skeleton and omits the interaction clause before measurement', () => {
+    widthState.override = null
+    renderSection()
+    // Count line paints immediately; the clause must not flash and vanish.
+    expect(screen.getByText('Top 14 of 16 connected artists')).toBeInTheDocument()
+    expect(screen.queryByText(/click a name to see how it connects/)).not.toBeInTheDocument()
+    // Neither width branch has committed yet.
+    expect(screen.queryByTestId('connections-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /see similar artists/i })).not.toBeInTheDocument()
   })
 
   it('selects a node into the context panel, pins focus, and deselects on second click', () => {

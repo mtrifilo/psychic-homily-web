@@ -204,6 +204,17 @@ export function ArtistConnectionsSection({
     plural: 'connected artists',
   })
 
+  // ONE comparison drives every width-dependent branch below — the count
+  // line's interaction clause, the mobile teaser, and the canvas — so the
+  // copy can never promise a canvas the layout didn't render. A second
+  // breakpoint source (a CSS media query, another constant) could drift from
+  // this JS gate; don't add one.
+  //
+  // Pre-measurement (`null`) counts as NOT desktop: the skeleton paint must
+  // not flash a "click a name" instruction that then disappears on mobile.
+  const isMeasured = containerWidth !== null
+  const isDesktop = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
   return (
     <section ref={refCallback} className="min-w-0">
       <SectionHeader
@@ -212,19 +223,20 @@ export function ArtistConnectionsSection({
         size="md"
         action={<BracketLink label="Expand" onClick={onExpand} />}
       />
+      {/* The count discloses scale at every width; the interaction clause is
+          desktop-only — below the gate there are no names to click. */}
       <p className="text-sm text-muted-foreground mb-2">
-        {sentenceCase(phrase)} · click a name to see how it connects
+        {sentenceCase(phrase)}
+        {isDesktop && ' · click a name to see how it connects'}
       </p>
 
       {/* Pre-measurement: hold the box height so the settle can't shift the
           sections below (HomeSceneGraph precedent). */}
-      {containerWidth === null && (
-        <GraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
-      )}
+      {!isMeasured && <GraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />}
 
       {/* Sub-640px: shared teaser card (PSY-1472) — no canvas on mobile;
           link out to the sidebar Similar-artists list on this page. */}
-      {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
+      {isMeasured && !isDesktop && (
         <GraphStateCard
           className={GRAPH_TEASER_HEIGHT_CLASS}
           message={`Who ${artistName} plays with, shares labels with, and gets radio play alongside — mapped. Best on a larger screen, or open the full map.`}
@@ -233,7 +245,7 @@ export function ArtistConnectionsSection({
         />
       )}
 
-      {containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX && (
+      {isDesktop && (
         // Contain a graph chunk-load failure to this section (self-hide, no
         // fallback) — a graph problem must never dent the artist page.
         <GraphSectionErrorBoundary sentryTag="artist-connections-section">
