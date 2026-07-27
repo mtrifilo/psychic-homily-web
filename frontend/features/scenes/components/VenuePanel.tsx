@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
@@ -11,6 +11,10 @@ import { Button } from '@/components/ui/button'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { dedupVenueShows } from '@/features/shows'
 import { useVenueShows } from '@/features/venues/hooks'
+import {
+  VENUE_SHOWS_PAGE_LIMIT,
+  VENUE_SHOWS_VIEWER_TIMEZONE,
+} from '@/features/venues/api'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
 import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
@@ -24,13 +28,12 @@ import {
   venuePanelShowCount,
 } from '../cityView'
 
-// Match the venue page's request EXACTLY (same limit, same timezone source).
+// The venue page requests the same page from the same shared constants.
 // `venueQueryKeys.shows()` keys only on venue id + time filter — NOT on limit
 // or timezone — so a differently-parameterized request here would share a
 // cache entry with `VenueShowsList` and whichever landed first would silently
-// answer for both. Same parameters, one cache entry, no collision.
-const VENUE_SHOWS_FETCH_LIMIT = 50
-const VIEWER_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+// answer for both. The constants live beside the query key so the agreement
+// can't drift.
 
 interface VenuePanelProps {
   /** The selected venue, straight from the rail's already-fetched page. */
@@ -49,22 +52,74 @@ interface VenuePanelProps {
  * The Atlas city view's venue panel (PSY-1540) — "what's coming up here",
  * answered without leaving the map.
  *
- * Non-modal by construction, following the graph inspectors
- * (`GraphPanelShell`): Escape dismisses via Radix `DismissableLayer` so the
- * panel joins the one global layer stack (a ⌘K palette stacked over it still
- * wins Escape), outside-click and focus-out are explicitly prevented so the
- * map stays fully interactive behind it, and there is no focus trap.
+ * Built to the approved mock: Product Designs Figma file, Atlas page, board 02
+ * "Venue panel", node 1152:84. Every "the mock" below refers to it.
+ *
+ * Non-modal, on the graph inspectors' exact dismissal contract: Escape
+ * dismisses via Radix `DismissableLayer` so the panel joins the one global
+ * layer stack (a ⌘K palette stacked over it still wins Escape), outside-click
+ * and focus-out are explicitly prevented so the map stays fully interactive
+ * behind it, and there is no focus trap.
+ *
+ * It does NOT reuse `GraphPanelShell` despite sharing that contract, and the
+ * reason is structural rather than stylistic: that shell is one scrolling
+ * card with the close button inline at the top of the content flow, which is
+ * right for a short graph inspector. This panel needs a PINNED header (name,
+ * actions, provenance), an independently scrolling show list, and a pinned
+ * footer — three regions, only the middle of which scrolls. Fitting that into
+ * the shell would mean overriding its overflow and re-nesting its header, at
+ * which point nothing of it is left but the DismissableLayer props, which are
+ * mirrored here verbatim. If a third such panel appears, promote the
+ * three-region variant into the shell rather than copying this again.
  *
  * It floats over the map's RIGHT edge and stops short of the bottom
  * (CITY_VENUE_PANEL_BOTTOM_INSET_PX) so it can never cover the map's
  * bottom-left OpenStreetMap attribution, which the ODbL requires stay visible.
  */
 export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const sectionRef = useRef<HTMLElement>(null)
+
+  // Focus the close control on open and hand focus back on close — the same
+  // move (and the same containment guard) as ScenePreviewPanel, the Atlas's
+  // other non-modal panel. It matters more here: the panel opens from a rail
+  // row, and a keyboard user left standing on that row would have to tab
+  // through every REMAINING venue in the city before reaching the panel their
+  // keystroke just opened.
+  //
+  // Mount-only. AtlasGlobe keys the panel on the venue id, so switching
+  // venues remounts and re-runs this once per panel, never mid-life.
+  useEffect(() => {
+    const section = sectionRef.current
+    const opener = document.activeElement
+    closeRef.current?.focus()
+    return () => {
+      // Restore only when focus is still OURS to hand back. The panel is
+      // non-modal and Escape is document-level, so the user may have tabbed
+      // out to the map or the rail in the meantime — yanking them back would
+      // be worse than not restoring at all (Radix FocusScope's own rule).
+      const active = document.activeElement
+      const focusIsOurs =
+        active === document.body ||
+        (active instanceof HTMLElement &&
+          section !== null &&
+          section.contains(active))
+      if (
+        focusIsOurs &&
+        opener instanceof HTMLElement &&
+        opener.isConnected &&
+        opener !== document.body
+      ) {
+        opener.focus()
+      }
+    }
+  }, [])
+
   const { data, isLoading, isError } = useVenueShows({
     venueId: venue.id,
-    timezone: VIEWER_TIMEZONE,
+    timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
-    limit: VENUE_SHOWS_FETCH_LIMIT,
+    limit: VENUE_SHOWS_PAGE_LIMIT,
   })
 
   const fetched = data?.shows
@@ -76,7 +131,6 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
     total: data?.total,
     listed: shows.length,
     fetched: fetched?.length ?? 0,
-    limit: VENUE_SHOWS_FETCH_LIMIT,
   })
   const visible = shows.slice(0, VENUE_PANEL_SHOW_ROWS)
   const identity = venuePanelIdentityLine(venue)
@@ -93,6 +147,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
       onFocusOutside={(e) => e.preventDefault()}
     >
       <section
+        ref={sectionRef}
         aria-label={`${venue.name} — upcoming shows`}
         data-testid="atlas-venue-panel"
         style={{
@@ -113,6 +168,7 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
               Venue
             </p>
             <button
+              ref={closeRef}
               type="button"
               onClick={onClose}
               aria-label={`Close ${venue.name} panel`}

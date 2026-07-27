@@ -19,6 +19,14 @@
  * comma when `state` was empty. Both call sites now delegate here so the
  * rule is enforced uniformly.
  */
+/**
+ * The placeholder `formatLocation` returns when nothing is placeable.
+ * Exported so callers that compose the result INTO a larger line (rather than
+ * rendering it as a location field) can recognise it and drop the segment
+ * instead of printing the placeholder mid-sentence.
+ */
+export const LOCATION_UNKNOWN = 'Location Unknown'
+
 export function formatLocation(loc: {
   city?: string | null
   state?: string | null
@@ -33,7 +41,7 @@ export function formatLocation(loc: {
   if (country && !(state && countryIsUS)) {
     parts.push(country)
   }
-  return parts.length > 0 ? parts.join(', ') : 'Location Unknown'
+  return parts.length > 0 ? parts.join(', ') : LOCATION_UNKNOWN
 }
 
 function nonEmpty(value: string | null | undefined): string | undefined {

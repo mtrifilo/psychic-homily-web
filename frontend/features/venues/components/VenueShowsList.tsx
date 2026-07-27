@@ -14,6 +14,10 @@ import { NotifyMeButton } from '@/features/notifications'
 import { dedupVenueShows, ShowForm } from '@/features/shows'
 import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
 import { useVenueShows } from '../hooks/useVenues'
+import {
+  VENUE_SHOWS_PAGE_LIMIT,
+  VENUE_SHOWS_VIEWER_TIMEZONE,
+} from '../api'
 import type { VenueShow } from '../types'
 
 interface VenueShowsListProps {
@@ -29,7 +33,10 @@ interface VenueShowsListProps {
   onShowAdded?: () => void
 }
 
-const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+// Shared with every other venue-shows caller (the Atlas venue panel today):
+// venueQueryKeys.shows() doesn't key on limit/timezone, so the surfaces have
+// to agree on them or they poison each other's cache entry.
+const TIMEZONE = VENUE_SHOWS_VIEWER_TIMEZONE
 
 function ShowsLoader() {
   return (
@@ -157,14 +164,14 @@ export function VenueShowsList({
     timezone: TIMEZONE,
     timeFilter: 'upcoming',
     enabled: true,
-    limit: 50,
+    limit: VENUE_SHOWS_PAGE_LIMIT,
   })
   const past = useVenueShows({
     venueId,
     timezone: TIMEZONE,
     timeFilter: 'past',
     enabled: true,
-    limit: 50,
+    limit: VENUE_SHOWS_PAGE_LIMIT,
   })
 
   const upcomingShows = upcoming.data?.shows

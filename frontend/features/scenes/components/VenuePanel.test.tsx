@@ -236,6 +236,44 @@ describe('VenuePanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('moves focus to the close control on open', () => {
+    // Opening from a rail row must not leave a keyboard user standing on that
+    // row — they would have to tab through every remaining venue in the city
+    // to reach the panel their keystroke just opened.
+    renderPanel()
+    expect(screen.getByRole('button', { name: 'Close Hotel Vegas panel' })).toHaveFocus()
+  })
+
+  it('hands focus back to whatever opened it', () => {
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    opener.focus()
+    const { unmount } = renderPanel()
+    expect(opener).not.toHaveFocus()
+
+    unmount()
+
+    expect(opener).toHaveFocus()
+    opener.remove()
+  })
+
+  it('does not yank focus back from somewhere the user tabbed to', () => {
+    // The panel is non-modal with no focus trap, so the user may well have
+    // moved on. Restoring focus over their head is worse than not restoring.
+    const opener = document.createElement('button')
+    const elsewhere = document.createElement('button')
+    document.body.append(opener, elsewhere)
+    opener.focus()
+    const { unmount } = renderPanel()
+    elsewhere.focus()
+
+    unmount()
+
+    expect(elsewhere).toHaveFocus()
+    opener.remove()
+    elsewhere.remove()
+  })
+
   it('closes on Escape', () => {
     const onClose = vi.fn()
     renderPanel({ onClose })

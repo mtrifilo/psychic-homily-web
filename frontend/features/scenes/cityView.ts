@@ -10,8 +10,8 @@
 
 import { haversineDistanceKm } from '@/lib/haversine'
 import type { Venue, VenueWithShowCount } from '@/features/venues/types'
+import { LOCATION_UNKNOWN, formatLocation } from '@/lib/formatLocation'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { formatInTimezone } from '@/lib/utils/timeUtils'
 import type { PlaceableScene, VenuePin } from './components/globeTypes'
 import { GENRE_FAMILIES, type GenreFamily } from './genreFamilies'
 
@@ -50,6 +50,11 @@ export const CITY_VIEW_MIN_VIEWPORT_PX = 900
 export const CITY_VENUE_FETCH_LIMIT = 100
 
 // ── Venue panel (PSY-1540) ────────────────────────────────────────────────
+// Every "the mock" below means the approved board 02 "Venue panel" on the
+// Atlas page of the Product Designs Figma file (node 1152:84) — same citation
+// style as ArtistContextPanel. Numbers taken from it are marked as such so a
+// later reader can tell a design constant from a guess.
+//
 // The panel's fixed width, from the mock. It floats over the map's RIGHT edge
 // while the rail sits beside the map's left, so the two never fight for the
 // same pixels — and neither goes near the bottom-left attribution control.
@@ -354,6 +359,17 @@ export function formatNextShowDate(isoDate: string | undefined | null): string {
 /**
  * "FRI 7/31" — the panel's mono date column, in the VENUE's timezone.
  *
+ * A FOURTH show-date format is a real cost, so it needs a reason: the mock
+ * (Product Designs → Atlas → board 02, node 1152:84) draws the panel's dates
+ * as a fixed-width mono GUTTER beside the bill, not as prose. A gutter has to
+ * be scannable at a glance and the same width on every row, which "Tue, Jul
+ * 28" (`formatShowDate`, used in the venue page's table) and "Tue Jul 28"
+ * (`formatNextShowDate`, used in the rail's running meta line) are not — both
+ * vary in width with the month name and both read as sentence fragments. The
+ * uppercase numeric form is the one that lines up. Kept out of
+ * `formatters.ts` deliberately: it is Atlas panel chrome, not a general
+ * show-date rendering the rest of the app should reach for.
+ *
  * Unlike `formatNextShowDate` above, the input here is a full timestamp from
  * `GET /venues/{id}/shows` rather than a pre-resolved date string, so the zone
  * conversion has to happen here: a 9pm Friday show in Austin read in a
@@ -371,12 +387,15 @@ export function formatPanelShowDate(
   timezone: string | null | undefined,
 ): string {
   if (!eventDate) return ''
-  if (Number.isNaN(new Date(eventDate).getTime())) return ''
-  return formatInTimezone(eventDate, resolveShowTimezone(state, timezone), {
-    weekday: 'short',
-    month: 'numeric',
-    day: 'numeric',
-  })
+  const parsed = new Date(eventDate)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return parsed
+    .toLocaleString('en-US', {
+      timeZone: resolveShowTimezone(state, timezone),
+      weekday: 'short',
+      month: 'numeric',
+      day: 'numeric',
+    })
     .replace(',', '')
     .toUpperCase()
 }
@@ -409,31 +428,43 @@ export function venuePanelIdentityLine(
   if (typeof venue.capacity === 'number' && venue.capacity > 0) {
     parts.push(`cap ~${venue.capacity}`)
   }
-  const place = [venue.city?.trim(), venue.state?.trim()]
-    .filter(Boolean)
-    .join(', ')
-  if (place) parts.push(place)
+  // The shared PSY-558/780 rule, not a local `${city}, ${state}` template —
+  // that bare template is precisely what PSY-780 consolidated away because it
+  // left a trailing comma on a stateless venue. Its "Location Unknown"
+  // placeholder is right for a location FIELD and wrong for one segment of a
+  // run-on line, so an unplaceable venue drops the segment instead.
+  const place = formatLocation(venue)
+  if (place !== LOCATION_UNKNOWN) parts.push(place)
   return parts.join(' · ')
 }
 
 /**
  * How many upcoming shows to CLAIM the venue has.
  *
- * `total` is the endpoint's unfiltered count and `listed` is what survived
- * client-side de-duplication of the fetched page (the venue page's shared
- * `dedupVenueShows`). When the page was truncated by the fetch limit, `total`
- * is the only honest number available. When it wasn't, the deduped length is
- * the more honest one — `total` would double-count the duplicate rows the
- * reader can plainly see are gone.
+ * `total` is the endpoint's unfiltered `COUNT(*)` and `listed` is what
+ * survived client-side de-duplication of the fetched page (the venue page's
+ * shared `dedupVenueShows`). When rows exist beyond the page, `total` is the
+ * only honest number available. When they don't, the deduped length is the
+ * more honest one — `total` would double-count the duplicate rows the reader
+ * can plainly see are gone.
+ *
+ * The "are there more rows" test is `total > fetched`, deliberately NOT
+ * "did the page come back full". The two agree almost everywhere and diverge
+ * exactly at the boundary where a venue has precisely the fetch limit's worth
+ * of shows: a full-page heuristic calls that complete page truncated, and the
+ * panel then claims the raw `total` over a list whose duplicates it had just
+ * collapsed — "50 shows" above 48 rows, with no "view all" link to explain the
+ * gap. `total` is a limit-independent COUNT(*), so ask it directly. This is
+ * also why the fetch limit isn't a parameter: it carries no information the
+ * total doesn't already carry better.
  */
 export function venuePanelShowCount(args: {
   total: number | undefined
   listed: number
   fetched: number
-  limit: number
 }): number {
-  const { total, listed, fetched, limit } = args
-  const truncated = fetched >= limit
-  if (truncated && typeof total === 'number' && total > listed) return total
-  return listed
+  const { total, listed, fetched } = args
+  if (typeof total !== 'number') return listed
+  const moreExistBeyondThePage = total > fetched
+  return moreExistBeyondThePage && total > listed ? total : listed
 }

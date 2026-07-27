@@ -427,6 +427,20 @@ describe('venuePanelIdentityLine', () => {
     ).toBe('cap ~250 · Austin, TX')
   })
 
+  it('drops the place segment rather than printing "Location Unknown"', () => {
+    // `formatLocation`'s placeholder is right for a location FIELD and wrong
+    // mid-line; an unplaceable venue must not read "1502 E 6th St · Location
+    // Unknown".
+    expect(
+      venuePanelIdentityLine({
+        address: '1502 E 6th St',
+        capacity: null,
+        city: '',
+        state: '',
+      }),
+    ).toBe('1502 E 6th St')
+  })
+
   it('omits a missing or nonsensical capacity', () => {
     const base = { address: '1502 E 6th St', city: 'Austin', state: 'TX' }
     expect(venuePanelIdentityLine({ ...base, capacity: null })).toBe(
@@ -443,30 +457,46 @@ describe('venuePanelShowCount', () => {
     // 12 rows came back under the 50 cap, two of them duplicates. Claiming
     // the API's 12 would double-count rows the reader can see are gone.
     expect(
-      venuePanelShowCount({ total: 12, listed: 10, fetched: 12, limit: 50 }),
+      venuePanelShowCount({ total: 12, listed: 10, fetched: 12 }),
     ).toBe(10)
   })
 
-  it('trusts the API total when the fetch limit truncated the page', () => {
+  it('trusts the API total when rows exist beyond the fetched page', () => {
     expect(
-      venuePanelShowCount({ total: 137, listed: 50, fetched: 50, limit: 50 }),
+      venuePanelShowCount({ total: 137, listed: 50, fetched: 50 }),
     ).toBe(137)
+  })
+
+  // Regression (code review): the truncation test used to be `fetched >= limit`,
+  // which is only CORRELATED with "more rows exist". At the exact boundary
+  // where a venue has precisely `limit` shows and some of them de-duplicated,
+  // that heuristic called a complete page truncated and printed the raw total
+  // over a shorter list — "50 shows" above 48 rows, with no "view all" link to
+  // explain the gap. `total > fetched` is the real signal.
+  it('counts the deduped rows when the page is exactly the limit but complete', () => {
+    expect(
+      venuePanelShowCount({ total: 50, listed: 48, fetched: 50 }),
+    ).toBe(48)
   })
 
   it('falls back to the listed count when the API sent no total', () => {
     expect(
-      venuePanelShowCount({
-        total: undefined,
-        listed: 50,
-        fetched: 50,
-        limit: 50,
-      }),
+      venuePanelShowCount({ total: undefined, listed: 50, fetched: 50 }),
     ).toBe(50)
+  })
+
+  it('never claims fewer shows than it is listing', () => {
+    // A total smaller than the page (shouldn't happen, but the count drives
+    // "view all N" copy) must not produce a link promising less than is on
+    // screen.
+    expect(
+      venuePanelShowCount({ total: 2, listed: 5, fetched: 5 }),
+    ).toBe(5)
   })
 
   it('is zero for a venue with nothing booked', () => {
     expect(
-      venuePanelShowCount({ total: 0, listed: 0, fetched: 0, limit: 50 }),
+      venuePanelShowCount({ total: 0, listed: 0, fetched: 0 }),
     ).toBe(0)
   })
 })
