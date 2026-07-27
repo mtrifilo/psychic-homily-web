@@ -5,7 +5,17 @@ test.describe('Venue list page', () => {
   test('loads and displays venues', async ({ page }) => {
     await page.goto('/venues')
 
-    await expect(page.getByRole('heading', { name: 'Venues' })).toBeVisible()
+    // `name` matches the accessible name case-insensitively AS A SUBSTRING
+    // unless `exact` is set, so a bare `name: 'Venues'` also matches the tag
+    // facet panel's "Filter venues by tag" <h2> (VenueList.tsx). That <h2> is
+    // client-only — absent from the SSR HTML — so whether the assertion saw
+    // one heading or two came down to whether hydration had landed yet, which
+    // in turn came down to whether an earlier spec had already compiled
+    // /venues in the dev server. Hence "passes alone, strict-mode violation in
+    // a full run". Pin to the page <h1> so no hydration timing can match two.
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Venues', exact: true })
+    ).toBeVisible()
 
     // Wait for venue cards to render
     await expect(page.locator('article').first()).toBeVisible({
