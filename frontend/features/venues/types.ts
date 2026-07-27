@@ -36,6 +36,13 @@ export interface Venue {
   /** How the street geocode was resolved: rooftop | interpolated | city. */
   geocode_precision?: string | null
   zipcode?: string | null
+  /**
+   * Room capacity (PSY-1179). Deliberately NOT redacted for unverified venues
+   * (the backend's buildVenueResponse notes it isn't sensitive, unlike
+   * address/zipcode) — so a capacity may be present on a venue whose address
+   * is withheld.
+   */
+  capacity?: number | null
   description?: string | null
   /** Optional venue photo URL (PSY-521). */
   image_url?: string | null

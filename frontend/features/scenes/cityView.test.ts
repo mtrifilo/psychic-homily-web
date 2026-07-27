@@ -11,8 +11,11 @@ import {
   cityRailStats,
   filterCityVenues,
   formatNextShowDate,
+  formatPanelShowDate,
   nextShowBill,
   resolveCityScene,
+  venuePanelIdentityLine,
+  venuePanelShowCount,
   venuePinPosition,
 } from './cityView'
 
@@ -347,5 +350,153 @@ describe('formatNextShowDate', () => {
   it('is empty for a malformed date rather than "Invalid Date"', () => {
     expect(formatNextShowDate('2026-07-28T21:00:00Z')).toBe('')
     expect(formatNextShowDate('nope')).toBe('')
+  })
+})
+
+// ── Venue panel (PSY-1540) ────────────────────────────────────────────────
+
+describe('formatPanelShowDate', () => {
+  it('renders the date column in the VENUE timezone, not the viewer’s', () => {
+    // 2026-08-01T02:00:00Z is 9pm on JUL 31 in Austin. A panel describing
+    // Hotel Vegas's calendar must say FRI 7/31 whatever zone the reader is
+    // in — the venue-timezone convention (PSY-985/986).
+    expect(
+      formatPanelShowDate('2026-08-01T02:00:00Z', 'TX', 'America/Chicago'),
+    ).toBe('FRI 7/31')
+  })
+
+  it('applies the zone rather than deferring to the viewer', () => {
+    // Same instant read in two venue zones lands on two different local days.
+    // If the zone were being ignored these would agree.
+    const instant = '2026-08-01T04:30:00Z'
+    expect(formatPanelShowDate(instant, 'TX', 'America/Chicago')).toBe(
+      'FRI 7/31',
+    )
+    expect(formatPanelShowDate(instant, 'NY', 'Europe/Berlin')).toBe('SAT 8/1')
+  })
+
+  it('falls back to the state map when the venue has no IANA zone yet', () => {
+    // Pre-backfill rows carry a null timezone; resolveShowTimezone maps the
+    // state rather than silently using the viewer's zone.
+    expect(formatPanelShowDate('2026-08-01T02:00:00Z', 'TX', null)).toBe(
+      'FRI 7/31',
+    )
+  })
+
+  it('is empty for a missing or unparseable timestamp, never "Invalid Date"', () => {
+    expect(formatPanelShowDate(undefined, 'TX', 'America/Chicago')).toBe('')
+    expect(formatPanelShowDate(null, 'TX', 'America/Chicago')).toBe('')
+    expect(formatPanelShowDate('nope', 'TX', 'America/Chicago')).toBe('')
+  })
+})
+
+describe('venuePanelIdentityLine', () => {
+  it('joins the address, capacity and place', () => {
+    expect(
+      venuePanelIdentityLine({
+        address: '1502 E 6th St',
+        capacity: 250,
+        city: 'Austin',
+        state: 'TX',
+      }),
+    ).toBe('1502 E 6th St · cap ~250 · Austin, TX')
+  })
+
+  it('omits the address an unverified venue’s API response withheld', () => {
+    // PRIVACY GATE (PSY-1536): the backend nulls `address` for unverified
+    // venues exactly as it withholds their street coordinates. The panel must
+    // publish neither — a leak here would defeat the map-side gate.
+    expect(
+      venuePanelIdentityLine({
+        address: null,
+        capacity: null,
+        city: 'Austin',
+        state: 'TX',
+      }),
+    ).toBe('Austin, TX')
+  })
+
+  it('omits a blank address rather than emitting an empty segment', () => {
+    expect(
+      venuePanelIdentityLine({
+        address: '   ',
+        capacity: 250,
+        city: 'Austin',
+        state: 'TX',
+      }),
+    ).toBe('cap ~250 · Austin, TX')
+  })
+
+  it('drops the place segment rather than printing "Location Unknown"', () => {
+    // `formatLocation`'s placeholder is right for a location FIELD and wrong
+    // mid-line; an unplaceable venue must not read "1502 E 6th St · Location
+    // Unknown".
+    expect(
+      venuePanelIdentityLine({
+        address: '1502 E 6th St',
+        capacity: null,
+        city: '',
+        state: '',
+      }),
+    ).toBe('1502 E 6th St')
+  })
+
+  it('omits a missing or nonsensical capacity', () => {
+    const base = { address: '1502 E 6th St', city: 'Austin', state: 'TX' }
+    expect(venuePanelIdentityLine({ ...base, capacity: null })).toBe(
+      '1502 E 6th St · Austin, TX',
+    )
+    expect(venuePanelIdentityLine({ ...base, capacity: 0 })).toBe(
+      '1502 E 6th St · Austin, TX',
+    )
+  })
+})
+
+describe('venuePanelShowCount', () => {
+  it('counts what it actually listed when the page was complete', () => {
+    // 12 rows came back under the 50 cap, two of them duplicates. Claiming
+    // the API's 12 would double-count rows the reader can see are gone.
+    expect(
+      venuePanelShowCount({ total: 12, listed: 10, fetched: 12 }),
+    ).toBe(10)
+  })
+
+  it('trusts the API total when rows exist beyond the fetched page', () => {
+    expect(
+      venuePanelShowCount({ total: 137, listed: 50, fetched: 50 }),
+    ).toBe(137)
+  })
+
+  // Regression (code review): the truncation test used to be `fetched >= limit`,
+  // which is only CORRELATED with "more rows exist". At the exact boundary
+  // where a venue has precisely `limit` shows and some of them de-duplicated,
+  // that heuristic called a complete page truncated and printed the raw total
+  // over a shorter list — "50 shows" above 48 rows, with no "view all" link to
+  // explain the gap. `total > fetched` is the real signal.
+  it('counts the deduped rows when the page is exactly the limit but complete', () => {
+    expect(
+      venuePanelShowCount({ total: 50, listed: 48, fetched: 50 }),
+    ).toBe(48)
+  })
+
+  it('falls back to the listed count when the API sent no total', () => {
+    expect(
+      venuePanelShowCount({ total: undefined, listed: 50, fetched: 50 }),
+    ).toBe(50)
+  })
+
+  it('never claims fewer shows than it is listing', () => {
+    // A total smaller than the page (shouldn't happen, but the count drives
+    // "view all N" copy) must not produce a link promising less than is on
+    // screen.
+    expect(
+      venuePanelShowCount({ total: 2, listed: 5, fetched: 5 }),
+    ).toBe(5)
+  })
+
+  it('is zero for a venue with nothing booked', () => {
+    expect(
+      venuePanelShowCount({ total: 0, listed: 0, fetched: 0 }),
+    ).toBe(0)
   })
 })

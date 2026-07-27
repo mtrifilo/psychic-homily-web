@@ -35,6 +35,7 @@ import {
   type CityVenueFilters,
 } from '../cityView'
 import { VenueRail } from './VenueRail'
+import { VenuePanel } from './VenuePanel'
 import { pickDriftScene } from './drift'
 import { AtlasSearch } from './AtlasSearch'
 import { GenreLegend } from './GenreLegend'
@@ -243,11 +244,30 @@ export function AtlasGlobe() {
     return pins
   }, [filteredVenues])
 
-  // The venue panel seam. PSY-1540 owns what opens; here selecting a venue
-  // marks it in both the rail and the map so the two stay legibly in sync.
+  // Selecting a venue marks it in both the rail and the map AND opens the
+  // panel (PSY-1540). Re-selecting the same venue toggles it back off, so a
+  // second click on an open pin closes what the first click opened.
   const handleVenueSelect = useCallback((venueId: number) => {
     setSelectedVenueId((prev) => (prev === venueId ? null : venueId))
   }, [])
+  // The panel's own dismissals (✕, Escape) close unconditionally — a toggle
+  // would reopen the panel if the same venue were somehow re-reported.
+  const handleVenuePanelClose = useCallback(() => setSelectedVenueId(null), [])
+
+  // The panel renders from the row the rail already fetched, so opening it
+  // costs no venue request — only the shows request it makes itself. Resolved
+  // against the FILTERED list on purpose: a venue the current filters exclude
+  // has no pin and no row, so leaving its panel open would describe something
+  // the user can no longer see beside it. The selection ID survives, so
+  // clearing the filter restores the panel — that's the user's own selection
+  // coming back, not a panel opening unbidden.
+  const selectedVenue = useMemo(
+    () =>
+      selectedVenueId === null
+        ? null
+        : (filteredVenues.find((v) => v.id === selectedVenueId) ?? null),
+    [filteredVenues, selectedVenueId],
+  )
 
   // "← globe": fly back out to the globe's landing altitude over the city you
   // were in, which drops the camera below the city-view threshold and hands
@@ -420,6 +440,20 @@ export function AtlasGlobe() {
             }
             onCameraSettle={handleCameraSettle}
           />
+          {/* Venue panel (PSY-1540). Docked to the map pane's right edge, so
+              it sits opposite the rail and clear of the bottom-left
+              attribution control. Outside the globe-chrome branch because it
+              belongs to city view, which is precisely when that chrome is
+              hidden. `onShowSelect` is deliberately not passed: the artist
+              drill-in a show row opens is PSY-1541, and an inert row is
+              honest where a dead click target would not be. */}
+          {selectedVenue && (
+            <VenuePanel
+              key={selectedVenue.id}
+              venue={selectedVenue}
+              onClose={handleVenuePanelClose}
+            />
+          )}
           {globeChromeVisible && (
             <>
               <button

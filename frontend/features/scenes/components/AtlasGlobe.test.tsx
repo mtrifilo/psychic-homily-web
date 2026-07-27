@@ -68,8 +68,16 @@ const mockUseVenues = vi.fn<() => Record<string, unknown>>(() => ({
   isFetching: false,
   isPlaceholderData: false,
 }))
+// The venue panel's shows request (PSY-1540). A quiet calendar is the neutral
+// default; the panel's own suite covers the list rendering in detail.
+const mockUseVenueShows = vi.fn<() => Record<string, unknown>>(() => ({
+  data: { shows: [], venue_id: 0, total: 0 },
+  isLoading: false,
+  isError: false,
+}))
 vi.mock('@/features/venues/hooks', () => ({
   useVenues: () => mockUseVenues(),
+  useVenueShows: () => mockUseVenueShows(),
 }))
 
 // AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
@@ -87,6 +95,7 @@ const flyToSpy = vi.fn()
 // camera → city → fetch → filter → pins chain, without WebGL.
 let lastCanvasProps: {
   onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
+  onVenueSelect?: (venueId: number) => void
   venues?: readonly { id: number; name: string }[]
   cityLabel?: string | null
   width?: number
@@ -95,6 +104,7 @@ vi.mock('./GlobeCanvas', () => ({
   default: (props: {
     flyToRef?: MutableRefObject<((scene: PlaceableScene) => void) | null>
     onCameraSettle?: (c: { lng: number; lat: number; zoom: number }) => void
+    onVenueSelect?: (venueId: number) => void
     venues?: readonly { id: number; name: string }[]
     cityLabel?: string | null
     width?: number
@@ -374,6 +384,89 @@ describe('AtlasGlobe', () => {
       expect(screen.getAllByRole('button', { name: /Empty Bottle/ })).toHaveLength(1)
       expect(screen.queryByRole('button', { name: /Hideout/ })).not.toBeInTheDocument()
       expect(lastCanvasProps.venues?.map((v) => v.name)).toEqual(['Empty Bottle'])
+    })
+
+    // ── Venue panel (PSY-1540) ──────────────────────────────────────────
+    // Both seams PSY-1539 left behind must reach the same panel.
+
+    it('opens the venue panel from a rail row click', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /Empty Bottle/ }))
+
+      expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Empty Bottle' }),
+      ).toBeInTheDocument()
+    })
+
+    it('opens the venue panel from a map pin click', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+
+      // The canvas reports a pin click by venue id — the same seam the real
+      // MapLibre 'click' handler on the venue-pins layer calls.
+      act(() => {
+        lastCanvasProps.onVenueSelect?.(2)
+      })
+
+      expect(
+        screen.getByRole('heading', { name: 'Hideout' }),
+      ).toBeInTheDocument()
+    })
+
+    it('closes the venue panel on ✕ without clearing the city view', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      fireEvent.click(screen.getByRole('button', { name: /Empty Bottle/ }))
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Close Empty Bottle panel' }),
+      )
+
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+      // The rail and the pins are untouched — closing the panel is not
+      // leaving the city.
+      expect(screen.getByTestId('atlas-venue-rail')).toBeInTheDocument()
+      expect(lastCanvasProps.venues).toHaveLength(2)
+    })
+
+    it('drops the venue panel when the camera leaves the city', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      fireEvent.click(screen.getByRole('button', { name: /Empty Bottle/ }))
+      expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+
+      settleCamera(-87.63, 41.88, 4)
+
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+    })
+
+    it('hides the venue panel while a filter excludes its venue', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      act(() => {
+        lastCanvasProps.onVenueSelect?.(2) // Hideout: 0 shows this week
+      })
+      expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+
+      // Hideout loses its pin and its row, so its panel must go too rather
+      // than describe a venue the user can no longer see beside it.
+      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+
+      // The selection itself survives — clearing the filter restores it.
+      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      expect(
+        screen.getByRole('heading', { name: 'Hideout' }),
+      ).toBeInTheDocument()
     })
 
     it('hands the screen back to the globe when the camera pulls out', async () => {

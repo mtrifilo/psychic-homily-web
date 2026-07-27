@@ -27,6 +27,39 @@ export const venueEndpoints = {
 } as const
 
 // ============================================================================
+// Shared venue-shows page parameters
+// ============================================================================
+
+/**
+ * The page size EVERY venue-shows caller must use.
+ *
+ * `venueQueryKeys.shows()` keys on venue id + time filter and deliberately not
+ * on limit or timezone, so two surfaces requesting the same venue's upcoming
+ * shows share one cache entry. That is only safe while they request the same
+ * page: a caller that quietly asked for 5 would hand the venue page a
+ * five-row list, or be handed fifty rows itself, depending purely on which
+ * request landed first. One constant makes the agreement structural instead
+ * of a comment in two files that can drift apart.
+ */
+export const VENUE_SHOWS_PAGE_LIMIT = 50
+
+/**
+ * The timezone every venue-shows caller must send, for the same reason.
+ *
+ * It only sets the backend's "today" boundary for the upcoming/past split —
+ * rendering is always done in the VENUE's zone (PSY-985/986), never this one.
+ *
+ * Evaluated at import, and this module reaches the server graph (via
+ * `lib/queryClient.ts`), so on the server this resolves to the SERVER's zone.
+ * That is inert rather than a hydration hazard: it is not part of
+ * `venueQueryKeys.shows()`, and no route server-prefetches venue shows — the
+ * venue page seeds only `venues.detail` — so the value that ever reaches a
+ * request is always the browser's.
+ */
+export const VENUE_SHOWS_VIEWER_TIMEZONE =
+  Intl.DateTimeFormat().resolvedOptions().timeZone
+
+// ============================================================================
 // Query Keys
 // ============================================================================
 
@@ -38,6 +71,12 @@ export const venueQueryKeys = {
   detail: (idOrSlug: string | number) => ['venues', 'detail', String(idOrSlug)] as const,
   search: (query: string) =>
     ['venues', 'search', query.toLowerCase()] as const,
+  // NOTE: keyed on venue + time filter ONLY — not on limit or timezone. Two
+  // surfaces asking for the same venue's upcoming shows with DIFFERENT limits
+  // therefore share one cache entry, and whichever request lands first answers
+  // for both. Rather than widen the key (and split the cache for two surfaces
+  // that want the same page), every caller passes the same page parameters —
+  // see VENUE_SHOWS_PAGE_LIMIT below.
   shows: (venueIdOrSlug: string | number) => ['venues', 'shows', String(venueIdOrSlug)] as const,
   genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
   // PSY-365: bill-network cache is keyed by venue + active window so
