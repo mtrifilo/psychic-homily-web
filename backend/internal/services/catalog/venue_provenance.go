@@ -191,10 +191,30 @@ func buildVenueProvenance(updatedAt time.Time, dataSource *string, edits venueEd
 	}
 }
 
+// loadProvenanceAggregates runs both rollups for a set of venue IDs.
+//
+// BEST EFFORT by contract: an aggregation that fails is logged and returned as
+// a nil map, so its counts read as zero. The stamp still carries the updated-at
+// timestamp, which is the half readers depend on most, and a failed count must
+// never blank a venue list or a venue page.
+func (s *VenueService) loadProvenanceAggregates(venueIDs []uint) (map[uint]venueEditAggregate, map[uint]venueConfirmationAggregate) {
+	edits, err := s.venueEditCounts(venueIDs)
+	if err != nil {
+		slog.Default().Error("venue edit-count aggregation failed; provenance renders without edit counts",
+			"venue_ids", venueIDs, "error", err)
+		edits = nil
+	}
+	confirms, err := s.venueConfirmationCounts(venueIDs)
+	if err != nil {
+		slog.Default().Error("venue confirmation aggregation failed; provenance renders without confirmations",
+			"venue_ids", venueIDs, "error", err)
+		confirms = nil
+	}
+	return edits, confirms
+}
+
 // enrichVenueProvenance fills the provenance stamp on an already-built page of
-// venue responses, in place. Best effort: an aggregation that fails is logged
-// and skipped, leaving the counts zero — the stamp still carries the
-// updated-at timestamp, which is the half readers depend on most.
+// venue responses, in place.
 func (s *VenueService) enrichVenueProvenance(responses []*contracts.VenueWithShowCountResponse, dataSources map[uint]*string) {
 	if len(responses) == 0 {
 		return
@@ -204,17 +224,7 @@ func (s *VenueService) enrichVenueProvenance(responses []*contracts.VenueWithSho
 		venueIDs = append(venueIDs, r.ID)
 	}
 
-	edits, err := s.venueEditCounts(venueIDs)
-	if err != nil {
-		slog.Default().Error("venue edit-count aggregation failed; provenance renders without edit counts", "error", err)
-		edits = nil
-	}
-	confirms, err := s.venueConfirmationCounts(venueIDs)
-	if err != nil {
-		slog.Default().Error("venue confirmation aggregation failed; provenance renders without confirmations", "error", err)
-		confirms = nil
-	}
-
+	edits, confirms := s.loadProvenanceAggregates(venueIDs)
 	for _, r := range responses {
 		r.Provenance = buildVenueProvenance(r.UpdatedAt, dataSources[r.ID], edits[r.ID], confirms[r.ID])
 	}
@@ -222,20 +232,7 @@ func (s *VenueService) enrichVenueProvenance(responses []*contracts.VenueWithSho
 
 // venueProvenanceFor builds the stamp for a single venue (the venue detail
 // read). Same aggregations as the page path, batched over a page of one.
-// Best effort, for the same reason: a venue page must render without its stamp.
 func (s *VenueService) venueProvenanceFor(venue *catalogm.Venue) *contracts.VenueProvenance {
-	ids := []uint{venue.ID}
-
-	edits, err := s.venueEditCounts(ids)
-	if err != nil {
-		slog.Default().Error("venue edit-count aggregation failed; provenance renders without edit counts", "venue_id", venue.ID, "error", err)
-		edits = nil
-	}
-	confirms, err := s.venueConfirmationCounts(ids)
-	if err != nil {
-		slog.Default().Error("venue confirmation aggregation failed; provenance renders without confirmations", "venue_id", venue.ID, "error", err)
-		confirms = nil
-	}
-
+	edits, confirms := s.loadProvenanceAggregates([]uint{venue.ID})
 	return buildVenueProvenance(venue.UpdatedAt, venue.DataSource, edits[venue.ID], confirms[venue.ID])
 }

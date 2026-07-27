@@ -7,6 +7,7 @@ import {
   labelledVenuePinIds,
   venuePinRadiusPx,
   cityContributionCounts,
+  cityContributionSegments,
   cityDataUpdatedAt,
   cityGenreFamilies,
   cityRailStats,
@@ -591,5 +592,25 @@ describe('venueProvenanceSegments', () => {
         }),
       ),
     ).toEqual(['2 edits by 1 contributor', '7 confirmations', 'ingest + community'])
+  })
+})
+
+describe('cityContributionSegments', () => {
+  it('omits zero counts rather than claiming "0 edits"', () => {
+    expect(
+      cityContributionSegments({ editCount: 0, confirmationCount: 0 }),
+    ).toEqual([])
+  })
+
+  it('states edits and confirmations in a stable order', () => {
+    expect(
+      cityContributionSegments({ editCount: 4, confirmationCount: 6 }),
+    ).toEqual(['4 edits', '6 confirmations'])
+  })
+
+  it('singularises a lone edit and confirmation', () => {
+    expect(
+      cityContributionSegments({ editCount: 1, confirmationCount: 1 }),
+    ).toEqual(['1 edit', '1 confirmation'])
   })
 })

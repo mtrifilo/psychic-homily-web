@@ -1212,9 +1212,22 @@ type VenueServiceInterface interface {
 	// requested time window. Window is one of "all", "12m", "year"; Year
 	// is required iff Window=="year". Empty Window defaults to "all".
 	GetVenueBillNetwork(venueID uint, window string, year *int) (*VenueBillNetworkResponse, error)
+}
+
+// VenueConfirmServiceInterface is the whole surface the confirm-current
+// endpoint needs (PSY-1542).
+//
+// Deliberately its own one-method interface rather than an eighteenth method on
+// VenueServiceInterface, matching how every other one-tap engagement toggle in
+// this codebase is wired (CollectionLikeHandler, FollowHandler, SavedShowHandler
+// each take a narrow service). A public, rate-limited, high-frequency mutation
+// should not depend on the same broad surface as admin venue CRUD, and every
+// handler test that mocks venue reads should not have to stub a confirm it never
+// calls.
+type VenueConfirmServiceInterface interface {
 	// ConfirmVenue records that userID vouches for this venue's info being
-	// current (PSY-1542). Idempotent: a repeat confirm is a no-op that returns
-	// the same aggregate, never an error.
+	// current. Idempotent: a repeat confirm is a no-op that returns the same
+	// aggregate, never an error.
 	ConfirmVenue(venueID uint, userID uint) (*VenueConfirmationResponse, error)
 }
 

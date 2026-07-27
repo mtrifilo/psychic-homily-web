@@ -24,7 +24,8 @@ func setupVenueRoutes(rc RouteContext) {
 	// on-ramp, so it is deliberately NOT trust-gated. Idempotent: a repeat
 	// confirm no-ops and returns the same aggregate. Throttled by the shared
 	// engagement-mutation limiter (engagement_mutation_rate_limit.go).
-	huma.Post(rc.Protected, "/venues/{venue_id}/confirm", venueHandler.ConfirmVenueHandler)
+	venueConfirmHandler := catalogh.NewVenueConfirmHandler(rc.SC.Venue)
+	huma.Post(rc.Protected, "/venues/{venue_id}/confirm", venueConfirmHandler.ConfirmVenueHandler)
 
 	// Admin venue endpoints (PSY-423: rc.Admin enforces auth + IsAdmin)
 	huma.Post(rc.Admin, "/admin/venues", venueHandler.AdminCreateVenueHandler)

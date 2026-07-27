@@ -7,6 +7,7 @@ import { GENRE_FAMILIES } from '../genreFamilies'
 import {
   CITY_RAIL_WIDTH_PX,
   cityContributionCounts,
+  cityContributionSegments,
   cityDataUpdatedAt,
   cityGenreFamilies,
   cityRailStats,
@@ -74,8 +75,8 @@ export function VenueRail({
   const stats = useMemo(() => cityRailStats(allVenues), [allVenues])
   const genreFamilies = useMemo(() => cityGenreFamilies(allVenues), [allVenues])
   const updatedAt = useMemo(() => cityDataUpdatedAt(allVenues), [allVenues])
-  const contributions = useMemo(
-    () => cityContributionCounts(allVenues),
+  const contributionSegments = useMemo(
+    () => cityContributionSegments(cityContributionCounts(allVenues)),
     [allVenues],
   )
 
@@ -232,22 +233,9 @@ export function VenueRail({
               comes from the VALUE being brighter, not the label dimmer. */}
           <span className="text-muted-foreground">DATA</span>{' '}
           {updatedAt ? `updated ${formatTimeAgo(updatedAt)}` : 'no update recorded'}
-          {contributions.editCount > 0 && (
-            <>
-              {' · '}
-              {contributions.editCount}{' '}
-              {contributions.editCount === 1 ? 'edit' : 'edits'}
-            </>
-          )}
-          {contributions.confirmationCount > 0 && (
-            <>
-              {' · '}
-              {contributions.confirmationCount}{' '}
-              {contributions.confirmationCount === 1
-                ? 'confirmation'
-                : 'confirmations'}
-            </>
-          )}
+          {contributionSegments.map((segment) => (
+            <span key={segment}> · {segment}</span>
+          ))}
         </p>
       </footer>
     </aside>

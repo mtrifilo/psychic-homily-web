@@ -12,8 +12,8 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-func confirmVenueHandler(svc *testhelpers.MockVenueService) *VenueHandler {
-	return NewVenueHandler(svc, nil, nil, nil)
+func confirmVenueHandler(svc *testhelpers.MockVenueConfirmService) *VenueConfirmHandler {
+	return NewVenueConfirmHandler(svc)
 }
 
 // An anonymous caller must never reach the service. rc.Protected already
@@ -21,7 +21,7 @@ func confirmVenueHandler(svc *testhelpers.MockVenueService) *VenueHandler {
 // so it refuses on its own rather than trusting route wiring to stay correct.
 func TestConfirmVenueHandler_NoAuth(t *testing.T) {
 	called := false
-	svc := &testhelpers.MockVenueService{
+	svc := &testhelpers.MockVenueConfirmService{
 		ConfirmVenueFn: func(uint, uint) (*contracts.VenueConfirmationResponse, error) {
 			called = true
 			return nil, nil
@@ -39,7 +39,7 @@ func TestConfirmVenueHandler_NoAuth(t *testing.T) {
 func TestConfirmVenueHandler_UntrustedUserMayConfirm(t *testing.T) {
 	last := time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)
 	var gotVenueID, gotUserID uint
-	svc := &testhelpers.MockVenueService{
+	svc := &testhelpers.MockVenueConfirmService{
 		ConfirmVenueFn: func(venueID, userID uint) (*contracts.VenueConfirmationResponse, error) {
 			gotVenueID, gotUserID = venueID, userID
 			return &contracts.VenueConfirmationResponse{
@@ -65,7 +65,7 @@ func TestConfirmVenueHandler_UntrustedUserMayConfirm(t *testing.T) {
 // addressable identity for the same row on a rate-limited write.
 func TestConfirmVenueHandler_RejectsSlug(t *testing.T) {
 	called := false
-	svc := &testhelpers.MockVenueService{
+	svc := &testhelpers.MockVenueConfirmService{
 		ConfirmVenueFn: func(uint, uint) (*contracts.VenueConfirmationResponse, error) {
 			called = true
 			return nil, nil
@@ -80,7 +80,7 @@ func TestConfirmVenueHandler_RejectsSlug(t *testing.T) {
 }
 
 func TestConfirmVenueHandler_NotFound(t *testing.T) {
-	svc := &testhelpers.MockVenueService{
+	svc := &testhelpers.MockVenueConfirmService{
 		ConfirmVenueFn: func(venueID, _ uint) (*contracts.VenueConfirmationResponse, error) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		},
@@ -91,7 +91,7 @@ func TestConfirmVenueHandler_NotFound(t *testing.T) {
 }
 
 func TestConfirmVenueHandler_ServiceFailureIs500(t *testing.T) {
-	svc := &testhelpers.MockVenueService{
+	svc := &testhelpers.MockVenueConfirmService{
 		ConfirmVenueFn: func(uint, uint) (*contracts.VenueConfirmationResponse, error) {
 			return nil, fmt.Errorf("db exploded")
 		},

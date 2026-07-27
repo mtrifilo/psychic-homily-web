@@ -21,12 +21,16 @@ import type { VenueConfirmationResponse } from '../types'
  * "already confirmed" error to special-case: a repeat tap returns the same
  * aggregate with 200. Callers render from the returned counts.
  *
- * On success every cached venue query is invalidated so the provenance stamps
- * on the rail and the venue page pick up the new confirmation count. This is
- * deliberately broad rather than surgical: the same venue appears under several
- * list keys (per city, per filter set, with and without rail fields), and
- * patching each in place would silently miss one and leave two stamps
- * disagreeing about the same venue on the same screen.
+ * On success the venue queries that CARRY a provenance stamp are invalidated —
+ * the lists and the detail reads. Every list key is invalidated rather than
+ * just the one on screen, because the same venue appears under several (per
+ * city, per filter set, with and without rail fields) and patching one in place
+ * would leave two stamps disagreeing about the same venue on the same screen.
+ *
+ * The other venue keys are deliberately left alone: a confirmation changes
+ * nothing about a venue's shows, genres, bill network, or the cities index, and
+ * invalidating the whole `['venues']` prefix would refetch an open panel's
+ * shows list and graph for a mutation that cannot affect them.
  */
 export function useVenueConfirm() {
   const queryClient = useQueryClient()
@@ -37,7 +41,11 @@ export function useVenueConfirm() {
         method: 'POST',
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: venueQueryKeys.all })
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] === venueQueryKeys.all[0] &&
+          (query.queryKey[1] === 'list' || query.queryKey[1] === 'detail'),
+      })
     },
   })
 }

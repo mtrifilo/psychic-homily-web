@@ -365,6 +365,30 @@ export function cityContributionCounts(
 }
 
 /**
+ * The rail footer's contribution segments, ready to join with " · ".
+ *
+ * Same omit-the-zero rule as `venueProvenanceSegments`, and deliberately the
+ * same shape: the two provenance lines on screen at once must not drift into
+ * two different ways of saying "3 edits".
+ */
+export function cityContributionSegments(
+  counts: CityContributionCounts,
+): string[] {
+  const segments: string[] = []
+  if (counts.editCount > 0) {
+    segments.push(
+      `${counts.editCount} ${counts.editCount === 1 ? 'edit' : 'edits'}`,
+    )
+  }
+  if (counts.confirmationCount > 0) {
+    segments.push(
+      `${counts.confirmationCount} ${counts.confirmationCount === 1 ? 'confirmation' : 'confirmations'}`,
+    )
+  }
+  return segments
+}
+
+/**
  * The provenance segments for one venue, ready to join with " · ".
  *
  * A zero count is OMITTED rather than rendered as "0 edits": a stamp that

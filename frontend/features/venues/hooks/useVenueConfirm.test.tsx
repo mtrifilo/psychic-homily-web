@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { createWrapper } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
@@ -33,6 +35,38 @@ describe('useVenueConfirm', () => {
       { method: 'POST' },
     )
     expect(result.current.data?.confirmation_count).toBe(8)
+  })
+
+  it('refreshes only the venue queries that carry a provenance stamp', async () => {
+    // A confirmation cannot change a venue's shows, genres, or bill network —
+    // invalidating the whole ['venues'] prefix would refetch an open panel's
+    // show list and graph for nothing.
+    mockApiRequest.mockResolvedValue({
+      confirmation_count: 1,
+      viewer_has_confirmed: true,
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useVenueConfirm(), { wrapper })
+    result.current.mutate(42)
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const predicate = invalidate.mock.calls[0][0]?.predicate as (q: {
+      queryKey: readonly unknown[]
+    }) => boolean
+    expect(predicate({ queryKey: ['venues', 'list', {}] })).toBe(true)
+    expect(predicate({ queryKey: ['venues', 'detail', '42'] })).toBe(true)
+    expect(predicate({ queryKey: ['venues', 'shows', '42'] })).toBe(false)
+    expect(predicate({ queryKey: ['venues', 'bill-network', '42', 'all', null] })).toBe(false)
+    expect(predicate({ queryKey: ['venues', 'genres', '42'] })).toBe(false)
+    expect(predicate({ queryKey: ['artists', 'list', {}] })).toBe(false)
   })
 
   it('surfaces a repeat confirm as an ordinary success, not an error', async () => {
