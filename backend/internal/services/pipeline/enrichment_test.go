@@ -365,23 +365,27 @@ func TestMusicBrainzClient_ThrottleSpacesConcurrentCallers(t *testing.T) {
 	// needs slack: it fails spuriously only if the EARLIER grant's stamp is
 	// delayed more than the later one's, since delay common to both cancels out.
 	//
-	// The slack is deliberately enormous — half the interval — because the thing
-	// it has to separate is not close to the threshold. A caller that shares a
-	// slot lands MICROseconds behind its neighbour, not 90ms behind, so anywhere
-	// between "a hair above scheduler noise" and "just under a full interval"
-	// discriminates identically. Verified rather than assumed: the batch-release
-	// mutant dies 20/20 at this slack, exactly as it did at 10ms. Given that,
-	// the honest choice is the value that gives CI the most room, not the one
-	// that looks tightest. Steady over-rate (grants evenly spaced but too fast)
-	// is bound 1's job and is unaffected by this number.
+	// The value is a two-sided compromise, and both sides were measured rather
+	// than argued:
 	//
-	// Sizing did start from measurement — over 195 gaps under -race, idle and
-	// under 12 competing CPU hogs, the smallest margin over rateLimit was
-	// +1.00ms — but treat that as a floor observed on ONE dev machine, not a
-	// guarantee. CI runs this suite on shared runners and without -race, which
-	// this measurement cannot speak for. The tolerance is set so the assertion
-	// does not depend on that number being reproducible.
-	slack := c.rateLimit / 2
+	//   - Too tight and CI jitter reds an innocent PR. Differential jitter was
+	//     never observed to bite at all: with slack set to ZERO this test still
+	//     passed 50/50 under -race, and the smallest margin over rateLimit seen
+	//     across 195 instrumented gaps was +1.00ms. Treat that as a floor from
+	//     ONE dev box, not a guarantee — CI runs on shared runners and without
+	//     -race, which those numbers cannot speak for.
+	//   - Too loose and real violations slip through. A caller that shares a
+	//     slot lands MICROseconds behind its neighbour, so any threshold well
+	//     clear of scheduler noise catches THAT. But unequal compensating gaps
+	//     (grants at 0, 149, 200ms: every cumulative floor cleared, one pair
+	//     only 51ms apart) are caught only if the threshold stays high enough.
+	//     Half the interval would let that sequence pass.
+	//
+	// rateLimit/5 keeps ~20x margin over the worst jitter ever measured here
+	// while holding the bypass window to gaps of 0.8-1.0 rateLimit, which are
+	// near-compliant anyway. Steady over-rate is bound 1's job and is unaffected
+	// by this number.
+	slack := c.rateLimit / 5
 	for i := 1; i < len(granted); i++ {
 		assert.GreaterOrEqual(t, granted[i].Sub(granted[i-1]), c.rateLimit-slack,
 			"grants %d and %d landed inside one rateLimit interval", i, i+1)
