@@ -2,9 +2,12 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"path/filepath"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,7 +212,9 @@ func TestMusicBrainzClient_DefaultsWhenNotInjected(t *testing.T) {
 // needs no network I/O: the first call returns immediately (zero-value lastReq),
 // the second must block until at least one rateLimit interval has elapsed.
 // Scope: SEQUENTIAL callers only. The process-wide guarantee under CONCURRENT
-// callers (discovery + enrichment contending on c.mu) is not covered here.
+// callers (discovery + enrichment contending on c.mu) is covered separately by
+// TestMusicBrainzClient_ThrottleSpacesConcurrentCallers below — a throttle that
+// released c.mu across the wait would still pass THIS test, so keep both.
 func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 	c := NewMusicBrainzClient()
 	// Shorten the interval so the test stays fast while still proving the
@@ -258,6 +263,99 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 		"second throttle must actually block until the slot opens")
 	assert.GreaterOrEqual(t, c.lastReq.Sub(firstSlot), c.rateLimit,
 		"successive throttle slots must be spaced at least one rateLimit apart")
+}
+
+// TestMusicBrainzClient_ThrottleSpacesConcurrentCallers verifies the rate limit
+// is process-WIDE, not per-caller: several goroutines hammering ONE shared
+// client (the PSY-1208 arrangement, where discovery and enrichment contend on
+// the same limiter) must still be granted slots at least one rateLimit apart.
+// Exceeding that is the condition MusicBrainz bans clients for, and it is not
+// something -race can see: a throttle that computes its delay under c.mu, then
+// unlocks across the wait and relocks to write lastReq, has no data race at all
+// — just a lost update on the spacing invariant. It passes every sequential
+// throttle test. This test is the one that fails on it.
+//
+// Measurement is deliberately BLACK-BOX: each goroutine stamps its own
+// completion with the TEST's clock, so no assertion below compares two values
+// the subject wrote to itself. The trailing c.lastReq checks only corroborate.
+func TestMusicBrainzClient_ThrottleSpacesConcurrentCallers(t *testing.T) {
+	// Callers serialize by construction, so the test costs (callers-1) *
+	// rateLimit. Four is the smallest N that yields more than one adjacent gap
+	// to check while keeping a -count=50 -race run in the tens of seconds.
+	const callers = 4
+
+	c := NewMusicBrainzClient()
+	// Shortened for runtime, as in the sequential test. 100ms still leaves the
+	// per-gap tolerance below an order of magnitude below the signal a broken
+	// throttle produces (concurrent grants land ~0ms apart, not ~90ms).
+	c.rateLimit = 100 * time.Millisecond
+
+	// Every goroutine parks on release, so all of them are already running when
+	// the clock starts. Starting them staggered would let the throttle satisfy
+	// the spacing invariant without ever having to arbitrate contention.
+	release := make(chan struct{})
+	var ready, done sync.WaitGroup
+	ready.Add(callers)
+	done.Add(callers)
+
+	granted := make([]time.Time, callers)
+	errs := make([]error, callers)
+	for i := range granted {
+		go func(i int) {
+			defer done.Done()
+			ready.Done()
+			<-release
+			errs[i] = c.throttle(context.Background())
+			granted[i] = time.Now()
+		}(i)
+	}
+
+	ready.Wait()
+	start := time.Now() // taken before any throttle can run
+	close(release)
+	done.Wait()
+	require.NoError(t, errors.Join(errs...), "throttle must not fail on a live context")
+
+	// Slots are handed out in SOME order; the test cannot know which goroutine
+	// got which, so sort and reason about the sequence of grants.
+	sort.Slice(granted, func(i, j int) bool { return granted[i].Before(granted[j]) })
+
+	// Bound 1 — cumulative, and sound with ZERO tolerance. If spacing holds,
+	// the i-th grant cannot land before start+i*rateLimit, and a stamp taken
+	// after the grant only ever pushes the observation later. (Sorting is safe
+	// under that reasoning: adding non-negative delays cannot make the i-th
+	// smallest observation earlier than the i-th smallest grant.) This is the
+	// assertion that kills the unlock-across-the-wait mutant, where callers all
+	// compute their delay against the same lastReq and fire in one batch.
+	for i, at := range granted {
+		assert.GreaterOrEqual(t, at.Sub(start), time.Duration(i)*c.rateLimit,
+			"grant %d of %d landed before its slot could open — concurrent callers shared a slot", i+1, callers)
+	}
+
+	// Bound 2 — per-adjacent-pair, which bound 1 alone does not give: a throttle
+	// that stalls once and then releases everyone at once (e.g. grants at 600,
+	// 601, 602, 603ms) satisfies every cumulative floor while firing four
+	// requests in one interval. Unlike bound 1 this compares two independently
+	// scheduled stamps, so it needs slack for the gap between a grant and the
+	// goroutine recording it. Sizing is measured, not guessed: over 65 runs
+	// (195 gaps) under -race, idle and under 12 competing CPU hogs, the smallest
+	// observed margin over rateLimit was +1.00ms — the floor is timer overshoot,
+	// and recording jitter never ate into it. 10ms is 10x that floor, while a
+	// real violation collapses the gap to single-digit MICROseconds, so the
+	// tolerance sits ~3 orders of magnitude away from the signal.
+	const slack = 10 * time.Millisecond
+	for i := 1; i < len(granted); i++ {
+		assert.GreaterOrEqual(t, granted[i].Sub(granted[i-1]), c.rateLimit-slack,
+			"grants %d and %d landed inside one rateLimit interval", i, i+1)
+	}
+
+	// Corroboration from the throttle's own bookkeeping, pinned to real time so
+	// it cannot be satisfied by a back-dated synthetic slot (the PSY-1559
+	// lesson). Reading lastReq here is race-free: done.Wait() synchronizes with
+	// every goroutine's write under c.mu.
+	require.False(t, c.lastReq.Before(start), "final slot record must be real wall time")
+	assert.GreaterOrEqual(t, c.lastReq.Sub(start), time.Duration(callers-1)*c.rateLimit,
+		"the throttle's own last slot must sit at least (callers-1) intervals out")
 }
 
 // TestMusicBrainzClient_ThrottleCancellable verifies the throttle aborts the
