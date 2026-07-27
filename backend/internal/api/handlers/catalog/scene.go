@@ -334,6 +334,72 @@ func (h *SceneHandler) GetSceneGraphHandler(ctx context.Context, req *GetSceneGr
 	return &GetSceneGraphResponse{Body: graph}, nil
 }
 
+// ============================================================================
+// Get Scene Week
+// ============================================================================
+
+// GetSceneWeekRequest addresses a SPECIFIC ISO week — the stable permalink.
+//
+// The current-week route needs its own request type (below) rather than
+// reusing this one with an empty Week: huma treats every declared path param
+// as required, so a shared struct makes /scenes/{slug}/week fail validation
+// with 422 before the handler ever runs. Making Week a pointer is not an
+// option either — huma panics on pointer path params.
+type GetSceneWeekRequest struct {
+	Slug string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
+	Week string `path:"week" doc:"ISO-8601 week key (e.g. 2026-W31)" example:"2026-W31"`
+}
+
+// GetSceneCurrentWeekRequest addresses the scene's CURRENT week.
+//
+// "Current" is resolved server-side, in the scene's own timezone rather than
+// the viewer's, so a reader in Berlin and a reader in Chicago both get the
+// same Chicago week.
+type GetSceneCurrentWeekRequest struct {
+	Slug string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
+}
+
+// GetSceneWeekResponse represents the response for a scene's week.
+type GetSceneWeekResponse struct {
+	Body *contracts.SceneWeekResponse
+}
+
+// GetSceneWeekHandler handles GET /scenes/{slug}/week and
+// /scenes/{slug}/week/{week} — one ISO week of a scene's shows grouped by day.
+//
+// A valid scene with no shows that week returns 200 with an empty week, not
+// 404: a real city having a quiet week is a fact, and 404ing it would make an
+// already-shared permalink break retroactively. Only an unknown/below-threshold
+// scene or a malformed week key is a 404.
+func (h *SceneHandler) GetSceneWeekHandler(ctx context.Context, req *GetSceneWeekRequest) (*GetSceneWeekResponse, error) {
+	return h.sceneWeek(req.Slug, req.Week)
+}
+
+// GetSceneCurrentWeekHandler handles GET /scenes/{slug}/week — the scene's
+// current week, resolved in the scene's own timezone.
+func (h *SceneHandler) GetSceneCurrentWeekHandler(ctx context.Context, req *GetSceneCurrentWeekRequest) (*GetSceneWeekResponse, error) {
+	return h.sceneWeek(req.Slug, "")
+}
+
+// sceneWeek is the shared body of both week routes. weekKey == "" means the
+// scene's current week.
+func (h *SceneHandler) sceneWeek(slug, weekKey string) (*GetSceneWeekResponse, error) {
+	city, state, err := h.sceneService.ParseSceneSlug(slug)
+	if err != nil {
+		return nil, huma.Error404NotFound("Scene not found")
+	}
+
+	week, err := h.sceneService.GetSceneWeek(city, state, weekKey)
+	if err != nil {
+		if mapped := shared.MapSceneError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError("Failed to get scene week", err)
+	}
+
+	return &GetSceneWeekResponse{Body: week}, nil
+}
+
 // parseTypesQueryParam splits the comma-separated `types` query param into a
 // trimmed, non-empty slice. The service-side allowlist drops anything unknown.
 func parseTypesQueryParam(raw string) []string {

@@ -732,6 +732,44 @@ type SceneShowSummary struct {
 	ArtistNames []string `json:"artist_names,omitempty"`
 }
 
+// SceneWeekDay is one calendar day of a scene's week, in the scene's own
+// timezone. Days with no shows are still emitted so the page can render the
+// full week rather than silently collapsing quiet nights.
+type SceneWeekDay struct {
+	Date  string             `json:"date"` // ISO date (YYYY-MM-DD), scene-local
+	Shows []SceneShowSummary `json:"shows"`
+}
+
+// SceneWeekResponse is one ISO week of a scene's shows — the payload behind the
+// public weekly city page.
+//
+// The week is computed in the scene's own timezone, not UTC: a 21:00 Sunday
+// show in Chicago is 02:00 Monday UTC, so a UTC week boundary would file it
+// into the following week.
+//
+// TrackedVenues is not decoration. Coverage is a curated slice of each city's
+// rooms, not an exhaustive listing, so the page must name the rooms it draws
+// from rather than implying it lists everything happening in the city.
+type SceneWeekResponse struct {
+	Slug      string `json:"slug"`
+	SceneName string `json:"scene_name"` // "City, ST"
+	City      string `json:"city"`
+	State     string `json:"state"`
+	ISOWeek   string `json:"iso_week"`   // "2026-W31"
+	StartDate string `json:"start_date"` // Monday, scene-local ISO date
+	EndDate   string `json:"end_date"`   // Sunday, scene-local ISO date
+	Timezone  string `json:"timezone"`   // IANA zone the week was computed in
+	ShowCount int    `json:"show_count"`
+	// PrevWeek/NextWeek are ISO week keys for adjacent-week navigation.
+	PrevWeek string `json:"prev_week"`
+	NextWeek string `json:"next_week"`
+	// IsCurrentWeek lets the client mark the rolling week without recomputing
+	// the scene-local "now" itself (and getting a different answer).
+	IsCurrentWeek bool           `json:"is_current_week"`
+	Days          []SceneWeekDay `json:"days"`
+	TrackedVenues []string       `json:"tracked_venues"`
+}
+
 // SceneNewArtist is one "new band based here" row for the weekly scene digest
 // (PSY-1342) — just enough to render a linked name.
 type SceneNewArtist struct {
@@ -1193,4 +1231,12 @@ type SceneServiceInterface interface {
 	// drop bands the cursor then advances past). The weekly digest's "new
 	// bands based here" stream (PSY-1342). Same roster scope as GetActiveArtists.
 	GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]SceneNewArtist, int, error)
+	// GetSceneShowsInRange returns the scene's approved shows in the half-open
+	// window [from, to), rendering dates in loc. Shared by the digest email and
+	// the weekly city page so the two can never disagree about a scene's shows.
+	GetSceneShowsInRange(city, state string, from, to time.Time, loc *time.Location, limit int) ([]SceneShowSummary, error)
+	// GetSceneWeek returns one ISO week of a scene's shows grouped by day,
+	// computed in the SCENE's timezone. weekKey is an ISO week key
+	// ("2026-W31") or "" for the scene's current week.
+	GetSceneWeek(city, state, weekKey string) (*SceneWeekResponse, error)
 }
