@@ -37,6 +37,44 @@ export const artistEndpoints = {
 } as const
 
 // ============================================================================
+// Shared artist-shows request shape
+// ============================================================================
+
+/**
+ * The page size EVERY artist-shows caller must use.
+ *
+ * `artistQueryKeys.shows()` keys on artist id + time filter and deliberately
+ * not on limit or timezone, so two surfaces requesting the same artist's
+ * upcoming shows share one cache entry. That is only safe while they request
+ * the same page: a caller that quietly asked for 2 would hand the ARTIST PAGE
+ * a two-row list — silently hiding real upcoming shows for the 5-minute
+ * staleTime — or be handed fifty rows itself, depending purely on which
+ * request landed first. One constant makes the agreement structural instead of
+ * a comment in two files that can drift apart.
+ *
+ * Exactly the rule `VENUE_SHOWS_PAGE_LIMIT` states for the venue side; a
+ * surface that wants fewer rows fetches this page and slices for display (the
+ * Atlas artist drill-in shows two of them).
+ */
+export const ARTIST_SHOWS_PAGE_LIMIT = 50
+
+/**
+ * The timezone every artist-shows caller must send, for the same reason.
+ *
+ * It only sets the backend's "today" boundary for the upcoming/past split —
+ * rendering is always done in the VENUE's zone (PSY-985/986), never this one.
+ *
+ * Evaluated at import, and this module reaches the server graph (via
+ * `lib/queryClient.ts`), so on the server this resolves to the SERVER's zone.
+ * That is inert rather than a hydration hazard: it is not part of
+ * `artistQueryKeys.shows()`, and no route server-prefetches artist shows.
+ */
+export const ARTIST_SHOWS_VIEWER_TIMEZONE =
+  typeof Intl !== 'undefined'
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone
+    : 'UTC'
+
+// ============================================================================
 // Query Keys
 // ============================================================================
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import type { MutableRefObject, ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListResponse } from '../types'
@@ -78,6 +78,25 @@ const mockUseVenueShows = vi.fn<() => Record<string, unknown>>(() => ({
 vi.mock('@/features/venues/hooks', () => ({
   useVenues: () => mockUseVenues(),
   useVenueShows: () => mockUseVenueShows(),
+}))
+
+// The artist drill-in's own fetches (PSY-1541). AtlasGlobe statically imports
+// ArtistPanel, so these must be stubbed for every test in the file, not just
+// the drill-in ones. The panel's own suite covers what it does with the data;
+// here the concern is the stack — which panel is on screen, and what the
+// stepper is stepping through.
+const mockUseArtistGraphCard = vi.fn<
+  (args: { artistId: number | string | null }) => Record<string, unknown>
+>(() => ({ data: undefined, isError: false }))
+vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
+  useArtistGraphCard: (args: { artistId: number | string | null }) =>
+    mockUseArtistGraphCard(args),
+}))
+vi.mock('@/features/artists/hooks/useArtists', () => ({
+  useArtistShows: () => ({ data: { shows: [], artist_id: 0, total: 0 } }),
+}))
+vi.mock('@/components/shared/MusicEmbed', () => ({
+  MusicEmbed: () => <div data-testid="music-embed" />,
 }))
 
 // AtlasSearch (rendered in the globe branch) reads the router (PSY-1310).
@@ -333,6 +352,288 @@ describe('AtlasGlobe', () => {
         data: { venues: chicagoVenues, total: 2 },
         isFetching: false,
         isPlaceholderData: false,
+      })
+      mockUseArtistGraphCard.mockReset()
+      mockUseArtistGraphCard.mockReturnValue({ data: undefined, isError: false })
+    })
+
+    // ── Artist drill-in (PSY-1541) ──────────────────────────────────────
+    // The venue's week, as the shows endpoint serves it: two shows, four
+    // distinct bands, one of them (Meat Wave) playing both nights.
+    const venueWeek = [
+      {
+        id: 101,
+        slug: 'show-101',
+        title: 'Bottle Fest night one',
+        event_date: '2026-07-28T01:00:00Z',
+        city: 'Chicago',
+        state: 'IL',
+        price: null,
+        age_requirement: null,
+        artists: [
+          { id: 10, slug: 'die-spitz', name: 'Die Spitz' },
+          { id: 11, slug: 'meat-wave', name: 'Meat Wave' },
+        ],
+      },
+      {
+        id: 102,
+        slug: 'show-102',
+        title: 'Bottle Fest night two',
+        event_date: '2026-07-29T01:00:00Z',
+        city: 'Chicago',
+        state: 'IL',
+        price: null,
+        age_requirement: null,
+        artists: [
+          { id: 11, slug: 'meat-wave', name: 'Meat Wave' },
+          { id: 12, slug: 'gouge-away', name: 'Gouge Away' },
+        ],
+      },
+    ]
+
+    /** Camera → city → rail row → show row: the whole drill-in approach. */
+    async function drillIntoFirstShow() {
+      mockUseVenueShows.mockReturnValue({
+        data: { shows: venueWeek, venue_id: 1, total: 2 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      fireEvent.click(screen.getByRole('button', { name: /Empty Bottle/ }))
+      fireEvent.click(
+        screen.getByRole('button', { name: /Bottle Fest night one/ }),
+      )
+    }
+
+    it('drills from a venue show row into that show’s first artist', async () => {
+      await drillIntoFirstShow()
+
+      expect(screen.getByTestId('atlas-artist-panel')).toBeInTheDocument()
+      // The venue panel is REPLACED, not stacked over — that is what makes
+      // Escape pop exactly one level.
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Die Spitz' }),
+      ).toBeInTheDocument()
+    })
+
+    // The locked decision (2026-07-25): the stepper walks THE LIST YOU DRILLED
+    // IN FROM — this venue's week — not the one show you clicked, and not a
+    // hardcoded venue scope.
+    it('steps through the whole venue week in order, de-duplicated', async () => {
+      await drillIntoFirstShow()
+      expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
+        'ARTIST · 1 OF 3 UPCOMING AT THIS VENUE',
+      )
+
+      fireEvent.click(screen.getByTestId('artist-panel-step-next'))
+      expect(
+        screen.getByRole('heading', { name: 'Meat Wave' }),
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
+        'ARTIST · 2 OF 3 UPCOMING AT THIS VENUE',
+      )
+
+      // Meat Wave plays both nights but is ONE step — the third is night two's
+      // other band, not a second Meat Wave.
+      fireEvent.click(screen.getByTestId('artist-panel-step-next'))
+      expect(
+        screen.getByRole('heading', { name: 'Gouge Away' }),
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
+        'ARTIST · 3 OF 3 UPCOMING AT THIS VENUE',
+      )
+    })
+
+    it('steps backward to where it came from', async () => {
+      await drillIntoFirstShow()
+      fireEvent.click(screen.getByTestId('artist-panel-step-next'))
+      fireEvent.click(screen.getByTestId('artist-panel-step-previous'))
+      expect(
+        screen.getByRole('heading', { name: 'Die Spitz' }),
+      ).toBeInTheDocument()
+    })
+
+    it('drills in mid-list when a later show’s row is clicked', async () => {
+      mockUseVenueShows.mockReturnValue({
+        data: { shows: venueWeek, venue_id: 1, total: 2 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      fireEvent.click(screen.getByRole('button', { name: /Empty Bottle/ }))
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /Bottle Fest night two/ }),
+      )
+
+      // Night two's first artist is Meat Wave, which the de-duplicated list
+      // already holds at index 1.
+      expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
+        'ARTIST · 2 OF 3 UPCOMING AT THIS VENUE',
+      )
+    })
+
+    it('returns to the venue panel from the breadcrumb, rows intact', async () => {
+      await drillIntoFirstShow()
+
+      // Scoped to the panel: the rail also has an "Empty Bottle" row.
+      fireEvent.click(
+        within(screen.getByTestId('atlas-artist-panel')).getByRole('button', {
+          name: /Empty Bottle/,
+        }),
+      )
+
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+      expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Bottle Fest night one/ }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Bottle Fest night two/ }),
+      ).toBeInTheDocument()
+    })
+
+    // The drill-in has no restore-focus-to-opener cleanup of its own (the show
+    // row it opened from is already unmounted by then). The return path is
+    // covered by the panel handed back to: VenuePanel remounts and focuses its
+    // own close control, so a keyboard user lands INSIDE the venue panel
+    // rather than back at the top of the document.
+    it('lands keyboard focus in the venue panel on the way back', async () => {
+      await drillIntoFirstShow()
+
+      fireEvent.click(
+        within(screen.getByTestId('atlas-artist-panel')).getByRole('button', {
+          name: /Empty Bottle/,
+        }),
+      )
+
+      const venuePanel = screen.getByTestId('atlas-venue-panel')
+      expect(venuePanel).toContainElement(
+        document.activeElement as HTMLElement | null,
+      )
+      expect(
+        screen.getByRole('button', { name: 'Close Empty Bottle panel' }),
+      ).toHaveFocus()
+    })
+
+    // Escape pops ONE level per keystroke: artist → venue → closed.
+    it('pops one level per Escape', async () => {
+      await drillIntoFirstShow()
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+      expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+      // Still in the city — Escape left the panel stack, not the city view.
+      expect(screen.getByTestId('atlas-venue-rail')).toBeInTheDocument()
+    })
+
+    it('closes the whole stack from the artist panel’s ✕', async () => {
+      await drillIntoFirstShow()
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Close Die Spitz panel' }),
+      )
+
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+      expect(screen.getByTestId('atlas-venue-rail')).toBeInTheDocument()
+    })
+
+    // A drill-in must never outlive the panel its breadcrumb returns to.
+    it('drops the drill-in when the camera leaves the city', async () => {
+      await drillIntoFirstShow()
+      settleCamera(-87.63, 41.88, 4)
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+    })
+
+    // The render-phase orphan guard, exercised through the filter path it was
+    // written for: Hideout has no shows this week, so applying "This week"
+    // drops it from `filteredVenues` while its selection ID survives. An
+    // artist panel whose "← Hideout" returns to nothing is the dead end this
+    // prevents.
+    it('drops the drill-in when a filter excludes its venue', async () => {
+      mockUseVenueShows.mockReturnValue({
+        data: { shows: venueWeek, venue_id: 2, total: 2 },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      act(() => {
+        lastCanvasProps.onVenueSelect?.(2) // Hideout: 0 shows this week
+      })
+      fireEvent.click(
+        screen.getByRole('button', { name: /Bottle Fest night one/ }),
+      )
+      expect(screen.getByTestId('atlas-artist-panel')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
+
+      // Clearing the filter restores the VENUE panel — the user's own
+      // selection coming back — but NOT the drill-in, which was discarded.
+      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      expect(
+        screen.getByRole('heading', { name: 'Hideout' }),
+      ).toBeInTheDocument()
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+    })
+
+    it('drops the drill-in when another venue is selected', async () => {
+      await drillIntoFirstShow()
+
+      act(() => {
+        lastCanvasProps.onVenueSelect?.(2)
+      })
+
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Hideout' }),
+      ).toBeInTheDocument()
+    })
+
+    it('does nothing when the clicked show has no steppable bill', async () => {
+      mockUseVenueShows.mockReturnValue({
+        data: {
+          shows: [{ ...venueWeek[0], artists: [] }],
+          venue_id: 1,
+          total: 1,
+        },
+        isLoading: false,
+        isError: false,
+      })
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      settleCamera(-87.63, 41.88, 13)
+      fireEvent.click(screen.getByRole('button', { name: /Empty Bottle/ }))
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /Bottle Fest night one/ }),
+      )
+
+      // No dead-end panel: the venue panel stays exactly where it was.
+      expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
+      expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
+    })
+
+    it('stays clear of the map’s attribution control', async () => {
+      await drillIntoFirstShow()
+      // Same bounded height as the venue panel: a max, never a bottom anchor,
+      // so the panel can never grow into the bottom-left OSM credit the ODbL
+      // requires stay visible.
+      expect(screen.getByTestId('atlas-artist-panel')).toHaveStyle({
+        maxHeight: 'calc(100% - 0.75rem - 36px)',
       })
     })
 
