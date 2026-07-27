@@ -153,9 +153,17 @@ describe('VenueRail', () => {
     renderRail()
     expect(screen.getByRole('button', { name: 'All ages' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Record stores' })).toBeDisabled()
+  })
+
+  it('offers no list-level confirm affordance', () => {
+    // Deliberately NOT built (user decision, 2026-07-27). There is no "list"
+    // object to write to — scenes are computed views with no table — and a
+    // bulk confirm of every listed venue would make each confirmation far
+    // weaker evidence than the deliberate per-venue one in the venue panel.
+    renderRail()
     expect(
-      screen.getByRole('button', { name: /Confirm this list is current/ }),
-    ).toBeDisabled()
+      screen.queryByRole('button', { name: /Confirm this list is current/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('selects a venue when its row is clicked', () => {
@@ -194,13 +202,72 @@ describe('VenueRail', () => {
     expect(screen.getByTestId('rail-provenance')).toHaveTextContent(
       /updated .+ ago/,
     )
-    // No fabricated edit or contributor counts (PSY-1542's data).
-    expect(screen.queryByText(/contributors/i)).not.toBeInTheDocument()
     unmount()
 
     renderRail({ venues: [], allVenues: [] })
     expect(screen.getByTestId('rail-provenance')).toHaveTextContent(
       'no update recorded',
     )
+  })
+
+  it('sums the city\u2019s edits and confirmations', () => {
+    renderRail({
+      allVenues: [
+        venue({
+          id: 1,
+          provenance: {
+            updated_at: '2026-07-25T00:00:00Z',
+            edit_count: 3,
+            contributor_count: 2,
+            confirmation_count: 4,
+            sources: ['community'],
+          },
+        }),
+        venue({
+          id: 2,
+          name: 'Hotel Vegas',
+          provenance: {
+            updated_at: '2026-07-24T00:00:00Z',
+            edit_count: 1,
+            contributor_count: 1,
+            confirmation_count: 2,
+            sources: ['community'],
+          },
+        }),
+      ],
+    })
+    const line = screen.getByTestId('rail-provenance')
+    expect(line).toHaveTextContent('4 edits')
+    expect(line).toHaveTextContent('6 confirmations')
+  })
+
+  it('claims no city-wide contributor count', () => {
+    // Per-venue contributor counts are DISTINCT-user counts and don't add up:
+    // one person maintaining three venues would be counted three times. The
+    // exact number lives on the venue panel, where the scope makes it true.
+    renderRail({
+      allVenues: [
+        venue({
+          id: 1,
+          provenance: {
+            updated_at: '2026-07-25T00:00:00Z',
+            edit_count: 3,
+            contributor_count: 2,
+            confirmation_count: 4,
+            sources: ['community'],
+          },
+        }),
+      ],
+    })
+    expect(screen.getByTestId('rail-provenance')).not.toHaveTextContent(
+      /contributor/i,
+    )
+  })
+
+  it('omits the counts entirely when the city has none', () => {
+    const line = renderRail().container.querySelector(
+      '[data-testid="rail-provenance"]',
+    )
+    expect(line?.textContent).not.toMatch(/edit|confirmation/i)
   })
 })

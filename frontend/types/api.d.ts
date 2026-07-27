@@ -5391,6 +5391,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenes/{slug}/week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug week */
+        get: operations["get-scenes-by-slug-week"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scenes/{slug}/week/{week}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug week by week */
+        get: operations["get-scenes-by-slug-week-by-week"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows": {
         parameters: {
             query?: never;
@@ -6143,6 +6177,23 @@ export interface paths {
         get: operations["get-venues-by-venue-id-bill-network"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/venues/{venue_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post venues by venue ID confirm */
+        post: operations["post-venues-by-venue-id-confirm"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13809,6 +13860,33 @@ export interface components {
             /** Format: int64 */
             venue_count: number;
         };
+        SceneWeekDay: {
+            date: string;
+            shows: components["schemas"]["SceneShowSummary"][] | null;
+        };
+        SceneWeekResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SceneWeekResponse.json
+             */
+            readonly $schema?: string;
+            city: string;
+            days: components["schemas"]["SceneWeekDay"][] | null;
+            end_date: string;
+            is_current_week: boolean;
+            iso_week: string;
+            next_week: string;
+            prev_week: string;
+            scene_name: string;
+            /** Format: int64 */
+            show_count: number;
+            slug: string;
+            start_date: string;
+            state: string;
+            timezone: string;
+            tracked_venues: string[] | null;
+        };
         Schema: {
             AdditionalProperties: unknown;
             AllOf: components["schemas"]["Schema"][] | null;
@@ -15653,6 +15731,19 @@ export interface components {
             /** Format: int64 */
             venue_count: number;
         };
+        VenueConfirmationResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/VenueConfirmationResponse.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            confirmation_count: number;
+            /** Format: date-time */
+            last_confirmed_at?: string;
+            viewer_has_confirmed: boolean;
+        };
         VenueDetailResponse: {
             /**
              * Format: uri
@@ -15677,6 +15768,7 @@ export interface components {
             /** Format: double */
             longitude?: number;
             name: string;
+            provenance?: components["schemas"]["VenueProvenance"];
             slug: string;
             social: components["schemas"]["SocialResponse"];
             state: string;
@@ -15708,6 +15800,19 @@ export interface components {
             name: string;
             state: string;
             will_create: boolean;
+        };
+        VenueProvenance: {
+            /** Format: int64 */
+            confirmation_count: number;
+            /** Format: int64 */
+            contributor_count: number;
+            /** Format: int64 */
+            edit_count: number;
+            /** Format: date-time */
+            last_confirmed_at?: string;
+            sources: string[] | null;
+            /** Format: date-time */
+            updated_at: string;
         };
         VenueResponse: {
             address: string | null;
@@ -15756,6 +15861,7 @@ export interface components {
             next_show_artists?: string[] | null;
             next_show_date?: string;
             next_show_title?: string;
+            provenance?: components["schemas"]["VenueProvenance"];
             /** Format: int64 */
             shows_this_week: number;
             slug: string;
@@ -29000,6 +29106,81 @@ export interface operations {
             };
         };
     };
+    "get-scenes-by-slug-week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneWeekResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-scenes-by-slug-week-by-week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+                /**
+                 * @description ISO-8601 week key (e.g. 2026-W31)
+                 * @example 2026-W31
+                 */
+                week: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneWeekResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-shows": {
         parameters: {
             query?: {
@@ -31034,6 +31215,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenueBillNetworkResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-venues-by-venue-id-confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Numeric venue ID
+                 * @example 42
+                 */
+                venue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueConfirmationResponse"];
                 };
             };
             /** @description Error */

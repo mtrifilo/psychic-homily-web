@@ -145,17 +145,9 @@ type GetVenueResponse struct {
 
 // GetVenueHandler handles GET /venues/{venue_id} - returns a single venue by ID or slug
 func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest) (*GetVenueResponse, error) {
-	var venue *contracts.VenueDetailResponse
-	var err error
-
-	// Try to parse as numeric ID first
-	if id, parseErr := strconv.ParseUint(req.VenueID, 10, 32); parseErr == nil {
-		venue, err = h.venueService.GetVenue(uint(id))
-	} else {
-		// Fall back to slug lookup
-		venue, err = h.venueService.GetVenueBySlug(req.VenueID)
-	}
-
+	// GetVenueDetail owns the id-or-slug resolution AND the provenance stamp —
+	// the cheap GetVenue/GetVenueBySlug lookups deliberately carry no stamp.
+	venue, err := h.venueService.GetVenueDetail(req.VenueID)
 	if err != nil {
 		var venueErr *apperrors.VenueError
 		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {

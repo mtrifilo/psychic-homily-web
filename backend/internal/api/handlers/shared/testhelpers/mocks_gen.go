@@ -4235,6 +4235,21 @@ func (m *MockUserService) SetNotifyOnEditNotifications(userID uint, enabled bool
 }
 
 // ============================================================================
+// Mock: VenueConfirmServiceInterface
+// ============================================================================
+
+type MockVenueConfirmService struct {
+	ConfirmVenueFn func(uint, uint) (*contracts.VenueConfirmationResponse, error)
+}
+
+func (m *MockVenueConfirmService) ConfirmVenue(venueID uint, userID uint) (*contracts.VenueConfirmationResponse, error) {
+	if m.ConfirmVenueFn != nil {
+		return m.ConfirmVenueFn(venueID, userID)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: VenueServiceInterface
 // ============================================================================
 
@@ -4242,6 +4257,7 @@ type MockVenueService struct {
 	CreateVenueFn              func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
 	GetVenueFn                 func(uint) (*contracts.VenueDetailResponse, error)
 	GetVenueBySlugFn           func(string) (*contracts.VenueDetailResponse, error)
+	GetVenueDetailFn           func(string) (*contracts.VenueDetailResponse, error)
 	GetVenuesFn                func(map[string]interface{}) ([]*contracts.VenueDetailResponse, error)
 	UpdateVenueFn              func(uint, *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error)
 	DeleteVenueFn              func(uint) error
@@ -4273,6 +4289,12 @@ func (m *MockVenueService) GetVenue(venueID uint) (*contracts.VenueDetailRespons
 func (m *MockVenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailResponse, error) {
 	if m.GetVenueBySlugFn != nil {
 		return m.GetVenueBySlugFn(slug)
+	}
+	return nil, nil
+}
+func (m *MockVenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailResponse, error) {
+	if m.GetVenueDetailFn != nil {
+		return m.GetVenueDetailFn(idOrSlug)
 	}
 	return nil, nil
 }
@@ -4555,5 +4577,6 @@ var _ contracts.ShowStateServiceInterface = (*MockShowStateService)(nil)
 var _ contracts.StreamingWorklistServiceInterface = (*MockStreamingWorklistService)(nil)
 var _ contracts.TagServiceInterface = (*MockTagService)(nil)
 var _ contracts.UserServiceInterface = (*MockUserService)(nil)
+var _ contracts.VenueConfirmServiceInterface = (*MockVenueConfirmService)(nil)
 var _ contracts.VenueServiceInterface = (*MockVenueService)(nil)
 var _ contracts.WebAuthnServiceInterface = (*MockWebAuthnService)(nil)

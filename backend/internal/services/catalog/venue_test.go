@@ -52,6 +52,11 @@ func (suite *VenueServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
+	// venue_confirmations cascades from venues, but pending_entity_edits has a
+	// plain (non-cascading) FK to users — leaving rows behind would silently
+	// fail the users delete below and leak identities across tests.
+	_, _ = sqlDB.Exec("DELETE FROM venue_confirmations")
+	_, _ = sqlDB.Exec("DELETE FROM pending_entity_edits")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }

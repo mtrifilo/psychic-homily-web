@@ -6,6 +6,8 @@ import {
   VENUE_PIN_CAP_COUNT,
   labelledVenuePinIds,
   venuePinRadiusPx,
+  cityContributionCounts,
+  cityContributionSegments,
   cityDataUpdatedAt,
   cityGenreFamilies,
   cityRailStats,
@@ -17,6 +19,8 @@ import {
   venuePanelIdentityLine,
   venuePanelShowCount,
   venuePinPosition,
+  venueProvenanceSegments,
+  mergeVenueConfirmation,
 } from './cityView'
 
 function scene(overrides: Partial<PlaceableScene> = {}): PlaceableScene {
@@ -498,5 +502,184 @@ describe('venuePanelShowCount', () => {
     expect(
       venuePanelShowCount({ total: 0, listed: 0, fetched: 0 }),
     ).toBe(0)
+  })
+})
+
+describe('cityContributionCounts', () => {
+  const withProvenance = (
+    id: number,
+    edit_count: number,
+    contributor_count: number,
+    confirmation_count: number,
+  ) =>
+    venue({
+      id,
+      provenance: {
+        updated_at: '2026-07-25T00:00:00Z',
+        edit_count,
+        contributor_count,
+        confirmation_count,
+        sources: ['community'],
+      },
+    })
+
+  it('sums edits and confirmations across the listed venues', () => {
+    expect(
+      cityContributionCounts([
+        withProvenance(1, 3, 2, 4),
+        withProvenance(2, 1, 1, 2),
+      ]),
+    ).toEqual({ editCount: 4, confirmationCount: 6 })
+  })
+
+  it('treats a venue without a stamp as zero rather than skipping the page', () => {
+    expect(
+      cityContributionCounts([venue({ id: 1 }), withProvenance(2, 5, 1, 1)]),
+    ).toEqual({ editCount: 5, confirmationCount: 1 })
+  })
+
+  it('is zero for an empty city', () => {
+    expect(cityContributionCounts([])).toEqual({
+      editCount: 0,
+      confirmationCount: 0,
+    })
+  })
+})
+
+describe('venueProvenanceSegments', () => {
+  const stamp = (overrides: Record<string, unknown> = {}) => ({
+    updated_at: '2026-07-25T00:00:00Z',
+    edit_count: 0,
+    contributor_count: 0,
+    confirmation_count: 0,
+    sources: [] as string[],
+    ...overrides,
+  })
+
+  it('renders nothing when there is no stamp at all', () => {
+    expect(venueProvenanceSegments(undefined)).toEqual([])
+  })
+
+  it('omits zero counts rather than claiming "0 edits"', () => {
+    expect(venueProvenanceSegments(stamp())).toEqual([])
+  })
+
+  it('pairs edits with their distinct contributors', () => {
+    expect(
+      venueProvenanceSegments(stamp({ edit_count: 4, contributor_count: 2 })),
+    ).toEqual(['4 edits by 2 contributors'])
+  })
+
+  it('singularises one edit by one contributor', () => {
+    expect(
+      venueProvenanceSegments(stamp({ edit_count: 1, contributor_count: 1 })),
+    ).toEqual(['1 edit by 1 contributor'])
+  })
+
+  it('states edits alone when the contributor count is unavailable', () => {
+    expect(
+      venueProvenanceSegments(stamp({ edit_count: 2, contributor_count: 0 })),
+    ).toEqual(['2 edits'])
+  })
+
+  it('lists confirmations and the source tail in a stable order', () => {
+    expect(
+      venueProvenanceSegments(
+        stamp({
+          edit_count: 2,
+          contributor_count: 1,
+          confirmation_count: 7,
+          sources: ['ingest', 'community'],
+        }),
+      ),
+    ).toEqual(['2 edits by 1 contributor', '7 confirmations', 'ingest + community'])
+  })
+})
+
+describe('cityContributionSegments', () => {
+  it('omits zero counts rather than claiming "0 edits"', () => {
+    expect(
+      cityContributionSegments({ editCount: 0, confirmationCount: 0 }),
+    ).toEqual([])
+  })
+
+  it('states edits and confirmations in a stable order', () => {
+    expect(
+      cityContributionSegments({ editCount: 4, confirmationCount: 6 }),
+    ).toEqual(['4 edits', '6 confirmations'])
+  })
+
+  it('singularises a lone edit and confirmation', () => {
+    expect(
+      cityContributionSegments({ editCount: 1, confirmationCount: 1 }),
+    ).toEqual(['1 edit', '1 confirmation'])
+  })
+})
+
+describe('mergeVenueConfirmation', () => {
+  const base = {
+    updated_at: '2026-07-20T00:00:00Z',
+    edit_count: 3,
+    contributor_count: 2,
+    confirmation_count: 5,
+    last_confirmed_at: '2026-07-25T00:00:00Z',
+    sources: ['community'],
+  }
+
+  it('is a pass-through before any confirmation lands', () => {
+    expect(mergeVenueConfirmation(base, undefined, '2026-07-20T00:00:00Z')).toBe(base)
+  })
+
+  it('takes the just-returned count while it is the fresher one', () => {
+    const merged = mergeVenueConfirmation(
+      base,
+      { confirmation_count: 6, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged?.confirmation_count).toBe(6)
+    expect(merged?.last_confirmed_at).toBe('2026-07-27T00:00:00Z')
+  })
+
+  it('lets a refetched list overtake the stale mutation result', () => {
+    // Someone else confirmed the same venue while this panel stayed open. The
+    // rail beside it would show the higher count; the panel must not sit on
+    // the number from the viewer's own tap.
+    const fresher = {
+      ...base,
+      confirmation_count: 9,
+      last_confirmed_at: '2026-07-28T00:00:00Z',
+    }
+    const merged = mergeVenueConfirmation(
+      fresher,
+      { confirmation_count: 6, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged?.confirmation_count).toBe(9)
+    expect(merged?.last_confirmed_at).toBe('2026-07-28T00:00:00Z')
+  })
+
+  it('builds a stamp for a venue that had none, and calls it community', () => {
+    const merged = mergeVenueConfirmation(
+      undefined,
+      { confirmation_count: 1, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged).toEqual({
+      updated_at: '2026-07-20T00:00:00Z',
+      edit_count: 0,
+      contributor_count: 0,
+      confirmation_count: 1,
+      last_confirmed_at: '2026-07-27T00:00:00Z',
+      sources: ['community'],
+    })
+  })
+
+  it('does not duplicate an existing community source', () => {
+    const merged = mergeVenueConfirmation(
+      base,
+      { confirmation_count: 6, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged?.sources).toEqual(['community'])
   })
 })
