@@ -5,7 +5,14 @@ test.describe('Venue list page', () => {
   test('loads and displays venues', async ({ page }) => {
     await page.goto('/venues')
 
-    await expect(page.getByRole('heading', { name: 'Venues' })).toBeVisible()
+    // `name` is a case-insensitive SUBSTRING match unless `exact` is set, so a
+    // bare `name: 'Venues'` also matched the tag facet panel's "Filter venues
+    // by tag" <h2> (VenueList.tsx). That <h2> is client-only, so the collision
+    // only appeared once the page had hydrated — which is why this passed in
+    // isolation and hit a strict-mode violation in full runs. Keep it pinned.
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Venues', exact: true })
+    ).toBeVisible()
 
     // Wait for venue cards to render
     await expect(page.locator('article').first()).toBeVisible({
