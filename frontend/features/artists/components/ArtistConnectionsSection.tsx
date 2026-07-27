@@ -204,6 +204,26 @@ export function ArtistConnectionsSection({
     plural: 'connected artists',
   })
 
+  // One container-keyed comparison drives every GATING branch below — the
+  // count line's interaction clause, the mobile teaser, and the canvas — so
+  // the clause can't promise names to click in a layout that rendered no
+  // canvas. Don't add a second *gating* breakpoint source; the only other 640
+  // in this file is `PLACEHOLDER_HEIGHT_CLASS`'s `sm:` (viewport-keyed, not
+  // container-keyed), which sizes the pre-measurement box and deliberately
+  // isn't a gate — the two disagree in the narrow band where the column is
+  // under 640 while the viewport is over it.
+  //
+  // NOT covered: a chunk-load failure. `GraphSectionErrorBoundary` below is
+  // mounted with no `fallback`, so it self-hides and the clause can outlive
+  // its canvas on that path (PSY-1575).
+  //
+  // Pre-measurement (`null`) counts as no canvas: the skeleton paint must not
+  // flash a "click a name" instruction that then disappears on mobile.
+  const isMeasured = containerWidth !== null
+  // `graphAvailable` matches the six sibling graph surfaces; this gate is the
+  // measured width of THIS column, not a device or viewport class.
+  const graphAvailable = isMeasured && containerWidth >= GRAPH_BREAKPOINT_PX
+
   return (
     <section ref={refCallback} className="min-w-0">
       <SectionHeader
@@ -212,19 +232,20 @@ export function ArtistConnectionsSection({
         size="md"
         action={<BracketLink label="Expand" onClick={onExpand} />}
       />
+      {/* The count discloses scale at every width; the interaction clause is
+          desktop-only — below the gate there are no names to click. */}
       <p className="text-sm text-muted-foreground mb-2">
-        {sentenceCase(phrase)} · click a name to see how it connects
+        {sentenceCase(phrase)}
+        {graphAvailable && ' · click a name to see how it connects'}
       </p>
 
       {/* Pre-measurement: hold the box height so the settle can't shift the
           sections below (HomeSceneGraph precedent). */}
-      {containerWidth === null && (
-        <GraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />
-      )}
+      {!isMeasured && <GraphSkeleton className={PLACEHOLDER_HEIGHT_CLASS} />}
 
       {/* Sub-640px: shared teaser card (PSY-1472) — no canvas on mobile;
           link out to the sidebar Similar-artists list on this page. */}
-      {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
+      {isMeasured && !graphAvailable && (
         <GraphStateCard
           className={GRAPH_TEASER_HEIGHT_CLASS}
           message={`Who ${artistName} plays with, shares labels with, and gets radio play alongside — mapped. Best on a larger screen, or open the full map.`}
@@ -233,7 +254,7 @@ export function ArtistConnectionsSection({
         />
       )}
 
-      {containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX && (
+      {graphAvailable && (
         // Contain a graph chunk-load failure to this section (self-hide, no
         // fallback) — a graph problem must never dent the artist page.
         <GraphSectionErrorBoundary sentryTag="artist-connections-section">
