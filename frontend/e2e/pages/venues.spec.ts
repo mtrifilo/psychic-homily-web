@@ -5,14 +5,11 @@ test.describe('Venue list page', () => {
   test('loads and displays venues', async ({ page }) => {
     await page.goto('/venues')
 
-    // `name` matches the accessible name case-insensitively AS A SUBSTRING
-    // unless `exact` is set, so a bare `name: 'Venues'` also matches the tag
-    // facet panel's "Filter venues by tag" <h2> (VenueList.tsx). That <h2> is
-    // client-only — absent from the SSR HTML — so whether the assertion saw
-    // one heading or two came down to whether hydration had landed yet, which
-    // in turn came down to whether an earlier spec had already compiled
-    // /venues in the dev server. Hence "passes alone, strict-mode violation in
-    // a full run". Pin to the page <h1> so no hydration timing can match two.
+    // `name` is a case-insensitive SUBSTRING match unless `exact` is set, so a
+    // bare `name: 'Venues'` also matched the tag facet panel's "Filter venues
+    // by tag" <h2> (VenueList.tsx). That <h2> is client-only, so the collision
+    // only appeared once the page had hydrated — which is why this passed in
+    // isolation and hit a strict-mode violation in full runs. Keep it pinned.
     await expect(
       page.getByRole('heading', { level: 1, name: 'Venues', exact: true })
     ).toBeVisible()
