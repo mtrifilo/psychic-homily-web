@@ -77,17 +77,31 @@ export function buildArtistSteps(
 }
 
 /**
- * Where to start stepping when a given show's row was clicked: that show's
- * first artist. Returns -1 when the show contributed no steppable artist (an
- * empty or entirely id-less bill), which the caller must treat as "nothing to
- * drill into" rather than as index 0 — opening on a different show's headliner
+ * Where to start stepping when a given show's row was clicked: the first
+ * artist on THAT SHOW'S BILL, as the row displays it.
+ *
+ * Resolved against the bill rather than against `showId`, and the difference
+ * is load-bearing wherever a band plays the venue twice. De-duplication
+ * attributes such a band to its FIRST date, so a `showId` match would skip
+ * straight past it on the second date's row — click "night two", whose bill
+ * reads "Meat Wave / Gouge Away", and land on Gouge Away. The user clicked a
+ * row and must land on the top of the bill they read.
+ *
+ * Returns -1 when the show contributed no steppable artist (an empty or
+ * entirely id-less bill), which the caller must treat as "nothing to drill
+ * into" rather than as index 0 — opening on a different show's headliner
  * because the clicked one had no bill is worse than not opening.
  */
 export function firstStepIndexForShow(
   steps: readonly ArtistStep[],
-  showId: number,
+  show: Pick<VenueShow, 'artists'> | null | undefined,
 ): number {
-  return steps.findIndex((step) => step.showId === showId)
+  for (const artist of show?.artists ?? []) {
+    if (!artist) continue
+    const index = steps.findIndex((step) => step.artistId === artist.id)
+    if (index >= 0) return index
+  }
+  return -1
 }
 
 /** Clamp an index into the list, so an out-of-range step can't blank the panel. */
@@ -143,8 +157,12 @@ export function artistStepAnnouncement(args: {
 }): string {
   const { index, total, artistName, scopeLabel } = args
   if (total <= 1) return artistName
+  // Verbatim, NOT case-folded: the scope carries a proper noun (a venue or
+  // city name), and lowercasing it to match the sentence's register turns
+  // "Hotel Vegas" into "hotel vegas" in a screen reader's ear. The kicker's
+  // own uppercasing is safe because it uppercases everything.
   const scope = scopeLabel.trim()
-  const where = scope ? ` ${scope.toLowerCase()}` : ''
+  const where = scope ? ` ${scope}` : ''
   return `${artistName}, artist ${index + 1} of ${total}${where}`
 }
 

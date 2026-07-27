@@ -343,7 +343,7 @@ describe('VenuePanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('renders show rows inert until PSY-1541 supplies the drill-in', () => {
+  it('renders show rows inert when no drill-in seam is supplied', () => {
     mockUseVenueShows.mockReturnValue({
       data: { shows: [show()], venue_id: 7, total: 1 },
       isLoading: false,
@@ -368,7 +368,36 @@ describe('VenuePanel', () => {
     )
     expect(onShowSelect).toHaveBeenCalledWith(
       expect.objectContaining({ id: 101 }),
+      [expect.objectContaining({ id: 101 })],
     )
+  })
+
+  // The drill-in stepper walks THE LIST YOU DRILLED IN FROM, so the second
+  // argument must be exactly the rows the panel is drawing — deduped and
+  // truncated to VENUE_PANEL_SHOW_ROWS. A caller re-deriving it from its own
+  // fetch is how "2 of 5" starts disagreeing with the rows above it.
+  it('hands the drill-in the rows it is actually drawing, not the raw page', () => {
+    const onShowSelect = vi.fn()
+    // Distinct dates as well as ids — `dedupVenueShows` collapses same-day
+    // same-bill rows, which is exactly what it is there for.
+    const many = Array.from({ length: 8 }, (_, i) =>
+      show({
+        id: 200 + i,
+        title: `Show ${i}`,
+        slug: `show-${i}`,
+        event_date: `2026-08-0${i + 1}T02:00:00Z`,
+      }),
+    )
+    mockUseVenueShows.mockReturnValue({
+      data: { shows: many, venue_id: 7, total: 8 },
+      isLoading: false,
+      isError: false,
+    })
+    renderPanel({ onShowSelect })
+    fireEvent.click(screen.getByRole('button', { name: /Show 0/ }))
+    const listed = onShowSelect.mock.calls[0][1] as VenueShow[]
+    expect(listed).toHaveLength(5)
+    expect(listed.map((s) => s.id)).toEqual([200, 201, 202, 203, 204])
   })
 
   it('requests the same page the venue page does, so the two share one cache entry', () => {

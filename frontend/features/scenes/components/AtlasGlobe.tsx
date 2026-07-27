@@ -317,7 +317,7 @@ export function AtlasGlobe() {
   const handleShowSelect = useCallback(
     (show: VenueShow, listedShows: VenueShow[]) => {
       const steps = buildArtistSteps(listedShows)
-      const index = firstStepIndexForShow(steps, show.id)
+      const index = firstStepIndexForShow(steps, show)
       // -1 means the clicked show contributed no steppable artist (an empty or
       // entirely id-less bill). Opening on some OTHER show's headliner because
       // this one had no bill would be worse than not opening, so do nothing —

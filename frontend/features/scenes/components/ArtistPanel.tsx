@@ -11,7 +11,7 @@ import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { parseSpotifyEmbed } from '@/lib/spotify'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { useArtistShows } from '@/features/artists/hooks/useArtists'
-import type { ArtistGraphCard, ArtistShow } from '@/features/artists/types'
+import type { ArtistShow } from '@/features/artists/types'
 import { formatShowTime } from '@/lib/utils/formatters'
 import {
   ARTIST_PANEL_NEXT_SHOW_ROWS,
