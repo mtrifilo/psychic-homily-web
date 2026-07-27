@@ -531,7 +531,17 @@ export function AtlasGlobe() {
               steps={drillIn.steps}
               index={drillIn.index}
               onStep={handleDrillInStep}
-              scopeLabel={`upcoming at ${selectedVenue.name}`}
+              // "this venue", not the venue's NAME: the breadcrumb directly
+              // above the kicker already names it, and a long name pushed the
+              // kicker past its truncation point in the real app ("…AT THE
+              // REBEL LOU…"). Still a prop, not a literal in the panel — a
+              // citywide surface passes "in Austin" instead.
+              //
+              // "upcoming", not the mock's "this week": this list is the venue
+              // panel's UPCOMING rows, and the shows endpoint has no week
+              // filter. Claiming a week the list isn't scoped to would be
+              // wrong on any venue whose next show is a fortnight out.
+              scopeLabel="upcoming at this venue"
               backLabel={selectedVenue.name}
               onBack={handleDrillInBack}
               onClose={handleDrillInClose}
