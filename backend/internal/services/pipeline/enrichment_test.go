@@ -278,6 +278,13 @@ func TestMusicBrainzClient_ThrottleEnforcesSpacing(t *testing.T) {
 // Measurement is deliberately BLACK-BOX: each goroutine stamps its own
 // completion with the TEST's clock, so no assertion below compares two values
 // the subject wrote to itself. The trailing c.lastReq checks only corroborate.
+//
+// SCOPE: spacing under contention, nothing else. Every caller here passes a live
+// context, so cancellation WHILE CONTENDING is still uncovered — including the
+// specific claim in throttle's own CAVEAT that a waiter's cancelled context
+// cannot shorten a hold taken with context.Background(). ThrottleCancellable
+// covers cancellation of the wait single-threaded; neither test covers the
+// interaction. Don't read "there's a concurrency test now" as covering it.
 func TestMusicBrainzClient_ThrottleSpacesConcurrentCallers(t *testing.T) {
 	// Callers serialize BY CONSTRUCTION, so the test costs (callers-1) *
 	// rateLimit and every extra caller is bought with a full interval. Three is
@@ -339,8 +346,12 @@ func TestMusicBrainzClient_ThrottleSpacesConcurrentCallers(t *testing.T) {
 	// smallest observation earlier than the i-th smallest grant.) This is the
 	// assertion that kills the unlock-across-the-wait mutant, where callers all
 	// compute their delay against the same lastReq and fire in one batch.
-	for i, at := range granted {
-		assert.GreaterOrEqual(t, at.Sub(start), time.Duration(i)*c.rateLimit,
+	//
+	// Starts at 1: the i=0 term reduces to "the first stamp is not before start",
+	// which holds by construction and can never fail, so including it would
+	// overstate how many of these checks carry weight.
+	for i := 1; i < len(granted); i++ {
+		assert.GreaterOrEqual(t, granted[i].Sub(start), time.Duration(i)*c.rateLimit,
 			"grant %d of %d landed before its slot could open — concurrent callers shared a slot", i+1, callers)
 	}
 
@@ -351,14 +362,26 @@ func TestMusicBrainzClient_ThrottleSpacesConcurrentCallers(t *testing.T) {
 	// 1 untouched and fails only here.
 	//
 	// Unlike bound 1 this compares two independently scheduled stamps, so it
-	// needs slack for the gap between a grant and the goroutine recording it.
-	// The size is measured, not guessed: over 195 gaps under -race, idle and
-	// under 12 competing CPU hogs, the smallest observed margin over rateLimit
-	// was +1.00ms — the floor is timer overshoot, and recording jitter never ate
-	// into it. 10ms is 10x that floor, while a real violation collapses the gap
-	// to single-digit MICROseconds, leaving the tolerance ~3 orders of magnitude
-	// clear of the signal on both sides.
-	const slack = 10 * time.Millisecond
+	// needs slack: it fails spuriously only if the EARLIER grant's stamp is
+	// delayed more than the later one's, since delay common to both cancels out.
+	//
+	// The slack is deliberately enormous — half the interval — because the thing
+	// it has to separate is not close to the threshold. A caller that shares a
+	// slot lands MICROseconds behind its neighbour, not 90ms behind, so anywhere
+	// between "a hair above scheduler noise" and "just under a full interval"
+	// discriminates identically. Verified rather than assumed: the batch-release
+	// mutant dies 20/20 at this slack, exactly as it did at 10ms. Given that,
+	// the honest choice is the value that gives CI the most room, not the one
+	// that looks tightest. Steady over-rate (grants evenly spaced but too fast)
+	// is bound 1's job and is unaffected by this number.
+	//
+	// Sizing did start from measurement — over 195 gaps under -race, idle and
+	// under 12 competing CPU hogs, the smallest margin over rateLimit was
+	// +1.00ms — but treat that as a floor observed on ONE dev machine, not a
+	// guarantee. CI runs this suite on shared runners and without -race, which
+	// this measurement cannot speak for. The tolerance is set so the assertion
+	// does not depend on that number being reproducible.
+	slack := c.rateLimit / 2
 	for i := 1; i < len(granted); i++ {
 		assert.GreaterOrEqual(t, granted[i].Sub(granted[i-1]), c.rateLimit-slack,
 			"grants %d and %d landed inside one rateLimit interval", i, i+1)
