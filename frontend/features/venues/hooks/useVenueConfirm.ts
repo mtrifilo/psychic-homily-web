@@ -72,7 +72,11 @@ export function formatVenueConfirmError(error: unknown): string | null {
     return 'Too many confirmations — try again in a minute.'
   }
   if (apiErr.status === 401) {
-    return 'Sign in to confirm this venue.'
+    // Reachable despite the panel's pre-tap auth check: a long-lived Atlas tab
+    // can hold a stale `isAuthenticated` after the session cookie expires. The
+    // caller renders a sign-in link beside this, so the copy says what
+    // happened rather than repeating the instruction.
+    return 'Your session expired.'
   }
   if (apiErr.status === 404) {
     return 'This venue no longer exists.'

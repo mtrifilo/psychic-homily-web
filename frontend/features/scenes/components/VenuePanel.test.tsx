@@ -304,6 +304,25 @@ describe('VenuePanel', () => {
     ).toContain('community')
   })
 
+  it('offers a way back in when the session expired mid-tap', () => {
+    // The pre-tap auth check reads a client-side flag; a long-lived Atlas tab
+    // can still hold `isAuthenticated` after the cookie expires, and a bare
+    // "sign in" sentence with no link is a dead end.
+    mockUseVenueConfirm.mockReturnValue({
+      mutate: mockConfirmMutate,
+      isPending: false,
+      data: undefined,
+      error: { status: 401, rendered: 'Your session expired.' },
+    })
+    renderPanel()
+    const alert = screen.getByTestId('venue-panel-confirm-error')
+    expect(alert).toHaveTextContent('Your session expired.')
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/auth?returnTo=%2Fatlas',
+    )
+  })
+
   it('surfaces a rate-limited confirm inline instead of failing silently', () => {
     mockUseVenueConfirm.mockReturnValue({
       mutate: mockConfirmMutate,

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -162,9 +163,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestConfirmVenue_RequiresUser() {
 	suite.Equal(int64(0), suite.confirmedVenueRows(venue.ID))
 }
 
-// TestGetVenue_ProvenanceStamp covers the venue-detail read: counts come from
+// TestGetVenueDetail_ProvenanceStamp covers the venue-detail read: counts come from
 // approved edits and confirmations, and contributors are DISTINCT people.
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceStamp() {
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_ProvenanceStamp() {
 	editor := suite.createTestUser()
 	other := suite.createTestUser()
 	venue := suite.createTestVenue("Provenance Detail", "Austin", "TX", true)
@@ -175,7 +176,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceStamp() {
 	_, err := suite.venueService.ConfirmVenue(venue.ID, other.ID)
 	suite.Require().NoError(err)
 
-	got, err := suite.venueService.GetVenue(venue.ID)
+	got, err := suite.venueService.GetVenueDetail(fmt.Sprintf("%d", venue.ID))
 	suite.Require().NoError(err)
 	suite.Require().NotNil(got.Provenance)
 	suite.Equal(3, got.Provenance.EditCount)
@@ -186,10 +187,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceStamp() {
 	suite.False(got.Provenance.UpdatedAt.IsZero())
 }
 
-// TestGetVenueBySlug_ProvenanceStamp covers the OTHER venue-detail entry
+// TestGetVenueDetail_ProvenanceStampBySlug covers the OTHER venue-detail entry
 // point. The venue page addresses venues by slug, so a stamp wired only into
 // the numeric lookup would be invisible on the surface most readers use.
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenueBySlug_ProvenanceStamp() {
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_ProvenanceStampBySlug() {
 	user := suite.createTestUser()
 	// CreateVenue (not the raw fixture) because it is what assigns the slug.
 	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
@@ -201,7 +202,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueBySlug_ProvenanceStam
 	_, err = suite.venueService.ConfirmVenue(created.ID, user.ID)
 	suite.Require().NoError(err)
 
-	got, err := suite.venueService.GetVenueBySlug(created.Slug)
+	got, err := suite.venueService.GetVenueDetail(created.Slug)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(got.Provenance)
 	suite.Equal(1, got.Provenance.EditCount)
@@ -209,16 +210,16 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueBySlug_ProvenanceStam
 	suite.Equal(1, got.Provenance.ConfirmationCount)
 }
 
-// TestGetVenue_ProvenanceReportsIngestSource proves the data_source column
+// TestGetVenueDetail_ProvenanceReportsIngestSource proves the data_source column
 // reaches the stamp through the real read path, not just through the unit test
 // that calls buildVenueProvenance directly.
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceReportsIngestSource() {
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_ProvenanceReportsIngestSource() {
 	venue := suite.createTestVenue("Provenance Ingest", "Austin", "TX", true)
 	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
 		Where("id = ?", venue.ID).
 		Update("data_source", "venue_ingest").Error)
 
-	got, err := suite.venueService.GetVenue(venue.ID)
+	got, err := suite.venueService.GetVenueDetail(fmt.Sprintf("%d", venue.ID))
 	suite.Require().NoError(err)
 	suite.Require().NotNil(got.Provenance)
 	suite.Equal([]string{contracts.VenueProvenanceSourceIngest}, got.Provenance.Sources)
@@ -248,10 +249,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Prove
 	suite.Empty(without.Provenance.Sources, "an unpopulated data_source must not borrow a neighbour's")
 }
 
-// TestGetVenue_ProvenanceExcludesUnappliedEdits pins the count's meaning: a
+// TestGetVenueDetail_ProvenanceExcludesUnappliedEdits pins the count's meaning: a
 // proposal that was never applied did not change what the reader is looking
 // at, so counting it would overstate how curated the listing is.
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceExcludesUnappliedEdits() {
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_ProvenanceExcludesUnappliedEdits() {
 	user := suite.createTestUser()
 	venue := suite.createTestVenue("Provenance Pending", "Austin", "TX", true)
 
@@ -270,7 +271,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceExcludesUn
 		}).Error)
 	}
 
-	got, err := suite.venueService.GetVenue(venue.ID)
+	got, err := suite.venueService.GetVenueDetail(fmt.Sprintf("%d", venue.ID))
 	suite.Require().NoError(err)
 	suite.Require().NotNil(got.Provenance)
 	suite.Equal(0, got.Provenance.EditCount, "pending and rejected edits must not count")
@@ -278,10 +279,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceExcludesUn
 	suite.Empty(got.Provenance.Sources)
 }
 
-// TestGetVenue_ProvenanceIgnoresOtherEntityTypes guards the polymorphic table:
+// TestGetVenueDetail_ProvenanceIgnoresOtherEntityTypes guards the polymorphic table:
 // an artist edit whose entity_id happens to equal a venue id must not leak
 // into that venue's stamp.
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceIgnoresOtherEntityTypes() {
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_ProvenanceIgnoresOtherEntityTypes() {
 	user := suite.createTestUser()
 	venue := suite.createTestVenue("Provenance Type Scoped", "Austin", "TX", true)
 
@@ -295,7 +296,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_ProvenanceIgnoresOth
 		Status:       adminm.PendingEditStatusApproved,
 	}).Error)
 
-	got, err := suite.venueService.GetVenue(venue.ID)
+	got, err := suite.venueService.GetVenueDetail(fmt.Sprintf("%d", venue.ID))
 	suite.Require().NoError(err)
 	suite.Require().NotNil(got.Provenance)
 	suite.Equal(0, got.Provenance.EditCount)
@@ -336,4 +337,40 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Prove
 	suite.Require().NoError(err)
 	suite.Nil(suite.findVenueResponse(plain, "Rail Provenance A").Provenance,
 		"the browse page must not pay for the provenance aggregations")
+}
+
+// TestGetVenue_StaysCheap pins the split the contract promises: the identity
+// lookups other handlers lean on (snapshot before an admin edit, resolve a
+// slug for an unrelated sub-resource) must NOT pay for the provenance
+// aggregations, because none of them render the stamp.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenue_StaysCheap() {
+	user := suite.createTestUser()
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name: "Cheap Lookup", City: "Austin", State: "TX",
+	}, true)
+	suite.Require().NoError(err)
+	suite.createApprovedVenueEdit(created.ID, user.ID)
+	_, err = suite.venueService.ConfirmVenue(created.ID, user.ID)
+	suite.Require().NoError(err)
+
+	byID, err := suite.venueService.GetVenue(created.ID)
+	suite.Require().NoError(err)
+	suite.Nil(byID.Provenance, "GetVenue is an identity lookup, not the detail read")
+
+	bySlug, err := suite.venueService.GetVenueBySlug(created.Slug)
+	suite.Require().NoError(err)
+	suite.Nil(bySlug.Provenance, "GetVenueBySlug is an identity lookup, not the detail read")
+
+	detail, err := suite.venueService.GetVenueDetail(created.Slug)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail.Provenance, "GetVenueDetail is the read that carries the stamp")
+	suite.Equal(1, detail.Provenance.ConfirmationCount)
+}
+
+// TestGetVenueDetail_NotFound keeps a bad id or slug a clean not-found.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_NotFound() {
+	_, err := suite.venueService.GetVenueDetail("99999999")
+	suite.Require().Error(err)
+	_, err = suite.venueService.GetVenueDetail("no-such-venue-xyz")
+	suite.Require().Error(err)
 }

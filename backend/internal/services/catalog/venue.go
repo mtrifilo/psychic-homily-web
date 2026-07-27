@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,9 +234,7 @@ func (s *VenueService) GetVenue(venueID uint) (*contracts.VenueDetailResponse, e
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
 
-	resp := s.buildVenueResponse(&venue)
-	resp.Provenance = s.venueProvenanceFor(&venue)
-	return resp, nil
+	return s.buildVenueResponse(&venue), nil
 }
 
 // GetVenueBySlug retrieves a venue by slug
@@ -247,6 +246,38 @@ func (s *VenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailRespon
 	var venue catalogm.Venue
 	err := s.db.Where("slug = ?", slug).First(&venue).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrVenueNotFound(0)
+		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	return s.buildVenueResponse(&venue), nil
+}
+
+// GetVenueDetail resolves a venue by numeric ID or slug and returns it WITH
+// its provenance stamp — the venue-detail read, and the only read that pays
+// for the stamp.
+//
+// Deliberately separate from GetVenue/GetVenueBySlug. Those are the cheap
+// identity lookups the rest of the backend leans on: snapshotting a row before
+// an admin edit, resolving a slug to an ID for an unrelated sub-resource.
+// None of them render provenance, so attaching the aggregations there would
+// make every one of them pay for a field it discards — and would hide that
+// cost the day the stamp gains a more expensive signal.
+func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var venue catalogm.Venue
+	query := s.db
+	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
+		query = query.Where("id = ?", uint(id))
+	} else {
+		query = query.Where("slug = ?", idOrSlug)
+	}
+	if err := query.First(&venue).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrVenueNotFound(0)
 		}

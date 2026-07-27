@@ -33,6 +33,7 @@ import {
   venuePanelIdentityLine,
   venuePanelShowCount,
   venueProvenanceSegments,
+  mergeVenueConfirmation,
 } from '../cityView'
 
 // The venue page requests the same page from the same shared constants.
@@ -168,25 +169,15 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   // an idempotent no-op server-side.
   const hasConfirmed = confirm.data?.viewer_has_confirmed === true
 
-  // The stamp prefers the count the mutation just returned. Invalidation
+  // The stamp folds in the count the mutation just returned. Invalidation
   // refetches the rail's list, but that round-trip is not instant and a tap
-  // that visibly changes nothing reads as a tap that did nothing.
-  const provenance = useMemo(() => {
-    if (!confirm.data) return venue.provenance
-    const base = venue.provenance
-    return {
-      updated_at: base?.updated_at ?? venue.updated_at,
-      edit_count: base?.edit_count ?? 0,
-      contributor_count: base?.contributor_count ?? 0,
-      confirmation_count: confirm.data.confirmation_count,
-      last_confirmed_at: confirm.data.last_confirmed_at,
-      // A confirmation IS community provenance, so the source list gains
-      // "community" the moment the first one lands.
-      sources: base?.sources?.includes('community')
-        ? base.sources
-        : [...(base?.sources ?? []), 'community'],
-    }
-  }, [confirm.data, venue.provenance, venue.updated_at])
+  // that visibly changes nothing reads as a tap that did nothing — while once
+  // the refetch lands, the LIST may be the fresher of the two. mergeVenueConfirmation
+  // owns that "whichever is newer wins" rule.
+  const provenance = useMemo(
+    () => mergeVenueConfirmation(venue.provenance, confirm.data, venue.updated_at),
+    [confirm.data, venue.provenance, venue.updated_at],
+  )
 
   const provenanceSegments = venueProvenanceSegments(provenance)
 
@@ -304,6 +295,18 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
               className="mt-2 font-mono text-[11px] leading-4 text-destructive"
             >
               {confirmError}
+              {confirm.error?.status === 401 && (
+                <>
+                  {' '}
+                  <Link
+                    href={`/auth?returnTo=${encodeURIComponent(pathname)}`}
+                    className="underline underline-offset-4"
+                  >
+                    Sign in
+                  </Link>{' '}
+                  to confirm.
+                </>
+              )}
             </p>
           )}
 

@@ -414,9 +414,11 @@ type VenueDetailResponse struct {
 	Social           SocialResponse `json:"social"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`
-	// Provenance is the freshness/attribution stamp (PSY-1542). Filled on
-	// venue detail and on the Atlas city-scoped list (IncludeRailFields);
-	// omitted elsewhere so the venue browse page pays nothing for it.
+	// Provenance is the freshness/attribution stamp (PSY-1542). Filled by
+	// exactly two reads — GetVenueDetail, and the Atlas city-scoped list under
+	// IncludeRailFields. Every other producer of this type (create, update,
+	// verify, search, browse, and the cheap identity lookups) leaves it nil, so
+	// nothing pays for the aggregations to discard them.
 	Provenance *VenueProvenance `json:"provenance,omitempty"`
 }
 
@@ -460,6 +462,13 @@ type VenueProvenance struct {
 	// ConfirmationCount is how many distinct users have tapped "confirm info".
 	ConfirmationCount int `json:"confirmation_count"`
 	// LastConfirmedAt is the most recent confirmation, nil when there is none.
+	//
+	// Deliberately WHEN, not WHO. venue_confirmations stores user_id and the
+	// index would answer "who confirmed last" in one row, but naming that
+	// person would attach an identity to a public, unauthenticated read that
+	// currently exposes none — the whole stamp is counts. Whether a
+	// confirmation should be publicly attributed to its author is a product and
+	// privacy call, not one to make here; the aggregate ships until it's made.
 	LastConfirmedAt *time.Time `json:"last_confirmed_at,omitempty"`
 	// Sources lists the VenueProvenanceSource* keys that apply, in a stable
 	// order (ingest before community). Empty when neither applies.
@@ -1192,8 +1201,15 @@ type ShowFullServiceInterface interface {
 // VenueServiceInterface defines the contract for venue operations.
 type VenueServiceInterface interface {
 	CreateVenue(req *CreateVenueRequest, isAdmin bool) (*VenueDetailResponse, error)
+	// GetVenue / GetVenueBySlug are the CHEAP identity lookups — no provenance
+	// stamp. Internal callers lean on them to snapshot a row before an edit or
+	// to resolve a slug for an unrelated sub-resource, and none of them render
+	// provenance. Use GetVenueDetail for the venue-detail read.
 	GetVenue(venueID uint) (*VenueDetailResponse, error)
 	GetVenueBySlug(slug string) (*VenueDetailResponse, error)
+	// GetVenueDetail resolves by numeric ID or slug and attaches the provenance
+	// stamp. This is the only read that pays for the aggregations.
+	GetVenueDetail(idOrSlug string) (*VenueDetailResponse, error)
 	GetVenues(filters map[string]interface{}) ([]*VenueDetailResponse, error)
 	UpdateVenue(venueID uint, req *UpdateVenueRequest) (*VenueDetailResponse, error)
 	DeleteVenue(venueID uint) error

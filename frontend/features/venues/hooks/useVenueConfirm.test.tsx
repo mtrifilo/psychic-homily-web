@@ -117,7 +117,7 @@ describe('formatVenueConfirmError', () => {
 
   it('names the fixable causes for 401 and 404', () => {
     expect(formatVenueConfirmError({ status: 401 })).toBe(
-      'Sign in to confirm this venue.',
+      'Your session expired.',
     )
     expect(formatVenueConfirmError({ status: 404 })).toBe(
       'This venue no longer exists.',

@@ -20,6 +20,7 @@ import {
   venuePanelShowCount,
   venuePinPosition,
   venueProvenanceSegments,
+  mergeVenueConfirmation,
 } from './cityView'
 
 function scene(overrides: Partial<PlaceableScene> = {}): PlaceableScene {
@@ -612,5 +613,73 @@ describe('cityContributionSegments', () => {
     expect(
       cityContributionSegments({ editCount: 1, confirmationCount: 1 }),
     ).toEqual(['1 edit', '1 confirmation'])
+  })
+})
+
+describe('mergeVenueConfirmation', () => {
+  const base = {
+    updated_at: '2026-07-20T00:00:00Z',
+    edit_count: 3,
+    contributor_count: 2,
+    confirmation_count: 5,
+    last_confirmed_at: '2026-07-25T00:00:00Z',
+    sources: ['community'],
+  }
+
+  it('is a pass-through before any confirmation lands', () => {
+    expect(mergeVenueConfirmation(base, undefined, '2026-07-20T00:00:00Z')).toBe(base)
+  })
+
+  it('takes the just-returned count while it is the fresher one', () => {
+    const merged = mergeVenueConfirmation(
+      base,
+      { confirmation_count: 6, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged?.confirmation_count).toBe(6)
+    expect(merged?.last_confirmed_at).toBe('2026-07-27T00:00:00Z')
+  })
+
+  it('lets a refetched list overtake the stale mutation result', () => {
+    // Someone else confirmed the same venue while this panel stayed open. The
+    // rail beside it would show the higher count; the panel must not sit on
+    // the number from the viewer's own tap.
+    const fresher = {
+      ...base,
+      confirmation_count: 9,
+      last_confirmed_at: '2026-07-28T00:00:00Z',
+    }
+    const merged = mergeVenueConfirmation(
+      fresher,
+      { confirmation_count: 6, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged?.confirmation_count).toBe(9)
+    expect(merged?.last_confirmed_at).toBe('2026-07-28T00:00:00Z')
+  })
+
+  it('builds a stamp for a venue that had none, and calls it community', () => {
+    const merged = mergeVenueConfirmation(
+      undefined,
+      { confirmation_count: 1, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged).toEqual({
+      updated_at: '2026-07-20T00:00:00Z',
+      edit_count: 0,
+      contributor_count: 0,
+      confirmation_count: 1,
+      last_confirmed_at: '2026-07-27T00:00:00Z',
+      sources: ['community'],
+    })
+  })
+
+  it('does not duplicate an existing community source', () => {
+    const merged = mergeVenueConfirmation(
+      base,
+      { confirmation_count: 6, last_confirmed_at: '2026-07-27T00:00:00Z' },
+      '2026-07-20T00:00:00Z',
+    )
+    expect(merged?.sources).toEqual(['community'])
   })
 })

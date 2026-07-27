@@ -389,6 +389,54 @@ export function cityContributionSegments(
 }
 
 /**
+ * Fold a just-returned confirmation into a venue's stamp.
+ *
+ * The point is that NEITHER side is authoritative for long. The mutation's
+ * response is fresher than the list the panel was rendered from — for a moment.
+ * Then the invalidated list refetches, and if anyone else confirmed the same
+ * venue in the meantime the LIST is the fresher of the two. Preferring the
+ * mutation unconditionally would leave an open panel stuck on the count from
+ * your own tap while the rail beside it showed a higher one: two stamps
+ * disagreeing about the same venue on the same screen, on a feature whose whole
+ * job is making staleness visible.
+ *
+ * So take the later of the two timestamps and the higher of the two counts.
+ * Confirmations are only ever added, so "higher" is always "newer" — there is
+ * no delete path that could make a smaller count the correct one.
+ */
+export function mergeVenueConfirmation(
+  base: VenueProvenance | undefined,
+  confirmed: { confirmation_count: number; last_confirmed_at?: string } | undefined,
+  fallbackUpdatedAt: string,
+): VenueProvenance | undefined {
+  if (!confirmed) return base
+
+  const baseTime = base?.last_confirmed_at
+  const lastConfirmedAt =
+    baseTime && confirmed.last_confirmed_at
+      ? (Date.parse(baseTime) > Date.parse(confirmed.last_confirmed_at)
+          ? baseTime
+          : confirmed.last_confirmed_at)
+      : (confirmed.last_confirmed_at ?? baseTime)
+
+  const sources = base?.sources ?? []
+
+  return {
+    updated_at: base?.updated_at ?? fallbackUpdatedAt,
+    edit_count: base?.edit_count ?? 0,
+    contributor_count: base?.contributor_count ?? 0,
+    confirmation_count: Math.max(
+      confirmed.confirmation_count,
+      base?.confirmation_count ?? 0,
+    ),
+    last_confirmed_at: lastConfirmedAt,
+    // A confirmation IS community provenance, so the source list gains
+    // "community" the moment the first one lands.
+    sources: sources.includes('community') ? sources : [...sources, 'community'],
+  }
+}
+
+/**
  * The provenance segments for one venue, ready to join with " · ".
  *
  * A zero count is OMITTED rather than rendered as "0 edits": a stamp that
