@@ -48,6 +48,13 @@ export const VENUE_SHOWS_PAGE_LIMIT = 50
  *
  * It only sets the backend's "today" boundary for the upcoming/past split —
  * rendering is always done in the VENUE's zone (PSY-985/986), never this one.
+ *
+ * Evaluated at import, and this module reaches the server graph (via
+ * `lib/queryClient.ts`), so on the server this resolves to the SERVER's zone.
+ * That is inert rather than a hydration hazard: it is not part of
+ * `venueQueryKeys.shows()`, and no route server-prefetches venue shows — the
+ * venue page seeds only `venues.detail` — so the value that ever reaches a
+ * request is always the browser's.
  */
 export const VENUE_SHOWS_VIEWER_TIMEZONE =
   Intl.DateTimeFormat().resolvedOptions().timeZone

@@ -131,7 +131,30 @@ describe('VenuePanel', () => {
 
   it('renders the Confirm action inert until PSY-1542 wires it', () => {
     renderPanel()
-    expect(screen.getByRole('button', { name: /confirm info/i })).toBeDisabled()
+    const confirm = screen.getByRole('button', {
+      name: 'Confirm info — not available yet',
+    })
+    expect(confirm).toHaveAttribute('aria-disabled', 'true')
+    // Reachable on purpose: a natively `disabled` button leaves the tab order,
+    // so a keyboard user could never discover the control OR the reason it
+    // does nothing. The reason rides in the accessible name instead.
+    expect(confirm).not.toBeDisabled()
+  })
+
+  it('shows a loading state distinct from an empty calendar', () => {
+    mockUseVenueShows.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+    })
+    renderPanel()
+    expect(screen.getByText('Loading shows…')).toBeInTheDocument()
+    // The count must not be asserted while it is unknown — "Upcoming — 0
+    // shows" during a pending fetch reads as "this venue has nothing".
+    expect(screen.queryByText(/Upcoming — /)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Nothing on the calendar yet.'),
+    ).not.toBeInTheDocument()
   })
 
   it('lists upcoming shows with venue-local dates and times', () => {
@@ -207,6 +230,45 @@ describe('VenuePanel', () => {
     renderPanel()
     expect(screen.getByRole('heading', { name: /Upcoming — 1 show$/ })).toBeInTheDocument()
     expect(screen.getAllByText('FRI 7/31')).toHaveLength(1)
+  })
+
+  // Adversarial review: /atlas has no route-level error boundary, so a
+  // TypeError in a show row takes down the whole app shell, not just the
+  // panel. The live endpoint always sends an array today — these pin the
+  // degradation so a future `omitempty` on the wire can't turn into an outage.
+  it('degrades rather than throwing when a show carries no bill at all', () => {
+    mockUseVenueShows.mockReturnValue({
+      data: {
+        shows: [
+          { ...show({ title: '' }), artists: undefined } as unknown as VenueShow,
+        ],
+        venue_id: 7,
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    })
+    expect(() => renderPanel()).not.toThrow()
+    expect(screen.getByText('Untitled Show')).toBeInTheDocument()
+  })
+
+  it('renders nothing rather than "Invalid Date" for a malformed event date', () => {
+    // formatShowTime has no NaN guard of its own, so an unparseable date would
+    // otherwise print an empty date gutter beside "Invalid Date · $18.00".
+    mockUseVenueShows.mockReturnValue({
+      data: {
+        shows: [show({ event_date: 'not-a-date' })],
+        venue_id: 7,
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    })
+    renderPanel()
+    expect(screen.getByText('Levitation pre-party')).toBeInTheDocument()
+    expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument()
+    // The price still stands on its own — a bad date shouldn't erase the row.
+    expect(screen.getByText('$18.00')).toBeInTheDocument()
   })
 
   it('says so plainly when nothing is booked', () => {

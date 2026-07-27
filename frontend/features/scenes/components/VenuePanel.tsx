@@ -196,13 +196,23 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
             {/* Structure only. Confirming a venue's info — and the edit /
                 contributor counts the mock pairs it with — is PSY-1542's
                 surface; rendering the control live here would promise a write
-                that goes nowhere. */}
+                that goes nowhere.
+
+                aria-disabled, NOT the native `disabled` attribute: `disabled`
+                takes the button out of the tab order, so a keyboard or
+                screen-reader user can never land on it and therefore never
+                learns it exists OR why it does nothing — they just find a
+                control the sighted mock shows and they can't reach. This stays
+                focusable and announces the reason as part of its accessible
+                name; the click is inert on our side rather than the browser's. */}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled
-              title="Confirming venue info isn’t available yet"
+              aria-disabled="true"
+              aria-label="Confirm info — not available yet"
+              onClick={(e) => e.preventDefault()}
+              className="cursor-not-allowed opacity-50"
             >
               ✓ Confirm info
             </Button>
@@ -301,10 +311,19 @@ function ShowRow({
   // VenueShowsList uses, so the two surfaces can't disagree about a date.
   const state = show.state ?? venue.state
   const date = formatPanelShowDate(show.event_date, state, venue.timezone)
-  const time = formatShowTime(show.event_date, state, venue.timezone)
+  // An unparseable date means we can't state a time either. `formatShowTime`
+  // has no NaN guard of its own — it would render the literal string "Invalid
+  // Date" into the meta line beside an empty date gutter — so the row's one
+  // date check gates both halves.
+  const time = date ? formatShowTime(show.event_date, state, venue.timezone) : ''
   const title = showDisplayTitle(
     show.title,
-    show.artists.map((a) => a.name),
+    // `?? []` rather than a bare `.map`: an absent bill must degrade to
+    // "Untitled Show", not throw. `/atlas` has no route-level error boundary,
+    // so a TypeError here takes down the whole app shell, and every sibling
+    // that touches this field already guards it (headlinerArtistId,
+    // showDisplayTitle's own null-tolerance contract).
+    (show.artists ?? []).map((a) => a.name),
     { cap: 3 },
   )
   const meta = [time, show.price !== null ? formatPrice(show.price) : null]
