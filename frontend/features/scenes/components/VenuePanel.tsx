@@ -2,15 +2,21 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuthContext } from '@/lib/context/AuthContext'
 // Deep import, not the `@/components/shared` barrel: the barrel drags in every
 // shared component (and their AuthContext/router dependencies) for one button,
 // and it is the path the Atlas suites already mock.
 import { FollowButton } from '@/components/shared/FollowButton'
 import { dedupVenueShows } from '@/features/shows'
-import { useVenueShows } from '@/features/venues/hooks'
+import {
+  formatVenueConfirmError,
+  useVenueConfirm,
+  useVenueShows,
+} from '@/features/venues/hooks'
 import {
   VENUE_SHOWS_PAGE_LIMIT,
   VENUE_SHOWS_VIEWER_TIMEZONE,
@@ -26,6 +32,7 @@ import {
   formatPanelShowDate,
   venuePanelIdentityLine,
   venuePanelShowCount,
+  venueProvenanceSegments,
 } from '../cityView'
 
 // The venue page requests the same page from the same shared constants.
@@ -87,6 +94,9 @@ interface VenuePanelProps {
 export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
+  const router = useRouter()
+  const pathname = usePathname()
+  const { isAuthenticated } = useAuthContext()
 
   // Focus the close control on open and hand focus back on close — the same
   // move (and the same containment guard) as ScenePreviewPanel, the Atlas's
@@ -143,6 +153,52 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
   const visible = shows.slice(0, VENUE_PANEL_SHOW_ROWS)
   const identity = venuePanelIdentityLine(venue)
   const venueHref = `/venues/${venue.slug || venue.id}`
+
+  // ── Confirm-current (PSY-1542) ─────────────────────────────────────────
+  // The cheapest contribution the app offers: one tap, no edit, open to any
+  // signed-in account at any trust tier. Gating it behind a trust tier would
+  // defeat the point — it is the on-ramp, not the reward.
+  const confirm = useVenueConfirm()
+  const confirmError = formatVenueConfirmError(confirm.error)
+
+  // Reads carry no viewer state — GET /venues is public and cacheable, so a
+  // per-viewer "you confirmed this" field there would poison a shared cache.
+  // The mutation's own result is therefore what marks the button done for this
+  // session; a reload legitimately offers the button again, and tapping it is
+  // an idempotent no-op server-side.
+  const hasConfirmed = confirm.data?.viewer_has_confirmed === true
+
+  // The stamp prefers the count the mutation just returned. Invalidation
+  // refetches the rail's list, but that round-trip is not instant and a tap
+  // that visibly changes nothing reads as a tap that did nothing.
+  const provenance = useMemo(() => {
+    if (!confirm.data) return venue.provenance
+    const base = venue.provenance
+    return {
+      updated_at: base?.updated_at ?? venue.updated_at,
+      edit_count: base?.edit_count ?? 0,
+      contributor_count: base?.contributor_count ?? 0,
+      confirmation_count: confirm.data.confirmation_count,
+      last_confirmed_at: confirm.data.last_confirmed_at,
+      // A confirmation IS community provenance, so the source list gains
+      // "community" the moment the first one lands.
+      sources: base?.sources?.includes('community')
+        ? base.sources
+        : [...(base?.sources ?? []), 'community'],
+    }
+  }, [confirm.data, venue.provenance, venue.updated_at])
+
+  const provenanceSegments = venueProvenanceSegments(provenance)
+
+  const handleConfirm = () => {
+    if (!isAuthenticated) {
+      const returnTo = `${pathname}${window.location.search}`
+      router.push(`/auth?returnTo=${encodeURIComponent(returnTo)}`)
+      return
+    }
+    if (confirm.isPending || hasConfirmed) return
+    confirm.mutate(venue.id)
+  }
 
   return (
     <DismissableLayer
@@ -201,41 +257,55 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <FollowButton entityType="venues" entityId={venue.id} />
-            {/* Structure only. Confirming a venue's info — and the edit /
-                contributor counts the mock pairs it with — is PSY-1542's
-                surface; rendering the control live here would promise a write
-                that goes nowhere.
-
-                aria-disabled, NOT the native `disabled` attribute: `disabled`
-                takes the button out of the tab order, so a keyboard or
-                screen-reader user can never land on it and therefore never
-                learns it exists OR why it does nothing — they just find a
-                control the sighted mock shows and they can't reach. This stays
-                focusable and announces the reason as part of its accessible
-                name; the click is inert on our side rather than the browser's. */}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              aria-disabled="true"
-              aria-label="Confirm info — not available yet"
-              onClick={(e) => e.preventDefault()}
-              className="cursor-not-allowed opacity-50"
+              onClick={handleConfirm}
+              disabled={confirm.isPending || hasConfirmed}
+              data-testid="venue-panel-confirm"
+              aria-label={
+                hasConfirmed
+                  ? `You confirmed ${venue.name}’s info is current`
+                  : `Confirm ${venue.name}’s info is current`
+              }
             >
-              ✓ Confirm info
+              {hasConfirmed
+                ? '✓ Confirmed'
+                : confirm.isPending
+                  ? 'Confirming…'
+                  : '✓ Confirm info'}
             </Button>
           </div>
 
-          {/* Provenance. The timestamp is REAL (the venue row's updated_at).
-              The mock's "N edits by M contributors · ingest + community" is
-              omitted, not faked — those counts are PSY-1542's, exactly as the
-              rail's own provenance footer already handles it. */}
+          {/* Inline, beside the control that failed — there is no toast
+              library in this codebase. `role="alert"` so the 429 ("try again
+              in 47s") is announced rather than silently appearing under a
+              button the user is about to tap again. */}
+          {confirmError && (
+            <p
+              role="alert"
+              data-testid="venue-panel-confirm-error"
+              className="mt-2 font-mono text-[11px] leading-4 text-destructive"
+            >
+              {confirmError}
+            </p>
+          )}
+
+          {/* Provenance (PSY-1542). Every segment is a real aggregate and a
+              zero one is omitted rather than rendered as "0 edits" — a stamp
+              that lists what it doesn't have reads as broken. The mock's
+              "ingest + community" tail only appears when the backend actually
+              has a source to name. */}
           <p
             data-testid="venue-panel-provenance"
             className="mt-2 font-mono text-[11px] leading-4 text-muted-foreground"
           >
             <span>UPDATED</span>{' '}
             {venue.updated_at ? formatTimeAgo(venue.updated_at) : 'unknown'}
+            {provenanceSegments.map((segment) => (
+              <span key={segment}> · {segment}</span>
+            ))}
           </p>
         </header>
 

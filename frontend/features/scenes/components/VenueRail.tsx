@@ -6,6 +6,7 @@ import { formatTimeAgo } from '@/lib/formatTimeAgo'
 import { GENRE_FAMILIES } from '../genreFamilies'
 import {
   CITY_RAIL_WIDTH_PX,
+  cityContributionCounts,
   cityDataUpdatedAt,
   cityGenreFamilies,
   cityRailStats,
@@ -73,6 +74,10 @@ export function VenueRail({
   const stats = useMemo(() => cityRailStats(allVenues), [allVenues])
   const genreFamilies = useMemo(() => cityGenreFamilies(allVenues), [allVenues])
   const updatedAt = useMemo(() => cityDataUpdatedAt(allVenues), [allVenues])
+  const contributions = useMemo(
+    () => cityContributionCounts(allVenues),
+    [allVenues],
+  )
 
   const activeGenreLabel = filters.genreFamily
     ? (GENRE_LABEL_BY_KEY.get(filters.genreFamily) ?? 'All genres')
@@ -200,10 +205,24 @@ export function VenueRail({
       </div>
 
       <footer className="border-t border-border px-4 py-3">
-        {/* Provenance. The timestamp is real — the newest updated_at across the
-            listed venues. The edit/contributor counts the mock also shows, and
-            the confirm action, are PSY-1542's data; the control is rendered
-            disabled here so the shape is right and the wiring lands there. */}
+        {/* Provenance for the city (PSY-1542). Timestamp = newest updated_at
+            across the listed venues; edits and confirmations are sums over
+            them.
+
+            The mock's "by M contributors" is deliberately absent HERE and
+            present on the venue panel. Each venue reports its own DISTINCT
+            contributor count, and distinct counts don't add up — one person
+            maintaining three venues would be counted three times. The panel's
+            number is exact because it is scoped to one venue; a city-wide one
+            would be a plausible-looking overstatement. See
+            cityContributionCounts.
+
+            The mock's "✓ Confirm this list is current" is deliberately NOT
+            built (user decision, 2026-07-27). There is no "list" object to
+            write to — scenes are computed views with no table — and making it
+            a bulk confirm of every listed venue would make each confirmation
+            far weaker evidence than the deliberate per-venue one in the panel.
+            Confirming happens where you can actually vouch for the place. */}
         <p
           data-testid="rail-provenance"
           className="font-mono text-[11px] leading-4 text-muted-foreground"
@@ -213,15 +232,23 @@ export function VenueRail({
               comes from the VALUE being brighter, not the label dimmer. */}
           <span className="text-muted-foreground">DATA</span>{' '}
           {updatedAt ? `updated ${formatTimeAgo(updatedAt)}` : 'no update recorded'}
+          {contributions.editCount > 0 && (
+            <>
+              {' · '}
+              {contributions.editCount}{' '}
+              {contributions.editCount === 1 ? 'edit' : 'edits'}
+            </>
+          )}
+          {contributions.confirmationCount > 0 && (
+            <>
+              {' · '}
+              {contributions.confirmationCount}{' '}
+              {contributions.confirmationCount === 1
+                ? 'confirmation'
+                : 'confirmations'}
+            </>
+          )}
         </p>
-        <button
-          type="button"
-          disabled
-          title="Confirming a city’s listings isn’t available yet"
-          className="mt-1 cursor-not-allowed font-mono text-[11px] text-primary/50"
-        >
-          ✓ Confirm this list is current
-        </button>
       </footer>
     </aside>
   )

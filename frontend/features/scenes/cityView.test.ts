@@ -6,6 +6,7 @@ import {
   VENUE_PIN_CAP_COUNT,
   labelledVenuePinIds,
   venuePinRadiusPx,
+  cityContributionCounts,
   cityDataUpdatedAt,
   cityGenreFamilies,
   cityRailStats,
@@ -17,6 +18,7 @@ import {
   venuePanelIdentityLine,
   venuePanelShowCount,
   venuePinPosition,
+  venueProvenanceSegments,
 } from './cityView'
 
 function scene(overrides: Partial<PlaceableScene> = {}): PlaceableScene {
@@ -498,5 +500,96 @@ describe('venuePanelShowCount', () => {
     expect(
       venuePanelShowCount({ total: 0, listed: 0, fetched: 0 }),
     ).toBe(0)
+  })
+})
+
+describe('cityContributionCounts', () => {
+  const withProvenance = (
+    id: number,
+    edit_count: number,
+    contributor_count: number,
+    confirmation_count: number,
+  ) =>
+    venue({
+      id,
+      provenance: {
+        updated_at: '2026-07-25T00:00:00Z',
+        edit_count,
+        contributor_count,
+        confirmation_count,
+        sources: ['community'],
+      },
+    })
+
+  it('sums edits and confirmations across the listed venues', () => {
+    expect(
+      cityContributionCounts([
+        withProvenance(1, 3, 2, 4),
+        withProvenance(2, 1, 1, 2),
+      ]),
+    ).toEqual({ editCount: 4, confirmationCount: 6 })
+  })
+
+  it('treats a venue without a stamp as zero rather than skipping the page', () => {
+    expect(
+      cityContributionCounts([venue({ id: 1 }), withProvenance(2, 5, 1, 1)]),
+    ).toEqual({ editCount: 5, confirmationCount: 1 })
+  })
+
+  it('is zero for an empty city', () => {
+    expect(cityContributionCounts([])).toEqual({
+      editCount: 0,
+      confirmationCount: 0,
+    })
+  })
+})
+
+describe('venueProvenanceSegments', () => {
+  const stamp = (overrides: Record<string, unknown> = {}) => ({
+    updated_at: '2026-07-25T00:00:00Z',
+    edit_count: 0,
+    contributor_count: 0,
+    confirmation_count: 0,
+    sources: [] as string[],
+    ...overrides,
+  })
+
+  it('renders nothing when there is no stamp at all', () => {
+    expect(venueProvenanceSegments(undefined)).toEqual([])
+  })
+
+  it('omits zero counts rather than claiming "0 edits"', () => {
+    expect(venueProvenanceSegments(stamp())).toEqual([])
+  })
+
+  it('pairs edits with their distinct contributors', () => {
+    expect(
+      venueProvenanceSegments(stamp({ edit_count: 4, contributor_count: 2 })),
+    ).toEqual(['4 edits by 2 contributors'])
+  })
+
+  it('singularises one edit by one contributor', () => {
+    expect(
+      venueProvenanceSegments(stamp({ edit_count: 1, contributor_count: 1 })),
+    ).toEqual(['1 edit by 1 contributor'])
+  })
+
+  it('states edits alone when the contributor count is unavailable', () => {
+    expect(
+      venueProvenanceSegments(stamp({ edit_count: 2, contributor_count: 0 })),
+    ).toEqual(['2 edits'])
+  })
+
+  it('lists confirmations and the source tail in a stable order', () => {
+    expect(
+      venueProvenanceSegments(
+        stamp({
+          edit_count: 2,
+          contributor_count: 1,
+          confirmation_count: 7,
+          sources: ['ingest', 'community'],
+        }),
+      ),
+    ).toEqual(['2 edits by 1 contributor', '7 confirmations', 'ingest + community'])
   })
 })

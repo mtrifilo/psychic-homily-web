@@ -24,8 +24,31 @@ const mockUseVenueShows = vi.fn<(args: unknown) => Record<string, unknown>>(
     isError: false,
   }),
 )
+// The confirm mutation (PSY-1542). Mocked at the module boundary like the
+// shows hook so the panel's behaviour can be driven without a QueryClient.
+const mockConfirmMutate = vi.fn()
+const mockUseVenueConfirm = vi.fn<() => Record<string, unknown>>(() => ({
+  mutate: mockConfirmMutate,
+  isPending: false,
+  data: undefined,
+  error: null,
+}))
 vi.mock('@/features/venues/hooks', () => ({
   useVenueShows: (args: unknown) => mockUseVenueShows(args),
+  useVenueConfirm: () => mockUseVenueConfirm(),
+  formatVenueConfirmError: (error: unknown) =>
+    error ? (error as { rendered?: string }).rendered ?? 'Confirm failed' : null,
+}))
+
+const mockPush = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/atlas',
+}))
+
+let mockIsAuthenticated = true
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated }),
 }))
 
 import { VenuePanel } from './VenuePanel'
@@ -89,6 +112,15 @@ beforeEach(() => {
     isLoading: false,
     isError: false,
   })
+  mockConfirmMutate.mockReset()
+  mockPush.mockReset()
+  mockIsAuthenticated = true
+  mockUseVenueConfirm.mockReturnValue({
+    mutate: mockConfirmMutate,
+    isPending: false,
+    data: undefined,
+    error: null,
+  })
 })
 
 describe('VenuePanel', () => {
@@ -119,26 +151,124 @@ describe('VenuePanel', () => {
     expect(identity).not.toHaveTextContent('1502 E 6th St')
   })
 
-  it('stamps a real updated time and claims no edit or contributor counts', () => {
-    // PSY-1542 owns the counts. PSY-1539 set the precedent of shipping the
-    // honest half rather than inventing the rest; hold that line here.
-    const provenance = renderPanel().container.querySelector(
-      '[data-testid="venue-panel-provenance"]',
-    )
+  it('stamps the updated time and every non-zero provenance count', () => {
+    const provenance = renderPanel({
+      venue: venue({
+        provenance: {
+          updated_at: '2026-07-23T00:00:00Z',
+          edit_count: 4,
+          contributor_count: 2,
+          confirmation_count: 7,
+          sources: ['ingest', 'community'],
+        },
+      }),
+    }).container.querySelector('[data-testid="venue-panel-provenance"]')
     expect(provenance?.textContent).toMatch(/^UPDATED /)
-    expect(provenance?.textContent).not.toMatch(/edits|contributors/i)
+    expect(provenance?.textContent).toContain('4 edits by 2 contributors')
+    expect(provenance?.textContent).toContain('7 confirmations')
+    expect(provenance?.textContent).toContain('ingest + community')
   })
 
-  it('renders the Confirm action inert until PSY-1542 wires it', () => {
+  it('omits zero counts rather than stamping "0 edits"', () => {
+    // A stamp that lists what it does NOT have reads as broken. Absence of a
+    // segment already says the same thing, more quietly.
+    const provenance = renderPanel({
+      venue: venue({
+        provenance: {
+          updated_at: '2026-07-23T00:00:00Z',
+          edit_count: 0,
+          contributor_count: 0,
+          confirmation_count: 0,
+          sources: [],
+        },
+      }),
+    }).container.querySelector('[data-testid="venue-panel-provenance"]')
+    expect(provenance?.textContent).toMatch(/^UPDATED /)
+    expect(provenance?.textContent).not.toMatch(/edit|contributor|confirmation/i)
+  })
+
+  it('singularises a lone edit, contributor and confirmation', () => {
+    const provenance = renderPanel({
+      venue: venue({
+        provenance: {
+          updated_at: '2026-07-23T00:00:00Z',
+          edit_count: 1,
+          contributor_count: 1,
+          confirmation_count: 1,
+          sources: [],
+        },
+      }),
+    }).container.querySelector('[data-testid="venue-panel-provenance"]')
+    expect(provenance?.textContent).toContain('1 edit by 1 contributor')
+    expect(provenance?.textContent).toContain('1 confirmation')
+  })
+
+  it('confirms the venue for a signed-in user of any trust tier', () => {
     renderPanel()
-    const confirm = screen.getByRole('button', {
-      name: 'Confirm info — not available yet',
+    fireEvent.click(screen.getByTestId('venue-panel-confirm'))
+    expect(mockConfirmMutate).toHaveBeenCalledWith(7)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('sends a signed-out user to auth instead of writing', () => {
+    mockIsAuthenticated = false
+    renderPanel()
+    fireEvent.click(screen.getByTestId('venue-panel-confirm'))
+    expect(mockConfirmMutate).not.toHaveBeenCalled()
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.stringContaining('/auth?returnTo='),
+    )
+  })
+
+  it('reads as done, and refuses a second write, once confirmed', () => {
+    // The write is idempotent server-side, so a repeat tap would be harmless —
+    // but a button that still says "Confirm info" after you confirmed reads as
+    // a tap that did nothing.
+    mockUseVenueConfirm.mockReturnValue({
+      mutate: mockConfirmMutate,
+      isPending: false,
+      data: {
+        confirmation_count: 8,
+        last_confirmed_at: '2026-07-27T10:00:00Z',
+        viewer_has_confirmed: true,
+      },
+      error: null,
     })
-    expect(confirm).toHaveAttribute('aria-disabled', 'true')
-    // Reachable on purpose: a natively `disabled` button leaves the tab order,
-    // so a keyboard user could never discover the control OR the reason it
-    // does nothing. The reason rides in the accessible name instead.
-    expect(confirm).not.toBeDisabled()
+    renderPanel({
+      venue: venue({
+        provenance: {
+          updated_at: '2026-07-23T00:00:00Z',
+          edit_count: 0,
+          contributor_count: 0,
+          confirmation_count: 7,
+          sources: [],
+        },
+      }),
+    })
+    const button = screen.getByTestId('venue-panel-confirm')
+    expect(button).toHaveTextContent('✓ Confirmed')
+    expect(button).toBeDisabled()
+    // The stamp reflects the count the mutation just returned, not the stale
+    // one the rail's list was fetched with.
+    expect(
+      screen.getByTestId('venue-panel-provenance').textContent,
+    ).toContain('8 confirmations')
+
+    fireEvent.click(button)
+    expect(mockConfirmMutate).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a rate-limited confirm inline instead of failing silently', () => {
+    mockUseVenueConfirm.mockReturnValue({
+      mutate: mockConfirmMutate,
+      isPending: false,
+      data: undefined,
+      error: { rendered: 'Too many confirmations — try again in 47s.' },
+    })
+    renderPanel()
+    const alert = screen.getByTestId('venue-panel-confirm-error')
+    expect(alert).toHaveAttribute('role', 'alert')
+    expect(alert).toHaveTextContent('Too many confirmations — try again in 47s.')
   })
 
   it('shows a loading state distinct from an empty calendar', () => {

@@ -60,6 +60,52 @@ export interface Venue {
   }
   created_at: string
   updated_at: string
+  /**
+   * Freshness / attribution stamp (PSY-1542). Present on venue detail and on
+   * the Atlas city-scoped list (`includeRail`), absent on the venue browse
+   * list, which doesn't render it and shouldn't pay for the aggregations.
+   */
+  provenance?: VenueProvenance
+}
+
+/**
+ * How fresh a venue listing is and who says so.
+ *
+ * A crowdsourced venue map dies of staleness nobody can see, so this exists to
+ * make the age of a listing visible. Every number is an honest aggregate over
+ * rows the backend already keeps — a segment whose count is 0 is OMITTED from
+ * the rendered line rather than shown as "0 edits", because an absent claim
+ * reads better than an empty one.
+ */
+export interface VenueProvenance {
+  /** The venue row's `updated_at` — the last write of any kind. */
+  updated_at: string
+  /**
+   * APPROVED community edits. Pending and rejected proposals are excluded:
+   * they never changed what you are looking at.
+   */
+  edit_count: number
+  /** Distinct people behind `edit_count`. */
+  contributor_count: number
+  /** Distinct people who have tapped "confirm info". */
+  confirmation_count: number
+  /** Most recent confirmation; absent when there are none. */
+  last_confirmed_at?: string
+  /**
+   * Which kinds of source touched this venue: `'ingest'` and/or
+   * `'community'`. Frequently EMPTY — `'ingest'` is only emitted when the
+   * backend's `venues.data_source` column is populated, and no live writer
+   * fills it today. Render the segment only when the array is non-empty.
+   */
+  sources: string[]
+}
+
+/** Response for POST /venues/{id}/confirm. */
+export interface VenueConfirmationResponse {
+  confirmation_count: number
+  last_confirmed_at?: string
+  /** Always true on success, including the idempotent repeat confirm. */
+  viewer_has_confirmed: boolean
 }
 
 export interface VenueSearchResponse {
