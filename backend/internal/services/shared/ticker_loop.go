@@ -160,50 +160,26 @@ func RunTickerLoopWithStartDelay(
 	stopCh <-chan struct{},
 	work func(context.Context),
 ) {
-	defer func() {
-		if r := recover(); r != nil {
-			stack := debug.Stack()
-			slog.Default().Error("background service panic — service stopping",
-				"service", name,
-				"panic", r,
-				"stack", string(stack),
-			)
-			invokePanicHandler(name, r, stack)
-		}
-	}()
-
-	if startDelay <= 0 {
-		runOneCycle(ctx, name, work)
-	} else {
+	if startDelay > 0 {
 		// A timer rather than a sleep so shutdown during the delay window is
 		// immediate — a deploy landing seconds after boot must not wait out
 		// the delay before the process can exit.
 		timer := time.NewTimer(startDelay)
+		defer timer.Stop()
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return
 		case <-stopCh:
-			timer.Stop()
 			return
 		case <-timer.C:
-			runOneCycle(ctx, name, work)
 		}
 	}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-stopCh:
-			return
-		case <-ticker.C:
-			runOneCycle(ctx, name, work)
-		}
-	}
+	// Delegate everything after the delay so the panic-recovery, logging and
+	// shutdown semantics have exactly ONE implementation. `runImmediately` is
+	// true because the delay has already elapsed: this call IS the first
+	// cycle, and the interval ticker starts from here.
+	RunTickerLoop(ctx, name, interval, stopCh, true, work)
 }
 
 // runOneCycle isolates the per-tick recover so a panic in one tick

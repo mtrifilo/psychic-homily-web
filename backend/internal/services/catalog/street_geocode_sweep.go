@@ -98,8 +98,8 @@ func NewStreetGeocodeSweep(database *gorm.DB, geocoder geo.AddressGeocoder) *Str
 		database = db.GetDB()
 	}
 	return &StreetGeocodeSweep{
-		db:       database,
-		geocoder: geocoder,
+		db:         database,
+		geocoder:   geocoder,
 		interval:   shared.EnvPositiveDuration("STREET_GEOCODE_SWEEP_INTERVAL_HOURS", time.Hour, defaultStreetGeocodeSweepInterval),
 		startDelay: shared.EnvPositiveDuration("STREET_GEOCODE_SWEEP_START_DELAY_MINUTES", time.Minute, defaultStreetGeocodeSweepStartDelay),
 		limit:      shared.EnvPositiveInt("STREET_GEOCODE_SWEEP_LIMIT", defaultStreetGeocodeSweepLimit),
