@@ -54,7 +54,7 @@ func setupShowRoutes(rc RouteContext) {
 		r.Use(httprate.Limit(
 			middleware.AIProcessRequestsPerMinute,
 			time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithKeyFuncs(middleware.KeyByClientIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		))
 		aiProcessAPI := humachi.New(r, subAPIConfig("Psychic Homily AI Process"))

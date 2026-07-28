@@ -38,7 +38,7 @@ func setupAuthRoutes(rc RouteContext) {
 		authRateLimiter = httprate.Limit(
 			10,            // requests
 			1*time.Minute, // per duration
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithKeyFuncs(middleware.KeyByClientIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)
 	}
@@ -180,7 +180,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 		passkeyRateLimiter = httprate.Limit(
 			20,            // requests
 			1*time.Minute, // per duration
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithKeyFuncs(middleware.KeyByClientIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)
 	}
