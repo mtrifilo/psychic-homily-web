@@ -70,6 +70,10 @@ type ListVenuesRequest struct {
 	// Opt-in because filling these fields costs three extra batched
 	// aggregations per page. Only the Atlas city-view rail renders them.
 	IncludeRail bool `query:"include_rail" doc:"Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre"`
+	// Opt-in for the same reason include_rail is: it changes which venues the
+	// browse page's city filter returns, and that filter means the literal
+	// city there. Only the Atlas city rail wants the metro reading.
+	MetroRollup bool `query:"metro_rollup" doc:"Widen the city+state filter to the whole US Census CBSA metro, matching how Atlas scenes are keyed (Tempe lists under Phoenix). Requires both city and state; ignored when 'cities' is set."`
 }
 
 // ListVenuesResponse represents the response for the list venues endpoint
@@ -107,6 +111,7 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 	} else {
 		filters.State = req.State
 		filters.City = req.City
+		filters.MetroRollup = req.MetroRollup
 	}
 	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
 		filters.TagSlugs = tf.TagSlugs
