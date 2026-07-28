@@ -234,4 +234,56 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       await page.waitForURL(/\/auth/, { timeout: 10_000 })
     })
   })
+  /**
+   * Scene-week routes (PSY-1577) — the proxy branch that handles a THIRD path
+   * segment under `/scenes/`.
+   *
+   * The generic entity check only inspects the 3-segment `/<entity>/<slug>`
+   * shape, so `/scenes/<slug>/<week>` fell straight through to
+   * `NextResponse.next()` and every bad week key soft-404'd: the global 404 body
+   * committed at HTTP 200. These pin both directions of the new branch, because
+   * the proxy is the only thing that can produce a real 404 here — the page's
+   * own `notFound()` fires after the shell has already streamed.
+   */
+  test.describe('Scene week routes (PSY-1577)', () => {
+    test('rolling /scenes/<slug>/week returns HTTP 200 (proxy does not over-404)', async ({
+      page,
+    }) => {
+      const response = await page.goto('/scenes/phoenix-az/week')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/week must return 200 — proxy.ts must not over-404 the rolling week route'
+      ).toBe(200)
+      await expect(
+        page.getByRole('main').getByRole('heading', { level: 1 })
+      ).toBeVisible({ timeout: 10_000 })
+    })
+
+    test('a week key that does not exist returns HTTP 404', async ({ page }) => {
+      // 2025 has 52 ISO weeks, so 2025-W53 is well-formed but unreal. Only the
+      // backend can say so, which is why the proxy existence-checks the week
+      // endpoint rather than re-deriving the calendar in TS.
+      const response = await page.goto('/scenes/phoenix-az/2025-W53')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/2025-W53 must return 404 — a well-formed but nonexistent week must not soft-404'
+      ).toBe(404)
+    })
+
+    test('a non-week segment under a scene returns HTTP 404', async ({ page }) => {
+      const response = await page.goto('/scenes/phoenix-az/garbage')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/garbage must return 404 — no route can serve it'
+      ).toBe(404)
+    })
+
+    test('a week under an unresolvable scene returns HTTP 404', async ({ page }) => {
+      const response = await page.goto('/scenes/nowhere-zz/week')
+      expect(
+        response?.status(),
+        '/scenes/nowhere-zz/week must return 404 — the scene itself does not resolve'
+      ).toBe(404)
+    })
+  })
 })

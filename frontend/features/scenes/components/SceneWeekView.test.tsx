@@ -1,0 +1,140 @@
+import { describe, it, expect } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
+import { SceneWeekView } from './SceneWeekView'
+import type { SceneWeekResponse, SceneWeekShow } from '../sceneWeek'
+
+const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow => ({
+  id: 1,
+  title: '',
+  event_date: '2026-07-27',
+  venue_name: 'Empty Bottle',
+  artist_names: ['Ovlov', 'Cusp'],
+  is_sold_out: false,
+  is_cancelled: false,
+  ...over,
+})
+
+const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
+  ({
+    slug: 'chicago-il',
+    scene_name: 'Chicago, IL',
+    city: 'Chicago',
+    state: 'IL',
+    iso_week: '2026-W31',
+    start_date: '2026-07-27',
+    end_date: '2026-08-02',
+    timezone: 'America/Chicago',
+    show_count: 1,
+    prev_week: '2026-W30',
+    next_week: '2026-W32',
+    is_current_week: true,
+    days: [{ date: '2026-07-27', shows: [show()] }],
+    tracked_venues: ['Empty Bottle', 'Thalia Hall'],
+    ...over,
+  }) as SceneWeekResponse
+
+describe('SceneWeekView', () => {
+  it('renders the city with its state alongside', () => {
+    render(<SceneWeekView week={week()} />)
+    const h1 = screen.getByRole('heading', { level: 1 })
+    expect(h1).toHaveTextContent('Chicago')
+    // The state has to be present for cold arrivals from a shared link —
+    // "Columbus" and "Portland" are ambiguous without it.
+    expect(h1).toHaveTextContent('IL')
+  })
+
+  it('states the range and count', () => {
+    render(<SceneWeekView week={week({ show_count: 32 })} />)
+    expect(screen.getByText(/Mon, Jul 27 – Sun, Aug 2, 2026/)).toBeInTheDocument()
+    expect(screen.getByText(/32 shows/)).toBeInTheDocument()
+  })
+
+  it('singularises a one-show week', () => {
+    render(<SceneWeekView week={week({ show_count: 1 })} />)
+    expect(screen.getByText(/1 show(?!s)/)).toBeInTheDocument()
+  })
+
+  // Load-bearing, not decoration: coverage is a curated slice, and a page that
+  // implied full city coverage would be false.
+  it('always discloses that coverage is partial', () => {
+    render(<SceneWeekView week={week()} />)
+    expect(screen.getByText(/Not a complete city listing/)).toBeInTheDocument()
+    expect(screen.getByText(/ROOMS WE TRACK IN CHICAGO/)).toBeInTheDocument()
+    expect(screen.getByText(/Empty Bottle · Thalia Hall/)).toBeInTheDocument()
+  })
+
+  it('links each show and shows its venue', () => {
+    render(<SceneWeekView week={week()} />)
+    const link = screen.getByRole('link', { name: /Ovlov, Cusp/ })
+    expect(link).toHaveAttribute('href', '/shows/1')
+    expect(within(link).getByText('Empty Bottle')).toBeInTheDocument()
+  })
+
+  it('badges a sold-out show', () => {
+    render(<SceneWeekView week={week({ days: [{ date: '2026-07-27', shows: [show({ is_sold_out: true })] }] })} />)
+    expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
+  })
+
+  // Cancelled outranks sold out — a cancelled show that reads "SOLD OUT" would
+  // actively mislead someone deciding whether to go.
+  it('badges a cancelled show and suppresses the sold-out badge', () => {
+    render(
+      <SceneWeekView
+        week={week({
+          days: [{ date: '2026-07-27', shows: [show({ is_cancelled: true, is_sold_out: true })] }],
+        })}
+      />
+    )
+    expect(screen.getByText('CANCELLED')).toBeInTheDocument()
+    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
+  })
+
+  // The decision was an empty STATE, not a 404 — a real city having a quiet
+  // week is a fact, and 404ing would break an already-shared permalink.
+  it('renders an empty week with a way forward', () => {
+    render(<SceneWeekView week={week({ show_count: 0, days: [], tracked_venues: ['Empty Bottle'] })} />)
+    expect(screen.getByText(/No shows at the Chicago rooms we track this week/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Try next week/ })).toHaveAttribute(
+      'href',
+      '/scenes/chicago-il/2026-W32'
+    )
+  })
+
+  it('offers adjacent-week navigation', () => {
+    render(<SceneWeekView week={week()} />)
+    expect(screen.getByRole('link', { name: /2026-W30/ })).toHaveAttribute(
+      'href',
+      '/scenes/chicago-il/2026-W30'
+    )
+    expect(screen.getByRole('link', { name: /2026-W32/ })).toHaveAttribute(
+      'href',
+      '/scenes/chicago-il/2026-W32'
+    )
+  })
+
+  // The generator types these nullable even though the API always emits arrays;
+  // a null must not take the page down.
+  it('survives null days and tracked_venues', () => {
+    render(<SceneWeekView week={week({ days: null, tracked_venues: null, show_count: 0 })} />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Chicago')
+    expect(screen.queryByText(/ROOMS WE TRACK/)).not.toBeInTheDocument()
+  })
+
+  it('renders a quiet day as a heading and count only', () => {
+    render(
+      <SceneWeekView
+        week={week({
+          show_count: 1,
+          days: [
+            { date: '2026-07-27', shows: [show()] },
+            { date: '2026-07-28', shows: [] },
+          ],
+        })}
+      />
+    )
+    expect(screen.getByText('TUE JUL 28')).toBeInTheDocument()
+    // The `0` in the heading says it; a sentence per quiet day would be most of
+    // the page in a sparse scene.
+    expect(screen.queryByText(/No shows at the rooms we track\./)).not.toBeInTheDocument()
+  })
+})

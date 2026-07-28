@@ -61,6 +61,15 @@ import { API_BASE_URL } from '@/lib/api-base'
 const NOT_FOUND_REWRITE_PATH = '/_psy-not-found'
 
 /**
+ * Shape of an ISO-8601 week segment (`2026-W31`) under `/scenes/<slug>/`.
+ *
+ * Shape only — it deliberately does not judge whether the week is real. The
+ * backend decides that; this just separates "might be a week" from "definitely
+ * junk" so the latter 404s without a round-trip.
+ */
+const ISO_WEEK_SEGMENT = /^\d{4}-W\d{2}$/i
+
+/**
  * Per-entity existence check. The function returns the backend HEAD probe URL
  * whose 404 response means "slug does not exist". The probe uses direct backend
  * existence queries instead of duplicating each page's full `GET /<type>/<slug>`
@@ -193,6 +202,34 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return notFoundResponse(request)
   }
 
+  // Scenes: the weekly city pages sit one level BELOW the scene detail —
+  // `/scenes/<slug>/week` (rolling) and `/scenes/<slug>/2026-W31` (permalink).
+  // The generic check below only handles the 3-segment detail shape, so without
+  // this these stream a 200 shell before `notFound()` resolves and every bad
+  // week key becomes a soft-404 (PSY-897 arc).
+  //
+  // The backend is the authority on whether a week EXISTS: `2025-W53` is
+  // well-formed but unreal (2025 has 52 weeks), and only the backend owns that
+  // calendar maths plus the scene's timezone. Re-deriving it here would drift.
+  if (entityType === 'scenes' && segments.length === 4 && slug) {
+    const sub = segments[3]
+    if (sub === 'week') {
+      return existenceCheck(
+        request,
+        `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week`
+      )
+    }
+    if (ISO_WEEK_SEGMENT.test(sub)) {
+      return existenceCheck(
+        request,
+        `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week/${encodeURIComponent(sub)}`
+      )
+    }
+    // Not week-shaped at all (`/scenes/chicago-il/garbage`): no route can serve
+    // it, so 404 without spending a backend round-trip.
+    return notFoundResponse(request)
+  }
+
   const buildCheckUrl = ENTITY_CHECKS[entityType]
 
   // Not a mapped entity, or a sub-route like `/<entity>/<slug>/edit`, or the
@@ -209,8 +246,18 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next()
   }
 
+  return existenceCheck(request, buildCheckUrl(slug))
+}
+
+/**
+ * HEAD a backend URL and turn the result into a pass-through or a real 404.
+ *
+ * Extracted so the scene-week routes can reuse the exact same fail-open
+ * semantics as the generic `/<entity>/<slug>` check — a second copy would drift.
+ */
+async function existenceCheck(request: NextRequest, url: string): Promise<NextResponse> {
   try {
-    const res = await fetch(buildCheckUrl(slug), {
+    const res = await fetch(url, {
       method: 'HEAD',
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
       // we don't set it. `redirect: 'manual'` keeps the check cheap and avoids

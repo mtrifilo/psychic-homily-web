@@ -593,17 +593,19 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 	windowEnd := to
 
 	type showRow struct {
-		ID        uint      `gorm:"column:id"`
-		Slug      string    `gorm:"column:slug"`
-		Title     string    `gorm:"column:title"`
-		EventDate time.Time `gorm:"column:event_date"`
-		VenueName string    `gorm:"column:venue_name"`
+		ID          uint      `gorm:"column:id"`
+		Slug        string    `gorm:"column:slug"`
+		Title       string    `gorm:"column:title"`
+		EventDate   time.Time `gorm:"column:event_date"`
+		VenueName   string    `gorm:"column:venue_name"`
+		IsSoldOut   bool      `gorm:"column:is_sold_out"`
+		IsCancelled bool      `gorm:"column:is_cancelled"`
 	}
 	// Placeholder order: venue predicate, then status/window bounds.
 	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd, limit)
 	var rows []showRow
 	if err := s.db.Raw(`
-		SELECT s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, MIN(v.name) AS venue_name
+		SELECT s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.is_sold_out, s.is_cancelled, MIN(v.name) AS venue_name
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
 		JOIN venues v ON v.id = sv.venue_id
@@ -611,7 +613,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 		  AND s.status = ?
 		  AND s.event_date >= ?
 		  AND s.event_date < ?
-		GROUP BY s.id, s.slug, s.title, s.event_date -- id is the PK; slug/title/date ride along
+		GROUP BY s.id, s.slug, s.title, s.event_date, s.is_sold_out, s.is_cancelled -- id is the PK; the rest ride along
 		ORDER BY s.event_date ASC, s.id ASC
 		LIMIT ?
 	`, args...).Scan(&rows).Error; err != nil {
@@ -638,6 +640,8 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 			EventDate:   r.EventDate.In(loc).Format("2006-01-02"),
 			VenueName:   r.VenueName,
 			ArtistNames: artistsByShow[r.ID],
+			IsSoldOut:   r.IsSoldOut,
+			IsCancelled: r.IsCancelled,
 		}
 	}
 	return results, nil

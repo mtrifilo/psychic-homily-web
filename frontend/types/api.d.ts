@@ -5404,7 +5404,8 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /** Head scenes by slug week */
+        head: operations["head-scenes-by-slug-week"];
         patch?: never;
         trace?: never;
     };
@@ -5421,7 +5422,8 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /** Head scenes by slug week by week */
+        head: operations["head-scenes-by-slug-week-by-week"];
         patch?: never;
         trace?: never;
     };
@@ -13875,6 +13877,8 @@ export interface components {
             event_date: string;
             /** Format: int64 */
             id: number;
+            is_cancelled: boolean;
+            is_sold_out: boolean;
             slug?: string;
             title: string;
             venue_name?: string;
@@ -29170,7 +29174,82 @@ export interface operations {
             };
         };
     };
+    "head-scenes-by-slug-week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneWeekResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-scenes-by-slug-week-by-week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+                /**
+                 * @description ISO-8601 week key (e.g. 2026-W31)
+                 * @example 2026-W31
+                 */
+                week: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneWeekResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "head-scenes-by-slug-week-by-week": {
         parameters: {
             query?: never;
             header?: never;
