@@ -621,6 +621,30 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 		return nil, false, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
+	// No EXACT name match. Before creating, retry on a normalized name.
+	//
+	// The exact-match lookup above (and the matching unique index on
+	// (lower(name), lower(city))) did not stop "7th St Entry" being created
+	// alongside "7th Street Entry" in Minneapolis — the two lowercase strings
+	// genuinely differ. That duplicate then silently duplicated ~90 shows,
+	// because show dedup keys on (artist_id, venue_id, event_date) and a second
+	// venue row means a second venue_id. Matching here RESOLVES to the existing
+	// room instead of rejecting the write, which is what ingest needs.
+	//
+	// Scoped to the same city, so normalization can never join rooms in
+	// different places.
+	if normalized := utils.NormalizeVenueName(name); normalized != "" {
+		var candidates []catalogm.Venue
+		if err := query.Where("LOWER(city) = LOWER(?)", city).Find(&candidates).Error; err != nil {
+			return nil, false, fmt.Errorf("failed to check existing venue by normalized name: %w", err)
+		}
+		for i := range candidates {
+			if utils.NormalizeVenueName(candidates[i].Name) == normalized {
+				return &candidates[i], false, nil
+			}
+		}
+	}
+
 	// Venue doesn't exist, create it - verified if created by admin, unverified otherwise
 	// Generate unique slug
 	baseSlug := utils.GenerateVenueSlug(name, city, state)
