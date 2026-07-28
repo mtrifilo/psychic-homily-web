@@ -102,6 +102,15 @@ cd backend && golangci-lint run --config=.golangci.yml ./internal/services/<pkg>
 # Skipping this is how PSY-1141 shipped an ST1008 ("error must be the last return value") that
 # build+vet+all tests passed but Backend Lint failed in CI. See feedback_golangci_lint_before_push.md.
 
+# Touched the backend API surface? REGENERATE FRONTEND TYPES IN THIS SAME PR.
+# frontend/types/api.d.ts is a committed artifact generated from the OpenAPI spec
+# (PSY-1550); the "API Types Drift" CI job regenerates and fails on any diff.
+cd frontend && bun run api:types && git diff --stat -- types/api.d.ts   # commit if non-empty
+# "API surface" is broader than adding a route — it includes changing a request/response
+# struct or a `json:` tag, AND moving an operation between Huma API instances (sub-API →
+# main API changes the PUBLISHED document even though no handler changed; PSY-1598).
+# Two PRs can each be green alone and red merged. See pattern_frontend_api_type_drift.md.
+
 # Modified anything under frontend/e2e/ — OR changed a page/surface an E2E spec covers? Run that spec.
 # E2E global-setup requires :8080 to be free — STOP and surface if user's dev backend is on it.
 ```
