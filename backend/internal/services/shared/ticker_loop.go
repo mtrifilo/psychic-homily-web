@@ -128,6 +128,84 @@ func RunTickerLoop(
 	}
 }
 
+// RunTickerLoopWithStartDelay is RunTickerLoop for services whose interval is
+// long enough that a process-anchored ticker may never fire in production.
+//
+// The problem it solves: RunTickerLoop's ticker is anchored at process start,
+// so a service with `runImmediately=false` and a 24h interval only ever runs a
+// cycle if the process stays up for 24 uninterrupted hours. On a
+// continuously-deployed platform (Railway redeploys restart the process) an
+// interval at or above the typical uptime means the first tick is never
+// reached and the service silently does nothing forever — with no error to
+// alert on, because nothing failed.
+//
+// `startDelay` decouples the first cycle from the interval: the loop waits
+// `startDelay` (not a full interval) before its first cycle, then ticks every
+// `interval`. A delay short enough to fit inside any plausible uptime
+// guarantees forward progress regardless of deploy cadence, while remaining
+// long enough to keep third-party traffic off the boot path — which is why
+// callers here don't simply pass `runImmediately=true`.
+//
+// A non-positive `startDelay` runs the first cycle immediately, matching
+// RunTickerLoop's `runImmediately=true`.
+//
+// Callers must keep their per-cycle work bounded (a limit, or cheap when
+// converged): a delay shorter than the interval means a deploy-heavy day runs
+// more cycles than the interval nominally allows.
+func RunTickerLoopWithStartDelay(
+	ctx context.Context,
+	name string,
+	startDelay time.Duration,
+	interval time.Duration,
+	stopCh <-chan struct{},
+	work func(context.Context),
+) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			slog.Default().Error("background service panic — service stopping",
+				"service", name,
+				"panic", r,
+				"stack", string(stack),
+			)
+			invokePanicHandler(name, r, stack)
+		}
+	}()
+
+	if startDelay <= 0 {
+		runOneCycle(ctx, name, work)
+	} else {
+		// A timer rather than a sleep so shutdown during the delay window is
+		// immediate — a deploy landing seconds after boot must not wait out
+		// the delay before the process can exit.
+		timer := time.NewTimer(startDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-stopCh:
+			timer.Stop()
+			return
+		case <-timer.C:
+			runOneCycle(ctx, name, work)
+		}
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stopCh:
+			return
+		case <-ticker.C:
+			runOneCycle(ctx, name, work)
+		}
+	}
+}
+
 // runOneCycle isolates the per-tick recover so a panic in one tick
 // doesn't stop the loop. Exposed only inside this package — callers
 // drive cycles through RunTickerLoop.
