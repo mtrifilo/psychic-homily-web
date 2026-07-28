@@ -48,12 +48,39 @@ import (
 // most ~Limit seconds (1.1s spacing each), serialized with inline traffic by
 // the shared limiter. Steady-state venue creation is far below the default
 // limit; the initial catalog-wide backfill remains the CLI's job.
+//
+// PSY-1603 — why the first cycle is delay-anchored, not interval-anchored:
+// the original loop ran no startup cycle and waited a full 24h interval, but
+// the ticker restarts from zero on every process start. Production redeploys
+// well inside 24h, so the first tick was never reached and the sweep wrote
+// nothing at all — the whole addressed catalog sat on city centroids with no
+// error to alert on, because nothing had failed. Any interval at or above the
+// platform's typical uptime is unreachable in practice; the fix keeps
+// third-party traffic off the boot path (the reason there is no startup
+// cycle) but anchors the first cycle to a short delay that fits inside any
+// plausible uptime.
 const (
 	defaultStreetGeocodeSweepInterval = 24 * time.Hour
 	// 25 lookups ≈ half a minute of the shared budget per day. Large-backlog
 	// scenarios (feature rollout, mass import) should use the CLI instead of
 	// raising this: the sweep exists for the trickle, not the flood.
 	defaultStreetGeocodeSweepLimit = 25
+	// Long enough to keep Nominatim off the boot path and to let a burst of
+	// rapid redeploys pass without any cycle running; short enough to fit
+	// inside any uptime the platform realistically gives us.
+	//
+	// Decoupling the first cycle from the interval means a restart-heavy day
+	// (or a crash loop with a period just over this delay) runs MORE than one
+	// cycle per interval, so Limit alone does not bound the day's request
+	// count. What bounds it is that cycles are self-retiring: every lookup
+	// ends by persisting either coordinates or a miss memo against the
+	// venue's address key, and the reconciler skips any venue whose stored
+	// key still matches (street_geocode_backfill.go, streetGeocodeAttempted).
+	// Total lifetime requests are therefore bounded by the number of venues
+	// whose address is new or changed — NOT by how many cycles run. Once the
+	// catalog is converged a cycle is a single indexed scan and zero network
+	// calls, which is what makes extra cycles cheap rather than abusive.
+	defaultStreetGeocodeSweepStartDelay = 15 * time.Minute
 )
 
 // StreetGeocodeSweep is a background ticker service (mirrors
@@ -63,8 +90,9 @@ type StreetGeocodeSweep struct {
 	db       *gorm.DB
 	geocoder geo.AddressGeocoder
 
-	interval time.Duration
-	limit    int
+	interval   time.Duration
+	startDelay time.Duration
+	limit      int
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -79,25 +107,28 @@ func NewStreetGeocodeSweep(database *gorm.DB, geocoder geo.AddressGeocoder) *Str
 		database = db.GetDB()
 	}
 	return &StreetGeocodeSweep{
-		db:       database,
-		geocoder: geocoder,
-		interval: shared.EnvPositiveDuration("STREET_GEOCODE_SWEEP_INTERVAL_HOURS", time.Hour, defaultStreetGeocodeSweepInterval),
-		limit:    shared.EnvPositiveInt("STREET_GEOCODE_SWEEP_LIMIT", defaultStreetGeocodeSweepLimit),
-		stopCh:   make(chan struct{}),
-		logger:   slog.Default(),
+		db:         database,
+		geocoder:   geocoder,
+		interval:   shared.EnvPositiveDuration("STREET_GEOCODE_SWEEP_INTERVAL_HOURS", time.Hour, defaultStreetGeocodeSweepInterval),
+		startDelay: shared.EnvPositiveDuration("STREET_GEOCODE_SWEEP_START_DELAY_MINUTES", time.Minute, defaultStreetGeocodeSweepStartDelay),
+		limit:      shared.EnvPositiveInt("STREET_GEOCODE_SWEEP_LIMIT", defaultStreetGeocodeSweepLimit),
+		stopCh:     make(chan struct{}),
+		logger:     slog.Default(),
 	}
 }
 
-// Start begins the background sweep. No startup cycle (runImmediately=false):
-// a server restart shouldn't kick off third-party traffic; the first sweep
-// fires one interval in.
+// Start begins the background sweep. Still no cycle ON the boot path — a
+// server restart shouldn't kick off third-party traffic — but the first cycle
+// is anchored to startDelay rather than a full interval, because an
+// interval-anchored first tick never arrives on a platform that redeploys more
+// often than the interval (PSY-1603).
 func (s *StreetGeocodeSweep) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		shared.RunTickerLoop(ctx, "street_geocode_sweep", s.interval, s.stopCh, false, s.runCycle)
+		shared.RunTickerLoopWithStartDelay(ctx, "street_geocode_sweep", s.startDelay, s.interval, s.stopCh, s.runCycle)
 	}()
-	s.logger.Info("street geocode sweep started", "interval", s.interval, "limit", s.limit)
+	s.logger.Info("street geocode sweep started", "interval", s.interval, "start_delay", s.startDelay, "limit", s.limit)
 }
 
 // Stop gracefully stops the sweep. The reconciler is context-aware down to

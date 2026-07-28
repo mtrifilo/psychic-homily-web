@@ -2,6 +2,11 @@ package catalog
 
 import (
 	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
@@ -156,4 +161,38 @@ func (suite *VenueServiceIntegrationTestSuite) TestSweep_CanceledContextAbortsCy
 	suite.Equal(0, stub.calls, "a canceled ctx must abort before any lookup")
 	v := suite.loadVenue(seeded.ID)
 	suite.Nil(v.StreetLatitude, "an aborted cycle must not have written")
+}
+
+// TestNewStreetGeocodeSweep_StartDelayWiring covers the PSY-1603 knob's
+// plumbing: the start delay is what makes the sweep reachable at all on a
+// platform that restarts the process more often than the 24h interval, so a
+// silent regression to an interval-length default would restore the original
+// "never runs" bug. Asserted directly on the constructor (no DB needed) —
+// the surrounding suite covers cycle behaviour.
+func TestNewStreetGeocodeSweep_StartDelayWiring(t *testing.T) {
+	t.Run("defaults to the start-delay constant", func(t *testing.T) {
+		t.Setenv("STREET_GEOCODE_SWEEP_START_DELAY_MINUTES", "")
+
+		s := NewStreetGeocodeSweep(&gorm.DB{}, hitStub(1, 2, geo.PrecisionRooftop))
+
+		require.Equal(t, defaultStreetGeocodeSweepStartDelay, s.startDelay)
+		require.Less(t, s.startDelay, s.interval,
+			"the first cycle must be reachable well inside one interval, or the sweep never runs")
+	})
+
+	t.Run("honors the env override in minutes", func(t *testing.T) {
+		t.Setenv("STREET_GEOCODE_SWEEP_START_DELAY_MINUTES", "3")
+
+		s := NewStreetGeocodeSweep(&gorm.DB{}, hitStub(1, 2, geo.PrecisionRooftop))
+
+		require.Equal(t, 3*time.Minute, s.startDelay)
+	})
+
+	t.Run("falls back to the default on garbage", func(t *testing.T) {
+		t.Setenv("STREET_GEOCODE_SWEEP_START_DELAY_MINUTES", "not-a-number")
+
+		s := NewStreetGeocodeSweep(&gorm.DB{}, hitStub(1, 2, geo.PrecisionRooftop))
+
+		require.Equal(t, defaultStreetGeocodeSweepStartDelay, s.startDelay)
+	})
 }

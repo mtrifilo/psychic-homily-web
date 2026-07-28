@@ -675,8 +675,13 @@ no nondeterministic DB state changes from ambient background jobs.
 | `DISABLE_STREET_GEOCODE_SWEEP`    | Daily venue street-geocode reconciliation via Nominatim (PSY-1544) |
 
 The street-geocode sweep's cadence and per-run network budget are tunable:
-`STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`) and
-`STREET_GEOCODE_SWEEP_LIMIT` (default `25` lookups per run). It shares the
+`STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`),
+`STREET_GEOCODE_SWEEP_LIMIT` (default `25` lookups per run) and
+`STREET_GEOCODE_SWEEP_START_DELAY_MINUTES` (default `15`). The start delay is
+what makes the sweep reachable at all: the interval ticker restarts from zero
+on every deploy, so an interval at or above the platform's typical uptime is
+never reached and the sweep silently does nothing. Keep the start delay well
+below the interval and below realistic uptime. It shares the
 process-wide Nominatim client (and its 1 req/s limiter) with inline venue
 write-path geocoding, so it is safe alongside live traffic; large backlogs
 should still use the `geocode-venue-addresses` CLI off-hours.

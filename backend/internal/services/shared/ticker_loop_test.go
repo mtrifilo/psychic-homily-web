@@ -397,3 +397,143 @@ func TestRunTickerLoop_OuterRecoverCatchesSetupPanic(t *testing.T) {
 	)
 	assert.Contains(t, logged, `"service":"setup-panic-service"`)
 }
+
+// =============================================================================
+// RunTickerLoopWithStartDelay (PSY-1603) — the first cycle must be anchored to
+// the start delay, NOT the interval, so a long-interval service still makes
+// progress on a platform that restarts the process more often than the
+// interval.
+// =============================================================================
+
+// TestRunTickerLoopWithStartDelay_FirstCycleBeatsInterval is the regression
+// test for PSY-1603: with a 1h interval the plain loop would never run a cycle
+// in a short-lived process, and that is exactly why the production street
+// geocode sweep wrote nothing. The delay-anchored loop must still run.
+func TestRunTickerLoopWithStartDelay_FirstCycleBeatsInterval(t *testing.T) {
+	var calls atomic.Int32
+	work := func(_ context.Context) { calls.Add(1) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoopWithStartDelay(ctx, "delayed-service", 20*time.Millisecond, 1*time.Hour, nil, work)
+		close(done)
+	}()
+
+	<-done
+	assert.Equal(t, int32(1), calls.Load(),
+		"the start delay must produce exactly one cycle even though the interval never elapses")
+}
+
+// TestRunTickerLoopWithStartDelay_NoCycleOnBootPath guards the property the
+// original design was protecting: the first cycle must NOT run on the boot
+// path. A process that dies inside the delay window makes zero third-party
+// calls — which is what keeps a burst of rapid redeploys free of traffic.
+func TestRunTickerLoopWithStartDelay_NoCycleOnBootPath(t *testing.T) {
+	var calls atomic.Int32
+	work := func(_ context.Context) { calls.Add(1) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoopWithStartDelay(ctx, "boot-path-service", 5*time.Second, 1*time.Hour, nil, work)
+		close(done)
+	}()
+
+	<-done
+	assert.Equal(t, int32(0), calls.Load(), "no cycle may run before the start delay elapses")
+}
+
+// TestRunTickerLoopWithStartDelay_ShutdownDuringDelayIsPrompt asserts the
+// delay is a cancellable timer, not a sleep: a stop signal during the delay
+// window returns immediately rather than riding out the full delay.
+func TestRunTickerLoopWithStartDelay_ShutdownDuringDelayIsPrompt(t *testing.T) {
+	stopCh := make(chan struct{})
+	var calls atomic.Int32
+	work := func(_ context.Context) { calls.Add(1) }
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoopWithStartDelay(context.Background(), "stop-service", 10*time.Second, 1*time.Hour, stopCh, work)
+		close(done)
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	close(stopCh)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stop during the start-delay window must return promptly, not wait out the delay")
+	}
+	assert.Equal(t, int32(0), calls.Load(), "no cycle should have run")
+}
+
+// TestRunTickerLoopWithStartDelay_TicksAfterFirstCycle confirms the loop keeps
+// its periodic behaviour once the delayed first cycle has run.
+func TestRunTickerLoopWithStartDelay_TicksAfterFirstCycle(t *testing.T) {
+	var calls atomic.Int32
+	work := func(_ context.Context) { calls.Add(1) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoopWithStartDelay(ctx, "periodic-service", 10*time.Millisecond, 20*time.Millisecond, nil, work)
+		close(done)
+	}()
+
+	<-done
+	assert.GreaterOrEqual(t, int(calls.Load()), 3,
+		"the delayed first cycle must be followed by regular interval ticks; got %d", calls.Load())
+}
+
+// TestRunTickerLoopWithStartDelay_NonPositiveDelayRunsImmediately keeps the
+// helper's degenerate case aligned with RunTickerLoop's runImmediately=true.
+func TestRunTickerLoopWithStartDelay_NonPositiveDelayRunsImmediately(t *testing.T) {
+	var calls atomic.Int32
+	work := func(_ context.Context) { calls.Add(1) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoopWithStartDelay(ctx, "immediate-service", 0, 1*time.Hour, nil, work)
+		close(done)
+	}()
+
+	<-done
+	assert.Equal(t, int32(1), calls.Load(), "a non-positive delay must run the first cycle immediately")
+}
+
+// TestRunTickerLoopWithStartDelay_PanicInFirstCycleDoesNotKillLoop mirrors the
+// RunTickerLoop startup-panic guarantee for the delayed first cycle.
+func TestRunTickerLoopWithStartDelay_PanicInFirstCycleDoesNotKillLoop(t *testing.T) {
+	logs := withCapturedSlog(t)
+
+	var calls atomic.Int32
+	work := func(_ context.Context) {
+		if calls.Add(1) == 1 {
+			panic("boom on delayed first cycle")
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoopWithStartDelay(ctx, "delayed-panic-service", 10*time.Millisecond, 10*time.Millisecond, nil, work)
+		close(done)
+	}()
+
+	<-done
+	require.Greater(t, int(calls.Load()), 1, "loop must survive a panic in the delayed first cycle")
+	assert.Contains(t, logs.String(), "boom on delayed first cycle")
+}
