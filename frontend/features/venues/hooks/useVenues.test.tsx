@@ -185,6 +185,29 @@ describe('useVenues', () => {
       expect(mockApiRequest.mock.calls[0][0]).not.toContain('metro_rollup')
     })
 
+    // The cache key must describe what was SENT. A key that said "metro" over
+    // a URL that dropped it would split one byte-identical request across two
+    // entries that can never disagree — pure fragmentation, and a second
+    // network round trip for a response already in cache.
+    it('shares one cache entry when the dropped rollup makes two requests identical', async () => {
+      mockApiRequest.mockResolvedValue({ venues: [], total: 0 })
+      const wrapper = createWrapper()
+      const cities = [{ city: 'Phoenix', state: 'AZ' }]
+
+      const withRollup = renderHook(
+        () => useVenues({ cities, metroRollup: true }),
+        { wrapper },
+      )
+      await waitFor(() => expect(withRollup.result.current.isSuccess).toBe(true))
+
+      const withoutRollup = renderHook(() => useVenues({ cities }), { wrapper })
+      await waitFor(() =>
+        expect(withoutRollup.result.current.isSuccess).toBe(true),
+      )
+
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    })
+
     // An unscoped GET /venues is a whole-catalogue page, not a cheap no-op —
     // the Atlas globe view has long stretches with no city resolved yet.
     it('makes no request while disabled', async () => {
