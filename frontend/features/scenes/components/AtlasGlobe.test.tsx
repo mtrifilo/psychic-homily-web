@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { MutableRefObject, ReactNode } from 'react'
 import { renderWithProviders } from '@/test/utils'
 import type { SceneListResponse } from '../types'
@@ -464,6 +465,32 @@ describe('AtlasGlobe', () => {
       expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
         'ARTIST · 3 OF 3 UPCOMING AT THIS VENUE',
       )
+    })
+
+    // The stepper is the panel's ONLY forward affordance (the "NEXT UP … hear
+    // them →" row that used to sit at the bottom is gone), so a keyboard user
+    // has to be able to walk a whole bill on it: Enter must step AND leave
+    // focus on `›`, or the second press lands nowhere. The panel deliberately
+    // does not remount per step, and its focus effect is mount-only, which is
+    // what makes this hold — this asserts it stays that way.
+    it('walks the whole bill on repeated Enter, focus staying on ›', async () => {
+      const user = userEvent.setup()
+      await drillIntoFirstShow()
+
+      const next = screen.getByTestId('artist-panel-step-next')
+      next.focus()
+
+      await user.keyboard('{Enter}')
+      expect(
+        screen.getByRole('heading', { name: 'Meat Wave' }),
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('artist-panel-step-next')).toHaveFocus()
+
+      await user.keyboard('{Enter}')
+      expect(
+        screen.getByRole('heading', { name: 'Gouge Away' }),
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('artist-panel-step-next')).toHaveFocus()
     })
 
     it('steps backward to where it came from', async () => {
