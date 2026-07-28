@@ -47,9 +47,15 @@ type memRunRow struct {
 	successAt   time.Time
 	outcome     string
 	rows        *int
-	lastErr     error
-	failures    int
-	runCount    int
+	// lastErrText mirrors the persisted last_error COLUMN, not the Go error the
+	// cycle returned. Storing the error value instead would quietly diverge from
+	// production, where a panic and a shutdown carry no error of their own and
+	// the text is synthesized — a future assertion against this double would then
+	// get a green result for behaviour the database does not have.
+	lastErrText     *string
+	intervalSeconds int64
+	failures        int
+	runCount        int
 }
 
 func newMemRunStore() *memRunStore {
@@ -120,6 +126,7 @@ func (s *memRunStore) Claim(_ context.Context, name string, interval, lease time
 
 	r.startedAt = now
 	r.outcome = RunOutcomeRunning
+	r.intervalSeconds = int64(interval / time.Second)
 	s.claimed.Add(1)
 	return r.startedAt, true, nil
 }
@@ -134,14 +141,14 @@ func (s *memRunStore) Complete(_ context.Context, name string, token time.Time, 
 	if outcome.Interrupted {
 		r.startedAt = time.Time{}
 		r.outcome = RunOutcomeError
-		r.lastErr = outcome.Err
+		r.lastErrText = outcome.errorText()
 		s.released.Add(1)
 		return nil
 	}
 	r.completedAt = time.Now()
 	r.outcome = outcome.outcomeLabel()
 	r.rows = outcome.Rows
-	r.lastErr = outcome.Err
+	r.lastErrText = outcome.errorText()
 	r.runCount++
 	if r.outcome == RunOutcomeSuccess {
 		r.successAt = r.completedAt
@@ -171,7 +178,7 @@ func compressCatchUp(t *testing.T, base, spacing time.Duration) {
 func runFor(cfg LoopConfig, lifetime time.Duration, work func(context.Context)) {
 	ctx, cancel := context.WithTimeout(context.Background(), lifetime)
 	defer cancel()
-	RunTickerLoop(ctx, cfg, work)
+	RunScheduledLoop(ctx, cfg, work)
 }
 
 // TestOverdueOnBootRunsImmediately: a loop whose persisted completion is older
@@ -202,31 +209,42 @@ func TestOverdueOnBootRunsImmediately(t *testing.T) {
 
 // TestNotOverdueOnBootWaitsAndSchedulesFromLastCompletion is the other half of
 // the contract: a loop that completed recently must NOT re-run at boot, and its
-// wait must be measured from that completion — not from process start. With a
-// completion 60ms into a 100ms interval, the cycle is due 40ms in; an
-// interval-anchored loop would not run for 100ms.
+// wait must be measured from that completion rather than from process start.
+//
+// The assertion is deliberately "did it fire inside the window", with no tight
+// timing bound, because the three candidate behaviours are separated by orders
+// of magnitude rather than milliseconds. The loop is given a 10s interval and a
+// persisted completion that leaves it due in 150ms, and the catch-up stagger is
+// stretched to 5s:
+//
+//	scheduled from last completion (correct) -> fires at ~150ms
+//	treated as overdue at boot (wrong)       -> would wait 5s
+//	anchored to the interval / start delay   -> would wait 10s
+//
+// Only the correct behaviour fires inside the 600ms process lifetime, so a
+// single "it fired" assertion rules out both failure modes with 4x margin on the
+// nearest alternative — nothing here degrades on a loaded CI box.
 func TestNotOverdueOnBootWaitsAndSchedulesFromLastCompletion(t *testing.T) {
-	compressCatchUp(t, time.Millisecond, time.Millisecond)
+	compressCatchUp(t, 5*time.Second, time.Second)
 
+	const interval = 10 * time.Second
 	store := newMemRunStore()
-	store.seedCompleted("recent-sweep", 60*time.Millisecond)
+	store.seedCompleted("recent-sweep", interval-150*time.Millisecond)
 
-	var firstCycleAt atomic.Int64
-	start := time.Now()
+	var calls atomic.Int32
 	runFor(LoopConfig{
 		Name:     "recent-sweep",
-		Interval: 100 * time.Millisecond,
+		Interval: interval,
 		Store:    store,
-	}, 80*time.Millisecond, func(_ context.Context) {
-		firstCycleAt.CompareAndSwap(0, int64(time.Since(start)))
-	})
+	}, 600*time.Millisecond, func(_ context.Context) { calls.Add(1) })
 
-	elapsed := time.Duration(firstCycleAt.Load())
-	require.NotZero(t, elapsed, "the cycle must run once the persisted due time arrives")
-	assert.Greater(t, elapsed, 20*time.Millisecond,
-		"a recently-completed loop must not re-run immediately at boot")
-	assert.Less(t, elapsed, 100*time.Millisecond,
-		"the wait must be measured from last completion, not from process start")
+	require.Equal(t, int32(1), calls.Load(),
+		"the cycle must fire at the time the PERSISTED COMPLETION makes it due; "+
+			"waiting for the interval, the start delay, or a catch-up slot would all have missed this window")
+
+	// And it consumed no catch-up slot, because it was never overdue.
+	assert.Zero(t, catchUpSlotsClaimed.Load(),
+		"a loop that is merely waiting must not be classified as overdue")
 }
 
 // TestRepeatedRestartsStillMakeProgress simulates the production failure
@@ -237,19 +255,33 @@ func TestNotOverdueOnBootWaitsAndSchedulesFromLastCompletion(t *testing.T) {
 // Both halves run the SAME restart pattern. The persisted loop makes progress;
 // the unpersisted one (the old behaviour, since a full interval is the only
 // anchor it has) makes none. The contrast is the assertion.
+//
+// The interval is chosen so the due gate inside Claim stays live rather than
+// degenerate: dueSlack is 5% of the interval bounded below by 10ms, so at 400ms
+// the gate sits at 380ms — a real fraction of the interval, the same shape as
+// the 24h/1m ratio in production. An interval small enough for slack to reach
+// its floor would make `interval - slack` collapse and quietly retire the gate,
+// leaving the cadence carried by DueIn alone and the test asserting less than it
+// appears to.
 func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 	compressCatchUp(t, 2*time.Millisecond, time.Millisecond)
 
 	const (
-		interval  = 150 * time.Millisecond // the "24h sweep"
-		lifetime  = 40 * time.Millisecond  // each "deploy window", far shorter
+		interval  = 400 * time.Millisecond // the "24h sweep"
+		lifetime  = 100 * time.Millisecond // each "deploy window", far shorter
 		restarts  = 10
 		cfgName   = "restart-sweep"
 		unpersist = "restart-sweep-no-state"
 	)
 
+	// Guard the premise: if a future change to dueSlack made the gate vacuous,
+	// this test would silently stop exercising it.
+	require.Less(t, dueSlack(interval), interval/2+time.Nanosecond,
+		"dueSlack must stay a genuine fraction of the interval or Claim's due gate is inert")
+
 	store := newMemRunStore()
 	var persistedCalls atomic.Int32
+	persistedStart := time.Now()
 	for i := 0; i < restarts; i++ {
 		runFor(LoopConfig{
 			Name:     cfgName,
@@ -257,6 +289,7 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 			Store:    store,
 		}, lifetime, func(_ context.Context) { persistedCalls.Add(1) })
 	}
+	persistedElapsed := time.Since(persistedStart)
 
 	var unpersistedCalls atomic.Int32
 	for i := 0; i < restarts; i++ {
@@ -273,16 +306,65 @@ func TestRepeatedRestartsStillMakeProgress(t *testing.T) {
 		"persisted state must carry the schedule across restarts; %d restarts x %v of uptime spans %v of a %v interval, got %d cycles",
 		restarts, lifetime, restarts*lifetime, interval, persistedCalls.Load())
 
-	// And progress is bounded by the interval, not by the restart count: a
-	// deploy storm must not turn into a cycle storm against third-party APIs.
-	assert.LessOrEqual(t, int(persistedCalls.Load()), 4,
-		"restarts must not multiply cycles; the interval still governs the rate")
+	// And progress is bounded by the INTERVAL, not by the restart count: a deploy
+	// storm must not turn into a cycle storm against third-party APIs. The bound
+	// is derived from elapsed wall time rather than hardcoded, so a slow or
+	// -race-instrumented runner (which stretches elapsed time, and with it the
+	// number of legitimately-due cycles) cannot make this fail spuriously.
+	//
+	// The pacing floor is `interval - dueSlack`, not the bare interval: that is
+	// the earliest a second claim can succeed, so it is the honest divisor.
+	// Allowance of +2: one for the catch-up cycle at the very first boot, which
+	// is not paced at all, and one for a boundary landing mid-interval.
+	minSpacing := interval - dueSlack(interval)
+	maxCycles := int(persistedElapsed/minSpacing) + 2
+	assert.LessOrEqual(t, int(persistedCalls.Load()), maxCycles,
+		"restarts must not multiply cycles; %v elapsed at a %v minimum spacing permits at most %d, got %d",
+		persistedElapsed, minSpacing, maxCycles, persistedCalls.Load())
+
+	// The sharper statement of the same property: ten restarts did not buy ten
+	// cycles. This is what would break if a restart ever reset the schedule.
+	assert.Less(t, int(persistedCalls.Load()), restarts,
+		"a restart must not earn a cycle; that would be the mirror image of the bug")
 }
 
-// TestCatchUpIsStaggeredAcrossLoops covers the stampede question: several
-// overdue loops booting together must not all fire at once.
-func TestCatchUpIsStaggeredAcrossLoops(t *testing.T) {
-	compressCatchUp(t, 10*time.Millisecond, 25*time.Millisecond)
+// TestCatchUpSlotsAreSpacedAndBounded covers the stampede question at its
+// source. Seven sweeps discovering at the same boot that they are overdue must
+// not fire together, because the MusicBrainz / Nominatim / Spotify rate limits
+// they share are ToS obligations rather than best-effort.
+//
+// This asserts on the delays the scheduler HANDS OUT rather than on observed
+// fire times: the spacing policy is a pure function, so testing it directly is
+// both exact and immune to timer jitter. TestOverdueLoopsDoNotCoFire covers the
+// end-to-end wiring separately.
+func TestCatchUpSlotsAreSpacedAndBounded(t *testing.T) {
+	compressCatchUp(t, 60*time.Second, 90*time.Second)
+	catchUpMaxDelay = 30 * time.Minute // the production cap, not the compressed one
+
+	var got []time.Duration
+	for i := 0; i < 7; i++ {
+		got = append(got, nextCatchUpDelay())
+	}
+
+	want := []time.Duration{
+		60 * time.Second, 150 * time.Second, 240 * time.Second, 330 * time.Second,
+		420 * time.Second, 510 * time.Second, 600 * time.Second,
+	}
+	assert.Equal(t, want, got,
+		"seven overdue sweeps must be spread across ten minutes, not co-fired")
+
+	// A pathological number of overdue loops must not push the tail out forever.
+	for i := 0; i < 100; i++ {
+		require.LessOrEqual(t, nextCatchUpDelay(), catchUpMaxDelay,
+			"catch-up delay must stay bounded")
+	}
+}
+
+// TestOverdueLoopsDoNotCoFire is the end-to-end half: three overdue loops
+// booting together must actually observe distinct start times, proving the
+// stagger is wired into firstCycleDelay and not merely computed.
+func TestOverdueLoopsDoNotCoFire(t *testing.T) {
+	compressCatchUp(t, 20*time.Millisecond, 80*time.Millisecond)
 
 	store := newMemRunStore()
 	names := []string{"sweep-a", "sweep-b", "sweep-c"}
@@ -299,11 +381,14 @@ func TestCatchUpIsStaggeredAcrossLoops(t *testing.T) {
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
+			// Lifetime must clear the LAST stagger slot (20+2*80 = 180ms) with
+			// room to spare, or the test fails for want of runway rather than
+			// for want of staggering.
 			runFor(LoopConfig{
 				Name:     name,
 				Interval: time.Hour,
 				Store:    store,
-			}, 150*time.Millisecond, func(_ context.Context) {
+			}, 500*time.Millisecond, func(_ context.Context) {
 				mu.Lock()
 				if _, seen := firedAt[name]; !seen {
 					firedAt[name] = time.Since(start)
@@ -320,8 +405,6 @@ func TestCatchUpIsStaggeredAcrossLoops(t *testing.T) {
 	for _, d := range firedAt {
 		times = append(times, d)
 	}
-	// With 25ms spacing, the earliest and latest catch-up must be measurably
-	// apart — they cannot all have fired in the same instant.
 	minAt, maxAt := times[0], times[0]
 	for _, d := range times {
 		if d < minAt {
@@ -331,7 +414,10 @@ func TestCatchUpIsStaggeredAcrossLoops(t *testing.T) {
 			maxAt = d
 		}
 	}
-	assert.Greater(t, maxAt-minAt, 20*time.Millisecond,
+	// Nominal spread is 160ms (slots at 20/100/180ms). Asserting >60ms leaves
+	// well over half the nominal value as headroom for a loaded runner, while
+	// still failing loudly if the loops co-fire.
+	assert.Greater(t, maxAt-minAt, 60*time.Millisecond,
 		"overdue loops must be staggered, not co-fired; got %v", times)
 }
 
@@ -386,7 +472,7 @@ func TestInterruptedCycleReleasesClaimWithoutCompleting(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "interrupted-sweep",
 			Interval: time.Hour,
 			Store:    store,
