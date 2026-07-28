@@ -14,6 +14,14 @@ interface ProvidersProps {
     children: React.ReactNode
 }
 
+/**
+ * Session-independent providers: URL search-param plumbing and the TanStack
+ * Query cache. Everything mounted here must work before the viewer's profile
+ * is known, because this sits ABOVE the `<HydrationBoundary>` that seeds the
+ * profile cache.
+ *
+ * Deliberately does NOT mount `AuthProvider` — see `<SessionProviders>`.
+ */
 export function Providers({ children }: ProvidersProps) {
     const queryClient = getQueryClient()
 
@@ -24,13 +32,27 @@ export function Providers({ children }: ProvidersProps) {
         // under it.
         <NuqsAdapter>
             <QueryClientProvider client={queryClient}>
-                <AuthProvider>
-                    <CreateCollectionDrawerProvider>
-                        {children}
-                    </CreateCollectionDrawerProvider>
-                </AuthProvider>
+                {children}
             </QueryClientProvider>
         </NuqsAdapter>
     )
 }
 
+/**
+ * Providers that read the viewer's profile out of the query cache. Mounted by
+ * `<AuthHydrator>` below its `<HydrationBoundary>` — see that file for why the
+ * order is load-bearing. Do not hoist these into `<Providers>`.
+ *
+ * `CreateCollectionDrawerProvider` belongs here, not above, because the form it
+ * hosts calls `useAuthContext()`; higher up it would throw "useAuthContext must
+ * be used within an AuthProvider" the first time a viewer opened the drawer.
+ */
+export function SessionProviders({ children }: ProvidersProps) {
+    return (
+        <AuthProvider>
+            <CreateCollectionDrawerProvider>
+                {children}
+            </CreateCollectionDrawerProvider>
+        </AuthProvider>
+    )
+}

@@ -1,5 +1,6 @@
 import { HydrationBoundary } from '@tanstack/react-query'
 import { prefetchAuthProfile } from '@/lib/auth-hydration'
+import { SessionProviders } from './providers'
 
 interface AuthHydratorProps {
   children: React.ReactNode
@@ -21,13 +22,23 @@ interface AuthHydratorProps {
  * layout directly would opt every route into dynamic rendering and
  * defeat ISR on every page that sets `next: { revalidate: 3600 }`.
  *
- * Must be placed INSIDE `<Providers>` so `<HydrationBoundary>` has
- * access to the QueryClientProvider context.
+ * Placement, and why the order is load-bearing: this must render INSIDE
+ * `<Providers>` (so `<HydrationBoundary>` can reach the QueryClientProvider
+ * context) and OUTSIDE `<SessionProviders>` — which it therefore mounts
+ * itself, rather than leaving to the caller. `AuthProvider` reads the profile
+ * through `useProfile()`, so anything auth-aware that renders above this
+ * boundary sees an empty cache during the single server render and falls back
+ * to its loading branch: the SSR HTML ships an empty spinner shell instead of
+ * the signed-in tree (and, symmetrically, instead of the login link for
+ * anonymous viewers). Keeping the provider inside the boundary is what makes
+ * the server render the real tree on first paint.
  */
 export async function AuthHydrator({ children }: AuthHydratorProps) {
   const dehydratedState = await prefetchAuthProfile()
 
   return (
-    <HydrationBoundary state={dehydratedState}>{children}</HydrationBoundary>
+    <HydrationBoundary state={dehydratedState}>
+      <SessionProviders>{children}</SessionProviders>
+    </HydrationBoundary>
   )
 }

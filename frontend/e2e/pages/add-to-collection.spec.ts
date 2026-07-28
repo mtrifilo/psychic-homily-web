@@ -100,9 +100,25 @@ test.describe('Add to Collection', () => {
       // only the list-view row does. Switch to list view so the cleanup
       // selectors below — which target the list-view row layout
       // (div.rounded-lg wrapper + per-item aria-label) — keep working.
-      // The view toggle renders unconditionally in the items header, so
-      // awaiting the click is safe.
-      await authenticatedPage.getByTestId('view-mode-list').click()
+      //
+      // Retry the click until the toggle actually reports itself selected,
+      // rather than assuming one click takes (PSY-1610). Since PSY-1605 the
+      // signed-in tree is server-rendered, so this control is visible — and
+      // therefore passes Playwright's actionability checks — slightly before
+      // hydration wires its onClick. A click in that window moves focus but is
+      // silently dropped, leaving the page in grid view; the cleanup locators
+      // below then never match and the test times out ~40 lines later, far
+      // from the real cause.
+      //
+      // Asserting the state flipped is the point: waiting on aria-checked is
+      // what makes this wait for INTERACTIVITY, not just presence.
+      const listViewToggle = authenticatedPage.getByTestId('view-mode-list')
+      await expect(async () => {
+        await listViewToggle.click()
+        await expect(listViewToggle).toHaveAttribute('aria-checked', 'true', {
+          timeout: 1_000,
+        })
+      }).toPass({ timeout: 15_000 })
 
       // 6. Verify the show appears in the collection's items list.
       // Each item links to the entity via entity_name as link text.

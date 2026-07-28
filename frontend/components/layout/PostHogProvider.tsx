@@ -3,13 +3,10 @@
 import { Suspense, useEffect } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
-import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   enableAnalytics,
   disableAnalytics,
   capturePageview,
-  identifyUser,
-  resetAnalytics,
 } from '@/lib/posthog'
 
 // Separate component for search params tracking to allow Suspense boundary
@@ -27,9 +24,13 @@ function PostHogPageView(): null {
   return null
 }
 
+// Consent-driven analytics lifecycle. Intentionally auth-UNAWARE: it renders
+// above the auth hydration boundary so the cookie-consent banner it wraps is
+// never gated on the server-side profile prefetch. Tying the analytics
+// identity to the signed-in viewer is `<PostHogIdentify>`'s job, mounted below
+// that boundary.
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   const { canUseAnalytics, isLoaded } = useCookieConsent()
-  const { user, isAuthenticated } = useAuthContext()
 
   // Lazy-load + opt in only once analytics consent is granted; opt out
   // otherwise. posthog-js is never fetched for visitors who don't consent
@@ -43,19 +44,6 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       disableAnalytics()
     }
   }, [canUseAnalytics, isLoaded])
-
-  // Identify authenticated users (no-op until posthog has loaded post-consent)
-  useEffect(() => {
-    if (!canUseAnalytics) return
-    if (isAuthenticated && user) {
-      identifyUser(user.id, {
-        email: user.email,
-        is_admin: user.is_admin,
-      })
-    } else {
-      resetAnalytics()
-    }
-  }, [isAuthenticated, user, canUseAnalytics])
 
   return (
     <>

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser'
+import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2, Mail } from 'lucide-react'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
 
@@ -53,8 +54,7 @@ export function PasskeySignupButton({
   const [ageConfirmed, setAgeConfirmed] = useState(false)
   const [ageError, setAgeError] = useState<string | null>(null)
 
-  // Check if browser supports WebAuthn
-  const supportsWebAuthn = browserSupportsWebAuthn()
+  const supportsWebAuthn = useWebAuthnSupport()
 
   const handlePasskeySignup = async () => {
     // Validate email
@@ -312,5 +312,3 @@ export function PasskeySignupButton({
     </>
   )
 }
-
-export { browserSupportsWebAuthn }

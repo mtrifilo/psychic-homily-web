@@ -35,6 +35,8 @@ export {
   useDeleteCalendarToken,
 } from './useCalendarFeed'
 
+export { useWebAuthnSupport } from './useWebAuthnSupport'
+
 export { useSetFavoriteCities } from './useFavoriteCities'
 export { useSetChartDefaults } from './useChartDefaults'
 export type { ChartDefaults } from './useChartDefaults'

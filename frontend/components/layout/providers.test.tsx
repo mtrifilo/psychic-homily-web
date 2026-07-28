@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { Providers } from './providers'
+import { Providers, SessionProviders } from './providers'
 
 // Mock the auth feature hooks consumed by AuthProvider. AuthProvider runs
 // `useProfile()` (TanStack Query) + `useLogout()` (mutation) on mount; both
@@ -62,10 +62,42 @@ describe('Providers', () => {
     expect(screen.getByText('third')).toBeInTheDocument()
   })
 
-  it('makes useAuthContext usable inside subtree (AuthProvider mounted)', async () => {
-    // If AuthProvider isn't mounted, useAuthContext throws
-    // "must be used within an AuthProvider". Render a consumer to prove the
-    // provider is wired.
+  it('does NOT mount AuthProvider (it belongs below the hydration boundary)', async () => {
+    // Ordering guard. AuthProvider derives its state from useProfile(), so it
+    // must render below the <HydrationBoundary> in <AuthHydrator> — above it,
+    // the server render sees an empty cache and every route SSRs a loading
+    // shell instead of the signed-in (or signed-out) tree. If someone moves
+    // AuthProvider back into <Providers>, useAuthContext stops throwing here
+    // and this test fails.
+    const { useAuthContext } = await import('@/lib/context/AuthContext')
+
+    function Consumer() {
+      useAuthContext()
+      return null
+    }
+
+    // React logs the thrown error; silence it so the expected failure doesn't
+    // look like a real one in test output.
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {})
+    try {
+      expect(() =>
+        render(
+          <Providers>
+            <Consumer />
+          </Providers>
+        )
+      ).toThrow(/must be used within an AuthProvider/)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('makes useAuthContext usable inside SessionProviders', async () => {
+    // The other half of the guard: the auth context still has to be reachable
+    // from the subtree AuthHydrator renders, or the move above would just be a
+    // regression.
     const { useAuthContext } = await import('@/lib/context/AuthContext')
 
     function Consumer() {
@@ -75,7 +107,9 @@ describe('Providers', () => {
 
     render(
       <Providers>
-        <Consumer />
+        <SessionProviders>
+          <Consumer />
+        </SessionProviders>
       </Providers>
     )
     // Profile mock returns undefined → user is null → isAuthenticated false.

@@ -68,6 +68,9 @@ export {
   useDeleteCalendarToken,
 } from './hooks'
 
+// Hooks — WebAuthn capability
+export { useWebAuthnSupport } from './hooks'
+
 // Hooks — Favorite Cities
 export { useSetFavoriteCities } from './hooks'
 

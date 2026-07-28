@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser'
+import { startRegistration } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -30,7 +31,7 @@ export function PasskeyRegisterButton({ onSuccess, onError, className }: Passkey
   const [isLoading, setIsLoading] = useState(false)
   const [displayName, setDisplayName] = useState('')
 
-  const supportsWebAuthn = browserSupportsWebAuthn()
+  const supportsWebAuthn = useWebAuthnSupport()
 
   const handleRegister = async () => {
     if (!supportsWebAuthn) {
