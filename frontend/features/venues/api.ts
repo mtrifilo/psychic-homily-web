@@ -22,6 +22,10 @@ export const venueEndpoints = {
   // PSY-365: venue-rooted co-bill graph endpoint.
   BILL_NETWORK: (venueIdOrSlug: string | number) =>
     `${API_BASE_URL}/venues/${venueIdOrSlug}/bill-network`,
+  // PSY-1542: one-tap "this venue's info is still accurate". Numeric id only —
+  // the backend refuses a slug here so a rate-limited write has exactly one
+  // addressable identity per row.
+  CONFIRM: (venueId: number) => `${API_BASE_URL}/venues/${venueId}/confirm`,
   UPDATE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
   DELETE: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}`,
 } as const

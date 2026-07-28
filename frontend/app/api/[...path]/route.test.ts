@@ -344,6 +344,45 @@ describe('api/[...path] proxy route', () => {
     })
   })
 
+  describe('Retry-After forwarding', () => {
+    it('forwards Retry-After on a 429 so the client can state the real wait', async () => {
+      // ALL browser traffic goes through this proxy, so dropping the header
+      // here makes `ApiError.retryAfter` permanently undefined and every
+      // rate-limited surface degrades to a vague "try again in a minute".
+      fetchSpy.mockResolvedValue(
+        new Response('{"detail":"rate limited"}', {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'retry-after': '47',
+          },
+        })
+      )
+
+      const req = new NextRequest('http://localhost:3000/api/venues/2/confirm', {
+        method: 'POST',
+      })
+      const res = await POST(req)
+
+      expect(res.status).toBe(429)
+      expect(res.headers.get('Retry-After')).toBe('47')
+    })
+
+    it('does not set Retry-After when the backend omits it', async () => {
+      fetchSpy.mockResolvedValue(
+        new Response('ok', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+
+      const req = new NextRequest('http://localhost:3000/api/venues')
+      const res = await GET(req)
+
+      expect(res.headers.get('Retry-After')).toBeNull()
+    })
+  })
+
   describe('fetch failure handling', () => {
     it('captures the exception and returns a 502 when fetch throws', async () => {
       const networkError = new Error('ECONNREFUSED')

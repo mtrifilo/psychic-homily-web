@@ -367,6 +367,12 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		if event.IsSoldOut != nil && *event.IsSoldOut {
 			show.IsSoldOut = true
 		}
+		// Recover the flag when the venue encoded it in the title instead of a
+		// field ("*SOLD OUT* Audrey Hobert"). Without this the marker is
+		// stripped off the artist name below and the signal is lost entirely.
+		if _, titleSoldOut := stripStatusMarkers(event.Title); titleSoldOut {
+			show.IsSoldOut = true
+		}
 		if event.IsCancelled != nil && *event.IsCancelled {
 			show.IsCancelled = true
 		}
@@ -429,7 +435,11 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		}
 
 		for idx, entry := range artistEntries {
-			artistName := strings.TrimSpace(entry.Name)
+			// Sanitize at the boundary — this covers all three sources above
+			// (billing data, artist list, title fallback) with one rule, so a
+			// status marker can't reach the catalog through whichever path the
+			// venue's feed happens to use.
+			artistName, _ := stripStatusMarkers(entry.Name)
 			if artistName == "" {
 				continue
 			}
@@ -608,7 +618,96 @@ func parseEventDate(dateStr string, showTime *string, state string) (time.Time, 
 }
 
 // parseArtistsFromTitle extracts artist names from event title
+// eventStatusMarkers are listing-status prefixes venues put on a calendar entry.
+// They describe the EVENT, not a band, and the show model already has columns
+// for them — so they must never survive into an artist name.
+//
+// Sold-out markers are listed first and reported back to the caller so the
+// signal is preserved on `shows.is_sold_out` rather than thrown away.
+var eventSoldOutMarkers = []string{"*sold out*", "sold out", "*soldout*", "soldout"}
+
+var eventOtherMarkers = []string{
+	"*cancelled*", "*canceled*", "cancelled:", "canceled:",
+	"*postponed*", "postponed:",
+	"*free*", "*free show*", "*21+*", "*18+*", "*all ages*",
+}
+
+// stripStatusMarkers removes listing-status decoration from a name and reports
+// whether a sold-out marker was present.
+//
+// Without this, `parseArtistsFromTitle`'s final fallback ("no separator found,
+// treat the entire title as one artist") mints artist records like
+// `*SOLD OUT* Audrey Hobert`. That is not just cosmetic: show dedup keys on
+// (artist_id, venue_id, event_date), so a decorated name produces a DIFFERENT
+// artist_id and the same event gets stored twice. Verified on production —
+// Thalia Hall 2026-07-29 carried both the real Red Vox show and a duplicate
+// under `*SOLD OUT* Red Vox ft. special guests Super Guitar Bros.`
+func stripStatusMarkers(name string) (string, bool) {
+	cleaned := strings.TrimSpace(name)
+	soldOut := false
+
+	// Loop: a listing can stack markers, e.g. "*SOLD OUT* *21+* Band".
+	for changed := true; changed; {
+		changed = false
+		lower := strings.ToLower(cleaned)
+		for _, m := range eventSoldOutMarkers {
+			if strings.HasPrefix(lower, m) {
+				cleaned = strings.TrimSpace(cleaned[len(m):])
+				soldOut, changed = true, true
+				break
+			}
+		}
+		if changed {
+			continue
+		}
+		for _, m := range eventOtherMarkers {
+			if strings.HasPrefix(lower, m) {
+				cleaned = strings.TrimSpace(cleaned[len(m):])
+				changed = true
+				break
+			}
+		}
+	}
+
+	// Leading punctuation left behind by a stripped marker (":", "-", "–").
+	cleaned = strings.TrimSpace(strings.TrimLeft(cleaned, ":-–—|"))
+
+	// Never return empty — a name that was ONLY a marker is better kept intact
+	// than silently dropped, so a human can see and fix it.
+	if cleaned == "" {
+		return strings.TrimSpace(name), soldOut
+	}
+	return cleaned, soldOut
+}
+
 func parseArtistsFromTitle(title string) []string {
+	// Featuring / support separators are checked BEFORE comma, because they
+	// bind more strongly: in "Headliner featuring A, B" the comma separates the
+	// SUPPORT acts, so splitting on it first yields "Headliner featuring A" —
+	// another billing string masquerading as a band name, which is the exact
+	// defect this function is being hardened against.
+	//
+	// The extraction prompt already classifies ft./feat./w/ as billing markers
+	// ("special_guest", "support"); the title fallback just wasn't splitting on
+	// them.
+	lower := strings.ToLower(title)
+	for _, sep := range []string{" ft. ", " feat. ", " featuring ", " w/ "} {
+		if idx := strings.Index(lower, sep); idx > 0 {
+			head := strings.TrimSpace(title[:idx])
+			rest := strings.TrimSpace(title[idx+len(sep):])
+			// Drop the "special guests" connective the venue wrote for humans.
+			for _, filler := range []string{"special guests ", "special guest "} {
+				if strings.HasPrefix(strings.ToLower(rest), filler) {
+					rest = strings.TrimSpace(rest[len(filler):])
+					break
+				}
+			}
+			artists := []string{head}
+			artists = append(artists, splitAndTrim(rest, ",")...)
+			return artists
+		}
+	}
+
 	// Common separators in event titles
 	// Try comma first
 	if strings.Contains(title, ",") {

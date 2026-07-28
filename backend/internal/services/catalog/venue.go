@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -252,6 +253,40 @@ func (s *VenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailRespon
 	}
 
 	return s.buildVenueResponse(&venue), nil
+}
+
+// GetVenueDetail resolves a venue by numeric ID or slug and returns it WITH
+// its provenance stamp — the venue-detail read, and the only read that pays
+// for the stamp.
+//
+// Deliberately separate from GetVenue/GetVenueBySlug. Those are the cheap
+// identity lookups the rest of the backend leans on: snapshotting a row before
+// an admin edit, resolving a slug to an ID for an unrelated sub-resource.
+// None of them render provenance, so attaching the aggregations there would
+// make every one of them pay for a field it discards — and would hide that
+// cost the day the stamp gains a more expensive signal.
+func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var venue catalogm.Venue
+	query := s.db
+	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
+		query = query.Where("id = ?", uint(id))
+	} else {
+		query = query.Where("slug = ?", idOrSlug)
+	}
+	if err := query.First(&venue).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrVenueNotFound(0)
+		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	resp := s.buildVenueResponse(&venue)
+	resp.Provenance = s.venueProvenanceFor(&venue)
+	return resp, nil
 }
 
 // GetVenues retrieves venues with optional filtering
@@ -820,11 +855,15 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Build responses
 	responses := make([]*contracts.VenueWithShowCountResponse, len(venuesWithCount))
+	dataSources := make(map[uint]*string, len(venuesWithCount))
 	for i, vc := range venuesWithCount {
 		responses[i] = &contracts.VenueWithShowCountResponse{
 			VenueDetailResponse: *s.buildVenueResponse(&vc.Venue),
 			UpcomingShowCount:   int(vc.UpcomingShowCount),
 		}
+		// data_source is not part of the serialized venue response (it is an
+		// internal provenance column), so carry it alongside for the stamp.
+		dataSources[vc.ID] = vc.DataSource
 	}
 
 	// Atlas venue-rail payload (next show, this-week slice, dominant genre) for
@@ -833,6 +872,10 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	// none of those fields, so it must not pay for them. See venue_rail.go.
 	if filters.IncludeRailFields {
 		s.enrichVenueRailFields(responses, now)
+		// The freshness stamp rides the same opt-in for the same reason: two
+		// more batched scans the browse page has no use for. See
+		// venue_provenance.go.
+		s.enrichVenueProvenance(responses, dataSources)
 	}
 
 	return responses, total, nil
