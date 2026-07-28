@@ -19,6 +19,7 @@ import {
   venuePanelIdentityLine,
   venuePanelShowCount,
   venueLocalityLabel,
+  venuesSpanMetro,
   venuePinPosition,
   venueProvenanceSegments,
   mergeVenueConfirmation,
@@ -235,6 +236,30 @@ describe('venueLocalityLabel (PSY-1574 metro members)', () => {
         'Phoenix',
       ),
     ).toBe('')
+  })
+})
+
+describe('venuesSpanMetro', () => {
+  it('is true as soon as one venue sits outside the principal city', () => {
+    expect(
+      venuesSpanMetro(
+        [venue({ city: 'Phoenix' }), venue({ city: 'Tempe' })],
+        'Phoenix',
+      ),
+    ).toBe(true)
+  })
+
+  it('is false when every venue is in the principal city', () => {
+    expect(
+      venuesSpanMetro(
+        [venue({ city: 'Phoenix' }), venue({ city: 'phoenix ' })],
+        'Phoenix',
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for an empty list', () => {
+    expect(venuesSpanMetro([], 'Phoenix')).toBe(false)
   })
 })
 

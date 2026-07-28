@@ -277,6 +277,23 @@ export function venueLocalityLabel(
   return city.toLowerCase() === principalCity.trim().toLowerCase() ? '' : city
 }
 
+/**
+ * Whether this list actually reaches past the principal city.
+ *
+ * The rail's header names ONE city while the list is scoped to a whole metro,
+ * so the header has to qualify its venue count whenever the rows go wider —
+ * "12 metro venues" rather than a flat "12 venues" that reads as a claim about
+ * Phoenix proper. Derived from the rows rather than from the request flag on
+ * purpose: a metro whose only venues happen to sit in the principal city is
+ * not a metro list to the person reading it, and saying so would be noise.
+ */
+export function venuesSpanMetro(
+  venues: readonly Pick<VenueWithShowCount, 'city'>[],
+  principalCity: string,
+): boolean {
+  return venues.some((v) => venueLocalityLabel(v, principalCity) !== '')
+}
+
 // ── Filters ───────────────────────────────────────────────────────────────
 
 export interface CityVenueFilters {

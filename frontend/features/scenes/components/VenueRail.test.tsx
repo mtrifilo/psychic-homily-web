@@ -127,6 +127,31 @@ describe('VenueRail', () => {
     ).not.toHaveTextContent('Phoenix')
   })
 
+  // The heading names one city; the count under it must not claim that city
+  // when the rows also hold Tempe and Mesa.
+  it('qualifies the venue count when the list reaches past the principal city', () => {
+    renderRail({
+      principalCity: 'Phoenix',
+      venues: [
+        venue({ id: 1, name: 'Crescent Ballroom', city: 'Phoenix' }),
+        venue({ id: 2, name: 'Yucca Tap Room', city: 'Tempe' }),
+      ],
+    })
+    expect(screen.getByText(/2 metro venues/i)).toBeInTheDocument()
+  })
+
+  it('leaves the count unqualified when every venue is in the principal city', () => {
+    renderRail({
+      principalCity: 'Phoenix',
+      venues: [
+        venue({ id: 1, name: 'Crescent Ballroom', city: 'Phoenix' }),
+        venue({ id: 2, name: 'Valley Bar', city: 'Phoenix' }),
+      ],
+    })
+    expect(screen.getByText(/2 venues/i)).toBeInTheDocument()
+    expect(screen.queryByText(/metro venues/i)).not.toBeInTheDocument()
+  })
+
   it('does not label a principal-city row that differs only in case or padding', () => {
     renderRail({
       principalCity: 'Phoenix',

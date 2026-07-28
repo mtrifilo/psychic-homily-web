@@ -14,6 +14,7 @@ import {
   formatNextShowDate,
   nextShowBill,
   venueLocalityLabel,
+  venuesSpanMetro,
   type CityVenueFilters,
 } from '../cityView'
 
@@ -83,6 +84,10 @@ export function VenueRail({
   const stats = useMemo(() => cityRailStats(allVenues), [allVenues])
   const genreFamilies = useMemo(() => cityGenreFamilies(allVenues), [allVenues])
   const updatedAt = useMemo(() => cityDataUpdatedAt(allVenues), [allVenues])
+  const spansMetro = useMemo(
+    () => venuesSpanMetro(allVenues, principalCity),
+    [allVenues, principalCity],
+  )
   const contributionSegments = useMemo(
     () => cityContributionSegments(cityContributionCounts(allVenues)),
     [allVenues],
@@ -115,8 +120,13 @@ export function VenueRail({
         </div>
 
         <p className="mt-2 font-mono text-[11px] uppercase leading-4 tracking-wide text-muted-foreground">
-          {stats.venueCount} {stats.venueCount === 1 ? 'venue' : 'venues'} ·{' '}
-          {stats.upcomingCount} upcoming · {stats.thisWeekCount} this week
+          {/* "metro venues" whenever the rows reach past the principal city
+              (PSY-1574). The heading above names ONE city; a flat "12 venues"
+              under it would read as a claim about Phoenix proper while the
+              list also holds Tempe and Mesa. */}
+          {stats.venueCount} {spansMetro ? 'metro ' : ''}
+          {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
+          upcoming · {stats.thisWeekCount} this week
           {localArtistCount !== undefined && (
             <> · {localArtistCount} local artists</>
           )}
