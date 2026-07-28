@@ -52,12 +52,13 @@ import (
 // PSY-1603 — why the first cycle is delay-anchored, not interval-anchored:
 // the original loop ran no startup cycle and waited a full 24h interval, but
 // the ticker restarts from zero on every process start. Production redeploys
-// well inside 24h (deploy history showed a maximum completed uptime of 13h23m
-// in the days after this sweep shipped), so the first tick was never reached
-// and the sweep wrote nothing at all — 75 addressed venues sat on city
-// centroids with no error to alert on. The fix keeps third-party traffic off
-// the boot path (the reason there is no startup cycle) but anchors the first
-// cycle to a short delay that fits inside any plausible uptime.
+// well inside 24h, so the first tick was never reached and the sweep wrote
+// nothing at all — the whole addressed catalog sat on city centroids with no
+// error to alert on, because nothing had failed. Any interval at or above the
+// platform's typical uptime is unreachable in practice; the fix keeps
+// third-party traffic off the boot path (the reason there is no startup
+// cycle) but anchors the first cycle to a short delay that fits inside any
+// plausible uptime.
 const (
 	defaultStreetGeocodeSweepInterval = 24 * time.Hour
 	// 25 lookups ≈ half a minute of the shared budget per day. Large-backlog
@@ -66,11 +67,19 @@ const (
 	defaultStreetGeocodeSweepLimit = 25
 	// Long enough to keep Nominatim off the boot path and to let a burst of
 	// rapid redeploys pass without any cycle running; short enough to fit
-	// inside any uptime the platform realistically gives us. Bounding the
-	// cost of the extra cycles a deploy-heavy day now produces is Limit's
-	// job — and a converged catalog makes zero network calls per cycle,
-	// because the reconciler skips every venue whose stored key still
-	// matches its address.
+	// inside any uptime the platform realistically gives us.
+	//
+	// Decoupling the first cycle from the interval means a restart-heavy day
+	// (or a crash loop with a period just over this delay) runs MORE than one
+	// cycle per interval, so Limit alone does not bound the day's request
+	// count. What bounds it is that cycles are self-retiring: every lookup
+	// ends by persisting either coordinates or a miss memo against the
+	// venue's address key, and the reconciler skips any venue whose stored
+	// key still matches (street_geocode_backfill.go, streetGeocodeAttempted).
+	// Total lifetime requests are therefore bounded by the number of venues
+	// whose address is new or changed — NOT by how many cycles run. Once the
+	// catalog is converged a cycle is a single indexed scan and zero network
+	// calls, which is what makes extra cycles cheap rather than abusive.
 	defaultStreetGeocodeSweepStartDelay = 15 * time.Minute
 )
 
