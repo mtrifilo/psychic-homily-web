@@ -66,7 +66,9 @@ interface ArtistPanelProps {
  * answered without leaving the map. The payoff the travel mode exists for.
  *
  * Built to the approved mock: Product Designs Figma file, Atlas page, board 03
- * "Artist drill-in", node 1154:6. Every "the mock" below refers to it.
+ * "Artist drill-in", node 1154:6. Every "the mock" below refers to it, with one
+ * deliberate deviation the mock has since been corrected to match: there is no
+ * "NEXT UP" row — see `nextStep` below for why it went.
  *
  * Dismissal contract, focus behaviour and three-region layout are VenuePanel's
  * verbatim — the two are the same panel at different depths of one stack, and
