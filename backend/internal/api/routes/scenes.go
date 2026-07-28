@@ -23,4 +23,11 @@ func setupSceneRoutes(rc RouteContext) {
 	// (in the scene's own timezone); the keyed form is the stable permalink.
 	huma.Get(rc.API, "/scenes/{slug}/week", sceneHandler.GetSceneCurrentWeekHandler)
 	huma.Get(rc.API, "/scenes/{slug}/week/{week}", sceneHandler.GetSceneWeekHandler)
+	// HEAD on the same handlers. frontend/proxy.ts existence-checks these paths
+	// with HEAD before the page streams — without a HEAD route the router
+	// answers 405, the proxy fails open, and every bad week key becomes a
+	// soft-404 (404 body committed at HTTP 200). Go discards the response body
+	// for HEAD, so the handler needs no special casing.
+	huma.Head(rc.API, "/scenes/{slug}/week", sceneHandler.GetSceneCurrentWeekHandler)
+	huma.Head(rc.API, "/scenes/{slug}/week/{week}", sceneHandler.GetSceneWeekHandler)
 }

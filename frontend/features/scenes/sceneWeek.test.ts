@@ -1,0 +1,130 @@
+import { describe, it, expect } from 'vitest'
+import {
+  countShows,
+  formatDayHeading,
+  formatWeekRange,
+  looksLikeISOWeek,
+  showDisplayTitle,
+  showHref,
+  type SceneWeekResponse,
+  type SceneWeekShow,
+} from './sceneWeek'
+
+const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow => ({
+  id: 1,
+  title: '',
+  event_date: '2026-07-27',
+  is_sold_out: false,
+  is_cancelled: false,
+  ...over,
+})
+
+describe('formatDayHeading', () => {
+  // The load-bearing case. `new Date('2026-07-27')` parses as UTC midnight,
+  // which renders as Jul 26 in any negative-offset timezone — so a US reader
+  // would see every day of the week shifted back by one. These are calendar
+  // dates the backend already resolved in the scene's timezone, not instants.
+  it('renders the calendar date, not a timezone-shifted one', () => {
+    expect(formatDayHeading('2026-07-27')).toBe('MON JUL 27')
+    expect(formatDayHeading('2026-08-02')).toBe('SUN AUG 2')
+    expect(formatDayHeading('2026-01-01')).toBe('THU JAN 1')
+  })
+
+  it('does not drift across a month boundary', () => {
+    expect(formatDayHeading('2026-08-01')).toBe('SAT AUG 1')
+    expect(formatDayHeading('2026-07-31')).toBe('FRI JUL 31')
+  })
+})
+
+describe('formatWeekRange', () => {
+  it('spans a month boundary with the end year', () => {
+    expect(formatWeekRange('2026-07-27', '2026-08-02')).toBe(
+      'Mon, Jul 27 – Sun, Aug 2, 2026'
+    )
+  })
+
+  // ISO week 1 of 2026 starts 2025-12-29 — in the PREVIOUS calendar year. The
+  // range must show the year the week ENDS in.
+  it('handles a week that starts in the previous calendar year', () => {
+    expect(formatWeekRange('2025-12-29', '2026-01-04')).toBe(
+      'Mon, Dec 29 – Sun, Jan 4, 2026'
+    )
+  })
+})
+
+describe('looksLikeISOWeek', () => {
+  it('accepts well-formed keys regardless of case or padding whitespace', () => {
+    expect(looksLikeISOWeek('2026-W31')).toBe(true)
+    expect(looksLikeISOWeek('2026-w31')).toBe(true)
+    expect(looksLikeISOWeek('  2026-W31  ')).toBe(true)
+    // Shape only — 2025 has 52 weeks, but deciding that is the backend's job.
+    expect(looksLikeISOWeek('2025-W53')).toBe(true)
+  })
+
+  it('rejects anything that is not week-shaped', () => {
+    for (const bad of ['week', 'garbage', '2026', '2026-31', '26-W31', '2026-W3', '']) {
+      expect(looksLikeISOWeek(bad)).toBe(false)
+    }
+  })
+})
+
+describe('showDisplayTitle', () => {
+  // Most shows carry an empty title — display names are composed from the bill
+  // everywhere else in the app — so artists lead and title is the fallback.
+  it('prefers the bill over the title', () => {
+    expect(showDisplayTitle(show({ artist_names: ['Ovlov', 'Cusp'], title: 'Ignored' }))).toBe(
+      'Ovlov, Cusp'
+    )
+  })
+
+  it('falls back to the title when there is no bill', () => {
+    expect(showDisplayTitle(show({ title: 'Some Festival' }))).toBe('Some Festival')
+    expect(showDisplayTitle(show({ artist_names: [], title: 'Some Festival' }))).toBe(
+      'Some Festival'
+    )
+  })
+
+  it('never renders empty', () => {
+    expect(showDisplayTitle(show())).toBe('Live music')
+    expect(showDisplayTitle(show({ artist_names: null }))).toBe('Live music')
+  })
+})
+
+describe('showHref', () => {
+  it('prefers the slug and falls back to the id', () => {
+    expect(showHref(show({ slug: 'ovlov-2026-07-27' }))).toBe('/shows/ovlov-2026-07-27')
+    expect(showHref(show({ id: 42, slug: '' }))).toBe('/shows/42')
+  })
+})
+
+describe('countShows', () => {
+  const week = (over: Partial<SceneWeekResponse>): SceneWeekResponse =>
+    ({
+      slug: 'chicago-il',
+      scene_name: 'Chicago, IL',
+      city: 'Chicago',
+      state: 'IL',
+      iso_week: '2026-W31',
+      start_date: '2026-07-27',
+      end_date: '2026-08-02',
+      timezone: 'America/Chicago',
+      show_count: 0,
+      prev_week: '2026-W30',
+      next_week: '2026-W32',
+      is_current_week: false,
+      days: [],
+      tracked_venues: [],
+      ...over,
+    }) as SceneWeekResponse
+
+  it('uses the server count', () => {
+    expect(countShows(week({ show_count: 32 }))).toBe(32)
+  })
+
+  // `days` is typed nullable by the generator even though the API always emits
+  // an array; a header disagreeing with the list below it is worse than a
+  // recount.
+  it('survives a null days array', () => {
+    expect(countShows(week({ days: null, show_count: 0 }))).toBe(0)
+  })
+})

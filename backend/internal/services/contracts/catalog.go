@@ -802,6 +802,12 @@ type SceneShowSummary struct {
 	// Title — display names are composed from artists everywhere else in the
 	// app — so without these the preview row carries no band info at all.
 	ArtistNames []string `json:"artist_names,omitempty"`
+	// Status flags, needed by any surface that LISTS shows rather than linking
+	// to one. A weekly city page that renders a cancelled show identically to a
+	// live one is worse than omitting it, and the sold-out badge is part of the
+	// blessed design — without these the client can only guess.
+	IsSoldOut   bool `json:"is_sold_out"`
+	IsCancelled bool `json:"is_cancelled"`
 }
 
 // SceneWeekDay is one calendar day of a scene's week, in the scene's own
