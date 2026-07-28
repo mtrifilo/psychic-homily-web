@@ -17,6 +17,7 @@ let desired = false
 // Landing pageview is captured once per page load by enableAnalytics, because
 // the PostHogPageView effect fires before posthog has lazy-loaded (no-op then).
 let landingCaptured = false
+
 interface IdentityProps {
   email: string
   is_admin?: boolean
@@ -105,6 +106,11 @@ export function capturePageview(url: string): void {
 // the identity survives the lazy import (see `pendingIdentity`).
 export function identifyUser(id: string, props: IdentityProps): void {
   if (!instance) {
+    // The queue is a browser-only buffer. Module state is shared across
+    // requests in the server runtime, so queueing there would park one
+    // viewer's email where the next request could read it — and it could
+    // never be flushed anyway, since posthog only ever loads in the browser.
+    if (typeof window === 'undefined') return
     pendingIdentity = { id, props }
     return
   }

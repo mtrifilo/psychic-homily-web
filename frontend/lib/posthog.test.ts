@@ -231,6 +231,21 @@ describe('posthog (lazy, consent-gated)', () => {
       expect(mockIdentify).not.toHaveBeenCalled()
     })
 
+    it('does not queue on the server (module state is shared across requests)', async () => {
+      const windowSpy = vi.spyOn(globalThis, 'window', 'get')
+      windowSpy.mockReturnValue(undefined as unknown as Window & typeof globalThis)
+
+      const { identifyUser } = await import('./posthog')
+      identifyUser('u-server', { email: 'leak@test.com' })
+      windowSpy.mockRestore()
+
+      // Nothing was buffered, so a later enable can't replay a stale viewer.
+      const { enableAnalytics } = await import('./posthog')
+      await enableAnalytics()
+
+      expect(mockIdentify).not.toHaveBeenCalled()
+    })
+
     it('drops the queued identity when consent is withdrawn first', async () => {
       const { identifyUser, disableAnalytics, enableAnalytics } = await import(
         './posthog'
