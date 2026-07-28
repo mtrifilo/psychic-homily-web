@@ -5632,6 +5632,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shows/{show_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post shows by show ID report */
+        post: operations["post-shows-by-show-id-report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows/{show_id}/saves": {
         parameters: {
             query?: never;
@@ -13452,6 +13469,18 @@ export interface components {
             readonly $schema?: string;
             /** @description Items with new positions */
             items: components["schemas"]["ReorderItem"][] | null;
+        };
+        ReportShowRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ReportShowRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Optional details about the issue (primarily for inaccurate reports) */
+            details: string | null;
+            /** @description Type of report: cancelled, sold_out, or inaccurate */
+            report_type: string;
         };
         RequestResponse: {
             /**
@@ -29758,6 +29787,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShowResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-shows-by-show-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Show ID */
+                show_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportShowRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowReportResponse"];
                 };
             };
             /** @description Error */
