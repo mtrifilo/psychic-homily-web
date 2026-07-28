@@ -5391,6 +5391,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenes/{slug}/week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug week */
+        get: operations["get-scenes-by-slug-week"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scenes/{slug}/week/{week}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug week by week */
+        get: operations["get-scenes-by-slug-week-by-week"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows": {
         parameters: {
             query?: never;
@@ -5592,6 +5626,23 @@ export interface paths {
         put?: never;
         /** Post shows by show ID publish */
         post: operations["post-shows-by-show-id-publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shows/{show_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post shows by show ID report */
+        post: operations["post-shows-by-show-id-report"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13402,6 +13453,18 @@ export interface components {
             /** @description Items with new positions */
             items: components["schemas"]["ReorderItem"][] | null;
         };
+        ReportShowRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ReportShowRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Optional details about the issue (primarily for inaccurate reports) */
+            details: string | null;
+            /** @description Type of report: cancelled, sold_out, or inaccurate */
+            report_type: string;
+        };
         RequestResponse: {
             /**
              * Format: uri
@@ -13808,6 +13871,33 @@ export interface components {
             upcoming_show_count: number;
             /** Format: int64 */
             venue_count: number;
+        };
+        SceneWeekDay: {
+            date: string;
+            shows: components["schemas"]["SceneShowSummary"][] | null;
+        };
+        SceneWeekResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SceneWeekResponse.json
+             */
+            readonly $schema?: string;
+            city: string;
+            days: components["schemas"]["SceneWeekDay"][] | null;
+            end_date: string;
+            is_current_week: boolean;
+            iso_week: string;
+            next_week: string;
+            prev_week: string;
+            scene_name: string;
+            /** Format: int64 */
+            show_count: number;
+            slug: string;
+            start_date: string;
+            state: string;
+            timezone: string;
+            tracked_venues: string[] | null;
         };
         Schema: {
             AdditionalProperties: unknown;
@@ -29000,6 +29090,81 @@ export interface operations {
             };
         };
     };
+    "get-scenes-by-slug-week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneWeekResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-scenes-by-slug-week-by-week": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+                /**
+                 * @description ISO-8601 week key (e.g. 2026-W31)
+                 * @example 2026-W31
+                 */
+                week: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneWeekResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-shows": {
         parameters: {
             query?: {
@@ -29577,6 +29742,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShowResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-shows-by-show-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Show ID */
+                show_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportShowRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowReportResponse"];
                 };
             };
             /** @description Error */
