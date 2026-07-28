@@ -141,6 +141,50 @@ describe('useVenues', () => {
       expect(mockApiRequest.mock.calls[0][0]).toContain('include_rail=true')
     })
 
+    // PSY-1574: the browse page's city filter means the LITERAL city, so
+    // widening to the metro is opt-in the same way the rail fields are.
+    it('does not roll a city filter up to its metro by default', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useVenues({ city: 'Phoenix', state: 'AZ' }),
+        { wrapper: createWrapper() },
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest.mock.calls[0][0]).not.toContain('metro_rollup')
+    })
+
+    it('rolls the city filter up to the metro when asked', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useVenues({ city: 'Phoenix', state: 'AZ', metroRollup: true }),
+        { wrapper: createWrapper() },
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest.mock.calls[0][0]).toContain('metro_rollup=true')
+    })
+
+    // The API documents itself as ignoring metro_rollup alongside `cities`;
+    // sending it anyway would put a no-op param in the URL and the cache key.
+    it('omits the metro rollup when a multi-city filter is used', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(
+        () =>
+          useVenues({
+            cities: [{ city: 'Phoenix', state: 'AZ' }],
+            metroRollup: true,
+          }),
+        { wrapper: createWrapper() },
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest.mock.calls[0][0]).not.toContain('metro_rollup')
+    })
+
     // An unscoped GET /venues is a whole-catalogue page, not a cheap no-op —
     // the Atlas globe view has long stretches with no city resolved yet.
     it('makes no request while disabled', async () => {

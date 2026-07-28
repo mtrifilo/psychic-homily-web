@@ -28,6 +28,7 @@ function renderRail(props: Partial<React.ComponentProps<typeof VenueRail>> = {})
   const venues = props.venues ?? [venue()]
   const defaults: React.ComponentProps<typeof VenueRail> = {
     cityLabel: 'Austin, TX',
+    principalCity: 'Austin',
     venues,
     allVenues: props.allVenues ?? venues,
     filters: NO_CITY_VENUE_FILTERS,
@@ -104,6 +105,36 @@ describe('VenueRail', () => {
     expect(screen.getByRole('button', { name: /Mohawk/ })).toHaveTextContent(
       'nothing on the calendar',
     )
+  })
+
+  // PSY-1574: the rail is metro-scoped, so a row can sit in a city the header
+  // doesn't name — and its pin can be outside the current frame. The row has to
+  // say where it is, or it reads as a mistake.
+  it('prints the city of a metro-member venue and omits it for the principal city', () => {
+    renderRail({
+      principalCity: 'Phoenix',
+      venues: [
+        venue({ id: 1, name: 'Crescent Ballroom', city: 'Phoenix', state: 'AZ' }),
+        venue({ id: 2, name: 'Yucca Tap Room', city: 'Tempe', state: 'AZ' }),
+      ],
+    })
+
+    expect(
+      screen.getByRole('button', { name: /Yucca Tap Room/ }),
+    ).toHaveTextContent('Tempe')
+    expect(
+      screen.getByRole('button', { name: /Crescent Ballroom/ }),
+    ).not.toHaveTextContent('Phoenix')
+  })
+
+  it('does not label a principal-city row that differs only in case or padding', () => {
+    renderRail({
+      principalCity: 'Phoenix',
+      venues: [venue({ id: 1, name: 'Crescent Ballroom', city: ' phoenix ' })],
+    })
+    expect(
+      screen.getByRole('button', { name: /Crescent Ballroom/ }),
+    ).not.toHaveTextContent(/phoenix/i)
   })
 
   it('toggles the This week filter', () => {
