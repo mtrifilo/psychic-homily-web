@@ -14,6 +14,14 @@ interface ProvidersProps {
     children: React.ReactNode
 }
 
+/**
+ * Session-independent providers: URL search-param plumbing and the TanStack
+ * Query cache. Everything mounted here must work before the viewer's profile
+ * is known, because this sits ABOVE the `<HydrationBoundary>` that seeds the
+ * profile cache.
+ *
+ * Deliberately does NOT mount `AuthProvider` — see `<SessionProviders>`.
+ */
 export function Providers({ children }: ProvidersProps) {
     const queryClient = getQueryClient()
 
@@ -24,13 +32,34 @@ export function Providers({ children }: ProvidersProps) {
         // under it.
         <NuqsAdapter>
             <QueryClientProvider client={queryClient}>
-                <AuthProvider>
-                    <CreateCollectionDrawerProvider>
-                        {children}
-                    </CreateCollectionDrawerProvider>
-                </AuthProvider>
+                {children}
             </QueryClientProvider>
         </NuqsAdapter>
     )
 }
 
+/**
+ * Providers that read the viewer's profile out of the query cache.
+ *
+ * These MUST render below the `<HydrationBoundary>` in `<AuthHydrator>`.
+ * `AuthProvider` derives its state from `useProfile()`, so mounting it above
+ * the boundary leaves the single server render with an empty cache and the
+ * whole tree renders its `isLoading` branch — a spinner shell in the SSR HTML
+ * for authenticated and anonymous viewers alike. Below the boundary the seeded
+ * cache is already in context, so the server renders the real signed-in (or
+ * signed-out) tree.
+ *
+ * `CreateCollectionDrawerProvider` travels with it because the form it hosts
+ * calls `useAuthContext()`; left above the boundary it would throw
+ * "useAuthContext must be used within an AuthProvider" the first time a viewer
+ * opened the drawer.
+ */
+export function SessionProviders({ children }: ProvidersProps) {
+    return (
+        <AuthProvider>
+            <CreateCollectionDrawerProvider>
+                {children}
+            </CreateCollectionDrawerProvider>
+        </AuthProvider>
+    )
+}

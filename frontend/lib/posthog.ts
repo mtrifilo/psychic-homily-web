@@ -17,6 +17,18 @@ let desired = false
 // Landing pageview is captured once per page load by enableAnalytics, because
 // the PostHogPageView effect fires before posthog has lazy-loaded (no-op then).
 let landingCaptured = false
+// Identity the app asked for while posthog was still loading. The signed-in
+// viewer is known at first client render (the profile is hydrated from the
+// server), which is reliably EARLIER than the consent read + dynamic import
+// that produce `instance` — so without this the identify call would land on a
+// null instance and never be retried. Replayed by enableAnalytics once the
+// instance exists, same recovery shape as `landingCaptured`.
+let pendingIdentity: { id: string; props: IdentityProps } | null = null
+
+interface IdentityProps {
+  email: string
+  is_admin?: boolean
+}
 
 // Idempotent: dynamic-import + init posthog-js once. Returns null on the server
 // or when no key is configured.
@@ -62,6 +74,11 @@ export async function enableAnalytics(): Promise<void> {
     ph.capture('$pageview', { $current_url: window.location.href })
     landingCaptured = true
   }
+  // Replay the identify call that arrived before the instance existed.
+  if (pendingIdentity) {
+    ph.identify(pendingIdentity.id, pendingIdentity.props)
+    pendingIdentity = null
+  }
 }
 
 // Consent withdrawn → opt out / stop / reset. Also clears the intent flag so an
@@ -69,6 +86,10 @@ export async function enableAnalytics(): Promise<void> {
 // posthog never loaded or is already opted out.
 export function disableAnalytics(): void {
   desired = false
+  // Drop any queued identify: consent is gone, so it must never be replayed by
+  // a later enableAnalytics(). Re-granting consent re-fires the identify effect
+  // and re-queues it.
+  pendingIdentity = null
   if (!instance || !instance.has_opted_in_capturing()) return
   instance.opt_out_capturing()
   instance.stopSessionRecording()
@@ -80,15 +101,19 @@ export function capturePageview(url: string): void {
   instance?.capture('$pageview', { $current_url: url })
 }
 
-// Identify an authenticated user — only if posthog is already loaded.
-export function identifyUser(
-  id: string,
-  props: { email: string; is_admin?: boolean }
-): void {
-  instance?.identify(id, props)
+// Identify an authenticated user. Queued when posthog hasn't loaded yet, so
+// the identity survives the lazy import (see `pendingIdentity`).
+export function identifyUser(id: string, props: IdentityProps): void {
+  if (!instance) {
+    pendingIdentity = { id, props }
+    return
+  }
+  instance.identify(id, props)
 }
 
-// Reset identity (logout) — only if posthog is already loaded.
+// Reset identity (logout). Also drops any queued identify so a sign-out that
+// races the lazy import can't be undone by a replay.
 export function resetAnalytics(): void {
+  pendingIdentity = null
   instance?.reset()
 }

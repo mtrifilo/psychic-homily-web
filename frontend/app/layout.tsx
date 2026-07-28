@@ -41,6 +41,7 @@ import {
   Footer,
   CookieConsentBanner,
   PostHogProvider,
+  PostHogIdentify,
   AppShell,
   AuthHydrator,
 } from '@/components/layout'
@@ -110,8 +111,15 @@ export default function RootLayout({
           >
             <CookieConsentProvider>
               <PostHogProvider>
+                {/* AuthHydrator seeds the profile cache AND mounts the
+                    session-scoped providers inside its HydrationBoundary, so
+                    the server render sees the real signed-in / signed-out tree
+                    instead of a loading shell. PostHogProvider stays outside it
+                    on purpose: consent (and the banner below) must not wait on
+                    the profile prefetch. */}
                 <Suspense fallback={null}>
                   <AuthHydrator>
+                    <PostHogIdentify />
                     <AppShell>
                       <main id="main-content" className="flex-1">{children}</main>
                       <Footer />

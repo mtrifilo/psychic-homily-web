@@ -185,4 +185,62 @@ describe('posthog (lazy, consent-gated)', () => {
       })
     })
   })
+
+  // The signed-in viewer is known at first client render (profile hydrated
+  // server-side), which beats the consent read + lazy import that produce the
+  // posthog instance — so an identify that arrives early must be replayed, not
+  // dropped.
+  describe('identify queued before posthog loads', () => {
+    it('replays the queued identity once analytics is enabled', async () => {
+      const { identifyUser, enableAnalytics } = await import('./posthog')
+
+      identifyUser('u-early', { email: 'early@test.com', is_admin: false })
+      expect(mockIdentify).not.toHaveBeenCalled()
+
+      await enableAnalytics()
+
+      expect(mockIdentify).toHaveBeenCalledWith('u-early', {
+        email: 'early@test.com',
+        is_admin: false,
+      })
+    })
+
+    it('replays only the latest queued identity, once', async () => {
+      const { identifyUser, enableAnalytics } = await import('./posthog')
+
+      identifyUser('u-stale', { email: 'stale@test.com' })
+      identifyUser('u-fresh', { email: 'fresh@test.com' })
+      await enableAnalytics()
+      await enableAnalytics()
+
+      expect(mockIdentify).toHaveBeenCalledTimes(1)
+      expect(mockIdentify).toHaveBeenCalledWith('u-fresh', {
+        email: 'fresh@test.com',
+      })
+    })
+
+    it('drops the queued identity when the viewer logs out first', async () => {
+      const { identifyUser, resetAnalytics, enableAnalytics } = await import(
+        './posthog'
+      )
+
+      identifyUser('u-1', { email: 'a@b.com' })
+      resetAnalytics()
+      await enableAnalytics()
+
+      expect(mockIdentify).not.toHaveBeenCalled()
+    })
+
+    it('drops the queued identity when consent is withdrawn first', async () => {
+      const { identifyUser, disableAnalytics, enableAnalytics } = await import(
+        './posthog'
+      )
+
+      identifyUser('u-1', { email: 'a@b.com' })
+      disableAnalytics()
+      await enableAnalytics()
+
+      expect(mockIdentify).not.toHaveBeenCalled()
+    })
+  })
 })

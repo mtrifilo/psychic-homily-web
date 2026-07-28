@@ -9,15 +9,11 @@ import { PostHogProvider } from './PostHogProvider'
 const mockEnable = vi.fn()
 const mockDisable = vi.fn()
 const mockCapturePageview = vi.fn()
-const mockIdentifyUser = vi.fn()
-const mockResetAnalytics = vi.fn()
 
 vi.mock('@/lib/posthog', () => ({
   enableAnalytics: () => mockEnable(),
   disableAnalytics: () => mockDisable(),
   capturePageview: (...args: unknown[]) => mockCapturePageview(...args),
-  identifyUser: (...args: unknown[]) => mockIdentifyUser(...args),
-  resetAnalytics: () => mockResetAnalytics(),
 }))
 
 const mockUseCookieConsent = vi.fn(() => ({
@@ -29,21 +25,11 @@ vi.mock('@/lib/context/CookieConsentContext', () => ({
   useCookieConsent: () => mockUseCookieConsent(),
 }))
 
-// Widen the user type so individual tests can swap in a real user
-// without TS narrowing from the default-null literal (same pattern as
-// Sidebar / TopBar test files).
-type MockAuthContextValue = {
-  user: { id: string; email: string; is_admin?: boolean } | null
-  isAuthenticated: boolean
-}
-const mockUseAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
-  user: null,
-  isAuthenticated: false,
-}))
-
-vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => mockUseAuthContext(),
-}))
+// NOTE: AuthContext is deliberately NOT mocked. PostHogProvider renders above
+// the auth hydration boundary, so it must mount with no AuthProvider in
+// context — every test here would throw "useAuthContext must be used within an
+// AuthProvider" if the identify effect were moved back into the provider.
+// Identification lives in PostHogIdentify (see PostHogIdentify.test.tsx).
 
 // Suspense + useSearchParams need a navigation mock.
 vi.mock('next/navigation', () => ({
@@ -55,7 +41,6 @@ describe('PostHogProvider — consent sync', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
-    mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
 
   it('does nothing until consent context is loaded', () => {
@@ -89,7 +74,6 @@ describe('PostHogProvider — consent transition within a single mount', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
-    mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
 
   it('granted → withdrawn (re-render) disables analytics', () => {
@@ -115,58 +99,11 @@ describe('PostHogProvider — consent transition within a single mount', () => {
   })
 })
 
-// User identification side-effect: identify on auth, reset on logout, nothing
-// while consent is withheld.
-describe('PostHogProvider — user identification', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
-    mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
-  })
-
-  it('identifies the user when authenticated AND consent granted', () => {
-    mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
-    mockUseAuthContext.mockReturnValue({
-      user: { id: 'u-123', email: 'fan@test.com', is_admin: false },
-      isAuthenticated: true,
-    })
-    render(<PostHogProvider>child</PostHogProvider>)
-
-    expect(mockIdentifyUser).toHaveBeenCalledWith('u-123', {
-      email: 'fan@test.com',
-      is_admin: false,
-    })
-    expect(mockResetAnalytics).not.toHaveBeenCalled()
-  })
-
-  it('resets analytics when consent granted but user is logged out', () => {
-    mockUseCookieConsent.mockReturnValue({ canUseAnalytics: true, isLoaded: true })
-    mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
-    render(<PostHogProvider>child</PostHogProvider>)
-
-    expect(mockResetAnalytics).toHaveBeenCalledTimes(1)
-    expect(mockIdentifyUser).not.toHaveBeenCalled()
-  })
-
-  it('does NOT identify or reset when consent is withheld', () => {
-    mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
-    mockUseAuthContext.mockReturnValue({
-      user: { id: 'u-123', email: 'fan@test.com', is_admin: false },
-      isAuthenticated: true,
-    })
-    render(<PostHogProvider>child</PostHogProvider>)
-
-    expect(mockIdentifyUser).not.toHaveBeenCalled()
-    expect(mockResetAnalytics).not.toHaveBeenCalled()
-  })
-})
-
 // Children render through unchanged — provider must never block its subtree.
 describe('PostHogProvider — children render', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseCookieConsent.mockReturnValue({ canUseAnalytics: false, isLoaded: true })
-    mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
 
   it('renders children when consent loaded + analytics off', () => {
@@ -204,7 +141,6 @@ describe('PostHogProvider — children render', () => {
 describe('PostHogProvider — pageview capture', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseAuthContext.mockReturnValue({ user: null, isAuthenticated: false })
   })
 
   it('captures a pageview when consent granted', () => {
