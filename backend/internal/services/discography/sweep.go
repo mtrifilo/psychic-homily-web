@@ -77,13 +77,19 @@ func NewArtistDiscographySweep(database *gorm.DB, browser ReleaseGroupBrowser, c
 	}
 }
 
-// Start begins the background sweep. No startup cycle (runImmediately=false): a server
-// restart shouldn't kick off provider traffic; the first sweep fires one interval in.
+// Start begins the background sweep. No cycle on the boot path — a server restart
+// shouldn't kick off provider traffic. The first sweep is scheduled from persisted
+// run state rather than from process start, which is what kept this sweep from
+// ever reaching a second cycle in production.
 func (s *ArtistDiscographySweep) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		shared.RunTickerLoop(ctx, "artist_discography_sweep", s.interval, s.stopCh, false, s.runCycle)
+		shared.RunTickerLoop(ctx, shared.LoopConfig{
+			Name:     "artist_discography_sweep",
+			Interval: s.interval,
+			StopCh:   s.stopCh,
+		}, s.runCycle)
 	}()
 	s.logger.Info("artist discography sweep started",
 		"interval", s.interval, "batch", s.batch, "reattempt", s.reattempt)
@@ -108,9 +114,11 @@ func (s *ArtistDiscographySweep) runCycle(ctx context.Context) {
 		ReattemptWindow: s.reattempt,
 	})
 	if err != nil {
+		shared.ReportCycle(ctx, 0, err)
 		s.logger.Error("artist discography sweep: cycle failed", "error", err)
 		return
 	}
+	shared.ReportCycle(ctx, report.ArtistsScanned, nil)
 	if report.ArtistsScanned == 0 {
 		return
 	}

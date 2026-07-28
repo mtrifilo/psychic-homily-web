@@ -121,7 +121,12 @@ func (s *AutoPromotionService) Stop() {
 // run is the main loop for the auto-promotion scheduler.
 func (s *AutoPromotionService) run(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "auto_promotion", s.interval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "auto_promotion",
+		Interval:  s.interval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runEvaluationCycle()
 	})
 }

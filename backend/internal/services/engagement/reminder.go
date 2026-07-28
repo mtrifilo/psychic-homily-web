@@ -88,7 +88,12 @@ func (s *ReminderService) Stop() {
 // run is the main loop for the reminder service.
 func (s *ReminderService) run(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "reminder", s.interval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "reminder",
+		Interval:  s.interval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runReminderCycle()
 	})
 }

@@ -118,7 +118,12 @@ func (s *SceneDigestService) Stop() {
 // row sends nothing because cursors moved).
 func (s *SceneDigestService) run(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "scene_digest", s.interval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "scene_digest",
+		Interval:  s.interval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runDigestCycle()
 	})
 }

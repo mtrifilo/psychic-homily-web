@@ -117,7 +117,12 @@ func (s *CollectionDigestService) Stop() {
 // time because cursors moved.
 func (s *CollectionDigestService) run(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "collection_digest", s.interval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "collection_digest",
+		Interval:  s.interval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runDigestCycle()
 	})
 }

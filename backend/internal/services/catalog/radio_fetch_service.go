@@ -510,41 +510,64 @@ func (s *RadioFetchService) Stop() {
 // runFetchLoop runs the periodic station fetch cycle. Runs once on startup.
 func (s *RadioFetchService) runFetchLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_fetch", s.fetchInterval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "radio_fetch",
+		Interval:  s.fetchInterval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runFetchCycle()
 	})
 }
 
 // runBackfillLoop runs the periodic post-air playlist backfill sweep (PSY-1154).
-// runImmediately=false: unlike fetch/discover there is no "see output now" payoff in
-// firing it at boot, and skipping the startup tick avoids piling a third sweep onto
-// the fetch+discover co-fire (which both run immediately).
+// No boot cycle: unlike fetch/discover there is no "see output now" payoff in firing
+// it at boot, and skipping it avoids piling a third sweep onto the fetch+discover
+// co-fire (which both do run at boot).
 func (s *RadioFetchService) runBackfillLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_backfill", s.backfillInterval, s.stopCh, false, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:     "radio_backfill",
+		Interval: s.backfillInterval,
+		StopCh:   s.stopCh,
+	}, func(_ context.Context) {
 		s.runBackfillCycle()
 	})
 }
 
 // runJanitorLoop runs the nightly janitor/reconcile cycle (PSY-1155).
-// runImmediately=false: it's a maintenance sweep with no urgency at boot, and the
-// lifecycle + play_count reconciles + the straggler backfill are heavier than a
-// normal tick — skipping the startup fire avoids piling them onto the fetch+discover
-// co-fire. Admins can force a run via RunJanitorCycleNow.
+// No boot cycle: it's a maintenance sweep with no urgency at boot, and the lifecycle
+// + play_count reconciles + the straggler backfill are heavier than a normal cycle —
+// skipping the boot fire avoids piling them onto the fetch+discover co-fire. Admins
+// can force a run via RunJanitorCycleNow.
+//
+// This loop is the reason the durable run-state row exists at all. Every table
+// the janitor writes is also written by the 6h fetch loop, so "has the janitor ever
+// run?" was unanswerable even in retrospect. background_service_runs is
+// now the janitor-exclusive artifact that answers it.
 func (s *RadioFetchService) runJanitorLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_janitor", s.janitorInterval, s.stopCh, false, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:     "radio_janitor",
+		Interval: s.janitorInterval,
+		StopCh:   s.stopCh,
+	}, func(_ context.Context) {
 		s.runJanitorCycle()
 	})
 }
 
 // runScheduleLoop runs the periodic WFMU schedule scrape (PSY-1159).
-// runImmediately=true: the schedule is the air-time source for episode windowing, so a
-// fresh deploy should populate it without waiting a full (weekly) interval — and it's a
+// RunAtBoot: the schedule is the air-time source for episode windowing, so a fresh
+// deploy should populate it without waiting a full (weekly) interval — and it's a
 // single cheap GET of one page, not a per-station sweep.
 func (s *RadioFetchService) runScheduleLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_schedule", s.scheduleInterval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "radio_schedule",
+		Interval:  s.scheduleInterval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runScheduleCycle()
 	})
 }
@@ -587,13 +610,17 @@ func (s *RadioFetchService) runScheduleCycle() {
 }
 
 // runSlotFetchLoop runs the schedule-aware slot fetch (PSY-1333).
-// runImmediately=false: the boot co-fire already runs a FULL station sweep,
+// No boot cycle: the boot co-fire already runs a FULL station sweep,
 // which supersedes anything a slot tick would fetch; the first tick one
 // interval later starts the steady state (its cold-start lookback covers the
 // boot window).
 func (s *RadioFetchService) runSlotFetchLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_slot_fetch", s.slotFetchInterval, s.stopCh, false, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:     "radio_slot_fetch",
+		Interval: s.slotFetchInterval,
+		StopCh:   s.stopCh,
+	}, func(_ context.Context) {
 		s.runSlotFetchCycle()
 	})
 }
@@ -707,11 +734,16 @@ func mergeShowWorkLists(dst, src map[uint][]uint) {
 // runSubstreamScheduleLoop runs the periodic WFMU sub-stream schedule scrape
 // (PSY-1322) on its OWN daily ticker — not the weekly flagship cycle, whose
 // fixed weekday would freeze the partial-today exclusion on one day forever.
-// runImmediately=true for the same reason the flagship loop uses it: a fresh
+// RunAtBoot for the same reason the flagship loop uses it: a fresh
 // deploy should populate windows without waiting a full interval.
 func (s *RadioFetchService) runSubstreamScheduleLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_substream_schedule", s.substreamScheduleInterval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "radio_substream_schedule",
+		Interval:  s.substreamScheduleInterval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runSubstreamScheduleCycle()
 	})
 }
@@ -758,19 +790,30 @@ func (s *RadioFetchService) runSubstreamScheduleCycle() {
 }
 
 // runAffinityLoop runs the periodic affinity computation.
-// No startup cycle — the first fetch cycle is allowed to complete first.
+// No boot cycle — the first fetch cycle is allowed to complete first. The schedule
+// comes from persisted run state, so a redeploy no longer resets it.
 func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_affinity", s.affinityInterval, s.stopCh, false, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:     "radio_affinity",
+		Interval: s.affinityInterval,
+		StopCh:   s.stopCh,
+	}, func(_ context.Context) {
 		s.runAffinityCycle()
 	})
 }
 
 // runReMatchLoop runs the periodic re-matching of unmatched plays.
-// No startup cycle — the first fetch cycle is allowed to complete first.
+// No boot cycle — the first fetch cycle is allowed to complete first. On a 7-day
+// interval this loop had never run in production at all: no uptime window ever
+// came close to 168h. Persisted run state is what makes the cadence reachable.
 func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_rematch", s.rematchInterval, s.stopCh, false, func(cycleCtx context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:     "radio_rematch",
+		Interval: s.rematchInterval,
+		StopCh:   s.stopCh,
+	}, func(cycleCtx context.Context) {
 		s.runReMatchCycle(cycleCtx)
 	})
 }
@@ -779,7 +822,12 @@ func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 // startup so operators see output without waiting a full interval.
 func (s *RadioFetchService) runDiscoverLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "radio_discover", s.discoverInterval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "radio_discover",
+		Interval:  s.discoverInterval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runDiscoverCycle()
 	})
 }

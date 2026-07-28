@@ -125,7 +125,12 @@ func (s *CleanupService) Stop() {
 // runCleanupLoop runs the account cleanup cycle on its own ticker.
 func (s *CleanupService) runCleanupLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "cleanup_accounts", s.interval, s.stopCh, true, func(_ context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "cleanup_accounts",
+		Interval:  s.interval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runCleanupCycle()
 	})
 }
@@ -133,7 +138,12 @@ func (s *CleanupService) runCleanupLoop(ctx context.Context) {
 // runTagPruneLoop runs the entity-tags prune cycle on its own ticker.
 func (s *CleanupService) runTagPruneLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "cleanup_tag_prune", s.tagPruneInterval, s.stopCh, true, func(c context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:      "cleanup_tag_prune",
+		Interval:  s.tagPruneInterval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(c context.Context) {
 		s.runTagPruneCycle(c)
 	})
 }

@@ -75,10 +75,17 @@ func (w *EnrichmentWorker) Stop() {
 }
 
 // run is the main loop for the enrichment worker.
-// No startup cycle — waits one interval before the first tick.
+// No boot cycle. The interval is well under an hour, so the first cycle is
+// bounded by StartDelay's cap at the interval — one interval, same as before —
+// and the loop is below the run-state persistence threshold: a row
+// write every 30s would buy nothing a drained queue doesn't already prove.
 func (w *EnrichmentWorker) run(ctx context.Context) {
 	defer w.wg.Done()
-	shared.RunTickerLoop(ctx, "enrichment_worker", w.interval, w.stopCh, false, func(c context.Context) {
+	shared.RunTickerLoop(ctx, shared.LoopConfig{
+		Name:     "enrichment_worker",
+		Interval: w.interval,
+		StopCh:   w.stopCh,
+	}, func(c context.Context) {
 		w.processTick(c)
 	})
 }

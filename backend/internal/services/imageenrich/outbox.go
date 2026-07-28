@@ -146,13 +146,19 @@ func NewImageEnrichOutboxPoller(database *gorm.DB, enricher *Enricher) *ImageEnr
 	}
 }
 
-// Start begins the background poller. No startup cycle (mirrors the sweep /
-// EnrichmentWorker): the first tick fires one interval in.
+// Start begins the background poller. No boot cycle (mirrors the sweep /
+// EnrichmentWorker). At a 60s interval this stays below the run-state
+// persistence threshold — the first cycle is one interval in, which
+// no deploy cadence can starve.
 func (p *ImageEnrichOutboxPoller) Start(ctx context.Context) {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		shared.RunTickerLoop(ctx, "image_enrich_outbox", p.interval, p.stopCh, false, p.processTick)
+		shared.RunTickerLoop(ctx, shared.LoopConfig{
+			Name:     "image_enrich_outbox",
+			Interval: p.interval,
+			StopCh:   p.stopCh,
+		}, p.processTick)
 	}()
 	p.logger.Info("image enrichment outbox poller started",
 		"interval", p.interval, "batch", p.batch, "stale_reclaim", p.staleReclaim, "retention", p.retention)
