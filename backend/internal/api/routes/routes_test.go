@@ -12,6 +12,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services"
 )
@@ -710,5 +711,110 @@ func TestSubAPIsDoNotRegisterDocRoutes(t *testing.T) {
 	}
 	if c.Info == nil || c.Info.Title != "Psychic Homily Test Sub-API" {
 		t.Error("subAPIConfig must preserve the title it was given")
+	}
+}
+
+// --- PSY-1598: rate-limited operations moved onto the main API ---
+
+// TestReportSubmitIsInMainSpec proves the point of the change: an operation
+// that carries a rate limit now appears in the PUBLISHED spec.
+//
+// Before PSY-1598 this route lived on its own humachi.New inside a chi.Group,
+// and a separate instance owns a separate OpenAPI document — so the operation
+// was reachable but undocumented. TestSubAPIOperationsAreAbsentFromSpec pins
+// the ones still in that state; this is the first to graduate out of it.
+func TestReportSubmitIsInMainSpec(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	req := httptest.NewRequest("GET", "/openapi.json", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var spec struct {
+		Paths map[string]map[string]interface{} `json:"paths"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	item, ok := spec.Paths["/shows/{show_id}/report"]
+	if !ok {
+		t.Fatal("/shows/{show_id}/report is missing from the served spec")
+	}
+	if _, ok := item["post"]; !ok {
+		t.Error("expected a documented POST operation for /shows/{show_id}/report")
+	}
+}
+
+// TestReportSubmitStillRateLimited is the safety half. Moving the limiter from
+// chi middleware to a Huma group must not weaken it: this is abuse protection,
+// and a silently-disabled limiter looks exactly like a working one until
+// someone floods the endpoint.
+//
+// The limiter is registered BEFORE the JWT middleware, so it applies to
+// unauthenticated traffic too — which is the traffic that matters here. The
+// burst therefore expects "anything but 429" up to the cap (401 is fine; the
+// request got past the limiter) and 429 after it.
+func TestReportSubmitStillRateLimited(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	const ip = "203.0.113.7:1234" // fixed source so httprate keys consistently
+	send := func() int {
+		req := httptest.NewRequest("POST", "/shows/1/report", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = ip
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	limit := middleware.ReportRequestsPerMinute
+	for i := 0; i < limit; i++ {
+		if code := send(); code == http.StatusTooManyRequests {
+			t.Fatalf("request %d/%d was rate limited early (429); the limiter is tighter than %d/min",
+				i+1, limit, limit)
+		}
+	}
+
+	if code := send(); code != http.StatusTooManyRequests {
+		t.Errorf("request %d returned %d, want 429 — the rate limit did NOT survive the move to a Huma group",
+			limit+1, code)
+	}
+}
+
+// TestReportSubmitRateLimitIsPerIP guards the key function surviving the move:
+// a different source address must get its own budget, or one abusive client
+// would lock out everyone.
+func TestReportSubmitRateLimitIsPerIP(t *testing.T) {
+	cfg := testConfig()
+	sc := testContainer(cfg)
+	router := chi.NewRouter()
+	SetupRoutes(router, sc, cfg)
+
+	send := func(ip string) int {
+		req := httptest.NewRequest("POST", "/shows/1/report", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = ip
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	// Exhaust one client's budget.
+	for i := 0; i <= middleware.ReportRequestsPerMinute; i++ {
+		send("198.51.100.1:5000")
+	}
+	if code := send("198.51.100.1:5000"); code != http.StatusTooManyRequests {
+		t.Fatalf("first client should be limited, got %d", code)
+	}
+
+	if code := send("198.51.100.2:5000"); code == http.StatusTooManyRequests {
+		t.Error("a different IP was rate limited by the first client's budget; KeyByIP did not survive the move")
 	}
 }

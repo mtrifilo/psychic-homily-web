@@ -17,20 +17,25 @@ import (
 func setupShowReportRoutes(rc RouteContext) {
 	showReportHandler := communityh.NewShowReportHandler(rc.SC.ShowReport, rc.SC.Discord, rc.SC.User, rc.SC.AuditLog)
 
-	// Rate-limited report submission: 5 requests per minute per IP
-	// Prevents spamming admins with reports
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(
-			middleware.ReportRequestsPerMinute,
-			time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		))
-		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Reports"))
-		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
-		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
-		huma.Post(reportAPI, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
-	})
+	// Rate-limited report submission: 5 requests per minute per IP.
+	// Prevents spamming admins with reports.
+	//
+	// PSY-1598: registered on the MAIN api via a Huma group, not on its own
+	// humachi.New inside a chi.Group. A separate instance owns a separate
+	// OpenAPI document, so this operation was absent from the published spec.
+	// The limiter is the same httprate middleware as before, bridged by
+	// humaFromHTTP — see its doc for why the existing one is reused rather than
+	// reimplemented.
+	reportSubmitGroup := huma.NewGroup(rc.API, "")
+	reportSubmitGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
+		middleware.ReportRequestsPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	)))
+	reportSubmitGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	reportSubmitGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+	huma.Post(reportSubmitGroup, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
 
 	// Protected report endpoints (no additional rate limiting)
 	huma.Get(rc.Protected, "/shows/{show_id}/my-report", showReportHandler.GetMyReportHandler)
