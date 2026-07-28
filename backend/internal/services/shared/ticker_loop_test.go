@@ -46,9 +46,9 @@ func TestRunTickerLoop_PanicInWorkContinuesLoop(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "test-service",
-		Interval: 10*time.Millisecond,
-	}, work)
+			Name:     "test-service",
+			Interval: 10 * time.Millisecond,
+		}, work)
 		close(done)
 	}()
 
@@ -78,9 +78,9 @@ func TestRunTickerLoop_NormalWorkRunsRepeatedly(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "happy-service",
-		Interval: 10*time.Millisecond,
-	}, work)
+			Name:     "happy-service",
+			Interval: 10 * time.Millisecond,
+		}, work)
 		close(done)
 	}()
 
@@ -106,10 +106,10 @@ func TestRunTickerLoop_RunImmediately(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "startup-service",
-		Interval: 1*time.Hour,
-		RunAtBoot: true,
-	}, work)
+			Name:      "startup-service",
+			Interval:  1 * time.Hour,
+			RunAtBoot: true,
+		}, work)
 		close(done)
 	}()
 
@@ -136,10 +136,10 @@ func TestRunTickerLoop_StartupPanicDoesNotKillLoop(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "startup-panic-service",
-		Interval: 10*time.Millisecond,
-		RunAtBoot: true,
-	}, work)
+			Name:      "startup-panic-service",
+			Interval:  10 * time.Millisecond,
+			RunAtBoot: true,
+		}, work)
 		close(done)
 	}()
 
@@ -167,10 +167,10 @@ func TestRunTickerLoop_StopChannel(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "stop-ch-service",
-		Interval: 10*time.Millisecond,
-		StopCh:   stopCh,
-	}, work)
+			Name:     "stop-ch-service",
+			Interval: 10 * time.Millisecond,
+			StopCh:   stopCh,
+		}, work)
 	}()
 
 	// Let it tick a few times, then close stopCh.
@@ -207,9 +207,9 @@ func TestRunTickerLoop_ContextCancellationStopsLoop(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "ctx-cancel-service",
-		Interval: 10*time.Millisecond,
-	}, work)
+			Name:     "ctx-cancel-service",
+			Interval: 10 * time.Millisecond,
+		}, work)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
@@ -285,9 +285,9 @@ func TestRunTickerLoop_PanicHandlerInvokedOnTickPanic(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "panic-handler-test-service",
-		Interval: 10*time.Millisecond,
-	}, work)
+			Name:     "panic-handler-test-service",
+			Interval: 10 * time.Millisecond,
+		}, work)
 		close(done)
 	}()
 	<-done
@@ -352,9 +352,9 @@ func TestRunTickerLoop_NilPanicHandlerIsNoop(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "no-handler-service",
-		Interval: 10*time.Millisecond,
-	}, work)
+			Name:     "no-handler-service",
+			Interval: 10 * time.Millisecond,
+		}, work)
 		close(done)
 	}()
 	<-done
@@ -390,9 +390,9 @@ func TestRunTickerLoop_PanicHandlerOwnPanicDoesNotKillLoop(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		RunTickerLoop(ctx, LoopConfig{
-		Name:     "buggy-handler-service",
-		Interval: 10*time.Millisecond,
-	}, work)
+			Name:     "buggy-handler-service",
+			Interval: 10 * time.Millisecond,
+		}, work)
 		close(done)
 	}()
 	<-done
