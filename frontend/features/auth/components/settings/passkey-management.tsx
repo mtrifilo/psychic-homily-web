@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { browserSupportsWebAuthn } from '@simplewebauthn/browser'
 import { Trash2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,15 +9,17 @@ import {
   PasskeyRegisterButton,
   usePasskeyCredentials,
   useDeletePasskey,
+  useWebAuthnSupport,
 } from '@/features/auth'
 import { isAuthError } from '@/lib/errors'
 
 export function PasskeyManagement() {
-  const supportsWebAuthn = browserSupportsWebAuthn()
+  const supportsWebAuthn = useWebAuthnSupport()
 
   // Credential list comes from the shared query cache (PSY-1102) — no more
   // raw fetch-in-effect or hand-rolled loading state. Gated on WebAuthn
-  // support so unsupported browsers never issue the request.
+  // support so unsupported browsers stop issuing the request as soon as the
+  // capability is known (one commit after hydration, per the hook).
   const credentialsQuery = usePasskeyCredentials(supportsWebAuthn)
   const deletePasskey = useDeletePasskey()
 

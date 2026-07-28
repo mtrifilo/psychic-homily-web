@@ -3,10 +3,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
-import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser'
+import { startAuthentication } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
@@ -25,8 +26,7 @@ export function PasskeyLoginButton({
   const { setUser } = useAuthContext()
   const [isLoading, setIsLoading] = useState(false)
 
-  // Check if browser supports WebAuthn
-  const supportsWebAuthn = browserSupportsWebAuthn()
+  const supportsWebAuthn = useWebAuthnSupport()
 
   const handlePasskeyLogin = async () => {
     if (!supportsWebAuthn) {
@@ -137,5 +137,3 @@ export function PasskeyLoginButton({
     </Button>
   )
 }
-
-export { browserSupportsWebAuthn }
