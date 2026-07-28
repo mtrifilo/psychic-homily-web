@@ -66,7 +66,7 @@ func (s *RelationshipDerivationService) Stop() {
 // shared_bills derivation reached exactly one cycle in the life of production.
 func (s *RelationshipDerivationService) runLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:     "relationship_derivation",
 		Interval: s.interval,
 		StopCh:   s.stopCh,

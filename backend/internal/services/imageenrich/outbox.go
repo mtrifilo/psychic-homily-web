@@ -154,7 +154,7 @@ func (p *ImageEnrichOutboxPoller) Start(ctx context.Context) {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		shared.RunTickerLoop(ctx, shared.LoopConfig{
+		shared.RunScheduledLoop(ctx, shared.LoopConfig{
 			Name:     "image_enrich_outbox",
 			Interval: p.interval,
 			StopCh:   p.stopCh,

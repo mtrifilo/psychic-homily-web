@@ -18,7 +18,7 @@ import (
 // take down the whole server. GoSafe contains that blast radius to the one
 // goroutine.
 //
-// The recover mirrors RunTickerLoop's guard and routes through the same
+// The recover mirrors RunScheduledLoop's guard and routes through the same
 // process-wide PanicHandler (installed once in cmd/server/main.go after Sentry
 // init), so a recovered panic is both logged via slog.Default() and escalated
 // to Sentry tagged with `name`. When no handler is set (tests, CLIs), the

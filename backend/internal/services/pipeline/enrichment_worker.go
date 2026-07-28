@@ -81,7 +81,7 @@ func (w *EnrichmentWorker) Stop() {
 // write every 30s would buy nothing a drained queue doesn't already prove.
 func (w *EnrichmentWorker) run(ctx context.Context) {
 	defer w.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:     "enrichment_worker",
 		Interval: w.interval,
 		StopCh:   w.stopCh,

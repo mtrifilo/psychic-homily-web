@@ -14,7 +14,7 @@ package catalog
 // one provider round-trip per station per TTL window, and concurrent cold
 // requests for the same station serialize on the entry mutex instead of
 // duplicating the fetch. Chosen over the ticker-refresh pattern
-// (services/shared.RunTickerLoop) because the dial has a handful of stations
+// (services/shared.RunScheduledLoop) because the dial has a handful of stations
 // and on-demand fill avoids polling providers for stations nobody is viewing.
 
 import (

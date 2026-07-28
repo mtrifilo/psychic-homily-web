@@ -138,7 +138,7 @@ const (
 	// stations processed sequentially behind a 1-rps-per-provider rate limiter) the
 	// per-request attempt cap (tier 1) is the dominant control, and ≥minReqs requests
 	// rarely land within a single 2-min window — so tier 2 engages essentially only on
-	// the startup co-fire (both loops runImmediately) or if request volume grows. It is
+	// the boot co-fire (both loops run at boot) or if request volume grows. It is
 	// a forward-looking safety net, not a per-cycle limiter. The events slice is bounded
 	// by that same upstream provider rate limiter (≈1 noteRequest/sec/provider) — a
 	// change that removes that throttle would need to revisit this.
@@ -510,7 +510,7 @@ func (s *RadioFetchService) Stop() {
 // runFetchLoop runs the periodic station fetch cycle. Runs once on startup.
 func (s *RadioFetchService) runFetchLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:      "radio_fetch",
 		Interval:  s.fetchInterval,
 		StopCh:    s.stopCh,
@@ -526,7 +526,7 @@ func (s *RadioFetchService) runFetchLoop(ctx context.Context) {
 // co-fire (which both do run at boot).
 func (s *RadioFetchService) runBackfillLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:     "radio_backfill",
 		Interval: s.backfillInterval,
 		StopCh:   s.stopCh,
@@ -547,7 +547,7 @@ func (s *RadioFetchService) runBackfillLoop(ctx context.Context) {
 // now the janitor-exclusive artifact that answers it.
 func (s *RadioFetchService) runJanitorLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:     "radio_janitor",
 		Interval: s.janitorInterval,
 		StopCh:   s.stopCh,
@@ -562,7 +562,7 @@ func (s *RadioFetchService) runJanitorLoop(ctx context.Context) {
 // single cheap GET of one page, not a per-station sweep.
 func (s *RadioFetchService) runScheduleLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:      "radio_schedule",
 		Interval:  s.scheduleInterval,
 		StopCh:    s.stopCh,
@@ -574,7 +574,7 @@ func (s *RadioFetchService) runScheduleLoop(ctx context.Context) {
 
 // runScheduleCycle scrapes wfmu.org/table and writes the parsed recurring slots onto the
 // WFMU 91.1 shows (matched by external_id). WFMU-only: the /table grid is the 91.1
-// schedule. Every failure is logged and returns — never fatal; the ticker loop continues.
+// schedule. Every failure is logged and returns — never fatal; the scheduled loop continues.
 func (s *RadioFetchService) runScheduleCycle() {
 	start := time.Now()
 	provider, err := s.radioService.getProvider(catalogm.PlaylistSourceWFMU)
@@ -616,7 +616,7 @@ func (s *RadioFetchService) runScheduleCycle() {
 // boot window).
 func (s *RadioFetchService) runSlotFetchLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:     "radio_slot_fetch",
 		Interval: s.slotFetchInterval,
 		StopCh:   s.stopCh,
@@ -738,7 +738,7 @@ func mergeShowWorkLists(dst, src map[uint][]uint) {
 // deploy should populate windows without waiting a full interval.
 func (s *RadioFetchService) runSubstreamScheduleLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:      "radio_substream_schedule",
 		Interval:  s.substreamScheduleInterval,
 		StopCh:    s.stopCh,
@@ -794,7 +794,7 @@ func (s *RadioFetchService) runSubstreamScheduleCycle() {
 // comes from persisted run state, so a redeploy no longer resets it.
 func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:     "radio_affinity",
 		Interval: s.affinityInterval,
 		StopCh:   s.stopCh,
@@ -809,7 +809,7 @@ func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 // came close to 168h. Persisted run state is what makes the cadence reachable.
 func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:     "radio_rematch",
 		Interval: s.rematchInterval,
 		StopCh:   s.stopCh,
@@ -822,7 +822,7 @@ func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 // startup so operators see output without waiting a full interval.
 func (s *RadioFetchService) runDiscoverLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:      "radio_discover",
 		Interval:  s.discoverInterval,
 		StopCh:    s.stopCh,

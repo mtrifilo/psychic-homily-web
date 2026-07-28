@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// PanicHandler is invoked when a panic is recovered inside RunTickerLoop.
+// PanicHandler is invoked when a panic is recovered inside RunScheduledLoop.
 // `service` is the loop name, `panicValue` is the recovered value (whatever
 // the work passed to `panic`), and `stack` is the stack trace as a string.
 //
@@ -32,11 +32,11 @@ var (
 	panicHandler   PanicHandler
 )
 
-// SetPanicHandler installs a process-wide handler for ticker-loop panics.
+// SetPanicHandler installs a process-wide handler for scheduled-loop panics.
 // Pass nil to clear (used by tests via t.Cleanup).
 //
 // Intended to be called once at startup from cmd/server/main.go after
-// Sentry is initialised. Safe to call concurrently with RunTickerLoop.
+// Sentry is initialised. Safe to call concurrently with RunScheduledLoop.
 func SetPanicHandler(h PanicHandler) {
 	panicHandlerMu.Lock()
 	panicHandler = h
@@ -56,7 +56,7 @@ func invokePanicHandler(service string, panicValue any, stack []byte) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Default().Error("ticker-loop panic handler itself panicked",
+			slog.Default().Error("scheduled-loop panic handler itself panicked",
 				"service", service,
 				"panic", r,
 			)
@@ -65,27 +65,31 @@ func invokePanicHandler(service string, panicValue any, stack []byte) {
 	h(service, panicValue, stack)
 }
 
-// Scheduling defaults. Package variables rather than constants so tests can
-// compress them; production tuning goes through the env vars below.
-var (
-	// DefaultFirstCycleDelay bounds the first cycle of a loop that does not run
+// Scheduling policy. Fixed for the process — a caller that needs different
+// values sets them per loop on LoopConfig.
+const (
+	// defaultFirstCycleDelay bounds the first cycle of a loop that does not run
 	// at boot and has no persisted state to schedule from. Long enough to keep
 	// third-party traffic off the boot path, short enough to fit inside any
 	// uptime the platform realistically gives us.
-	DefaultFirstCycleDelay = 15 * time.Minute
+	defaultFirstCycleDelay = 15 * time.Minute
 
-	// RunStatePersistenceThreshold is the interval at or above which a loop gets
+	// runStatePersistenceThreshold is the interval at or above which a loop gets
 	// durable run state. Below it, persistence is waste: a sub-hour loop reaches
 	// its first cycle inside any plausible uptime (the sub-hour loops were the
 	// control group that proved this empirically), so a row write every 30s buys
 	// nothing.
-	RunStatePersistenceThreshold = time.Hour
+	runStatePersistenceThreshold = time.Hour
 
 	// defaultRunLease is how long a claim stays valid before another instance may
 	// treat it as abandoned. It only has to cover a normal cycle; the bounded
 	// batches these loops use run in minutes.
 	defaultRunLease = time.Hour
+)
 
+// Tunable at runtime: the env-configured knobs, plus the retry floor that tests
+// compress to keep their runtime sane.
+var (
 	// claimRetryDelay is how soon a loop retries after a claim was refused
 	// because another instance held a live one. Without a retry the loop would
 	// wait a full interval, so one crashed process could cost a daily sweep a
@@ -145,12 +149,12 @@ type LoopConfig struct {
 	RunAtBoot bool
 
 	// StartDelay bounds the first cycle when RunAtBoot is false and there is no
-	// persisted state. Zero means DefaultFirstCycleDelay. Always capped at
+	// persisted state. Zero means defaultFirstCycleDelay. Always capped at
 	// Interval, so a 30s loop is never pushed out to 15m.
 	StartDelay time.Duration
 
 	// Store makes the schedule durable. Leave nil to get the process-wide default
-	// store for loops at or above RunStatePersistenceThreshold, and no persistence
+	// store for loops at or above runStatePersistenceThreshold, and no persistence
 	// below it. Set it explicitly only in tests, or to opt a short loop in.
 	Store RunStore
 
@@ -160,7 +164,7 @@ type LoopConfig struct {
 	RunLease time.Duration
 }
 
-// RunTickerLoop runs `work` on a schedule, returning when `ctx` is canceled or
+// RunScheduledLoop runs `work` on a schedule, returning when `ctx` is canceled or
 // `cfg.StopCh` is closed.
 //
 // Two layers of `recover()` are intentional:
@@ -178,7 +182,7 @@ type LoopConfig struct {
 // The loop is driven by a timer rather than a time.Ticker on purpose: every delay
 // is recomputed from the outcome of the previous cycle (ran / refused / due at),
 // so no wait is ever anchored to process start.
-func RunTickerLoop(ctx context.Context, cfg LoopConfig, work func(context.Context)) {
+func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
 			stack := debug.Stack()
@@ -258,7 +262,7 @@ func newLoopRunner(cfg LoopConfig, work func(context.Context)) *loopRunner {
 
 	startDelay := cfg.StartDelay
 	if startDelay <= 0 {
-		startDelay = DefaultFirstCycleDelay
+		startDelay = defaultFirstCycleDelay
 	}
 	if startDelay > interval {
 		startDelay = interval
@@ -272,7 +276,7 @@ func newLoopRunner(cfg LoopConfig, work func(context.Context)) *loopRunner {
 	store := cfg.Store
 	if typedNilStore(store) {
 		store = nil
-		if interval >= RunStatePersistenceThreshold {
+		if interval >= runStatePersistenceThreshold {
 			if def := DefaultRunStore(); !typedNilStore(def) {
 				store = def
 			}

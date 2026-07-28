@@ -85,7 +85,7 @@ func (s *ArtistDiscographySweep) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		shared.RunTickerLoop(ctx, shared.LoopConfig{
+		shared.RunScheduledLoop(ctx, shared.LoopConfig{
 			Name:     "artist_discography_sweep",
 			Interval: s.interval,
 			StopCh:   s.stopCh,

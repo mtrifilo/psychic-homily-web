@@ -13,7 +13,7 @@ import (
 
 // Durable run state for periodic background loops.
 //
-// The defect this replaces: RunTickerLoop's schedule lived entirely in a
+// The defect this replaces: RunScheduledLoop's schedule lived entirely in a
 // process-local time.Ticker anchored at process start. On a continuously-deployed
 // platform the process restarts far more often than a daily sweep's interval, so
 // the first tick was never reached and seven production sweeps silently did
@@ -94,6 +94,33 @@ type CycleOutcome struct {
 	Interrupted bool
 }
 
+// errorText renders what gets persisted into last_error, or nil for a clean
+// cycle. A panic and a shutdown carry no error value of their own, so the text
+// is synthesized — otherwise the row would say "failed" with nothing to explain
+// why.
+//
+// This lives on CycleOutcome rather than inside GormRunStore so that any other
+// implementation of RunStore (notably the in-memory double the scheduler tests
+// run against) records the same text. A double that disagreed here would report
+// a green test for behaviour production does not have.
+func (o CycleOutcome) errorText() *string {
+	var msg string
+	switch {
+	case o.Err != nil:
+		msg = o.Err.Error()
+		if len(msg) > maxRunErrorLength {
+			msg = msg[:maxRunErrorLength]
+		}
+	case o.Panicked:
+		msg = "cycle panicked"
+	case o.Interrupted:
+		msg = "cycle interrupted by shutdown"
+	default:
+		return nil
+	}
+	return &msg
+}
+
 // outcomeLabel maps a finished cycle onto the persisted vocabulary.
 func (o CycleOutcome) outcomeLabel() string {
 	switch {
@@ -153,21 +180,36 @@ func NewGormRunStore(database *gorm.DB) *GormRunStore {
 
 var _ RunStore = (*GormRunStore)(nil)
 
-// dueSlack is how early a scheduled tick may claim without being rejected as
-// "not due". A process ticker and the database clock will never agree to the
-// millisecond; without slack, a tick arriving a hair early would be refused and
+// dueSlack is how early a scheduled cycle may claim without being rejected as
+// "not due". A process timer and the database clock will never agree to the
+// millisecond; without slack, a cycle arriving a hair early would be refused and
 // the loop would wait another whole interval — turning a rounding error into a
 // day of lost work for a 24h sweep.
+//
+// The half-interval ceiling is load-bearing, not defensive tidying: slack is
+// subtracted from the interval to form the due predicate, so a slack at or above
+// the interval makes that predicate vacuously true and silently removes the
+// "refuse if not due" protection entirely. Keeping slack a genuine fraction of
+// the interval means the gate stays meaningful at every scale.
 func dueSlack(interval time.Duration) time.Duration {
 	slack := interval / 20
 	if slack > time.Minute {
 		slack = time.Minute
 	}
-	if slack < time.Second {
-		slack = time.Second
+	if slack < minDueSlack {
+		slack = minDueSlack
+	}
+	if half := interval / 2; slack > half {
+		slack = half
 	}
 	return slack
 }
+
+// minDueSlack is a floor for very short intervals. Production loops that persist
+// state are an hour or longer, where 5% already exceeds the one-minute ceiling,
+// so this floor only ever applies at test scale — which is exactly why it must
+// be small enough to leave the due gate live there too.
+const minDueSlack = 10 * time.Millisecond
 
 // DueIn implements RunStore.
 func (s *GormRunStore) DueIn(ctx context.Context, name string, interval time.Duration) (time.Duration, error) {
@@ -258,20 +300,7 @@ func (s *GormRunStore) Complete(ctx context.Context, name string, token time.Tim
 	label := outcome.outcomeLabel()
 	ok := label == RunOutcomeSuccess
 
-	var errText *string
-	if outcome.Err != nil {
-		msg := outcome.Err.Error()
-		if len(msg) > maxRunErrorLength {
-			msg = msg[:maxRunErrorLength]
-		}
-		errText = &msg
-	} else if outcome.Panicked {
-		msg := "cycle panicked"
-		errText = &msg
-	} else if outcome.Interrupted {
-		msg := "cycle interrupted by shutdown"
-		errText = &msg
-	}
+	errText := outcome.errorText()
 
 	var rowsProcessed *int64
 	if outcome.Rows != nil {
@@ -329,7 +358,7 @@ var (
 	defaultRunStore   RunStore
 )
 
-// SetDefaultRunStore installs the process-wide store that RunTickerLoop uses when
+// SetDefaultRunStore installs the process-wide store that RunScheduledLoop uses when
 // a LoopConfig does not supply one.
 //
 // A process-wide default rather than a constructor argument on all 20-odd

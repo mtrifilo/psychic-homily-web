@@ -26,10 +26,10 @@ func withCapturedSlog(t *testing.T) *bytes.Buffer {
 	return buf
 }
 
-// TestRunTickerLoop_PanicInWorkContinuesLoop is the canonical demonstration:
+// TestScheduledLoop_PanicInWorkContinuesLoop is the canonical demonstration:
 // a tick that panics is recovered, logged, and the loop fires the next tick.
 // This is the load-bearing assertion of PSY-615.
-func TestRunTickerLoop_PanicInWorkContinuesLoop(t *testing.T) {
+func TestScheduledLoop_PanicInWorkContinuesLoop(t *testing.T) {
 	logs := withCapturedSlog(t)
 
 	var calls atomic.Int32
@@ -45,7 +45,7 @@ func TestRunTickerLoop_PanicInWorkContinuesLoop(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "test-service",
 			Interval: 10 * time.Millisecond,
 		}, work)
@@ -64,9 +64,9 @@ func TestRunTickerLoop_PanicInWorkContinuesLoop(t *testing.T) {
 	assert.Contains(t, logged, `"stack"`, "stack trace should be in log")
 }
 
-// TestRunTickerLoop_NormalWorkRunsRepeatedly sanity-checks the helper
+// TestScheduledLoop_NormalWorkRunsRepeatedly sanity-checks the helper
 // on the happy path: a non-panicking work function runs once per tick.
-func TestRunTickerLoop_NormalWorkRunsRepeatedly(t *testing.T) {
+func TestScheduledLoop_NormalWorkRunsRepeatedly(t *testing.T) {
 	var calls atomic.Int32
 	work := func(_ context.Context) {
 		calls.Add(1)
@@ -77,7 +77,7 @@ func TestRunTickerLoop_NormalWorkRunsRepeatedly(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "happy-service",
 			Interval: 10 * time.Millisecond,
 		}, work)
@@ -90,9 +90,9 @@ func TestRunTickerLoop_NormalWorkRunsRepeatedly(t *testing.T) {
 	assert.GreaterOrEqual(t, int(got), 3, "expected several ticks in 100ms with 10ms interval; got %d", got)
 }
 
-// TestRunTickerLoop_RunImmediately fires the work function once before
-// entering the ticker loop. Used by services that want a startup cycle.
-func TestRunTickerLoop_RunImmediately(t *testing.T) {
+// TestScheduledLoop_RunImmediately fires the work function once before
+// entering the scheduled loop. Used by services that want a boot cycle.
+func TestScheduledLoop_RunImmediately(t *testing.T) {
 	var calls atomic.Int32
 	work := func(_ context.Context) {
 		calls.Add(1)
@@ -105,7 +105,7 @@ func TestRunTickerLoop_RunImmediately(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:      "startup-service",
 			Interval:  1 * time.Hour,
 			RunAtBoot: true,
@@ -117,9 +117,9 @@ func TestRunTickerLoop_RunImmediately(t *testing.T) {
 	assert.Equal(t, int32(1), calls.Load(), "exactly one cycle should have run (the startup cycle)")
 }
 
-// TestRunTickerLoop_StartupPanicDoesNotKillLoop covers the case where
+// TestScheduledLoop_StartupPanicDoesNotKillLoop covers the case where
 // the startup cycle panics — the loop must still fire a regular tick after.
-func TestRunTickerLoop_StartupPanicDoesNotKillLoop(t *testing.T) {
+func TestScheduledLoop_StartupPanicDoesNotKillLoop(t *testing.T) {
 	logs := withCapturedSlog(t)
 
 	var calls atomic.Int32
@@ -135,7 +135,7 @@ func TestRunTickerLoop_StartupPanicDoesNotKillLoop(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:      "startup-panic-service",
 			Interval:  10 * time.Millisecond,
 			RunAtBoot: true,
@@ -150,10 +150,10 @@ func TestRunTickerLoop_StartupPanicDoesNotKillLoop(t *testing.T) {
 	assert.Contains(t, logs.String(), "boom on startup")
 }
 
-// TestRunTickerLoop_StopChannel covers the explicit `close(stopCh)`
+// TestScheduledLoop_StopChannel covers the explicit `close(stopCh)`
 // shutdown path. Each existing service uses both `<-ctx.Done()` and
 // `<-stopCh`; the helper must honor stopCh too.
-func TestRunTickerLoop_StopChannel(t *testing.T) {
+func TestScheduledLoop_StopChannel(t *testing.T) {
 	var calls atomic.Int32
 	work := func(_ context.Context) {
 		calls.Add(1)
@@ -166,7 +166,7 @@ func TestRunTickerLoop_StopChannel(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "stop-ch-service",
 			Interval: 10 * time.Millisecond,
 			StopCh:   stopCh,
@@ -188,13 +188,13 @@ func TestRunTickerLoop_StopChannel(t *testing.T) {
 	case <-waitDone:
 		// expected
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("RunTickerLoop did not return after stopCh was closed")
+		t.Fatal("RunScheduledLoop did not return after stopCh was closed")
 	}
 }
 
-// TestRunTickerLoop_ContextCancellationStopsLoop covers the `<-ctx.Done()`
+// TestScheduledLoop_ContextCancellationStopsLoop covers the `<-ctx.Done()`
 // path independently from stopCh.
-func TestRunTickerLoop_ContextCancellationStopsLoop(t *testing.T) {
+func TestScheduledLoop_ContextCancellationStopsLoop(t *testing.T) {
 	var calls atomic.Int32
 	work := func(_ context.Context) {
 		calls.Add(1)
@@ -206,7 +206,7 @@ func TestRunTickerLoop_ContextCancellationStopsLoop(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "ctx-cancel-service",
 			Interval: 10 * time.Millisecond,
 		}, work)
@@ -225,7 +225,7 @@ func TestRunTickerLoop_ContextCancellationStopsLoop(t *testing.T) {
 	case <-waitDone:
 		// expected
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("RunTickerLoop did not return after context cancel")
+		t.Fatal("RunScheduledLoop did not return after context cancel")
 	}
 }
 
@@ -262,13 +262,13 @@ func installRecordingPanicHandler(t *testing.T) func() []capturedPanic {
 	}
 }
 
-// TestRunTickerLoop_PanicHandlerInvokedOnTickPanic is the load-bearing
+// TestScheduledLoop_PanicHandlerInvokedOnTickPanic is the load-bearing
 // PSY-617 assertion: a panic inside per-tick work invokes the registered
 // PanicHandler with the service name, panic value, and stack trace —
 // in addition to the slog.Error already exercised by the PSY-615 test.
 // The handler is the wiring point cmd/server/main.go uses to escalate
 // to Sentry.
-func TestRunTickerLoop_PanicHandlerInvokedOnTickPanic(t *testing.T) {
+func TestScheduledLoop_PanicHandlerInvokedOnTickPanic(t *testing.T) {
 	_ = withCapturedSlog(t) // suppress noisy stack trace from slog.Error
 	snapshot := installRecordingPanicHandler(t)
 
@@ -284,7 +284,7 @@ func TestRunTickerLoop_PanicHandlerInvokedOnTickPanic(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "panic-handler-test-service",
 			Interval: 10 * time.Millisecond,
 		}, work)
@@ -297,15 +297,15 @@ func TestRunTickerLoop_PanicHandlerInvokedOnTickPanic(t *testing.T) {
 	assert.Equal(t, "panic-handler-test-service", got[0].service)
 	assert.Equal(t, "boom-tick", got[0].panicValue)
 	assert.NotEmpty(t, got[0].stack, "stack trace should be populated")
-	assert.Contains(t, string(got[0].stack), "ticker_loop.go", "stack should reference the recover site")
+	assert.Contains(t, string(got[0].stack), "scheduled_loop.go", "stack should reference the recover site")
 }
 
-// TestRunTickerLoop_NonPositiveIntervalDegradesInsteadOfDying covers a
+// TestScheduledLoop_NonPositiveIntervalDegradesInsteadOfDying covers a
 // misconfigured interval. The old loop handed 0 to time.NewTicker, which
 // panicked and stopped the service permanently — a config typo silently
 // disabled a background job. The scheduler now clamps to a sane default, says
 // so, and keeps running.
-func TestRunTickerLoop_NonPositiveIntervalDegradesInsteadOfDying(t *testing.T) {
+func TestScheduledLoop_NonPositiveIntervalDegradesInsteadOfDying(t *testing.T) {
 	logs := withCapturedSlog(t)
 	snapshot := installRecordingPanicHandler(t)
 
@@ -319,7 +319,7 @@ func TestRunTickerLoop_NonPositiveIntervalDegradesInsteadOfDying(t *testing.T) {
 	}()
 
 	var calls atomic.Int32
-	RunTickerLoop(ctx, LoopConfig{
+	RunScheduledLoop(ctx, LoopConfig{
 		Name:     "zero-interval-service",
 		Interval: 0,
 	}, func(_ context.Context) { calls.Add(1) })
@@ -330,11 +330,11 @@ func TestRunTickerLoop_NonPositiveIntervalDegradesInsteadOfDying(t *testing.T) {
 		"the clamped 1h interval means no cycle inside the test window, but the loop is alive")
 }
 
-// TestRunTickerLoop_NilPanicHandlerIsNoop guards the contract that an
+// TestScheduledLoop_NilPanicHandlerIsNoop guards the contract that an
 // unset handler (the package default) doesn't panic and doesn't change
 // the existing slog-only behaviour. Defensive clear in case a sibling
 // test in the package leaked a handler past its t.Cleanup.
-func TestRunTickerLoop_NilPanicHandlerIsNoop(t *testing.T) {
+func TestScheduledLoop_NilPanicHandlerIsNoop(t *testing.T) {
 	logs := withCapturedSlog(t)
 	SetPanicHandler(nil)
 	t.Cleanup(func() { SetPanicHandler(nil) })
@@ -351,7 +351,7 @@ func TestRunTickerLoop_NilPanicHandlerIsNoop(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "no-handler-service",
 			Interval: 10 * time.Millisecond,
 		}, work)
@@ -363,11 +363,11 @@ func TestRunTickerLoop_NilPanicHandlerIsNoop(t *testing.T) {
 	assert.Contains(t, logs.String(), "boom-no-handler", "slog path still fires when handler is nil")
 }
 
-// TestRunTickerLoop_PanicHandlerOwnPanicDoesNotKillLoop guards against a
+// TestScheduledLoop_PanicHandlerOwnPanicDoesNotKillLoop guards against a
 // buggy handler taking down the loop it was meant to observe. If the
 // handler panics, the recover inside invokePanicHandler must swallow it
 // and the loop must continue ticking.
-func TestRunTickerLoop_PanicHandlerOwnPanicDoesNotKillLoop(t *testing.T) {
+func TestScheduledLoop_PanicHandlerOwnPanicDoesNotKillLoop(t *testing.T) {
 	_ = withCapturedSlog(t)
 
 	var handlerCalls atomic.Int32
@@ -389,7 +389,7 @@ func TestRunTickerLoop_PanicHandlerOwnPanicDoesNotKillLoop(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:     "buggy-handler-service",
 			Interval: 10 * time.Millisecond,
 		}, work)
@@ -401,11 +401,11 @@ func TestRunTickerLoop_PanicHandlerOwnPanicDoesNotKillLoop(t *testing.T) {
 	assert.Greater(t, int(calls.Load()), 1, "loop should keep ticking after handler panic")
 }
 
-// TestRunTickerLoop_OuterRecoverCatchesSchedulingPanic covers the outer
+// TestScheduledLoop_OuterRecoverCatchesSchedulingPanic covers the outer
 // recover: a panic raised by the scheduling machinery itself (here, a store
 // that misbehaves) must be logged and contained rather than escaping into the
 // supervising goroutine and taking the process down.
-func TestRunTickerLoop_OuterRecoverCatchesSchedulingPanic(t *testing.T) {
+func TestScheduledLoop_OuterRecoverCatchesSchedulingPanic(t *testing.T) {
 	logs := withCapturedSlog(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -420,7 +420,7 @@ func TestRunTickerLoop_OuterRecoverCatchesSchedulingPanic(t *testing.T) {
 		}
 	}()
 
-	RunTickerLoop(ctx, LoopConfig{
+	RunScheduledLoop(ctx, LoopConfig{
 		Name:     "scheduling-panic-service",
 		Interval: time.Hour,
 		Store:    panickingRunStore{},
@@ -469,7 +469,7 @@ func TestStartDelay_FirstCycleBeatsInterval(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:       "delayed-service",
 			Interval:   time.Hour,
 			StartDelay: 20 * time.Millisecond,
@@ -495,7 +495,7 @@ func TestStartDelay_NoCycleOnBootPath(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:       "boot-path-service",
 			Interval:   time.Hour,
 			StartDelay: 5 * time.Second,
@@ -517,7 +517,7 @@ func TestStartDelay_ShutdownDuringDelayIsPrompt(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(context.Background(), LoopConfig{
+		RunScheduledLoop(context.Background(), LoopConfig{
 			Name:       "stop-service",
 			Interval:   time.Hour,
 			StopCh:     stopCh,
@@ -548,7 +548,7 @@ func TestStartDelay_TicksAfterFirstCycle(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:       "periodic-service",
 			Interval:   20 * time.Millisecond,
 			StartDelay: 10 * time.Millisecond,
@@ -573,7 +573,7 @@ func TestStartDelay_CappedAtInterval(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:       "short-interval-service",
 			Interval:   10 * time.Millisecond,
 			StartDelay: time.Hour, // absurd on purpose; must be clamped to Interval
@@ -603,7 +603,7 @@ func TestStartDelay_PanicInFirstCycleDoesNotKillLoop(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		RunTickerLoop(ctx, LoopConfig{
+		RunScheduledLoop(ctx, LoopConfig{
 			Name:       "delayed-panic-service",
 			Interval:   10 * time.Millisecond,
 			StartDelay: 10 * time.Millisecond,

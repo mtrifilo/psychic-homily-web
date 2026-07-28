@@ -108,7 +108,7 @@ func main() {
 	}
 
 	// PSY-617: escalate background-service panics to Sentry. The handler
-	// runs after the slog.Error inside RunTickerLoop's recover paths, so a
+	// runs after the slog.Error inside RunScheduledLoop's recover paths, so a
 	// panicking ticker now logs AND pages, instead of only logging. Safe
 	// when SENTRY_DSN is unset — sentry.CaptureException no-ops without a
 	// configured hub.

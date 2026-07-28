@@ -115,7 +115,7 @@ func (s *CleanupService) Start(ctx context.Context) {
 }
 
 // Stop gracefully stops the cleanup service.
-// Both ticker loops watch the same stopCh, so one close drains both.
+// Both loops watch the same stopCh, so one close drains both.
 func (s *CleanupService) Stop() {
 	close(s.stopCh)
 	s.wg.Wait()
@@ -125,7 +125,7 @@ func (s *CleanupService) Stop() {
 // runCleanupLoop runs the account cleanup cycle on its own ticker.
 func (s *CleanupService) runCleanupLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:      "cleanup_accounts",
 		Interval:  s.interval,
 		StopCh:    s.stopCh,
@@ -138,7 +138,7 @@ func (s *CleanupService) runCleanupLoop(ctx context.Context) {
 // runTagPruneLoop runs the entity-tags prune cycle on its own ticker.
 func (s *CleanupService) runTagPruneLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, shared.LoopConfig{
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
 		Name:      "cleanup_tag_prune",
 		Interval:  s.tagPruneInterval,
 		StopCh:    s.stopCh,
