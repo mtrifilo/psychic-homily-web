@@ -41,8 +41,9 @@ import (
 // All limiters now key on middleware.KeyByClientIP, which reads the address the
 // trusted proxy appended to X-Forwarded-For (counting from the RIGHT, so a
 // caller cannot spoof it) and falls back to RemoteAddr. Re-verify with a burst
-// if the proxy topology changes — middleware.TrustedProxyHops encodes the
-// assumption that exactly one proxy fronts this service.
+// if the proxy topology changes — RATE_LIMIT_TRUSTED_PROXY_HOPS encodes how
+// many proxies front this service, and the limiter logs `ratelimit_proxy_trust`
+// once per process reporting what it actually observed.
 const EnablePublicReadRateLimitsEnvVar = "ENABLE_PUBLIC_READ_RATE_LIMITS"
 
 // IsPublicReadRateLimitEnabled reports whether the public-read limiter is active.

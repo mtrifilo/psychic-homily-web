@@ -1,71 +1,133 @@
 package middleware
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/httprate"
 )
 
-// TrustedProxyHops is how many proxies sit in front of this service and append
-// to X-Forwarded-For. Railway terminates TLS at its edge (the `railway-hikari`
-// server header) and forwards to the container, so exactly one.
+// TrustedProxyHopsEnvVar tunes how many proxies are assumed to sit in front of
+// this service and append to X-Forwarded-For.
 //
-// This number is the whole security boundary of KeyByClientIP — see its doc.
-const TrustedProxyHops = 1
+// It is an ENV VAR rather than a constant on purpose. The hop count is a
+// property of the DEPLOYMENT TOPOLOGY, not of the code, and getting it wrong
+// fails silently in both directions — too few trusts a caller-supplied entry,
+// too many falls back to the proxy address and stops limiting per client.
+// Making it tunable means a topology change (a new CDN, an added load balancer)
+// is a config change verified by observation, rather than a code change shipped
+// on a guess. PSY-1608 shipped on a guess and did not move production at all.
+const TrustedProxyHopsEnvVar = "RATE_LIMIT_TRUSTED_PROXY_HOPS"
+
+// defaultTrustedProxyHops assumes exactly one proxy: Railway terminates TLS at
+// its edge (the `railway-hikari` server header) and forwards to the container.
+//
+// Treat this as an ASSUMPTION until the observation below confirms it.
+const defaultTrustedProxyHops = 1
+
+func trustedProxyHops() int {
+	if v := os.Getenv(TrustedProxyHopsEnvVar); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			return n
+		}
+	}
+	return defaultTrustedProxyHops
+}
 
 // KeyByClientIP derives the rate-limit bucket key from the real client IP.
 //
-// # Why not httprate.KeyByIP (what every limiter used before PSY-1608)
+// # Why not httprate.KeyByIP
 //
-// KeyByIP keys on r.RemoteAddr. Behind Railway's edge that is the PROXY's
-// address, not the client's — so buckets are per-edge-node and shared by every
-// client routed through it. Measured on production: three edge nodes each held
-// their own counter, each decrementing independently, and a single client could
-// never exhaust one.
+// KeyByIP keys on r.RemoteAddr. Behind a proxy that is the PROXY's address, so
+// buckets are per-proxy-node and shared by every client routed through one.
+// Measured on production: counters bounced per Railway edge node and a single
+// client could never exhaust one. That is not merely a weak limit — it is
+// shared fate, where one abuser exhausts the budget for everyone routed through
+// that node while not being stopped themselves.
 //
-// That is not merely a weak limit. It is shared fate: once traffic grows, one
-// abuser exhausts the bucket for every legitimate user on the same edge node,
-// and the auth limiter (5/min) would lock out the site. The limiter was
-// simultaneously unable to stop an attacker and able to lock out everyone else.
+// # Why not httprate.KeyByRealIP
 //
-// # Why not httprate.KeyByRealIP either
+// It honours True-Client-IP and X-Real-IP unconditionally and takes the
+// LEFTMOST X-Forwarded-For entry. All three are caller-supplied: an attacker
+// varies one per request and mints a fresh bucket every time.
 //
-// KeyByRealIP honours True-Client-IP and X-Real-IP unconditionally, and takes
-// the LEFTMOST X-Forwarded-For entry. All three are client-supplied. An
-// attacker sets a different value per request and mints a fresh bucket every
-// time — the same failure we are fixing, but deliberate and unbounded.
+// # What this does
 //
-// # What this does instead
-//
-// X-Forwarded-For accumulates left to right: each proxy APPENDS the address it
-// received the connection from. So with N trusted proxies in front, the entry
-// at position len-N is the address OUR trusted proxy actually observed.
-// Anything to the left of it was supplied by the caller and is worthless.
+// X-Forwarded-For accumulates left to right — each proxy APPENDS the address it
+// received the connection from. With N trusted proxies, the entry at len-N is
+// what OUR trusted proxy actually observed; everything to its left came from
+// the caller.
 //
 //	X-Forwarded-For: <spoofed>, <spoofed>, <real client>
-//	                                        ^ what Railway observed, index len-1
+//	                                        ^ index len-N, N=1
 //
-// A client can prepend entries but cannot stop the trusted proxy appending the
-// address it genuinely saw, so counting from the RIGHT is spoof-resistant while
-// counting from the left is not.
-//
-// Falls back to RemoteAddr when the header is absent or malformed, which is the
-// previous behaviour — so a misconfigured proxy degrades to the old bucket
-// rather than to no limiting at all.
+// Falls back to RemoteAddr when the header is absent or unusable, so a
+// misconfigured proxy degrades to the previous behaviour rather than to no
+// limiting at all.
 func KeyByClientIP(r *http.Request) (string, error) {
-	if ip := clientIPFromForwardedFor(r.Header.Get("X-Forwarded-For"), TrustedProxyHops); ip != "" {
+	xff := r.Header.Get("X-Forwarded-For")
+	hops := trustedProxyHops()
+
+	if ip := clientIPFromForwardedFor(xff, hops); ip != "" {
+		observeProxyTrust(r, xff, hops, "x-forwarded-for", ip)
 		return ip, nil
 	}
-	return httprate.KeyByIP(r)
+
+	key, err := httprate.KeyByIP(r)
+	observeProxyTrust(r, xff, hops, "remote-addr", key)
+	return key, err
+}
+
+var proxyTrustOnce sync.Once
+
+// observeProxyTrust reports, ONCE per process, what the limiter actually sees.
+//
+// This exists because PSY-1608 was diagnosed twice from the outside and the
+// readings could not distinguish between "the header is absent", "the header
+// varies per request", and "the trusted hop count is wrong". A fix shipped on
+// the resulting inference changed nothing. One log line settles which of those
+// is true — and settles it again for free the next time the topology changes.
+//
+// Logged once (sync.Once) rather than per request: this is a topology fact, not
+// an event, so repeating it would be noise on a hot path.
+//
+// The derived key is HASHED and truncated. Comparing fingerprints across a burst
+// answers the only question that matters — same bucket or different — without
+// writing client IP addresses into logs.
+func observeProxyTrust(r *http.Request, xff string, hops int, source, key string) {
+	proxyTrustOnce.Do(func() {
+		chain := 0
+		if xff != "" {
+			chain = len(strings.Split(xff, ","))
+		}
+		slog.Default().Info("ratelimit_proxy_trust",
+			"source", source,
+			"trusted_hops", hops,
+			"xff_present", xff != "",
+			"xff_chain_length", chain,
+			"has_x_real_ip", r.Header.Get("X-Real-IP") != "",
+			"has_true_client_ip", r.Header.Get("True-Client-IP") != "",
+			"has_envoy_external", r.Header.Get("X-Envoy-External-Address") != "",
+			"key_fingerprint", fingerprint(key),
+		)
+	})
+}
+
+// fingerprint reduces a bucket key to a short, non-reversible tag.
+func fingerprint(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:4])
 }
 
 // clientIPFromForwardedFor returns the address the trusted proxy observed, or
 // "" when the header cannot be trusted to supply one.
-//
-// Exported behaviour is covered by tests rather than callers; kept separate so
-// the parsing is testable without constructing requests.
 func clientIPFromForwardedFor(header string, trustedHops int) string {
 	if header == "" || trustedHops < 1 {
 		return ""
@@ -76,7 +138,7 @@ func clientIPFromForwardedFor(header string, trustedHops int) string {
 	if idx < 0 {
 		// Fewer hops present than we trust: the chain is shorter than expected
 		// (direct connection, or a proxy that does not append). Do NOT fall back
-		// to a further-left entry — that is the spoofable region.
+		// to a further-left entry — that is the caller-controlled region.
 		return ""
 	}
 

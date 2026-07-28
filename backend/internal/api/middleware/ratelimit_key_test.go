@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -158,5 +159,86 @@ func TestKeyByClientIP_IgnoresClientSuppliedIdentityHeaders(t *testing.T) {
 		if got != want {
 			t.Errorf("%s changed the bucket key (%q -> %q); it is client-supplied and must be ignored", h, want, got)
 		}
+	}
+}
+
+// TestTrustedProxyHops_ConfigurableViaEnv: the hop count is a property of the
+// deployment topology, not the code. PSY-1608's first attempt hardcoded it to 1
+// on an unverified assumption and did not change production behaviour at all —
+// so the value must be tunable without a code change once observation says what
+// it should be.
+func TestTrustedProxyHops_ConfigurableViaEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		set  string
+		want int
+	}{
+		{name: "unset falls back to the default", set: "", want: defaultTrustedProxyHops},
+		{name: "valid override is honoured", set: "2", want: 2},
+		{name: "zero is rejected — trusting no hop would disable XFF entirely", set: "0", want: defaultTrustedProxyHops},
+		{name: "negative is rejected", set: "-1", want: defaultTrustedProxyHops},
+		{name: "garbage is rejected", set: "two", want: defaultTrustedProxyHops},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(TrustedProxyHopsEnvVar, tc.set)
+			if got := trustedProxyHops(); got != tc.want {
+				t.Errorf("trustedProxyHops() with %q = %d, want %d", tc.set, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestKeyByClientIP_HonoursConfiguredHops proves the env knob actually reaches
+// the key derivation — the whole point of making it tunable.
+func TestKeyByClientIP_HonoursConfiguredHops(t *testing.T) {
+	newReq := func() *http.Request {
+		r := httptest.NewRequest("POST", "/auth/login", nil)
+		r.RemoteAddr = "10.0.0.1:4000"
+		// caller-supplied, then two real proxy hops
+		r.Header.Set("X-Forwarded-For", "1.2.3.4, 198.51.100.9, 10.0.0.1")
+		return r
+	}
+
+	t.Run("one hop reads the rightmost entry", func(t *testing.T) {
+		t.Setenv(TrustedProxyHopsEnvVar, "1")
+		got, _ := KeyByClientIP(newReq())
+		if got != "10.0.0.1" {
+			t.Errorf("got %q, want 10.0.0.1", got)
+		}
+	})
+
+	t.Run("two hops reads one further left", func(t *testing.T) {
+		t.Setenv(TrustedProxyHopsEnvVar, "2")
+		got, _ := KeyByClientIP(newReq())
+		if got != "198.51.100.9" {
+			t.Errorf("got %q, want 198.51.100.9 — the env knob is not reaching key derivation", got)
+		}
+	})
+}
+
+// TestFingerprint_IsStableAndNonReversible: the observation log compares
+// fingerprints to answer "same bucket or different" across a burst. That only
+// works if the same key maps to the same tag, and it is only safe to log if the
+// IP cannot be read back out.
+func TestFingerprint_IsStableAndNonReversible(t *testing.T) {
+	const ip = "198.51.100.4"
+
+	first := fingerprint(ip)
+	second := fingerprint(ip)
+	other := fingerprint("198.51.100.5")
+
+	if first != second {
+		t.Error("fingerprint is not stable; the burst comparison would be meaningless")
+	}
+	if first == other {
+		t.Error("different IPs collide; the burst comparison would be misleading")
+	}
+	if strings.Contains(first, "198") || strings.Contains(first, ip) {
+		t.Error("fingerprint leaks the address it was derived from")
+	}
+	if len(first) != 8 {
+		t.Errorf("fingerprint length = %d, want 8 hex chars", len(first))
 	}
 }
