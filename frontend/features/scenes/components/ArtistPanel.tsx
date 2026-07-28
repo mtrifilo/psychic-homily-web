@@ -122,6 +122,11 @@ export function ArtistPanel({
 
   const total = steps.length
   const current = steps[index]
+  // Prefetch target only — nothing about the next artist is DRAWN. The panel
+  // once ended with a "NEXT UP <name> — hear them →" row; it was removed
+  // because it implied a click was needed to hear anything (the current
+  // artist's player is always already visible above it) and it duplicated the
+  // `‹ ›` stepper, which is now the single forward affordance.
   const nextStep = index + 1 < total ? steps[index + 1] : null
 
   const { data: card, isError } = useArtistGraphCard({
@@ -334,27 +339,6 @@ export function ArtistPanel({
                 {connections}
               </p>
             </section>
-          )}
-
-          {/* "NEXT UP  Farmer's Wife — hear them →": the mock's nudge to keep
-              walking the bill. It costs no request — the name is already in the
-              step list — which is why it can render before the next artist's
-              card has been fetched. */}
-          {nextStep && (
-            <div className="px-4 py-3">
-              <button
-                type="button"
-                onClick={() => onStep(index + 1)}
-                className="flex w-full items-baseline gap-2 rounded-sm text-left font-mono text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span className="shrink-0 uppercase tracking-wide text-muted-foreground">
-                  Next up
-                </span>
-                <span className="min-w-0 flex-1 truncate text-primary underline-offset-4 hover:underline">
-                  {nextStep.artistName} — hear them →
-                </span>
-              </button>
-            </div>
           )}
         </div>
 

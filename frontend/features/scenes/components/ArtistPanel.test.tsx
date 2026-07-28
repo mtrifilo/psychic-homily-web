@@ -243,16 +243,18 @@ describe('ArtistPanel', () => {
       )
     })
 
-    it('offers NEXT UP as a second way to keep walking the bill', () => {
-      const onStep = vi.fn()
-      renderPanel({ index: 0, onStep })
-      fireEvent.click(screen.getByRole('button', { name: /Farmer’s Wife/ }))
-      expect(onStep).toHaveBeenCalledWith(1)
-    })
-
-    it('drops NEXT UP on the last step', () => {
-      renderPanel({ index: 2 })
+    // The stepper is the ONLY forward affordance. The panel used to also end
+    // with a "NEXT UP <name> — hear them →" row, removed because it implied a
+    // click was required to hear music — the current artist's player is
+    // already visible above it — and duplicated these controls. Nothing may
+    // name the next artist as a second way forward.
+    it('is the only forward affordance — no NEXT UP row', () => {
+      renderPanel({ index: 0 })
       expect(screen.queryByText(/hear them/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Next up/i)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Farmer’s Wife/ }),
+      ).not.toBeInTheDocument()
     })
   })
 
