@@ -17,6 +17,11 @@ let desired = false
 // Landing pageview is captured once per page load by enableAnalytics, because
 // the PostHogPageView effect fires before posthog has lazy-loaded (no-op then).
 let landingCaptured = false
+interface IdentityProps {
+  email: string
+  is_admin?: boolean
+}
+
 // Identity the app asked for while posthog was still loading. The signed-in
 // viewer is known at first client render (the profile is hydrated from the
 // server), which is reliably EARLIER than the consent read + dynamic import
@@ -24,11 +29,6 @@ let landingCaptured = false
 // null instance and never be retried. Replayed by enableAnalytics once the
 // instance exists, same recovery shape as `landingCaptured`.
 let pendingIdentity: { id: string; props: IdentityProps } | null = null
-
-interface IdentityProps {
-  email: string
-  is_admin?: boolean
-}
 
 // Idempotent: dynamic-import + init posthog-js once. Returns null on the server
 // or when no key is configured.

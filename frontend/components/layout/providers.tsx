@@ -39,20 +39,13 @@ export function Providers({ children }: ProvidersProps) {
 }
 
 /**
- * Providers that read the viewer's profile out of the query cache.
+ * Providers that read the viewer's profile out of the query cache. Mounted by
+ * `<AuthHydrator>` below its `<HydrationBoundary>` — see that file for why the
+ * order is load-bearing. Do not hoist these into `<Providers>`.
  *
- * These MUST render below the `<HydrationBoundary>` in `<AuthHydrator>`.
- * `AuthProvider` derives its state from `useProfile()`, so mounting it above
- * the boundary leaves the single server render with an empty cache and the
- * whole tree renders its `isLoading` branch — a spinner shell in the SSR HTML
- * for authenticated and anonymous viewers alike. Below the boundary the seeded
- * cache is already in context, so the server renders the real signed-in (or
- * signed-out) tree.
- *
- * `CreateCollectionDrawerProvider` travels with it because the form it hosts
- * calls `useAuthContext()`; left above the boundary it would throw
- * "useAuthContext must be used within an AuthProvider" the first time a viewer
- * opened the drawer.
+ * `CreateCollectionDrawerProvider` belongs here, not above, because the form it
+ * hosts calls `useAuthContext()`; higher up it would throw "useAuthContext must
+ * be used within an AuthProvider" the first time a viewer opened the drawer.
  */
 export function SessionProviders({ children }: ProvidersProps) {
     return (
