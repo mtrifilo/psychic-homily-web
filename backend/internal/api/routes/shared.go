@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 
+	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/respond"
@@ -33,7 +34,7 @@ func rateLimitUnlessAPIToken(requestLimit int, windowLength time.Duration) func(
 	limiter := httprate.Limit(
 		requestLimit,
 		windowLength,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(middleware.KeyByClientIP),
 		httprate.WithLimitHandler(rateLimitHandler),
 	)
 	return func(next http.Handler) http.Handler {

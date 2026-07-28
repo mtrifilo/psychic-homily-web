@@ -84,7 +84,7 @@ func RateLimitAuthEndpoints() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		AuthRequestsPerMinute,
 		time.Minute,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(KeyByClientIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }
@@ -95,7 +95,7 @@ func RateLimitPasskeyEndpoints() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		PasskeyRequestsPerMinute,
 		time.Minute,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(KeyByClientIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }
@@ -106,7 +106,7 @@ func RateLimitAPIEndpoints() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		APIRequestsPerMinute,
 		time.Minute,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(KeyByClientIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }
@@ -117,7 +117,7 @@ func RateLimitTagCreateEndpoints() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		TagCreateRequestsPerHour,
 		time.Hour,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(KeyByClientIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }
@@ -128,7 +128,7 @@ func RateLimitTagVoteEndpoints() func(http.Handler) http.Handler {
 	return httprate.Limit(
 		TagVoteRequestsPerMinute,
 		time.Minute,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(KeyByClientIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }
@@ -232,7 +232,7 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 	return httprate.Limit(
 		PublicReadAuthenticatedIPCeilingPerMinute,
 		time.Minute,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(KeyByClientIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler),
 	)
 }

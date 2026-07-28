@@ -30,7 +30,7 @@ func setupShowReportRoutes(rc RouteContext) {
 	reportSubmitGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
 		middleware.ReportRequestsPerMinute,
 		time.Minute,
-		httprate.WithKeyFuncs(httprate.KeyByIP),
+		httprate.WithKeyFuncs(middleware.KeyByClientIP),
 		httprate.WithLimitHandler(rateLimitHandler),
 	)))
 	reportSubmitGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
@@ -55,7 +55,7 @@ func setupArtistReportRoutes(rc RouteContext) {
 		r.Use(httprate.Limit(
 			middleware.ReportRequestsPerMinute,
 			time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithKeyFuncs(middleware.KeyByClientIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		))
 		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Artist Reports"))
@@ -84,7 +84,7 @@ func setupEntityReportRoutes(rc RouteContext) {
 		r.Use(httprate.Limit(
 			middleware.ReportRequestsPerMinute,
 			time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithKeyFuncs(middleware.KeyByClientIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		))
 		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Entity Reports"))

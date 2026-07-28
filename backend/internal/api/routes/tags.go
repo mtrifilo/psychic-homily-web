@@ -42,7 +42,7 @@ func setupTagRoutes(rc RouteContext) {
 		r.Use(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
 			middleware.TagCreateRequestsPerHour,
 			time.Hour,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithKeyFuncs(middleware.KeyByClientIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)))
 		tagCreateAPI := humachi.New(r, subAPIConfig("Psychic Homily Tag Create"))
@@ -60,7 +60,7 @@ func setupTagRoutes(rc RouteContext) {
 		r.Use(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
 			middleware.TagVoteRequestsPerMinute,
 			time.Minute,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
+			httprate.WithKeyFuncs(middleware.KeyByClientIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)))
 		tagVoteAPI := humachi.New(r, subAPIConfig("Psychic Homily Tag Vote"))

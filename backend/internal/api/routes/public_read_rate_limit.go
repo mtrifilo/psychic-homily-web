@@ -30,12 +30,19 @@ import (
 // IPs reach the limiter. Matches the codebase's ENABLE_* rollout convention
 // (e.g. the artist-enrichment sweeps).
 //
-// KeyByIP/proxy PREREQUISITE: the underlying limiter keys on r.RemoteAddr via
-// httprate.KeyByIP (like every existing limiter here). If the backend sits behind
-// a proxy/LB that does not preserve the client IP in RemoteAddr, all anonymous
-// traffic collapses onto one bucket. Verify real client IPs reach the limiter on
-// stage (429 rates behave per-abuser, not site-wide) before enabling in prod; if
-// not, front it with a trusted-proxy RealIP step first.
+// KeyByIP/proxy PREREQUISITE — RESOLVED by PSY-1608, and the concern was real.
+// This comment used to warn that r.RemoteAddr might not carry the client IP
+// behind a proxy. It does not: measured on production, RemoteAddr is the Railway
+// edge node's address, so buckets were per-edge-node and shared by every client
+// routed through one. Three nodes each held an independent counter and a single
+// client could never exhaust any of them — so the limiter could neither stop an
+// abuser nor avoid locking out everyone sharing that node.
+//
+// All limiters now key on middleware.KeyByClientIP, which reads the address the
+// trusted proxy appended to X-Forwarded-For (counting from the RIGHT, so a
+// caller cannot spoof it) and falls back to RemoteAddr. Re-verify with a burst
+// if the proxy topology changes — middleware.TrustedProxyHops encodes the
+// assumption that exactly one proxy fronts this service.
 const EnablePublicReadRateLimitsEnvVar = "ENABLE_PUBLIC_READ_RATE_LIMITS"
 
 // IsPublicReadRateLimitEnabled reports whether the public-read limiter is active.
