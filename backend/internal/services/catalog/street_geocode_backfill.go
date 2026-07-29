@@ -217,8 +217,8 @@ func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.Addres
 }
 
 // geocodeWithTimeout bounds ONE VENUE's geocoding (limiter wait + retries
-// included, and since PSY-1609 up to two sequential lookups) while inheriting the
-// run ctx, so a canceled run aborts the in-flight lookup immediately rather than
+// included, and since PSY-1609 up to two sequential lookups — the address as
+// stored, then the abbreviation-expanded form) while inheriting the run ctx, so a canceled run aborts the in-flight lookup immediately rather than
 // riding out the per-venue timeout.
 func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, rawStreet string, timeout time.Duration) (geo.AddressResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -282,14 +282,21 @@ func geocodeExpandingAbbreviations(
 	if raw == "" || raw == expanded {
 		return res, ok, err
 	}
-	// Decline the retry when too little budget remains. The caller's deadline
-	// covers BOTH lookups, so a second attempt started with seconds left tends to
-	// end in ctx.Err() — and an error is NOT memoized, whereas the clean miss we
-	// already hold is. Trading a possible hit for a recorded miss is the right way
-	// round: the miss is durable and the sweep retries the venue on its own
-	// cadence, while the timeout would have it re-queried on every single run.
+	// Too little budget left for the second lookup — report an ERROR, not the
+	// clean miss we are holding.
+	//
+	// This is the subtle half of raw-first ordering. The expanded lookup is now
+	// the one that actually fixes the venue, so skipping it and returning a miss
+	// would have the caller memoize that miss under the EXPANDED key — after
+	// which streetGeocodeAttempted makes the sweep skip the venue permanently,
+	// with no error and no alert. Recovery would need an address edit or manual
+	// SQL. An incomplete attempt is not a miss, and saying so keeps the venue
+	// retryable: errors are deliberately never memoized.
 	if deadline, hasDeadline := ctx.Deadline(); hasDeadline && time.Until(deadline) < minFallbackBudget {
-		return res, ok, err
+		return geo.AddressResult{}, false, fmt.Errorf(
+			"insufficient budget for the abbreviation-expanded retry (%s left, need %s); not recording a miss",
+			time.Until(deadline).Round(time.Millisecond), minFallbackBudget,
+		)
 	}
 	return ag.GeocodeAddress(ctx, q)
 }

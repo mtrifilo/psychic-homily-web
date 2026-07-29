@@ -99,6 +99,8 @@ func mlkQuery() geo.AddressQuery {
 // TestExpandedFormHitsCostsOneRequest is the steady-state case, and the reason
 // the fallback was acceptable at all: a hit must not spend a second request, or
 // the whole catalog's re-geocode doubles against the shared rate limit.
+// TestExpandedFormHitsCostsTwoRequests: venue 128's shape — the stored address
+// misses, the expanded form hits. Two requests, and that is the price of the fix.
 func TestExpandedFormHitsCostsTwoRequests(t *testing.T) {
 	g := &recordingGeocoder{hits: map[string]geo.AddressResult{
 		expandedMLK: {Latitude: 33.75, Longitude: -84.39, Precision: "rooftop"},
@@ -195,12 +197,16 @@ func TestUnresolvableAddressStopsAfterBothForms(t *testing.T) {
 	}
 }
 
-// TestFallbackDeclinedWhenTheBudgetIsNearlySpent: the caller's deadline covers
-// BOTH lookups. A retry started with seconds left tends to end in ctx.Err(), and
-// an error is not memoized — so the venue would be re-queried on every single
-// run, at two requests a time. Returning the clean miss we already hold keeps it
-// memoizable, and the sweep retries the venue on its own cadence.
-func TestFallbackDeclinedWhenTheBudgetIsNearlySpent(t *testing.T) {
+// TestDeclinedRetryReportsAnErrorNotAMiss guards the subtle half of raw-first
+// ordering.
+//
+// With the stored address tried first, the EXPANDED lookup is the one that
+// actually fixes the venue. If the budget guard skipped it and returned the clean
+// miss, the caller would memoize that miss under the expanded key — and
+// streetGeocodeAttempted would then make the sweep skip the venue PERMANENTLY,
+// with no error and no alert. An incomplete attempt is not a miss; reporting an
+// error keeps the venue retryable, because errors are never memoized.
+func TestDeclinedRetryReportsAnErrorNotAMiss(t *testing.T) {
 	g := &recordingGeocoder{hits: map[string]geo.AddressResult{
 		expandedMLK: {Latitude: 33.75, Longitude: -84.39, Precision: "rooftop"},
 	}}
@@ -210,11 +216,12 @@ func TestFallbackDeclinedWhenTheBudgetIsNearlySpent(t *testing.T) {
 
 	_, ok, err := geocodeExpandingAbbreviations(ctx, g, mlkQuery(), rawMLK)
 
-	if err != nil {
-		t.Fatalf("a declined retry must surface the clean miss, not an error: %v", err)
-	}
 	if ok {
 		t.Fatal("precondition: only the expanded form hits, so the stored-address attempt must miss")
+	}
+	if err == nil {
+		t.Fatal("a declined retry must report an ERROR — returning the miss would memoize it " +
+			"under the expanded key and retire the venue from the sweep permanently")
 	}
 	if len(g.asked) != 1 {
 		t.Fatalf("the retry must be declined with the budget nearly spent, got %d requests: %v", len(g.asked), g.asked)

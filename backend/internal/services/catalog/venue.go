@@ -68,8 +68,8 @@ func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 
 // streetGeocodeTimeout caps ONE inline street-geocode for a venue, including
 // time waiting on the shared 1 req/s Nominatim limiter and retries — and, since
-// PSY-1609, covering up to TWO sequential lookups when the abbreviation-expanded
-// form misses and the raw address is retried.
+// PSY-1609, covering up to TWO sequential lookups: the address as stored, then
+// the abbreviation-expanded form if that missed.
 //
 // Deliberately NOT raised to accommodate the second lookup: this runs on the
 // venue write path, so the budget is what a user waits, not what the geocoder
@@ -168,7 +168,7 @@ func (s *VenueService) applyStreetGeocoding(v *catalogm.Venue) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), streetGeocodeTimeout)
 	defer cancel()
-	// Same expand-then-fall-back-to-raw path the sweep uses, and it must stay
+	// Same stored-address-then-expanded path the sweep uses, and it must stay
 	// that way: a venue created through this inline path would otherwise memoize
 	// a miss, which the sweep then skips by design — so the abbreviation fix
 	// would silently never reach it.
