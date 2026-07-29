@@ -2237,6 +2237,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/apple/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth apple callback */
+        post: operations["post-auth-apple-callback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/change-password": {
         parameters: {
             query?: never;
@@ -2339,6 +2356,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth login */
+        post: operations["post-auth-login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -2350,6 +2384,40 @@ export interface paths {
         put?: never;
         /** Post auth logout */
         post: operations["post-auth-logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/magic-link/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth magic link send */
+        post: operations["post-auth-magic-link-send"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/magic-link/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth magic link verify */
+        post: operations["post-auth-magic-link-verify"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2424,6 +2492,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/passkey/login/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth passkey login begin */
+        post: operations["post-auth-passkey-login-begin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/passkey/login/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth passkey login finish */
+        post: operations["post-auth-passkey-login-finish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/passkey/register/begin": {
         parameters: {
             query?: never;
@@ -2452,6 +2554,40 @@ export interface paths {
         put?: never;
         /** Post auth passkey register finish */
         post: operations["post-auth-passkey-register-finish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/passkey/signup/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth passkey signup begin */
+        post: operations["post-auth-passkey-signup-begin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/passkey/signup/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth passkey signup finish */
+        post: operations["post-auth-passkey-signup-finish"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2733,6 +2869,57 @@ export interface paths {
         patch: operations["patch-auth-profile-visibility"];
         trace?: never;
     };
+    "/auth/recover-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth recover account */
+        post: operations["post-auth-recover-account"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/recover-account/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth recover account confirm */
+        post: operations["post-auth-recover-account-confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/recover-account/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth recover account request */
+        post: operations["post-auth-recover-account-request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/refresh": {
         parameters: {
             query?: never;
@@ -2744,6 +2931,23 @@ export interface paths {
         put?: never;
         /** Post auth refresh */
         post: operations["post-auth-refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth register */
+        post: operations["post-auth-register"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7366,6 +7570,46 @@ export interface components {
              */
             threshold?: number;
         };
+        AppleCallbackRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/AppleCallbackRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description User's first name (only provided on first sign-in) */
+            first_name?: string;
+            /** @description Apple identity token (JWT) */
+            identity_token: string;
+            /** @description User's last name (only provided on first sign-in) */
+            last_name?: string;
+        };
+        AppleCallbackResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/AppleCallbackResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Error code for programmatic handling */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Login successful
+             */
+            message: string;
+            /** @description Request ID for debugging */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+            /** @description JWT token for non-cookie clients */
+            token?: string;
+            /** @description User information */
+            user?: components["schemas"]["User"];
+        };
         ApproveShowRequestBody: {
             /**
              * Format: uri
@@ -7935,6 +8179,39 @@ export interface components {
             /** Format: int64 */
             show_id: number;
         };
+        BeginLoginRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/BeginLoginRequestBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Email for user-specific login (optional)
+             * @example user@example.com
+             */
+            email?: string;
+        };
+        BeginLoginResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/BeginLoginResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Challenge ID for finishing login */
+            challenge_id?: string;
+            /** @description Error code */
+            error_code?: string;
+            /** @description Response message */
+            message: string;
+            /** @description WebAuthn login options */
+            options?: components["schemas"]["CredentialAssertion"];
+            /** @description Request ID */
+            request_id?: string;
+            /** @description Success status */
+            success: boolean;
+        };
         BeginRegisterRequestBody: {
             /**
              * Format: uri
@@ -7953,6 +8230,52 @@ export interface components {
              * Format: uri
              * @description A URL to the JSON Schema for this object.
              * @example https://example.com/schemas/BeginRegisterResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Challenge ID for finishing registration */
+            challenge_id?: string;
+            /** @description Error code */
+            error_code?: string;
+            /** @description Response message */
+            message: string;
+            /** @description WebAuthn registration options */
+            options?: components["schemas"]["CredentialCreation"];
+            /** @description Request ID */
+            request_id?: string;
+            /** @description Success status */
+            success: boolean;
+        };
+        BeginSignupRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/BeginSignupRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Whether user confirmed they meet the minimum age */
+            age_confirmed: boolean;
+            /**
+             * @description Email for the new account
+             * @example user@example.com
+             */
+            email: string;
+            /**
+             * Format: int64
+             * @description Minimum age the user attested to
+             */
+            min_age_attested?: number;
+            /** @description Accepted privacy policy version identifier */
+            privacy_version?: string;
+            /** @description Whether user accepted Terms of Service */
+            terms_accepted: boolean;
+            /** @description Accepted terms version identifier */
+            terms_version?: string;
+        };
+        BeginSignupResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/BeginSignupResponseBody.json
              */
             readonly $schema?: string;
             /** @description Challenge ID for finishing registration */
@@ -8649,6 +8972,46 @@ export interface components {
              */
             status: string;
         };
+        ConfirmAccountRecoveryRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ConfirmAccountRecoveryRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Recovery token from email */
+            token: string;
+        };
+        ConfirmAccountRecoveryResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ConfirmAccountRecoveryResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Error code for programmatic handling
+             * @example INVALID_TOKEN
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Account recovered successfully
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+            /** @description User information */
+            user?: components["schemas"]["User"];
+        };
         ConfirmVerificationRequestBody: {
             /**
              * Format: uri
@@ -9264,6 +9627,22 @@ export interface components {
              * @description Parent tag ID for hierarchy
              */
             parent_id?: number | null;
+        };
+        CredentialAssertion: {
+            mediation?: string;
+            publicKey: components["schemas"]["PublicKeyCredentialRequestOptions"];
+        };
+        CredentialAssertionAuthenticatorResponse: {
+            authenticatorData: string;
+            clientDataJSON: string;
+            signature: string;
+            userHandle?: string;
+        };
+        CredentialAssertionResponse: {
+            id: string;
+            rawId: string;
+            response: components["schemas"]["CredentialAssertionAuthenticatorResponse"];
+            type: string;
         };
         CredentialCreation: {
             mediation?: string;
@@ -10269,6 +10648,36 @@ export interface components {
             /** Format: int64 */
             sound_quality?: number;
         };
+        FinishLoginRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/FinishLoginRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Challenge ID from begin login */
+            challenge_id: string;
+            /** @description The assertion response from the browser */
+            response: components["schemas"]["CredentialAssertionResponse"];
+        };
+        FinishLoginResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/FinishLoginResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Error code */
+            error_code?: string;
+            /** @description Response message */
+            message: string;
+            /** @description Request ID */
+            request_id?: string;
+            /** @description Success status */
+            success: boolean;
+            /** @description Authenticated user */
+            user?: components["schemas"]["User"];
+        };
         FinishRegisterRequestBody: {
             /**
              * Format: uri
@@ -10303,6 +10712,54 @@ export interface components {
             request_id?: string;
             /** @description Success status */
             success: boolean;
+        };
+        FinishSignupRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/FinishSignupRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Whether user confirmed they meet the minimum age */
+            age_confirmed: boolean;
+            /** @description Challenge ID from begin signup */
+            challenge_id: string;
+            /**
+             * @description Name for this passkey
+             * @example My MacBook
+             */
+            display_name: string;
+            /**
+             * Format: int64
+             * @description Minimum age the user attested to
+             */
+            min_age_attested?: number;
+            /** @description Accepted privacy policy version identifier */
+            privacy_version?: string;
+            /** @description The credential response from the browser */
+            response: components["schemas"]["CredentialCreationResponse"];
+            /** @description Whether user accepted Terms of Service */
+            terms_accepted: boolean;
+            /** @description Accepted terms version identifier */
+            terms_version?: string;
+        };
+        FinishSignupResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/FinishSignupResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Error code */
+            error_code?: string;
+            /** @description Response message */
+            message: string;
+            /** @description Request ID */
+            request_id?: string;
+            /** @description Success status */
+            success: boolean;
+            /** @description Created user */
+            user?: components["schemas"]["User"];
         };
         FollowResponseBody: {
             /**
@@ -12232,6 +12689,59 @@ export interface components {
             /** @description List of venues with show counts */
             venues: components["schemas"]["VenueWithShowCountResponse"][] | null;
         };
+        LoginRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/LoginRequestBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description User email
+             * @example test@example.com
+             */
+            email: string;
+            /**
+             * @description User password
+             * @example password
+             */
+            password: string;
+        };
+        LoginResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/LoginResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Error code for programmatic handling
+             * @example INVALID_CREDENTIALS
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Login successful
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+            /**
+             * @description JWT token for non-cookie clients (e.g. mobile apps)
+             * @example eyJhbGciOiJIUzI1NiIs...
+             */
+            token?: string;
+            /** @description User information */
+            user?: components["schemas"]["User"];
+        };
         LogoutResponseBody: {
             /**
              * Format: uri
@@ -12832,6 +13342,18 @@ export interface components {
             timeout?: number;
             user: components["schemas"]["UserEntity"];
         };
+        PublicKeyCredentialRequestOptions: {
+            allowCredentials?: components["schemas"]["CredentialDescriptor"][] | null;
+            challenge: string;
+            extensions?: {
+                [key: string]: unknown;
+            };
+            hints?: string[] | null;
+            rpId?: string;
+            /** Format: int64 */
+            timeout?: number;
+            userVerification?: string;
+        };
         PublicProfileResponse: {
             /**
              * Format: uri
@@ -13412,6 +13934,48 @@ export interface components {
             /** Format: int64 */
             play_count: number;
         };
+        RecoverAccountRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RecoverAccountRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Email address of the account to recover */
+            email: string;
+            /** @description Password for re-authentication */
+            password: string;
+        };
+        RecoverAccountResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RecoverAccountResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Error code for programmatic handling
+             * @example ACCOUNT_NOT_RECOVERABLE
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Account recovered successfully
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+            /** @description User information */
+            user?: components["schemas"]["User"];
+        };
         RefreshSourceRequestBody: {
             /**
              * Format: uri
@@ -13455,6 +14019,82 @@ export interface components {
             success: boolean;
             /** @example new.jwt.token */
             token: string;
+        };
+        RegisterRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RegisterRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Whether user confirmed they meet the minimum age */
+            age_confirmed: boolean;
+            /**
+             * @description User email
+             * @example test@example.com
+             */
+            email: string;
+            /**
+             * @description User first name (optional)
+             * @example John
+             */
+            first_name?: string;
+            /**
+             * @description User last name (optional)
+             * @example Doe
+             */
+            last_name?: string;
+            /**
+             * Format: int64
+             * @description Minimum age the user attested to
+             */
+            min_age_attested?: number;
+            /**
+             * @description User password
+             * @example password
+             */
+            password: string;
+            /** @description Accepted privacy policy version identifier */
+            privacy_version?: string;
+            /** @description Whether user accepted Terms of Service */
+            terms_accepted: boolean;
+            /** @description Accepted terms version identifier */
+            terms_version?: string;
+        };
+        RegisterResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RegisterResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Error code for programmatic handling
+             * @example USER_EXISTS
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Registration successful
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+            /**
+             * @description JWT token for non-cookie clients (e.g. mobile apps)
+             * @example eyJhbGciOiJIUzI1NiIs...
+             */
+            token?: string;
+            /** @description User information */
+            user?: components["schemas"]["User"];
         };
         RegisterSourceRequestBody: {
             /**
@@ -13635,6 +14275,44 @@ export interface components {
             details: string | null;
             /** @description Type of report: cancelled, sold_out, or inaccurate */
             report_type: string;
+        };
+        RequestAccountRecoveryRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RequestAccountRecoveryRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Email address of the account to recover */
+            email: string;
+        };
+        RequestAccountRecoveryResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/RequestAccountRecoveryResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Error code for programmatic handling (only set for pre-lookup validation/config errors, never for account state)
+             * @example SERVICE_UNAVAILABLE
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example If an account exists with this email and is eligible for recovery, a recovery email has been sent.
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status. Always true for any well-formed request — the response never reveals whether the email is registered or in a recoverable state.
+             * @example true
+             */
+            success: boolean;
         };
         RequestResponse: {
             /**
@@ -14227,6 +14905,47 @@ export interface components {
             count: number;
             /** @description Matching venues */
             venues: components["schemas"]["VenueDetailResponse"][] | null;
+        };
+        SendMagicLinkRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SendMagicLinkRequestBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Email address to send magic link to
+             * @example user@example.com
+             */
+            email: string;
+        };
+        SendMagicLinkResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SendMagicLinkResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Error code for programmatic handling (only set for pre-lookup validation/config errors, never for account state)
+             * @example SERVICE_UNAVAILABLE
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example If an account exists with this email, a magic link has been sent.
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status. Always true for any well-formed request — the response never reveals whether the email is registered or verified.
+             * @example true
+             */
+            success: boolean;
         };
         SendVerificationEmailResponseBody: {
             /**
@@ -16073,6 +16792,51 @@ export interface components {
             updated_at: string;
             verified: boolean;
             zipcode: string | null;
+        };
+        VerifyMagicLinkRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/VerifyMagicLinkRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Magic link token from email */
+            token: string;
+        };
+        VerifyMagicLinkResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/VerifyMagicLinkResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Error code for programmatic handling
+             * @example INVALID_TOKEN
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Login successful
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+            /**
+             * @description JWT token for non-cookie clients
+             * @example eyJhbGciOiJIUzI1NiIs...
+             */
+            token?: string;
+            /** @description User information */
+            user?: components["schemas"]["User"];
         };
         VoteCommentRequestBody: {
             /**
@@ -21090,6 +21854,40 @@ export interface operations {
             };
         };
     };
+    "post-auth-apple-callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppleCallbackRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppleCallbackResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "post-auth-change-password": {
         parameters: {
             query?: never;
@@ -21316,6 +22114,40 @@ export interface operations {
             };
         };
     };
+    "post-auth-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "post-auth-logout": {
         parameters: {
             query?: never;
@@ -21333,6 +22165,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LogoutResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-magic-link-send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMagicLinkRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendMagicLinkResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-magic-link-verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyMagicLinkRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyMagicLinkResponseBody"];
                 };
             };
             /** @description Error */
@@ -21468,6 +22367,73 @@ export interface operations {
             };
         };
     };
+    "post-auth-passkey-login-begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BeginLoginRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BeginLoginResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-passkey-login-finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishLoginRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinishLoginResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "post-auth-passkey-register-begin": {
         parameters: {
             query?: never;
@@ -21521,6 +22487,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FinishRegisterResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-passkey-signup-begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BeginSignupRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BeginSignupResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-passkey-signup-finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishSignupRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinishSignupResponseBody"];
                 };
             };
             /** @description Error */
@@ -22150,6 +23183,107 @@ export interface operations {
             };
         };
     };
+    "post-auth-recover-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoverAccountRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoverAccountResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-recover-account-confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmAccountRecoveryRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfirmAccountRecoveryResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-recover-account-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestAccountRecoveryRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestAccountRecoveryResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "post-auth-refresh": {
         parameters: {
             query?: never;
@@ -22166,6 +23300,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RefreshTokenResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponseBody"];
                 };
             };
             /** @description Error */

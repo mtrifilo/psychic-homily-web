@@ -103,6 +103,22 @@ func send(t *testing.T, router *chi.Mux, method, path, ip string, hdrs map[strin
 	return w.Code
 }
 
+// sendWithBody is send plus the response body. Needed because humaFromHTTP's
+// failure mode is a bare 200 with an EMPTY body — the operation never runs — and
+// every "expect not-429" assertion passes against that. See assertReachedHandler.
+func sendWithBody(t *testing.T, router *chi.Mux, method, path, ip string, hdrs map[string]string) (int, string) {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = ip
+	for k, v := range hdrs {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w.Code, w.Body.String()
+}
+
 // burstUnderCap sends `limit` requests and fails if any is rejected early — an
 // over-tight limiter is a regression too, not just a missing one.
 func burstUnderCap(t *testing.T, router *chi.Mux, method, path, ip string, limit int) {
