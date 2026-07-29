@@ -678,10 +678,20 @@ func TestSubAPIOperationsAreAbsentFromSpec(t *testing.T) {
 		t.Fatalf("parse spec: %v", err)
 	}
 
+	// Shrinks as groups graduate. `/shows/ai-process` left here in PSY-1598 step 2
+	// (shows + tags); its presence is now asserted by
+	// TestShowsAndTagsOperationsAreInMainSpec, which also pins the limiter and the
+	// bypass behaviour that moving it had to preserve.
+	//
+	// `/artists/{artist_id}/report` stays — but note it is absent from ROUTING too,
+	// not just the spec: setupEntityReportRoutes registers the same chi pattern with
+	// a different param name and silently replaces it (PSY-1633). Converting the
+	// report groups before that is resolved would put both paths in the published
+	// document while chi still serves one, making the contract actively wrong rather
+	// than merely incomplete.
 	for _, path := range []string{
 		"/auth/login",
 		"/auth/register",
-		"/shows/ai-process",
 		"/artists/{artist_id}/report",
 	} {
 		if _, ok := spec.Paths[path]; ok {

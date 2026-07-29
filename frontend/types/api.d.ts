@@ -3952,7 +3952,8 @@ export interface paths {
         /** Get entities by entity type by entity ID tags */
         get: operations["get-entities-by-entity-type-by-entity-id-tags"];
         put?: never;
-        post?: never;
+        /** Post entities by entity type by entity ID tags */
+        post: operations["post-entities-by-entity-type-by-entity-id-tags"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5437,7 +5438,25 @@ export interface paths {
         /** List shows */
         get: operations["list-shows"];
         put?: never;
-        post?: never;
+        /** Post shows */
+        post: operations["post-shows"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shows/ai-process": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post shows ai process */
+        post: operations["post-shows-ai-process"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5837,6 +5856,24 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post tags by tag ID entities by entity type by entity ID votes */
+        post: operations["post-tags-by-tag-id-entities-by-entity-type-by-entity-id-votes"];
+        /** Delete tags by tag ID entities by entity type by entity ID votes */
+        delete: operations["delete-tags-by-tag-id-entities-by-entity-type-by-entity-id-votes"];
         options?: never;
         head?: never;
         patch?: never;
@@ -6572,6 +6609,23 @@ export interface components {
             readonly $schema?: string;
             /** @description Whether the link was created */
             success: boolean;
+        };
+        AddTagToEntityRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/AddTagToEntityRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Tag category for new tags (genre, locale, other; default: other) */
+            category?: string;
+            /**
+             * Format: int64
+             * @description Tag ID (provide tag_id or tag_name)
+             */
+            tag_id?: number;
+            /** @description Tag name (with alias resolution; creates tag if not found) */
+            tag_name?: string;
         };
         AdminBulkLinkPlaysRequestBody: {
             /**
@@ -9148,6 +9202,42 @@ export interface components {
             /** @description Section title (1-255 chars) */
             title: string;
         };
+        CreateShowRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/CreateShowRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Age requirement (e.g., '21+', 'All Ages') */
+            age_requirement?: string;
+            /** @description List of artists in the show */
+            artists: components["schemas"]["Artist"][] | null;
+            /** @description City where the show takes place */
+            city: string;
+            /** @description Show description */
+            description?: string;
+            /**
+             * Format: date-time
+             * @description Event date and time
+             */
+            event_date: string;
+            /** @description If true, show is private and only visible to submitter */
+            is_private?: boolean;
+            /**
+             * Format: double
+             * @description Ticket price
+             */
+            price?: number;
+            /** @description State where the show takes place */
+            state: string;
+            /** @description Ticket purchase URL */
+            ticket_url?: string;
+            /** @description Show title (optional) */
+            title?: string;
+            /** @description List of venues for the show */
+            venues: components["schemas"]["Venue"][] | null;
+        };
         CreateTagRequestBody: {
             /**
              * Format: uri
@@ -9883,6 +9973,62 @@ export interface components {
             website?: string;
             youtube?: string;
             zipcode?: string;
+        };
+        ExtractShowRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ExtractShowRequest.json
+             */
+            readonly $schema?: string;
+            image_data: string;
+            media_type: string;
+            text: string;
+            type: string;
+        };
+        ExtractShowResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ExtractShowResponse.json
+             */
+            readonly $schema?: string;
+            data?: components["schemas"]["ExtractedShowData"];
+            error?: string;
+            success: boolean;
+            warnings?: string[] | null;
+        };
+        ExtractedArtist: {
+            /** Format: int64 */
+            billing_order?: number;
+            instagram_handle?: string;
+            is_headliner: boolean;
+            /** Format: int64 */
+            matched_id?: number;
+            matched_name?: string;
+            matched_slug?: string;
+            name: string;
+            set_type?: string;
+            suggestions?: components["schemas"]["MatchSuggestion"][] | null;
+        };
+        ExtractedShowData: {
+            ages?: string;
+            artists: components["schemas"]["ExtractedArtist"][] | null;
+            cost?: string;
+            date?: string;
+            description?: string;
+            time?: string;
+            venue?: components["schemas"]["ExtractedVenue"];
+        };
+        ExtractedVenue: {
+            city?: string;
+            /** Format: int64 */
+            matched_id?: number;
+            matched_name?: string;
+            matched_slug?: string;
+            name: string;
+            state?: string;
+            suggestions?: components["schemas"]["VenueMatchSuggestion"][] | null;
         };
         FailSourceRequestBody: {
             /**
@@ -12181,6 +12327,12 @@ export interface components {
             total: number;
             /** Format: int64 */
             unmatched: number;
+        };
+        MatchSuggestion: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            slug: string;
         };
         MediaType: {
             Encoding: {
@@ -15834,6 +15986,14 @@ export interface components {
             state: string;
             will_create: boolean;
         };
+        VenueMatchSuggestion: {
+            city: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            slug: string;
+            state: string;
+        };
         VenueProvenance: {
             /** Format: int64 */
             confirmation_count: number;
@@ -15948,6 +16108,16 @@ export interface components {
              * Format: uri
              * @description A URL to the JSON Schema for this object.
              * @example https://example.com/schemas/VoteRequestHandlerRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description True for upvote, false for downvote */
+            is_upvote: boolean;
+        };
+        VoteTagRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/VoteTagRequestBody.json
              */
             readonly $schema?: string;
             /** @description True for upvote, false for downvote */
@@ -25282,6 +25452,48 @@ export interface operations {
             };
         };
     };
+    "post-entities-by-entity-type-by-entity-id-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Entity type
+                 * @example artist
+                 */
+                entity_type: string;
+                /**
+                 * @description Entity ID
+                 * @example 1
+                 */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTagToEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "delete-entities-by-entity-type-by-entity-id-tags-by-tag-id": {
         parameters: {
             query?: never;
@@ -29337,6 +29549,72 @@ export interface operations {
             };
         };
     };
+    "post-shows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShowRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-shows-ai-process": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractShowRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractShowResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-shows-cities": {
         parameters: {
             query?: {
@@ -30480,6 +30758,96 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ListTagEntitiesResponseBody"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-tags-by-tag-id-entities-by-entity-type-by-entity-id-votes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Tag ID
+                 * @example 1
+                 */
+                tag_id: string;
+                /**
+                 * @description Entity type
+                 * @example artist
+                 */
+                entity_type: string;
+                /**
+                 * @description Entity ID
+                 * @example 1
+                 */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoteTagRequestBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-tags-by-tag-id-entities-by-entity-type-by-entity-id-votes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Tag ID
+                 * @example 1
+                 */
+                tag_id: string;
+                /**
+                 * @description Entity type
+                 * @example artist
+                 */
+                entity_type: string;
+                /**
+                 * @description Entity ID
+                 * @example 1
+                 */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
