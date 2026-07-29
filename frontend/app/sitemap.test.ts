@@ -137,9 +137,8 @@ describe('sitemap', () => {
 
   // The regression guard. Before this change a failed fetch was caught and
   // turned into `[]`, so the route rendered successfully with an entire entity
-  // family missing — 114 show URLs served against 3,498 in the database, with
-  // no failure signal anywhere. Failing the render instead leaves the last good
-  // sitemap in place.
+  // family missing and no failure signal anywhere (see the backend's
+  // contracts.SitemapEntry). Failing the render leaves the last good sitemap up.
   describe('fails closed', () => {
     it('throws when the feed errors rather than emitting a partial sitemap', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))

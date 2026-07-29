@@ -15,9 +15,9 @@ import (
 //
 // It deliberately avoids the public list services, which hydrate joins and full
 // response bodies the generator throws away. That coupling is not a style
-// preference — it is the defect this service exists to fix. Keep the queries
-// here projections; the moment this starts Preloading it inherits the same
-// runaway payload.
+// preference — it is the defect this service exists to fix; see
+// contracts.SitemapEntry for the incident. Keep the queries here projections:
+// the moment this starts Preloading it inherits the same runaway payload.
 type SitemapService struct {
 	db *gorm.DB
 }
@@ -30,31 +30,33 @@ func NewSitemapService(database *gorm.DB) *SitemapService {
 }
 
 // Entries returns the indexable slug set for every URL family the sitemap
-// currently covers.
-//
-// A failure in any one family fails the whole call. The generator must not be
-// handed a partial result: a response missing an entity family is
-// indistinguishable from that family being legitimately empty, and publishing
-// it silently drops thousands of URLs out of the index.
+// currently covers. A failure in any one family fails the whole call — the
+// generator must never be handed a partial result.
 func (s *SitemapService) Entries() (*contracts.SitemapEntries, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Only approved shows are publicly reachable — pending, rejected and private
-	// shows 404 for anonymous visitors, so advertising them would fill the index
-	// with dead URLs. Mirrors the status gate in ShowService.GetShows.
-	shows, err := s.entriesFor(&catalogm.Show{}, "status = ?", catalogm.ShowStatusApproved)
+	// Only approved shows are publicly reachable: GetShowHandler 404s any other
+	// status for an anonymous visitor, so advertising them would fill the index
+	// with dead URLs. This is the third place that rule is written — see the
+	// note on ShowStatus in the models package.
+	shows, err := s.entriesFor(
+		s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect show sitemap entries: %w", err)
 	}
 
-	artists, err := s.entriesFor(&catalogm.Artist{})
+	// Artists and venues have no visibility column — every row with a slug has a
+	// reachable page. (Venue.Verified redacts address fields; it does not gate
+	// the page.)
+	artists, err := s.entriesFor(s.db.Model(&catalogm.Artist{}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect artist sitemap entries: %w", err)
 	}
 
-	venues, err := s.entriesFor(&catalogm.Venue{})
+	venues, err := s.entriesFor(s.db.Model(&catalogm.Venue{}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect venue sitemap entries: %w", err)
 	}
@@ -66,29 +68,26 @@ func (s *SitemapService) Entries() (*contracts.SitemapEntries, error) {
 	}, nil
 }
 
-// entriesFor projects slug + updated_at for one model, skipping rows with no
-// slug. Slug is a nullable column on all three models, and a row without one
-// has no canonical URL to index.
-func (s *SitemapService) entriesFor(model any, extraWhere ...any) ([]contracts.SitemapEntry, error) {
-	query := s.db.Model(model).Where("slug IS NOT NULL AND slug <> ''")
-
-	if len(extraWhere) > 0 {
-		where, ok := extraWhere[0].(string)
-		if !ok {
-			return nil, fmt.Errorf("extra where clause must be a string")
-		}
-		query = query.Where(where, extraWhere[1:]...)
-	}
-
-	// Freshest first, slug as the tiebreak so the ordering is total: equal
-	// timestamps are common after a bulk ingest, and a stable order is what lets
-	// the freshness monitor diff two responses meaningfully.
-	query = query.Order("updated_at DESC, slug ASC")
-
-	// Non-nil empty slice, so an empty family serialises as [] rather than null
-	// and the generator can iterate it without a nil check.
+// entriesFor projects slug + updated_at from an already-scoped query, skipping
+// rows with no slug: slug is nullable on all three models, and a row without
+// one has no canonical URL to index.
+//
+// Taking a scope rather than a model plus filter arguments keeps the caller's
+// WHERE clause compiler-checked, and lets a family whose query does not reduce
+// to "one table, one predicate" reuse this unchanged.
+func (s *SitemapService) entriesFor(scope *gorm.DB) ([]contracts.SitemapEntry, error) {
+	// Deterministic order, so two fetches of an unchanged catalogue diff
+	// cleanly. Ordered by slug rather than recency because the partial unique
+	// index on slug (migration 000013) can supply that order, while no index on
+	// updated_at exists for any of these tables — sorting on it would buy a
+	// guaranteed sort node for an ordering no consumer reads.
 	entries := []contracts.SitemapEntry{}
-	if err := query.Select("slug", "updated_at").Scan(&entries).Error; err != nil {
+	err := scope.
+		Where("slug IS NOT NULL AND slug <> ''").
+		Order("slug ASC").
+		Select("slug", "updated_at").
+		Scan(&entries).Error
+	if err != nil {
 		return nil, err
 	}
 	return entries, nil

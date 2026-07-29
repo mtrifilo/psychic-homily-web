@@ -18,10 +18,9 @@ import (
 // router, so route registration, handler wiring and JSON serialisation are all
 // covered — not just the service in isolation.
 //
-// The sitemap generator is an unattended consumer: nobody eyeballs its output,
-// which is exactly how the previous generator served 114 show URLs against
-// 3,498 in the database for months. The contract it depends on gets a test that
-// speaks HTTP.
+// The generator is an unattended consumer: nobody eyeballs its output, which is
+// how the previous one went stale unnoticed (see contracts.SitemapEntry). The
+// contract it depends on gets a test that speaks HTTP.
 func TestSitemapEntriesEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

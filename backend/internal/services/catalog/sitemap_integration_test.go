@@ -81,31 +81,13 @@ func TestSitemapEntriesIndexability(t *testing.T) {
 	}
 }
 
-// TestSitemapEntriesEmptyFamiliesSerialiseAsSlices guards the generator against
-// a nil family. The consumer iterates each list directly; a JSON null would
-// force a nil check that is easy to forget and silent when omitted.
-func TestSitemapEntriesEmptyFamiliesSerialiseAsSlices(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	td := testutil.SetupTestPostgres(t)
-	defer td.Cleanup()
-
-	entries, err := NewSitemapService(td.DB).Entries()
-	if err != nil {
-		t.Fatalf("Entries: %v", err)
-	}
-
-	if entries.Shows == nil || entries.Artists == nil || entries.Venues == nil {
-		t.Fatalf("empty families must be non-nil slices, got shows=%v artists=%v venues=%v",
-			entries.Shows, entries.Artists, entries.Venues)
-	}
-}
-
-// TestSitemapEntriesOrderIsTotal pins the ordering contract: freshest first,
-// slug as the tiebreak. Equal timestamps are the norm after a bulk ingest, so
-// without the tiebreak the response order is undefined and the freshness
-// monitor cannot diff two fetches meaningfully.
+// TestSitemapEntriesOrderIsTotal pins the ordering contract: slug ascending,
+// which is a total order over a unique column. Insertion order must not leak
+// into the response, so that two fetches of an unchanged catalogue diff cleanly.
+//
+// (The non-nil-empty-slice guarantee is asserted in its observable JSON form —
+// [] rather than null — by the end-to-end test in internal/api/routes, rather
+// than costing a second Postgres container here to re-check a Go-level property.)
 func TestSitemapEntriesOrderIsTotal(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -113,16 +95,9 @@ func TestSitemapEntriesOrderIsTotal(t *testing.T) {
 	td := testutil.SetupTestPostgres(t)
 	defer td.Cleanup()
 
-	sameInstant := time.Now().UTC().Truncate(time.Second)
 	for _, slug := range []string{"charlie", "alpha", "bravo"} {
-		a := &catalogm.Artist{Name: "Artist " + slug, Slug: strPtr(slug)}
-		if err := td.DB.Create(a).Error; err != nil {
+		if err := td.DB.Create(&catalogm.Artist{Name: "Artist " + slug, Slug: strPtr(slug)}).Error; err != nil {
 			t.Fatalf("seed artist %q: %v", slug, err)
-		}
-		// UpdatedAt is maintained by GORM on write, so force the collision
-		// explicitly rather than hoping three inserts land in the same second.
-		if err := td.DB.Model(a).UpdateColumn("updated_at", sameInstant).Error; err != nil {
-			t.Fatalf("pin updated_at for %q: %v", slug, err)
 		}
 	}
 
@@ -138,16 +113,14 @@ func TestSitemapEntriesOrderIsTotal(t *testing.T) {
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("artists = %v, want %v (ties must break on slug ASC)", got, want)
+			t.Fatalf("artists = %v, want %v (order must be slug ASC, not insertion order)", got, want)
 		}
 	}
 }
 
 // TestSitemapEntriesIssuesOneQueryPerFamily is the regression guard for the
-// defect this service was built to fix. The old generator read these columns
-// off the public list endpoints, which Preload venues and artists per show —
-// 4.6 MB and 15.5 s, past the fetch budget, silently yielding an empty sitemap.
-// Three projections, three queries. If a Preload ever creeps in here, the count
+// defect this service was built to fix — see contracts.SitemapEntry. Three
+// projections, three queries. If a Preload ever creeps in here, the count
 // climbs and this fails.
 func TestSitemapEntriesIssuesOneQueryPerFamily(t *testing.T) {
 	if testing.Short() {
