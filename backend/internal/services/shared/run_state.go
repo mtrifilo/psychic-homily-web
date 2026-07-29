@@ -171,6 +171,18 @@ type RunStore interface {
 	// which silence becomes detectable.
 	Register(ctx context.Context, name string, interval, lease time.Duration) error
 
+	// Retire marks a loop as no longer expected to run, immediately.
+	//
+	// The passive path — letting registration go stale — bounds the damage but
+	// does not prevent it, and the difference matters most in the case it was
+	// introduced for. A stage-to-prod restore copies stage's rows INCLUDING their
+	// registration timestamps, and stage re-stamps its own every few minutes, so
+	// restored rows arrive in prod looking freshly registered and page daily until
+	// they age out. Retiring explicitly, at the moment a loop is known not to run,
+	// is what makes "a disabled sweep is not reported" true rather than
+	// true-in-a-week.
+	Retire(ctx context.Context, name string) error
+
 	// DueIn reports how long until `name` is next due, measured against the
 	// database clock. A value <= 0 means overdue — including the never-run case,
 	// where there is no row at all.
@@ -277,6 +289,24 @@ func (s *GormRunStore) Register(ctx context.Context, name string, interval, leas
 	`, name, int64(interval/time.Second), int64(lease/time.Second)).Error
 	if err != nil {
 		return fmt.Errorf("register run state for %q: %w", name, err)
+	}
+	return nil
+}
+
+// Retire implements RunStore.
+//
+// NULLing last_registered_at reuses the same sentinel a never-registered row
+// carries, so retirement has exactly one representation rather than two. The row
+// itself is kept: its run trace is still the evidence for when the loop last did
+// anything, and re-enabling the loop re-registers it on the next boot.
+func (s *GormRunStore) Retire(ctx context.Context, name string) error {
+	err := s.db.WithContext(ctx).Exec(`
+		UPDATE background_service_runs
+		SET last_registered_at = NULL, last_overdue_alert_at = NULL, updated_at = NOW()
+		WHERE name = ?
+	`, name).Error
+	if err != nil {
+		return fmt.Errorf("retire run state for %q: %w", name, err)
 	}
 	return nil
 }

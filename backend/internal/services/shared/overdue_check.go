@@ -37,9 +37,12 @@ const (
 	//
 	// Uniform rather than per-loop on purpose: a per-loop tolerance is a knob
 	// nobody tunes, and a wrong one reintroduces the config-inspection problem
-	// that made the original incident expensive to diagnose. Only loops at or
-	// above runStatePersistenceThreshold have rows, so the tightest window this
-	// produces in practice is two hours.
+	// that made the original incident expensive to diagnose.
+	//
+	// This multiplier alone would give a two-hour window for the tightest-covered
+	// loop, but it is not the operative number: the GREATEST floor in
+	// ClaimOverdueAlerts raises that to interval + lease + overdueRecoveryMargin(),
+	// i.e. 2h45m at the defaults. Quote the floor, not this constant.
 	overdueIntervalMultiplier = 2
 
 	// overdueRecoveryJitter is scheduling slop on top of the catch-up stagger.
@@ -549,6 +552,29 @@ func (c *SweepHealthCheck) runCycle(ctx context.Context) {
 	}
 
 	for _, loop := range loops {
+		// Stop reporting the moment shutdown starts. The handler flushes Sentry
+		// synchronously, so a batch of overdue loops can add seconds per loop to
+		// the shutdown path — during precisely the incident this fires for, and
+		// PSY-1606's real case was seven simultaneously dead sweeps. Overrunning
+		// the platform's grace period means SIGKILL, which strands 'running' claims
+		// and blocks the next boot for a full lease. Loops left unreported here
+		// keep their claim released below and are picked up by the next pass.
+		if ctx.Err() != nil {
+			c.logger.Warn("sweep health check: shutting down mid-report, releasing the remaining claims",
+				"unreported", loop.Name,
+			)
+			// Detached: ctx is already cancelled, and releasing with it would fail —
+			// leaving the row asserting an alert nobody received, which is the exact
+			// state this branch exists to avoid. Same reasoning as Complete's
+			// shutdown path.
+			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if err := c.store.ReleaseOverdueAlert(releaseCtx, loop.Name); err != nil {
+				c.logger.Error("sweep health check: could not release an unreported claim",
+					"service", loop.Name, "error", err)
+			}
+			cancel()
+			continue
+		}
 		c.logger.Error("background sweep overdue",
 			"service", loop.Name,
 			"interval", loop.Interval(),

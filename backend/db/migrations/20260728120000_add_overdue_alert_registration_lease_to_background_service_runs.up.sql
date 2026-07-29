@@ -18,11 +18,15 @@
 -- for (PSY-1606).
 --
 -- ADDITIVE: three nullable columns on a ~20-row table, no FKs, no backfill.
--- Existing rows start NULL on all three. Note this means NOTHING is reported on
--- the first pass after deploy: last_registered_at is NULL, which reads as
--- retired, so a loop becomes eligible only once a live process registers it at
--- boot. That is deliberate -- it keeps the first deploy from paging for every
--- historical row at once.
+-- Existing rows start NULL on all three.
+--
+-- ROLLOUT EXPECTATION -- read this before deploying. The health check re-stamps
+-- last_registered_at for every loop THIS PROCESS OWNS as the first step of each
+-- pass, including the boot pass. So an owned loop already past its threshold is
+-- eligible microseconds later and reports on the FIRST pass. Given PSY-1606 found
+-- seven starved sweeps, expect a burst on the first deploy and schedule
+-- accordingly. What stays quiet is only rows nothing owns -- renamed loops, and
+-- rows carried in from another environment by a database restore.
 
 ALTER TABLE background_service_runs
     ADD COLUMN last_overdue_alert_at TIMESTAMPTZ,
@@ -62,3 +66,11 @@ COMMENT ON COLUMN background_service_runs.last_registered_at IS
 -- ordinary platform behaviour.
 COMMENT ON COLUMN background_service_runs.lease_seconds IS
     'PSY-1612: the claim lease this loop was last configured with. Feeds the overdue threshold floor so a crash-recovery gap cannot read as a stall.';
+
+-- Supersedes PSY-1611's table comment, which is what \d+ shows and which now
+-- describes neither the code (it names shared.RunTickerLoop, since renamed to
+-- RunScheduledLoop) nor the alerting (it says health reads last_success_at /
+-- consecutive_failures; PSY-1612 shipped keyed on last_completed_at, and nothing
+-- predicates on consecutive_failures -- see PSY-1620).
+COMMENT ON TABLE background_service_runs IS
+    'Durable per-loop run state for shared.RunScheduledLoop. Scheduling reads last_completed_at. Overdue alerting (PSY-1612) reads last_completed_at / created_at / last_registered_at; last_success_at and consecutive_failures are alert CONTEXT only - nothing predicates on them yet (PSY-1620).';

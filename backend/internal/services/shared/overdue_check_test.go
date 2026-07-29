@@ -419,6 +419,8 @@ func (panicOnRegisterStore) Register(context.Context, string, time.Duration, tim
 	panic("register exploded")
 }
 
+func (panicOnRegisterStore) Retire(context.Context, string) error { return nil }
+
 func (panicOnRegisterStore) DueIn(context.Context, string, time.Duration) (time.Duration, error) {
 	return 0, nil
 }

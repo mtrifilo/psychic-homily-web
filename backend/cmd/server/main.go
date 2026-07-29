@@ -160,11 +160,24 @@ func main() {
 			}
 			sentry.CaptureException(errors.New(loop.Summary()))
 		})
-		// Flush before returning. CaptureException is asynchronous and the deferred
-		// process-level Flush only runs on a graceful shutdown, so an alert raised
-		// moments before a kill — which is exactly when deploys break sweeps — would
-		// otherwise be dropped while the database row already claims it was sent.
-		sentry.Flush(2 * time.Second)
+		// Flush before returning, and TREAT A FAILED FLUSH AS A FAILED DELIVERY.
+		// CaptureException is asynchronous and the deferred process-level Flush only
+		// runs on a graceful shutdown, so an alert raised moments before a kill —
+		// exactly when deploys break sweeps — can be dropped while the database row
+		// already claims it was sent. Panicking here is not laziness: the caller's
+		// recover turns it into delivered=false, which releases the claim so the
+		// next pass retries. Discarding this bool would leave the one signal that
+		// can detect the drop unused.
+		//
+		// Gated on a client EXISTING: Flush returns false when there is no DSN, so
+		// an unguarded check would treat every alert in a DSN-less environment
+		// (local dev, tests, CI) as undelivered, release the claim, and re-report
+		// on every pass forever. With no sink configured the log line IS the
+		// delivery — the same reasoning invokeOverdueHandler applies to a nil
+		// handler.
+		if sentry.CurrentHub().Client() != nil && !sentry.Flush(2*time.Second) {
+			panic("sentry flush timed out before the overdue alert was delivered")
+		}
 	})
 
 	// Connect to database

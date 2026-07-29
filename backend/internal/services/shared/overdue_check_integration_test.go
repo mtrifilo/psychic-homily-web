@@ -281,6 +281,68 @@ func TestRetirementSurvivesWhenNoProcessOwnsTheLoop(t *testing.T) {
 	}
 }
 
+// TestRetireStopsAlertingImmediately covers the operational escape hatch. The
+// passive path (letting registration go stale) bounds noise to a week but does not
+// prevent it, and the case it was introduced for is exactly where that is not good
+// enough: `psy-deploy-prod --with-db-restore` copies stage's rows INCLUDING their
+// registration timestamps, and stage re-stamps its own every pass — so restored
+// rows arrive in prod looking freshly registered and page daily for the full
+// window. Retiring explicitly is what makes "a disabled sweep is not reported"
+// true now rather than in a week.
+func TestRetireStopsAlertingImmediately(t *testing.T) {
+	db, store := setupRunStore(t)
+	ctx := context.Background()
+
+	registerLoop(t, store, "switched-off", time.Hour)
+
+	// Run a REAL cycle so the row carries genuine history — backdateCompletion
+	// only fabricates a timestamp and would leave run_count at 0, which would make
+	// the "history survives retirement" assertion below vacuous.
+	token, ok, err := store.Claim(ctx, "switched-off", time.Hour, time.Hour, true)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if err := store.Complete(ctx, "switched-off", token, CycleOutcome{Duration: time.Second}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	backdateCompletion(t, db, "switched-off", 30*24*time.Hour)
+
+	first, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("precondition pass: %v", err)
+	}
+	if _, found := findLoop(first, "switched-off"); !found {
+		t.Fatal("precondition: a 30-day-stale loop must alert before it is retired")
+	}
+
+	if err := store.Retire(ctx, "switched-off"); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+
+	// Clear the throttle so the next pass is not merely rate-limited — the
+	// assertion must prove retirement, not the 24h window.
+	backdateAlert(t, db, "switched-off", 48*time.Hour)
+
+	again, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("post-retire pass: %v", err)
+	}
+	if _, found := findLoop(again, "switched-off"); found {
+		t.Fatal("a retired loop must stop alerting immediately, not after the retirement window")
+	}
+
+	// Retiring must not destroy the run trace — the row is still the evidence for
+	// when the loop last did anything.
+	var runCount int64
+	if err := db.Raw(`SELECT run_count FROM background_service_runs WHERE name = ?`, "switched-off").
+		Scan(&runCount).Error; err != nil {
+		t.Fatalf("read run_count: %v", err)
+	}
+	if runCount == 0 {
+		t.Fatal("retire must keep the row and its history; DELETE is the destructive alternative it replaces")
+	}
+}
+
 // TestUnregisteredRowIsNotAlerted: rows created before registration existed (or by
 // Claim alone) carry NULL. Treating NULL as retired is what stops the first deploy
 // of this feature from paging for every historical row at once; any loop that is
@@ -673,6 +735,10 @@ func TestRegister_PreservesRunState(t *testing.T) {
 // for the real thing.
 func TestStalledSweepEndToEnd(t *testing.T) {
 	db, store := setupRunStore(t)
+
+	// RunScheduledLoop populates the process-wide registry; without this the name
+	// leaks into every later test's refreshRegistrations pass.
+	t.Cleanup(resetRegisteredLoops)
 
 	// A sweep runs, completes, and is then starved — exactly PSY-1606's shape.
 	SetDefaultRunStore(store)

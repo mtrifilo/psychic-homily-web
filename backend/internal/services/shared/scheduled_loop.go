@@ -341,6 +341,20 @@ func newLoopRunner(cfg LoopConfig, work func(context.Context)) *loopRunner {
 // monitoring at all.
 func (r *loopRunner) register(ctx context.Context) {
 	if r.store == nil {
+		// Below the persistence threshold this loop keeps no run state and is
+		// therefore invisible to overdue alerting. If it USED to be above the
+		// threshold, a row survives with a stale interval and a registration
+		// recent enough to pass the retirement gate — so a perfectly healthy loop
+		// running every few minutes would be measured against its old cadence and
+		// page daily for a week. Retiring here is what makes "lowering the
+		// interval removes alerting" true instead of "…after a week of false
+		// pages".
+		if store := DefaultRunStore(); !typedNilStore(store) {
+			defer recoverAndLog("background run state: retire panicked — continuing", r.name)
+			if err := store.Retire(ctx, r.name); err != nil {
+				logStoreError(r.name, "retire", err)
+			}
+		}
 		return
 	}
 	rememberLoop(r.name, r.interval, r.lease)

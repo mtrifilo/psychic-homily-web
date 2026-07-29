@@ -33,6 +33,7 @@ type memRunStore struct {
 	rows map[string]*memRunRow
 
 	registered atomic.Int32
+	retired    atomic.Int32
 	claimed    atomic.Int32
 	refused    atomic.Int32
 	finished   atomic.Int32
@@ -102,6 +103,16 @@ func (s *memRunStore) Register(_ context.Context, name string, interval, lease t
 	r.intervalSeconds = int64(interval / time.Second)
 	r.leaseSeconds = int64(lease / time.Second)
 	s.registered.Add(1)
+	return nil
+}
+
+// Retire mirrors the SQL sentinel: clear registration so the row reads as no
+// longer expected to run.
+func (s *memRunStore) Retire(_ context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.row(name)
+	s.retired.Add(1)
 	return nil
 }
 

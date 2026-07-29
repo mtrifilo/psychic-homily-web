@@ -75,6 +75,10 @@ var (
 	bearerRe = regexp.MustCompile(`(?i)(\bbearer\s+)\S+`)
 )
 
+// extraKeyStack is the SetExtra key carrying a panic stack trace (PSY-617). It is
+// redacted but never length-capped — see ScrubSentryEvent.
+const extraKeyStack = "stack"
+
 // ScrubSentryEvent is the Sentry BeforeSend hook (PSY-1145): on every outgoing
 // event it caps oversized values and strips obvious secrets from the message,
 // exception values, and request (URL/query/cookies/body/sensitive headers), so
@@ -99,8 +103,9 @@ var (
 // future SetExtra author remembering.
 //
 // NOT scrubbed (deliberate scope): Breadcrumbs / Contexts / Threads / stacktrace
-// frames, and non-string Extra values (numbers, timestamps, counters — they
-// cannot carry a secret pattern).
+// frames, and non-string Extra values. The latter is a CONSTRAINT ON CALL SITES,
+// not a fact about the world: only scalar non-string values may be passed to
+// SetExtra, because a map or struct would pass through this hook untouched.
 func ScrubSentryEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	if event == nil {
 		return nil
@@ -113,9 +118,20 @@ func ScrubSentryEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 		scrubRequest(event.Request)
 	}
 	for k, v := range event.Extra {
-		if s, ok := v.(string); ok {
-			event.Extra[k] = scrubText(s)
+		s, ok := v.(string)
+		if !ok {
+			continue
 		}
+		// Redact everywhere, but do NOT apply the length cap to a stack trace.
+		// scrubText caps at sentryValueLimit, and a real background-service panic
+		// stack (PSY-617 attaches one via SetExtra) runs well past that — capping
+		// would silently start truncating an unrelated shipped feature's diagnostics
+		// as a side effect of adding secret redaction here.
+		if k == extraKeyStack {
+			event.Extra[k] = redactSecrets(s)
+			continue
+		}
+		event.Extra[k] = scrubText(s)
 	}
 	return event
 }

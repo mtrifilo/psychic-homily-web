@@ -441,6 +441,10 @@ func (panickingRunStore) Register(context.Context, string, time.Duration, time.D
 	panic("store exploded")
 }
 
+func (panickingRunStore) Retire(context.Context, string) error {
+	panic("store exploded")
+}
+
 func (panickingRunStore) DueIn(context.Context, string, time.Duration) (time.Duration, error) {
 	panic("store exploded")
 }

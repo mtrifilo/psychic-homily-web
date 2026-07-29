@@ -721,7 +721,9 @@ Operational notes:
   first cycle already fits inside any plausible uptime, so persistence would be
   pure overhead. **This list is also the coverage map for overdue alerting
   below: a loop with no row cannot be reported as stopped.** Lowering a monitored
-  sweep's interval below one hour therefore removes its alerting silently.
+  sweep's interval below one hour therefore removes its alerting — the loop
+  retires its own row on the next boot, so it goes quiet rather than paging
+  against its stale cadence.
 - To answer "when did this last run?" for any loop:
   `SELECT name, last_completed_at, last_success_at, last_outcome, consecutive_failures FROM background_service_runs ORDER BY name;`
 
@@ -729,11 +731,17 @@ Operational notes:
 minutes (`SWEEP_HEALTH_CHECK_INTERVAL_MINUTES`) and reports loops that have
 stopped running to Sentry. Turn it off with `DISABLE_SWEEP_HEALTH_CHECK=1`.
 
-- **Detection bound.** A loop is overdue once `max(2 × interval, interval + lease
-  + catch-up margin)` has passed with no completed cycle. In practice: a 1h sweep
-  is reported within ~2h15m, a daily sweep within ~2 days. The floor exists
-  because a process killed mid-cycle holds its claim for a full lease, so a
-  perfectly healthy recovery can take `interval + lease`.
+- **Detection bound.** A loop is overdue once
+  `max(2 × interval, interval + lease + margin)` has passed with no completed
+  cycle, where `margin = SWEEP_CATCHUP_MAX_SECONDS (30m) + 15m jitter`. Reporting
+  then happens on the next check pass, so add up to one `SWEEP_HEALTH_CHECK_INTERVAL_MINUTES`.
+  Worked examples with the defaults (lease 1h, margin 45m):
+  **1h sweep → 2h45m threshold, reported within ~3h**; **24h sweep → 48h
+  threshold, reported within ~48h15m**. The floor exists because a process killed
+  mid-cycle holds its claim for a full lease, so a perfectly healthy recovery can
+  take `interval + lease` — without it every SIGKILL was a coin-flip false page.
+  Note `SWEEP_CATCHUP_MAX_SECONDS` feeds the margin, so raising it widens every
+  threshold.
 - **Throttling.** One report when a loop crosses healthy → overdue, then at most
   one re-assert per 24h (`SWEEP_OVERDUE_REALERT_HOURS`) while it stays overdue.
   Any completed cycle — success *or* failure — clears the throttle, so a later
@@ -742,10 +750,23 @@ stopped running to Sentry. Turn it off with `DISABLE_SWEEP_HEALTH_CHECK=1`.
   the loop (the health check re-stamps `last_registered_at` for the loops it owns
   on every pass). A row nobody re-registers for 7 days stops being reported —
   which covers renames, and rows carried in by `psy-deploy-prod --with-db-restore`
-  from stage, where extra `ENABLE_*` sweeps run. **Consequence:** switching off a
-  sweep that has previously run here keeps paging daily until it retires. To
-  retire one immediately:
-  `DELETE FROM background_service_runs WHERE name = '<loop name>';`
+  from stage, where extra `ENABLE_*` sweeps run. **Consequences to plan for:**
+  switching off a sweep that has previously run here keeps paging daily until it
+  retires, and a `--with-db-restore` release carries stage's registration
+  timestamps over, so stage-only sweeps read as stalled in prod for the window.
+  To retire immediately:
+
+  ```sql
+  UPDATE background_service_runs SET last_registered_at = NULL WHERE name = '<loop name>';
+  ```
+
+  **Do not `DELETE` the row.** If any running process still owns that loop the
+  health check re-creates it within one pass, with `created_at = NOW()` — which
+  hands a genuinely stalled sweep a *fresh* grace window (so it stops paging
+  exactly when it should not), makes it report as `never_ran` afterwards, and
+  discards its run history. The `UPDATE` above retires without resetting the
+  schedule, and is safe even if the loop is still wired (it re-registers on the
+  next pass).
 - **Not covered:** a loop that runs and *fails* every cycle. It keeps stamping
   `last_completed_at`, so it never reads as overdue and nothing pages. Tracked in
   PSY-1620.
