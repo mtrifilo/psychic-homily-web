@@ -89,6 +89,7 @@ function parseFont(path: string): Font {
 const FONTS = 'lib/og/fonts'
 const SANS: Array<[SansFace, string]> = [
   ['satoshiBold', `${FONTS}/Satoshi-Bold.ttf`],
+  ['satoshiMedium', `${FONTS}/Satoshi-Medium.ttf`],
   ['satoshiRegular', `${FONTS}/Satoshi-Regular.ttf`],
 ]
 
@@ -156,11 +157,7 @@ describe('subset coverage', () => {
   // Medium draws the count line and Space Mono draws the range, the state and
   // the wordmark, so a re-subset that dropped their digits or the en dash would
   // be just as visible — and neither is covered by the tables above.
-  const ALL_FACES = [
-    ...SANS.map(([, path]) => path),
-    `${FONTS}/Satoshi-Medium.ttf`,
-    `${FONTS}/SpaceMono-Regular.ttf`,
-  ]
+  const ALL_FACES = [...SANS.map(([, path]) => path), `${FONTS}/SpaceMono-Regular.ttf`]
 
   it('carries every glyph the cards actually draw, in every shipped face', () => {
     const required = 'psychichomily.com0123456789 ·–ABCDEFGHIJKLMNOPQRSTUVWXYZ'
