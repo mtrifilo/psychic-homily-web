@@ -33,7 +33,9 @@ describe('artistEndpoints', () => {
 
   it('builds mutation + report endpoints from an artist id', () => {
     expect(artistEndpoints.DELETE(7)).toBe(`${API_BASE_URL}/artists/7`)
-    expect(artistEndpoints.REPORT(7)).toBe(`${API_BASE_URL}/artists/7/report`)
+    // PSY-1633: submitting goes through useReportEntity, so there is
+    // deliberately no artist-specific REPORT endpoint here.
+    expect(artistEndpoints).not.toHaveProperty('REPORT')
     expect(artistEndpoints.MY_REPORT(7)).toBe(
       `${API_BASE_URL}/artists/7/my-report`
     )

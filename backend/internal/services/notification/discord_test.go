@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -674,117 +673,6 @@ func TestNotifyNewVenue_CityOnly(t *testing.T) {
 			assert.Equal(t, "Phoenix", f.Value) // No state means no comma
 		}
 	}
-}
-
-// =============================================================================
-// NotifyArtistReport
-// =============================================================================
-
-func TestNotifyArtistReport_Success(t *testing.T) {
-	svc, payloads, _ := setupDiscordTest(t)
-	// Override to sync (not goroutine) for test determinism
-	// Since NotifyArtistReport uses `go s.sendWebhook`, we use a channel-based approach
-	details := "Wrong genre listed"
-	report := &communitym.ArtistReport{
-		ReportType: communitym.ArtistReportTypeInaccurate,
-		Details:    &details,
-		Artist: catalogm.Artist{
-			Name: "Test Band",
-		},
-	}
-	report.Artist.ID = 42
-
-	svc.NotifyArtistReport(report, "reporter@test.com")
-
-	raw := waitForPayload(t, payloads)
-	payload := parseWebhookPayload(t, raw)
-	require.Len(t, payload.Embeds, 1)
-	assert.Contains(t, payload.Embeds[0].Title, "Test Band")
-	assert.Equal(t, ColorOrange, payload.Embeds[0].Color)
-
-	var reportType, detailsField string
-	for _, f := range payload.Embeds[0].Fields {
-		if f.Name == "Report Type" {
-			reportType = f.Value
-		}
-		if f.Name == "Details" {
-			detailsField = f.Value
-		}
-	}
-	assert.Equal(t, "Inaccurate Info", reportType)
-	assert.Equal(t, "Wrong genre listed", detailsField)
-}
-
-func TestNotifyArtistReport_RemovalRequest(t *testing.T) {
-	svc, payloads, _ := setupDiscordTest(t)
-	report := &communitym.ArtistReport{
-		ReportType: communitym.ArtistReportTypeRemovalRequest,
-		Artist:     catalogm.Artist{Name: "Remove Me"},
-	}
-	report.Artist.ID = 1
-
-	svc.NotifyArtistReport(report, "r@t.com")
-
-	raw := waitForPayload(t, payloads)
-	payload := parseWebhookPayload(t, raw)
-	var reportType string
-	for _, f := range payload.Embeds[0].Fields {
-		if f.Name == "Report Type" {
-			reportType = f.Value
-		}
-	}
-	assert.Equal(t, "Removal Request", reportType)
-}
-
-func TestNotifyArtistReport_NotConfigured(t *testing.T) {
-	svc := &DiscordService{enabled: false}
-	payloads := make(chan []byte, 1)
-
-	svc.NotifyArtistReport(&communitym.ArtistReport{}, "x@y.com")
-	assertNoPayload(t, payloads)
-}
-
-func TestNotifyArtistReport_NilReport(t *testing.T) {
-	svc, payloads, _ := setupDiscordTest(t)
-
-	svc.NotifyArtistReport(nil, "x@y.com")
-	assertNoPayload(t, payloads)
-}
-
-func TestNotifyArtistReport_LongDetails(t *testing.T) {
-	svc, payloads, _ := setupDiscordTest(t)
-	longDetails := strings.Repeat("x", 250)
-	report := &communitym.ArtistReport{
-		ReportType: communitym.ArtistReportTypeInaccurate,
-		Details:    &longDetails,
-		Artist:     catalogm.Artist{Name: "Test"},
-	}
-	report.Artist.ID = 1
-
-	svc.NotifyArtistReport(report, "r@t.com")
-
-	raw := waitForPayload(t, payloads)
-	payload := parseWebhookPayload(t, raw)
-	for _, f := range payload.Embeds[0].Fields {
-		if f.Name == "Details" {
-			assert.Len(t, f.Value, 200) // 197 chars + "..."
-			assert.True(t, strings.HasSuffix(f.Value, "..."))
-		}
-	}
-}
-
-func TestNotifyArtistReport_UnknownArtist(t *testing.T) {
-	svc, payloads, _ := setupDiscordTest(t)
-	report := &communitym.ArtistReport{
-		ReportType: communitym.ArtistReportTypeInaccurate,
-		Artist:     catalogm.Artist{}, // ID=0
-	}
-
-	svc.NotifyArtistReport(report, "r@t.com")
-
-	raw := waitForPayload(t, payloads)
-	payload := parseWebhookPayload(t, raw)
-	assert.Contains(t, payload.Embeds[0].Title, "Unknown Artist")
 }
 
 // =============================================================================

@@ -18,13 +18,7 @@ export type {
   ArtistShow,
   ArtistShowsResponse,
   ArtistTimeFilter,
-  ArtistReportType,
-  ArtistReportStatus,
-  ArtistReportArtistInfo,
-  ArtistReportResponse,
-  CreateArtistReportRequest,
   MyArtistReportResponse,
-  ArtistReportsListResponse,
   ArtistAlias,
   ArtistAliasesResponse,
   MergeArtistResult,
@@ -45,10 +39,7 @@ export {
 
 export { useArtistSearch, artistSearchQueryOptions } from './hooks'
 
-export {
-  useMyArtistReport,
-  useReportArtist,
-} from './hooks'
+export { useMyArtistReport } from './hooks'
 
 export {
   useArtistGraph,
@@ -74,8 +65,6 @@ export {
   ArtistSimilarSidebar,
   ArtistGraphDialog,
   ArtistGraphVisualization,
-  ReportArtistButton,
-  ReportArtistDialog,
 } from './components'
 
 export type { ArtistGraphSelection } from './components'

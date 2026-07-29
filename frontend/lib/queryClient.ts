@@ -311,13 +311,12 @@ export const queryKeys = {
       ['showReports', 'pending', { limit, offset }] as const,
   },
 
-  // Artist reports queries
+  // Artist reports queries. PSY-1633: only the caller's own read-back
+  // remains — the admin queue is /admin/entity-reports (adminEntityReports).
   artistReports: {
     all: ['artistReports'] as const,
     myReport: (artistId: string | number) =>
       ['artistReports', 'myReport', String(artistId)] as const,
-    pending: (limit: number, offset: number) =>
-      ['artistReports', 'pending', { limit, offset }] as const,
   },
 
   // Contributor profile queries
@@ -584,10 +583,6 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate show reports queries
   showReports: () =>
     queryClient.invalidateQueries({ queryKey: ['showReports'] }),
-
-  // Invalidate artist reports queries
-  artistReports: () =>
-    queryClient.invalidateQueries({ queryKey: ['artistReports'] }),
 
   // Invalidate audit logs queries
   auditLogs: () =>

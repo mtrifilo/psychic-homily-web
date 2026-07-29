@@ -282,56 +282,6 @@ func (m *MockArtistRelationshipService) DeriveMusicBrainzArtistRels(ctx context.
 }
 
 // ============================================================================
-// Mock: ArtistReportServiceInterface
-// ============================================================================
-
-type MockArtistReportService struct {
-	CreateReportFn           func(uint, uint, string, *string) (*contracts.ArtistReportResponse, error)
-	GetUserReportForArtistFn func(uint, uint) (*contracts.ArtistReportResponse, error)
-	GetPendingReportsFn      func(int, int) ([]*contracts.ArtistReportResponse, int64, error)
-	DismissReportFn          func(uint, uint, *string) (*contracts.ArtistReportResponse, error)
-	ResolveReportFn          func(uint, uint, *string) (*contracts.ArtistReportResponse, error)
-	GetReportByIDFn          func(uint) (*communitym.ArtistReport, error)
-}
-
-func (m *MockArtistReportService) CreateReport(userID uint, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error) {
-	if m.CreateReportFn != nil {
-		return m.CreateReportFn(userID, artistID, reportType, details)
-	}
-	return nil, nil
-}
-func (m *MockArtistReportService) GetUserReportForArtist(userID uint, artistID uint) (*contracts.ArtistReportResponse, error) {
-	if m.GetUserReportForArtistFn != nil {
-		return m.GetUserReportForArtistFn(userID, artistID)
-	}
-	return nil, nil
-}
-func (m *MockArtistReportService) GetPendingReports(limit int, offset int) ([]*contracts.ArtistReportResponse, int64, error) {
-	if m.GetPendingReportsFn != nil {
-		return m.GetPendingReportsFn(limit, offset)
-	}
-	return nil, 0, nil
-}
-func (m *MockArtistReportService) DismissReport(reportID uint, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
-	if m.DismissReportFn != nil {
-		return m.DismissReportFn(reportID, adminID, notes)
-	}
-	return nil, nil
-}
-func (m *MockArtistReportService) ResolveReport(reportID uint, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
-	if m.ResolveReportFn != nil {
-		return m.ResolveReportFn(reportID, adminID, notes)
-	}
-	return nil, nil
-}
-func (m *MockArtistReportService) GetReportByID(reportID uint) (*communitym.ArtistReport, error) {
-	if m.GetReportByIDFn != nil {
-		return m.GetReportByIDFn(reportID)
-	}
-	return nil, nil
-}
-
-// ============================================================================
 // Mock: ArtistServiceInterface
 // ============================================================================
 
@@ -1404,7 +1354,6 @@ type MockDiscordService struct {
 	NotifyShowApprovedFn     func(*contracts.ShowResponse)
 	NotifyShowRejectedFn     func(*contracts.ShowResponse, string)
 	NotifyShowReportFn       func(*communitym.ShowReport, string)
-	NotifyArtistReportFn     func(*communitym.ArtistReport, string)
 	NotifyNewVenueFn         func(uint, string, string, string, *string, string)
 	NotifyNewRadioShowsFn    func(string, []string)
 }
@@ -1443,11 +1392,6 @@ func (m *MockDiscordService) NotifyShowRejected(show *contracts.ShowResponse, re
 func (m *MockDiscordService) NotifyShowReport(report *communitym.ShowReport, reporterEmail string) {
 	if m.NotifyShowReportFn != nil {
 		m.NotifyShowReportFn(report, reporterEmail)
-	}
-}
-func (m *MockDiscordService) NotifyArtistReport(report *communitym.ArtistReport, reporterEmail string) {
-	if m.NotifyArtistReportFn != nil {
-		m.NotifyArtistReportFn(report, reporterEmail)
 	}
 }
 func (m *MockDiscordService) NotifyNewVenue(venueID uint, venueName string, city string, state string, address *string, submitterEmail string) {
@@ -1666,12 +1610,13 @@ func (m *MockEnrichmentService) GetQueueStats() (*contracts.EnrichmentQueueStats
 // ============================================================================
 
 type MockEntityReportService struct {
-	CreateEntityReportFn  func(*contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error)
-	GetEntityReportFn     func(uint) (*contracts.EntityReportResponse, error)
-	GetEntityReportsFn    func(string, uint) ([]contracts.EntityReportResponse, error)
-	ListEntityReportsFn   func(*contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error)
-	ResolveEntityReportFn func(uint, uint, string) (*contracts.EntityReportResponse, error)
-	DismissEntityReportFn func(uint, uint, string) (*contracts.EntityReportResponse, error)
+	CreateEntityReportFn   func(*contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error)
+	GetEntityReportFn      func(uint) (*contracts.EntityReportResponse, error)
+	GetEntityReportsFn     func(string, uint) ([]contracts.EntityReportResponse, error)
+	GetUserPendingReportFn func(uint, string, uint) (*contracts.EntityReportResponse, error)
+	ListEntityReportsFn    func(*contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error)
+	ResolveEntityReportFn  func(uint, uint, string) (*contracts.EntityReportResponse, error)
+	DismissEntityReportFn  func(uint, uint, string) (*contracts.EntityReportResponse, error)
 }
 
 func (m *MockEntityReportService) CreateEntityReport(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
@@ -1689,6 +1634,12 @@ func (m *MockEntityReportService) GetEntityReport(reportID uint) (*contracts.Ent
 func (m *MockEntityReportService) GetEntityReports(entityType string, entityID uint) ([]contracts.EntityReportResponse, error) {
 	if m.GetEntityReportsFn != nil {
 		return m.GetEntityReportsFn(entityType, entityID)
+	}
+	return nil, nil
+}
+func (m *MockEntityReportService) GetUserPendingReport(userID uint, entityType string, entityID uint) (*contracts.EntityReportResponse, error) {
+	if m.GetUserPendingReportFn != nil {
+		return m.GetUserPendingReportFn(userID, entityType, entityID)
 	}
 	return nil, nil
 }
@@ -4525,7 +4476,6 @@ var _ contracts.APITokenServiceInterface = (*MockAPITokenService)(nil)
 var _ contracts.AdminStatsServiceInterface = (*MockAdminStatsService)(nil)
 var _ contracts.AnalyticsServiceInterface = (*MockAnalyticsService)(nil)
 var _ contracts.ArtistRelationshipServiceInterface = (*MockArtistRelationshipService)(nil)
-var _ contracts.ArtistReportServiceInterface = (*MockArtistReportService)(nil)
 var _ contracts.ArtistServiceInterface = (*MockArtistService)(nil)
 var _ contracts.AuditLogServiceInterface = (*MockAuditLogService)(nil)
 var _ contracts.AuthServiceInterface = (*MockAuthService)(nil)

@@ -1,14 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
-// Stub the 7 underlying queue hooks so we can test (a) the aggregation math and
+// Stub the underlying queue hooks so we can test (a) the aggregation math and
 // (b) that the `enabled` gate is threaded through to every one — the contract
 // that keeps these admin-only endpoints from firing for non-admins / off-route.
 const h = vi.hoisted(() => ({
   usePendingShows: vi.fn(),
   useUnverifiedVenues: vi.fn(),
   usePendingReports: vi.fn(),
-  usePendingArtistReports: vi.fn(),
   useAdminPendingEdits: vi.fn(),
   useAdminEntityReports: vi.fn(),
   useAdminPendingComments: vi.fn(),
@@ -17,7 +16,6 @@ const h = vi.hoisted(() => ({
 vi.mock('./useAdminShows', () => ({ usePendingShows: h.usePendingShows }))
 vi.mock('./useAdminVenues', () => ({ useUnverifiedVenues: h.useUnverifiedVenues }))
 vi.mock('./useAdminReports', () => ({ usePendingReports: h.usePendingReports }))
-vi.mock('./useAdminArtistReports', () => ({ usePendingArtistReports: h.usePendingArtistReports }))
 vi.mock('./useAdminPendingEdits', () => ({ useAdminPendingEdits: h.useAdminPendingEdits }))
 vi.mock('./useAdminEntityReports', () => ({ useAdminEntityReports: h.useAdminEntityReports }))
 vi.mock('./useAdminComments', () => ({ useAdminPendingComments: h.useAdminPendingComments }))
@@ -33,11 +31,10 @@ describe('useAdminNavCounts', () => {
     for (const fn of Object.values(h)) fn.mockReturnValue({ data: undefined })
   })
 
-  it('aggregates the four nav counts (moderation = edits + entity reports + comments + requests; reports = show + artist)', () => {
+  it('aggregates the four nav counts (moderation = edits + entity reports + comments + requests; reports = show reports only)', () => {
     h.usePendingShows.mockReturnValue(total(2))
     h.useUnverifiedVenues.mockReturnValue(total(1))
     h.usePendingReports.mockReturnValue(total(3))
-    h.usePendingArtistReports.mockReturnValue(total(4))
     h.useAdminPendingEdits.mockReturnValue(total(5))
     h.useAdminEntityReports.mockReturnValue(total(6))
     h.useAdminPendingComments.mockReturnValue(total(7))
@@ -49,7 +46,10 @@ describe('useAdminNavCounts', () => {
       moderation: 26, // 5 + 6 + 7 + 8
       pendingShows: 2,
       unverifiedVenues: 1,
-      reports: 7, // 3 + 4
+      // PSY-1633: artist reports moved to /admin/entity-reports, which the
+      // `moderation` badge already counts. Adding them here too would
+      // double-count them across two badges.
+      reports: 3,
     })
   })
 
@@ -70,7 +70,6 @@ describe('useAdminNavCounts', () => {
     expect(h.usePendingShows).toHaveBeenCalledWith({ enabled: false })
     expect(h.useUnverifiedVenues).toHaveBeenCalledWith({ enabled: false })
     expect(h.usePendingReports).toHaveBeenCalledWith({ enabled: false })
-    expect(h.usePendingArtistReports).toHaveBeenCalledWith({ enabled: false })
     expect(h.useAdminPendingEdits).toHaveBeenCalledWith({ status: 'pending', enabled: false })
     expect(h.useAdminEntityReports).toHaveBeenCalledWith({ status: 'pending', enabled: false })
     expect(h.useAdminEntityRequests).toHaveBeenCalledWith({ state: 'pending', enabled: false })

@@ -172,13 +172,6 @@ export const API_ENDPOINTS = {
       RESOLVE: (reportId: string | number) =>
         `${API_BASE_URL}/admin/reports/${reportId}/resolve`,
     },
-    ARTIST_REPORTS: {
-      LIST: `${API_BASE_URL}/admin/artist-reports`,
-      DISMISS: (reportId: string | number) =>
-        `${API_BASE_URL}/admin/artist-reports/${reportId}/dismiss`,
-      RESOLVE: (reportId: string | number) =>
-        `${API_BASE_URL}/admin/artist-reports/${reportId}/resolve`,
-    },
     TOKENS: {
       LIST: `${API_BASE_URL}/admin/tokens`,
       CREATE: `${API_BASE_URL}/admin/tokens`,

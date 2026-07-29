@@ -151,6 +151,56 @@ func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType strin
 }
 
 // ============================================================================
+// User: Read back own report — GET /{entity_type}/{entity_id}/my-report
+// ============================================================================
+
+// GetMyEntityReportRequest is the Huma request for GET /{entity_type}/{entity_id}/my-report
+type GetMyEntityReportRequest struct {
+	EntityID string `path:"entity_id" doc:"Entity ID"`
+}
+
+// GetMyEntityReportResponse is the Huma response for GET /{entity_type}/{entity_id}/my-report.
+// Report is nil when the caller has no pending report for the entity.
+type GetMyEntityReportResponse struct {
+	Body struct {
+		Report *contracts.EntityReportResponse `json:"report"`
+	}
+}
+
+// GetMyArtistReportHandler handles GET /artists/{entity_id}/my-report
+func (h *EntityReportHandler) GetMyArtistReportHandler(ctx context.Context, req *GetMyEntityReportRequest) (*GetMyEntityReportResponse, error) {
+	return h.getMyEntityReport(ctx, "artist", req)
+}
+
+// getMyEntityReport is the shared implementation for all my-report endpoints.
+func (h *EntityReportHandler) getMyEntityReport(ctx context.Context, entityType string, req *GetMyEntityReportRequest) (*GetMyEntityReportResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	entityID, err := strconv.ParseUint(req.EntityID, 10, 64)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid entity ID")
+	}
+
+	report, err := h.entityReportService.GetUserPendingReport(user.ID, entityType, uint(entityID))
+	if err != nil {
+		logger.FromContext(ctx).Error("entity_report_get_mine_failed",
+			"user_id", user.ID,
+			"entity_type", entityType,
+			"entity_id", entityID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error500InternalServerError("Failed to get report")
+	}
+
+	resp := &GetMyEntityReportResponse{}
+	resp.Body.Report = report
+	return resp, nil
+}
+
+// ============================================================================
 // Admin: List Entity Reports — GET /admin/entity-reports
 // ============================================================================
 

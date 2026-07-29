@@ -377,20 +377,6 @@ type ShowReportServiceInterface interface {
 }
 
 // ──────────────────────────────────────────────
-// Artist Report Service Interface
-// ──────────────────────────────────────────────
-
-// ArtistReportServiceInterface defines the contract for artist report operations.
-type ArtistReportServiceInterface interface {
-	CreateReport(userID, artistID uint, reportType string, details *string) (*ArtistReportResponse, error)
-	GetUserReportForArtist(userID, artistID uint) (*ArtistReportResponse, error)
-	GetPendingReports(limit, offset int) ([]*ArtistReportResponse, int64, error)
-	DismissReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error)
-	ResolveReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error)
-	GetReportByID(reportID uint) (*communitym.ArtistReport, error)
-}
-
-// ──────────────────────────────────────────────
 // Audit Log Service Interface
 // ──────────────────────────────────────────────
 

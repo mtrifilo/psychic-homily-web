@@ -1,51 +1,24 @@
 'use client'
 
-import { useMemo } from 'react'
 import { Loader2, Flag, Inbox } from 'lucide-react'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
-import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
 import { AdminEmptyState } from '@/components/admin'
-import { ShowReportCard, ArtistReportCard } from '@/features/shows/admin'
-import type { ShowReportResponse } from '@/features/shows'
-import type { ArtistReportResponse } from '@/features/artists'
+import { ShowReportCard } from '@/features/shows/admin'
 
-type MergedReport =
-  | { type: 'show'; report: ShowReportResponse }
-  | { type: 'artist'; report: ArtistReportResponse }
-
+/**
+ * Pending SHOW reports.
+ *
+ * Every other entity type — artists included since PSY-1633 — reports through
+ * the generic entity pipeline and is reviewed in /admin/moderation. Shows keep
+ * a queue of their own because they keep a report table of their own, with a
+ * card whose cancel / sold-out actions the generic report card has no concept
+ * of.
+ */
 export default function AdminReportsPage() {
-  const {
-    data: showReportsData,
-    isLoading: showReportsLoading,
-    error: showReportsError,
-  } = usePendingReports()
-  const {
-    data: artistReportsData,
-    isLoading: artistReportsLoading,
-    error: artistReportsError,
-  } = usePendingArtistReports()
+  const { data, isLoading, error } = usePendingReports()
 
-  const isLoading = showReportsLoading || artistReportsLoading
-  const error = showReportsError || artistReportsError
-
-  // Merge and sort all reports by created_at DESC
-  const mergedReports = useMemo<MergedReport[]>(() => {
-    const showReports: MergedReport[] = (
-      showReportsData?.reports || []
-    ).map(r => ({ type: 'show' as const, report: r }))
-    const artistReports: MergedReport[] = (
-      artistReportsData?.reports || []
-    ).map(r => ({ type: 'artist' as const, report: r }))
-
-    return [...showReports, ...artistReports].sort(
-      (a, b) =>
-        new Date(b.report.created_at).getTime() -
-        new Date(a.report.created_at).getTime()
-    )
-  }, [showReportsData, artistReportsData])
-
-  const totalCount =
-    (showReportsData?.total || 0) + (artistReportsData?.total || 0)
+  const reports = data?.reports || []
+  const totalCount = data?.total || 0
 
   if (isLoading) {
     return (
@@ -67,12 +40,12 @@ export default function AdminReportsPage() {
     )
   }
 
-  if (mergedReports.length === 0) {
+  if (reports.length === 0) {
     return (
       <AdminEmptyState
         icon={Inbox}
         title="No Pending Reports"
-        message="All user reports have been reviewed. New reports will appear here when users flag shows or artists with issues."
+        message="All show reports have been reviewed. Reports about artists, venues and other entities appear in the moderation queue."
       />
     )
   }
@@ -90,16 +63,9 @@ export default function AdminReportsPage() {
 
       {/* Reports Grid */}
       <div className="grid gap-4 md:grid-cols-2">
-        {mergedReports.map(item =>
-          item.type === 'show' ? (
-            <ShowReportCard key={`show-${item.report.id}`} report={item.report} />
-          ) : (
-            <ArtistReportCard
-              key={`artist-${item.report.id}`}
-              report={item.report}
-            />
-          )
-        )}
+        {reports.map(report => (
+          <ShowReportCard key={`show-${report.id}`} report={report} />
+        ))}
       </div>
     </div>
   )

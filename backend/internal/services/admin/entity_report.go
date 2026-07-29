@@ -137,6 +137,43 @@ func (s *EntityReportService) GetEntityReports(entityType string, entityID uint)
 	return s.toResponses(reports), nil
 }
 
+// GetUserPendingReport returns the caller's own pending report for an entity,
+// or (nil, nil) when they have none.
+//
+// Scoped to pending for two independent reasons, so do not widen it:
+//
+//   - Correctness. It backs the "you already reported this" state, and
+//     CreateEntityReport only rejects a duplicate while a prior report is still
+//     pending. Returning a resolved or dismissed report would block a
+//     submission the API would actually accept.
+//   - Disclosure. This is the one report endpoint a non-admin can read, and it
+//     returns the full EntityReportResponse. A reviewed report carries
+//     AdminNotes and the reviewing admin's name — moderator-internal fields.
+//     On a pending report both are still nil, so the response cannot carry
+//     them.
+func (s *EntityReportService) GetUserPendingReport(userID uint, entityType string, entityID uint) (*contracts.EntityReportResponse, error) {
+	if s.db == nil {
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("database not initialized"))
+	}
+
+	// No Reviewer preload: a pending report has not been reviewed by
+	// definition, so the join could only ever return nothing.
+	var report communitym.EntityReport
+	err := s.db.
+		Where("entity_type = ? AND entity_id = ? AND reported_by = ? AND status = ?",
+			entityType, entityID, userID, communitym.EntityReportStatusPending).
+		Preload("Reporter").
+		First(&report).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get user report: %w", err))
+	}
+
+	return s.toResponse(&report), nil
+}
+
 // ListEntityReports returns reports for the admin review queue.
 func (s *EntityReportService) ListEntityReports(filters *contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error) {
 	if s.db == nil {

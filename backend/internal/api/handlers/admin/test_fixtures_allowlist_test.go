@@ -72,7 +72,7 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	"pending_entity_edits":    "entity-edit drawer has its own moderation tests with explicit cleanup",
 	"entity_requests":         "polymorphic entity-creation queue (PSY-869); covered by its own service integration tests with explicit cleanup; not yet part of E2E mutating flows (PSY-853/845 add the UI)",
 	"entity_reports":          "report flow has its own tests with explicit cleanup",
-	"artist_reports":          "report flow has its own tests with explicit cleanup",
+	"artist_reports":          "retired by PSY-1633 — nothing writes it any more; kept until the table is dropped",
 	"show_reports":            "report flow has its own tests with explicit cleanup",
 	"api_tokens":              "admin CLI concern; tests use real JWT not tokens",
 	"requests":                "requests system has its own tests; pending requests not part of E2E mutating flows",

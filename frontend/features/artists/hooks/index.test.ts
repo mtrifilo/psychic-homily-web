@@ -16,9 +16,8 @@ describe('artists hooks barrel', () => {
     expect(typeof hooks.useArtistSearch).toBe('function')
   })
 
-  it('re-exports the artist report hooks', () => {
+  it('re-exports the artist report hook', () => {
     expect(typeof hooks.useMyArtistReport).toBe('function')
-    expect(typeof hooks.useReportArtist).toBe('function')
   })
 
   it('re-exports the artist graph hooks', () => {
