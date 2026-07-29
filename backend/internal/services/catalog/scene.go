@@ -617,45 +617,49 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 		VenueState    string    `gorm:"column:venue_state"`
 		VenueTimezone string    `gorm:"column:venue_timezone"`
 	}
-	// Placeholder order: venue predicate (inside the lateral, which the planner
-	// reads first), then status/window bounds.
+	// Placeholder order: venue predicate, then status/window bounds.
 	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd, limit)
 	var rows []showRow
-	// The venue columns must all come from ONE venue row. A multi-venue show
-	// under the old `MIN(v.name)` + GROUP BY would have paired venue A's name
-	// with venue B's address, publishing a street address for a room that is not
-	// the one named. The lateral picks a single in-scope venue — lowest name,
-	// id as tiebreak, which is exactly what MIN(name) selected — and every venue
-	// column below is that row's. Because the lateral carries the scene's venue
-	// predicate and is an INNER join, it also still filters the show set to
-	// shows with at least one in-scope venue, unchanged.
+	// Every venue column must come from ONE venue row: the weekly page publishes
+	// them as a postal address, and `MIN(v.name)` + GROUP BY would have paired a
+	// multi-venue show's alphabetically-first NAME with a sibling room's street
+	// address. `DISTINCT ON (s.id)` keeps the whole row of the venue it picks,
+	// and ordering that pick by name reproduces exactly what MIN(name) chose.
+	//
+	// The join stays venue-driven rather than becoming a LATERAL off `shows`,
+	// deliberately: the scene predicate is by far the most selective term, and a
+	// lateral would force `shows` to be the outer relation, leaving a global scan
+	// of the window's approved shows. This is also the Atlas preview row and the
+	// weekly digest's query.
+	//
+	// Distinct from `primaryVenueLateralSQL` (charts_service.go), which picks by
+	// lowest venue_id for venue ATTRIBUTION. This pick is scene-scoped and
+	// name-ordered because it is a display label with an address attached.
 	//
 	// Street address is served for VERIFIED venues only, matching
 	// buildVenueResponse and the show detail payload: a DIY/house venue must not
 	// be published before human review.
 	if err := s.db.Raw(`
-		SELECT s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.price,
-		       s.is_sold_out, s.is_cancelled,
-		       vpick.name AS venue_name,
-		       COALESCE(vpick.slug, '') AS venue_slug,
-		       CASE WHEN vpick.verified THEN COALESCE(vpick.address, '') ELSE '' END AS venue_address,
-		       vpick.city AS venue_city,
-		       vpick.state AS venue_state,
-		       COALESCE(vpick.timezone, '') AS venue_timezone
-		FROM shows s
-		JOIN LATERAL (
-			SELECT v.name, v.slug, v.address, v.city, v.state, v.timezone, v.verified
-			FROM show_venues sv
+		SELECT * FROM (
+			SELECT DISTINCT ON (s.id)
+			       s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.price,
+			       s.is_sold_out, s.is_cancelled,
+			       v.name AS venue_name,
+			       COALESCE(v.slug, '') AS venue_slug,
+			       CASE WHEN v.verified THEN COALESCE(v.address, '') ELSE '' END AS venue_address,
+			       v.city AS venue_city,
+			       v.state AS venue_state,
+			       COALESCE(v.timezone, '') AS venue_timezone
+			FROM shows s
+			JOIN show_venues sv ON sv.show_id = s.id
 			JOIN venues v ON v.id = sv.venue_id
-			WHERE sv.show_id = s.id
-			  AND `+vp+`
-			ORDER BY v.name ASC, v.id ASC
-			LIMIT 1
-		) vpick ON TRUE
-		WHERE s.status = ?
-		  AND s.event_date >= ?
-		  AND s.event_date < ?
-		ORDER BY s.event_date ASC, s.id ASC
+			WHERE `+vp+`
+			  AND s.status = ?
+			  AND s.event_date >= ?
+			  AND s.event_date < ?
+			ORDER BY s.id, v.name ASC, v.id ASC -- DISTINCT ON needs s.id to lead
+		) picked
+		ORDER BY picked.event_date ASC, picked.id ASC
 		LIMIT ?
 	`, args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to get scene upcoming shows: %w", err)

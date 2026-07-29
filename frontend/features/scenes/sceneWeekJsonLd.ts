@@ -10,14 +10,10 @@ import { SITE_URL } from '@/lib/seo/siteMetadata'
 import {
   formatWeekRange,
   showDisplayTitle,
+  showHref,
   type SceneWeekResponse,
   type SceneWeekShow,
 } from './sceneWeek'
-
-/** Canonical `/shows/...` URL; falls back to the id when a slug is missing. */
-function showUrl(show: SceneWeekShow): string {
-  return show.slug ? `${SITE_URL}/shows/${show.slug}` : `${SITE_URL}/shows/${show.id}`
-}
 
 /**
  * One show as `MusicEvent` input.
@@ -104,7 +100,12 @@ export function buildSceneWeekJsonLd(week: SceneWeekResponse): SceneWeekJsonLd {
     breadcrumb,
     itemList: generateItemListSchema({
       name: `${week.scene_name} shows, ${range}`,
-      listItems: shows.map(s => ({ url: showUrl(s), name: showDisplayTitle(s) })),
+      listItems: shows.map(s => ({
+        // Same helper the rendered rows link through, so a crawler's list and a
+        // reader's list can never point at different URLs for one show.
+        url: `${SITE_URL}${showHref(s)}`,
+        name: showDisplayTitle(s),
+      })),
     }),
     events: shows.map(s => generateMusicEventSchema(toMusicEventInput(s))),
   }
