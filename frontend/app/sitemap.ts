@@ -22,11 +22,22 @@
  *     the backend is down returns 500. `next build` still EXITS 0 — the
  *     degradation is silent, and it persists until the next deploy.
  *
- * An `export const revalidate` here changed nothing in the DEGRADED build (the
- * only case it was measured in — the route stayed `ƒ`), so it was removed
- * rather than left in as a placebo. Whether it would alter the static case was
- * never measured; do not restate that as settled. In the static case the window
- * above comes from the per-fetch `next: { revalidate }` below.
+ * A route-level `export const revalidate` is NOT inert here — it binds as a
+ * MINIMUM. Measured, with the per-fetch hint set to 600:
+ *
+ *   no export                       → ○  10m  1y   (initialRevalidateSeconds 600)
+ *   export const revalidate = 60    → ○   1m  1y   (initialRevalidateSeconds  60)
+ *   export const revalidate = 7200  → ○  10m  1y   (initialRevalidateSeconds 600)
+ *
+ * i.e. effective window = min(route export, per-fetch revalidate). There is no
+ * export here because any value >= the fetch hint is a no-op — NOT because the
+ * knob does nothing. An earlier version of this comment claimed it was "inert",
+ * which was wrong: it had only been tried at 3600, equal to the fetch hint, so
+ * it could not have shown an effect. If you add one for an unrelated reason, be
+ * aware it silently CAPS sitemap freshness.
+ *
+ * On a build where the fetch succeeded, the window above comes from the
+ * per-fetch `next: { revalidate }` below.
  *
  * The one-YEAR expire in the static case is worth knowing about: a prerendered
  * document can be served for that long if revalidations keep failing. That is a
@@ -111,8 +122,16 @@ async function fetchSitemapEntries(): Promise<SitemapEntries> {
 
     const entries: SitemapEntries = await res.json()
     for (const family of Object.keys(FAMILY_ROUTES) as Family[]) {
-      if (!Array.isArray(entries?.[family])) {
+      const rows = entries?.[family]
+      if (!Array.isArray(rows)) {
         throw new Error(`sitemap entries response is missing the "${family}" family`)
+      }
+      // Elements are validated here, inside the try, rather than filtered away
+      // at the mapping site. Dropping a malformed row silently would publish a
+      // sitemap short a URL with no failure signal — the original incident in
+      // miniature, and the exact thing this module exists to prevent.
+      if (rows.some(row => typeof row?.slug !== 'string')) {
+        throw new Error(`sitemap entries response has a malformed row in the "${family}" family`)
       }
     }
     return entries
@@ -159,11 +178,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // No `?? []` here on purpose: fetchSitemapEntries has already rejected any
     // family that is not an array, and a coercion at this site would read as
     // the exact fail-open this module exists to remove.
+    // Rows are known well-formed: fetchSitemapEntries rejected the response
+    // otherwise. The remaining filter is the empty-slug case — a real row whose
+    // name produced no slug — which is legitimately skipped, not an error.
     return (entries[family] as SitemapEntry[])
-      // `entry?.slug`, not `entry.slug`: Array.isArray admits `[null]`, and a
-      // deref here would throw OUTSIDE fetchSitemapEntries' try — still fail-
-      // closed, but with no Sentry event and no diagnostic message.
-      .filter(entry => entry?.slug)
+      .filter(entry => entry.slug)
       .map(entry => ({
         url: `${BASE_URL}${prefix}/${entry.slug}`,
         lastModified: lastModified(entry.updated_at),

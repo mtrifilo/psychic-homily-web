@@ -113,27 +113,6 @@ describe('sitemap', () => {
     expect(entry?.lastModified).toBeUndefined()
   })
 
-  // Array.isArray admits `[null]`, so the family guard lets it through. The
-  // deref happens at the mapping site, OUTSIDE fetchSitemapEntries' try — so
-  // without the optional chain this throws with no Sentry event and no
-  // diagnostic. Reverting to `entry.slug` must fail here, not stay green.
-  it('skips a null entry inside an otherwise valid family', async () => {
-    vi.stubGlobal(
-      'fetch',
-      respondWith({
-        shows: [null, { slug: 'real', updated_at: ISO }],
-        artists: [],
-        venues: [],
-      })
-    )
-
-    const showUrls = urlsOf(await sitemap()).filter(u =>
-      u.startsWith('https://psychichomily.com/shows/')
-    )
-
-    expect(showUrls).toEqual(['https://psychichomily.com/shows/real'])
-  })
-
   it('skips entries with no slug — they have no canonical URL', async () => {
     vi.stubGlobal(
       'fetch',
@@ -205,6 +184,20 @@ describe('sitemap', () => {
       vi.stubGlobal('fetch', respondWith(body))
 
       await expect(sitemap()).rejects.toThrow(/missing the "(shows|artists|venues)" family/)
+      expect(captureException).toHaveBeenCalled()
+    })
+
+    // A malformed ROW is the same failure at finer granularity: silently
+    // filtering it away would publish a sitemap short a URL with no signal.
+    // It is rejected inside the try, so it keeps the tagged Sentry capture.
+    it.each([
+      ['a null row', [null, { slug: 'real', updated_at: ISO }]],
+      ['a row with no slug key', [{ updated_at: ISO }]],
+      ['a row whose slug is not a string', [{ slug: 42, updated_at: ISO }]],
+    ])('throws on %s', async (_label, shows) => {
+      vi.stubGlobal('fetch', respondWith({ shows, artists: [], venues: [] }))
+
+      await expect(sitemap()).rejects.toThrow(/malformed row in the "shows" family/)
       expect(captureException).toHaveBeenCalled()
     })
   })
