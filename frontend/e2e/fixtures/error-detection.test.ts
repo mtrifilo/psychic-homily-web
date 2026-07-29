@@ -61,13 +61,27 @@ describe('error-detection ignore patterns', () => {
     ).toBe(false)
   })
 
-  it('still reports application exceptions', () => {
+  it('still reports application exceptions and server errors', () => {
     expect(shouldIgnore('TypeError: Cannot read properties of undefined')).toBe(
       false,
     )
+    expect(shouldIgnore('500 http://localhost:3000/api/artists')).toBe(false)
+  })
+
+  /**
+   * Appending the URL is what makes the bare "Failed to load resource" form
+   * matchable, but it necessarily widens every OTHER entry too: a pattern
+   * naming a route now also matches a browser-generated error that merely
+   * happened on that route, because `location()` reports the page URL for
+   * those. Pinned here so the reach is a decision rather than a surprise —
+   * the affected entries all name flows whose errors are already excused.
+   */
+  it('matches an ignore pattern against the appended URL, not just the text', () => {
     expect(
-      shouldIgnore('500 http://localhost:3000/api/artists'),
-    ).toBe(false)
+      shouldIgnore(
+        "Refused to execute script from 'http://localhost:3000/x.js' because its MIME type ('text/html') is not executable. (http://localhost:3000/verify-email/confirm)",
+      ),
+    ).toBe(true)
   })
 
   it('does not ignore a path that merely mentions vercel', () => {
