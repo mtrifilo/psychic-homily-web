@@ -2,6 +2,11 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  // Every browser test here is a `.spec.ts`; `.test.ts` is Vitest's extension
+  // repo-wide. Playwright's default match would claim both, so a unit test
+  // sitting next to the fixture it covers would be collected by each runner
+  // and fail under this one.
+  testIgnore: '**/*.test.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
