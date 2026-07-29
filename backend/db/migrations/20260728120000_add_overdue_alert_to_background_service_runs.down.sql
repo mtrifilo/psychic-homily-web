@@ -5,4 +5,6 @@
 -- cycle is at most one duplicate overdue report per stalled loop.
 
 ALTER TABLE background_service_runs
-    DROP COLUMN IF EXISTS last_overdue_alert_at;
+    DROP COLUMN IF EXISTS last_overdue_alert_at,
+    DROP COLUMN IF EXISTS last_registered_at,
+    DROP COLUMN IF EXISTS lease_seconds;

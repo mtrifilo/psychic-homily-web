@@ -88,6 +88,20 @@ func TestHealthCheckIntervalHonoursUsableOverrides(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, healthCheckInterval())
 }
 
+// TestReAlertWindowCannotBecomeReportOnce: overshooting this knob fails toward
+// SILENCE, which is indistinguishable from health — the same shape as the incident
+// this whole subsystem exists to catch.
+func TestReAlertWindowCannotBecomeReportOnce(t *testing.T) {
+	logs := withCapturedSlog(t)
+
+	t.Setenv("SWEEP_OVERDUE_REALERT_HOURS", "8760") // a year
+	assert.Equal(t, maxOverdueReAlertAfter, overdueReAlertAfter())
+	assert.Contains(t, logs.String(), "clamping")
+
+	t.Setenv("SWEEP_OVERDUE_REALERT_HOURS", "48") // a usable widening survives
+	assert.Equal(t, 48*time.Hour, overdueReAlertAfter())
+}
+
 // TestOverdueReportsNameTheActionableFacts covers the acceptance criterion that
 // the alert names the sweep, its interval, and how long it has actually been. An
 // alert that says only "something is wrong" costs an operator the same
@@ -321,7 +335,7 @@ func TestRegistrationPanicDoesNotStopTheLoop(t *testing.T) {
 // test isolates the registration path.
 type panicOnRegisterStore struct{}
 
-func (panicOnRegisterStore) Register(context.Context, string, time.Duration) error {
+func (panicOnRegisterStore) Register(context.Context, string, time.Duration, time.Duration) error {
 	panic("register exploded")
 }
 

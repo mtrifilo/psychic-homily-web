@@ -42,6 +42,22 @@ const (
 	// produces in practice is two hours.
 	overdueIntervalMultiplier = 2
 
+	// overdueRecoveryMargin is slack on top of interval + lease, covering the
+	// boot catch-up stagger and ordinary scheduling jitter so a loop that is
+	// recovering exactly on time is not reported the instant it succeeds.
+	overdueRecoveryMargin = 15 * time.Minute
+
+	// retireAfter is how long a row survives without any process re-registering
+	// it before it stops being treated as something that should be running.
+	//
+	// Sized against DEPLOY cadence, not sweep cadence: production redeploys many
+	// times a week, so a week of silence means no process has claimed this loop
+	// across many boots. Long enough that a loop accidentally dropped from wiring
+	// still alerts for days first — the case worth catching — and short enough
+	// that a stage-to-prod database restore stops paging within a week instead of
+	// forever.
+	retireAfter = 7 * 24 * time.Hour
+
 	// defaultOverdueReAlertAfter bounds re-reporting of a loop that is still
 	// overdue. Seven simultaneously-dead sweeps cost seven events a day, which is
 	// signal; the same seven on a 15m check would cost 672, which is noise.
@@ -229,8 +245,24 @@ func (s *GormRunStore) ClaimOverdueAlerts(ctx context.Context, reAlertAfter time
 			last_overdue_alert_at = NOW(),
 			updated_at            = NOW()
 		WHERE interval_seconds > 0
-		  AND COALESCE(last_completed_at, created_at)
-		      <= NOW() - make_interval(secs => interval_seconds * ?)
+		  -- Retirement gate. A loop announces itself on every boot, so a row
+		  -- nobody has re-registered lately is not running because nothing
+		  -- expects it to. Excluding it is what keeps a renamed, disabled, or
+		  -- restored-from-stage row from alerting daily forever with no way to
+		  -- clear it. NULL is treated as retired: rows predating registration
+		  -- get stamped by the first boot of any process that owns the loop.
+		  AND last_registered_at IS NOT NULL
+		  AND last_registered_at > NOW() - make_interval(secs => ?)
+		  -- Overdue threshold. GREATEST because 2x the interval alone is too
+		  -- tight when the lease is comparable to the interval: a process killed
+		  -- mid-cycle holds its claim for a full lease, so the earliest a healthy
+		  -- recovery can complete is interval + lease. Without the floor an
+		  -- hourly loop with an hourly lease crosses the threshold at the exact
+		  -- moment it recovers, and ordinary platform behaviour reads as a stall.
+		  AND COALESCE(last_completed_at, created_at) <= NOW() - make_interval(secs => GREATEST(
+		        interval_seconds * ?,
+		        interval_seconds + COALESCE(lease_seconds, ?) + ?
+		      ))
 		  AND (
 		        last_overdue_alert_at IS NULL
 		        OR last_overdue_alert_at <= NOW() - make_interval(secs => ?)
@@ -246,7 +278,13 @@ func (s *GormRunStore) ClaimOverdueAlerts(ctx context.Context, reAlertAfter time
 			last_rows_processed,
 			consecutive_failures,
 			run_count
-	`, overdueIntervalMultiplier, reAlertAfter.Seconds()).Scan(&rows).Error
+	`,
+		retireAfter.Seconds(),
+		overdueIntervalMultiplier,
+		defaultRunLease.Seconds(),
+		overdueRecoveryMargin.Seconds(),
+		reAlertAfter.Seconds(),
+	).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("claim overdue alerts: %w", err)
 	}
@@ -279,7 +317,7 @@ func NewSweepHealthCheck(database *gorm.DB) *SweepHealthCheck {
 	return &SweepHealthCheck{
 		store:        store,
 		interval:     healthCheckInterval(),
-		reAlertAfter: EnvPositiveDuration("SWEEP_OVERDUE_REALERT_HOURS", time.Hour, defaultOverdueReAlertAfter),
+		reAlertAfter: overdueReAlertAfter(),
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 	}
@@ -294,6 +332,28 @@ func NewSweepHealthCheck(database *gorm.DB) *SweepHealthCheck {
 // checker that stopped running would be the thing responsible for noticing. The
 // env knob exists for operability (dropping the cadence during an incident), so
 // it stays; it just cannot be used to disable the property the design rests on.
+// maxOverdueReAlertAfter caps the re-assert window. Beyond about a week the
+// policy stops being "throttled" and becomes "report once, then never again",
+// which is the failure this design explicitly rejected: a single alert that gets
+// resolved or missed leaves a dead sweep silent, i.e. PSY-1606 one level up.
+const maxOverdueReAlertAfter = 7 * 24 * time.Hour
+
+// overdueReAlertAfter reads the re-assert window and clamps it to something that
+// still re-asserts. Clamped for the same reason the interval is: an operator
+// reaching for this knob is trying to reduce noise, and the failure mode of
+// overshooting is silence, which looks identical to health.
+func overdueReAlertAfter() time.Duration {
+	window := EnvPositiveDuration("SWEEP_OVERDUE_REALERT_HOURS", time.Hour, defaultOverdueReAlertAfter)
+	if window > maxOverdueReAlertAfter {
+		slog.Default().Warn("SWEEP_OVERDUE_REALERT_HOURS is long enough to read as report-once — clamping so a dead sweep keeps re-asserting",
+			"configured", window,
+			"using", maxOverdueReAlertAfter,
+		)
+		return maxOverdueReAlertAfter
+	}
+	return window
+}
+
 func healthCheckInterval() time.Duration {
 	interval := EnvPositiveDuration("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES", time.Minute, defaultHealthCheckInterval)
 	if interval >= runStatePersistenceThreshold {

@@ -56,6 +56,7 @@ type memRunRow struct {
 	// get a green result for behaviour the database does not have.
 	lastErrText     *string
 	intervalSeconds int64
+	leaseSeconds    int64
 	failures        int
 	runCount        int
 }
@@ -91,7 +92,7 @@ func (s *memRunStore) snapshot(name string) memRunRow {
 // Register mirrors the SQL: create-or-refresh identity and cadence, touching no
 // run state. A double that reset completion here would hide the production bug
 // where a redeploy wipes the schedule the table exists to preserve.
-func (s *memRunStore) Register(_ context.Context, name string, interval time.Duration) error {
+func (s *memRunStore) Register(_ context.Context, name string, interval, lease time.Duration) error {
 	if s.failRegister != nil {
 		return s.failRegister
 	}
@@ -99,6 +100,7 @@ func (s *memRunStore) Register(_ context.Context, name string, interval time.Dur
 	defer s.mu.Unlock()
 	r := s.row(name)
 	r.intervalSeconds = int64(interval / time.Second)
+	r.leaseSeconds = int64(lease / time.Second)
 	s.registered.Add(1)
 	return nil
 }

@@ -344,7 +344,7 @@ func (r *loopRunner) register(ctx context.Context) {
 		return
 	}
 	defer recoverAndLog("background run state: register panicked — continuing", r.name)
-	if err := r.store.Register(ctx, r.name, r.interval); err != nil {
+	if err := r.store.Register(ctx, r.name, r.interval, r.lease); err != nil {
 		logStoreError(r.name, "register", err)
 	}
 }

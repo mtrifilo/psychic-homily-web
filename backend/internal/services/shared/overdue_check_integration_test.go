@@ -24,12 +24,20 @@ import (
 
 const testAlertWindow = 24 * time.Hour
 
-// registerLoop announces a loop the way RunScheduledLoop does at startup.
+// registerLoop announces a loop the way RunScheduledLoop does at startup, with
+// the production lease.
 func registerLoop(t *testing.T, store *GormRunStore, name string, interval time.Duration) {
 	t.Helper()
-	if err := store.Register(context.Background(), name, interval); err != nil {
+	if err := store.Register(context.Background(), name, interval, defaultRunLease); err != nil {
 		t.Fatalf("register %s: %v", name, err)
 	}
+}
+
+// retireRow ages a row's registration past the retirement window, simulating a
+// loop nothing re-registers any more.
+func retireRow(t *testing.T, db *gorm.DB, name string) {
+	t.Helper()
+	backdateColumn(t, db, name, "last_registered_at", retireAfter+time.Hour)
 }
 
 // backdateColumn ages one timestamp column on the DATABASE clock, so no test ever
@@ -114,10 +122,12 @@ func TestClaimOverdueAlerts_ThresholdBoundary(t *testing.T) {
 	db, store := setupRunStore(t)
 	ctx := context.Background()
 
-	registerLoop(t, store, "just-inside", time.Hour)
-	backdateCompletion(t, db, "just-inside", 110*time.Minute) // < 2h
-	registerLoop(t, store, "just-outside", time.Hour)
-	backdateCompletion(t, db, "just-outside", 125*time.Minute) // > 2h
+	// A 6h interval, where 2x (12h) dominates the interval+lease+margin floor
+	// (7h15m) — so this case isolates the multiplier rule itself.
+	registerLoop(t, store, "just-inside", 6*time.Hour)
+	backdateCompletion(t, db, "just-inside", 11*time.Hour) // < 12h
+	registerLoop(t, store, "just-outside", 6*time.Hour)
+	backdateCompletion(t, db, "just-outside", 13*time.Hour) // > 12h
 
 	loops, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
 	if err != nil {
@@ -128,6 +138,116 @@ func TestClaimOverdueAlerts_ThresholdBoundary(t *testing.T) {
 	}
 	if _, found := findLoop(loops, "just-outside"); !found {
 		t.Fatal("a loop past 2x its interval must alert")
+	}
+}
+
+// TestThresholdFloorCoversCrashRecovery pins the case a bare 2x multiplier gets
+// wrong, and it comes from ordinary platform behaviour rather than a fault.
+//
+// An hourly loop carries an hourly claim lease. Kill the process mid-cycle and
+// the stranded claim blocks re-claiming for a full lease, so the earliest a
+// healthy recovery can COMPLETE is interval + lease = 2h — the exact moment a 2x
+// threshold goes true. Every SIGKILL would then be a coin-flip page for a loop
+// that recovered perfectly.
+//
+// The floor (interval + lease + margin) is what separates "recovering normally"
+// from "stopped".
+func TestThresholdFloorCoversCrashRecovery(t *testing.T) {
+	db, store := setupRunStore(t)
+	ctx := context.Background()
+
+	// 2h05m: past 2x the interval, but inside interval + lease + margin.
+	registerLoop(t, store, "crash-recovering", time.Hour)
+	backdateCompletion(t, db, "crash-recovering", 125*time.Minute)
+
+	// Comfortably past the floor — genuinely stopped.
+	registerLoop(t, store, "really-stopped", time.Hour)
+	backdateCompletion(t, db, "really-stopped", 4*time.Hour)
+
+	loops, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("ClaimOverdueAlerts: %v", err)
+	}
+	if _, found := findLoop(loops, "crash-recovering"); found {
+		t.Fatal("a loop still inside interval+lease+margin is recovering from a crash, not stalled — " +
+			"alerting here turns every SIGKILL into a false page")
+	}
+	if _, found := findLoop(loops, "really-stopped"); !found {
+		t.Fatal("the floor must not swallow a genuinely stopped loop")
+	}
+}
+
+// TestRetiredLoopStopsAlerting covers the operational failure that would
+// otherwise make this feature self-defeating.
+//
+// A row whose loop no longer runs — renamed, switched off, or carried in by
+// `psy-deploy-prod --with-db-restore`, which copies stage (where extra sweeps are
+// enabled) into prod — is indistinguishable from a stalled sweep and would alert
+// every single day forever, with nothing in the application able to clear it.
+// That is precisely the fatigue that gets alerting muted, at which point it looks
+// like coverage while providing none.
+//
+// A loop that still exists re-registers on every boot, so recency of REGISTRATION
+// separates "should be running and isn't" from "nothing expects this any more".
+func TestRetiredLoopStopsAlerting(t *testing.T) {
+	db, store := setupRunStore(t)
+	ctx := context.Background()
+
+	registerLoop(t, store, "retired", time.Hour)
+	backdateCompletion(t, db, "retired", 30*24*time.Hour)
+	registerLoop(t, store, "still-wired", time.Hour)
+	backdateCompletion(t, db, "still-wired", 30*24*time.Hour)
+
+	// Only the first stops being re-registered.
+	retireRow(t, db, "retired")
+
+	loops, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("ClaimOverdueAlerts: %v", err)
+	}
+	if _, found := findLoop(loops, "retired"); found {
+		t.Fatal("a loop no process has registered for longer than the retirement window is retired, " +
+			"not stalled — it must stop alerting on its own")
+	}
+	if _, found := findLoop(loops, "still-wired"); !found {
+		t.Fatal("retirement must not silence a loop that is still registered on every boot")
+	}
+}
+
+// TestUnregisteredRowIsNotAlerted: rows created before registration existed (or by
+// Claim alone) carry NULL. Treating NULL as retired is what stops the first deploy
+// of this feature from paging for every historical row at once; any loop that is
+// genuinely wired re-registers within one boot and becomes eligible immediately.
+func TestUnregisteredRowIsNotAlerted(t *testing.T) {
+	db, store := setupRunStore(t)
+	ctx := context.Background()
+
+	// A row the way PSY-1611 made them: created by Claim, never registered.
+	token, ok, err := store.Claim(ctx, "legacy-row", time.Hour, time.Hour, false)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if err := store.Complete(ctx, "legacy-row", token, CycleOutcome{Duration: time.Second}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	backdateCompletion(t, db, "legacy-row", 30*24*time.Hour)
+
+	loops, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("ClaimOverdueAlerts: %v", err)
+	}
+	if _, found := findLoop(loops, "legacy-row"); found {
+		t.Fatal("a never-registered row must not alert; otherwise the first deploy pages for every legacy row at once")
+	}
+
+	// One boot of the owning process makes it eligible again.
+	registerLoop(t, store, "legacy-row", time.Hour)
+	again, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	if _, found := findLoop(again, "legacy-row"); !found {
+		t.Fatal("once a live process registers the loop, a genuine stall must alert")
 	}
 }
 
@@ -290,11 +410,19 @@ func TestSuccessfulCycleClearsThrottle(t *testing.T) {
 	}
 }
 
-// TestFailedCycleDoesNotClearThrottle is the counterpart. A loop failing every
-// cycle has NOT recovered; if a failure cleared the stamp, a crash-looping sweep
-// would re-alert on every health-check pass — the exact flood the throttle exists
-// to prevent.
-func TestFailedCycleDoesNotClearThrottle(t *testing.T) {
+// TestFailedCycleAlsoClearsThrottle pins the counterpart, and it is deliberately
+// the OPPOSITE of what looks intuitive.
+//
+// The tempting rule is "only a successful cycle clears the throttle, because a
+// failing loop hasn't recovered". That rule is wrong twice. It cannot prevent the
+// flood it appears to guard against — Complete writes last_completed_at for
+// failures too, so a crash-looping loop never reads as overdue in the first place
+// — and it leaves a stale stamp behind that suppresses the NEXT genuine outage for
+// the remainder of the window.
+//
+// "Is it running" and "is it succeeding" are different questions. This column only
+// answers the first.
+func TestFailedCycleAlsoClearsThrottle(t *testing.T) {
 	db, store := setupRunStore(t)
 	ctx := context.Background()
 
@@ -314,8 +442,57 @@ func TestFailedCycleDoesNotClearThrottle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete failing cycle: %v", err)
 	}
-	if alertStamp(t, db, "failing") == nil {
-		t.Fatal("a FAILED cycle must not clear the throttle — a failing loop has not recovered")
+	if stamp := alertStamp(t, db, "failing"); stamp != nil {
+		t.Fatalf("a completed cycle ends the overdue episode even when it failed, got stamp %v", stamp)
+	}
+}
+
+// TestStaleStampCannotSuppressALaterOutage is the blind window that the
+// clear-on-success-only rule opened, written as the operator-visible symptom
+// rather than as an implementation detail.
+//
+// Sequence: a sweep goes overdue and alerts; it comes back but only produces
+// FAILING cycles, so it stops being overdue without ever succeeding; then it dies
+// for real. Under clear-on-success the stamp from the first outage was still
+// sitting there, and the second — genuine, ongoing — outage stayed silent until
+// the window expired.
+func TestStaleStampCannotSuppressALaterOutage(t *testing.T) {
+	db, store := setupRunStore(t)
+	ctx := context.Background()
+
+	registerLoop(t, store, "twice-dead", time.Hour)
+
+	// Outage one: reported.
+	backdateCompletion(t, db, "twice-dead", 5*time.Hour)
+	first, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("first outage: %v", err)
+	}
+	if _, found := findLoop(first, "twice-dead"); !found {
+		t.Fatal("precondition: first outage must alert")
+	}
+
+	// It comes back, but every cycle fails. It is running again, so it is no
+	// longer overdue — and it never succeeds, so a success-only rule never clears.
+	token, ok, err := store.Claim(ctx, "twice-dead", time.Hour, time.Hour, true)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if err := store.Complete(ctx, "twice-dead", token, CycleOutcome{
+		Err:      context.DeadlineExceeded,
+		Duration: time.Second,
+	}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	// Outage two, well inside the re-alert window.
+	backdateCompletion(t, db, "twice-dead", 5*time.Hour)
+	second, err := store.ClaimOverdueAlerts(ctx, testAlertWindow)
+	if err != nil {
+		t.Fatalf("second outage: %v", err)
+	}
+	if _, found := findLoop(second, "twice-dead"); !found {
+		t.Fatal("a second, genuine outage must not be suppressed by a stamp left over from the first")
 	}
 }
 
