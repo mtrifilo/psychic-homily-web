@@ -70,7 +70,7 @@ describe('useAdminActivity', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.events).toHaveLength(2)
-    expect(result.current.data?.events[0].event_type).toBe('show_approved')
+    expect(result.current.data?.events?.[0].event_type).toBe('show_approved')
   })
 
   it('handles empty activity feed', async () => {

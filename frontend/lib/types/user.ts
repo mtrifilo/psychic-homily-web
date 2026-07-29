@@ -1,28 +1,13 @@
-export interface UserSubmissionStats {
-  approved: number
-  pending: number
-  rejected: number
-  total: number
-}
+// Aliased from the generated OpenAPI types, not hand-written (PSY-1550/1600).
+// Regenerate with `bun run api:types`; the "API Types Drift" CI gate fails if
+// the committed types drift from the backend. Exported names are kept stable
+// for callers.
+//
+// `AdminUser.auth_methods` and `AdminUsersResponse.users` are nullable on the
+// wire: guard before iterating (PSY-1600).
 
-export interface AdminUser {
-  id: number
-  email: string | null
-  username: string | null
-  display_name: string | null
-  first_name: string | null
-  last_name: string | null
-  avatar_url: string | null
-  is_active: boolean
-  is_admin: boolean
-  email_verified: boolean
-  auth_methods: string[]
-  submission_stats: UserSubmissionStats
-  created_at: string
-  deleted_at?: string | null
-}
+import type { components } from '../../types/api'
 
-export interface AdminUsersResponse {
-  users: AdminUser[]
-  total: number
-}
+export type UserSubmissionStats = components['schemas']['UserSubmissionStats']
+export type AdminUser = components['schemas']['AdminUserResponse']
+export type AdminUsersResponse = components['schemas']['GetAdminUsersResponseBody']

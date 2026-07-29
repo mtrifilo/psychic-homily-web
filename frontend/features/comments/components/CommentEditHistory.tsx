@@ -90,7 +90,11 @@ export function CommentEditHistory({
 // ─── Body (split for testability) ─────────────────────────────────────────────
 
 export function EditHistoryBody({ data }: { data: CommentEditHistoryResponse }) {
-  const editCount = data.edits.length
+  // `edits` is a nil-able Go slice, so the wire can send `null` — a comment
+  // with no recorded edits marshals to `"edits": null`, not `[]`. Reading
+  // `.length` / spreading that threw; normalise once here (PSY-1600).
+  const edits = data.edits ?? []
+  const editCount = edits.length
 
   if (editCount === 0) {
     return (
@@ -121,7 +125,7 @@ export function EditHistoryBody({ data }: { data: CommentEditHistoryResponse }) 
   // next edit's old_body (for older edits) or the current body (for the most
   // recent edit). Rendered newest-first so the walkback moves top→down toward
   // the original body.
-  const newestFirst = [...data.edits].reverse()
+  const newestFirst = [...edits].reverse()
   const transitions = newestFirst.map((edit, idx) => {
     // The body that REPLACED this old_body. For the newest edit, that's the
     // current body; for older edits, it's the old_body of the more-recent one.

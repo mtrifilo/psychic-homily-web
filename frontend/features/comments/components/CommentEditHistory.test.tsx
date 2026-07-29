@@ -199,4 +199,21 @@ describe('EditHistoryBody', () => {
     expect(screen.getByTestId('edit-history-empty')).toBeInTheDocument()
     expect(screen.queryByTestId('edit-history-entry')).not.toBeInTheDocument()
   })
+
+  // PSY-1600: `edits` is a nil-able Go slice, so a never-edited comment
+  // marshals to `"edits": null`, NOT `[]`. The old hand-written type declared
+  // it non-null, and reading `.length` off null threw before the render.
+  it('shows the empty state when the wire sends a null edits array', () => {
+    render(
+      <EditHistoryBody
+        data={{ comment_id: 42, current_body: 'pristine', edits: null }}
+      />
+    )
+
+    expect(screen.getByTestId('edit-history-current')).toHaveTextContent(
+      'pristine'
+    )
+    expect(screen.getByTestId('edit-history-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('edit-history-entry')).not.toBeInTheDocument()
+  })
 })

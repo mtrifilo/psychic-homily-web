@@ -11,41 +11,21 @@ import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys, createInvalidateQueries } from '../../queryClient'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+//
+// Aliased from the generated OpenAPI types, not hand-written (PSY-1550/1600).
+// Regenerate with `bun run api:types`; the "API Types Drift" CI gate fails if
+// the committed types drift from the backend. Exported names are kept stable
+// for callers.
+//
+// `entity_slug` is populated only for entity types addressed by slug in the
+// public app (currently `collection`); ID-addressed types omit it.
+// `reports` is nullable on the wire: guard before iterating (PSY-1600).
 
-export interface EntityReportResponse {
-  id: number
-  entity_type: string
-  entity_id: number
-  entity_name?: string
-  /**
-   * PSY-357: populated only for entity types addressed by slug in the public
-   * app (currently `collection`). Other entity types use ID-based URLs and
-   * leave this undefined.
-   */
-  entity_slug?: string
-  reported_by: number
-  reporter_name?: string
-  /**
-   * PSY-619: reporter's username when set, null otherwise. Pass to
-   * `<UserAttribution username={...} />` to render the byline as a link to
-   * /users/:username when non-null.
-   */
-  reporter_username: string | null
-  report_type: string
-  details?: string
-  status: string
-  admin_notes?: string
-  reviewed_by?: number
-  reviewer_name?: string
-  reviewer_username?: string | null
-  reviewed_at?: string
-  created_at: string
-}
+import type { components } from '../../../types/api'
 
-export interface EntityReportsListResponse {
-  reports: EntityReportResponse[]
-  total: number
-}
+export type EntityReportResponse = components['schemas']['EntityReportResponse']
+export type EntityReportsListResponse =
+  components['schemas']['AdminListEntityReportsResponseBody']
 
 // ─── Filters ─────────────────────────────────────────────────────────────────
 
