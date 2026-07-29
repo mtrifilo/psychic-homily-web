@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest'
 import {
   countShows,
   formatDayHeading,
+  formatShowCountLine,
   formatWeekRange,
+  formatWeekRangeCompact,
+  resolveRequestedWeek,
+  weekHasEnded,
   looksLikeISOWeek,
   showDisplayTitle,
   showHref,
@@ -52,19 +56,134 @@ describe('formatWeekRange', () => {
   })
 })
 
+describe('formatWeekRangeCompact', () => {
+  it('drops the weekday and year the share card has no room for', () => {
+    expect(formatWeekRangeCompact('2026-07-27', '2026-08-02')).toBe('JUL 27 – AUG 2')
+  })
+
+  // The separator is an EN DASH. A hyphen would be an invisible regression:
+  // it renders, it just looks wrong on a card nobody re-reads.
+  it('separates the two dates with an en dash', () => {
+    expect(formatWeekRangeCompact('2026-07-27', '2026-08-02')).toContain(' – ')
+    expect(formatWeekRangeCompact('2026-07-27', '2026-08-02')).not.toContain('-')
+  })
+
+  // Same calendar-date hazard as its siblings: parsed component-wise, so a
+  // negative-offset timezone must not shift either end back a day.
+  it('renders the calendar dates, not timezone-shifted ones', () => {
+    expect(formatWeekRangeCompact('2025-12-29', '2026-01-04')).toBe('DEC 29 – JAN 4')
+  })
+})
+
+describe('resolveRequestedWeek', () => {
+  it('passes an absent segment through as "the current week"', () => {
+    expect(resolveRequestedWeek(undefined)).toBeUndefined()
+  })
+
+  it('returns a well-formed key exactly as it was validated', () => {
+    expect(resolveRequestedWeek('2026-W31')).toBe('2026-W31')
+    expect(resolveRequestedWeek('2026-w31')).toBe('2026-w31')
+  })
+
+  // The distinction that matters: junk must be DISTINGUISHABLE from "no segment
+  // supplied". Collapsing the two would serve the current week's card for a URL
+  // whose page 404s — a confident answer to a question nobody asked.
+  it('rejects junk rather than falling back to the current week', () => {
+    for (const junk of ['garbage', '2026-31', 'W31', '', 'opengraph-image']) {
+      expect(resolveRequestedWeek(junk)).toBeNull()
+    }
+    expect(resolveRequestedWeek('garbage')).not.toBeUndefined()
+  })
+
+  // Each accepted spelling of the same week is another distinct URL that
+  // renders and caches its own card, so whitespace variants are rejected rather
+  // than normalized — and the proxy, which guards the page, rejects them too.
+  it('rejects whitespace-padded spellings instead of normalizing them', () => {
+    for (const padded of [' 2026-W31', '2026-W31 ', '\t2026-W31', ' 2026-W31']) {
+      expect(resolveRequestedWeek(padded)).toBeNull()
+    }
+  })
+
+  // An unbounded year range is an unbounded set of renderable URLs.
+  it('rejects years outside the range the site could possibly cover', () => {
+    expect(resolveRequestedWeek('1998-W07')).toBeNull()
+    expect(resolveRequestedWeek('9999-W01')).toBeNull()
+    const nextYear = new Date().getUTCFullYear() + 1
+    expect(resolveRequestedWeek(`${nextYear}-W01`)).toBe(`${nextYear}-W01`)
+    expect(resolveRequestedWeek(`${nextYear + 1}-W01`)).toBeNull()
+  })
+})
+
+describe('weekHasEnded', () => {
+  const past = '2020-01-05'
+  const future = '2099-12-27'
+
+  it('is false for the current week', () => {
+    expect(weekHasEnded(past, true)).toBe(false)
+  })
+
+  // The case that matters. A FUTURE week also reports is_current_week: false,
+  // and the "next week →" link is on every page — so next week's card gets
+  // fetched days early. Caching it hard would freeze it, and the rolling page
+  // points at exactly that URL once the week turns over.
+  it('is false for a week that has not happened yet', () => {
+    expect(weekHasEnded(future, false)).toBe(false)
+  })
+
+  it('is true only once the week is genuinely behind us', () => {
+    expect(weekHasEnded(past, false)).toBe(true)
+  })
+})
+
+describe('formatShowCountLine', () => {
+  it('says "this week" only for the current week', () => {
+    expect(formatShowCountLine(32, true)).toBe('32 shows this week')
+    expect(formatShowCountLine(32, false)).toBe('32 shows')
+  })
+
+  // A card for a week that ended must not claim to be current — it is the one
+  // thing separating a truthful archived card from a lying one.
+  it('never claims an archived week is current', () => {
+    expect(formatShowCountLine(24, false)).not.toContain('this week')
+    expect(formatShowCountLine(0, false)).not.toContain('this week')
+  })
+
+  it('says a quiet week in words rather than posting a zero', () => {
+    expect(formatShowCountLine(0, true)).toBe('No shows this week')
+    expect(formatShowCountLine(0, false)).toBe('No shows')
+  })
+
+  it('uses the singular for one show', () => {
+    expect(formatShowCountLine(1, true)).toBe('1 show this week')
+  })
+})
+
 describe('looksLikeISOWeek', () => {
-  it('accepts well-formed keys regardless of case or padding whitespace', () => {
+  it('accepts well-formed keys regardless of case', () => {
     expect(looksLikeISOWeek('2026-W31')).toBe(true)
     expect(looksLikeISOWeek('2026-w31')).toBe(true)
-    expect(looksLikeISOWeek('  2026-W31  ')).toBe(true)
     // Shape only — 2025 has 52 weeks, but deciding that is the backend's job.
     expect(looksLikeISOWeek('2025-W53')).toBe(true)
+  })
+
+  // Deliberately NOT trimmed. The proxy that guards the page tests the raw
+  // segment, so trimming here would let the card accept URLs the page rejects —
+  // and every accepted spelling is another distinct, separately-rendered URL.
+  it('rejects padded spellings so one week has one URL', () => {
+    for (const padded of ['  2026-W31  ', ' 2026-W31', '2026-W31 ', '\t2026-W31']) {
+      expect(looksLikeISOWeek(padded)).toBe(false)
+    }
   })
 
   it('rejects anything that is not week-shaped', () => {
     for (const bad of ['week', 'garbage', '2026', '2026-31', '26-W31', '2026-W3', '']) {
       expect(looksLikeISOWeek(bad)).toBe(false)
     }
+  })
+
+  it('rejects years the site could not possibly have data for', () => {
+    expect(looksLikeISOWeek('1998-W07')).toBe(false)
+    expect(looksLikeISOWeek('9999-W01')).toBe(false)
   })
 })
 

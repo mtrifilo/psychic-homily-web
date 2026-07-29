@@ -1,54 +1,41 @@
 import { cache } from 'react'
 import type { Metadata } from 'next'
-import * as Sentry from '@sentry/nextjs'
-import { API_BASE_URL } from '@/lib/api-base'
 import { JsonLd } from '@/components/seo/JsonLd'
+import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
 import { generateItemListSchema } from '@/lib/seo/jsonld'
 import { SceneWeekView } from './components/SceneWeekView'
+import {
+  ARCHIVED_WEEK_REVALIDATE,
+  CURRENT_WEEK_REVALIDATE,
+  fetchSceneWeek,
+} from './sceneWeekApi'
 import { countShows, formatWeekRange, showDisplayTitle, type SceneWeekResponse } from './sceneWeek'
 
 const SITE = 'https://psychichomily.com'
 
 /**
- * Fetch one scene-week.
- *
- * `week` is an ISO week key, or omitted for the scene's CURRENT week. Current
- * is resolved SERVER-side by the backend, in the scene's own timezone — a
- * reader in Berlin and a reader in Chicago must see the same Chicago week, so
- * the client must not compute it.
+ * Fetch one scene-week for the page.
  *
  * Wrapped in `React.cache` so `generateMetadata` and the page body share one
  * round-trip per request, matching the existing scene-page pattern (PSY-906).
+ * The wrapper stays here rather than in `sceneWeekApi` because `React.cache` is
+ * server-component-only — the share card, which renders on the edge, calls the
+ * underlying fetch directly.
  */
 export const getSceneWeek = cache(
-  async (slug: string, week?: string): Promise<SceneWeekResponse | null> => {
-    const path = week
-      ? `${API_BASE_URL}/scenes/${slug}/week/${week}`
-      : `${API_BASE_URL}/scenes/${slug}/week`
-    try {
-      // An archived week is immutable once past; the rolling week is not. The
-      // caller picks the revalidate window.
-      const res = await fetch(path, { next: { revalidate: week ? 86400 : 900 } })
-      if (res.ok) return res.json()
-      // 404 is the expected answer for an unknown slug, a below-threshold
-      // scene, or a week key that does not exist (e.g. 2025-W53) — not an error
-      // worth reporting.
-      if (res.status >= 500) {
-        Sentry.captureMessage(`Scene week: API returned ${res.status}`, {
-          level: 'error',
-          tags: { service: 'scene-week' },
-          extra: { slug, week, status: res.status },
-        })
-      }
-    } catch (error) {
-      Sentry.captureException(error, {
-        level: 'error',
-        tags: { service: 'scene-week' },
-        extra: { slug, week },
-      })
-    }
-    return null
-  }
+  (slug: string, week?: string): Promise<SceneWeekResponse | null> =>
+    // Keeps the window PSY-1577 shipped. It is keyed on the URL shape, which is
+    // imprecise — the canonical archived URL also serves the live week, so that
+    // week's page can lag by up to a day. Left as-is rather than changed here:
+    // the share card (which is what this PR adds) does not use this path, and
+    // switching every archived page to the short window would multiply backend
+    // load on a resource that genuinely never changes. Tracked separately.
+    fetchSceneWeek(
+      slug,
+      week,
+      'scene-week',
+      week ? ARCHIVED_WEEK_REVALIDATE : CURRENT_WEEK_REVALIDATE
+    )
 )
 
 export async function buildSceneWeekMetadata(
@@ -73,11 +60,47 @@ export async function buildSceneWeekMetadata(
   // engines at it would make every indexed snippet go stale.
   const canonical = `${SITE}/scenes/${data.slug}/${data.iso_week}`
 
+  // Both routes advertise the ARCHIVED card, and that is deliberate.
+  //
+  // Next would otherwise inject each route's own file-convention image, and the
+  // rolling route's URL is a constant — it carries a hash of the route source,
+  // not of the week. Our own `Cache-Control` cannot help: Facebook, Discord and
+  // Slack cache an unfurled image against its URL for far longer than any header
+  // we set, so the rolling URL — the one people actually post — would keep
+  // showing whichever week that scraper happened to see first. The archived
+  // URL carries the week, so a new week is a new image.
+  //
+  // Setting `images` explicitly suppresses the file convention, so the
+  // dimensions and alt that convention would have supplied are given here.
+  const ogImage = `${canonical}/opengraph-image`
+
+  // The page description already names the city, the count and the week, which
+  // is exactly what the card shows — and it beats the route-level `alt`, which
+  // Next requires to be a constant and so reads identically on every card.
+  const imageAlt = description
+
   return {
     title,
     description,
     alternates: { canonical },
-    openGraph: { title, description, url: canonical, type: 'website' },
+    openGraph: {
+      title,
+      description,
+      url: canonical,
+      type: 'website',
+      images: [
+        {
+          url: ogImage,
+          width: OG_SIZE.width,
+          height: OG_SIZE.height,
+          type: OG_CONTENT_TYPE,
+          alt: imageAlt,
+        },
+      ],
+    },
+    // `images` is deliberately absent: Next copies the openGraph descriptor
+    // across when Twitter has none, so omitting it inherits the alt and
+    // dimensions. Setting a bare URL string here would silently drop them.
     twitter: { card: 'summary_large_image', title, description },
   }
 }

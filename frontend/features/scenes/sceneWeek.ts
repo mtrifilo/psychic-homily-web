@@ -18,15 +18,83 @@ export type SceneWeekShow = components['schemas']['SceneShowSummary']
 const ISO_WEEK_KEY = /^\d{4}-W\d{2}$/i
 
 /**
+ * Earliest week key worth serving. The site has no shows before this, and an
+ * unbounded key space is an unbounded set of distinct URLs — each one a cache
+ * miss that renders a full share card. Bounding it keeps that finite.
+ */
+const FIRST_TRACKED_YEAR = 2015
+
+/**
  * Whether a URL segment even looks like an ISO week key.
  *
  * A cheap shape check only — it deliberately does NOT decide whether the week
  * exists. `2025-W53` is well-formed but not a real week (2025 has 52), and only
  * the backend, which owns the calendar maths and the scene's timezone, can say
  * so. This exists to avoid a pointless round-trip for obvious junk.
+ *
+ * Matches the RAW segment, deliberately. Trimming here would accept forms the
+ * proxy's copy of this rule rejects, so a page and its share card would
+ * disagree about which URLs are legal — and every accepted variant of the same
+ * week (leading space, tab, BOM) is another distinct URL that renders its own
+ * card. One spelling per week.
  */
 export function looksLikeISOWeek(segment: string): boolean {
-  return ISO_WEEK_KEY.test(segment.trim())
+  const match = ISO_WEEK_KEY.exec(segment)
+  if (!match) return false
+  const year = Number(segment.slice(0, 4))
+  return year >= FIRST_TRACKED_YEAR && year <= new Date().getUTCFullYear() + 1
+}
+
+/**
+ * Resolve a requested week segment into what should actually be fetched.
+ *
+ * Three outcomes, and the difference between the last two is the whole point:
+ * - `undefined` — no segment supplied; the caller wants the CURRENT week.
+ * - a normalized key — a well-formed week to fetch.
+ * - `null` — the segment is junk and NOTHING should be fetched.
+ *
+ * The archived route's segment is dynamic, so it also catches any unmatched
+ * child path under a scene. Collapsing junk to `undefined` would quietly serve
+ * the current week for a URL whose page 404s — handing out a confident-looking
+ * answer to a question nobody asked. The key is returned exactly as validated,
+ * so the string that was checked is the string that gets used.
+ */
+export function resolveRequestedWeek(segment: string | undefined): string | undefined | null {
+  if (segment === undefined) return undefined
+  return looksLikeISOWeek(segment) ? segment : null
+}
+
+/**
+ * The card's count line.
+ *
+ * "this week" is only true of the rolling week. An archived card carries its
+ * date range directly above this line, so dropping the phrase reads correctly
+ * for a week shared months later rather than claiming to be current. A quiet
+ * week says so in words — `0 shows` is a bad thing to post.
+ */
+/**
+ * Whether a week is genuinely over and can therefore be cached hard.
+ *
+ * `is_current_week` alone is NOT this test: it is false for FUTURE weeks too,
+ * and a future week is the one thing that must not be frozen — the "next week"
+ * link is on every page, so next week's card gets fetched and cached days
+ * before it becomes the live week, and the rolling page then points at that
+ * frozen card. Requiring the end date to be behind us excludes it.
+ *
+ * Compared in UTC, which can run up to a day ahead of a scene's own clock. That
+ * skew can only make this return false early, never late, and the
+ * `isCurrentWeek` guard covers the boundary — so the error direction is "keep
+ * it fresh", which is the harmless one.
+ */
+export function weekHasEnded(endDate: string, isCurrentWeek: boolean): boolean {
+  if (isCurrentWeek) return false
+  return endDate < new Date().toISOString().slice(0, 10)
+}
+
+export function formatShowCountLine(total: number, isCurrentWeek: boolean): string {
+  const period = isCurrentWeek ? ' this week' : ''
+  if (total === 0) return `No shows${period}`
+  return `${total} ${total === 1 ? 'show' : 'shows'}${period}`
 }
 
 /**
@@ -43,12 +111,29 @@ function parseCalendarDate(iso: string): Date {
   return new Date(y, (m ?? 1) - 1, d ?? 1)
 }
 
+/** `JUL 27` — the shared stem of every uppercase date label here. */
+function monthDay(iso: string): string {
+  const date = parseCalendarDate(iso)
+  const month = date.toLocaleDateString('en-US', { month: 'short' })
+  return `${month} ${date.getDate()}`.toUpperCase()
+}
+
 /** `MON JUL 27` — the day-group heading. */
 export function formatDayHeading(iso: string): string {
-  const date = parseCalendarDate(iso)
-  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' })
-  const month = date.toLocaleDateString('en-US', { month: 'short' })
-  return `${weekday} ${month} ${date.getDate()}`.toUpperCase()
+  const weekday = parseCalendarDate(iso).toLocaleDateString('en-US', { weekday: 'short' })
+  return `${weekday.toUpperCase()} ${monthDay(iso)}`
+}
+
+/**
+ * `JUL 27 – AUG 2` — the share card's week range.
+ *
+ * Drops the weekday and year the page header carries: on a card the range sits
+ * above the city at display scale and only has to say *which week*, and at the
+ * 300px a link renders at in a group chat every dropped word buys size on the
+ * words that remain.
+ */
+export function formatWeekRangeCompact(startISO: string, endISO: string): string {
+  return `${monthDay(startISO)} – ${monthDay(endISO)}`
 }
 
 /** `Mon Jul 27 – Sun Aug 2, 2026` — the header's week range. */
