@@ -2,6 +2,12 @@
 // (panic-safe scheduled loops, durable run state, etc.). Per-service business
 // logic stays in the per-domain service packages — this package is
 // intentionally tiny.
+//
+// SweepHealthCheck is the one exception to that rule: it is a real service, wired
+// into the container like any other, but it lives here because it monitors the
+// loop machinery itself and depends on runStatePersistenceThreshold. Hosting it
+// in a domain package would mean exporting that threshold purely so an outsider
+// could reason about which loops have state — a worse trade than the exception.
 package shared
 
 import (
@@ -54,15 +60,30 @@ func invokePanicHandler(service string, panicValue any, stack []byte) {
 	if h == nil {
 		return
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Default().Error("scheduled-loop panic handler itself panicked",
-				"service", service,
-				"panic", r,
-			)
-		}
-	}()
+	defer recoverAndLog("scheduled-loop panic handler itself panicked", service)
 	h(service, panicValue, stack)
+}
+
+// recoverAndLog contains a panic raised by OBSERVABILITY code and logs it.
+//
+// Used as `defer recoverAndLog(msg, service)`. It exists so the rule it encodes
+// is stated once instead of re-derived at each site: code whose only job is to
+// watch or record a background loop must never be able to stop one. Three call
+// sites — the panic handler, the overdue handler, and loop registration — are all
+// hooks or writes that a failure in must be strictly less costly than the work
+// they observe.
+//
+// Note this is deliberately NOT used for the loop-level recovers in
+// RunScheduledLoop: those recover the WORK, where stopping (outer) or skipping a
+// cycle (inner) is the correct response, and both additionally capture a stack
+// and escalate to the panic handler.
+func recoverAndLog(msg, service string) {
+	if r := recover(); r != nil {
+		slog.Default().Error(msg,
+			"service", service,
+			"panic", r,
+		)
+	}
 }
 
 // Scheduling policy. Fixed for the process — a caller that needs different
@@ -79,6 +100,13 @@ const (
 	// its first cycle inside any plausible uptime (the sub-hour loops were the
 	// control group that proved this empirically), so a row write every 30s buys
 	// nothing.
+	//
+	// It is ALSO the monitoring-coverage boundary, which is easy to miss and worth
+	// stating here rather than only at the alerting end. A loop with no row is a
+	// loop PSY-1612's overdue check cannot see, so lowering a monitored sweep's
+	// interval below this — every one of them is env-tunable — silently removes its
+	// alerting. Nothing fails, nothing logs; it just stops being watched. Raising
+	// the boundary is the safe direction; lowering a specific sweep past it is not.
 	runStatePersistenceThreshold = time.Hour
 
 	// defaultRunLease is how long a claim stays valid before another instance may
@@ -197,6 +225,12 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 
 	runner := newLoopRunner(cfg, work)
 
+	// Announce existence before scheduling anything. Until a loop's first cycle
+	// completes there is no row, so without this a loop that never starts looks
+	// exactly like a loop that was never deployed — and overdue alerting would be
+	// blind to the registration failures it most needs to catch.
+	runner.register(ctx)
+
 	// The boot cycle is forced past the due check: a caller asking for RunAtBoot
 	// wants output after a deploy, which is the behaviour ten healthy loops rely
 	// on today. The claim's LEASE check still applies, so a boot cycle cannot
@@ -291,6 +325,95 @@ func newLoopRunner(cfg LoopConfig, work func(context.Context)) *loopRunner {
 		store:      store,
 		work:       work,
 	}
+}
+
+// register records the loop's identity and cadence so health checks can tell
+// "never started" from "never existed".
+//
+// Best-effort by design: a loop must still run when the state table is
+// unreachable. Losing the ability to observe a sweep is bad; refusing to run it
+// because we cannot observe it would be worse.
+//
+// That is also why this swallows panics instead of letting the outer recover
+// handle them. The outer recover STOPS the loop, which is the right response to a
+// panic in scheduling — but registration is pure observability, and a monitoring
+// write that can kill the twenty sweeps it was added to watch is worse than no
+// monitoring at all.
+func (r *loopRunner) register(ctx context.Context) {
+	if r.store == nil {
+		// Below the persistence threshold this loop keeps no run state and is
+		// therefore invisible to overdue alerting. If it USED to be above the
+		// threshold, a row survives with a stale interval and a registration
+		// recent enough to pass the retirement gate — so a perfectly healthy loop
+		// running every few minutes would be measured against its old cadence and
+		// page daily for a week. Retiring here is what makes "lowering the
+		// interval removes alerting" true instead of "…after a week of false
+		// pages".
+		if store := DefaultRunStore(); !typedNilStore(store) {
+			defer recoverAndLog("background run state: retire panicked — continuing", r.name)
+			if err := store.Retire(ctx, r.name); err != nil {
+				logStoreError(r.name, "retire", err)
+			}
+		}
+		return
+	}
+	rememberLoop(r.name, r.interval, r.lease)
+	defer recoverAndLog("background run state: register panicked — continuing", r.name)
+	if err := r.store.Register(ctx, r.name, r.interval, r.lease); err != nil {
+		logStoreError(r.name, "register", err)
+	}
+}
+
+// Loops this process has wired up. Registration liveness is a property of the
+// PROCESS, not of any loop's goroutine, and conflating the two is a trap:
+//
+//   - Refreshing on Claim or per cycle would tie it to the loop's own health, so
+//     a loop whose goroutine died would stop refreshing, retire itself, and go
+//     silent — deleting exactly the alert it should have raised.
+//   - Stamping only at start (the original mistake) ties it to DEPLOY cadence, so
+//     a process that simply stays up longer than the retirement window ages every
+//     row out and switches the whole fleet's alerting off.
+//
+// Keeping the set in memory and having the health check re-stamp it on its own
+// cadence means "this loop is expected to run" stays true for as long as a
+// process that wired it is alive, and stops being true when no such process
+// remains — which is the actual question retirement asks.
+var (
+	registeredLoopsMu sync.Mutex
+	registeredLoops   = map[string]LoopRegistration{}
+)
+
+// LoopRegistration is the identity and cadence of a loop this process runs.
+type LoopRegistration struct {
+	Name     string
+	Interval time.Duration
+	Lease    time.Duration
+}
+
+// rememberLoop records a loop as owned by this process.
+func rememberLoop(name string, interval, lease time.Duration) {
+	registeredLoopsMu.Lock()
+	registeredLoops[name] = LoopRegistration{Name: name, Interval: interval, Lease: lease}
+	registeredLoopsMu.Unlock()
+}
+
+// RegisteredLoops returns the loops this process has wired up.
+func RegisteredLoops() []LoopRegistration {
+	registeredLoopsMu.Lock()
+	defer registeredLoopsMu.Unlock()
+	out := make([]LoopRegistration, 0, len(registeredLoops))
+	for _, l := range registeredLoops {
+		out = append(out, l)
+	}
+	return out
+}
+
+// resetRegisteredLoops clears the process registry. Tests only — production has
+// exactly one process lifetime.
+func resetRegisteredLoops() {
+	registeredLoopsMu.Lock()
+	registeredLoops = map[string]LoopRegistration{}
+	registeredLoopsMu.Unlock()
 }
 
 // firstCycleDelay decides when the first cycle happens for a loop that does not

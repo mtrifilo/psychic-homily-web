@@ -226,3 +226,31 @@ func TestScrubSentryEvent_NilSafe(t *testing.T) {
 		ScrubSentryEvent(&sentry.Event{Message: "no request here"}, nil)
 	})
 }
+
+// TestScrubSentryEvent_Extra pins the widening that PSY-1612 required.
+//
+// Extra was deliberately out of scope while every SetExtra site passed known-safe
+// values. The overdue-sweep handler broke that assumption by attaching
+// `last_error`, which originates from third-party providers and demonstrably
+// carries request URLs with query strings and raw HTTP response bodies. Without a
+// test, a later refactor of ScrubSentryEvent could drop this branch and every
+// existing case would still pass — silently regressing a secret-leak control in
+// the file whose entire purpose is that control.
+func TestScrubSentryEvent_Extra(t *testing.T) {
+	event := &sentry.Event{
+		Extra: map[string]any{
+			"last_error": `Get "https://api.example.com/v1/x?api_key=SUPERSECRET": 500`,
+			"run_count":  int64(3),
+		},
+	}
+
+	got := ScrubSentryEvent(event, nil)
+
+	errText, _ := got.Extra["last_error"].(string)
+	if strings.Contains(errText, "SUPERSECRET") {
+		t.Fatalf("a secret in Extra must be redacted before it leaves the process; got %q", errText)
+	}
+	if got.Extra["run_count"] != int64(3) {
+		t.Fatalf("non-string Extra values must pass through untouched; got %#v", got.Extra["run_count"])
+	}
+}

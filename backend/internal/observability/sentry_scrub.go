@@ -75,6 +75,10 @@ var (
 	bearerRe = regexp.MustCompile(`(?i)(\bbearer\s+)\S+`)
 )
 
+// extraKeyStack is the SetExtra key carrying a panic stack trace (PSY-617). It is
+// redacted but never length-capped — see ScrubSentryEvent.
+const extraKeyStack = "stack"
+
 // ScrubSentryEvent is the Sentry BeforeSend hook (PSY-1145): on every outgoing
 // event it caps oversized values and strips obvious secrets from the message,
 // exception values, and request (URL/query/cookies/body/sensitive headers), so
@@ -90,12 +94,18 @@ var (
 // token rides in the path — must still redact at the source (utils.RedactErrorURL)
 // and not rely on this hook.
 //
-// NOT scrubbed (deliberate scope): event.Extra / Breadcrumbs / Contexts /
-// Threads / stacktrace frames. Today those carry only sanitized values (the
-// per-request scope sets a hashed email + method/path, never the query string —
-// internal/api/middleware/sentry.go; the few SetExtra sites pass non-secrets). A
-// future SetExtra("payload", <secret>) would bypass this hook — scrub at that
-// call site, or extend this hook, if that changes.
+// event.Extra IS scrubbed (string values only). It used to be out of scope on the
+// grounds that every SetExtra site passed known-safe values — a property that
+// held until PSY-1612's overdue-sweep handler began attaching `last_error`, which
+// is text from third-party providers and demonstrably carries request URLs with
+// query strings and raw HTTP response bodies. Rather than redact at that one call
+// site, the hook now covers the field, so the guarantee does not depend on every
+// future SetExtra author remembering.
+//
+// NOT scrubbed (deliberate scope): Breadcrumbs / Contexts / Threads / stacktrace
+// frames, and non-string Extra values. The latter is a CONSTRAINT ON CALL SITES,
+// not a fact about the world: only scalar non-string values may be passed to
+// SetExtra, because a map or struct would pass through this hook untouched.
 func ScrubSentryEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	if event == nil {
 		return nil
@@ -106,6 +116,22 @@ func ScrubSentryEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	}
 	if event.Request != nil {
 		scrubRequest(event.Request)
+	}
+	for k, v := range event.Extra {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		// Redact everywhere, but do NOT apply the length cap to a stack trace.
+		// scrubText caps at sentryValueLimit, and a real background-service panic
+		// stack (PSY-617 attaches one via SetExtra) runs well past that — capping
+		// would silently start truncating an unrelated shipped feature's diagnostics
+		// as a side effect of adding secret redaction here.
+		if k == extraKeyStack {
+			event.Extra[k] = redactSecrets(s)
+			continue
+		}
+		event.Extra[k] = scrubText(s)
 	}
 	return event
 }

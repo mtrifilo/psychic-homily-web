@@ -176,6 +176,10 @@ function startBackend(): ChildProcess {
       DISABLE_REMINDERS: '1',
       DISABLE_RELATIONSHIP_DERIVATION: '1',
       DISABLE_STREET_GEOCODE_SWEEP: '1',
+      // PSY-1612. Default-ON like the sweeps above, and it runs at boot, so
+      // without this the E2E backend would start a loop the harness's
+      // "no scheduled tickers" contract says it doesn't.
+      DISABLE_SWEEP_HEALTH_CHECK: '1',
       // PSY-432: enable the /admin/test-fixtures/reset endpoint. Guarded by
       // a default-deny ENVIRONMENT check on the backend — the server
       // refuses to boot if ENABLE_TEST_FIXTURES=1 and ENVIRONMENT is not

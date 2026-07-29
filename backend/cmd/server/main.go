@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -121,6 +122,67 @@ func main() {
 		})
 	})
 
+	// PSY-1612: escalate a background sweep that has STOPPED RUNNING to Sentry.
+	// The panic handler above only fires when something goes wrong loudly; PSY-1606
+	// was the other failure — no panic, no error, just silence — so this reports the
+	// absence of cycles instead of the presence of exceptions.
+	//
+	// Throttling lives in the database (last_overdue_alert_at), not here: it must
+	// survive the deploys and hold across replicas, and process-local alert state
+	// is the same mistake that caused the incident being monitored for.
+	//
+	// Fingerprint pins one issue per sweep per failure MODE, so a never-run sweep
+	// and a stalled one stay separable in Sentry and neither buries the other.
+	servicesshared.SetOverdueHandler(func(loop servicesshared.OverdueLoop) {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			mode := loop.FailureMode()
+			scope.SetLevel(sentry.LevelError)
+			scope.SetTag("service", loop.Name)
+			scope.SetTag("source", "sweep_health_check")
+			scope.SetTag("failure_mode", mode)
+			scope.SetFingerprint([]string{"background-sweep-overdue", loop.Name, mode})
+			scope.SetExtra("interval", loop.Interval().String())
+			scope.SetExtra("overdue_by", loop.Overdue().Round(time.Minute).String())
+			scope.SetExtra("last_outcome", loop.OutcomeLabel())
+			scope.SetExtra("consecutive_failures", loop.ConsecutiveFailures)
+			scope.SetExtra("run_count", loop.RunCount)
+			if loop.LastCompletedAt != nil {
+				scope.SetExtra("last_completed_at", loop.LastCompletedAt.UTC().Format(time.RFC3339))
+			}
+			if loop.LastSuccessAt != nil {
+				scope.SetExtra("last_success_at", loop.LastSuccessAt.UTC().Format(time.RFC3339))
+			}
+			if loop.LastRowsProcessed != nil {
+				scope.SetExtra("last_rows_processed", *loop.LastRowsProcessed)
+			}
+			if loop.LastError != nil {
+				scope.SetExtra("last_error", *loop.LastError)
+			}
+			sentry.CaptureException(errors.New(loop.Summary()))
+		})
+		// Flush before returning, so an alert raised moments before a kill — exactly
+		// when deploys break sweeps — is pushed rather than waiting on the deferred
+		// process-level Flush that only runs on a graceful shutdown.
+		//
+		// Its result is INFORMATIONAL and must NOT be treated as this event's
+		// delivery status. Flush drains the whole current batch — which on a live
+		// server also holds sampled transaction events from concurrent HTTP traffic
+		// — and reports whether that batch cleared in time, not whether this alert
+		// got through. Wiring it to the release path (an earlier attempt) meant an
+		// ordinary Sentry latency blip released the claim and re-reported every
+		// pass, ~96 events/day/sweep, for an event that had in fact been delivered:
+		// the exact flood this feature exists to prevent, triggered by something
+		// unrelated to the sweeps.
+		//
+		// So: flush to get the alert out promptly, log if the batch did not clear,
+		// and leave delivery-failure detection to the one signal that genuinely
+		// means this handler failed — a panic.
+		if !sentry.Flush(2*time.Second) && sentry.CurrentHub().Client() != nil {
+			log.Printf("sentry batch did not flush within 2s while reporting overdue sweep %q "+
+				"(the event is queued; delivery is not confirmed)", loop.Name)
+		}
+	})
+
 	// Connect to database
 	if err := db.Connect(cfg); err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -227,6 +289,7 @@ func main() {
 		artistLinksSweepCancel       context.CancelFunc
 		releaseLinksSweepCancel      context.CancelFunc
 		streetGeocodeSweepCancel     context.CancelFunc
+		sweepHealthCheckCancel       context.CancelFunc
 	)
 
 	// Start account cleanup service (background job for permanent deletion)
@@ -396,6 +459,36 @@ func main() {
 		log.Printf("DISABLE_STREET_GEOCODE_SWEEP=1: skipping street geocode sweep startup")
 	}
 
+	// Start sweep health check (PSY-1612: reports background loops that have
+	// stopped running). Default ON — this is the monitoring that would have caught
+	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
+	// require a deliberate act to switch off, never an omission.
+	//
+	// It watches every loop started above that has an interval of an hour or more
+	// (shorter loops keep no run state, so they are outside its coverage).
+	//
+	// Switching a sweep off with its DISABLE_*/ENABLE_* flag does NOT silence it
+	// immediately if it has run in this environment before: the row survives with
+	// its last registration, so the sweep reads as overdue and reports once a day
+	// until the retirement window (7 days without any process registering it)
+	// expires. A sweep that has never been enabled here has no row and is never
+	// reported. To retire one immediately (see backend/README.md, "Overdue-sweep
+	// alerting", for the full procedure):
+	//
+	//	UPDATE background_service_runs SET last_registered_at = NULL WHERE name = '<loop name>';
+	//
+	// Do NOT DELETE the row: if any process still owns that loop the health check
+	// re-creates it within one pass with created_at = NOW(), which hands a
+	// genuinely stalled sweep a FRESH grace window, makes it report as never_ran
+	// afterwards, and discards its run history.
+	if os.Getenv("DISABLE_SWEEP_HEALTH_CHECK") != "1" {
+		var sweepHealthCheckCtx context.Context
+		sweepHealthCheckCtx, sweepHealthCheckCancel = context.WithCancel(context.Background())
+		sc.SweepHealthCheck.Start(sweepHealthCheckCtx)
+	} else {
+		log.Printf("DISABLE_SWEEP_HEALTH_CHECK=1: skipping sweep health check startup")
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:    cfg.Server.Addr,
@@ -480,6 +573,10 @@ func main() {
 	if streetGeocodeSweepCancel != nil {
 		streetGeocodeSweepCancel()
 		sc.StreetGeocodeSweep.Stop()
+	}
+	if sweepHealthCheckCancel != nil {
+		sweepHealthCheckCancel()
+		sc.SweepHealthCheck.Stop()
 	}
 
 	// Graceful shutdown

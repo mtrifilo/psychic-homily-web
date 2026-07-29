@@ -437,6 +437,14 @@ func TestScheduledLoop_OuterRecoverCatchesSchedulingPanic(t *testing.T) {
 // panickingRunStore models the worst case for the scheduler's own code path.
 type panickingRunStore struct{}
 
+func (panickingRunStore) Register(context.Context, string, time.Duration, time.Duration) error {
+	panic("store exploded")
+}
+
+func (panickingRunStore) Retire(context.Context, string) error {
+	panic("store exploded")
+}
+
 func (panickingRunStore) DueIn(context.Context, string, time.Duration) (time.Duration, error) {
 	panic("store exploded")
 }

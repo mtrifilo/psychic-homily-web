@@ -112,6 +112,9 @@ type ServiceContainer struct {
 	CollectionDigest *engagement.CollectionDigestService
 	// PSY-1342: weekly followed-scenes digest emails (opt-IN).
 	SceneDigest *engagement.SceneDigestService
+	// PSY-1612: reports background loops that have stopped running. Watches every
+	// service above that owns a scheduled loop.
+	SweepHealthCheck *shared.SweepHealthCheck
 }
 
 // NewServiceContainer creates all services once. WebAuthn failure is non-fatal
@@ -357,5 +360,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
 		SceneDigest:            engagement.NewSceneDigestService(database, email, sceneSvc, cfg),
+		SweepHealthCheck:       shared.NewSweepHealthCheck(database),
 	}
 }

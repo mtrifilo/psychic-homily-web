@@ -61,13 +61,32 @@ type BackgroundServiceRun struct {
 	// LastSuccessAt carries health, separate from schedule.
 	LastSuccessAt *time.Time `gorm:"column:last_success_at"`
 
-	LastOutcome       string  `gorm:"column:last_outcome"`
+	// LastOutcome is a pointer because the column is genuinely nullable: a loop
+	// that has REGISTERED but not yet completed a cycle has no outcome, which is
+	// distinct from one that ran and produced an empty result. Reading it into a
+	// plain string would silently render both as "".
+	LastOutcome       *string `gorm:"column:last_outcome"`
 	LastError         *string `gorm:"column:last_error"`
 	LastDurationMs    *int64  `gorm:"column:last_duration_ms"`
 	LastRowsProcessed *int64  `gorm:"column:last_rows_processed"`
 
 	ConsecutiveFailures int   `gorm:"column:consecutive_failures"`
 	RunCount            int64 `gorm:"column:run_count"`
+
+	// LastOverdueAlertAt throttles overdue reporting. NULL means the loop is not
+	// in an alerted overdue episode; any completed cycle resets it, so recovery
+	// followed by a later stall reads as a fresh transition rather than waiting
+	// out the re-alert window.
+	LastOverdueAlertAt *time.Time `gorm:"column:last_overdue_alert_at"`
+
+	// LastRegisteredAt is when a process last declared this loop exists. Stale
+	// means retired, not stalled — see the migration comment.
+	LastRegisteredAt *time.Time `gorm:"column:last_registered_at"`
+
+	// LeaseSeconds is the claim lease this loop was last configured with, stored
+	// so the overdue threshold can clear a crash-recovery gap without consulting
+	// source code.
+	LeaseSeconds *int64 `gorm:"column:lease_seconds"`
 
 	CreatedAt time.Time `gorm:"column:created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at"`
@@ -140,6 +159,30 @@ func (o CycleOutcome) outcomeLabel() string {
 // an app/DB clock skew would otherwise translate directly into a loop running
 // early, late, or twice. The store never accepts a timestamp from the caller.
 type RunStore interface {
+	// Register records that `name` exists and is expected to run every
+	// `interval`, without touching any run state.
+	//
+	// Scheduling does not need this — Claim would create the row on the first
+	// cycle. HEALTH does: until a loop's first cycle completes there is no row,
+	// so a loop that never starts is indistinguishable from a loop that was never
+	// deployed, and an alerter reading the table is blind to exactly the
+	// registration failure it most needs to catch. Registering at loop start
+	// turns the table into a record of what is SUPPOSED to be running, against
+	// which silence becomes detectable.
+	Register(ctx context.Context, name string, interval, lease time.Duration) error
+
+	// Retire marks a loop as no longer expected to run, immediately.
+	//
+	// The passive path — letting registration go stale — bounds the damage but
+	// does not prevent it, and the difference matters most in the case it was
+	// introduced for. A stage-to-prod restore copies stage's rows INCLUDING their
+	// registration timestamps, and stage re-stamps its own every few minutes, so
+	// restored rows arrive in prod looking freshly registered and page daily until
+	// they age out. Retiring explicitly, at the moment a loop is known not to run,
+	// is what makes "a disabled sweep is not reported" true rather than
+	// true-in-a-week.
+	Retire(ctx context.Context, name string) error
+
 	// DueIn reports how long until `name` is next due, measured against the
 	// database clock. A value <= 0 means overdue — including the never-run case,
 	// where there is no row at all.
@@ -156,6 +199,13 @@ type RunStore interface {
 
 	// Complete records a finished cycle against the claim identified by token.
 	Complete(ctx context.Context, name string, token time.Time, outcome CycleOutcome) error
+}
+
+// secondsToDuration converts a Postgres EXTRACT(EPOCH …) result to a Duration.
+// Both the scheduler and the overdue check read intervals out of SQL this way, so
+// the float-to-Duration conversion is written once.
+func secondsToDuration(secs float64) time.Duration {
+	return time.Duration(secs * float64(time.Second))
 }
 
 // ErrClaimSuperseded reports that Complete found no row matching the claim token:
@@ -211,6 +261,56 @@ func dueSlack(interval time.Duration) time.Duration {
 // be small enough to leave the due gate live there too.
 const minDueSlack = 10 * time.Millisecond
 
+// Register implements RunStore.
+//
+// Deliberately writes nothing but identity and cadence. A loop restarts on every
+// deploy, so if this touched last_completed_at a redeploy would reset the very
+// schedule the table exists to preserve, and if it touched last_overdue_alert_at
+// a crash-looping process would silence its own alert by restarting.
+//
+// interval_seconds and lease_seconds ARE refreshed, so the overdue threshold
+// always reflects how the loop is configured now rather than whenever it last
+// completed a cycle.
+//
+// last_registered_at is the liveness of the CONFIGURATION, not of the work: it
+// says a process currently believes this loop should exist. A row nobody
+// re-registers is retired rather than stalled, which is what stops a renamed,
+// switched-off, or restored-from-another-environment loop alerting forever.
+func (s *GormRunStore) Register(ctx context.Context, name string, interval, lease time.Duration) error {
+	err := s.db.WithContext(ctx).Exec(`
+		INSERT INTO background_service_runs
+			(name, interval_seconds, lease_seconds, last_registered_at, created_at, updated_at)
+		VALUES (?, ?, ?, NOW(), NOW(), NOW())
+		ON CONFLICT (name) DO UPDATE
+		SET interval_seconds    = EXCLUDED.interval_seconds,
+		    lease_seconds       = EXCLUDED.lease_seconds,
+		    last_registered_at  = NOW(),
+		    updated_at          = NOW()
+	`, name, int64(interval/time.Second), int64(lease/time.Second)).Error
+	if err != nil {
+		return fmt.Errorf("register run state for %q: %w", name, err)
+	}
+	return nil
+}
+
+// Retire implements RunStore.
+//
+// NULLing last_registered_at reuses the same sentinel a never-registered row
+// carries, so retirement has exactly one representation rather than two. The row
+// itself is kept: its run trace is still the evidence for when the loop last did
+// anything, and re-enabling the loop re-registers it on the next boot.
+func (s *GormRunStore) Retire(ctx context.Context, name string) error {
+	err := s.db.WithContext(ctx).Exec(`
+		UPDATE background_service_runs
+		SET last_registered_at = NULL, last_overdue_alert_at = NULL, updated_at = NOW()
+		WHERE name = ?
+	`, name).Error
+	if err != nil {
+		return fmt.Errorf("retire run state for %q: %w", name, err)
+	}
+	return nil
+}
+
 // DueIn implements RunStore.
 func (s *GormRunStore) DueIn(ctx context.Context, name string, interval time.Duration) (time.Duration, error) {
 	var secs []float64
@@ -228,7 +328,7 @@ func (s *GormRunStore) DueIn(ctx context.Context, name string, interval time.Dur
 	if len(secs) == 0 {
 		return 0, nil
 	}
-	due := time.Duration(secs[0] * float64(time.Second))
+	due := secondsToDuration(secs[0])
 	if due < 0 {
 		return 0, nil
 	}
@@ -339,6 +439,20 @@ func (s *GormRunStore) Complete(ctx context.Context, name string, token time.Tim
 			last_rows_processed  = ?,
 			consecutive_failures = CASE WHEN ?::boolean THEN 0 ELSE consecutive_failures + 1 END,
 			run_count            = run_count + 1,
+			-- Cleared on ANY completion, success or failure, because that is
+			-- exactly when the loop stops being overdue: this statement writes
+			-- last_completed_at unconditionally, and the overdue predicate is
+			-- measured from it. The stamp belongs to one overdue EPISODE, so a
+			-- later stall is a new episode and reports immediately.
+			--
+			-- Clearing only on success would be wrong twice over. It would not
+			-- prevent a flood from a crash-looping loop — such a loop keeps
+			-- completing, so it never reads as overdue at all — and it would
+			-- carry a stale stamp from a previous episode into a new one,
+			-- suppressing a genuinely dead sweep for the remainder of the
+			-- window. "Is it running" and "is it succeeding" are different
+			-- questions; only the first one is this column's business.
+			last_overdue_alert_at = NULL,
 			updated_at           = NOW()
 		WHERE name = ? AND last_started_at = ?
 	`,
