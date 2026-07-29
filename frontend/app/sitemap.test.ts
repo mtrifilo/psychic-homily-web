@@ -147,12 +147,14 @@ describe('sitemap', () => {
   // family missing and no failure signal anywhere (see the backend's
   // contracts.SitemapEntry).
   //
-  // What failing closed actually buys, measured: NOT a stale document. This
-  // route is dynamic, so a failed render returns 500 to the crawler. The only
-  // thing that survives a backend fault is Next's fetch Data Cache, and only
-  // after one successful fetch has populated it. A real stale-serving fallback
-  // is PSY-1642. What this guard protects is narrower and still worth having:
-  // a wrong sitemap is never published.
+  // What failing closed buys depends on how the deploy was built — see the
+  // module header in sitemap.ts for the measurements. Built against a healthy
+  // backend the route is prerendered, so an outage is survived by serving the
+  // last good document. Built against an unreachable backend there is no
+  // prerendered body and a request during an outage returns 500.
+  //
+  // What this guard protects is the same either way, and is the point: a
+  // sitemap missing an entity family is never published.
   describe('fails closed', () => {
     it('throws when the feed errors rather than emitting a partial sitemap', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))

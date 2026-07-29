@@ -1,33 +1,39 @@
 /**
  * The sitemap generator.
  *
- * HOW THIS ROUTE CACHES — measured against `next build` + `next start` in this
- * repo on Next 16.1.4 with `cacheComponents: true`. Do not reason about it from
- * the Next docs; two confident readings of the docs were wrong before this was
- * measured. Re-measure after any Next upgrade.
+ * HOW THIS ROUTE CACHES — measured against `next build` in this repo on Next
+ * 16.1.4 with `cacheComponents: true`. Do not reason about it from the Next
+ * docs; three confident readings were wrong before this was measured, and the
+ * first two measurements were themselves wrong because they only tested ONE of
+ * the two cases below. Re-measure BOTH after any Next upgrade.
  *
- *   Route (app)                    Revalidate  Expire
- *   ├ ◐ /shows                             1h      1y
- *   ├ ƒ /sitemap.xml                                     ← no window at all
+ * The route mode is CONDITIONAL on whether the build-time fetch succeeds:
  *
- * `/sitemap.xml` is DYNAMIC: it re-renders on every request, and there is no
- * rendered document on disk for it (compare `.next/server/app/shows.html`,
- * which exists, with `.next/server/app/sitemap.xml/`, which holds only
- * `route.js`). An `export const revalidate` here is INERT — it was tried, the
- * route mode did not change, and it was removed rather than left in as a
- * placebo. Freshness comes entirely from the per-fetch `next: { revalidate }`
- * Data Cache below.
+ *   Backend reachable at build time (the normal production path):
+ *     ├ ○ /sitemap.xml                       1h      1y
+ *     prerender-manifest: renderingMode STATIC, initialRevalidateSeconds 3600,
+ *     initialExpireSeconds 31536000, and a rendered `.next/server/app/
+ *     sitemap.xml.body` on disk. A later backend outage is SURVIVED — the
+ *     prerendered document keeps being served while revalidation fails.
  *
- * The consequence, also measured: with a cold Data Cache and a failing backend
- * this route returns 500 to the crawler rather than serving a stale sitemap.
- * Once one successful fetch has populated the cache, a subsequent backend fault
- * is survivable for that window. A genuine stale-serving fallback needs
- * `'use cache'` + `cacheLife` and is tracked as PSY-1642.
+ *   Backend unreachable at build time (degraded):
+ *     ├ ƒ /sitemap.xml                                   ← no window at all
+ *     No prerendered body. The route re-renders per request, so a request while
+ *     the backend is down returns 500. `next build` still EXITS 0 — the
+ *     degradation is silent, and it persists until the next deploy.
  *
- * NOTE: the per-fetch `revalidate` is the same mechanism that was in place when
- * the sitemap went stale in the first place, and that staleness was never
- * explained. See the backend's contracts.SitemapEntry — this file fixes the
- * fail-open half of that incident, not the staleness half.
+ * An `export const revalidate` here is INERT: it was tried and the route mode
+ * did not change in either case, so it was removed rather than left in as a
+ * placebo. In the static case the window above comes from the per-fetch
+ * `next: { revalidate }` below.
+ *
+ * The one-YEAR expire in the static case is worth knowing about: a prerendered
+ * document can be served for that long if revalidations keep failing. That is a
+ * candidate mechanism for the original unexplained staleness — see PSY-1644,
+ * where it is recorded as a lead to measure, NOT as an established cause.
+ *
+ * NOTE: this file fixes the fail-open half of the incident in the backend's
+ * contracts.SitemapEntry, not the staleness half.
  */
 import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
@@ -152,7 +158,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // family that is not an array, and a coercion at this site would read as
     // the exact fail-open this module exists to remove.
     return (entries[family] as SitemapEntry[])
-      .filter(entry => entry.slug)
+      // `entry?.slug`, not `entry.slug`: Array.isArray admits `[null]`, and a
+      // deref here would throw OUTSIDE fetchSitemapEntries' try — still fail-
+      // closed, but with no Sentry event and no diagnostic message.
+      .filter(entry => entry?.slug)
       .map(entry => ({
         url: `${BASE_URL}${prefix}/${entry.slug}`,
         lastModified: lastModified(entry.updated_at),

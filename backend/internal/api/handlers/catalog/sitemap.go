@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -32,9 +33,12 @@ func NewSitemapHandler(sitemapService sitemapService) *SitemapHandler {
 // byte-identical for every caller, and serving it costs three unbounded
 // projections, so any intermediary willing to hold it is worth having.
 //
-// max-age is deliberately far below the generator's hourly cycle: a shared
-// cache should not be the reason a genuinely changed catalogue is invisible.
-const sitemapEntriesCacheControl = "public, max-age=300, stale-while-revalidate=3600"
+// Kept short on purpose: a shared cache must not become the reason a changed
+// catalogue is invisible. 5 minutes fresh, with no stale-while-revalidate —
+// swr=3600 would have allowed a conforming cache to serve up to ~65 minutes
+// old, which is ABOVE the generator's hourly cycle and would have made this the
+// binding constraint rather than a backstop.
+const sitemapEntriesCacheControl = "public, max-age=300"
 
 type GetSitemapEntriesRequest struct{}
 
@@ -50,6 +54,12 @@ type GetSitemapEntriesResponse struct {
 // actually looks like a failure. See contracts.SitemapEntry for the incident.
 func (h *SitemapHandler) GetSitemapEntriesHandler(ctx context.Context, _ *GetSitemapEntriesRequest) (*GetSitemapEntriesResponse, error) {
 	entries, err := h.sitemapService.Entries(ctx)
+	// nil-without-error cannot happen with *SitemapService, but this handler
+	// depends on the interface, and a nil here would panic on the deref below
+	// rather than fail closed.
+	if err == nil && entries == nil {
+		err = fmt.Errorf("sitemap service returned no entries and no error")
+	}
 	if err != nil {
 		logger.FromContext(ctx).Error("sitemap_entries_failed",
 			"error", err.Error(),
