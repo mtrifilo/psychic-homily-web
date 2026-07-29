@@ -4,8 +4,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/adapters/humachi"
-	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
@@ -38,37 +36,41 @@ func setupTagRoutes(rc RouteContext) {
 	// Rate-limited tag creation: 20 requests per hour per IP.
 	// Admins bypass the limit (PSY-345) so bulk-tagging sessions don't
 	// collide with a limiter meant for anonymous/IP-level abuse.
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
-			middleware.TagCreateRequestsPerHour,
-			time.Hour,
-			httprate.WithKeyFuncs(middleware.KeyByClientIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		)))
-		tagCreateAPI := humachi.New(r, subAPIConfig("Psychic Homily Tag Create"))
-		tagCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
-		tagCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
-		huma.Post(tagCreateAPI, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
-	})
+	//
+	// PSY-1598: on the MAIN api via a Huma group. Note this group's bypass is
+	// SkipRateLimitForAdmin, NOT rateLimitUnlessAPIToken — it exempts admin JWTs
+	// as well as phk_ tokens, so the conversion has to preserve two escape
+	// hatches, not one.
+	tagCreateGroup := huma.NewGroup(rc.API, "")
+	tagCreateGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
+		middleware.TagCreateRequestsPerHour,
+		time.Hour,
+		httprate.WithKeyFuncs(middleware.KeyByClientIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	))))
+	tagCreateGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	tagCreateGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+	huma.Post(tagCreateGroup, "/entities/{entity_type}/{entity_id}/tags", tagHandler.AddTagToEntityHandler)
 
 	// Protected: remove tag (no additional rate limiting needed)
 	huma.Delete(rc.Protected, "/entities/{entity_type}/{entity_id}/tags/{tag_id}", tagHandler.RemoveTagFromEntityHandler)
 
 	// Rate-limited tag voting: 30 requests per minute per IP.
 	// Admins bypass the limit (PSY-345) for the same reason as tag creation.
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
-			middleware.TagVoteRequestsPerMinute,
-			time.Minute,
-			httprate.WithKeyFuncs(middleware.KeyByClientIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		)))
-		tagVoteAPI := humachi.New(r, subAPIConfig("Psychic Homily Tag Vote"))
-		tagVoteAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
-		tagVoteAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
-		huma.Post(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
-		huma.Delete(tagVoteAPI, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
-	})
+	// PSY-1598: on the MAIN api via a Huma group; same two-escape-hatch bypass as
+	// tag creation above. Both the POST and the DELETE share this one group, so
+	// they share one limiter budget exactly as they did under the chi group.
+	tagVoteGroup := huma.NewGroup(rc.API, "")
+	tagVoteGroup.UseMiddleware(humaFromHTTP(middleware.SkipRateLimitForAdmin(rc.SC.JWT, httprate.Limit(
+		middleware.TagVoteRequestsPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(middleware.KeyByClientIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	))))
+	tagVoteGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	tagVoteGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+	huma.Post(tagVoteGroup, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.VoteTagHandler)
+	huma.Delete(tagVoteGroup, "/tags/{tag_id}/entities/{entity_type}/{entity_id}/votes", tagHandler.RemoveTagVoteHandler)
 
 	// Admin: tag CRUD and alias management (PSY-423: rc.Admin enforces auth + IsAdmin)
 	huma.Post(rc.Admin, "/tags", tagHandler.CreateTagHandler)

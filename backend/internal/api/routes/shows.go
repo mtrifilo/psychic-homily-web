@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/adapters/humachi"
-	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
@@ -37,31 +35,34 @@ func setupShowRoutes(rc RouteContext) {
 	// Rate-limited show creation: 10 requests per hour per IP
 	// Prevents flooding the admin approval queue
 	// API token requests (phk_ prefix) bypass the rate limit — they're trusted admin clients
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(rateLimitUnlessAPIToken(
-			middleware.ShowCreateRequestsPerHour,
-			time.Hour,
-		))
-		showCreateAPI := humachi.New(r, subAPIConfig("Psychic Homily Show Create"))
-		showCreateAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
-		showCreateAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
-		huma.Post(showCreateAPI, "/shows", showHandler.CreateShowHandler)
-	})
+	//
+	// PSY-1598: on the MAIN api via a Huma group, not its own humachi.New — a
+	// separate instance owns a separate OpenAPI document, so this operation was
+	// absent from the published spec. rateLimitUnlessAPIToken is already a
+	// net/http middleware, so humaFromHTTP carries it across unchanged, bypass
+	// included; the limiter is still built ONCE here, so its counter state is
+	// per-route, not per-request.
+	showCreateGroup := huma.NewGroup(rc.API, "")
+	showCreateGroup.UseMiddleware(humaFromHTTP(rateLimitUnlessAPIToken(
+		middleware.ShowCreateRequestsPerHour,
+		time.Hour,
+	)))
+	showCreateGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	showCreateGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+	huma.Post(showCreateGroup, "/shows", showHandler.CreateShowHandler)
 
 	// Rate-limited AI processing: 5 requests per minute per IP
 	// Calls external Anthropic API — expensive operation
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(
-			middleware.AIProcessRequestsPerMinute,
-			time.Minute,
-			httprate.WithKeyFuncs(middleware.KeyByClientIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		))
-		aiProcessAPI := humachi.New(r, subAPIConfig("Psychic Homily AI Process"))
-		aiProcessAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
-		aiProcessAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
-		huma.Post(aiProcessAPI, "/shows/ai-process", showHandler.AIProcessShowHandler)
-	})
+	aiProcessGroup := huma.NewGroup(rc.API, "")
+	aiProcessGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
+		middleware.AIProcessRequestsPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(middleware.KeyByClientIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	)))
+	aiProcessGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	aiProcessGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+	huma.Post(aiProcessGroup, "/shows/ai-process", showHandler.AIProcessShowHandler)
 
 	// Protected show endpoints (no additional rate limiting needed)
 	huma.Put(rc.Protected, "/shows/{show_id}", showHandler.UpdateShowHandler)
