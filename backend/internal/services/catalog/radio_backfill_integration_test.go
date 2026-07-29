@@ -53,44 +53,51 @@ func (s *RadioSyncSuite) reloadEpisode(id uint) catalogm.RadioEpisode {
 	return ep
 }
 
-// recentSundayBackfillFixture picks a Sunday within the 7-day backfill lookback.
-// RunBackfillCycleNow passes time.Now() into ListBackfillCandidates, so a fixed
-// historical air_date (e.g. 2026-06-28) ages out and the end-to-end heal test
-// stops fetching.
-func recentSundayBackfillFixture(etNow time.Time) (airDate string, episodeNow time.Time) {
+// recentAiredBackfillFixture picks the air date for the end-to-end heal test: the
+// ET calendar day before etNow, and the schedule weekday that matches it.
+//
+// RunBackfillCycleNow reads the wall clock — it passes time.Now() into
+// ListBackfillCandidates — so the air date must satisfy both bounds that query
+// applies against a `now` the test cannot control:
+//
+//   - the 7-day backfill lookback (air_date >= now-7d), and
+//   - RadioStrandedWindowlessReopenWindow (PSY-1558), the tighter one: a stranded
+//     windowless give-up older than that is terminal and is never re-listed, so the
+//     heal never fires and nothing is fetched.
+//
+// The earlier fixture picked the most recent SUNDAY, which honoured the lookback
+// alone and is up to 6 days old. It passed on the day PSY-1558 landed and began
+// failing the following Wednesday, four days a week. TestRecentAiredBackfillFixture
+// holds this one to the reopen window explicitly so a future tightening fails there,
+// deterministically, instead of here on a calendar.
+//
+// Yesterday rather than today because yesterday is the newest date that has
+// unconditionally AIRED: the F4 shape's slot is 03:00–06:00 ET, which today has not
+// reached when the suite runs before 6am ET.
+func recentAiredBackfillFixture(etNow time.Time) (airDate string, episodeNow time.Time, slotDayOfWeek int) {
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		panic(err)
 	}
 	etNow = etNow.In(ny)
 
-	var day time.Time
-	if etNow.Weekday() == time.Sunday && etNow.Hour() >= 6 {
-		day = time.Date(etNow.Year(), etNow.Month(), etNow.Day(), 0, 0, 0, 0, ny)
-	} else {
-		// From a Sunday before 6am ET the previous Sunday is a full 7 days
-		// back, so the lookback must cover 7 days, not 6.
-		for i := 1; i <= 7; i++ {
-			d := etNow.AddDate(0, 0, -i)
-			if d.Weekday() == time.Sunday {
-				day = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, ny)
-				break
-			}
-		}
-	}
-	if day.IsZero() {
-		panic("recentSundayBackfillFixture: no Sunday within 7 days")
-	}
+	d := etNow.AddDate(0, 0, -1)
+	day := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, ny)
+
 	// Noon ET — well after the 3–6am slot used by the F4 schedule shape.
 	episodeNow = time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, ny)
-	return day.Format("2006-01-02"), episodeNow
+	return day.Format("2006-01-02"), episodeNow, int(day.Weekday())
 }
 
-// recentSundayBackfillFixture is a pure function of etNow, so every branch is
-// covered with a fake clock instead of waiting for a real Sunday. The Sunday
-// 01:00 ET case is the regression: before the 7-day loop bound, the fixture
-// panicked every Sunday 00:00-05:59 ET (04:00-09:59 UTC in CI).
-func TestRecentSundayBackfillFixture(t *testing.T) {
+// recentAiredBackfillFixture is a pure function of etNow, so the bound it has to
+// respect is checked with a fake clock instead of on whichever day CI happens to run.
+//
+// The load-bearing case is "worst case within the ET day": ListBackfillCandidates
+// measures a stranded give-up's age as (now − air_date parsed at UTC MIDNIGHT), and
+// the gap between those two is widest at 23:59 ET — when UTC has already rolled into
+// the next day. That is the moment that must still fit inside the reopen window, and
+// the moment the Sunday fixture blew past.
+func TestRecentAiredBackfillFixture(t *testing.T) {
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		t.Fatal(err)
@@ -101,14 +108,16 @@ func TestRecentSundayBackfillFixture(t *testing.T) {
 		etNow       time.Time
 		wantAirDate string
 	}{
-		{"sunday before 6am picks last sunday", time.Date(2026, 7, 26, 1, 0, 0, 0, ny), "2026-07-19"},
-		{"sunday at 6am picks today", time.Date(2026, 7, 26, 6, 0, 0, 0, ny), "2026-07-26"},
-		{"saturday noon picks last sunday", time.Date(2026, 7, 25, 12, 0, 0, 0, ny), "2026-07-19"},
-		{"wednesday noon picks last sunday", time.Date(2026, 7, 22, 12, 0, 0, 0, ny), "2026-07-19"},
+		{"midnight ET picks yesterday", time.Date(2026, 7, 28, 0, 0, 0, 0, ny), "2026-07-27"},
+		{"before the 6am slot boundary", time.Date(2026, 7, 28, 5, 59, 0, 0, ny), "2026-07-27"},
+		{"noon ET picks yesterday", time.Date(2026, 7, 28, 12, 0, 0, 0, ny), "2026-07-27"},
+		{"last minute of the ET day", time.Date(2026, 7, 28, 23, 59, 0, 0, ny), "2026-07-27"},
+		{"across a month boundary", time.Date(2026, 8, 1, 12, 0, 0, 0, ny), "2026-07-31"},
+		{"across a year boundary", time.Date(2027, 1, 1, 12, 0, 0, 0, ny), "2026-12-31"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			airDate, episodeNow := recentSundayBackfillFixture(tc.etNow)
+			airDate, episodeNow, slotDayOfWeek := recentAiredBackfillFixture(tc.etNow)
 			if airDate != tc.wantAirDate {
 				t.Errorf("airDate = %s, want %s", airDate, tc.wantAirDate)
 			}
@@ -117,22 +126,37 @@ func TestRecentSundayBackfillFixture(t *testing.T) {
 			if err != nil {
 				t.Fatalf("airDate %q does not parse: %v", airDate, err)
 			}
-			if day.Weekday() != time.Sunday {
-				t.Errorf("airDate %s is a %s, want Sunday", airDate, day.Weekday())
-			}
-			if day.After(tc.etNow) {
-				t.Errorf("airDate %s is in the future of etNow %s", airDate, tc.etNow)
+			if slotDayOfWeek != int(day.Weekday()) {
+				t.Errorf("slotDayOfWeek = %d, want %d (%s) — the schedule slot must match the air date's weekday",
+					slotDayOfWeek, int(day.Weekday()), day.Weekday())
 			}
 			wantEpisodeNow := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, ny)
 			if !episodeNow.Equal(wantEpisodeNow) {
 				t.Errorf("episodeNow = %s, want noon ET %s", episodeNow, wantEpisodeNow)
 			}
-			// The backfill lookback is measured against episode air times, not
-			// the date's midnight: from Sunday 01:00 ET, last Sunday's noon
-			// slot is ~6d13h back (inside the window) even though its midnight
-			// is 7d1h back.
-			if episodeNow.Before(tc.etNow.AddDate(0, 0, -7)) {
-				t.Errorf("episode slot %s is more than 7 days before etNow %s", episodeNow, tc.etNow)
+
+			// Reproduce exactly what ListBackfillCandidates compares: parseImportDate
+			// parses air_date with no zone, i.e. UTC midnight, against wall-clock now.
+			airUTC, err := time.Parse("2006-01-02", airDate)
+			if err != nil {
+				t.Fatalf("airDate %q does not parse as UTC: %v", airDate, err)
+			}
+			age := tc.etNow.Sub(airUTC)
+			if age > catalogm.RadioStrandedWindowlessReopenWindow {
+				t.Errorf("air date %s is %s old at %s — past RadioStrandedWindowlessReopenWindow (%s), "+
+					"so the stranded give-up is terminal and the heal can never fire. The fixture can no "+
+					"longer reach the window with a whole-day air_date; inject a clock into the backfill "+
+					"sweep instead.",
+					airDate, age, tc.etNow, catalogm.RadioStrandedWindowlessReopenWindow)
+			}
+			if age < 0 {
+				t.Errorf("air date %s is in the future of etNow %s", airDate, tc.etNow)
+			}
+			// The lookback is the looser of the two bounds; assert it anyway so the
+			// fixture stays honest if the reopen window is ever widened past 7 days.
+			if age > 7*24*time.Hour {
+				t.Errorf("air date %s is %s old at %s — outside the 7-day backfill lookback",
+					airDate, age, tc.etNow)
 			}
 		})
 	}
@@ -288,16 +312,20 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_ExcludesStrandedWindowlessPa
 }
 
 // End-to-end PSY-1287 (F4 shape): windowless + unavailable after a false give-up,
-// corrected Sunday schedule → backfill heals the window and imports the playlist.
+// corrected early-morning schedule → backfill heals the window and imports the playlist.
+//
+// The slot weekday comes from the fixture rather than being pinned to Sunday: the heal
+// matches a slot against the air date's own weekday (RadioSchedule window derivation),
+// and the F4 shape lives in the pre-6am slot, not in the day it falls on.
 func (s *RadioSyncSuite) TestBackfillCycle_HealsWindowlessUnavailableAfterScheduleFix() {
 	ny, err := time.LoadLocation("America/New_York")
 	s.Require().NoError(err)
-	airDate, now := recentSundayBackfillFixture(time.Now().In(ny))
+	airDate, now, slotDayOfWeek := recentAiredBackfillFixture(time.Now().In(ny))
 	showExt, epExt := "F4", "ep-f4-heal"
 
 	schedRaw, _ := json.Marshal(catalogm.RadioSchedule{
 		Timezone: "America/New_York",
-		Slots:    []catalogm.RadioScheduleSlot{{DayOfWeek: 0, Start: "03:00", End: "06:00"}},
+		Slots:    []catalogm.RadioScheduleSlot{{DayOfWeek: slotDayOfWeek, Start: "03:00", End: "06:00"}},
 	})
 	schedule := json.RawMessage(schedRaw)
 
