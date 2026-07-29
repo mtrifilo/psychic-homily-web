@@ -1,11 +1,14 @@
 import { cache } from 'react'
 import type { Metadata } from 'next'
 import { JsonLd } from '@/components/seo/JsonLd'
-import { OG_SIZE } from '@/lib/og/brand'
-import { SCENE_WEEK_OG_ALT } from './sceneWeekOgLayout'
+import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
 import { generateItemListSchema } from '@/lib/seo/jsonld'
 import { SceneWeekView } from './components/SceneWeekView'
-import { fetchSceneWeek } from './sceneWeekApi'
+import {
+  ARCHIVED_WEEK_REVALIDATE,
+  CURRENT_WEEK_REVALIDATE,
+  fetchSceneWeek,
+} from './sceneWeekApi'
 import { countShows, formatWeekRange, showDisplayTitle, type SceneWeekResponse } from './sceneWeek'
 
 const SITE = 'https://psychichomily.com'
@@ -21,7 +24,18 @@ const SITE = 'https://psychichomily.com'
  */
 export const getSceneWeek = cache(
   (slug: string, week?: string): Promise<SceneWeekResponse | null> =>
-    fetchSceneWeek(slug, week, 'scene-week')
+    // Keeps the window PSY-1577 shipped. It is keyed on the URL shape, which is
+    // imprecise — the canonical archived URL also serves the live week, so that
+    // week's page can lag by up to a day. Left as-is rather than changed here:
+    // the share card (which is what this PR adds) does not use this path, and
+    // switching every archived page to the short window would multiply backend
+    // load on a resource that genuinely never changes. Tracked separately.
+    fetchSceneWeek(
+      slug,
+      week,
+      'scene-week',
+      week ? ARCHIVED_WEEK_REVALIDATE : CURRENT_WEEK_REVALIDATE
+    )
 )
 
 export async function buildSceneWeekMetadata(
@@ -60,6 +74,11 @@ export async function buildSceneWeekMetadata(
   // dimensions and alt that convention would have supplied are given here.
   const ogImage = `${canonical}/opengraph-image`
 
+  // The page description already names the city, the count and the week, which
+  // is exactly what the card shows — and it beats the route-level `alt`, which
+  // Next requires to be a constant and so reads identically on every card.
+  const imageAlt = description
+
   return {
     title,
     description,
@@ -70,10 +89,19 @@ export async function buildSceneWeekMetadata(
       url: canonical,
       type: 'website',
       images: [
-        { url: ogImage, width: OG_SIZE.width, height: OG_SIZE.height, alt: SCENE_WEEK_OG_ALT },
+        {
+          url: ogImage,
+          width: OG_SIZE.width,
+          height: OG_SIZE.height,
+          type: OG_CONTENT_TYPE,
+          alt: imageAlt,
+        },
       ],
     },
-    twitter: { card: 'summary_large_image', title, description, images: [ogImage] },
+    // `images` is deliberately absent: Next copies the openGraph descriptor
+    // across when Twitter has none, so omitting it inherits the alt and
+    // dimensions. Setting a bare URL string here would silently drop them.
+    twitter: { card: 'summary_large_image', title, description },
   }
 }
 

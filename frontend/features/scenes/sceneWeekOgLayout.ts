@@ -14,7 +14,7 @@ import { measureMono } from '@/lib/og/textFit'
  * size but verify at 300px — a link renders about that wide in a group chat —
  * and to treat anything under ~8px effective as decoration that must not carry
  * meaning. Divide by 4 to check: city 33 · count 12 · state 10 · footer 8.5 ·
- * range 7.5.
+ * range 8.5.
  */
 export const PAD_X = 72
 export const PAD_Y = 64
@@ -22,8 +22,15 @@ export const PAD_Y = 64
 /** The box every element on the card has to fit inside. */
 export const CONTENT_WIDTH = OG_SIZE.width - PAD_X * 2
 
-/** Week range, top left, Space Mono. */
-export const RANGE_SIZE = 30
+/**
+ * Week range, top left, Space Mono.
+ *
+ * 34px, not the mock's 30px. On an ARCHIVED card the count line drops "this
+ * week", which leaves this line as the only thing saying which week the card is
+ * for — and 30px lands at 7.5px effective, under the family's own floor for
+ * anything that carries meaning. 34px puts it at 8.5px alongside the footer.
+ */
+export const RANGE_SIZE = 34
 export const RANGE_TRACKING = 2
 
 /**

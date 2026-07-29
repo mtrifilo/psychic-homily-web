@@ -18,15 +18,31 @@ export type SceneWeekShow = components['schemas']['SceneShowSummary']
 const ISO_WEEK_KEY = /^\d{4}-W\d{2}$/i
 
 /**
+ * Earliest week key worth serving. The site has no shows before this, and an
+ * unbounded key space is an unbounded set of distinct URLs — each one a cache
+ * miss that renders a full share card. Bounding it keeps that finite.
+ */
+const FIRST_TRACKED_YEAR = 2015
+
+/**
  * Whether a URL segment even looks like an ISO week key.
  *
  * A cheap shape check only — it deliberately does NOT decide whether the week
  * exists. `2025-W53` is well-formed but not a real week (2025 has 52), and only
  * the backend, which owns the calendar maths and the scene's timezone, can say
  * so. This exists to avoid a pointless round-trip for obvious junk.
+ *
+ * Matches the RAW segment, deliberately. Trimming here would accept forms the
+ * proxy's copy of this rule rejects, so a page and its share card would
+ * disagree about which URLs are legal — and every accepted variant of the same
+ * week (leading space, tab, BOM) is another distinct URL that renders its own
+ * card. One spelling per week.
  */
 export function looksLikeISOWeek(segment: string): boolean {
-  return ISO_WEEK_KEY.test(segment.trim())
+  const match = ISO_WEEK_KEY.exec(segment)
+  if (!match) return false
+  const year = Number(segment.slice(0, 4))
+  return year >= FIRST_TRACKED_YEAR && year <= new Date().getUTCFullYear() + 1
 }
 
 /**
@@ -40,13 +56,12 @@ export function looksLikeISOWeek(segment: string): boolean {
  * The archived route's segment is dynamic, so it also catches any unmatched
  * child path under a scene. Collapsing junk to `undefined` would quietly serve
  * the current week for a URL whose page 404s — handing out a confident-looking
- * answer to a question nobody asked. It returns the TRIMMED key because that is
- * the string the shape check approved; sending the raw one on would mean
- * validating one string and using another.
+ * answer to a question nobody asked. The key is returned exactly as validated,
+ * so the string that was checked is the string that gets used.
  */
 export function resolveRequestedWeek(segment: string | undefined): string | undefined | null {
   if (segment === undefined) return undefined
-  return looksLikeISOWeek(segment) ? segment.trim() : null
+  return looksLikeISOWeek(segment) ? segment : null
 }
 
 /**
@@ -57,6 +72,25 @@ export function resolveRequestedWeek(segment: string | undefined): string | unde
  * for a week shared months later rather than claiming to be current. A quiet
  * week says so in words — `0 shows` is a bad thing to post.
  */
+/**
+ * Whether a week is genuinely over and can therefore be cached hard.
+ *
+ * `is_current_week` alone is NOT this test: it is false for FUTURE weeks too,
+ * and a future week is the one thing that must not be frozen — the "next week"
+ * link is on every page, so next week's card gets fetched and cached days
+ * before it becomes the live week, and the rolling page then points at that
+ * frozen card. Requiring the end date to be behind us excludes it.
+ *
+ * Compared in UTC, which can run up to a day ahead of a scene's own clock. That
+ * skew can only make this return false early, never late, and the
+ * `isCurrentWeek` guard covers the boundary — so the error direction is "keep
+ * it fresh", which is the harmless one.
+ */
+export function weekHasEnded(endDate: string, isCurrentWeek: boolean): boolean {
+  if (isCurrentWeek) return false
+  return endDate < new Date().toISOString().slice(0, 10)
+}
+
 export function formatShowCountLine(total: number, isCurrentWeek: boolean): string {
   const period = isCurrentWeek ? ' this week' : ''
   if (total === 0) return `No shows${period}`

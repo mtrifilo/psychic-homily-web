@@ -152,9 +152,19 @@ describe('Space Mono metrics', () => {
 })
 
 describe('subset coverage', () => {
-  it('carries every glyph the cards actually draw', () => {
+  // All FOUR shipped faces, not just the two with advance tables. Satoshi
+  // Medium draws the count line and Space Mono draws the range, the state and
+  // the wordmark, so a re-subset that dropped their digits or the en dash would
+  // be just as visible — and neither is covered by the tables above.
+  const ALL_FACES = [
+    ...SANS.map(([, path]) => path),
+    `${FONTS}/Satoshi-Medium.ttf`,
+    `${FONTS}/SpaceMono-Regular.ttf`,
+  ]
+
+  it('carries every glyph the cards actually draw, in every shipped face', () => {
     const required = 'psychichomily.com0123456789 ·–ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    for (const [, path] of SANS) {
+    for (const path of ALL_FACES) {
       const font = parseFont(path)
       for (const char of required) {
         expect(
@@ -162,6 +172,15 @@ describe('subset coverage', () => {
           `${path} is missing '${char}'`
         ).not.toBeNull()
       }
+    }
+  })
+
+  it('keeps every face on the same em square and descent the card assumes', () => {
+    for (const path of ALL_FACES) {
+      const font = parseFont(path)
+      expect(font.unitsPerEm, path).toBe(1000)
+      const expected = path.includes('SpaceMono') ? DESCENT_RATIO.mono : DESCENT_RATIO.sans
+      expect(font.descentRatio, path).toBeCloseTo(expected, 4)
     }
   })
 })

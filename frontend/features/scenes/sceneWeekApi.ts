@@ -27,15 +27,18 @@ type SceneWeekService = 'scene-week' | 'og-image'
  * Accept a 200 body only if it is actually a week.
  *
  * A 200 is not proof of the right endpoint: a redirect, a CDN error page, or a
- * future API change can all answer 200 with something else, and every consumer
- * here reads `start_date` straight into date maths that throws on `undefined`.
- * Checking the two load-bearing fields turns that crash into the ordinary
- * "no data" path.
+ * future API change can all answer 200 with something else. Every field checked
+ * here is one a consumer reads WITHOUT a null guard — the dates go straight
+ * into date maths, `city` into string measurement, and `slug`/`iso_week` into
+ * the canonical and share-image URLs. Checking them turns a crash into the
+ * ordinary "no data" path; the rest of the payload is already optional-safe.
  */
 function asSceneWeek(body: unknown): SceneWeekResponse | null {
   const week = body as SceneWeekResponse | null
   if (!week || typeof week !== 'object') return null
-  if (typeof week.start_date !== 'string' || typeof week.end_date !== 'string') return null
+  for (const field of ['start_date', 'end_date', 'city', 'slug', 'iso_week'] as const) {
+    if (typeof week[field] !== 'string') return null
+  }
   return week
 }
 
@@ -55,7 +58,8 @@ function asSceneWeek(body: unknown): SceneWeekResponse | null {
 export async function fetchSceneWeek(
   slug: string,
   week: string | undefined,
-  service: SceneWeekService
+  service: SceneWeekService,
+  revalidate: number = CURRENT_WEEK_REVALIDATE
 ): Promise<SceneWeekResponse | null> {
   // Both segments are attacker-controlled: Next decodes route params before the
   // handler sees them, so a slug of `chicago-il?x` or `chicago-il#x` would
@@ -66,11 +70,7 @@ export async function fetchSceneWeek(
     ? `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week/${encodeURIComponent(week)}`
     : `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week`
   try {
-    // Always the SHORT window. The fetch cannot know whether the requested week
-    // has ended — only the response can say — so it asks for the freshest data
-    // and lets callers extend the life of what they build from it. The data
-    // round-trip is the cheap half; the render is what wants long caching.
-    const res = await fetch(path, { next: { revalidate: CURRENT_WEEK_REVALIDATE } })
+    const res = await fetch(path, { next: { revalidate } })
     // `await` is load-bearing, not noise: `return res.json()` inside a try
     // block adopts the promise AFTER the block exits, so a malformed body would
     // reject past this catch and 500 the route instead of reaching the caller's

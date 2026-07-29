@@ -22,8 +22,11 @@
  *     python -c "from fontTools.ttLib import TTFont; \
  *       f=TTFont('app/fonts/Satoshi-Bold.woff2'); f.flavor=None; \
  *       f.save('/tmp/Satoshi-Bold.ttf')"
- *     # Space Mono: OFL, from the upstream Google Fonts repo
- *     curl -sSLO https://raw.githubusercontent.com/google/fonts/main/ofl/spacemono/SpaceMono-Regular.ttf
+ *     # Space Mono: OFL. Pin the ref -- `main` is mutable, and these bytes are
+ *     # parsed by a wasm renderer on a public route, so they must be diffable.
+ *     # Verify the download against the checksum before subsetting.
+ *     curl -sSLO https://raw.githubusercontent.com/google/fonts/dd0c1f1/ofl/spacemono/SpaceMono-Regular.ttf
+ *     shasum -a 256 SpaceMono-Regular.ttf   # compare with lib/og/fonts/OFL.txt's sibling record
  *     # Subset each to the Latin coverage the cards need
  *     pyftsubset <in>.ttf --output-file=lib/og/fonts/<out>.ttf \
  *       --unicodes="U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2032-2033,U+20AC,U+2122" \

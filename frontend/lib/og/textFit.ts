@@ -135,10 +135,24 @@ export function measureSans(
   return (units * fontSize) / 1000 + chars * letterSpacing
 }
 
-/** Width of `text` in px for Space Mono, including per-character tracking. */
+/**
+ * Width of `text` in px for Space Mono, including per-character tracking.
+ *
+ * Monospaced only WITHIN the subset. A glyph outside it is charged the same
+ * conservative over-estimate as the sans path, because Satori will resolve it
+ * from some other face at a width this module cannot know — and here the result
+ * feeds the headline's budget, so under-charging would hand the city more room
+ * than it actually has.
+ */
 export function measureMono(text: string, fontSize: number, letterSpacing = 0): number {
-  const chars = [...toMeasurable(text)].length
-  return (chars * MONO_ADVANCE * fontSize) / 1000 + chars * letterSpacing
+  let units = 0
+  let chars = 0
+  for (const char of toMeasurable(text)) {
+    const code = char.codePointAt(0)!
+    units += code >= FIRST_CODE && code <= LAST_CODE ? MONO_ADVANCE : UNKNOWN_ADVANCE
+    chars += 1
+  }
+  return (units * fontSize) / 1000 + chars * letterSpacing
 }
 
 /**

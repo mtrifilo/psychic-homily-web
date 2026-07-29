@@ -6,6 +6,7 @@ import {
   formatWeekRange,
   formatWeekRangeCompact,
   resolveRequestedWeek,
+  weekHasEnded,
   looksLikeISOWeek,
   showDisplayTitle,
   showHref,
@@ -79,9 +80,9 @@ describe('resolveRequestedWeek', () => {
     expect(resolveRequestedWeek(undefined)).toBeUndefined()
   })
 
-  it('normalizes a well-formed key to the string that was validated', () => {
+  it('returns a well-formed key exactly as it was validated', () => {
     expect(resolveRequestedWeek('2026-W31')).toBe('2026-W31')
-    expect(resolveRequestedWeek(' 2026-W31 ')).toBe('2026-W31')
+    expect(resolveRequestedWeek('2026-w31')).toBe('2026-w31')
   })
 
   // The distinction that matters: junk must be DISTINGUISHABLE from "no segment
@@ -92,6 +93,45 @@ describe('resolveRequestedWeek', () => {
       expect(resolveRequestedWeek(junk)).toBeNull()
     }
     expect(resolveRequestedWeek('garbage')).not.toBeUndefined()
+  })
+
+  // Each accepted spelling of the same week is another distinct URL that
+  // renders and caches its own card, so whitespace variants are rejected rather
+  // than normalized — and the proxy, which guards the page, rejects them too.
+  it('rejects whitespace-padded spellings instead of normalizing them', () => {
+    for (const padded of [' 2026-W31', '2026-W31 ', '\t2026-W31', ' 2026-W31']) {
+      expect(resolveRequestedWeek(padded)).toBeNull()
+    }
+  })
+
+  // An unbounded year range is an unbounded set of renderable URLs.
+  it('rejects years outside the range the site could possibly cover', () => {
+    expect(resolveRequestedWeek('1998-W07')).toBeNull()
+    expect(resolveRequestedWeek('9999-W01')).toBeNull()
+    const nextYear = new Date().getUTCFullYear() + 1
+    expect(resolveRequestedWeek(`${nextYear}-W01`)).toBe(`${nextYear}-W01`)
+    expect(resolveRequestedWeek(`${nextYear + 1}-W01`)).toBeNull()
+  })
+})
+
+describe('weekHasEnded', () => {
+  const past = '2020-01-05'
+  const future = '2099-12-27'
+
+  it('is false for the current week', () => {
+    expect(weekHasEnded(past, true)).toBe(false)
+  })
+
+  // The case that matters. A FUTURE week also reports is_current_week: false,
+  // and the "next week →" link is on every page — so next week's card gets
+  // fetched days early. Caching it hard would freeze it, and the rolling page
+  // points at exactly that URL once the week turns over.
+  it('is false for a week that has not happened yet', () => {
+    expect(weekHasEnded(future, false)).toBe(false)
+  })
+
+  it('is true only once the week is genuinely behind us', () => {
+    expect(weekHasEnded(past, false)).toBe(true)
   })
 })
 
@@ -119,18 +159,31 @@ describe('formatShowCountLine', () => {
 })
 
 describe('looksLikeISOWeek', () => {
-  it('accepts well-formed keys regardless of case or padding whitespace', () => {
+  it('accepts well-formed keys regardless of case', () => {
     expect(looksLikeISOWeek('2026-W31')).toBe(true)
     expect(looksLikeISOWeek('2026-w31')).toBe(true)
-    expect(looksLikeISOWeek('  2026-W31  ')).toBe(true)
     // Shape only — 2025 has 52 weeks, but deciding that is the backend's job.
     expect(looksLikeISOWeek('2025-W53')).toBe(true)
+  })
+
+  // Deliberately NOT trimmed. The proxy that guards the page tests the raw
+  // segment, so trimming here would let the card accept URLs the page rejects —
+  // and every accepted spelling is another distinct, separately-rendered URL.
+  it('rejects padded spellings so one week has one URL', () => {
+    for (const padded of ['  2026-W31  ', ' 2026-W31', '2026-W31 ', '\t2026-W31']) {
+      expect(looksLikeISOWeek(padded)).toBe(false)
+    }
   })
 
   it('rejects anything that is not week-shaped', () => {
     for (const bad of ['week', 'garbage', '2026', '2026-31', '26-W31', '2026-W3', '']) {
       expect(looksLikeISOWeek(bad)).toBe(false)
     }
+  })
+
+  it('rejects years the site could not possibly have data for', () => {
+    expect(looksLikeISOWeek('1998-W07')).toBe(false)
+    expect(looksLikeISOWeek('9999-W01')).toBe(false)
   })
 })
 

@@ -16,6 +16,7 @@ import {
   formatShowCountLine,
   formatWeekRangeCompact,
   resolveRequestedWeek,
+  weekHasEnded,
 } from './sceneWeek'
 import {
   CITY_SIZE_MAX,
@@ -198,16 +199,16 @@ export async function renderSceneWeekOgCard(
     {
       ...OG_SIZE,
       fonts,
-      // Only a week that has actually ENDED may be cached hard — the response,
-      // not the URL shape, is what knows that. A card drawn without the brand
-      // fonts is held to the short window too: its fit budgets were computed
-      // from Satoshi's metrics, so it may be visually wrong, and a wrong card
-      // should expire rather than sit in the CDN for a day.
+      // Only a week that has actually ENDED may be cached hard. A card drawn
+      // without the brand fonts is held to the short window too: its fit
+      // budgets were computed from Satoshi's metrics, so it may be visually
+      // wrong, and a wrong card should expire rather than sit in the CDN for a
+      // day.
       headers: {
         'cache-control': ogCacheControl(
-          degraded || data.is_current_week
-            ? CURRENT_WEEK_REVALIDATE
-            : ARCHIVED_WEEK_REVALIDATE
+          !degraded && weekHasEnded(data.end_date, data.is_current_week)
+            ? ARCHIVED_WEEK_REVALIDATE
+            : CURRENT_WEEK_REVALIDATE
         ),
       },
     }
