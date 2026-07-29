@@ -40,6 +40,10 @@ test.describe('TopBar layout (authenticated)', () => {
         const header = document.querySelector('header')
         const node = document.querySelector('button[aria-label="User menu"]')
         if (!header || !node) throw new Error('header or user-menu trigger not found')
+        const wordmark = [...header.querySelectorAll('span')].find(
+          span => span.textContent === 'Psychic Homily'
+        )
+        if (!wordmark) throw new Error('brand wordmark not found')
         const rect = node.getBoundingClientRect()
         const hit = document.elementFromPoint(
           rect.left + rect.width / 2,
@@ -51,6 +55,16 @@ test.describe('TopBar layout (authenticated)', () => {
           // The failure the ticket actually described: not "it looks clipped"
           // but "no click can be aimed at the middle of the control".
           centreHitsTrigger: !!hit && node.contains(hit),
+          // One client rect per line box the TEXT occupies — an exact line
+          // count, with no pixel-height threshold to keep in sync. It has to be
+          // a Range over the contents, not `wordmark.getClientRects()`: the
+          // span is a flex item, so it is blockified and its own rect list is
+          // always length 1 no matter how many lines it renders.
+          wordmarkLineCount: (() => {
+            const range = document.createRange()
+            range.selectNodeContents(wordmark)
+            return range.getClientRects().length
+          })(),
         }
       })
 
@@ -66,6 +80,15 @@ test.describe('TopBar layout (authenticated)', () => {
         measured.centreHitsTrigger,
         'the centre of the user-menu trigger is not hittable'
       ).toBe(true)
+      // The other half of the same defect, and the only thing guarding
+      // `shrink-0` on the left group: before the fix the flex algorithm took
+      // part of the shortfall out of the wordmark, stacking "PSYCHIC HOMILY"
+      // over two lines in a 64px-tall bar. Dropping `shrink-0` would bring that
+      // back while still satisfying the overflow assertions above.
+      expect(
+        measured.wordmarkLineCount,
+        'the brand wordmark wrapped onto more than one line'
+      ).toBe(1)
     })
   }
 })
