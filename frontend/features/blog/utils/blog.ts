@@ -11,6 +11,15 @@ const BLOG_CONTENT_PATH = path.join(process.cwd(), 'content', 'blog')
 
 /**
  * Get all blog post slugs for static generation
+ *
+ * CLASSIFIED LOAD-BEARING, and the fail-open below is therefore NOT correct —
+ * recorded here rather than changed, because making it throw alters build and
+ * request semantics for `/blog`, `/dj-sets` and `/categories` that need
+ * verifying end to end first. An unreadable content directory returns `[]`,
+ * which renders an empty blog index, prerenders zero post pages via
+ * `generateStaticParams`, and drops every blog URL from `sitemap.xml` — with a
+ * green build and a 200. That is the same failure class as the stale-sitemap
+ * incident, on a local `fs` read rather than a fetch.
  */
 export function getBlogSlugs(): string[] {
   try {
