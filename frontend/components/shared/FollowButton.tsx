@@ -11,6 +11,8 @@ import {
   useFollow,
   useUnfollow,
 } from '@/lib/hooks/common/useFollow'
+import { useReplayOnHydrate } from '@/lib/hooks/common/useReplayOnHydrate'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
 
 interface FollowButtonProps {
@@ -63,6 +65,14 @@ export function FollowButton({
   const isMutating = follow.isPending || unfollow.isPending
   const isDisabled = disabled || isMutating
 
+  // PSY-1610 inferred this control's exposure from SaveButton's rather than
+  // clicking it. The structural case is the same and is verifiable by reading:
+  // it renders for anonymous viewers too (the auth check lives in the handler,
+  // not the render), so it ships in server HTML on every entity page, and it is
+  // a plain onClick button. Exactly one of the interactive branches below
+  // renders, so they share a single replay root.
+  const replayRef = useReplayOnHydrate<HTMLButtonElement>()
+
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -90,6 +100,8 @@ export function FollowButton({
     }
     return (
       <BracketLink
+        ref={replayRef}
+        {...replayOnHydrate}
         label={isFollowing ? 'Following' : 'Follow'}
         active={isFollowing}
         onClick={handleClick}
@@ -122,6 +134,8 @@ export function FollowButton({
   if (compact) {
     return (
       <Button
+        ref={replayRef}
+        {...replayOnHydrate}
         variant={isFollowing ? 'secondary' : 'ghost'}
         size="sm"
         onClick={handleClick}
@@ -154,6 +168,8 @@ export function FollowButton({
 
   return (
     <Button
+      ref={replayRef}
+      {...replayOnHydrate}
       variant={
         isFollowing ? (showUnfollow ? 'destructive' : 'secondary') : 'outline'
       }

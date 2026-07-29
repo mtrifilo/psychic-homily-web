@@ -22,6 +22,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useReplayOnHydrate } from '@/lib/hooks/common/useReplayOnHydrate'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useUserNotifications, useMarkNotificationsRead } from '../hooks'
 import type { NotificationLogEntry } from '../types'
 import {
@@ -36,6 +38,9 @@ export function NotificationBell() {
 
   const { data, isLoading } = useUserNotifications({ limit: 10 })
   const markRead = useMarkNotificationsRead()
+
+  // Above the `!isAuthenticated` early return, so the hook call is unconditional.
+  const replayRef = useReplayOnHydrate<HTMLButtonElement>()
 
   const unreadCount = data?.unread_count ?? 0
   const entries = data?.notifications ?? []
@@ -56,6 +61,8 @@ export function NotificationBell() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          ref={replayRef}
+          {...replayOnHydrate}
           variant="ghost"
           size="icon"
           // Visibility is parent-controlled (the TopBar account cluster is

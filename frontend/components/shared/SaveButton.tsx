@@ -8,6 +8,8 @@ import { useSaveShowToggle, useShowSaveCount } from '@/features/shows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useReplayOnHydrate } from '@/lib/hooks/common/useReplayOnHydrate'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 interface SaveButtonProps {
   showId: number
@@ -36,6 +38,11 @@ export function SaveButton({
   const { isAuthenticated, user } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
+
+  // A dropped Save is the worst case in PSY-1610's table: the click is silent,
+  // so the user walks away believing the show is on their list. Only one of the
+  // two variants below renders, so a single replay root serves both.
+  const replayRef = useReplayOnHydrate<HTMLDivElement>()
 
   // List views pass saveData in from one batched request. Standalone usages
   // (show detail page, library rows) fetch their own.
@@ -89,7 +96,7 @@ export function SaveButton({
 
   if (variant === 'bracket') {
     return (
-      <div className="relative inline-flex">
+      <div ref={replayRef} {...replayOnHydrate} className="relative inline-flex">
         <BracketLink
           label={isSaved ? 'Saved' : 'Save'}
           active={isSaved}
@@ -114,7 +121,7 @@ export function SaveButton({
   const hasCount = saveCount > 0
 
   return (
-    <div className="relative">
+    <div ref={replayRef} {...replayOnHydrate} className="relative">
       <Button
         variant={variant}
         size="icon"

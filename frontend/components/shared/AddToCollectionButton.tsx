@@ -22,6 +22,8 @@ import {
 } from '@/features/collections/hooks'
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useReplayOnHydrate } from '@/lib/hooks/common/useReplayOnHydrate'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import type { CollectionEntityType } from '@/features/collections/types'
 import { useCreateCollectionDrawer } from '@/features/collections/components/CreateCollectionDrawer'
 import {
@@ -269,6 +271,10 @@ export function AddToCollectionButton({
       }
     }, [collections, recencySnapshot, search])
 
+  // Above every early return so the hook call stays unconditional. Exactly one
+  // of the three interactive branches below renders, so they share one root.
+  const replayRef = useReplayOnHydrate<HTMLButtonElement>()
+
   // Unauthenticated bracket variant — render the public [Add to collection]
   // affordance and redirect to /auth on click, mirroring FollowButton /
   // NotifyMeButton (which both render their bracket for unauth viewers).
@@ -279,6 +285,8 @@ export function AddToCollectionButton({
   if (!isAuthenticated && variant === 'bracket') {
     return (
       <BracketLink
+        ref={replayRef}
+        {...replayOnHydrate}
         label="Add to collection"
         title={`Add "${entityName}" to a collection`}
         ariaLabel="Add to Collection"
@@ -592,12 +600,16 @@ export function AddToCollectionButton({
       <PopoverTrigger asChild>
         {variant === 'bracket' ? (
           <BracketLink
+            ref={replayRef}
+            {...replayOnHydrate}
             label="Add to collection"
             title={`Add "${entityName}" to a collection`}
             aria-label="Add to Collection"
           />
         ) : (
           <Button
+            ref={replayRef}
+            {...replayOnHydrate}
             variant={variant}
             size={size}
             className={size === 'icon' ? 'h-8 w-8 p-0' : ''}

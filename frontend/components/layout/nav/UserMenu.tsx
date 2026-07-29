@@ -13,6 +13,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useReplayOnHydrate } from '@/lib/hooks/common/useReplayOnHydrate'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { getUserInitials, getUserDisplayName } from './userDisplay'
 import { NotificationBell } from '@/features/notifications'
 
@@ -27,6 +29,11 @@ import { NotificationBell } from '@/features/notifications'
 // Sidebar.tsx), and a dedicated mobile CTA is PSY-1020's scope.
 export function UserMenu() {
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
+
+  // Declared above the early returns to keep the hook call unconditional. The
+  // trigger opens on pointerdown (Radix DropdownMenu), which is why the replay
+  // primitive re-sends the whole pointer sequence and not just a click.
+  const replayRef = useReplayOnHydrate<HTMLButtonElement>()
 
   if (isLoading) {
     return <Loader2 className="size-4 animate-spin text-muted-foreground" />
@@ -51,6 +58,8 @@ export function UserMenu() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              ref={replayRef}
+              {...replayOnHydrate}
               variant="ghost"
               size="icon"
               className="relative size-9 cursor-pointer rounded-full ring-2 ring-muted-foreground/25 transition-all duration-150 hover:scale-105 hover:ring-primary/50"

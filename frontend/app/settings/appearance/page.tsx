@@ -40,6 +40,8 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { InlineErrorBanner } from '@/components/shared'
 import { parseNavMode, setNavModeCookie, type NavMode } from '@/lib/nav-mode'
+import { useReplayOnHydrate } from '@/lib/hooks/common/useReplayOnHydrate'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 export default function AppearanceSettingsPage() {
   const { isAuthenticated, isLoading, user } = useAuthContext()
@@ -58,6 +60,9 @@ export default function AppearanceSettingsPage() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const mode = optimistic ?? accountMode
+
+  // Above the early returns below, so the hook call stays unconditional.
+  const replayRef = useReplayOnHydrate<HTMLButtonElement>()
 
   // Drop the override once the saved account has caught up to it (post-PATCH
   // refetch). Adjust-state-during-render — converges in one pass (clearing the
@@ -136,6 +141,8 @@ export default function AppearanceSettingsPage() {
               </p>
             </div>
             <Switch
+              ref={replayRef}
+              {...replayOnHydrate}
               id="nav-mode-switch"
               checked={mode === 'side'}
               onCheckedChange={handleChange}
