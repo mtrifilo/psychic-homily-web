@@ -95,7 +95,7 @@ func (s *RadioSyncSuite) TestWindowStamp_HealsWindowlessOnRelist() {
 
 	_, err := s.svc.reimportExistingEpisode(&existing,
 		RadioEpisodeImport{ExternalID: "ep-old", ShowExternalID: showExt, AirDate: airDate},
-		&mockPlaylistProvider{}, now) // complete → ShouldBackfillPlaylist false → provider unused
+		&mockPlaylistProvider{}, now) // complete → PlanPlaylistFetch declines → provider unused
 	s.Require().NoError(err)
 
 	got := s.reloadEpisode(existing.ID)
@@ -166,7 +166,7 @@ func (s *RadioSyncSuite) TestReimport_ResetsScheduledUnavailable() {
 		catalogm.RadioPlaylistStateUnavailable, catalogm.RadioBackfillMaxAttempts, &futureStart, &futureEnd, now)
 	s.Require().Equal(catalogm.RadioEpisodeStatusScheduled, existing.Status, "fixture is a not-yet-aired episode")
 
-	// scheduled → ShouldBackfillPlaylist is false → the provider is never used.
+	// scheduled → PlanPlaylistFetch declines → the provider is never used.
 	_, err := s.svc.reimportExistingEpisode(&existing,
 		RadioEpisodeImport{ExternalID: "ep-soon", ShowExternalID: showExt, AirDate: airDate},
 		&mockPlaylistProvider{}, now)

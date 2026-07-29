@@ -61,15 +61,15 @@ func (s *RadioSyncSuite) reloadEpisode(id uint) catalogm.RadioEpisode {
 // applies against a `now` the test cannot control:
 //
 //   - the 7-day backfill lookback (air_date >= now-7d), and
-//   - RadioStrandedWindowlessReopenWindow (PSY-1558), the tighter one: a stranded
-//     windowless give-up older than that is terminal and is never re-listed, so the
-//     heal never fires and nothing is fetched.
+//   - the give-up deadline (PSY-1562): a windowless episode past
+//     air_date + RadioAirDateZoneSlack + RadioPlaylistGiveUpAfter is terminal and is
+//     never re-listed, so the heal never fires and nothing is fetched.
 //
 // The earlier fixture picked the most recent SUNDAY, which honoured the lookback
 // alone and is up to 6 days old. It passed on the day PSY-1558 landed and began
 // failing the following Wednesday, four days a week. TestRecentAiredBackfillFixture
-// holds this one to the reopen window explicitly so a future tightening fails there,
-// deterministically, instead of here on a calendar.
+// holds this one to the give-up deadline explicitly so a future tightening fails
+// there, deterministically, instead of here on a calendar.
 //
 // Yesterday rather than today because yesterday is the newest date that has
 // unconditionally AIRED: the F4 shape's slot is 03:00–06:00 ET, which today has not
@@ -92,10 +92,10 @@ func recentAiredBackfillFixture(etNow time.Time) (airDate string, episodeNow tim
 // recentAiredBackfillFixture is a pure function of etNow, so the bound it has to
 // respect is checked with a fake clock instead of on whichever day CI happens to run.
 //
-// The load-bearing case is "worst case within the ET day": ListBackfillCandidates
-// measures a stranded give-up's age as (now − air_date parsed at UTC MIDNIGHT), and
-// the gap between those two is widest at 23:59 ET — when UTC has already rolled into
-// the next day. That is the moment that must still fit inside the reopen window, and
+// The load-bearing case is "worst case within the ET day": a windowless episode's
+// give-up deadline is measured from air_date parsed at UTC MIDNIGHT, and the gap
+// between that and wall-clock now is widest at 23:59 ET — when UTC has already rolled
+// into the next day. That is the moment that must still fit inside the deadline, and
 // the moment the Sunday fixture blew past.
 func TestRecentAiredBackfillFixture(t *testing.T) {
 	ny, err := time.LoadLocation("America/New_York")
@@ -142,18 +142,19 @@ func TestRecentAiredBackfillFixture(t *testing.T) {
 				t.Fatalf("airDate %q does not parse as UTC: %v", airDate, err)
 			}
 			age := tc.etNow.Sub(airUTC)
-			if age > catalogm.RadioStrandedWindowlessReopenWindow {
-				t.Errorf("air date %s is %s old at %s — past RadioStrandedWindowlessReopenWindow (%s), "+
-					"so the stranded give-up is terminal and the heal can never fire. The fixture can no "+
-					"longer reach the window with a whole-day air_date; inject a clock into the backfill "+
-					"sweep instead.",
-					airDate, age, tc.etNow, catalogm.RadioStrandedWindowlessReopenWindow)
+			deadline := catalogm.RadioAirDateZoneSlack + catalogm.RadioPlaylistGiveUpAfter
+			if age > deadline {
+				t.Errorf("air date %s is %s old at %s — past the windowless give-up deadline (%s), "+
+					"so the give-up is terminal and the heal can never fire. The fixture can no "+
+					"longer reach the deadline with a whole-day air_date; inject a clock into the "+
+					"backfill sweep instead.",
+					airDate, age, tc.etNow, deadline)
 			}
 			if age < 0 {
 				t.Errorf("air date %s is in the future of etNow %s", airDate, tc.etNow)
 			}
-			// The lookback is the looser of the two bounds; assert it anyway so the
-			// fixture stays honest if the reopen window is ever widened past 7 days.
+			// The lookback is the tighter of the two bounds now; assert it too so the
+			// fixture stays honest whichever one moves.
 			if age > 7*24*time.Hour {
 				t.Errorf("air date %s is %s old at %s — outside the 7-day backfill lookback",
 					airDate, age, tc.etNow)
@@ -219,13 +220,71 @@ func (s *RadioSyncSuite) TestRecordPlaylistOutcome_AiredEmpty_IncrementsThenUnav
 	s.Equal(0, got.PlayCount)
 	s.Require().NotNil(got.PlaylistFetchedAt)
 
-	// Seed the last-before-cap attempt; one more failure → unavailable.
+	s.Require().NotNil(got.PlaylistBackfillAttemptedAt,
+		"a post-air attempt must stamp the cooldown memo so the next sweep skips it (PSY-1562)")
+
+	// Seed the last-before-ceiling attempt; one more failure → unavailable.
 	ep2 := s.seedEpisodeFor(show.ID, "ep-exhaust", now.Format("2006-01-02"),
 		catalogm.RadioPlaylistStatePending, catalogm.RadioBackfillMaxAttempts-1, &start, &end, now)
 	s.Require().NoError(s.svc.recordPlaylistOutcome(&ep2, 0, true, now))
 	got2 := s.reloadEpisode(ep2.ID)
 	s.Equal(catalogm.RadioPlaylistStateUnavailable, got2.PlaylistState)
 	s.Equal(catalogm.RadioBackfillMaxAttempts, got2.PlaylistFetchAttempts)
+}
+
+// End-to-end PSY-1558 acceptance criterion: an episode found empty is not re-fetched on
+// the next cycle. Two consecutive backfill cycles against a provider that returns no
+// playlist must produce exactly ONE fetch — the second cycle is blocked by the cooldown
+// memo the first one stamped. This is the loop that ran unchecked on production.
+func (s *RadioSyncSuite) TestBackfillCycle_EmptyEpisodeIsNotRefetchedNextCycle() {
+	now := time.Now()
+	start, end := now.Add(-3*time.Hour), now.Add(-1*time.Hour)
+	airDate := now.Format("2006-01-02")
+	showExt, epExt := "ext-empty-loop", "ep-empty-loop"
+
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Empty Loop Show", "empty-loop-show", showExt)
+	ep := s.seedEpisodeFor(show.ID, epExt, airDate, catalogm.RadioPlaylistStatePending, 0, &start, &end, now)
+
+	var fetchPlaylistCalls int
+	s.svc.playlistProviderFactory = func(string) (RadioPlaylistProvider, error) {
+		return &mockPlaylistProvider{
+			fetchNewEpisodesFn: func(string, time.Time, time.Time) ([]RadioEpisodeImport, error) {
+				return []RadioEpisodeImport{{
+					ExternalID: epExt, ShowExternalID: showExt, AirDate: airDate,
+					StartsAt: &start, EndsAt: &end,
+				}}, nil
+			},
+			// The upstream tracklist has not been published — the empty-forever case.
+			fetchPlaylistFn: func(string) ([]RadioPlayImport, error) {
+				fetchPlaylistCalls++
+				return nil, nil
+			},
+		}, nil
+	}
+	defer func() { s.svc.playlistProviderFactory = nil }()
+
+	fetchSvc := &RadioFetchService{
+		radioService:         s.svc,
+		stopCh:               make(chan struct{}),
+		logger:               slog.Default(),
+		backfillInterval:     time.Hour,
+		backfillLookbackDays: 7,
+	}
+
+	fetchSvc.RunBackfillCycleNow()
+	s.Require().Equal(1, fetchPlaylistCalls, "the first cycle must attempt the empty episode once")
+
+	got := s.reloadEpisode(ep.ID)
+	s.Equal(1, got.PlaylistFetchAttempts)
+	s.Require().NotNil(got.PlaylistBackfillAttemptedAt, "the attempt must be memoized")
+
+	fetchSvc.RunBackfillCycleNow()
+	s.Equal(1, fetchPlaylistCalls,
+		"the next cycle must NOT re-fetch an episode just found empty — PSY-1558's unmet acceptance criterion")
+
+	got = s.reloadEpisode(ep.ID)
+	s.Equal(1, got.PlaylistFetchAttempts, "a skipped cycle must not burn an attempt either")
 }
 
 // ListBackfillCandidates returns exactly the shows with aired, still-incomplete
@@ -266,7 +325,7 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_FiltersAndGroups() {
 	showE := s.seedShowFor(st.ID, "Show E", "show-e", "ext-e")
 	s.seedEpisodeFor(showE.ID, "e-old", tenDaysAgo, catalogm.RadioPlaylistStatePending, 0, &wayOldStart, &wayOldEnd, now)
 
-	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, catalogm.RadioBackfillMaxAttempts, now)
+	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, now)
 	s.Require().NoError(err)
 	s.Require().Len(candidates, 1, "only showA has eligible aired-incomplete episodes")
 
@@ -278,37 +337,67 @@ func (s *RadioSyncSuite) TestListBackfillCandidates_FiltersAndGroups() {
 }
 
 // PSY-1287: a windowless aired episode that falsely gave up ('unavailable') is still
-// discovered as a backfill candidate so a re-list can heal the window and fetch.
+// discovered as a backfill candidate so a re-list can heal the window and fetch. Under
+// PSY-1562 the 'unavailable' LABEL is not what excludes it — the give-up deadline is,
+// and this episode is inside it.
 func (s *RadioSyncSuite) TestListBackfillCandidates_IncludesStrandedWindowlessUnavailable() {
 	now := time.Now()
 	airDate := now.AddDate(0, 0, -1).Format("2006-01-02")
 
 	st := s.seedBackfillStation()
 	show := s.seedShowFor(st.ID, "Stranded F4", "stranded-f4", "ext-f4")
-	s.seedEpisodeFor(show.ID, "ep-stranded", airDate, catalogm.RadioPlaylistStateUnavailable,
-		catalogm.RadioBackfillMaxAttempts, nil, nil, now)
+	s.seedEpisodeFor(show.ID, "ep-stranded", airDate, catalogm.RadioPlaylistStateUnavailable, 5, nil, nil, now)
 
-	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, catalogm.RadioBackfillMaxAttempts, now)
+	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, now)
 	s.Require().NoError(err)
 	s.Require().Len(candidates, 1)
 	s.Equal(show.ID, candidates[0].ShowID)
 }
 
-// PSY-1558: the same stranded windowless episode stops being a candidate once its
-// reopen window closes — the production loop, where an episode whose playlist was
+// PSY-1558/PSY-1562: the same stranded windowless episode stops being a candidate once
+// its give-up deadline passes — the production loop, where an episode whose playlist was
 // never published upstream sat inside the 7-day lookback being re-selected forever.
-func (s *RadioSyncSuite) TestListBackfillCandidates_ExcludesStrandedWindowlessPastReopenWindow() {
+func (s *RadioSyncSuite) TestListBackfillCandidates_ExcludesWindowlessPastGiveUpDeadline() {
 	now := time.Now()
-	staleAir := now.Add(-catalogm.RadioStrandedWindowlessReopenWindow - 24*time.Hour)
+	staleAir := now.Add(-catalogm.RadioAirDateZoneSlack - catalogm.RadioPlaylistGiveUpAfter - 24*time.Hour)
 
 	st := s.seedBackfillStation()
 	show := s.seedShowFor(st.ID, "Stale Stranded", "stale-stranded", "ext-stale")
 	s.seedEpisodeFor(show.ID, "ep-stale-stranded", staleAir.Format("2006-01-02"),
-		catalogm.RadioPlaylistStateUnavailable, catalogm.RadioBackfillMaxAttempts, nil, nil, now)
+		catalogm.RadioPlaylistStateUnavailable, 5, nil, nil, now)
 
-	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, catalogm.RadioBackfillMaxAttempts, now)
+	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, now)
 	s.Require().NoError(err)
-	s.Empty(candidates, "a stranded windowless give-up past its reopen window is final")
+	s.Empty(candidates, "a windowless give-up past its deadline is final")
+}
+
+// PSY-1562's core acceptance criterion at the query level: an episode whose post-air
+// attempt just ran is NOT re-selected by the next sweep, and IS once the cooldown has
+// elapsed. Before this, 23 stranded episodes were re-listed on every hourly sweep,
+// producing 269 zero-yield backfill runs a day on production.
+func (s *RadioSyncSuite) TestListBackfillCandidates_CooldownSkipsJustAttemptedEpisode() {
+	now := time.Now()
+	start, end := now.Add(-3*time.Hour), now.Add(-1*time.Hour)
+
+	st := s.seedBackfillStation()
+	show := s.seedShowFor(st.ID, "Cooldown Show", "cooldown-show", "ext-cooldown")
+	ep := s.seedEpisodeFor(show.ID, "ep-cooldown", now.Format("2006-01-02"),
+		catalogm.RadioPlaylistStatePending, 1, &start, &end, now)
+
+	candidates, err := s.svc.ListBackfillCandidates(7*24*time.Hour, now)
+	s.Require().NoError(err)
+	s.Require().Len(candidates, 1, "with no attempt recorded the episode is eligible")
+
+	// Record an attempt as of now — exactly what recordPlaylistOutcome writes.
+	s.Require().NoError(s.db.Model(&ep).Update("playlist_backfill_attempted_at", now).Error)
+
+	candidates, err = s.svc.ListBackfillCandidates(7*24*time.Hour, now.Add(time.Hour))
+	s.Require().NoError(err)
+	s.Empty(candidates, "an episode attempted an hour ago must not be re-selected by the next hourly sweep")
+
+	candidates, err = s.svc.ListBackfillCandidates(7*24*time.Hour, now.Add(catalogm.RadioPlaylistRetryCooldown))
+	s.Require().NoError(err)
+	s.Require().Len(candidates, 1, "once the cooldown elapses the episode is eligible again")
 }
 
 // End-to-end PSY-1287 (F4 shape): windowless + unavailable after a false give-up,
@@ -331,8 +420,7 @@ func (s *RadioSyncSuite) TestBackfillCycle_HealsWindowlessUnavailableAfterSchedu
 
 	st := s.seedStation(catalogm.PlaylistSourceWFMU)
 	show := s.seedShowWithSchedule(st.ID, "Freeform Jazz Dance", "freeform-jazz-dance", showExt, &schedule)
-	ep := s.seedEpisodeFor(show.ID, epExt, airDate, catalogm.RadioPlaylistStateUnavailable,
-		catalogm.RadioBackfillMaxAttempts, nil, nil, now)
+	ep := s.seedEpisodeFor(show.ID, epExt, airDate, catalogm.RadioPlaylistStateUnavailable, 5, nil, nil, now)
 
 	var fetchPlaylistCalls int
 	track := "Groovy Track"
@@ -387,7 +475,10 @@ func (s *RadioSyncSuite) TestRecordPlaylistOutcome_EmptyRefetch_PreservesPlayCou
 
 	got := s.reloadEpisode(ep.ID)
 	s.Equal(5, got.PlayCount, "an empty re-fetch must not zero an episode that already has plays")
-	s.Equal(catalogm.RadioPlaylistStatePending, got.PlaylistState, "empty post-air fetch stays eligible")
+	// 'partial' rather than 'pending' (PSY-1562): an episode showing 5 tracks must not
+	// be labelled as having no playlist. It stays backfill-eligible either way — the
+	// aired branch of PlanPlaylistFetch accepts pending and partial alike.
+	s.Equal(catalogm.RadioPlaylistStatePartial, got.PlaylistState, "an episode with plays stays 'partial', and stays eligible")
 	s.Equal(1, got.PlaylistFetchAttempts, "empty post-air fetch burns one attempt")
 }
 

@@ -38,7 +38,7 @@ import (
 // whose playlist is still incomplete (ShowsWithLiveIncompleteEpisodes), so tracks
 // accumulate during the show. Same neutral scoped-fetch path (all the neutrality
 // guarantees above are inherited), same ~one incremental fetch per tick per live
-// show; the re-fetch itself is opened by ShouldRefreshLivePlaylist in
+// show; the re-fetch itself is opened by PlanPlaylistFetch's live branch in
 // reimportExistingEpisode. Eligibility keys on the live windowed EPISODE, not a
 // stored show schedule (PSY-1509 — see ShowsWithLiveIncompleteEpisodes for the
 // bounding invariant). Handoff is clean: past ends_at the episode is no longer live

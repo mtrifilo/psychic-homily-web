@@ -83,45 +83,62 @@ const (
 	RadioPlaylistStateUnavailable = "unavailable"
 )
 
-// RadioBackfillMaxAttempts is the number of failed post-air playlist re-fetches
-// after which an aired episode is marked playlist_state='unavailable' and stops
-// being retried (PSY-1154). A "failed attempt" is a post-air fetch that returned
-// no playlist (an empty broadcast, a pulled show, or a provider error) — a fetch
-// that returns plays settles the episode to 'complete' and never increments the
-// counter. Modeled as a const (like radioCircuitBreakerThreshold), not env-tunable:
-// the value is a data-quality policy, not an operational cadence. The backfill
-// cadence (sweep interval, lookback window) IS env-tunable — see radio_fetch_service.go.
-//
-// Give-up budget: a windowless (WFMU) or start-only (NTS) episode is "aired" the
-// moment it has started (no live window guards it), so attempts begin accruing at the
-// first post-start fetch. The effective budget before 'unavailable' is therefore
-// ~ maxAttempts × sweep-interval (default 5 × 1h = ~5h), which comfortably covers the
-// usual minutes-to-hours playlist-publish delay; a provider that publishes a playlist
-// slower than that budget can strand an episode at 'unavailable' until the janitor
-// (PSY-1155) re-attempts it. Widen RADIO_BACKFILL_INTERVAL_HOURS for slow providers.
-const RadioBackfillMaxAttempts = 5
+// Post-air playlist retry policy (PSY-1562). These three constants plus
+// PlanPlaylistFetch are the WHOLE policy: how often an episode may be re-tried, and
+// the instant past which it never is again. Modeled as consts (like
+// radioCircuitBreakerThreshold), not env-tunable: they are data-quality policy, not
+// operational cadence. The sweep cadence (interval, lookback) IS env-tunable — see
+// radio_fetch_service.go.
+const (
+	// RadioPlaylistRetryCooldown is the minimum gap between two POST-AIR playlist
+	// fetch attempts on the same episode. Before PSY-1562 there was none, so an
+	// episode found empty was re-selected by the very next sweep (hourly) — which is
+	// how 23 stranded episodes produced 269 zero-yield backfill runs a day on
+	// production. Six hours is short enough that the common case (a tracklist
+	// published minutes to hours after air) is still caught the same day, and long
+	// enough that a tracklist that never appears costs ~4 attempts a day, not 24.
+	//
+	// The LIVE refresh (PSY-1370) is deliberately NOT cooled down: it exists to
+	// accumulate tracks during the broadcast and terminates on its own at ends_at.
+	RadioPlaylistRetryCooldown = 6 * time.Hour
 
-// RadioStrandedWindowlessReopenWindow bounds how long after its air date a stranded
-// windowless episode may have its playlist give-up re-opened (PSY-1558). Past it the
-// episode keeps its terminal 'unavailable' and is never re-fetched again.
+	// RadioPlaylistGiveUpAfter is how long after an episode finished airing we keep
+	// looking for a tracklist that has not appeared. Past it the give-up is TERMINAL:
+	// the episode is never re-fetched again, and no code path can reset it, because
+	// the deadline is derived from the episode's own FROZEN air time — a fact that
+	// only ever moves forward.
+	//
+	// Five days is sized from the measured upstream publish lag: NTS routinely
+	// publishes a tracklist 0–3 days after air, rarely 4 (measured 2026-07-29 on
+	// PSY-1556). Five days covers the rare case with a day of margin. Do not shorten
+	// it below 4 days without re-measuring.
+	//
+	// This REPLACES the attempt counter as the terminator, which is the PSY-1558
+	// lesson: an attempt counter is mutable state, so every path that legitimately
+	// reset it (a window heal, a schedule correction) also silently un-terminated the
+	// episode, and the cap never fired at all for windowless episodes.
+	RadioPlaylistGiveUpAfter = 5 * 24 * time.Hour
+
+	// RadioAirDateZoneSlack absorbs air_date's missing timezone. air_date is a bare
+	// local calendar date parsed with NO zone, i.e. at UTC midnight, so for a
+	// WINDOWLESS episode — the only kind with no better air instant on the row — the
+	// parsed value UNDERSTATES when the episode actually aired. 36h is the exact
+	// worst case: a local calendar date ends at UTC midnight + 36h in UTC-12, the
+	// westernmost zone. Without it a late-evening West-Coast broadcast would be given
+	// up on ~34h early, eating most of the margin over the 4-day publish lag.
+	RadioAirDateZoneSlack = 36 * time.Hour
+)
+
+// RadioBackfillMaxAttempts is a defense-in-depth CEILING on post-air playlist
+// re-fetches, not the terminator — RadioPlaylistGiveUpAfter is (see there). It fires
+// only if the cooldown memo (playlist_backfill_attempted_at) stops advancing, which
+// would otherwise let an episode retry on every sweep until its deadline.
 //
-// Before this bound the re-open was unconditional, so RadioBackfillMaxAttempts never
-// terminated anything for windowless episodes: the sweep re-opened the row to
-// (pending, 0), the fetch found no playlist upstream, the attempt counter burned back
-// to the cap, and the next cycle re-opened it again — forever. On production that was
-// 269 zero-yield backfill runs a day across 23 episodes, one re-tried 105 times.
-//
-// Three days is the give-up point: an upstream tracklist that has not been published
-// three days after air was never logged (NTS publish lag is 0–2 days per PSY-1556), so
-// past the window the empty playlist is a permanent condition, not a transient one.
-//
-// Accepted narrowing: past the window the backfill sweep no longer re-lists the show,
-// so a schedule correction landing >3 days after air can't trigger the PSY-1287 window
-// heal through THIS path. The heal itself is unaffected — NormalizeWindowHealPlaylistState
-// runs on any re-list — but it then depends on an ordinary scheduled sync re-listing that
-// episode. Judged worth it: PSY-1287's WFMU off-by-one is fixed and its backlog was
-// cleared by a one-time migration, so this only costs a late correction on a new show.
-const RadioStrandedWindowlessReopenWindow = 3 * 24 * time.Hour
+// DERIVED, never hand-set: it is the number of cooldown slots in the longest possible
+// give-up deadline, plus slack, so it cannot contradict that deadline. A hand-set
+// ceiling smaller than the deadline would silently swallow the late-publish window —
+// the mirror image of the PSY-1558 ceiling that could never fire.
+const RadioBackfillMaxAttempts = int((RadioPlaylistGiveUpAfter+RadioAirDateZoneSlack)/RadioPlaylistRetryCooldown) + 4
 
 // ComputeEpisodeStatus derives an episode's lifecycle status from its FROZEN air
 // window, playlist completeness, and the current time (PSY-1152).
@@ -156,154 +173,233 @@ func ComputeEpisodeStatus(startsAt, endsAt *time.Time, playlistState string, now
 	return settled
 }
 
-// ComputePlaylistState decides an episode's playlist_state after one playlist fetch
-// attempt, along with its (possibly incremented) attempt count (PSY-1154). It is the
-// single completeness policy shared by the first-import path and the post-air backfill
-// re-fetch path, kept pure so the transition table is unit-testable without a DB.
+// PlaylistFetchFacts is the durable episode state that every playlist-fetch decision
+// is made from (PSY-1562). Every field is a stored column, so a decision is
+// reproducible from the row alone — there is no derived or read-time-repaired state
+// in it.
+type PlaylistFetchFacts struct {
+	// StartsAt/EndsAt are the FROZEN air window; NULL when the provider supplies no
+	// time (WFMU) or no duration (NTS gives a start only).
+	StartsAt *time.Time
+	EndsAt   *time.Time
+	// AirDate is air_date parsed as a date. Consulted only for a WINDOWLESS episode,
+	// which carries no better air instant; the zero value fails CLOSED (an episode
+	// whose air instant is unknown cannot be bounded, so it is never fetched).
+	AirDate time.Time
+	// PlaylistState is read ONLY to recognise a settled playlist ('complete') and the
+	// live-refresh-eligible set. It is deliberately NOT the terminal signal: an
+	// 'unavailable' label never gates post-air eligibility, so a stale one cannot
+	// strand an episode and no normalizer is needed to clear it. That inversion is
+	// the whole point of PSY-1562 — under the old design three separate normalizers
+	// existed purely to un-stick this label at read time.
+	PlaylistState string
+	// PlayCount is the denormalized play_count (monotonic on write, reconciled
+	// nightly by ReconcilePlayCounts). It distinguishes "no playlist at all" from
+	// "some tracks, but the final post-air playlist never appeared" — a distinction
+	// the state writers need and the eligibility predicate does not.
+	PlayCount int
+	// Attempts is playlist_fetch_attempts, feeding the RadioBackfillMaxAttempts
+	// ceiling only. It is NOT the terminator.
+	Attempts int
+	// LastBackfillAttemptAt is playlist_backfill_attempted_at: when the last POST-AIR
+	// attempt ran. NULL means none has run yet (including rows written before
+	// PSY-1562), which makes the episode immediately eligible once aired.
+	LastBackfillAttemptAt *time.Time
+}
+
+// PlaylistFetchPlan is PlanPlaylistFetch's answer. Fetch and Exhausted are distinct:
+// an episode that is merely cooling down wants a fetch later (neither flag set),
+// whereas an Exhausted one never will again.
+type PlaylistFetchPlan struct {
+	// Fetch is true when the episode should have its playlist fetched right now.
+	Fetch bool
+	// Live marks the fetch as a live-window refresh (PSY-1370) rather than a post-air
+	// backfill. Only meaningful when Fetch is true; the two are mutually exclusive by
+	// time phase, so nothing double-drives an episode.
+	Live bool
+	// Exhausted is the TERMINAL give-up: this episode has aired, still has no
+	// playlist, and is past the point where one could still appear. Nothing resets
+	// it, because it is a function of frozen air time and now.
+	Exhausted bool
+}
+
+// PlanPlaylistFetch is THE playlist-fetch eligibility predicate (PSY-1562): the one
+// answer to "does this episode want a playlist fetch, and may it still try?". The
+// backfill sweep's candidate query, the in-flight re-list decision, and the give-up
+// label all refine to it, so selection and execution can never drift.
 //
-//   - fetch returned plays + episode has aired  → complete   (the final post-air playlist)
-//   - fetch returned plays + episode still live → partial    (snapshot; more plays coming)
-//   - no plays + episode not yet aired          → pending     (live/scheduled with nothing yet — normal)
-//   - no plays + episode aired                  → a FAILED post-air attempt: increment the
-//     counter; at maxAttempts give up → unavailable, else stay pending (eligible to retry).
+// By time phase:
 //
-// "no plays" covers both a fetch error and a legitimately empty playlist (provider
-// returned zero tracks) — for the give-up policy they are the same: we still don't
-// have a playlist. A failed re-fetch normalizes a prior 'partial' back to 'pending';
-// both remain eligible, and the already-imported plays are untouched, so this is
-// behavior-neutral.
-func ComputePlaylistState(isAired, hasPlays, fetchFailed bool, attempts, maxAttempts int) (state string, newAttempts int) {
-	if hasPlays && !fetchFailed {
-		if isAired {
-			return RadioPlaylistStateComplete, attempts
+//   - scheduled — never. The playlist legitimately does not exist yet.
+//   - live — refresh while still incomplete (PSY-1370), with no cooldown and no
+//     ceiling: a live fetch never burns an attempt, and ends_at terminates it.
+//   - aired — the post-air backfill. Eligible while the playlist is unsettled, the
+//     cooldown since the last attempt has elapsed, and the give-up deadline has not
+//     passed.
+//
+// It replaces six predicates that had accumulated one per repair ticket, three of
+// which repaired bad persisted state at READ time. The structural fix is that
+// terminality is no longer a stored label that a writer could leave wrong and a
+// reader had to fix — it is recomputed here from the episode's frozen air time,
+// which no code path can move backwards.
+func PlanPlaylistFetch(f PlaylistFetchFacts, now time.Time) PlaylistFetchPlan {
+	// Pass pending so the result is the pure time phase (scheduled/live/aired) and
+	// never 'archived' — completeness is handled below, not by the phase.
+	switch ComputeEpisodeStatus(f.StartsAt, f.EndsAt, RadioPlaylistStatePending, now) {
+	case RadioEpisodeStatusScheduled:
+		return PlaylistFetchPlan{}
+	case RadioEpisodeStatusLive:
+		incomplete := f.PlaylistState == RadioPlaylistStatePending || f.PlaylistState == RadioPlaylistStatePartial
+		return PlaylistFetchPlan{Fetch: incomplete, Live: incomplete}
+	}
+
+	// Aired. A settled playlist is final: the post-air fetch that returned plays is
+	// the last one an episode ever needs.
+	if f.PlaylistState == RadioPlaylistStateComplete {
+		return PlaylistFetchPlan{}
+	}
+	deadline, ok := playlistGiveUpDeadline(f)
+	if !ok || !now.Before(deadline) || f.Attempts >= RadioBackfillMaxAttempts {
+		return PlaylistFetchPlan{Exhausted: true}
+	}
+	if f.LastBackfillAttemptAt != nil && now.Before(f.LastBackfillAttemptAt.Add(RadioPlaylistRetryCooldown)) {
+		return PlaylistFetchPlan{} // cooling down — wants a fetch, just not yet
+	}
+	return PlaylistFetchPlan{Fetch: true}
+}
+
+// playlistGiveUpDeadline is the instant past which an episode's missing playlist is
+// treated as permanent. It is measured from the best air instant the row carries, in
+// descending order of precision: the end of the air window, the start of it, or —
+// for a windowless episode — air_date widened by the timezone it doesn't record.
+// Reports false when the row carries no usable air instant at all, which fails closed.
+func playlistGiveUpDeadline(f PlaylistFetchFacts) (time.Time, bool) {
+	switch {
+	case f.EndsAt != nil:
+		return f.EndsAt.Add(RadioPlaylistGiveUpAfter), true
+	case f.StartsAt != nil:
+		return f.StartsAt.Add(RadioPlaylistGiveUpAfter), true
+	case !f.AirDate.IsZero():
+		return f.AirDate.Add(RadioAirDateZoneSlack + RadioPlaylistGiveUpAfter), true
+	}
+	return time.Time{}, false
+}
+
+// SettlePlaylistStateAfterFetch decides an episode's playlist_state and attempt count
+// after ONE playlist fetch (PSY-1154, reworked by PSY-1562). It is the write-time
+// half of the state machine, shared by the first-import path and the backfill
+// re-fetch path:
+//
+//   - plays + aired  → complete (the final post-air playlist)
+//   - plays + live   → partial  (a snapshot; more are coming)
+//   - none + !aired  → pending, or 'partial' held (PSY-1370, see below)
+//   - none + aired   → a genuine failed post-air attempt: burn one, then ask
+//     PlanPlaylistFetch whether a next attempt is even possible. If it isn't, the
+//     give-up is recorded NOW as 'unavailable' rather than left as a row that reads
+//     'pending' forever while never being fetched again.
+//
+// "no plays" covers a fetch error and a legitimately empty playlist alike — for the
+// give-up policy they are the same: we still don't have a playlist.
+//
+// An episode that already HAS plays never reads 'pending' or 'unavailable', whatever
+// the fetch returned: those labels would contradict the tracks the episode is showing.
+// It settles to 'partial' — some tracks, no final playlist — which is the same answer
+// RederivePlaylistState gives, so the two writers cannot disagree about a row.
+func SettlePlaylistStateAfterFetch(f PlaylistFetchFacts, hasPlays bool, now time.Time) (state string, attempts int) {
+	aired := ComputeEpisodeStatus(f.StartsAt, f.EndsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
+
+	if hasPlays {
+		if aired {
+			return RadioPlaylistStateComplete, f.Attempts
 		}
+		return RadioPlaylistStatePartial, f.Attempts
+	}
+	if !aired {
+		// Live or scheduled with nothing yet — expected, not a failure. 'partial' is
+		// monotonic within the live window (PSY-1370): a transient empty round must
+		// not erase "this show already has tracks".
+		if f.PlaylistState == RadioPlaylistStatePartial || f.PlayCount > 0 {
+			return RadioPlaylistStatePartial, f.Attempts
+		}
+		return RadioPlaylistStatePending, f.Attempts
+	}
+
+	// A genuine failed post-air attempt: burn one regardless of the label below, since
+	// the attempt happened and the ceiling counts attempts.
+	attempts = f.Attempts + 1
+	if f.PlayCount > 0 {
 		return RadioPlaylistStatePartial, attempts
 	}
-	if !isAired {
-		// Live or scheduled with no playlist yet — expected, not a failure.
-		return RadioPlaylistStatePending, attempts
+
+	// The label is decided by the same predicate the sweep uses, evaluated one
+	// cooldown ahead — the earliest moment this episode could be tried again. If it
+	// is already exhausted there, this attempt was the last one.
+	next := f
+	next.Attempts = attempts
+	next.PlaylistState = RadioPlaylistStatePending
+	next.LastBackfillAttemptAt = &now
+	if PlanPlaylistFetch(next, now.Add(RadioPlaylistRetryCooldown)).Exhausted {
+		return RadioPlaylistStateUnavailable, attempts
 	}
-	// Aired but still no playlist: a genuine failed post-air attempt.
-	newAttempts = attempts + 1
-	if newAttempts >= maxAttempts {
-		return RadioPlaylistStateUnavailable, newAttempts
-	}
-	return RadioPlaylistStatePending, newAttempts
+	return RadioPlaylistStatePending, attempts
 }
 
-// ShouldBackfillPlaylist reports whether an aired episode still needs a post-air
-// playlist re-fetch (PSY-1154). It is the single source of truth for backfill
-// eligibility — both importEpisode's existing-row branch and the backfill ticker's
-// candidate query refine to it, so the in-flight re-fetch decision and the sweep
-// selection can never drift. An episode is eligible when it is still incomplete
-// (pending/partial — never complete/unavailable), has attempts left, and has aired
-// (a windowless episode counts as aired; scheduled/live episodes are skipped — their
-// playlist is legitimately not final yet).
-func ShouldBackfillPlaylist(startsAt, endsAt *time.Time, playlistState string, attempts, maxAttempts int, now time.Time) bool {
-	if playlistState != RadioPlaylistStatePending && playlistState != RadioPlaylistStatePartial {
-		return false
-	}
-	if attempts >= maxAttempts {
-		return false
-	}
-	// Pass pending so the result is the pure time-phase (scheduled/live/aired),
-	// never 'archived' — completeness is already handled by the state check above.
-	return ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
-}
-
-// ShouldRefreshLivePlaylist reports whether an episode that is airing RIGHT NOW still
-// wants a playlist re-fetch (PSY-1370). The post-air backfill (ShouldBackfillPlaylist)
-// is deliberately aired-only — it never touches a live episode — so without this, a
-// show whose playlist was fetched empty before airtime (WFMU pre-publishes the page
-// hours early) shows 0 tracks for its whole live window despite the "ON AIR — updating
-// live" strip; the tracks land only after ends_at. This predicate is the live
-// counterpart: eligible when the episode is LIVE (bounded window, now inside it) and
-// still incomplete (pending/partial — a live episode is never complete/unavailable).
+// RederivePlaylistState re-settles playlist_state and playlist_fetch_attempts from an
+// episode's CURRENT air window. Every write path that touches an episode calls it, so
+// the stored label is always the one the window and play count imply — which is what
+// lets readers stop repairing state. It replaces three read-time normalizers
+// (PSY-1285's scheduled reset, PSY-1287's window heal, PSY-1287's stranded reopen) and
+// reopenLivePlaylistState, each of which existed because a writer could leave a verdict
+// that was wrong for the episode's real phase.
 //
-// No attempt cap, by construction: a live re-fetch goes through ComputePlaylistState's
-// NON-AIRED path, which returns the attempt count UNCHANGED (a live fetch with plays →
-// partial, without plays → pending; neither burns an attempt). So live attempts stay 0
-// throughout the window and the natural, sole terminator is ends_at — past it the
-// episode is no longer live, this returns false, and ShouldBackfillPlaylist takes over
-// for the single final post-air fetch → complete. The two predicates are mutually
-// exclusive by time phase, so nothing double-drives an episode.
+// It is total and idempotent, so calling it on every re-list is safe — deliberately,
+// because the bad states it corrects arise on rows whose window was ALREADY present
+// (PSY-1285's stranded scheduled rows were stranded exactly that way), not only on the
+// heal-from-NULL transition.
 //
-// A windowless episode (startsAt/endsAt nil) is never live and so is never refreshed
-// here — correct, it has no live window to refresh within.
-func ShouldRefreshLivePlaylist(startsAt, endsAt *time.Time, playlistState string, now time.Time) bool {
-	if playlistState != RadioPlaylistStatePending && playlistState != RadioPlaylistStatePartial {
-		return false
-	}
-	return ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusLive
-}
-
-// NormalizeScheduledPlaylistState enforces the invariant that a not-yet-aired
-// (scheduled) episode never carries a terminal/exhausted playlist state (PSY-1285).
-// A scheduled episode's playlist legitimately doesn't exist yet, so it must be
-// 'pending' with zero burned backfill attempts. The bad state arises because a
-// WINDOWLESS episode is settled to 'aired' (no window to wait through), so the
-// post-air backfill burns attempts on it → 'unavailable'; if it is later given a
-// FUTURE window — by PSY-1283's schedule correction or a heal-on-relist — it becomes
-// 'scheduled', but its playlist_state would otherwise stay stuck 'unavailable'.
-//
-// Returns the (possibly reset) state + attempts. It is a no-op for anything that is
-// NOT scheduled (an aired/live/windowless episode keeps its state — a windowless
-// 'aired' episode legitimately reaching 'unavailable' is PSY-1287's concern, not this
-// invariant). For a scheduled episode it clears ONLY the stranded/exhausted shape — a
-// terminal 'unavailable', or burned backfill attempts on a STILL-pending episode (which
-// a not-yet-aired episode can never have legitimately earned) — and leaves a scheduled
-// 'partial'/'complete' (and its play count + attempts) intact, since those carry real
-// plays and are not the AC#2 'unavailable' violation.
-func NormalizeScheduledPlaylistState(startsAt, endsAt *time.Time, playlistState string, attempts int, now time.Time) (state string, newAttempts int) {
-	if ComputeEpisodeStatus(startsAt, endsAt, RadioPlaylistStatePending, now) != RadioEpisodeStatusScheduled {
-		return playlistState, attempts // not a not-yet-aired episode → leave untouched
-	}
-	if playlistState == RadioPlaylistStateUnavailable {
-		return RadioPlaylistStatePending, 0 // terminal give-up on a not-yet-aired episode (AC#2)
-	}
-	if playlistState == RadioPlaylistStatePending && attempts > 0 {
-		return RadioPlaylistStatePending, 0 // a pending scheduled episode can't have earned attempts
-	}
-	return playlistState, attempts // pending+0, or a 'partial'/'complete' carrying real plays
-}
-
-// NormalizeWindowHealPlaylistState clears a false playlist give-up from the windowless
-// era once a real air window is frozen (PSY-1287). A WFMU episode with no matching
-// schedule slot (PSY-1283 off-by-one) stayed windowless → immediately 'aired' → the
-// post-air backfill burned attempts on empty pre-air playlists → 'unavailable'. After
-// the schedule is corrected and a window is assigned on re-list, reset so backfill
-// runs at the correct lifecycle phase. Only when play_count==0 (no imported plays).
-func NormalizeWindowHealPlaylistState(hadWindow bool, startsAt *time.Time, playlistState string, attempts, playCount int) (state string, newAttempts int) {
-	if hadWindow || startsAt == nil || playCount != 0 {
-		return playlistState, attempts
-	}
-	if playlistState == RadioPlaylistStateUnavailable || attempts > 0 {
+// Attempts are cleared only when the episode has NOT aired, where a burned attempt
+// provably cannot have been earned: a windowless episode reads as 'aired' the moment
+// it starts, so the backfill burns attempts on it, and only the corrected window
+// reveals it was really scheduled or still live. An AIRED episode keeps its attempts —
+// they really happened, and they feed the RadioBackfillMaxAttempts ceiling. Not
+// clearing them here is what keeps this from being another PSY-1558-shaped reset on a
+// path that runs every cycle.
+func RederivePlaylistState(f PlaylistFetchFacts, now time.Time) (state string, attempts int) {
+	switch ComputeEpisodeStatus(f.StartsAt, f.EndsAt, RadioPlaylistStatePending, now) {
+	case RadioEpisodeStatusScheduled:
+		// Nothing has aired: no verdict about a missing playlist can stand. A state
+		// carrying real plays is left alone — it is a genuine snapshot, not a verdict.
+		if f.PlayCount > 0 {
+			return f.PlaylistState, f.Attempts
+		}
+		return RadioPlaylistStatePending, 0
+	case RadioEpisodeStatusLive:
+		// Settled mid-broadcast at the wrong phase — a sweep-created end-less row that
+		// read as 'aired' until the airing feed supplied its end bound.
+		if f.PlayCount > 0 {
+			return RadioPlaylistStatePartial, f.Attempts
+		}
 		return RadioPlaylistStatePending, 0
 	}
-	return playlistState, attempts
-}
 
-// NormalizeStrandedWindowlessPlaylistState re-opens backfill for a windowless aired
-// episode that gave up with zero plays (PSY-1287), for RadioStrandedWindowlessReopenWindow
-// after its air date. Lets the backfill candidate query find the show again so a re-list
-// can heal the window from a corrected schedule. A windowless episode with real plays is
-// left untouched, and so is one whose reopen window has closed — that give-up is final.
-//
-// The window is the SOLE terminator here, and it replaced a guard that read as a bound
-// but could never fire — see RadioStrandedWindowlessReopenWindow (PSY-1558) before
-// loosening it. airDate is the episode's air_date; a zero value fails closed, since an
-// unknown air date cannot be bounded.
-func NormalizeStrandedWindowlessPlaylistState(airDate time.Time, startsAt *time.Time, playlistState string, attempts, playCount int, now time.Time) (state string, newAttempts int) {
-	if startsAt != nil || playCount != 0 {
-		return playlistState, attempts
+	// Aired under the new window.
+	if f.PlaylistState == RadioPlaylistStateComplete {
+		return RadioPlaylistStateComplete, f.Attempts
 	}
-	if playlistState != RadioPlaylistStateUnavailable {
-		return playlistState, attempts
+	if f.PlayCount > 0 {
+		return RadioPlaylistStatePartial, f.Attempts
 	}
-	if airDate.IsZero() || now.Sub(airDate) > RadioStrandedWindowlessReopenWindow {
-		return playlistState, attempts
+	// No playlist and no verdict worth keeping: the label is whatever the predicate
+	// says about this episode right now — 'unavailable' once it is past its deadline,
+	// 'pending' while it can still be tried. Asking the predicate rather than trusting
+	// the stored label is what makes a stale 'unavailable' self-correcting instead of
+	// something a reader has to normalize away.
+	probe := f
+	probe.PlaylistState = RadioPlaylistStatePending
+	if PlanPlaylistFetch(probe, now).Exhausted {
+		return RadioPlaylistStateUnavailable, f.Attempts
 	}
-	return RadioPlaylistStatePending, 0
+	return RadioPlaylistStatePending, f.Attempts
 }
 
 // Match-state constants (radio_plays.match_state). PSY-1131. Replaces the
@@ -902,13 +998,19 @@ type RadioEpisode struct {
 	// decoupled from episode Status.
 	PlaylistState     string     `gorm:"column:playlist_state;not null;default:pending"`
 	PlaylistFetchedAt *time.Time `gorm:"column:playlist_fetched_at"`
-	// PlaylistFetchAttempts counts FAILED post-air playlist re-fetches (PSY-1154).
-	// At RadioBackfillMaxAttempts the backfill loop gives up → playlist_state
-	// 'unavailable'. A fetch that returns plays settles to 'complete' and never
-	// increments this.
-	PlaylistFetchAttempts int       `gorm:"column:playlist_fetch_attempts;not null;default:0"`
-	CreatedAt             time.Time `gorm:"not null"`
-	UpdatedAt             time.Time `gorm:"column:updated_at;not null"`
+	// PlaylistFetchAttempts counts FAILED post-air playlist re-fetches (PSY-1154). A
+	// fetch that returns plays settles to 'complete' and never increments it. It is
+	// an observability counter and the RadioBackfillMaxAttempts ceiling — NOT the
+	// give-up terminator, which is the air-time deadline in PlanPlaylistFetch
+	// (PSY-1562).
+	PlaylistFetchAttempts int `gorm:"column:playlist_fetch_attempts;not null;default:0"`
+	// PlaylistBackfillAttemptedAt is when the last POST-AIR playlist attempt ran
+	// (PSY-1562), the durable memo that rate-limits retries. Distinct from
+	// PlaylistFetchedAt, which any fetch stamps including a live-window refresh: only
+	// aired attempts are cooled down. NULL means no post-air attempt yet.
+	PlaylistBackfillAttemptedAt *time.Time `gorm:"column:playlist_backfill_attempted_at"`
+	CreatedAt                   time.Time  `gorm:"not null"`
+	UpdatedAt                   time.Time  `gorm:"column:updated_at;not null"`
 
 	// Relationships
 	Show  RadioShow   `gorm:"foreignKey:ShowID"`
