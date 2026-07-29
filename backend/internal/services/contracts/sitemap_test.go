@@ -19,7 +19,7 @@ func TestSitemapEntriesCountsCoversEveryFamily(t *testing.T) {
 	families := 0
 	for i := 0; i < structType.NumField(); i++ {
 		field := structType.Field(i)
-		// Take the name only: this repo's prevailing convention includes
+		// Take the name only. Roughly a fifth of this backend's json tags carry
 		// `,omitempty`, and keying off the whole tag would fail against a
 		// correct Counts() while telling the maintainer to add a key they
 		// already added.

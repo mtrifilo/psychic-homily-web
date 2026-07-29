@@ -29,8 +29,14 @@ import "time"
 //     stale — under the same per-fetch `revalidate` the generator still relies
 //     on today. Whatever held that old document is not explained by the
 //     fail-open and is not addressed here. A route-level `revalidate` was tried
-//     as the fix and measured to be inert (the route is dynamic either way), so
-//     it was removed rather than left in as a placebo.
+//     as the fix, measured to change nothing, and removed rather than left in
+//     as a placebo. **PSY-1644 owns this**, and carries a measured lead: the
+//     sitemap route prerenders with a one-YEAR expire, so a document can go on
+//     being served for that long while every revalidation fails — which is what
+//     the old 15.5 s fetch behind a 10 s abort guaranteed. See the module header
+//     of frontend/app/sitemap.ts for the route-mode measurements; do NOT
+//     describe that route as simply "dynamic", it is conditional on whether the
+//     build-time fetch succeeded.
 //
 //     Do not write a confident story about this without measuring first, and do
 //     not read a healthy sitemap immediately after deploy as evidence it is

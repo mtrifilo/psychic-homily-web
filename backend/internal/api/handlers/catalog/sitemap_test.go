@@ -51,6 +51,25 @@ func TestSitemapEntriesHandlerFailsClosed(t *testing.T) {
 	}
 }
 
+// TestSitemapEntriesHandlerNilResultFailsClosed covers the (nil, nil) return.
+// It cannot happen with *SitemapService, but this handler depends on the
+// INTERFACE, and the zero-valued stub one file over already has that shape — so
+// without this the branch reads as dead code and a deref panic is one careless
+// simplification away.
+func TestSitemapEntriesHandlerNilResultFailsClosed(t *testing.T) {
+	handler := NewSitemapHandler(stubSitemapService{entries: nil, err: nil})
+
+	resp, err := handler.GetSitemapEntriesHandler(context.Background(), &GetSitemapEntriesRequest{})
+
+	if err == nil {
+		t.Fatalf("expected an error, got a %+v response — a nil result must not render as success", resp)
+	}
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) || statusErr.GetStatus() != 500 {
+		t.Errorf("expected a 500 huma.StatusError, got %T %v", err, err)
+	}
+}
+
 // TestSitemapEntriesHandlerSetsCacheControl pins the shared-cache hint. Crawlers
 // do not reach this endpoint — they fetch /sitemap.xml from the frontend — so
 // this bounds repeat hits from everything that is NOT the generator; see the

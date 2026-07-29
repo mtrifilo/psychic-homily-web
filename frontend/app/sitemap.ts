@@ -22,10 +22,11 @@
  *     the backend is down returns 500. `next build` still EXITS 0 — the
  *     degradation is silent, and it persists until the next deploy.
  *
- * An `export const revalidate` here is INERT: it was tried and the route mode
- * did not change in either case, so it was removed rather than left in as a
- * placebo. In the static case the window above comes from the per-fetch
- * `next: { revalidate }` below.
+ * An `export const revalidate` here changed nothing in the DEGRADED build (the
+ * only case it was measured in — the route stayed `ƒ`), so it was removed
+ * rather than left in as a placebo. Whether it would alter the static case was
+ * never measured; do not restate that as settled. In the static case the window
+ * above comes from the per-fetch `next: { revalidate }` below.
  *
  * The one-YEAR expire in the static case is worth knowing about: a prerendered
  * document can be served for that long if revalidations keep failing. That is a
@@ -44,8 +45,9 @@ import type { components } from '@/types/api'
 const BASE_URL = 'https://psychichomily.com'
 
 /**
- * How long a fetched entry set stays warm in Next's Data Cache. The ONLY
- * freshness mechanism on this route — see the module header for why.
+ * How long a fetched entry set stays warm in Next's Data Cache. On a build
+ * where the fetch succeeded, this value is also where the route's ISR
+ * revalidate window comes from — see the module header.
  */
 const ENTRY_REVALIDATE_SECONDS = 3600
 

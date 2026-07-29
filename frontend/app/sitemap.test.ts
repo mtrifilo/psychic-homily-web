@@ -113,6 +113,27 @@ describe('sitemap', () => {
     expect(entry?.lastModified).toBeUndefined()
   })
 
+  // Array.isArray admits `[null]`, so the family guard lets it through. The
+  // deref happens at the mapping site, OUTSIDE fetchSitemapEntries' try — so
+  // without the optional chain this throws with no Sentry event and no
+  // diagnostic. Reverting to `entry.slug` must fail here, not stay green.
+  it('skips a null entry inside an otherwise valid family', async () => {
+    vi.stubGlobal(
+      'fetch',
+      respondWith({
+        shows: [null, { slug: 'real', updated_at: ISO }],
+        artists: [],
+        venues: [],
+      })
+    )
+
+    const showUrls = urlsOf(await sitemap()).filter(u =>
+      u.startsWith('https://psychichomily.com/shows/')
+    )
+
+    expect(showUrls).toEqual(['https://psychichomily.com/shows/real'])
+  })
+
   it('skips entries with no slug — they have no canonical URL', async () => {
     vi.stubGlobal(
       'fetch',
