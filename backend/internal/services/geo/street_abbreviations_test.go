@@ -27,6 +27,21 @@ func TestExpandStreetAbbreviations(t *testing.T) {
 			want: "75 Martin Luther King Jr Dr SW",
 		},
 		{
+			name: "punctuation variant without the trailing period",
+			in:   "75 M.L.K Jr Dr SW",
+			want: "75 Martin Luther King Jr Dr SW",
+		},
+		{
+			name: "MLK with a trailing period",
+			in:   "75 MLK. Jr Dr SW",
+			want: "75 Martin Luther King Jr Dr SW",
+		},
+		{
+			name: "non-breaking space must not defeat tokenisation (regexp \\s would)",
+			in:   "75\u00a0MLK Jr Dr SW",
+			want: "75 Martin Luther King Jr Dr SW",
+		},
+		{
 			name: "case-insensitive",
 			in:   "75 m.l.k. Jr Dr SW",
 			want: "75 Martin Luther King Jr Dr SW",
@@ -75,29 +90,5 @@ func TestExpandStreetAbbreviations(t *testing.T) {
 				t.Fatalf("ExpandStreetAbbreviations(%q)\n got: %q\nwant: %q", tc.in, got, tc.want)
 			}
 		})
-	}
-}
-
-// TestWithStreetLeavesScopingIntact: the fallback retries with the raw street
-// while keeping city/state/zip/country, or a common street name would resolve in
-// the wrong place.
-func TestWithStreetLeavesScopingIntact(t *testing.T) {
-	q := AddressQuery{
-		Street:  "75 Martin Luther King Jr Dr SW",
-		City:    "Atlanta",
-		State:   "GA",
-		Zipcode: "30303",
-		Country: "US",
-	}
-	got := q.WithStreet("75 M.L.K. Jr Dr SW")
-
-	if got.Street != "75 M.L.K. Jr Dr SW" {
-		t.Fatalf("street = %q", got.Street)
-	}
-	if got.City != q.City || got.State != q.State || got.Zipcode != q.Zipcode || got.Country != q.Country {
-		t.Fatalf("scoping fields changed: %+v", got)
-	}
-	if q.Street != "75 Martin Luther King Jr Dr SW" {
-		t.Fatal("WithStreet must not mutate the receiver")
 	}
 }

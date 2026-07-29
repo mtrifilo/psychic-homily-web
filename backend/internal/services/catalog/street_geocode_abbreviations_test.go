@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
 )
 
@@ -34,6 +36,57 @@ const (
 	expandedMLK = "75 Martin Luther King Jr Dr SW"
 )
 
+// TestStreetGeocodeQueryExpandsTheStoredAddress covers the single line that
+// actually fixes the reported bug.
+//
+// Without it the whole suite passes with the expansion deleted: every other test
+// here hand-builds a query with the expanded street already in it, so they verify
+// the FALLBACK but never that anything expands in the first place. This asserts
+// the wiring from the stored venue row through to the outbound query.
+func TestStreetGeocodeQueryExpandsTheStoredAddress(t *testing.T) {
+	addr := rawMLK
+	zip := "30303"
+	country := "US"
+	v := &catalogm.Venue{
+		Address: &addr,
+		City:    "Atlanta",
+		State:   "GA",
+		Zipcode: &zip,
+		Country: &country,
+	}
+
+	q := streetGeocodeQuery(v)
+
+	if q.Street != expandedMLK {
+		t.Fatalf("street = %q, want the expanded form %q", q.Street, expandedMLK)
+	}
+	// The expansion must reach Key() too: a clean miss is memoized against the
+	// key, so keying on the raw address would mean a later table change never
+	// re-queries a venue already memoized as a miss.
+	if got := q.Key(); got != expandedMLK+", Atlanta, GA, 30303, US" {
+		t.Fatalf("key = %q — the expansion must flow into the freshness key", got)
+	}
+	// Scoping fields must survive untouched, or a common street resolves in the
+	// wrong city.
+	if q.City != "Atlanta" || q.State != "GA" || q.Zipcode != "30303" || q.Country != "US" {
+		t.Fatalf("scoping fields changed: %+v", q)
+	}
+}
+
+// TestStreetGeocodeQueryLeavesOrdinaryAddressesAlone: the vast majority of
+// venues contain nothing expandable, and their key must not churn — a changed
+// key re-geocodes the venue against a rate-limited third party.
+func TestStreetGeocodeQueryLeavesOrdinaryAddressesAlone(t *testing.T) {
+	addr := "123 Main St"
+	v := &catalogm.Venue{Address: &addr, City: "Austin", State: "TX"}
+
+	q := streetGeocodeQuery(v)
+
+	if q.Street != "123 Main St" {
+		t.Fatalf("street = %q — an ordinary address must be untouched (and St is Street, not Saint)", q.Street)
+	}
+}
+
 func mlkQuery() geo.AddressQuery {
 	return geo.AddressQuery{
 		Street:  expandedMLK,
@@ -46,7 +99,7 @@ func mlkQuery() geo.AddressQuery {
 // TestExpandedFormHitsCostsOneRequest is the steady-state case, and the reason
 // the fallback was acceptable at all: a hit must not spend a second request, or
 // the whole catalog's re-geocode doubles against the shared rate limit.
-func TestExpandedFormHitsCostsOneRequest(t *testing.T) {
+func TestExpandedFormHitsCostsTwoRequests(t *testing.T) {
 	g := &recordingGeocoder{hits: map[string]geo.AddressResult{
 		expandedMLK: {Latitude: 33.75, Longitude: -84.39, Precision: "rooftop"},
 	}}
@@ -59,15 +112,43 @@ func TestExpandedFormHitsCostsOneRequest(t *testing.T) {
 	if res.Precision != "rooftop" {
 		t.Fatalf("precision = %q", res.Precision)
 	}
+	if len(g.asked) != 2 || g.asked[0] != rawMLK || g.asked[1] != expandedMLK {
+		t.Fatalf("expected raw-then-expanded, got %v", g.asked)
+	}
+}
+
+// TestRawFormWinsWhenBothResolve is the case that makes the ORDER load-bearing,
+// and the one an expanded-first implementation silently fails.
+//
+// For an address like "3800 MLK Jr Blvd" the expanded form may also resolve — but
+// to the multi-mile named ROAD rather than the address node. Expanded-first would
+// take that hit, skip the fallback, and overwrite correct rooftop coordinates
+// with a worse interpolated point, then memoize it under the new key. Raw-first
+// guarantees anything resolving today resolves identically tomorrow.
+func TestRawFormWinsWhenBothResolve(t *testing.T) {
+	g := &recordingGeocoder{hits: map[string]geo.AddressResult{
+		rawMLK:      {Latitude: 33.75, Longitude: -84.39, Precision: "rooftop"},
+		expandedMLK: {Latitude: 33.80, Longitude: -84.50, Precision: "interpolated"},
+	}}
+
+	res, ok, err := geocodeExpandingAbbreviations(context.Background(), g, mlkQuery(), rawMLK)
+
+	if err != nil || !ok {
+		t.Fatalf("expected a hit: ok=%v err=%v", ok, err)
+	}
+	if res.Precision != "rooftop" {
+		t.Fatalf("precision = %q — the stored address must win when both resolve, "+
+			"or this change degrades venues that already work", res.Precision)
+	}
 	if len(g.asked) != 1 {
-		t.Fatalf("a hit on the expanded form must cost exactly one request, got %d: %v", len(g.asked), g.asked)
+		t.Fatalf("a hit on the stored address must not cost a second request, got %v", g.asked)
 	}
 }
 
 // TestFallsBackToTheRawStreet covers the case that made "expand only" unsafe:
 // OSM stores some streets abbreviated, so a one-sided expansion just moves the
 // miss to a different street.
-func TestFallsBackToTheRawStreet(t *testing.T) {
+func TestStoredAddressHitCostsOneRequest(t *testing.T) {
 	g := &recordingGeocoder{hits: map[string]geo.AddressResult{
 		rawMLK: {Latitude: 33.75, Longitude: -84.39, Precision: "rooftop"},
 	}}
@@ -75,10 +156,10 @@ func TestFallsBackToTheRawStreet(t *testing.T) {
 	_, ok, err := geocodeExpandingAbbreviations(context.Background(), g, mlkQuery(), rawMLK)
 
 	if err != nil || !ok {
-		t.Fatalf("expected the raw-street retry to hit: ok=%v err=%v", ok, err)
+		t.Fatalf("expected the stored address to hit: ok=%v err=%v", ok, err)
 	}
-	if len(g.asked) != 2 || g.asked[0] != expandedMLK || g.asked[1] != rawMLK {
-		t.Fatalf("expected expanded-then-raw, got %v", g.asked)
+	if len(g.asked) != 1 || g.asked[0] != rawMLK {
+		t.Fatalf("a street OSM stores abbreviated must cost one request, got %v", g.asked)
 	}
 }
 
@@ -111,6 +192,52 @@ func TestUnresolvableAddressStopsAfterBothForms(t *testing.T) {
 	}
 	if len(g.asked) != 2 {
 		t.Fatalf("a genuine miss costs at most two requests, got %d: %v", len(g.asked), g.asked)
+	}
+}
+
+// TestFallbackDeclinedWhenTheBudgetIsNearlySpent: the caller's deadline covers
+// BOTH lookups. A retry started with seconds left tends to end in ctx.Err(), and
+// an error is not memoized — so the venue would be re-queried on every single
+// run, at two requests a time. Returning the clean miss we already hold keeps it
+// memoizable, and the sweep retries the venue on its own cadence.
+func TestFallbackDeclinedWhenTheBudgetIsNearlySpent(t *testing.T) {
+	g := &recordingGeocoder{hits: map[string]geo.AddressResult{
+		expandedMLK: {Latitude: 33.75, Longitude: -84.39, Precision: "rooftop"},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, ok, err := geocodeExpandingAbbreviations(ctx, g, mlkQuery(), rawMLK)
+
+	if err != nil {
+		t.Fatalf("a declined retry must surface the clean miss, not an error: %v", err)
+	}
+	if ok {
+		t.Fatal("precondition: only the expanded form hits, so the stored-address attempt must miss")
+	}
+	if len(g.asked) != 1 {
+		t.Fatalf("the retry must be declined with the budget nearly spent, got %d requests: %v", len(g.asked), g.asked)
+	}
+}
+
+// TestFallbackProceedsWithAmpleBudget is the counterpart — the guard must not
+// swallow the retry in the normal case, or the fix never fires.
+func TestFallbackProceedsWithAmpleBudget(t *testing.T) {
+	g := &recordingGeocoder{hits: map[string]geo.AddressResult{
+		expandedMLK: {Latitude: 33.75, Longitude: -84.39, Precision: "rooftop"},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	_, ok, err := geocodeExpandingAbbreviations(ctx, g, mlkQuery(), rawMLK)
+
+	if err != nil || !ok {
+		t.Fatalf("with ample budget the expanded retry must run: ok=%v err=%v", ok, err)
+	}
+	if len(g.asked) != 2 {
+		t.Fatalf("expected both forms tried, got %v", g.asked)
 	}
 }
 

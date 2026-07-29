@@ -41,6 +41,12 @@ type StreetGeocodeOptions struct {
 
 const defaultStreetGeocodeBackfillTimeout = 30 * time.Second
 
+// minFallbackBudget is how much of the caller's deadline must remain before the
+// raw-address retry is attempted. One Nominatim call can spend >1s waiting on the
+// shared 1 req/s limiter before it even dials, plus retries, so anything under a
+// few seconds is more likely to produce a timeout than an answer.
+const minFallbackBudget = 5 * time.Second
+
 // Street-geocode backfill actions, one per scanned venue that needed anything.
 // Venues that needed nothing (stored key matches, or no address and nothing
 // stored) only bump the Unchanged/NoAddress counters — no Change row.
@@ -210,29 +216,48 @@ func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.Addres
 	return report, nil
 }
 
-// geocodeWithTimeout bounds a single venue's lookup (limiter wait + retries
-// included) while inheriting the run ctx, so a canceled run aborts the
-// in-flight lookup immediately rather than riding out the per-venue timeout.
+// geocodeWithTimeout bounds ONE VENUE's geocoding (limiter wait + retries
+// included, and since PSY-1609 up to two sequential lookups) while inheriting the
+// run ctx, so a canceled run aborts the in-flight lookup immediately rather than
+// riding out the per-venue timeout.
 func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, rawStreet string, timeout time.Duration) (geo.AddressResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return geocodeExpandingAbbreviations(ctx, ag, q, rawStreet)
 }
 
-// geocodeExpandingAbbreviations looks the address up, falling back to the street
-// exactly as stored when the abbreviation-expanded form misses.
+// geocodeExpandingAbbreviations looks a venue's address up, trying the address
+// EXACTLY AS STORED first and the abbreviation-expanded form only if that misses.
 //
-// OSM spells streets inconsistently: venue 128 resolves ONLY expanded, while
-// another street may be stored abbreviated and resolve only raw. Expanding
-// one-sidedly would just move the miss.
+// The order is the whole design, and it is deliberately the opposite of the
+// obvious one. Expanding first looks right — the expansion is the fix, after all
+// — but it can DEGRADE a venue that works today: for an address like
+// "3800 MLK Jr Blvd", the expanded "Martin Luther King" form may well resolve,
+// yet resolve to the multi-mile named road rather than the address node. That is
+// still ok=true, so no fallback runs, and the write replaces correct rooftop
+// coordinates with a worse interpolated point — then memoizes it under the new
+// key, making it unrecoverable without manual intervention.
 //
-// The cost is bounded to the failure path. A hit on the expanded form — the
-// common case, and the only case for the overwhelming majority of addresses that
-// contain no abbreviation at all — costs exactly one request, so the steady-state
-// Nominatim budget is unchanged. Only an address that was ALREADY missing spends
-// a second request, and a clean miss is then memoized so it is not retried.
+// Raw-first guarantees the opposite: anything that resolves today resolves to the
+// identical point tomorrow, and the expansion only ever runs where there was no
+// answer at all. It still fixes venue 128 ("75 M.L.K. Jr Dr SW" misses raw, hits
+// expanded), and it changes nothing about Key(), which stays on the expanded form
+// so a future table change still invalidates the miss memos it could affect.
 //
-// rawStreet is the pre-expansion street line. Empty, or equal to the expanded
+// Request cost, stated precisely because the 1 req/s Nominatim budget is a ToS
+// obligation rather than a performance concern:
+//
+//   - No abbreviation in the address (the overwhelming majority): ONE request.
+//     The two forms are identical, so the second attempt is skipped outright.
+//   - Abbreviated and OSM stores it abbreviated: ONE request.
+//   - Abbreviated and OSM stores it expanded (venue 128): TWO.
+//   - Unresolvable: TWO, then the caller memoizes the miss so it is not retried.
+//
+// A transport error is NOT a miss and does not trigger the fallback: retrying
+// against a service that is already failing just doubles traffic, and the caller
+// retries the whole venue on its next run.
+//
+// rawStreet is the street exactly as stored. Empty, or equal to the expanded
 // form, means there is nothing else to try and no second request is made.
 func geocodeExpandingAbbreviations(
 	ctx context.Context,
@@ -240,15 +265,33 @@ func geocodeExpandingAbbreviations(
 	q geo.AddressQuery,
 	rawStreet string,
 ) (geo.AddressResult, bool, error) {
-	res, ok, err := ag.GeocodeAddress(ctx, q)
+	raw := strings.TrimSpace(rawStreet)
+	expanded := strings.TrimSpace(q.Street)
+
+	// First attempt: the address as stored. AddressQuery is a value type, so this
+	// copies and leaves the scoping fields intact — a common street name must
+	// still resolve in the right place.
+	first := q
+	if raw != "" {
+		first.Street = raw
+	}
+	res, ok, err := ag.GeocodeAddress(ctx, first)
 	if err != nil || ok {
 		return res, ok, err
 	}
-	raw := strings.TrimSpace(rawStreet)
-	if raw == "" || raw == strings.TrimSpace(q.Street) {
+	if raw == "" || raw == expanded {
 		return res, ok, err
 	}
-	return ag.GeocodeAddress(ctx, q.WithStreet(raw))
+	// Decline the retry when too little budget remains. The caller's deadline
+	// covers BOTH lookups, so a second attempt started with seconds left tends to
+	// end in ctx.Err() — and an error is NOT memoized, whereas the clean miss we
+	// already hold is. Trading a possible hit for a recorded miss is the right way
+	// round: the miss is durable and the sweep retries the venue on its own
+	// cadence, while the timeout would have it re-queried on every single run.
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline && time.Until(deadline) < minFallbackBudget {
+		return res, ok, err
+	}
+	return ag.GeocodeAddress(ctx, q)
 }
 
 // streetGeocodeUpdateScope scopes a street-geocode write to the venue row

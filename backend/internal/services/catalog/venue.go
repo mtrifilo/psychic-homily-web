@@ -66,14 +66,23 @@ func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	v.Metro = geo.MetroPointer(s.geocoder, v.City, v.State, country)
 }
 
-// streetGeocodeTimeout caps one inline street-geocode attempt, including time
-// spent waiting on the shared 1 req/s Nominatim limiter and retries.
+// streetGeocodeTimeout caps ONE inline street-geocode for a venue, including
+// time waiting on the shared 1 req/s Nominatim limiter and retries — and, since
+// PSY-1609, covering up to TWO sequential lookups when the abbreviation-expanded
+// form misses and the raw address is retried.
+//
+// Deliberately NOT raised to accommodate the second lookup: this runs on the
+// venue write path, so the budget is what a user waits, not what the geocoder
+// would like. geocodeExpandingAbbreviations instead declines the retry when too
+// little of the budget remains, which keeps a clean miss memoizable rather than
+// letting it decay into an un-memoized timeout.
 const streetGeocodeTimeout = 15 * time.Second
 
 // streetGeocodeQuery builds the Nominatim query — and, via Key(), the
 // canonical geocoded_address freshness key — for a venue's current location
 // fields. Every producer AND consumer of venues.geocoded_address must go
 // through this so the freshness comparison is exact.
+//
 // The Street is ABBREVIATION-EXPANDED here, which means the expansion also flows
 // into Key(). That is deliberate and load-bearing: a clean miss is memoized
 // against the key, so if the key were built from the raw address, widening the
@@ -84,7 +93,16 @@ const streetGeocodeTimeout = 15 * time.Second
 //
 // Consequence to expect on deploy: any venue whose address contains an
 // expandable token has a new key, so it reads as un-attempted and is re-geocoded
-// once by the sweep. Today that is a single venue.
+// once by the sweep. Because streetGeocodeFresh recomputes the key at READ time,
+// such a venue also stops serving street coordinates until that happens.
+//
+// MEASURED against production on 2026-07-29, not assumed: exactly one venue
+// matches (128, Altar at the Masquerade), and it has NO street coordinates today
+// -- it is the miss this ticket exists to fix. So nothing regresses and no
+// one-shot backfill is needed. Re-measure before widening the table:
+//
+//	SELECT id, name, address, street_latitude IS NOT NULL AS has_coords
+//	FROM venues WHERE address ~* 'mlk' OR address ~* 'm\.l\.k';
 func streetGeocodeQuery(v *catalogm.Venue) geo.AddressQuery {
 	return geo.AddressQuery{
 		Street:  geo.ExpandStreetAbbreviations(derefString(v.Address)),
@@ -150,10 +168,10 @@ func (s *VenueService) applyStreetGeocoding(v *catalogm.Venue) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), streetGeocodeTimeout)
 	defer cancel()
-	// Same expand-then-fall-back-to-raw path the sweep uses. The AC is explicit
-	// that this must not be backfill-only: a venue created through the inline
-	// write path would otherwise memoize a miss that the sweep would then skip,
-	// so the abbreviation fix would silently never reach it.
+	// Same expand-then-fall-back-to-raw path the sweep uses, and it must stay
+	// that way: a venue created through this inline path would otherwise memoize
+	// a miss, which the sweep then skips by design — so the abbreviation fix
+	// would silently never reach it.
 	res, ok, err := geocodeExpandingAbbreviations(ctx, s.addressGeocoder, q, derefString(v.Address))
 	if err != nil {
 		// Deliberately NOT logging the address — unverified submissions may be
