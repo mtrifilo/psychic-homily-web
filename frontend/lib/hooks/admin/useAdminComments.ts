@@ -12,52 +12,27 @@ import { apiRequest, API_BASE_URL } from '../../api'
 import { commentQueryKeys } from '@/features/comments/api'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+//
+// Aliased from the generated OpenAPI types, not hand-written (PSY-1550/1600).
+// Regenerate with `bun run api:types`; the "API Types Drift" CI gate fails if
+// the committed types drift from the backend. Exported names are kept stable
+// for callers.
+//
+// The pending-comment queue returns the same `CommentResponse` the public
+// comment endpoints do — there is no admin-specific comment shape. The
+// hand-written `PendingComment` this replaces claimed two fields the wire has
+// never carried, `entity_name` and `trust_tier`, so the moderation queue's
+// entity link and trust-tier badge were dead UI (PSY-1600).
 
-export interface PendingComment {
-  id: number
-  entity_type: string
-  entity_id: number
-  entity_name?: string
-  user_id: number
-  author_name: string
-  /**
-   * PSY-619: author's username when set, null otherwise. The backend already
-   * ships `author_username` on `CommentResponse` (PSY-552); this declares it
-   * on the admin-pending-comment frontend type so ModerationQueue can pass
-   * the link-aware byline through `<UserAttribution>`.
-   */
-  author_username: string | null
-  body: string
-  body_html: string
-  parent_id: number | null
-  depth: number
-  visibility: string
-  trust_tier?: string
-  edit_count?: number
-  created_at: string
-  updated_at: string
-}
+import type { components } from '../../../types/api'
 
-export interface PendingCommentsResponse {
-  comments: PendingComment[]
-  total: number
-}
-
-export interface CommentEditHistoryEntry {
-  id: number
-  comment_id: number
-  old_body: string
-  edited_at: string
-  editor_user_id?: number | null
-  editor_name?: string
-  editor_username?: string
-}
-
-export interface CommentEditHistoryResponse {
-  comment_id: number
-  current_body: string
-  edits: CommentEditHistoryEntry[]
-}
+export type PendingComment = components['schemas']['CommentResponse']
+export type PendingCommentsResponse =
+  components['schemas']['AdminListPendingCommentsResponseBody']
+export type CommentEditHistoryEntry =
+  components['schemas']['CommentEditHistoryEntry']
+export type CommentEditHistoryResponse =
+  components['schemas']['CommentEditHistoryResponse']
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 

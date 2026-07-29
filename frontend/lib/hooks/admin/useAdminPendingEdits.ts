@@ -11,53 +11,26 @@ import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys, createInvalidateQueries } from '../../queryClient'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+//
+// Aliased from the generated OpenAPI types, not hand-written (PSY-1550/1600).
+// Regenerate with `bun run api:types`; the "API Types Drift" CI gate fails if
+// the committed types drift from the backend. Exported names are kept stable
+// for callers.
+//
+// `summary_html` / `rejection_reason_html` are server-sanitised HTML
+// (MarkdownRenderer = goldmark + bluemonday); render via
+// `dangerouslySetInnerHTML` — the sanitiser is the source of truth for XSS
+// safety, and legacy rows omit them entirely.
+// `field_changes` is nullable on the wire: guard before iterating (PSY-1600).
 
+import type { components } from '../../../types/api'
 import type { FieldChange } from '../common/useRevisions'
 
 export type { FieldChange }
 
-export interface PendingEditResponse {
-  id: number
-  entity_type: string
-  entity_id: number
-  entity_name?: string
-  submitted_by: number
-  submitter_name?: string
-  /**
-   * PSY-619: submitter's username when set, null otherwise. Pass to
-   * `<UserAttribution username={...} />` to render the byline as a link to
-   * /users/:username when non-null.
-   */
-  submitter_username: string | null
-  field_changes: FieldChange[]
-  summary: string
-  /**
-   * PSY-605: sanitised HTML of `summary` rendered server-side via the
-   * shared MarkdownRenderer (goldmark + bluemonday, comment-system allowlist).
-   * Render via `dangerouslySetInnerHTML` — the sanitiser is the source of
-   * truth for XSS safety. Falls back to empty string for legacy rows; the
-   * raw `summary` is still available alongside.
-   */
-  summary_html?: string
-  status: 'pending' | 'approved' | 'rejected'
-  reviewed_by?: number
-  reviewer_name?: string
-  reviewer_username?: string | null
-  reviewed_at?: string
-  rejection_reason?: string
-  /**
-   * PSY-605: sanitised HTML of `rejection_reason`. Same renderer + allowlist
-   * as `summary_html`. Empty when no rejection reason has been written.
-   */
-  rejection_reason_html?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface PendingEditsListResponse {
-  edits: PendingEditResponse[]
-  total: number
-}
+export type PendingEditResponse = components['schemas']['PendingEditResponse']
+export type PendingEditsListResponse =
+  components['schemas']['AdminListPendingEditsResponseBody']
 
 // ─── Filters ─────────────────────────────────────────────────────────────────
 

@@ -286,7 +286,8 @@ export function DataQualityDashboard() {
       </div>
 
       <div className="grid gap-3">
-        {summary?.categories.map((category) => (
+        {/* `categories` is a nil-able Go slice — the wire can send `null`. */}
+        {(summary?.categories ?? []).map((category) => (
           <CategoryCard
             key={category.key}
             category={category}
