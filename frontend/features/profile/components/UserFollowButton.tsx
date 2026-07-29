@@ -11,6 +11,7 @@ import {
   useUserUnfollow,
 } from '@/lib/hooks/common/useUserFollow'
 import { cn } from '@/lib/utils'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 interface UserFollowButtonProps {
   username: string
@@ -80,6 +81,7 @@ export function UserFollowButton({
   return (
     <div className="relative">
       <Button
+        {...replayOnHydrate}
         type="button"
         variant={
           isFollowing ? (showUnfollow ? 'destructive' : 'secondary') : 'outline'

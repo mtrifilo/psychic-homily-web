@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
@@ -45,7 +46,7 @@ export function MobileNav() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild className="xl:hidden">
-        <Button variant="ghost" size="icon" aria-label="Open menu">
+        <Button {...replayOnHydrate} variant="ghost" size="icon" aria-label="Open menu">
           <Menu className="size-5" />
         </Button>
       </SheetTrigger>

@@ -5,100 +5,114 @@
  *
  * A server-rendered control is painted, focusable and clickable well before
  * React attaches its handlers. A click in that window does nothing: no error,
- * no feedback, and **React 19 does not replay it**. PSY-1610 measured the gap
- * on a production build (median of 3, FCP -> that node interactive):
+ * no feedback, and **React 19 does not replay it**. PSY-1610 proved the drop —
+ * 39 verified pre-hydration clicks produced 0 effects, 42 after produced 42 —
+ * and measured the window from ~260ms on loopback to ~6.7s on a throttled
+ * phone. The measured table lives in `docs/performance-improvements.md`; it is
+ * deliberately not duplicated here, so there is one copy to re-measure.
  *
- * | condition                | dead window |
- * | ------------------------ | ----------- |
- * | loopback, 1x CPU         | ~260 ms     |
- * | 4x CPU                   | ~505 ms     |
- * | 6x CPU + slow 4G         | ~4.6 s      |
- * | 20x CPU + slow 4G        | ~6.7 s      |
- *
- * and proved the drop: 39 verified-on-target clicks before the node hydrated
- * produced 0 effects; 42 after produced 42. No overlap.
- *
- * **Visible does not imply interactive.** Anything that ships in server HTML
- * has this window — including anonymous surfaces, so this is not an
- * authentication concern. Navigation is the one case that survives for free,
- * because a real `<a href>` is handled by the browser rather than by React:
- * that is why links must never be an `onClick` router push.
+ * **Visible does not imply interactive.** Anything in server HTML has this
+ * window, including anonymous surfaces, so it is not an authentication
+ * concern. Navigation is the one thing that survives for free, because a real
+ * `<a href>` is handled by the browser rather than by React — which is why
+ * links must never be an `onClick` router push.
  *
  * ## How it works
  *
- * 1. `CLICK_REPLAY_SCRIPT` runs inline in `<head>`, before any framework code.
- *    It records the pointer/click sequence landing inside any element marked
- *    `data-replay-on-hydrate` that has not yet been flagged as hydrated.
- * 2. When the owning component hydrates, {@link consumePendingReplay} flags the
- *    element, takes the buffered sequence, and re-dispatches it at the original
- *    target node.
+ * 1. `CLICK_REPLAY_SCRIPT` runs inline in `<head>`, before any framework code,
+ *    recording the pointer/click sequence that lands inside any element marked
+ *    `data-replay-on-hydrate` and not yet flagged as hydrated.
+ * 2. Adopting components spread {@link replayOnHydrate}. Its `ref` fires when
+ *    React attaches the node, at which point {@link consumePendingReplay}
+ *    flags the element, takes the buffered sequence, and re-dispatches it at
+ *    the original target node.
  *
  * ## Exactly-once
  *
  * A double-fired Save is worse than the bug this fixes, so the ordering inside
- * `consumePendingReplay` is load-bearing and deliberate:
+ * `consumePendingReplay` is load-bearing:
  *
  * - The element is flagged hydrated **first**, so the capture listener stops
- *   buffering it before anything is dispatched. The replayed events are
- *   untrusted anyway and are rejected on that basis too — two independent
- *   guards against a capture/replay loop.
+ *   buffering it before anything is dispatched. Replayed events are untrusted
+ *   and rejected on that basis too — two independent guards against a
+ *   capture/replay loop.
  * - The buffer entry is deleted **before** dispatch, so a second invocation
  *   (StrictMode's double-invoked effects, a remount) finds nothing to replay.
- * - Callers run this from a *layout* effect. Layout effects flush synchronously
- *   within the hydration commit, so no user click can be processed between the
- *   moment React makes the node live and the moment we stop buffering it. With
- *   a passive `useEffect` that gap is a whole frame, and a real click landing
- *   in it would both work natively *and* be replayed — a double fire.
+ * - It runs from a **ref callback**, which React invokes during the commit
+ *   that makes the node live, synchronously and before paint. No user click
+ *   can be processed in between. Moving this to a passive `useEffect` would
+ *   open a frame-wide gap in which a real click would both fire natively *and*
+ *   be replayed — that is the double fire. **The test suite cannot catch that
+ *   regression** (jsdom does not reproduce the gap), so it is stated here.
+ *
+ * ## Adoption
+ *
+ * Spread `replayOnHydrate` onto the element that owns the interaction:
+ *
+ * ```tsx
+ * <button {...replayOnHydrate} onClick={…} />
+ * ```
+ *
+ * Everything clicked *inside* a replay root is covered, so a group of buttons
+ * needs one root, not one per button. It is a single spreadable object on
+ * purpose: an earlier revision needed a `ref` *and* a separate attribute, and
+ * attaching only the attribute silently reproduced the original bug on an
+ * element that looked adopted.
+ *
+ * `BracketLink` and the shared bracket/menu controls already carry it, so most
+ * new code inherits this without doing anything.
  *
  * ## Known limits
  *
  * - **Click only.** Keyboard activation of a Radix trigger goes through
- *   `onKeyDown`, which is not captured. A pre-hydration `Enter` on such a
+ *   `onKeyDown`, which is not captured, so a pre-hydration `Enter` on such a
  *   trigger is still dropped.
- * - **Opt-in.** Only marked elements are buffered; replaying every button in
- *   the document would be far too blunt a hammer.
- * - The captured sequence is limited to the event types in `REPLAYED_EVENTS`.
- *   A control that opens on some *other* event will not replay correctly — the
- *   sequence is faithful to what the browser dispatches for a real click, not
- *   to arbitrary custom gestures.
+ * - **Opt-in.** Only marked elements are buffered. A fully automatic version
+ *   is not implementable rather than merely blunt: replay needs a *per-node*
+ *   "React has attached handlers here" signal, and React exposes none
+ *   publicly. An app-level "hydration done" flag fires too early for lazily
+ *   hydrated subtrees — page-body controls hydrate after the TopBar — so it
+ *   would replay into dead nodes and drop the click a second time.
+ * - Capture stops after {@link MAX_REPLAY_AGE_MS}; past that a buffered click
+ *   could not be replayed anyway.
  */
 
 /** Marks an element as a replay root. Clicks inside it are buffered pre-hydration. */
 export const REPLAY_ATTR = 'data-replay-on-hydrate'
 
 /**
- * Spread onto the JSX element that owns a replay root, so adopters can't
- * misspell the attribute:
+ * How long a captured click stays replayable, and how long the capture
+ * listeners stay installed.
  *
- * ```tsx
- * <button ref={replayRef} {...replayOnHydrate} onClick={…} />
- * ```
- */
-export const replayOnHydrate = { [REPLAY_ATTR]: '' } as const
-
-/**
- * How long a captured click stays replayable.
- *
- * 10s covers every condition PSY-1610 measured, including the 6.7s worst case
- * on a 20x-throttled phone over slow 4G — which is precisely the user this
- * exists for. Past the cutoff the click is dropped silently: surfacing a
- * message about an interaction from more than ten seconds ago would confuse
- * more than it explains.
+ * 10s covers every condition PSY-1610 measured, including the ~6.7s worst case
+ * on a 20x-throttled phone over slow 4G — precisely the user this exists for.
+ * Past the cutoff the click is dropped silently: surfacing a message about an
+ * interaction from more than ten seconds ago would confuse more than explain.
  */
 export const MAX_REPLAY_AGE_MS = 10_000
 
 /**
- * The sequence a real mouse click produces, in order. Replaying the whole
- * sequence rather than a lone `click` is required, not belt-and-braces:
- * Radix's `DropdownMenuTrigger` (the TopBar user menu) opens on
- * `onPointerDown`, so a bare `click` would leave it shut, while its
- * `PopoverTrigger` siblings (notification bell, add-to-collection) open on
- * `onClick`. Replaying what the browser actually sends satisfies both without
- * per-component special-casing.
+ * The sequence a real mouse click produces, in order.
+ *
+ * Replaying the whole sequence rather than a lone `click` is required, not
+ * belt-and-braces: Radix's `DropdownMenuTrigger` (the TopBar user menu) opens
+ * on `onPointerDown`, while its `PopoverTrigger` siblings (notification bell,
+ * add-to-collection) open on `onClick`. A click-only replay was measured
+ * against the proof harness in `e2e-hydration/` — the save mutation still
+ * worked and the user menu stayed shut.
+ *
+ * Read only by the inline script below.
  */
 const REPLAYED_EVENTS = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const
 
-/** Upper bound on buffered events per interaction — a guard, never reached in practice. */
+/**
+ * Upper bound on buffered events per interaction.
+ *
+ * A pointer interaction can only reach five (one of each type, since a new
+ * `pointerdown` restarts the entry). The cap exists for keyboard repeat:
+ * holding `Enter` on a focused button emits `click` after `click` with no
+ * intervening `pointerdown`, so nothing would otherwise reset the list.
+ */
 const MAX_EVENTS_PER_ENTRY = 8
 
 interface ReplayRecord {
@@ -117,36 +131,41 @@ interface ReplayEntry {
 
 declare global {
   interface Window {
-    __phClickReplay?: { buffer: Map<HTMLElement, ReplayEntry> }
+    __phClickReplay?: {
+      /**
+       * Weakly keyed on purpose: an entry whose root never hydrates is never
+       * consumed, and a strong Map on `window` would pin that element — and,
+       * through it, its whole detached subtree — for the life of the session,
+       * across every client-side navigation.
+       */
+      buffer: WeakMap<HTMLElement, ReplayEntry>
+      /** Removes the capture listeners and drops the buffer. */
+      stop: () => void
+    }
   }
 }
 
 /**
  * The inline pre-hydration capture script, as source text.
  *
- * Deliberately dependency-free and written in ES5 style: it runs before any
- * bundle, so it cannot import anything and must not out-run older parsers.
- * Kept in sync with {@link consumePendingReplay} by the shared constants
- * interpolated below.
+ * Dependency-free and ES5-flavoured: it runs before any bundle, so it cannot
+ * import anything and must not out-run older parsers. Only `REPLAY_ATTR` is a
+ * shared contract with {@link consumePendingReplay}; the other interpolated
+ * values are internal to this script.
  */
 export const CLICK_REPLAY_SCRIPT = `(function () {
   var ATTR = '${REPLAY_ATTR}';
   var TYPES = ${JSON.stringify(REPLAYED_EVENTS)};
   var MAX = ${MAX_EVENTS_PER_ENTRY};
-  var buffer = new Map();
-  window.__phClickReplay = { buffer: buffer };
+  var store = { buffer: new WeakMap(), stop: stop };
+  window.__phClickReplay = store;
 
   function snapshot(e) {
     var init = {
       bubbles: true,
       cancelable: e.cancelable,
       composed: true,
-      // \`view\` is deliberately not carried over: nothing in the replayed set
-      // reads it, and passing a Window across the snapshot is the one field
-      // that behaves differently under jsdom than in a browser.
       detail: e.detail,
-      screenX: e.screenX,
-      screenY: e.screenY,
       clientX: e.clientX,
       clientY: e.clientY,
       ctrlKey: e.ctrlKey,
@@ -174,29 +193,42 @@ export const CLICK_REPLAY_SCRIPT = `(function () {
     // Once the owning component has hydrated it handles its own clicks.
     if (!root || root.dataset.replayHydrated) return;
 
-    var entry = buffer.get(root);
+    var entry = store.buffer.get(root);
     // A new pointerdown starts a fresh interaction, so only the user's LAST
     // attempt is ever replayed no matter how many times they click.
     if (!entry || e.type === 'pointerdown') {
       entry = { target: target, time: e.timeStamp, events: [] };
-      buffer.set(root, entry);
+      store.buffer.set(root, entry);
     }
     entry.target = target;
     entry.time = e.timeStamp;
     if (entry.events.length < MAX) entry.events.push(snapshot(e));
   }
 
+  function stop() {
+    for (var j = 0; j < TYPES.length; j++) {
+      document.removeEventListener(TYPES[j], capture, true);
+    }
+    store.buffer = new WeakMap();
+  }
+
   for (var i = 0; i < TYPES.length; i++) {
     document.addEventListener(TYPES[i], capture, true);
   }
+
+  // Nothing buffered past the staleness cutoff could be replayed anyway, and
+  // by then every server-rendered control has long since hydrated. Stopping
+  // takes the per-click ancestor walk out of the steady state entirely.
+  setTimeout(stop, ${MAX_REPLAY_AGE_MS});
 })();`
 
 /**
  * Flag `root` as hydrated and replay any click buffered against it.
  *
- * Call from a layout effect once the owning component is interactive — see the
+ * Exposed for tests and for callers that own an unusual replay root; ordinary
+ * components should spread {@link replayOnHydrate} instead. See the
  * exactly-once notes in the module doc comment for why the ordering here and
- * the effect timing both matter.
+ * the ref-callback timing both matter.
  *
  * @returns `true` when a buffered interaction was replayed.
  */
@@ -227,3 +259,31 @@ export function consumePendingReplay(root: HTMLElement): boolean {
   }
   return true
 }
+
+/**
+ * Ref callback that replays anything buffered against this node.
+ *
+ * Module-level and closes over nothing, so it is referentially stable and
+ * costs adopters no state and no extra render — which matters because these
+ * controls render per row in lists, and the extra work would land inside the
+ * very hydration window this feature exists to compensate for.
+ */
+function attachReplayRoot(node: HTMLElement | null): void {
+  if (node) consumePendingReplay(node)
+}
+
+/**
+ * Spread onto any control that ships in server HTML.
+ *
+ * ```tsx
+ * <button {...replayOnHydrate} onClick={…} />
+ * ```
+ *
+ * One object rather than a ref plus an attribute, so the two halves cannot be
+ * separated — attaching the attribute without the ref silently reproduces the
+ * original bug on an element that looks adopted.
+ */
+export const replayOnHydrate = {
+  ref: attachReplayRoot,
+  [REPLAY_ATTR]: '',
+} as const

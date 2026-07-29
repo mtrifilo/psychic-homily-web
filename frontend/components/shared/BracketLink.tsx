@@ -1,8 +1,10 @@
 'use client'
 
 import { forwardRef } from 'react'
+import { useComposedRefs } from 'radix-ui/internal'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 export interface BracketLinkProps
   extends Omit<
@@ -61,6 +63,13 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     },
     ref
   ) {
+    // Every bracket control ships in server HTML and is clickable before React
+    // wires it up, so replay is owned here rather than re-declared at ~71 call
+    // sites — one of which would inevitably forget, silently. The <Link> branch
+    // below deliberately does NOT get it: a real anchor already works through
+    // the whole window. See lib/hydration/clickReplay.ts.
+    const composedRef = useComposedRefs(ref, replayOnHydrate.ref)
+
     const classes = cn(
       'inline-flex items-baseline whitespace-nowrap text-sm tabular-nums',
       // Tailwind's preflight leaves <button> at `cursor: default`, so the
@@ -102,7 +111,10 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
 
     return (
       <button
-        ref={ref}
+        // Spread first, then override `ref`: the composed one also carries the
+        // forwarded ref, which callers rely on for Radix `asChild` triggers.
+        {...replayOnHydrate}
+        ref={composedRef}
         type="button"
         onClick={onClick}
         disabled={disabled}

@@ -14,68 +14,15 @@ import {
   REPLAY_ATTR,
   consumePendingReplay,
 } from './clickReplay'
+import { installTrustedEventBridge, clickAsUser } from './testing/trustedEvents'
 
 /**
- * The capture half of this primitive is an inline script string, so these tests
- * evaluate that exact string rather than a re-implementation — otherwise the
- * thing that actually ships would be untested.
+ * The capture half of this primitive is an inline script string, so these
+ * tests evaluate that exact string rather than a re-implementation —
+ * otherwise the thing that actually ships would be untested.
  */
 function installCaptureScript() {
   new Function(CLICK_REPLAY_SCRIPT)()
-}
-
-/**
- * The capture listener ignores untrusted events on purpose — that is one of its
- * two guards against re-buffering its own replays — but jsdom marks every
- * scripted event untrusted, and does so *during* dispatch, so the flag cannot
- * simply be set beforehand.
- *
- * The way in: capture-phase listeners fire window-first, so this one runs
- * before the primitive's document-level listener and re-marks the event through
- * jsdom's internal impl object while the dispatch is in flight. Only events
- * this file explicitly created as user input are re-marked, so the
- * untrusted-input test still exercises the real guard.
- */
-const intendedTrusted = new WeakSet<Event>()
-
-function reTrustDuringDispatch(event: Event) {
-  if (!intendedTrusted.has(event)) return
-  const impl = Object.getOwnPropertySymbols(event)
-    .map(sym => (event as unknown as Record<symbol, unknown>)[sym])
-    .find(
-      (value): value is { isTrusted: boolean } =>
-        typeof value === 'object' && value !== null && 'isTrusted' in value
-    )
-  if (!impl) {
-    throw new Error(
-      'jsdom event impl not found — reTrustDuringDispatch() needs updating'
-    )
-  }
-  impl.isTrusted = true
-}
-
-const USER_EVENT_TYPES = [
-  'pointerdown',
-  'mousedown',
-  'pointerup',
-  'mouseup',
-  'click',
-] as const
-
-function clickAsUser(
-  target: Element,
-  type = 'click',
-  init: MouseEventInit = {}
-): MouseEvent {
-  const event = new MouseEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    button: 0,
-    ...init,
-  })
-  intendedTrusted.add(event)
-  target.dispatchEvent(event)
-  return event
 }
 
 /** A replay root wrapping a button, as the adopters render it. */
@@ -90,29 +37,25 @@ function mountControl() {
 
 describe('pre-hydration click capture and replay', () => {
   // Installed once: the script registers permanent document listeners, so
-  // re-running it per test would stack duplicates. Tests get a clean slate by
-  // clearing the buffer instead.
+  // re-running it per test would stack duplicates. Each test builds fresh
+  // elements, and the buffer is weakly keyed, so nothing leaks between them.
   let store: NonNullable<Window['__phClickReplay']>
+  let teardownBridge: () => void
 
   beforeAll(() => {
-    for (const type of USER_EVENT_TYPES) {
-      window.addEventListener(type, reTrustDuringDispatch, true)
-    }
+    teardownBridge = installTrustedEventBridge()
     installCaptureScript()
     store = window.__phClickReplay!
   })
 
   afterAll(() => {
-    for (const type of USER_EVENT_TYPES) {
-      window.removeEventListener(type, reTrustDuringDispatch, true)
-    }
+    teardownBridge()
   })
 
   beforeEach(() => {
     document.body.innerHTML = ''
     // One test deletes the global to prove the consumer is inert without it.
     window.__phClickReplay = store
-    store.buffer.clear()
   })
 
   afterEach(() => {
@@ -122,12 +65,9 @@ describe('pre-hydration click capture and replay', () => {
   it('replays a click that landed before the control hydrated', () => {
     const { root, button } = mountControl()
     const onClick = vi.fn()
-    button.addEventListener('click', onClick)
 
-    // The user clicks while the page is painted but not yet interactive. React
-    // is not listening, so nothing happens — mirrored here by attaching the
-    // handler only after the click.
-    button.removeEventListener('click', onClick)
+    // The user clicks while the page is painted but not yet interactive.
+    // React is not listening, mirrored here by attaching the handler after.
     clickAsUser(button)
     expect(onClick).not.toHaveBeenCalled()
 
@@ -170,9 +110,9 @@ describe('pre-hydration click capture and replay', () => {
     clickAsUser(button)
     consumePendingReplay(root)
 
-    // The replay dispatched an untrusted click through the same capture
-    // listener. Nothing may be left in the buffer for a second round.
-    expect(window.__phClickReplay?.buffer.size).toBe(0)
+    // The replay dispatched untrusted events through the same capture
+    // listener. Nothing may be left for a second round.
+    expect(store.buffer.get(root)).toBeUndefined()
   })
 
   it('drops a click older than the staleness cutoff', () => {
@@ -181,7 +121,7 @@ describe('pre-hydration click capture and replay', () => {
     clickAsUser(button)
     button.addEventListener('click', onClick)
 
-    const captured = window.__phClickReplay!.buffer.get(root)!
+    const captured = store.buffer.get(root)!
     vi.spyOn(performance, 'now').mockReturnValue(
       captured.time + MAX_REPLAY_AGE_MS + 1
     )
@@ -196,7 +136,7 @@ describe('pre-hydration click capture and replay', () => {
     clickAsUser(button)
     button.addEventListener('click', onClick)
 
-    const captured = window.__phClickReplay!.buffer.get(root)!
+    const captured = store.buffer.get(root)!
     vi.spyOn(performance, 'now').mockReturnValue(
       captured.time + MAX_REPLAY_AGE_MS - 1
     )
@@ -238,6 +178,15 @@ describe('pre-hydration click capture and replay', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
+  it('bounds the buffer when keyboard repeat fires clicks with no pointerdown', () => {
+    // Holding Enter on a focused button emits click after click with nothing
+    // to reset the entry, which is the case the per-entry cap exists for.
+    const { root, button } = mountControl()
+    for (let i = 0; i < 40; i++) clickAsUser(button)
+
+    expect(store.buffer.get(root)!.events.length).toBeLessThanOrEqual(8)
+  })
+
   it('targets the clicked node rather than a coordinate', () => {
     // Layout shifts as images load, so a recorded position can point somewhere
     // else entirely by the time hydration finishes.
@@ -275,18 +224,19 @@ describe('pre-hydration click capture and replay', () => {
   })
 
   it('ignores clicks outside any replay root', () => {
+    const { root } = mountControl()
     const loose = document.createElement('button')
     document.body.appendChild(loose)
 
     clickAsUser(loose)
-    expect(window.__phClickReplay?.buffer.size).toBe(0)
+    expect(consumePendingReplay(root)).toBe(false)
   })
 
   it('ignores untrusted clicks, so scripted input is never queued', () => {
     const { root, button } = mountControl()
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
-    expect(window.__phClickReplay?.buffer.size).toBe(0)
+    expect(store.buffer.get(root)).toBeUndefined()
     expect(consumePendingReplay(root)).toBe(false)
   })
 
@@ -296,5 +246,45 @@ describe('pre-hydration click capture and replay', () => {
 
     expect(() => consumePendingReplay(root)).not.toThrow()
     expect(root.dataset.replayHydrated).toBe('1')
+  })
+})
+
+describe('capture teardown', () => {
+  // Its own describe block: this installs a second, independently stoppable
+  // copy of the script so stopping it cannot disturb the suite above.
+  let teardownBridge: () => void
+
+  beforeAll(() => {
+    teardownBridge = installTrustedEventBridge()
+  })
+  afterAll(() => teardownBridge())
+
+  it('stops buffering once capture is torn down', () => {
+    const previous = window.__phClickReplay
+    new Function(CLICK_REPLAY_SCRIPT)()
+    const store = window.__phClickReplay!
+
+    const root = document.createElement('div')
+    root.setAttribute(REPLAY_ATTR, '')
+    const button = document.createElement('button')
+    root.appendChild(button)
+    document.body.appendChild(root)
+
+    clickAsUser(button)
+    expect(store.buffer.get(root)).toBeDefined()
+
+    store.stop()
+
+    const after = document.createElement('div')
+    after.setAttribute(REPLAY_ATTR, '')
+    const afterButton = document.createElement('button')
+    after.appendChild(afterButton)
+    document.body.appendChild(after)
+
+    clickAsUser(afterButton)
+    expect(store.buffer.get(after)).toBeUndefined()
+    expect(consumePendingReplay(after)).toBe(false)
+
+    window.__phClickReplay = previous
   })
 })

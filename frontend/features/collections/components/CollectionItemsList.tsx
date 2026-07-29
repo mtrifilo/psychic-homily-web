@@ -79,7 +79,6 @@ import { CollectionItemCard } from './CollectionItemCard'
 import { ANCHOR_SECTION_SCROLL_MT } from './CollectionAnchorNav'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
-import { useReplayOnHydrate } from '@/lib/hooks/common/useReplayOnHydrate'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { DensityToggle } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -312,12 +311,6 @@ export function CollectionItemsList({
 
   const renderItems = isGridView ? renderGridCards : renderListRows
 
-  // Both of these ship in the server HTML and sit behind a `dynamic()` import,
-  // so they are among the last controls on the page to become interactive —
-  // the view toggle is the one PSY-1610 caught dropping a click in CI.
-  const viewToggleReplayRef = useReplayOnHydrate<HTMLDivElement>()
-  const addItemsReplayRef = useReplayOnHydrate<HTMLButtonElement>()
-
   // Header row: section title + item count + creator's "+ Add Items" button
   // on the left (PSY-892 D7 — "add more" reads in the same glance as "what's
   // here"); view + density toggles on the right. Density toggle stays mounted
@@ -336,7 +329,6 @@ export function CollectionItemsList({
         </span>
         {isCreator && (
           <Button
-            ref={addItemsReplayRef}
             {...replayOnHydrate}
             variant="outline"
             size="sm"
@@ -359,7 +351,9 @@ export function CollectionItemsList({
           disabledTooltip="Density only applies to grid view"
         />
         <div
-          ref={viewToggleReplayRef}
+          // Ships in server HTML behind a dynamic() import, so it is among the
+          // last controls to wake up — this is the toggle PSY-1610 caught
+          // dropping a click in CI.
           {...replayOnHydrate}
           className="inline-flex items-center rounded-lg border border-border/50 bg-muted/30 p-0.5"
           role="radiogroup"

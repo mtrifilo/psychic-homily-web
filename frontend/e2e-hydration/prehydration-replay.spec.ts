@@ -63,6 +63,10 @@ import { test, expect, type Page } from '@playwright/test'
 import { execFileSync } from 'child_process'
 
 const SHOW_SLUG = '2026-07-30-e2e-test-show-1'
+const ARTIST_SLUG = 'calexico'
+/** Matches the save control before and after its count query resolves (trap 2). */
+const SAVE_BUTTON =
+  'button[aria-label^="Add to My List"], button[aria-label^="Remove from My List"]'
 const USER_EMAIL = 'e2e-user@test.local'
 const USER_PASSWORD = 'e2e-test-password-123'
 
@@ -86,8 +90,9 @@ function resetBookmarks() {
   psql('DELETE FROM user_bookmarks')
 }
 
-function bookmarkCount(): number {
-  return Number(psql(`SELECT count(*) FROM user_bookmarks`))
+/** Follows and saves share `user_bookmarks`, discriminated by `action`. */
+function bookmarkCount(where = 'true'): number {
+  return Number(psql(`SELECT count(*) FROM user_bookmarks WHERE ${where}`))
 }
 
 /**
@@ -157,6 +162,20 @@ interface Probe {
   domAt: number | null
 }
 
+/**
+ * Open a window a human could act in. PSY-1610 measured ~4.6s at 6x + slow 4G.
+ */
+async function throttle(page: Page, cpuRate = 6) {
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpuRate })
+  await cdp.send('Network.emulateNetworkConditions', {
+    offline: false,
+    latency: 150,
+    downloadThroughput: (1.6 * 1024 * 1024) / 8,
+    uploadThroughput: (750 * 1024) / 8,
+  })
+}
+
 async function login(page: Page) {
   const response = await page.request.post('/api/auth/login', {
     data: { email: USER_EMAIL, password: USER_PASSWORD },
@@ -165,32 +184,40 @@ async function login(page: Page) {
 }
 
 /**
- * Click the save control the instant it is painted — the behaviour of a user
- * who knows where the button is. Re-measures the box immediately before firing
- * and asserts the point is really over the target (trap 1).
+ * Click `selector` the instant it is painted — the behaviour of a user who
+ * knows where the control is. Re-measures the box immediately before firing and
+ * asserts the point is really over the target (trap 1), and reports whether the
+ * node had hydrated at that moment so callers can prove the click was early.
  */
-async function clickAsSoonAsPainted(page: Page, timeoutMs = 15_000) {
+async function clickAsSoonAsPainted(
+  page: Page,
+  selector: string = SAVE_BUTTON,
+  timeoutMs = 15_000
+): Promise<{ clicked: boolean; hydrated: boolean }> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const box = await page.evaluate(() => {
-      const node = document.querySelector(
-        'button[aria-label^="Add to My List"], button[aria-label^="Remove from My List"]'
-      )
+    const box = await page.evaluate(sel => {
+      const node = document.querySelector(sel)
       if (!node) return null
       const rect = node.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) return null
       const x = rect.left + rect.width / 2
       const y = rect.top + rect.height / 2
       const hit = document.elementFromPoint(x, y)
-      return { x, y, over: !!hit && node.contains(hit) }
-    })
+      return {
+        x,
+        y,
+        over: !!hit && node.contains(hit),
+        hydrated: Object.keys(node).some(k => k.startsWith('__reactProps$')),
+      }
+    }, selector)
     if (box?.over) {
       await page.mouse.click(box.x, box.y)
-      return true
+      return { clicked: true, hydrated: box.hydrated }
     }
     await page.waitForTimeout(4)
   }
-  return false
+  return { clicked: false, hydrated: false }
 }
 
 test.describe('pre-hydration clicks on a mutation control', () => {
@@ -237,22 +264,14 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     })
     page.on('pageerror', err => consoleErrors.push(`pageerror: ${err.message.slice(0, 200)}`))
 
-    // Throttle hard enough to open a window a human could act in. PSY-1610
-    // measured ~4.6s at 6x + slow 4G.
-    const cdp = await page.context().newCDPSession(page)
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
-    await cdp.send('Network.emulateNetworkConditions', {
-      offline: false,
-      latency: 150,
-      downloadThroughput: (1.6 * 1024 * 1024) / 8,
-      uploadThroughput: (750 * 1024) / 8,
-    })
+    await throttle(page)
 
     await page.goto(`/shows/${SHOW_SLUG}`, { waitUntil: 'commit' })
 
-    expect(await clickAsSoonAsPainted(page), 'never got a click on target').toBe(
-      true
-    )
+    expect(
+      (await clickAsSoonAsPainted(page)).clicked,
+      'never got a click on target'
+    ).toBe(true)
 
     // Give hydration, the replay, and the mutation round trip time to finish.
     await page.waitForTimeout(12_000)
@@ -301,47 +320,53 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     // no click can be aimed at it. Widen so the control is fully on-screen.
     await page.setViewportSize({ width: 1600, height: 900 })
 
-    const cdp = await page.context().newCDPSession(page)
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
-    await cdp.send('Network.emulateNetworkConditions', {
-      offline: false,
-      latency: 150,
-      downloadThroughput: (1.6 * 1024 * 1024) / 8,
-      uploadThroughput: (750 * 1024) / 8,
-    })
-
+    await throttle(page)
     await page.goto(`/shows/${SHOW_SLUG}`, { waitUntil: 'commit' })
 
     const trigger = 'button[aria-label="User menu"]'
-    const deadline = Date.now() + 15_000
-    let clicked = false
-    while (Date.now() < deadline && !clicked) {
-      const box = await page.evaluate(sel => {
-        const node = document.querySelector(sel)
-        if (!node) return null
-        const rect = node.getBoundingClientRect()
-        if (rect.width === 0) return null
-        const x = rect.left + rect.width / 2
-        const y = rect.top + rect.height / 2
-        const hit = document.elementFromPoint(x, y)
-        const hydrated = Object.keys(node).some(k => k.startsWith('__reactProps$'))
-        return { x, y, over: !!hit && node.contains(hit), hydrated }
-      }, trigger)
-      if (box?.over) {
-        expect(
-          box.hydrated,
-          'trigger hydrated before the click landed — raise the throttle'
-        ).toBe(false)
-        await page.mouse.click(box.x, box.y)
-        clicked = true
-      } else {
-        await page.waitForTimeout(4)
-      }
-    }
-    expect(clicked, 'never got a click on the user menu trigger').toBe(true)
+    const result = await clickAsSoonAsPainted(page, trigger)
+    expect(result.clicked, 'never got a click on the user menu trigger').toBe(true)
+    expect(
+      result.hydrated,
+      'trigger hydrated before the click landed — raise the throttle'
+    ).toBe(false)
 
     // Radix sets data-state="open" on the trigger and mounts a [role=menu].
     await expect(page.locator('[role="menu"]')).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('a pre-hydration click on a BracketLink control replays', async ({
+    page,
+  }) => {
+    // Bracket controls do not opt in individually — `BracketLink` owns replay
+    // for all ~71 of its usages, and this is the only end-to-end proof of that
+    // ownership. `AddToCollectionButton`'s bracket branch carries no replay
+    // code of its own, so if BracketLink stopped providing it this test fails
+    // and nothing else would.
+    //
+    // Not [Follow]: its bracket renders *disabled* until the follow-status
+    // query resolves, so it only becomes clickable after hydration and is
+    // already protected by that loading state on this page.
+    await login(page)
+    await throttle(page)
+    await page.goto(`/artists/${ARTIST_SLUG}`, { waitUntil: 'commit' })
+
+    const result = await clickAsSoonAsPainted(
+      page,
+      'button[aria-label="Add to Collection"]'
+    )
+    expect(result.clicked, 'never got a click on [Add to collection]').toBe(true)
+    expect(
+      result.hydrated,
+      'control hydrated before the click landed — raise the throttle'
+    ).toBe(false)
+
+    // Assert on the trigger's own Radix state rather than getByRole('dialog'):
+    // the page mounts more than one dialog, and a bare role query is a
+    // strict-mode violation (the PSY-1595/1599 failure mode).
+    await expect(
+      page.locator('button[aria-label="Add to Collection"][data-state="open"]')
+    ).toBeVisible({ timeout: 20_000 })
   })
 
   test('a click after hydration still saves exactly once', async ({ page }) => {
@@ -361,7 +386,7 @@ test.describe('pre-hydration clicks on a mutation control', () => {
       timeout: 30_000,
     })
 
-    expect(await clickAsSoonAsPainted(page)).toBe(true)
+    expect((await clickAsSoonAsPainted(page)).clicked).toBe(true)
     await page.waitForTimeout(3_000)
 
     expect(bookmarkCount()).toBe(1)

@@ -38,7 +38,7 @@ interface AuthHydratorProps {
  * React wires them up** — ~0.26s on a desktop over loopback, up to ~6.7s on a
  * throttled phone. Clicks in that window are discarded, not queued, and React
  * 19 does not replay them. Server-rendered controls should therefore opt into
- * `useReplayOnHydrate()` (see `lib/hydration/clickReplay.ts`), and navigation
+ * `replayOnHydrate` (see `lib/hydration/clickReplay.ts`), and navigation
  * must be a real anchor rather than an onClick router push. The window is a
  * property of hydration, not of auth — anonymous surfaces have it too. Full
  * write-up in `docs/performance-improvements.md`.

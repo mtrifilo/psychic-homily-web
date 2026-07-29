@@ -111,8 +111,9 @@ What this means when writing SSR-rendered UI:
   window for free. This is the single most valuable rule here — it is why the
   `+ Submit` link never needed fixing.
 - **Interactive controls that ship in server HTML should opt into click
-  replay**: add `{...replayOnHydrate}` and the `useReplayOnHydrate()` callback
-  ref. See `lib/hydration/clickReplay.ts` for the mechanism, its exactly-once
+  replay**: spread `{...replayOnHydrate}` onto the control. `BracketLink`
+  already carries it, so every bracket control inherits it for free. See
+  `lib/hydration/clickReplay.ts` for the mechanism, its exactly-once
   guarantees, and its limits (click only — keyboard activation of a Radix
   trigger is still dropped).
 - **Do not "fix" this by gating rendering on hydration** — `suppressHydrationWarning`,
