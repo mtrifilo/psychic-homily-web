@@ -72,10 +72,21 @@ export async function resetTestFixtures(
     storageState: path.join(AUTH_DIR, 'admin.json'),
   })
   try {
-    const resp = await ctx.post('/admin/test-fixtures/reset', {
-      headers: { 'X-Test-Fixtures': '1' },
-      data: { user_id: userId, tables: scopes },
-    })
+    // See lookupWorkerUserId: annotate transport failures the same way.
+    let resp
+    try {
+      resp = await ctx.post('/admin/test-fixtures/reset', {
+        headers: { 'X-Test-Fixtures': '1' },
+        data: { user_id: userId, tables: scopes },
+      })
+    } catch (err) {
+      throw new Error(
+        `test-fixtures reset could not reach the backend at ` +
+          `${BACKEND_BASE_URL} (user_id=${userId}): ${(err as Error).message}. ` +
+          BACKEND_HINT,
+        { cause: err },
+      )
+    }
     if (!resp.ok()) {
       const bodyText = await resp.text().catch(() => '<unreadable body>')
       throw new Error(
@@ -100,7 +111,21 @@ export async function lookupWorkerUserId(authFile: string): Promise<number> {
     storageState: path.join(AUTH_DIR, authFile),
   })
   try {
-    const resp = await ctx.get('/auth/profile')
+    // A refused connection is the OTHER half of a misconfigured backend URL —
+    // nothing is listening, rather than the wrong thing answering. Playwright
+    // surfaces it as a bare `connect ECONNREFUSED`, which says nothing about
+    // why the harness was aiming there, so give it the same diagnosis as a
+    // non-2xx instead of letting it escape unannotated.
+    let resp
+    try {
+      resp = await ctx.get('/auth/profile')
+    } catch (err) {
+      throw new Error(
+        `profile lookup could not reach the backend at ${BACKEND_BASE_URL} ` +
+          `for ${authFile}: ${(err as Error).message}. ${BACKEND_HINT}`,
+        { cause: err },
+      )
+    }
     if (!resp.ok()) {
       throw new Error(
         `profile lookup failed: HTTP ${resp.status()} for ${authFile} ` +
