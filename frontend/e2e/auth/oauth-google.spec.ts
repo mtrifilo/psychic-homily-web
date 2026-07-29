@@ -1,5 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import { E2E_BACKEND_URL } from '../backend-url'
 
 // PSY-914: Google OAuth login, end-to-end through a faux "google" provider.
 //
@@ -33,7 +34,10 @@ import { expect } from '@playwright/test'
 // signup — keeping this spec off the terms/consent path. The signup-consent
 // flow is a separate follow-up.
 
-const BACKEND_ORIGIN = 'http://localhost:8080'
+// PSY-1645: this spec is the suite's other direct-to-backend call, and it
+// carried the same hardcoded origin the fixture-reset helper did. See
+// e2e/backend-url.ts.
+const BACKEND_ORIGIN = E2E_BACKEND_URL
 
 test.describe('Google OAuth', () => {
   test('logs in via the faux Google provider', { tag: '@smoke' }, async ({ page }) => {

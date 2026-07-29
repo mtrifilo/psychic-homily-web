@@ -49,33 +49,23 @@ export const test = base.extend<
   // teardown calls the reset endpoint when Playwright shuts the worker
   // down. Runs whether the test passed or failed.
   //
-  // If the lookup or reset fails we log and continue — we don't want a
-  // cleanup hiccup to mask a real test failure.
+  // PSY-1645: neither call is caught. This used to log-and-continue on the
+  // theory that a cleanup hiccup shouldn't mask a real test failure — but a
+  // skipped cleanup isn't a hiccup, it's a broken precondition for every
+  // mutating spec that follows, and the resulting failures read as product
+  // bugs rather than as the configuration error they are. Playwright reports
+  // a fixture error alongside the test's own errors, so a genuine failure is
+  // still visible; letting these throw only adds the cause.
   workerCleanup: [
     async ({}, use, workerInfo) => {
       const seededIndex = workerInfo.workerIndex % USER_COUNT
       const authFile = userAuthFileForWorker(seededIndex)
 
-      let workerUserId: number | null = null
-      try {
-        workerUserId = await lookupWorkerUserId(authFile)
-      } catch (err) {
-        console.warn(
-          `[PSY-432] worker ${workerInfo.workerIndex}: profile lookup failed; skipping cleanup (${(err as Error).message})`,
-        )
-      }
+      const workerUserId = await lookupWorkerUserId(authFile)
 
       await use()
 
-      if (workerUserId !== null) {
-        try {
-          await resetTestFixtures(workerUserId)
-        } catch (err) {
-          console.warn(
-            `[PSY-432] worker ${workerInfo.workerIndex}: reset failed (user_id=${workerUserId}): ${(err as Error).message}`,
-          )
-        }
-      }
+      await resetTestFixtures(workerUserId)
     },
     { scope: 'worker', auto: true },
   ],
@@ -100,18 +90,16 @@ export const test = base.extend<
   // Fires `/admin/test-fixtures/reset` at test teardown, so retries of a
   // failing mutating test start from a clean slate instead of compounding
   // state across attempts. Reuses the PSY-432 allowlist scopes verbatim.
+  //
+  // PSY-1645: as with `workerCleanup`, a failure here throws. The whole point
+  // of this fixture is that the next attempt starts from a clean slate; a
+  // silently skipped reset hands the retry exactly the compounded state the
+  // fixture exists to prevent.
   cleanBetweenRetries: async ({}, use, testInfo) => {
     const seededIndex = testInfo.workerIndex % USER_COUNT
     const authFile = userAuthFileForWorker(seededIndex)
 
-    let workerUserId: number | null = null
-    try {
-      workerUserId = await lookupWorkerUserId(authFile)
-    } catch (err) {
-      console.warn(
-        `[PSY-507] cleanBetweenRetries: profile lookup failed; skipping cleanup (${(err as Error).message})`,
-      )
-    }
+    const workerUserId = await lookupWorkerUserId(authFile)
 
     // `use` here is Playwright's fixture callback (the 2nd arg of a fixture
     // function), not React's `use` hook. The rule's name heuristic flags it
@@ -121,15 +109,7 @@ export const test = base.extend<
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use()
 
-    if (workerUserId !== null) {
-      try {
-        await resetTestFixtures(workerUserId)
-      } catch (err) {
-        console.warn(
-          `[PSY-507] cleanBetweenRetries: reset failed (user_id=${workerUserId}): ${(err as Error).message}`,
-        )
-      }
-    }
+    await resetTestFixtures(workerUserId)
   },
 
   adminPage: async ({ browser, errors: _errors }, runFixture) => {
