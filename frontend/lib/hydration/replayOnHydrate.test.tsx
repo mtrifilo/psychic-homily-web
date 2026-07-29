@@ -4,6 +4,8 @@ import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { CLICK_REPLAY_SCRIPT, replayOnHydrate } from './clickReplay'
 import { BracketLink } from '@/components/shared/BracketLink'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { installTrustedEventBridge, clickAsUser } from './testing/trustedEvents'
 
 /**
@@ -112,6 +114,53 @@ describe('replayOnHydrate', () => {
     })
 
     expect(onActivate).toHaveBeenCalledTimes(1)
+  })
+
+  it('replays through the shadcn Button, which most adopters spread onto', () => {
+    // 11 adoption sites are `<Button {...replayOnHydrate} />`. That works only
+    // because Button is a React-19 function component that spreads `ref`
+    // straight through to the DOM node. If it ever wrapped, memoised or dropped
+    // `ref`, every one of those controls would keep the marker attribute and
+    // silently stop replaying — the exact attribute-without-ref failure this
+    // primitive's shape is meant to make unrepresentable.
+    const onActivate = vi.fn()
+    const node = <Button {...replayOnHydrate} onClick={onActivate}>Save</Button>
+
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(node)
+    document.body.appendChild(container)
+    const button = container.querySelector('button')!
+
+    clickAsUser(button, 'pointerdown')
+    clickAsUser(button)
+    expect(onActivate).not.toHaveBeenCalled()
+
+    act(() => {
+      hydrateRoot(container, node)
+    })
+    expect(onActivate).toHaveBeenCalledTimes(1)
+  })
+
+  it('replays through the Radix Switch used by /settings/appearance', () => {
+    // The nav-mode toggle writes a persisted cookie, so a dropped click there
+    // is a preference the user believes they set. Radix primitives forward ref
+    // through `...props` the same way; assert it rather than assume it.
+    const onChange = vi.fn()
+    const node = <Switch {...replayOnHydrate} onCheckedChange={onChange} />
+
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(node)
+    document.body.appendChild(container)
+    const el = container.querySelector('button')!
+
+    clickAsUser(el, 'pointerdown')
+    clickAsUser(el)
+    expect(onChange).not.toHaveBeenCalled()
+
+    act(() => {
+      hydrateRoot(container, node)
+    })
+    expect(onChange).toHaveBeenCalledTimes(1)
   })
 
   it('renders the marker attribute into the server HTML', () => {

@@ -404,6 +404,24 @@ describe('pre-hydration click capture and replay', () => {
     expect(onClick).not.toHaveBeenCalled()
   })
 
+  it('does not replay into an input disabled since the click', () => {
+    // The guard's selector has three arms; each needs its own test or the
+    // "every guard has a failing mutation" claim is not true of all of them.
+    const root = document.createElement('div')
+    root.setAttribute(REPLAY_ATTR, '')
+    const input = document.createElement('input')
+    root.appendChild(input)
+    document.body.appendChild(root)
+
+    const onClick = vi.fn()
+    clickAsUser(input)
+    input.addEventListener('click', onClick)
+    input.disabled = true
+
+    expect(consumePendingReplay(root)).toBe(false)
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
   it('does not replay into a control marked aria-disabled since the click', () => {
     const { root, button } = mountControl()
     const onClick = vi.fn()
