@@ -18,9 +18,11 @@ export const SITE_DESCRIPTION =
 /**
  * Canonical public origin, with no trailing slash.
  *
- * The absolute URLs a page publishes — `alternates.canonical`, Open Graph URLs,
- * and every `url`/`item` inside JSON-LD — must agree, because a crawler treats
- * two spellings of the same page as two pages. Build them from this rather than
- * from a per-module literal.
+ * Adoption is PARTIAL and deliberately so: `lib/seo/jsonld.ts` and the
+ * scene-week page build from this, while most of `app/**` still inlines the
+ * literal in its `alternates.canonical` and its `generateBreadcrumbSchema`
+ * calls. Prefer this in new code; sweeping the rest is its own change, not a
+ * side effect of an unrelated one. Do not read the existence of this constant
+ * as proof that no literals remain.
  */
 export const SITE_URL = 'https://psychichomily.com'

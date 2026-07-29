@@ -14734,6 +14734,7 @@ export interface components {
             title: string;
             venue_address?: string;
             venue_city?: string;
+            venue_country?: string;
             venue_name?: string;
             venue_slug?: string;
             venue_state?: string;

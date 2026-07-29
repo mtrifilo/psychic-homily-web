@@ -98,10 +98,10 @@ export interface SceneArtistsResponse {
  * One upcoming show in the scene preview's "This week" row (PSY-1309).
  *
  * DERIVED from the generated OpenAPI schema, not hand-written. The hand-written
- * copy that used to live here had already fallen four fields behind the API —
- * including `is_cancelled`, so the Atlas preview panel could not have told a
- * cancelled show from a live one — and the `api:types:check` drift gate cannot
- * see a type it does not generate. Same rule as `sceneWeek.ts`.
+ * copy that used to live here had already fallen two fields behind the API
+ * (`is_sold_out`, `is_cancelled` — so the Atlas preview panel could not have
+ * told a cancelled show from a live one), and the `api:types:check` drift gate
+ * cannot see a type it does not generate. Same rule as `sceneWeek.ts`.
  */
 export type SceneShowSummary = components['schemas']['SceneShowSummary']
 

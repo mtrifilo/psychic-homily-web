@@ -562,8 +562,9 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 // the Atlas preview panel's "This week" row (PSY-1309). Scoped by the scene's
 // venue predicate so a metro scene includes member-city shows (a Tempe show
 // counts toward Phoenix) — the literal-city upcoming-shows endpoint can't do
-// that. VenueName is the first venue on the bill (MIN by name: deterministic,
-// and multi-venue shows are rare).
+// that. VenueName is the alphabetically-first IN-SCOPE venue on the bill, and
+// every other Venue* field comes from that same row — see the DISTINCT ON pick
+// in GetSceneShowsInRange.
 func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, limit int) ([]contracts.SceneShowSummary, error) {
 	now := time.Now().UTC()
 	// time.UTC preserves this method's original date formatting exactly — the
@@ -615,6 +616,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 		VenueAddress  string    `gorm:"column:venue_address"`
 		VenueCity     string    `gorm:"column:venue_city"`
 		VenueState    string    `gorm:"column:venue_state"`
+		VenueCountry  string    `gorm:"column:venue_country"`
 		VenueTimezone string    `gorm:"column:venue_timezone"`
 	}
 	// Placeholder order: venue predicate, then status/window bounds.
@@ -649,6 +651,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 			       CASE WHEN v.verified THEN COALESCE(v.address, '') ELSE '' END AS venue_address,
 			       v.city AS venue_city,
 			       v.state AS venue_state,
+			       COALESCE(v.country, '') AS venue_country,
 			       COALESCE(v.timezone, '') AS venue_timezone
 			FROM shows s
 			JOIN show_venues sv ON sv.show_id = s.id
@@ -693,6 +696,7 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 			VenueAddress:  r.VenueAddress,
 			VenueCity:     r.VenueCity,
 			VenueState:    r.VenueState,
+			VenueCountry:  r.VenueCountry,
 			VenueTimezone: r.VenueTimezone,
 		}
 	}

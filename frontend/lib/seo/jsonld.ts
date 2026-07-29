@@ -203,12 +203,22 @@ export function generateMusicEventSchema(show: {
   description?: string
   is_cancelled?: boolean
   is_sold_out?: boolean
+  /**
+   * The show has already happened, so there is nothing left to offer.
+   *
+   * Caller-supplied rather than derived from `date` here, so this stays a pure
+   * function of its input: its output is reproducible and its tests do not
+   * depend on the clock.
+   */
+  is_past?: boolean
   venue?: {
     name: string
     slug?: string
     address?: string
     city?: string
     state?: string
+    /** ISO country code. Defaults to US when the caller does not know. */
+    country?: string
     timezone?: string | null
     zip_code?: string
   }
@@ -266,7 +276,11 @@ export function generateMusicEventSchema(show: {
       addressLocality: show.venue.city,
       addressRegion: show.venue.state,
       postalCode: show.venue.zip_code,
-      addressCountry: 'US',
+      // US only as the fallback for callers that cannot supply a country. The
+      // scene list is not US-only — a non-US scene stamped `US` would be a
+      // machine-readable false statement about a real place, repeated once per
+      // show on the page.
+      addressCountry: show.venue.country || 'US',
     }
   }
 
@@ -292,16 +306,24 @@ export function generateMusicEventSchema(show: {
     })
   }
 
-  // A cancelled show has no offer to describe. Emitting one anyway produced
-  // `eventStatus: EventCancelled` alongside `availability: InStock` — the two
-  // halves of the same block contradicting each other, which is worse than
-  // saying nothing. Every available `ItemAvailability` value would be a guess
-  // at what "cancelled" maps to, so the claim is dropped rather than invented.
-  if (show.price !== undefined && show.price !== null && !show.is_cancelled) {
+  // An offer describes what a reader can still get. A cancelled show has
+  // nothing to sell and neither does one that already happened, so both drop
+  // the offer entirely: emitting one produced `EventCancelled` next to
+  // `availability: InStock` — the two halves of the same block contradicting
+  // each other. No `ItemAvailability` value honestly means "cancelled" or
+  // "over", so the claim is dropped rather than mapped onto a guess.
+  //
+  // Sold-out is NOT gated on price. `availability` is the only channel
+  // schema.org has for it (there is no EventSoldOut status), so gating it on a
+  // price the show may simply not have recorded would leave the sold-out badge
+  // the page renders with no machine-readable counterpart. Price and currency
+  // stay optional inside the offer — Google marks both Recommended, not
+  // required, so a price-less Offer still validates.
+  const hasPrice = show.price !== undefined && show.price !== null
+  if (!show.is_cancelled && !show.is_past && (hasPrice || show.is_sold_out)) {
     schema.offers = {
       '@type': 'Offer',
-      price: show.price,
-      priceCurrency: 'USD',
+      ...(hasPrice ? { price: show.price, priceCurrency: 'USD' } : {}),
       availability: show.is_sold_out
         ? 'https://schema.org/SoldOut'
         : 'https://schema.org/InStock',

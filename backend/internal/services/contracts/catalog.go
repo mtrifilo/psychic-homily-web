@@ -826,7 +826,10 @@ type SceneShowSummary struct {
 	// timestamp — structured-data `startDate`, a calendar export — must use this
 	// and render it in the venue's own zone.
 	StartsAt time.Time `json:"starts_at"`
-	// Door price in USD when known; absent when the show has none recorded.
+	// Door price when known; absent when the show has none recorded. NO currency
+	// is recorded anywhere in the schema — `shows.price` is a bare numeric — so
+	// a consumer that needs one has to assume, and for a non-US scene that
+	// assumption is wrong. Do not add a currency here without adding the column.
 	Price *float64 `json:"price,omitempty"`
 
 	// The billed venue's own details, from the SAME venue row VenueName names —
@@ -839,6 +842,7 @@ type SceneShowSummary struct {
 	VenueAddress  string `json:"venue_address,omitempty"`
 	VenueCity     string `json:"venue_city,omitempty"`
 	VenueState    string `json:"venue_state,omitempty"`
+	VenueCountry  string `json:"venue_country,omitempty"`
 	VenueTimezone string `json:"venue_timezone,omitempty"`
 }
 

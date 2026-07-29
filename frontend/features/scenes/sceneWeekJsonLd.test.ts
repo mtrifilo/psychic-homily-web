@@ -17,6 +17,7 @@ const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow => ({
   venue_address: '308 N 2nd Ave',
   venue_city: 'Phoenix',
   venue_state: 'AZ',
+  venue_country: 'US',
   venue_timezone: 'America/Phoenix',
   artist_names: ['Riff Wood'],
   ...over,
@@ -42,6 +43,13 @@ const week = (shows: SceneWeekShow[]): SceneWeekResponse => ({
   ],
 })
 
+/** Before the fixture week, so its shows read as upcoming. */
+const BEFORE = new Date('2026-07-20T00:00:00Z')
+/** After it, so the same shows read as over. */
+const AFTER = new Date('2026-09-01T00:00:00Z')
+
+const build = (shows: SceneWeekShow[], now = BEFORE) => buildSceneWeekJsonLd(week(shows), now)
+
 describe('buildSceneWeekJsonLd — MusicEvent', () => {
   it('emits one event per listed show, across days', () => {
     const data = week([])
@@ -50,7 +58,7 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
       { date: '2026-07-28', shows: [] },
       { date: '2026-07-29', shows: [show({ id: 2 }), show({ id: 3 })] },
     ]
-    const { events } = buildSceneWeekJsonLd(data)
+    const { events } = buildSceneWeekJsonLd(data, BEFORE)
     expect(events).toHaveLength(3)
     expect(events.every(e => e['@type'] === 'MusicEvent')).toBe(true)
   })
@@ -58,17 +66,20 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
   // The whole reason `starts_at` exists. `event_date` is a scene-local calendar
   // date; re-parsing it would place a Monday-evening Phoenix show on Sunday.
   it('renders startDate in the venue-local zone, with offset', () => {
-    const [event] = buildSceneWeekJsonLd(week([show()])).events
+    const [event] = build([show()]).events
     expect(event.startDate).toBe('2026-07-27T20:00:00-07:00')
   })
 
-  it('falls back to the state timezone map when the venue has no zone', () => {
-    const [event] = buildSceneWeekJsonLd(week([show({ venue_timezone: '' })])).events
+  // The backend bucketed the show into its day using the SCENE's zone, so that
+  // is the fallback — not the state map, which can name a different zone and
+  // put the event on a different date than the heading it sits under.
+  it('falls back to the scene timezone, not the state map, when the venue has none', () => {
+    const [event] = build([show({ venue_timezone: '' })]).events
     expect(event.startDate).toBe('2026-07-27T20:00:00-07:00')
   })
 
   it('carries the venue as a MusicVenue with a PostalAddress', () => {
-    const [event] = buildSceneWeekJsonLd(week([show()])).events
+    const [event] = build([show()]).events
     expect(event.location).toMatchObject({
       '@type': 'MusicVenue',
       name: 'Crescent Ballroom',
@@ -83,19 +94,30 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
     })
   })
 
+  // Scenes are not US-only. Stamping `US` on a Toronto venue is a
+  // machine-readable false statement, repeated once per show on the page.
+  it('publishes the venue’s own country', () => {
+    const [event] = build([show({ venue_country: 'CA', venue_city: 'Toronto', venue_state: 'ON' })])
+      .events
+    expect(event.location.address?.addressCountry).toBe('CA')
+  })
+
+  it('defaults the country to US when the venue has none recorded', () => {
+    const [event] = build([show({ venue_country: '' })]).events
+    expect(event.location.address?.addressCountry).toBe('US')
+  })
+
   // Street addresses are withheld for unverified venues by the backend, which
   // sends "". The city-level address must survive that so the event still has
   // a location Google accepts.
   it('keeps a city-level address when the street address is withheld', () => {
-    const [event] = buildSceneWeekJsonLd(week([show({ venue_address: '' })])).events
+    const [event] = build([show({ venue_address: '' })]).events
     expect(event.location.address?.streetAddress).toBeUndefined()
     expect(event.location.address?.addressLocality).toBe('Phoenix')
   })
 
   it('names the bill as performers', () => {
-    const [event] = buildSceneWeekJsonLd(
-      week([show({ artist_names: ['Riff Wood', 'Dogbreth'] })])
-    ).events
+    const [event] = build([show({ artist_names: ['Riff Wood', 'Dogbreth'] })]).events
     expect(event.performer).toEqual([
       { '@type': 'MusicGroup', name: 'Riff Wood' },
       { '@type': 'MusicGroup', name: 'Dogbreth' },
@@ -103,33 +125,55 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
   })
 
   it('omits performer rather than inventing one for a bill-less show', () => {
-    const [event] = buildSceneWeekJsonLd(
-      week([show({ artist_names: [], title: 'Open Decks' })])
-    ).events
+    const [event] = build([show({ artist_names: [], title: 'Open Decks' })]).events
     expect(event.performer).toBeUndefined()
     expect(event.name).toBe('Open Decks')
   })
 
-  // The same show is named identically here and on /shows/{slug}: both forward
-  // an empty title and let the shared generator compose the name.
   it('composes the event name from the bill and the venue when untitled', () => {
-    const [event] = buildSceneWeekJsonLd(week([show()])).events
+    const [event] = build([show()]).events
     expect(event.name).toBe('Riff Wood at Crescent Ballroom')
   })
+})
 
+// A show we cannot describe must not be published as a half-event: Google
+// requires name + startDate + a located address, and a broken block is worse
+// than none. The show stays in the ItemList either way.
+describe('buildSceneWeekJsonLd — undescribable shows', () => {
+  // `starts_at` is typed required, but the frontend and backend deploy
+  // separately and Next's data cache outlives a deploy. Before this guard an
+  // old payload threw a RangeError out of a server component — a 500 for the
+  // whole page, not a missing field.
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['unparseable', 'not-a-date'],
+  ])('drops a show whose starts_at is %s, without throwing', (_label, startsAt) => {
+    const broken = show({ id: 9, starts_at: startsAt as unknown as string })
+    const built = build([show(), broken])
+    expect(built.events).toHaveLength(1)
+    expect(built.itemList?.numberOfItems).toBe(2)
+  })
+
+  it('drops a show with no venue, keeping it in the list', () => {
+    const built = build([show(), show({ id: 9, venue_name: undefined })])
+    expect(built.events).toHaveLength(1)
+    expect(built.itemList?.numberOfItems).toBe(2)
+  })
+})
+
+describe('buildSceneWeekJsonLd — offers and status', () => {
   it('marks a cancelled show as EventCancelled, and makes no offer for it', () => {
-    const [event] = buildSceneWeekJsonLd(
-      week([show({ is_cancelled: true, price: 20 })])
-    ).events
+    const [event] = build([show({ is_cancelled: true, price: 20 })]).events
     expect(event.eventStatus).toBe('https://schema.org/EventCancelled')
     expect(event.offers).toBeUndefined()
   })
 
   it('marks a sold-out show SoldOut and a live one InStock', () => {
-    const soldOut = buildSceneWeekJsonLd(week([show({ is_sold_out: true, price: 20 })]))
+    const soldOut = build([show({ is_sold_out: true, price: 20 })])
     expect(soldOut.events[0].offers?.availability).toBe('https://schema.org/SoldOut')
 
-    const live = buildSceneWeekJsonLd(week([show({ price: 20 })]))
+    const live = build([show({ price: 20 })])
     expect(live.events[0].offers).toMatchObject({
       price: 20,
       priceCurrency: 'USD',
@@ -137,15 +181,39 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
     })
   })
 
-  it('omits offers when no price is recorded', () => {
-    const [event] = buildSceneWeekJsonLd(week([show()])).events
+  // Most ingested shows have no price. `availability` is schema.org's only
+  // channel for sold-out, so gating it on a price would leave the SOLD OUT
+  // badge the page renders with no machine-readable counterpart.
+  it('still says SoldOut when no price is recorded', () => {
+    const [event] = build([show({ is_sold_out: true })]).events
+    expect(event.offers?.availability).toBe('https://schema.org/SoldOut')
+    expect(event.offers?.price).toBeUndefined()
+    expect(event.offers?.priceCurrency).toBeUndefined()
+  })
+
+  it('omits offers for an available show with no price', () => {
+    const [event] = build([show()]).events
     expect(event.offers).toBeUndefined()
+  })
+
+  // The archive reaches back years. An offer is a claim about what a reader can
+  // still buy, so a week that is over makes none.
+  it('makes no offer for a show that already happened', () => {
+    const priced = buildSceneWeekJsonLd(week([show({ price: 20 })]), AFTER)
+    expect(priced.events[0].offers).toBeUndefined()
+
+    const soldOut = buildSceneWeekJsonLd(week([show({ is_sold_out: true })]), AFTER)
+    expect(soldOut.events[0].offers).toBeUndefined()
+
+    // Still a real event that happened — only the offer goes away.
+    expect(priced.events[0].eventStatus).toBe('https://schema.org/EventScheduled')
+    expect(priced.events[0].startDate).toBe('2026-07-27T20:00:00-07:00')
   })
 })
 
 describe('buildSceneWeekJsonLd — BreadcrumbList', () => {
   it('walks Home → Scenes → scene → week, ending on the archived permalink', () => {
-    const { breadcrumb } = buildSceneWeekJsonLd(week([show()]))
+    const { breadcrumb } = build([show()])
     expect(breadcrumb.itemListElement).toEqual([
       { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://psychichomily.com' },
       { '@type': 'ListItem', position: 2, name: 'Scenes', item: 'https://psychichomily.com/scenes' },
@@ -166,8 +234,7 @@ describe('buildSceneWeekJsonLd — BreadcrumbList', () => {
 
   // A quiet week is still a real page with a real place in the hierarchy.
   it('is present on an empty week', () => {
-    const empty = week([])
-    const { breadcrumb, itemList, events } = buildSceneWeekJsonLd(empty)
+    const { breadcrumb, itemList, events } = build([])
     expect(breadcrumb.itemListElement).toHaveLength(4)
     expect(itemList).toBeUndefined()
     expect(events).toEqual([])
@@ -176,7 +243,7 @@ describe('buildSceneWeekJsonLd — BreadcrumbList', () => {
 
 describe('buildSceneWeekJsonLd — ItemList', () => {
   it('keeps the existing position/url/name shape', () => {
-    const { itemList } = buildSceneWeekJsonLd(week([show(), show({ id: 2, slug: undefined })]))
+    const { itemList } = build([show(), show({ id: 2, slug: undefined })])
     expect(itemList).toEqual({
       '@context': 'https://schema.org',
       '@type': 'ItemList',
@@ -205,14 +272,14 @@ describe('buildSceneWeekJsonLd — ItemList', () => {
 // exactly the set that would turn the Rich Results Test red.
 describe('buildSceneWeekJsonLd — required structured-data fields', () => {
   it('every event carries the fields Google requires', () => {
-    const { events } = buildSceneWeekJsonLd(
-      week([
-        show(),
-        show({ id: 2, is_cancelled: true, artist_names: [] }),
-        show({ id: 3, venue_address: '', slug: undefined, price: 0 }),
-      ])
-    )
-    expect(events).toHaveLength(3)
+    const { events } = build([
+      show(),
+      show({ id: 2, is_cancelled: true, artist_names: [] }),
+      show({ id: 3, venue_address: '', slug: undefined, price: 0 }),
+      show({ id: 4, venue_country: 'CA', venue_timezone: '' }),
+      show({ id: 5, is_sold_out: true }),
+    ])
+    expect(events).toHaveLength(5)
     for (const event of events) {
       expect(event['@context']).toBe('https://schema.org')
       expect(event.name).toBeTruthy()

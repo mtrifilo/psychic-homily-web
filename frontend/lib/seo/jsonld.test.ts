@@ -275,6 +275,37 @@ describe('generateMusicEventSchema', () => {
     expect(schema.offers).toBeUndefined()
   })
 
+  // An offer is a claim about what a reader can still buy.
+  it('omits offers for a show that already happened', () => {
+    const schema = generateMusicEventSchema({ ...baseShow, price: 25, is_past: true })
+    expect(schema.eventStatus).toBe('https://schema.org/EventScheduled')
+    expect(schema.offers).toBeUndefined()
+  })
+
+  // `availability` is schema.org's only channel for sold-out — there is no
+  // EventSoldOut status — so it must not depend on a price the show may not
+  // have. Google marks offers.price Recommended, not required.
+  it('says SoldOut without a price', () => {
+    const schema = generateMusicEventSchema({ ...baseShow, is_sold_out: true })
+    expect(schema.offers?.availability).toBe('https://schema.org/SoldOut')
+    expect(schema.offers?.price).toBeUndefined()
+    expect(schema.offers?.priceCurrency).toBeUndefined()
+  })
+
+  it('uses the venue country when given, and US otherwise', () => {
+    const abroad = generateMusicEventSchema({
+      ...baseShow,
+      venue: { name: 'Horseshoe Tavern', city: 'Toronto', state: 'ON', country: 'CA' },
+    })
+    expect(abroad.location.address?.addressCountry).toBe('CA')
+
+    const home = generateMusicEventSchema({
+      ...baseShow,
+      venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
+    })
+    expect(home.location.address?.addressCountry).toBe('US')
+  })
+
   it('includes offers when price is 0 (free show)', () => {
     const schema = generateMusicEventSchema({ ...baseShow, price: 0 })
     expect(schema.offers).toBeDefined()

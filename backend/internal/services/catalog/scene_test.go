@@ -392,6 +392,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_CarriesV
 	suite.Require().NoError(suite.db.Model(crescent).Updates(map[string]any{
 		"slug":     "crescent-ballroom",
 		"address":  "308 N 2nd Ave",
+		"country":  "US",
 		"timezone": "America/Phoenix",
 	}).Error)
 	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ") // meets the 2-venue scene threshold
@@ -425,6 +426,9 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_CarriesV
 	suite.Equal("308 N 2nd Ave", got.VenueAddress)
 	suite.Equal("Phoenix", got.VenueCity)
 	suite.Equal("AZ", got.VenueState)
+	// Scenes are not US-only, so the country travels rather than being assumed
+	// by whoever renders the address.
+	suite.Equal("US", got.VenueCountry)
 	suite.Equal("America/Phoenix", got.VenueTimezone)
 }
 
