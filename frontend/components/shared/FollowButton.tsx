@@ -64,12 +64,24 @@ export function FollowButton({
   const isMutating = follow.isPending || unfollow.isPending
   const isDisabled = disabled || isMutating
 
+  // Replay coverage here is narrower than it looks, so state it precisely.
+  //
   // PSY-1610 inferred this control's exposure from SaveButton's rather than
-  // clicking it. The structural case is the same and is verifiable by reading:
-  // it renders for anonymous viewers too (the auth check lives in the handler,
-  // not the render), so it ships in server HTML on every entity page. The
-  // bracket variant inherits replay from BracketLink; the Button variants
-  // below opt in directly.
+  // clicking it. Checking the actual server HTML of an authenticated artist
+  // page (production build) showed the BRACKET variant ships from the
+  // `statusLoading` branch below — rendered `disabled`, hence
+  // `pointer-events-none`. No click can land on it during the pre-hydration
+  // window, so nothing is buffered and replay never applies: on entity pages
+  // that variant is protected by its own loading state, not by this primitive.
+  //
+  // The Button variants below do opt in, and are genuinely covered wherever a
+  // caller passes `followData` (the charts pages), because that skips the
+  // loading branch and renders an enabled control at first paint.
+  //
+  // Making the bracket render enabled at first paint would move it under replay
+  // too — `handleClick` already guards on `isDisabled` — but that changes what
+  // the control shows before its status is known, so it is deliberately left
+  // out of PSY-1615's scope.
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()

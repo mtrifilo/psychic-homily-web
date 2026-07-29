@@ -54,10 +54,16 @@
  * ```
  *
  * Everything clicked *inside* a replay root is covered, so a group of buttons
- * needs one root, not one per button. It is a single spreadable object on
- * purpose: an earlier revision needed a `ref` *and* a separate attribute, and
- * attaching only the attribute silently reproduced the original bug on an
- * element that looked adopted.
+ * needs one root, not one per button — but **only when the whole group hydrates
+ * in the same commit as the root**. The root is flagged as soon as its own ref
+ * fires; if a child hydrates later (a `next/dynamic` or Suspense boundary
+ * inside the root), the buffered click is dispatched at a child that is still
+ * dead, and the flag then suppresses any further capture for that subtree. When
+ * in doubt, put the root on the element that owns the handler.
+ *
+ * It is a single spreadable object on purpose: an earlier revision needed a
+ * `ref` *and* a separate attribute, and attaching only the attribute silently
+ * reproduced the original bug on an element that looked adopted.
  *
  * `BracketLink` and the shared bracket/menu controls already carry it, so most
  * new code inherits this without doing anything.
@@ -73,8 +79,10 @@
  *   publicly. An app-level "hydration done" flag fires too early for lazily
  *   hydrated subtrees — page-body controls hydrate after the TopBar — so it
  *   would replay into dead nodes and drop the click a second time.
- * - Capture stops after {@link MAX_REPLAY_AGE_MS}; past that a buffered click
- *   could not be replayed anyway.
+ * - Capture stops after {@link MAX_REPLAY_AGE_MS} so the per-click ancestor walk
+ *   leaves the steady state. Anything still buffered stays replayable until the
+ *   staleness check rejects it.
+ * - A replay is skipped if the target has become disabled since the click.
  */
 
 /** Marks an element as a replay root. Clicks inside it are buffered pre-hydration. */
@@ -108,10 +116,10 @@ const REPLAYED_EVENTS = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'cl
 /**
  * Upper bound on buffered events per interaction.
  *
- * A pointer interaction can only reach five (one of each type, since a new
- * `pointerdown` restarts the entry). The cap exists for keyboard repeat:
- * holding `Enter` on a focused button emits `click` after `click` with no
- * intervening `pointerdown`, so nothing would otherwise reset the list.
+ * A real interaction reaches at most five — one of each type — because both a
+ * new `pointerdown` and a completed `click` start a fresh entry. This is a
+ * pure backstop against an event sequence nobody anticipated; it is not what
+ * makes keyboard repeat safe (the post-click reset is).
  */
 const MAX_EVENTS_PER_ENTRY = 8
 
@@ -139,7 +147,10 @@ declare global {
        * across every client-side navigation.
        */
       buffer: WeakMap<HTMLElement, ReplayEntry>
-      /** Removes the capture listeners and drops the buffer. */
+      /**
+       * Removes the capture listeners. Runs automatically once the staleness
+       * cutoff has passed; anything already buffered stays replayable.
+       */
       stop: () => void
     }
   }
@@ -154,6 +165,11 @@ declare global {
  * values are internal to this script.
  */
 export const CLICK_REPLAY_SCRIPT = `(function () {
+  // A browser re-executes an inline script if the node is re-inserted. Without
+  // this, a second evaluation would swap in an empty buffer -- discarding every
+  // click captured so far -- and leave a duplicate set of listeners behind.
+  if (window.__phClickReplay) return;
+
   var ATTR = '${REPLAY_ATTR}';
   var TYPES = ${JSON.stringify(REPLAYED_EVENTS)};
   var MAX = ${MAX_EVENTS_PER_ENTRY};
@@ -194,9 +210,17 @@ export const CLICK_REPLAY_SCRIPT = `(function () {
     if (!root || root.dataset.replayHydrated) return;
 
     var entry = store.buffer.get(root);
-    // A new pointerdown starts a fresh interaction, so only the user's LAST
-    // attempt is ever replayed no matter how many times they click.
-    if (!entry || e.type === 'pointerdown') {
+    // Start a fresh interaction on a new pointerdown, AND on the first event
+    // after a completed click. Both halves are needed: keyboard activation
+    // (Enter/Space on a focused button) emits a bare click with no pointerdown,
+    // so without the second condition a user pressing Enter twice -- the
+    // natural response to a control that appears dead -- would append a second
+    // click and replay TWO mutations.
+    // (No backticks in here: this comment lives inside a template literal.)
+    var last = entry && entry.events.length
+      ? entry.events[entry.events.length - 1].type
+      : null;
+    if (!entry || e.type === 'pointerdown' || last === 'click') {
       entry = { target: target, time: e.timeStamp, events: [] };
       store.buffer.set(root, entry);
     }
@@ -205,11 +229,15 @@ export const CLICK_REPLAY_SCRIPT = `(function () {
     if (entry.events.length < MAX) entry.events.push(snapshot(e));
   }
 
+  // Removes the listeners but deliberately KEEPS the buffer. Clearing it would
+  // discard a click captured just before the cutoff whose control hydrates just
+  // after it — a click younger than the staleness limit, on exactly the very
+  // slow device this feature exists for. Nothing leaks by keeping it: the
+  // buffer is a WeakMap, and staleness is enforced at consume time anyway.
   function stop() {
     for (var j = 0; j < TYPES.length; j++) {
       document.removeEventListener(TYPES[j], capture, true);
     }
-    store.buffer = new WeakMap();
   }
 
   for (var i = 0; i < TYPES.length; i++) {
@@ -252,7 +280,26 @@ export function consumePendingReplay(root: HTMLElement): boolean {
   const target = entry.target
   if (!target.isConnected || !root.contains(target)) return false
 
-  for (const record of entry.events) {
+  // Never replay into a control the user could no longer click. `dispatchEvent`
+  // ignores the disabled attribute — that only blocks *user-initiated*
+  // activation — so a control that was enabled in server HTML and disabled by
+  // the time it hydrated would otherwise fire its handler anyway. Reachable
+  // today: DensityToggle's radios ship enabled (view mode defaults to grid) and
+  // become disabled if the persisted preference turns out to be list.
+  if (target.closest('button:disabled, input:disabled, [aria-disabled="true"]')) {
+    return false
+  }
+
+  // Enforce "at most one click" on the consuming side too — this is the side
+  // that actually causes the mutation, so it is the side worth making
+  // unconditional. The capture listener already starts a new interaction after
+  // a click; this survives that invariant being broken by a future edit.
+  const lastClick = entry.events.map(record => record.type).lastIndexOf('click')
+  const records = entry.events.filter(
+    (record, i) => record.type !== 'click' || i === lastClick
+  )
+
+  for (const record of records) {
     const Ctor =
       record.pointer && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent
     target.dispatchEvent(new Ctor(record.type, record.init))

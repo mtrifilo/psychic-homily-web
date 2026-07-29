@@ -178,9 +178,69 @@ describe('pre-hydration click capture and replay', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
-  it('bounds the buffer when keyboard repeat fires clicks with no pointerdown', () => {
-    // Holding Enter on a focused button emits click after click with nothing
-    // to reset the entry, which is the case the per-entry cap exists for.
+  it('replays exactly once when keyboard activation repeats with no pointerdown', () => {
+    // Enter/Space on a focused button emits a bare `click` — no pointerdown to
+    // start a new interaction. A user who presses Enter twice because nothing
+    // appeared to happen (the whole premise of this bug) must still get ONE
+    // mutation, not two. An earlier revision replayed every buffered click.
+    const { root, button } = mountControl()
+    const onClick = vi.fn()
+
+    clickAsUser(button)
+    clickAsUser(button)
+    clickAsUser(button)
+
+    button.addEventListener('click', onClick)
+    expect(consumePendingReplay(root)).toBe(true)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('replays exactly once when a mouse click is followed by keyboard activation', () => {
+    // Mixed input: the full pointer sequence, then a bare keyboard click.
+    const { root, button } = mountControl()
+    const onClick = vi.fn()
+
+    clickAsUser(button, 'pointerdown')
+    clickAsUser(button, 'mousedown')
+    clickAsUser(button, 'mouseup')
+    clickAsUser(button)
+    clickAsUser(button)
+
+    button.addEventListener('click', onClick)
+    consumePendingReplay(root)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('never buffers more than one click per interaction (capture-side guard)', () => {
+    // Pins the capture half of the exactly-once defence specifically. Without
+    // its own assertion, removing this guard leaves the suite green because the
+    // consume-side filter independently covers the behaviour.
+    const { root, button } = mountControl()
+    clickAsUser(button)
+    clickAsUser(button)
+    clickAsUser(button)
+
+    const events = store.buffer.get(root)!.events
+    expect(events.filter(e => e.type === 'click')).toHaveLength(1)
+  })
+
+  it('dispatches at most one click even if the buffer holds several (consume-side guard)', () => {
+    // Pins the consume half. Builds the invalid state directly, since the
+    // capture guard now prevents it from arising naturally.
+    const { root, button } = mountControl()
+    clickAsUser(button)
+
+    const entry = store.buffer.get(root)!
+    const clickRecord = entry.events.find(e => e.type === 'click')!
+    entry.events = [clickRecord, clickRecord, clickRecord]
+
+    const onClick = vi.fn()
+    button.addEventListener('click', onClick)
+    expect(consumePendingReplay(root)).toBe(true)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds the buffer against sustained keyboard repeat', () => {
     const { root, button } = mountControl()
     for (let i = 0; i < 40; i++) clickAsUser(button)
 
@@ -240,6 +300,33 @@ describe('pre-hydration click capture and replay', () => {
     expect(consumePendingReplay(root)).toBe(false)
   })
 
+  it('does not replay into a control disabled since the click', () => {
+    // dispatchEvent ignores the disabled attribute — that only blocks
+    // user-initiated activation — so without an explicit guard a control that
+    // shipped enabled and hydrated disabled would still fire its handler.
+    const { root, button } = mountControl()
+    const onClick = vi.fn()
+    clickAsUser(button)
+    button.addEventListener('click', onClick)
+
+    button.disabled = true
+
+    expect(consumePendingReplay(root)).toBe(false)
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('does not replay into a control marked aria-disabled since the click', () => {
+    const { root, button } = mountControl()
+    const onClick = vi.fn()
+    clickAsUser(button)
+    button.addEventListener('click', onClick)
+
+    button.setAttribute('aria-disabled', 'true')
+
+    expect(consumePendingReplay(root)).toBe(false)
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
   it('is inert when the capture script never ran', () => {
     const { root } = mountControl()
     delete window.__phClickReplay
@@ -284,6 +371,14 @@ describe('capture teardown', () => {
     clickAsUser(afterButton)
     expect(store.buffer.get(after)).toBeUndefined()
     expect(consumePendingReplay(after)).toBe(false)
+
+    // Teardown must NOT discard what was already captured: a click taken just
+    // before the cutoff, on a control that hydrates just after it, is younger
+    // than the staleness limit and still deserves to replay.
+    const onClick = vi.fn()
+    button.addEventListener('click', onClick)
+    expect(consumePendingReplay(root)).toBe(true)
+    expect(onClick).toHaveBeenCalledTimes(1)
 
     window.__phClickReplay = previous
   })

@@ -113,16 +113,22 @@ What this means when writing SSR-rendered UI:
 - **Interactive controls that ship in server HTML should opt into click
   replay**: spread `{...replayOnHydrate}` onto the control. `BracketLink`
   already carries it, so every bracket control inherits it for free. See
-  `lib/hydration/clickReplay.ts` for the mechanism, its exactly-once
-  guarantees, and its limits (click only — keyboard activation of a Radix
-  trigger is still dropped).
+  `lib/hydration/clickReplay.ts` for the mechanism and its exactly-once
+  guarantees. Limits: **a captured click expires after 10 s**
+  (`MAX_REPLAY_AGE_MS`) and is then dropped silently, and only clicks are
+  captured — keyboard activation of a Radix trigger goes through `onKeyDown`
+  and is still dropped.
 - **Do not "fix" this by gating rendering on hydration** — `suppressHydrationWarning`,
   `typeof window` render branches, and effect-gated rendering all hide the
   divergence instead of resolving it, and disabling a control for up to 6.7 s is
   a worse regression than the dropped click.
 
 The proof harness is committed at `e2e-hydration/` so the next person does not
-have to build it a third time.
+have to build it a third time. Run it with `bun run test:e2e:hydration` (it
+needs a production build and its own stack — see the header of
+`e2e-hydration/prehydration-replay.spec.ts`). It is the ONLY guard against the
+double-fire regression: the unit suite cannot catch a move from the ref
+callback to a passive effect, because jsdom does not reproduce that gap.
 
 ---
 

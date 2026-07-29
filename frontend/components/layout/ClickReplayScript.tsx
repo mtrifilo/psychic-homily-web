@@ -15,7 +15,9 @@ export function ClickReplayScript() {
   return (
     <script
       id="ph-click-replay"
-      // The payload is a module-level constant with no interpolated input.
+      // The payload interpolates only module-level constants — an attribute
+      // name, a JSON array of event-type literals, and two integers. No user
+      // input reaches it, and nothing it interpolates can contain "</script>".
       dangerouslySetInnerHTML={{ __html: CLICK_REPLAY_SCRIPT }}
     />
   )
