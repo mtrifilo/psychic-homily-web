@@ -74,9 +74,20 @@ const streetGeocodeTimeout = 15 * time.Second
 // canonical geocoded_address freshness key — for a venue's current location
 // fields. Every producer AND consumer of venues.geocoded_address must go
 // through this so the freshness comparison is exact.
+// The Street is ABBREVIATION-EXPANDED here, which means the expansion also flows
+// into Key(). That is deliberate and load-bearing: a clean miss is memoized
+// against the key, so if the key were built from the raw address, widening the
+// abbreviation table later would never re-query a venue already memoized as a
+// miss — even though the new expansion would now resolve it. Keying on the
+// expanded form makes a table change invalidate exactly the memos it could
+// affect, and those venues get retried once.
+//
+// Consequence to expect on deploy: any venue whose address contains an
+// expandable token has a new key, so it reads as un-attempted and is re-geocoded
+// once by the sweep. Today that is a single venue.
 func streetGeocodeQuery(v *catalogm.Venue) geo.AddressQuery {
 	return geo.AddressQuery{
-		Street:  derefString(v.Address),
+		Street:  geo.ExpandStreetAbbreviations(derefString(v.Address)),
 		City:    v.City,
 		State:   v.State,
 		Zipcode: derefString(v.Zipcode),
@@ -139,7 +150,11 @@ func (s *VenueService) applyStreetGeocoding(v *catalogm.Venue) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), streetGeocodeTimeout)
 	defer cancel()
-	res, ok, err := s.addressGeocoder.GeocodeAddress(ctx, q)
+	// Same expand-then-fall-back-to-raw path the sweep uses. The AC is explicit
+	// that this must not be backfill-only: a venue created through the inline
+	// write path would otherwise memoize a miss that the sweep would then skip,
+	// so the abbreviation fix would silently never reach it.
+	res, ok, err := geocodeExpandingAbbreviations(ctx, s.addressGeocoder, q, derefString(v.Address))
 	if err != nil {
 		// Deliberately NOT logging the address — unverified submissions may be
 		// private home addresses, and app logs have broader access/retention

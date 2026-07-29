@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -158,7 +159,7 @@ func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.Addres
 		}
 		geocoded++
 
-		res, ok, err := geocodeWithTimeout(ctx, ag, q, timeout)
+		res, ok, err := geocodeWithTimeout(ctx, ag, q, derefString(v.Address), timeout)
 		if err != nil {
 			c := change(v, StreetGeocodeError, key)
 			c.Err = err.Error()
@@ -212,10 +213,42 @@ func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.Addres
 // geocodeWithTimeout bounds a single venue's lookup (limiter wait + retries
 // included) while inheriting the run ctx, so a canceled run aborts the
 // in-flight lookup immediately rather than riding out the per-venue timeout.
-func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, timeout time.Duration) (geo.AddressResult, bool, error) {
+func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, rawStreet string, timeout time.Duration) (geo.AddressResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return ag.GeocodeAddress(ctx, q)
+	return geocodeExpandingAbbreviations(ctx, ag, q, rawStreet)
+}
+
+// geocodeExpandingAbbreviations looks the address up, falling back to the street
+// exactly as stored when the abbreviation-expanded form misses.
+//
+// OSM spells streets inconsistently: venue 128 resolves ONLY expanded, while
+// another street may be stored abbreviated and resolve only raw. Expanding
+// one-sidedly would just move the miss.
+//
+// The cost is bounded to the failure path. A hit on the expanded form — the
+// common case, and the only case for the overwhelming majority of addresses that
+// contain no abbreviation at all — costs exactly one request, so the steady-state
+// Nominatim budget is unchanged. Only an address that was ALREADY missing spends
+// a second request, and a clean miss is then memoized so it is not retried.
+//
+// rawStreet is the pre-expansion street line. Empty, or equal to the expanded
+// form, means there is nothing else to try and no second request is made.
+func geocodeExpandingAbbreviations(
+	ctx context.Context,
+	ag geo.AddressGeocoder,
+	q geo.AddressQuery,
+	rawStreet string,
+) (geo.AddressResult, bool, error) {
+	res, ok, err := ag.GeocodeAddress(ctx, q)
+	if err != nil || ok {
+		return res, ok, err
+	}
+	raw := strings.TrimSpace(rawStreet)
+	if raw == "" || raw == strings.TrimSpace(q.Street) {
+		return res, ok, err
+	}
+	return ag.GeocodeAddress(ctx, q.WithStreet(raw))
 }
 
 // streetGeocodeUpdateScope scopes a street-geocode write to the venue row
