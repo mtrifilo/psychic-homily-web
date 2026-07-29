@@ -8,11 +8,15 @@ vi.mock('@sentry/nextjs', () => ({
   captureException,
 }))
 
-// Blog and DJ sets read local MDX off disk; stubbed out so these tests speak
-// only to the API-driven families.
+// Blog and DJ sets read local MDX off disk. Stubbed with one dated and one
+// undated post so the `lastModified` fallback on that path is actually
+// exercised — this diff changed a missing date from `new Date()` to undefined.
 vi.mock('@/features/blog', () => ({
-  getBlogSlugs: () => [],
-  getBlogPost: () => undefined,
+  getBlogSlugs: () => ['dated-post', 'undated-post'],
+  getBlogPost: (slug: string) =>
+    slug === 'dated-post'
+      ? { frontmatter: { date: '2026-03-04T00:00:00Z' } }
+      : { frontmatter: {} },
   getMixSlugs: () => [],
   getMix: () => undefined,
 }))
@@ -126,13 +130,16 @@ describe('sitemap', () => {
     expect(showUrls).toEqual(['https://psychichomily.com/shows/real'])
   })
 
-  it('tolerates a null family without throwing', async () => {
-    vi.stubGlobal(
-      'fetch',
-      respondWith({ shows: null, artists: null, venues: null })
-    )
+  it('carries blog frontmatter dates through, and omits lastModified when absent', async () => {
+    vi.stubGlobal('fetch', respondWith({ shows: [], artists: [], venues: [] }))
 
-    await expect(sitemap()).resolves.toBeInstanceOf(Array)
+    const entries = await sitemap()
+    const dated = entries.find(e => e.url.endsWith('/blog/dated-post'))
+    const undated = entries.find(e => e.url.endsWith('/blog/undated-post'))
+
+    expect(dated?.lastModified).toEqual(new Date('2026-03-04T00:00:00Z'))
+    expect(undated).toBeDefined()
+    expect(undated?.lastModified).toBeUndefined()
   })
 
   // The regression guard. Before this change a failed fetch was caught and
@@ -151,6 +158,23 @@ describe('sitemap', () => {
       vi.stubGlobal('fetch', respondWith({}, 500))
 
       await expect(sitemap()).rejects.toThrow(/500/)
+      expect(captureException).toHaveBeenCalled()
+    })
+
+    // A 200 whose family is null is the original failure wearing a success
+    // code: a document that renders fine and is missing thousands of URLs.
+    // Coercing it to [] is what made the first incident invisible, so the
+    // shape is rejected rather than tolerated. The generated contract types
+    // these families as nullable, so this is reachable, not hypothetical.
+    it.each([
+      ['null', { shows: null, artists: [], venues: [] }],
+      ['absent', { artists: [], venues: [] }],
+      ['not an array', { shows: {}, artists: [], venues: [] }],
+      ['an empty body', {}],
+    ])('throws when a family is %s', async (_label, body) => {
+      vi.stubGlobal('fetch', respondWith(body))
+
+      await expect(sitemap()).rejects.toThrow(/missing the "(shows|artists|venues)" family/)
       expect(captureException).toHaveBeenCalled()
     })
   })

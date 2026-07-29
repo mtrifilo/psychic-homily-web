@@ -7,18 +7,32 @@ import type { components } from '@/types/api'
 const BASE_URL = 'https://psychichomily.com'
 
 /**
- * Re-render window for the sitemap itself.
- *
- * Set explicitly, and load-bearing: without it this route is generated once at
- * build and then frozen, which is half of why the served sitemap went stale
- * (the other half was a fetch that failed open — see the backend's
- * contracts.SitemapEntry). A per-fetch `revalidate` alone demonstrably did not
- * keep this route re-rendering, so the route-level window is what the freshness
- * guarantee rests on. Re-verify after any Next upgrade that the served counts
- * move without a redeploy.
+ * How long a fetched entry set stays warm in Next's Data Cache. This is the
+ * ONLY freshness mechanism on this route — see the note below.
  */
-export const revalidate = 3600
+const ENTRY_REVALIDATE_SECONDS = 3600
 
+/**
+ * How this route actually caches (measured against `next build` + `next start`
+ * in this repo on Next 16.1.4 with `cacheComponents: true` — do not reason
+ * about it from the Next docs, and re-measure after any Next upgrade):
+ *
+ *   Route (app)                    Revalidate  Expire
+ *   ├ ◐ /shows                             1h      1y
+ *   ├ ƒ /sitemap.xml                                     ← no window at all
+ *
+ * `/sitemap.xml` is DYNAMIC. It re-renders on every request, and an
+ * `export const revalidate` on this route is inert — it was tried and the
+ * route mode did not change, which is why there isn't one here. Freshness
+ * comes entirely from the per-fetch `next: { revalidate }` below.
+ *
+ * The practical consequence, also measured: there is no rendered fallback
+ * document. With a cold Data Cache and a failing backend this route returns
+ * 500 to the crawler rather than serving a stale sitemap. Once one successful
+ * fetch has populated the Data Cache, a subsequent backend failure is
+ * survivable for the length of that window. A genuine stale-serving fallback
+ * would need `'use cache'` + `cacheLife` and is tracked separately.
+ */
 type SitemapEntries = components['schemas']['SitemapEntries']
 
 /** The entity families, minus the `$schema` key Huma adds to every response. */
@@ -29,9 +43,9 @@ type Family = Exclude<keyof SitemapEntries, '$schema'>
  *
  * Typed as a total `Record<Family, …>` on purpose: when the backend adds a
  * family to `SitemapEntries`, this object stops compiling until it is mapped
- * here. Without that, a new family would be fetched, ignored, and silently
- * absent from the XML — with nothing to notice it. PSY-1622 adds six families
- * at once, which is exactly when a silent omission would slip through.
+ * here. Verified by simulation — adding a `labels` field to the generated
+ * schema makes tsc emit TS2741 on this declaration. Without it a new family
+ * would be fetched, ignored, and silently absent from the XML.
  */
 const FAMILY_ROUTES: Record<
   Family,
@@ -47,32 +61,42 @@ const FAMILY_ROUTES: Record<
 }
 
 /**
- * Generous, and deliberately not the shared `createBuildTimeApiSignal()` 10s
- * budget — that budget is what the old generator silently blew. The projection
- * feed answers in well under a second, so this ceiling exists only to stop a
- * wedged backend hanging the render forever, and hitting it throws rather than
- * yielding a partial sitemap.
+ * Deliberately not the shared `createBuildTimeApiSignal()` 10s budget — that
+ * budget is what the old generator silently blew. The projection feed answers
+ * in well under a second, so this ceiling exists only to stop a wedged backend
+ * hanging the render, and hitting it throws rather than yielding a partial
+ * sitemap.
  */
 const ENTRY_FETCH_TIMEOUT_MS = 30_000
 
 /**
- * Fetch the indexable slug set.
+ * Fetch the indexable slug set, and reject anything that is not a complete
+ * answer.
  *
- * Throws on any failure, by design: publishing a document that is missing an
- * entity family drops thousands of URLs out of the index with no failure signal
- * anywhere. Failing the render leaves the last good sitemap in place — stale
- * beats empty for a crawler.
+ * Both the transport failure and the shape check throw, by design. Publishing
+ * a document that is missing an entity family drops thousands of URLs out of
+ * the index with no failure signal anywhere — the exact signature of the
+ * incident in the backend's contracts.SitemapEntry. A 200 whose `shows` key is
+ * null or absent is that same failure wearing a success code, so it is treated
+ * as an error rather than coerced to an empty list.
  */
 async function fetchSitemapEntries(): Promise<SitemapEntries> {
   try {
     const res = await fetch(`${API_BASE_URL}/sitemap/entries`, {
-      next: { revalidate },
+      next: { revalidate: ENTRY_REVALIDATE_SECONDS },
       signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
     })
     if (!res.ok) {
       throw new Error(`sitemap entries fetch returned ${res.status}`)
     }
-    return await res.json()
+
+    const entries: SitemapEntries = await res.json()
+    for (const family of Object.keys(FAMILY_ROUTES) as Family[]) {
+      if (!Array.isArray(entries?.[family])) {
+        throw new Error(`sitemap entries response is missing the "${family}" family`)
+      }
+    }
+    return entries
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

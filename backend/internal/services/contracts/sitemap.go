@@ -6,23 +6,39 @@ import "time"
 // URL: the slug that builds the path, and the timestamp that fills <lastmod>.
 //
 // Deliberately nothing else, and this is the canonical record of why — the
-// service, handler and generator all reference this doc rather than restating
-// it. The generator used to read these two columns off the public list
-// endpoints. `GET /shows` alone answers in 4.6 MB and 15.5 s, because it
-// preloads every venue and artist on every show, and the generator fetched it
-// behind a 10 s abort. The abort was caught and turned into an empty slice, so
-// the route rendered *successfully* with an entire entity family missing: 114
-// show URLs served against 3,498 in the database, with no failure signal
-// anywhere.
+// service, handler and generator reference this doc rather than restating it.
 //
-// Two invariants fall out of that, upheld across every layer:
+// # The incident (measured 2026-07-28)
+//
+// The served sitemap listed 114 show URLs against 3,498 slugged shows in the
+// database, and 2,520 artists against 3,591. Two DISTINCT problems, which must
+// not be collapsed into one — each has its own fix, and deleting either fix
+// re-opens half the bug:
+//
+//  1. The fetch failed open. The generator read these two columns off the
+//     public list endpoints. `GET /shows` answers in 4.6 MB and 15.5 s because
+//     it preloads every venue and artist on every show, which blew the
+//     generator's 10 s abort budget; the abort was caught and turned into an
+//     empty slice. Shows therefore rendered as ZERO URLs, with no failure
+//     signal anywhere. Fixed by this projection endpoint plus a generator that
+//     throws instead of substituting an empty list.
+//
+//  2. The served document was stale — separately, and by a mechanism that was
+//     NOT fully established. Note the shape: 114 stale show URLs is not what
+//     cause 1 produces (that produces zero), and artists answered in 0.2 s so
+//     they never aborted at all, yet were also stale. Whatever held that old
+//     document is not explained by the fail-open. Do not write a confident
+//     story about it here without measuring first.
+//
+// # Invariants this contract upholds
 //
 //   - Fail atomically. A response missing a family is indistinguishable from
 //     that family being legitimately empty, so a partial result must never be
-//     published — it silently drops thousands of URLs out of the index.
-//   - Empty families serialise as [], never null. The generator iterates each
-//     list directly; a null would need a nil check that is easy to omit and
-//     silent when forgotten.
+//     published — it silently drops thousands of URLs out of the index. The
+//     generator enforces this on its side too: it rejects a body whose family
+//     is null or absent rather than coercing it to empty.
+//   - Empty families serialise as [], never null. Asserted over real HTTP in
+//     the routes integration test.
 type SitemapEntry struct {
 	Slug      string    `json:"slug"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -38,13 +54,12 @@ type SitemapEntries struct {
 	Venues  []SitemapEntry `json:"venues"`
 }
 
-// Counts returns per-family entry counts keyed by JSON field name, for logging
-// and for the freshness checks that compare served URL counts against the
-// catalogue.
+// Counts returns per-family entry counts keyed by JSON field name, for logging.
 //
-// It lives here, beside the struct, so that adding a family means editing one
-// file rather than remembering to update a log statement in another package —
-// an omission that would leave the new family silently uncounted.
+// HAND-MAINTAINED: adding a field to SitemapEntries does not update this map,
+// and the compiler will not complain. TestSitemapEntriesCountsCoversEveryFamily
+// reflects over the struct and fails if a family is missing here — that test,
+// not this comment, is what actually keeps the two in sync.
 func (e SitemapEntries) Counts() map[string]int {
 	return map[string]int{
 		"shows":   len(e.Shows),

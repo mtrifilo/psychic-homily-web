@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -50,11 +51,17 @@ func TestSitemapEntriesIndexability(t *testing.T) {
 	if err := td.DB.Create(&catalogm.Artist{Name: "Unslugged Artist"}).Error; err != nil {
 		t.Fatalf("seed unslugged artist: %v", err)
 	}
+	// Distinct from NULL: GenerateSlug returns "" for an all-non-ASCII name, so
+	// the empty-string half of the predicate is reachable and needs its own row
+	// — without it, simplifying to `slug IS NOT NULL` would pass CI.
+	if err := td.DB.Create(&catalogm.Artist{Name: "Empty Slug Artist", Slug: strPtr("")}).Error; err != nil {
+		t.Fatalf("seed empty-slug artist: %v", err)
+	}
 	if err := td.DB.Create(&catalogm.Venue{Name: "Slugged Venue", Slug: strPtr("slugged-venue"), City: "Phoenix", State: "AZ"}).Error; err != nil {
 		t.Fatalf("seed venue: %v", err)
 	}
 
-	entries, err := NewSitemapService(td.DB).Entries()
+	entries, err := NewSitemapService(td.DB).Entries(context.Background())
 	if err != nil {
 		t.Fatalf("Entries: %v", err)
 	}
@@ -101,7 +108,7 @@ func TestSitemapEntriesOrderIsTotal(t *testing.T) {
 		}
 	}
 
-	entries, err := NewSitemapService(td.DB).Entries()
+	entries, err := NewSitemapService(td.DB).Entries(context.Background())
 	if err != nil {
 		t.Fatalf("Entries: %v", err)
 	}
@@ -158,7 +165,7 @@ func TestSitemapEntriesIssuesOneQueryPerFamily(t *testing.T) {
 	var queries int
 	counting := td.DB.Session(&gorm.Session{Logger: queryCounter{Interface: td.DB.Logger, n: &queries}})
 
-	if _, err := NewSitemapService(counting).Entries(); err != nil {
+	if _, err := NewSitemapService(counting).Entries(context.Background()); err != nil {
 		t.Fatalf("Entries: %v", err)
 	}
 
