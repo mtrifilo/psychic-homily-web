@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -15,22 +16,30 @@ func TestSitemapEntriesCountsCoversEveryFamily(t *testing.T) {
 	counts := SitemapEntries{}.Counts()
 
 	structType := reflect.TypeOf(SitemapEntries{})
+	families := 0
 	for i := 0; i < structType.NumField(); i++ {
 		field := structType.Field(i)
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "" || jsonTag == "-" {
+		// Take the name only: this repo's prevailing convention includes
+		// `,omitempty`, and keying off the whole tag would fail against a
+		// correct Counts() while telling the maintainer to add a key they
+		// already added.
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
 			continue
 		}
-		if _, ok := counts[jsonTag]; !ok {
+		families++
+		if _, ok := counts[name]; !ok {
 			t.Errorf(
 				"SitemapEntries.%s (json:%q) has no entry in Counts() — add it, or the family is silently unlogged",
-				field.Name, jsonTag,
+				field.Name, name,
 			)
 		}
 	}
 
-	if len(counts) != structType.NumField() {
-		t.Errorf("Counts() has %d keys but SitemapEntries has %d fields — one of them is stale",
-			len(counts), structType.NumField())
+	// Compare against the fields actually considered, not NumField(), so an
+	// untagged or json:"-" field does not read as a stale Counts() key.
+	if len(counts) != families {
+		t.Errorf("Counts() has %d keys but SitemapEntries has %d JSON families — one of them is stale",
+			len(counts), families)
 	}
 }

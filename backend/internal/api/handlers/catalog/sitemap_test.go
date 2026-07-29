@@ -51,9 +51,10 @@ func TestSitemapEntriesHandlerFailsClosed(t *testing.T) {
 	}
 }
 
-// TestSitemapEntriesHandlerSetsCacheControl pins the shared-cache hint. The body
-// is identical for every caller and the only consumer refetches hourly, so
-// without this every crawler hit becomes three unbounded projections.
+// TestSitemapEntriesHandlerSetsCacheControl pins the shared-cache hint. Crawlers
+// do not reach this endpoint — they fetch /sitemap.xml from the frontend — so
+// this bounds repeat hits from everything that is NOT the generator; see the
+// note on sitemapEntriesCacheControl.
 func TestSitemapEntriesHandlerSetsCacheControl(t *testing.T) {
 	handler := NewSitemapHandler(stubSitemapService{
 		entries: &contracts.SitemapEntries{},

@@ -21,12 +21,24 @@ func NewSitemapHandler(sitemapService sitemapService) *SitemapHandler {
 	return &SitemapHandler{sitemapService: sitemapService}
 }
 
+// sitemapEntriesCacheControl bounds repeat hits from callers that are NOT the
+// sitemap generator.
+//
+// It buys nothing for the generator itself: that path is already bounded to one
+// origin hit per hour by Next's fetch Data Cache, and crawlers never reach this
+// endpoint — they fetch /sitemap.xml from the frontend. What it covers is
+// everything else that can point at a public URL: the freshness monitor
+// (PSY-1629), a second consumer, a misbehaving client. The response is
+// byte-identical for every caller, and serving it costs three unbounded
+// projections, so any intermediary willing to hold it is worth having.
+//
+// max-age is deliberately far below the generator's hourly cycle: a shared
+// cache should not be the reason a genuinely changed catalogue is invisible.
+const sitemapEntriesCacheControl = "public, max-age=300, stale-while-revalidate=3600"
+
 type GetSitemapEntriesRequest struct{}
 
 type GetSitemapEntriesResponse struct {
-	// The body is identical for every caller and its only consumer refetches
-	// hourly, so let shared caches absorb the load — this is three unbounded
-	// projections behind an unauthenticated route.
 	CacheControl string `header:"Cache-Control"`
 	Body         contracts.SitemapEntries
 }
@@ -60,7 +72,7 @@ func (h *SitemapHandler) GetSitemapEntriesHandler(ctx context.Context, _ *GetSit
 	logger.FromContext(ctx).Debug("sitemap_entries_success", attrs...)
 
 	return &GetSitemapEntriesResponse{
-		CacheControl: "public, max-age=300, stale-while-revalidate=3600",
+		CacheControl: sitemapEntriesCacheControl,
 		Body:         *entries,
 	}, nil
 }

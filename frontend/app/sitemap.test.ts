@@ -145,7 +145,14 @@ describe('sitemap', () => {
   // The regression guard. Before this change a failed fetch was caught and
   // turned into `[]`, so the route rendered successfully with an entire entity
   // family missing and no failure signal anywhere (see the backend's
-  // contracts.SitemapEntry). Failing the render leaves the last good sitemap up.
+  // contracts.SitemapEntry).
+  //
+  // What failing closed actually buys, measured: NOT a stale document. This
+  // route is dynamic, so a failed render returns 500 to the crawler. The only
+  // thing that survives a backend fault is Next's fetch Data Cache, and only
+  // after one successful fetch has populated it. A real stale-serving fallback
+  // is PSY-1642. What this guard protects is narrower and still worth having:
+  // a wrong sitemap is never published.
   describe('fails closed', () => {
     it('throws when the feed errors rather than emitting a partial sitemap', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))

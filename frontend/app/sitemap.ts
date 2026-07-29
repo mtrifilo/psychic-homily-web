@@ -1,3 +1,34 @@
+/**
+ * The sitemap generator.
+ *
+ * HOW THIS ROUTE CACHES — measured against `next build` + `next start` in this
+ * repo on Next 16.1.4 with `cacheComponents: true`. Do not reason about it from
+ * the Next docs; two confident readings of the docs were wrong before this was
+ * measured. Re-measure after any Next upgrade.
+ *
+ *   Route (app)                    Revalidate  Expire
+ *   ├ ◐ /shows                             1h      1y
+ *   ├ ƒ /sitemap.xml                                     ← no window at all
+ *
+ * `/sitemap.xml` is DYNAMIC: it re-renders on every request, and there is no
+ * rendered document on disk for it (compare `.next/server/app/shows.html`,
+ * which exists, with `.next/server/app/sitemap.xml/`, which holds only
+ * `route.js`). An `export const revalidate` here is INERT — it was tried, the
+ * route mode did not change, and it was removed rather than left in as a
+ * placebo. Freshness comes entirely from the per-fetch `next: { revalidate }`
+ * Data Cache below.
+ *
+ * The consequence, also measured: with a cold Data Cache and a failing backend
+ * this route returns 500 to the crawler rather than serving a stale sitemap.
+ * Once one successful fetch has populated the cache, a subsequent backend fault
+ * is survivable for that window. A genuine stale-serving fallback needs
+ * `'use cache'` + `cacheLife` and is tracked as PSY-1642.
+ *
+ * NOTE: the per-fetch `revalidate` is the same mechanism that was in place when
+ * the sitemap went stale in the first place, and that staleness was never
+ * explained. See the backend's contracts.SitemapEntry — this file fixes the
+ * fail-open half of that incident, not the staleness half.
+ */
 import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
@@ -7,33 +38,13 @@ import type { components } from '@/types/api'
 const BASE_URL = 'https://psychichomily.com'
 
 /**
- * How long a fetched entry set stays warm in Next's Data Cache. This is the
- * ONLY freshness mechanism on this route — see the note below.
+ * How long a fetched entry set stays warm in Next's Data Cache. The ONLY
+ * freshness mechanism on this route — see the module header for why.
  */
 const ENTRY_REVALIDATE_SECONDS = 3600
 
-/**
- * How this route actually caches (measured against `next build` + `next start`
- * in this repo on Next 16.1.4 with `cacheComponents: true` — do not reason
- * about it from the Next docs, and re-measure after any Next upgrade):
- *
- *   Route (app)                    Revalidate  Expire
- *   ├ ◐ /shows                             1h      1y
- *   ├ ƒ /sitemap.xml                                     ← no window at all
- *
- * `/sitemap.xml` is DYNAMIC. It re-renders on every request, and an
- * `export const revalidate` on this route is inert — it was tried and the
- * route mode did not change, which is why there isn't one here. Freshness
- * comes entirely from the per-fetch `next: { revalidate }` below.
- *
- * The practical consequence, also measured: there is no rendered fallback
- * document. With a cold Data Cache and a failing backend this route returns
- * 500 to the crawler rather than serving a stale sitemap. Once one successful
- * fetch has populated the Data Cache, a subsequent backend failure is
- * survivable for the length of that window. A genuine stale-serving fallback
- * would need `'use cache'` + `cacheLife` and is tracked separately.
- */
 type SitemapEntries = components['schemas']['SitemapEntries']
+type SitemapEntry = components['schemas']['SitemapEntry']
 
 /** The entity families, minus the `$schema` key Huma adds to every response. */
 type Family = Exclude<keyof SitemapEntries, '$schema'>
@@ -137,7 +148,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     Object.keys(FAMILY_ROUTES) as Family[]
   ).flatMap(family => {
     const { prefix, changeFrequency, priority } = FAMILY_ROUTES[family]
-    return (entries[family] ?? [])
+    // No `?? []` here on purpose: fetchSitemapEntries has already rejected any
+    // family that is not an array, and a coercion at this site would read as
+    // the exact fail-open this module exists to remove.
+    return (entries[family] as SitemapEntry[])
       .filter(entry => entry.slug)
       .map(entry => ({
         url: `${BASE_URL}${prefix}/${entry.slug}`,

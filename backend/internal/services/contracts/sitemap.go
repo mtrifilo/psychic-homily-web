@@ -12,8 +12,7 @@ import "time"
 //
 // The served sitemap listed 114 show URLs against 3,498 slugged shows in the
 // database, and 2,520 artists against 3,591. Two DISTINCT problems, which must
-// not be collapsed into one — each has its own fix, and deleting either fix
-// re-opens half the bug:
+// not be collapsed into one. ONLY THE FIRST IS FIXED HERE:
 //
 //  1. The fetch failed open. The generator read these two columns off the
 //     public list endpoints. `GET /shows` answers in 4.6 MB and 15.5 s because
@@ -23,12 +22,21 @@ import "time"
 //     signal anywhere. Fixed by this projection endpoint plus a generator that
 //     throws instead of substituting an empty list.
 //
-//  2. The served document was stale — separately, and by a mechanism that was
-//     NOT fully established. Note the shape: 114 stale show URLs is not what
-//     cause 1 produces (that produces zero), and artists answered in 0.2 s so
-//     they never aborted at all, yet were also stale. Whatever held that old
-//     document is not explained by the fail-open. Do not write a confident
-//     story about it here without measuring first.
+//  2. The served document was stale — separately, and by a mechanism that is
+//     STILL NOT ESTABLISHED, and NOT FIXED by this change. Note the shape: 114
+//     stale show URLs is not what cause 1 produces (that produces zero), and
+//     artists answered in 0.2 s so they never aborted at all, yet were also
+//     stale — under the same per-fetch `revalidate` the generator still relies
+//     on today. Whatever held that old document is not explained by the
+//     fail-open and is not addressed here. A route-level `revalidate` was tried
+//     as the fix and measured to be inert (the route is dynamic either way), so
+//     it was removed rather than left in as a placebo.
+//
+//     Do not write a confident story about this without measuring first, and do
+//     not read a healthy sitemap immediately after deploy as evidence it is
+//     solved: this change moves the fetch to a new URL, so the cache key is
+//     cold and the first document will look correct regardless. PSY-1629
+//     (freshness monitoring) is what would actually catch a recurrence.
 //
 // # Invariants this contract upholds
 //

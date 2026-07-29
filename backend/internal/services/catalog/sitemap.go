@@ -42,12 +42,13 @@ func (s *SitemapService) Entries(ctx context.Context) (*contracts.SitemapEntries
 	}
 
 	// Only approved shows are publicly reachable: GetShowHandler
-	// (internal/api/handlers/catalog/show.go, the "anonymous caller" branch)
-	// 404s every other status, so advertising them would fill the index with
-	// dead URLs. That reachability rule is enforced in many places across the
-	// catalog services; this is one more, and they can drift — if a fourth
-	// status is ever added, grep for ShowStatusApproved rather than trusting
-	// any single site to be authoritative.
+	// (internal/api/handlers/catalog/show.go — the access-control branch that
+	// 404s unless the caller is an admin or the submitter) rejects every other
+	// status, so advertising them would fill the index with dead URLs. That
+	// reachability rule is enforced in many places across the catalog services;
+	// this is one more, and they can drift — if another status is ever added,
+	// grep for ShowStatusApproved rather than trusting any single site to be
+	// authoritative.
 	shows, err := s.entriesFor(
 		ctx,
 		s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved),
