@@ -678,13 +678,48 @@ The street-geocode sweep's cadence and per-run network budget are tunable:
 `STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`),
 `STREET_GEOCODE_SWEEP_LIMIT` (default `25` lookups per run) and
 `STREET_GEOCODE_SWEEP_START_DELAY_MINUTES` (default `15`). The start delay is
-what makes the sweep reachable at all: the interval ticker restarts from zero
-on every deploy, so an interval at or above the platform's typical uptime is
-never reached and the sweep silently does nothing. Keep the start delay well
-below the interval and below realistic uptime. It shares the
+now only a **fallback**: the sweep's schedule comes from persisted run state
+(see below), so it is used solely when there is no such state yet — a fresh
+database, or a run-state table that cannot be read. It shares the
 process-wide Nominatim client (and its 1 req/s limiter) with inline venue
 write-path geocoding, so it is safe alongside live traffic; large backlogs
 should still use the `geocode-venue-addresses` CLI off-hours.
+
+### Background Service Scheduling (`background_service_runs`)
+
+Every scheduled loop with an interval of **an hour or more** records its state in
+the `background_service_runs` table — one row per loop name, holding both the
+schedule (`last_completed_at`) and the run trace (`last_started_at`,
+`last_success_at`, outcome, error, duration, rows processed,
+`consecutive_failures`, `run_count`, the configured `interval_seconds`).
+
+**Why it exists.** Scheduling used to live in a process-local ticker anchored at
+process start, so a loop that did not run a cycle at boot waited a full interval
+measured from that moment. On a continuously-deployed platform the process
+restarts far more often than a daily sweep's interval, so the first cycle was
+never reached: seven production sweeps ran exactly one cycle in the life of
+production, two never ran at all, and nothing errored or alerted the whole time.
+Reading the schedule from the database instead means a redeploy cannot reset it —
+a restarted process asks "am I overdue?" rather than starting the clock again.
+
+Operational notes:
+
+- A loop that is overdue at boot runs a catch-up cycle, **staggered** against its
+  siblings so several overdue sweeps do not hit MusicBrainz / Nominatim / Spotify
+  at once. Tunable via `SWEEP_CATCHUP_BASE_SECONDS` (default `60`),
+  `SWEEP_CATCHUP_SPACING_SECONDS` (default `90`) and `SWEEP_CATCHUP_MAX_SECONDS`
+  (default `1800`).
+- Cycles are claimed atomically, so a deploy's healthcheck-gated overlap (old and
+  new instance briefly both running) cannot double-run a sweep. A claim left
+  behind by a crashed process is reclaimable after its lease.
+- A failed cycle still stamps `last_completed_at`, so it retries on the normal
+  cadence rather than firing on every deploy; `last_success_at` and
+  `consecutive_failures` carry the health signal instead.
+- Loops with a sub-hour interval (`enrichment_worker`, `image_enrich_outbox`,
+  `radio_slot_fetch`) deliberately write no rows — their first cycle already fits
+  inside any plausible uptime, so persistence would be pure overhead.
+- To answer "when did this last run?" for any loop:
+  `SELECT name, last_completed_at, last_success_at, last_outcome, consecutive_failures FROM background_service_runs ORDER BY name;`
 
 **Opt-in (default OFF) — image enrichment sweep (PSY-1246).** Unlike the
 `DISABLE_*` services above, the ongoing image-enrichment sweep is gated by an

@@ -71,12 +71,17 @@ func NewReleaseLinksSweep(database *gorm.DB, mb MBReleaseURLRelBrowse, writer re
 	}
 }
 
-// Start begins the background sweep. No startup cycle (runImmediately=false).
+// Start begins the background sweep. No cycle on the boot path; the first sweep is
+// scheduled from persisted run state rather than process start.
 func (s *ReleaseLinksSweep) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		shared.RunTickerLoop(ctx, "release_links_sweep", s.interval, s.stopCh, false, s.runCycle)
+		shared.RunScheduledLoop(ctx, shared.LoopConfig{
+			Name:     "release_links_sweep",
+			Interval: s.interval,
+			StopCh:   s.stopCh,
+		}, s.runCycle)
 	}()
 	s.logger.Info("release links sweep started",
 		"interval", s.interval, "batch", s.batch, "reattempt", s.reattempt)
@@ -98,9 +103,11 @@ func (s *ReleaseLinksSweep) runCycle(ctx context.Context) {
 		ReattemptWindow: s.reattempt,
 	})
 	if err != nil {
+		shared.ReportCycle(ctx, 0, err)
 		s.logger.Error("release links sweep: cycle failed", "error", err)
 		return
 	}
+	shared.ReportCycle(ctx, report.ReleasesScanned, nil)
 	if report.ReleasesScanned == 0 {
 		return
 	}

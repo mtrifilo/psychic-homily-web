@@ -15,7 +15,7 @@ import (
 // =============================================================================
 // Scheduled street-geocode sweep (PSY-1544). Runs inside the existing
 // VenueServiceIntegrationTestSuite (real DB), driving the service tick
-// directly via RunSweepNow — the same code path the RunTickerLoop ticker
+// directly via RunSweepNow — the same code path the RunScheduledLoop ticker
 // invokes in the server.
 // =============================================================================
 

@@ -61,10 +61,16 @@ func (s *RelationshipDerivationService) Stop() {
 }
 
 // runLoop runs the periodic derivation cycle.
-// No startup cycle — the admin endpoint is used for immediate triggering.
+// No cycle on the boot path — the admin endpoint is used for immediate triggering.
+// The first cycle is scheduled from persisted run state; before that,
+// shared_bills derivation reached exactly one cycle in the life of production.
 func (s *RelationshipDerivationService) runLoop(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "relationship_derivation", s.interval, s.stopCh, false, func(_ context.Context) {
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
+		Name:     "relationship_derivation",
+		Interval: s.interval,
+		StopCh:   s.stopCh,
+	}, func(_ context.Context) {
 		s.RunDerivationCycle()
 	})
 }

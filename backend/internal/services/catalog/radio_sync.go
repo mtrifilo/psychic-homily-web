@@ -205,7 +205,7 @@ func (s *RadioService) RunStationSync(ctx context.Context, stationID uint, opts 
 
 	// A panic in the executor (provider/import code) must still terminate the run's
 	// trace — otherwise the row is orphaned at status=running forever (the ticker's
-	// RunTickerLoop recovers + continues, so the process survives). The lock's own
+	// RunScheduledLoop recovers + continues, so the process survives). The lock's own
 	// defer (above) still releases; `closed` guards against a double-close.
 	closed := false
 	defer func() {

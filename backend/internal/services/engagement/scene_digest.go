@@ -46,7 +46,7 @@ const (
 // weekly email (PSY-1342, from the PSY-1314 spike). Modeled on
 // CollectionDigestService.
 //
-// Idempotent across restarts: RunTickerLoop fires immediately on startup, so
+// Idempotent across restarts: RunScheduledLoop fires immediately on startup, so
 // the follow-selection query gates on the per-(scene-follow)
 // `scene_digest_sent_at` cursor being older than one interval — a follow
 // already digested this week is skipped, so a restart doesn't re-send the
@@ -118,7 +118,12 @@ func (s *SceneDigestService) Stop() {
 // row sends nothing because cursors moved).
 func (s *SceneDigestService) run(ctx context.Context) {
 	defer s.wg.Done()
-	shared.RunTickerLoop(ctx, "scene_digest", s.interval, s.stopCh, true, func(_ context.Context) {
+	shared.RunScheduledLoop(ctx, shared.LoopConfig{
+		Name:      "scene_digest",
+		Interval:  s.interval,
+		StopCh:    s.stopCh,
+		RunAtBoot: true,
+	}, func(_ context.Context) {
 		s.runDigestCycle()
 	})
 }

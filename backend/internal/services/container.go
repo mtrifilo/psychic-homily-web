@@ -117,6 +117,15 @@ type ServiceContainer struct {
 // NewServiceContainer creates all services once. WebAuthn failure is non-fatal
 // (passkeys are optional) — all other services are infallible constructors.
 func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContainer {
+	// Durable run state for the periodic background loops, installed before any
+	// service is constructed so no loop can start without it.
+	//
+	// It is a process-wide default rather than a constructor argument on each of
+	// the twenty-odd background services on purpose: making persistence opt-in
+	// per service would recreate the very failure it fixes, where correct
+	// scheduling depended on every future caller remembering to ask for it.
+	shared.SetDefaultRunStore(shared.NewGormRunStore(database))
+
 	// WebAuthn may fail — log warning, store nil
 	webauthnService, err := auth.NewWebAuthnService(database, cfg)
 	if err != nil {

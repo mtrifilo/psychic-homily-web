@@ -63,12 +63,17 @@ func NewArtistLinksSweep(database *gorm.DB, mb MBURLRelLookup, writer linksWrite
 	}
 }
 
-// Start begins the background sweep. No startup cycle (runImmediately=false).
+// Start begins the background sweep. No cycle on the boot path; the first sweep is
+// scheduled from persisted run state rather than process start.
 func (s *ArtistLinksSweep) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		shared.RunTickerLoop(ctx, "artist_links_sweep", s.interval, s.stopCh, false, s.runCycle)
+		shared.RunScheduledLoop(ctx, shared.LoopConfig{
+			Name:     "artist_links_sweep",
+			Interval: s.interval,
+			StopCh:   s.stopCh,
+		}, s.runCycle)
 	}()
 	s.logger.Info("artist links sweep started",
 		"interval", s.interval, "batch", s.batch, "reattempt", s.reattempt)
@@ -90,9 +95,11 @@ func (s *ArtistLinksSweep) runCycle(ctx context.Context) {
 		ReattemptWindow: s.reattempt,
 	})
 	if err != nil {
+		shared.ReportCycle(ctx, 0, err)
 		s.logger.Error("artist links sweep: cycle failed", "error", err)
 		return
 	}
+	shared.ReportCycle(ctx, report.ArtistsScanned, nil)
 	if report.ArtistsScanned == 0 {
 		return
 	}
