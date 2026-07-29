@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useQueryState } from 'nuqs'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
+import { batchedSaveFor } from '@/components/shared/batchedSaveData'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile } from '@/features/auth'
@@ -413,7 +414,7 @@ export function ShowList() {
                   show={show}
                   isAdmin={isAdmin}
                   userId={user?.id}
-                  saveData={saveCounts?.[String(show.id)]}
+                  saveData={batchedSaveFor(saveCounts, show.id)}
                   density={density}
                 />
               ))}

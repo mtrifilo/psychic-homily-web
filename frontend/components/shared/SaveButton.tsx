@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
 import { useSaveShowToggle, useShowSaveCount } from '@/features/shows'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import {
+  resolveBatchedSaveData,
+  type BatchedSaveData,
+} from './batchedSaveData'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -18,8 +22,12 @@ interface SaveButtonProps {
    * Pre-fetched data from the batch save-count endpoint, avoids an extra
    * request. Bundled (rather than two loose props) so a caller cannot supply
    * the count without the viewer's own saved state — mirrors FollowButton.
+   *
+   * List surfaces must pass `'pending'` while their batch is in flight (build it
+   * with `batchedSaveFor`) — see BatchedSaveData for why omitting it made every
+   * card race the batch.
    */
-  saveData?: { save_count: number; is_saved: boolean }
+  saveData?: BatchedSaveData
   className?: string
   disabled?: boolean
 }
@@ -38,14 +46,17 @@ export function SaveButton({
   const pathname = usePathname()
 
   // List views pass saveData in from one batched request. Standalone usages
-  // (show detail page, library rows) fetch their own.
+  // (show detail page, library rows) fetch their own. While a batch is in
+  // flight the prop is 'pending', which suppresses the per-item request instead
+  // of racing it.
+  const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
   const { data: single } = useShowSaveCount(
     showId,
     isAuthenticated,
-    !saveData,
+    shouldSelfFetch,
     user?.id
   )
-  const data = saveData ?? single
+  const data = batched ?? single
 
   const isSaved = data?.is_saved ?? false
   const saveCount = data?.save_count ?? 0
