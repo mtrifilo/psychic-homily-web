@@ -133,6 +133,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupCommentSubscriptionRoutes(rc)
 	setupFieldNoteRoutes(rc)
 	setupExploreRoutes(rc)
+	setupSitemapRoutes(rc)
 
 	// PSY-432: test-fixtures reset endpoint — only registered when the env
 	// flag is set. cmd/server/main.go refuses to boot if the flag is on and

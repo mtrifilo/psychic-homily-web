@@ -5925,6 +5925,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sitemap/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get sitemap entries */
+        get: operations["get-sitemap-entries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tags": {
         parameters: {
             query?: never;
@@ -15390,6 +15407,22 @@ export interface components {
             top_shared: components["schemas"]["SharedArtist"][] | null;
             /** Format: double */
             weighted_score: number;
+        };
+        SitemapEntries: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SitemapEntries.json
+             */
+            readonly $schema?: string;
+            artists: components["schemas"]["SitemapEntry"][] | null;
+            shows: components["schemas"]["SitemapEntry"][] | null;
+            venues: components["schemas"]["SitemapEntry"][] | null;
+        };
+        SitemapEntry: {
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         SocialResponse: {
             bandcamp: string | null;
@@ -31448,6 +31481,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShowResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-sitemap-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SitemapEntries"];
                 };
             };
             /** @description Error */
