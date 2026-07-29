@@ -9,10 +9,19 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useReleaseSaveCount, useReleaseSaveToggle } from '@/features/releases'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import {
+  resolveBatchedSaveData,
+  type BatchedSaveData,
+} from './batchedSaveData'
 
 interface ReleaseSaveButtonProps {
   releaseId: number
-  saveData?: { save_count: number; is_saved: boolean }
+  /**
+   * Pre-fetched data from the batch save-count endpoint. List surfaces must pass
+   * `'pending'` while their batch is in flight (build it with `batchedSaveFor`) —
+   * see BatchedSaveData for why omitting it made every card race the batch.
+   */
+  saveData?: BatchedSaveData
   variant?: 'button' | 'bracket' | 'text'
   className?: string
   disabled?: boolean
@@ -37,13 +46,16 @@ export function ReleaseSaveButton({
   const { isAuthenticated, user } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
+  // While a batch owns this release the prop is 'pending', which suppresses the
+  // per-item request rather than racing the batch that replaces it.
+  const { value: batched, shouldSelfFetch } = resolveBatchedSaveData(saveData)
   const { data: fetched, isLoading: statusLoading } = useReleaseSaveCount(
     releaseId,
     isAuthenticated,
-    !saveData,
+    shouldSelfFetch,
     user?.id
   )
-  const data = saveData ?? fetched
+  const data = batched ?? fetched
   const isSaved = data?.is_saved ?? false
   const saveCount = data?.save_count ?? 0
   const { toggle, isLoading, error } = useReleaseSaveToggle(

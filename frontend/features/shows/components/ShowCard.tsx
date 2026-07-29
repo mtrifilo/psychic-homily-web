@@ -20,6 +20,7 @@ import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from './ShowForm'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
+import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
@@ -149,7 +150,8 @@ export interface ShowCardProps {
   show: ShowResponse
   isAdmin: boolean
   userId?: string
-  saveData?: { save_count: number; is_saved: boolean }
+  /** Forwarded to SaveButton; `'pending'` while the list's batch is in flight. */
+  saveData?: BatchedSaveData
   density?: ShowCardDensity
 }
 

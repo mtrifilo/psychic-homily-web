@@ -51,8 +51,13 @@ vi.mock('../hooks/useShows', () => ({
   useShowCities: (opts: unknown) => mockUseShowCities(opts),
 }))
 
+// Controllable so a test can hold the batch in flight (data undefined), which
+// is the state that used to make every card self-fetch.
+const mockUseShowSaveCountBatch = vi.fn<() => { data: unknown }>(() => ({
+  data: {},
+}))
 vi.mock('../hooks/useSavedShows', () => ({
-  useShowSaveCountBatch: () => ({ data: {} }),
+  useShowSaveCountBatch: () => mockUseShowSaveCountBatch(),
 }))
 
 // Mock profile hooks (controllable so tests can set favorite_cities)
@@ -76,10 +81,12 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
 }))
 
 // Mock child components
+const showCardSaveData: unknown[] = []
 vi.mock('./ShowCard', () => ({
-  ShowCard: ({ show }: { show: ShowResponse }) => (
-    <article data-testid={`show-card-${show.id}`}>{show.title}</article>
-  ),
+  ShowCard: ({ show, saveData }: { show: ShowResponse; saveData?: unknown }) => {
+    showCardSaveData.push(saveData)
+    return <article data-testid={`show-card-${show.id}`}>{show.title}</article>
+  },
 }))
 
 vi.mock('./ShowListSkeleton', () => ({
@@ -741,6 +748,51 @@ describe('ShowList', () => {
       await user.click(screen.getByTestId('mock-select-city'))
 
       expect(mockSetCities).toHaveBeenCalledWith([{ city: 'Tucson', state: 'AZ' }])
+    })
+  })
+  // ── Batched save counts (rate-limit regression)
+  //
+  // While the batch request is in flight its `data` is undefined. Passing that
+  // straight through as `saveData` meant every SaveButton saw "nobody is
+  // fetching this for me" and fired its own /shows/{id}/saves request, racing
+  // the batch that exists to replace them. A 50-show list became ~50 requests
+  // per load and tripped the public-read rate limit for a user on cellular,
+  // where the batch is slowest and the race window widest.
+  describe('save-count batching', () => {
+    const setListShows = (shows: ShowResponse[] = [makeShow()]) =>
+      mockUseUpcomingShows.mockReturnValue({
+        data: {
+          shows,
+          pagination: { has_more: false, next_cursor: null, limit: 20 },
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+    it("passes 'pending' to every card while the batch is in flight", () => {
+      showCardSaveData.length = 0
+      mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
+      setListShows()
+
+      render(<ShowList />)
+
+      expect(showCardSaveData.length).toBeGreaterThan(0)
+      // Not undefined: undefined is the signal that licenses a per-card fetch.
+      expect(showCardSaveData.every(v => v === 'pending')).toBe(true)
+    })
+
+    it('passes the resolved entry once the batch lands', () => {
+      showCardSaveData.length = 0
+      mockUseShowSaveCountBatch.mockReturnValue({
+        data: { '1': { save_count: 3, is_saved: true } },
+      })
+      setListShows()
+
+      render(<ShowList />)
+
+      expect(showCardSaveData).toContainEqual({ save_count: 3, is_saved: true })
     })
   })
 })

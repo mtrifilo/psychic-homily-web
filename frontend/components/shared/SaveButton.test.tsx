@@ -126,6 +126,33 @@ describe('SaveButton', () => {
     expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, false, 42)
   })
 
+  // The regression this guards: a list's batch result is undefined WHILE THE
+  // BATCH IS IN FLIGHT. Gating the per-show query on `!saveData` alone therefore
+  // enabled it for every card on first render, so each one fired its own
+  // /shows/{id}/saves request racing the batch meant to replace them. A 50-show
+  // list became ~50 requests per load and tripped the public-read rate limit for
+  // a real user on cellular, where the batch is slowest and the window widest.
+  //
+  // 'pending' distinguishes "a batch owns this, wait" from "nobody is fetching
+  // this, go get it" — the two meanings undefined was carrying at once.
+  it('does NOT fetch its own count while the batch is still in flight', () => {
+    render(<SaveButton showId={1} saveData="pending" />)
+    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, false, 42)
+  })
+
+  // Suppressing the request must not blank the UI. A disabled React Query still
+  // returns whatever is already in its cache, so a card that has been rendered
+  // before keeps showing its count while the batch refreshes, instead of
+  // flashing empty. 'pending' governs FETCHING, not rendering.
+  it('still renders a cached count while the batch is in flight', () => {
+    mockUseShowSaveCount.mockReturnValue({
+      data: { show_id: 1, save_count: 9, is_saved: true },
+    })
+    render(<SaveButton showId={1} saveData="pending" showLabel />)
+    expect(mockUseShowSaveCount).toHaveBeenCalledWith(1, true, false, 42)
+    expect(screen.getByText('9')).toBeInTheDocument()
+  })
+
   it('fetches its own count when saveData is absent', () => {
     mockUseShowSaveCount.mockReturnValue({
       data: { show_id: 1, save_count: 4, is_saved: true },
