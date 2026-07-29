@@ -4,6 +4,7 @@ import { type ReactNode } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { MutationErrorBanner } from './MutationErrorBanner'
 import {
   useVoteComment,
@@ -99,6 +100,7 @@ export function CommentVoteControls({
             still renders so the author can see it. */}
         {!isOwner && (
           <Button
+            {...replayOnHydrate}
             variant="ghost"
             size="sm"
             className={`h-7 w-7 p-0 ${comment.user_vote === 1 ? 'text-primary' : 'text-muted-foreground'}`}
@@ -118,6 +120,7 @@ export function CommentVoteControls({
         </span>
         {!isOwner && (
           <Button
+            {...replayOnHydrate}
             variant="ghost"
             size="sm"
             className={`h-7 w-7 p-0 ${comment.user_vote === -1 ? 'text-destructive' : 'text-muted-foreground'}`}

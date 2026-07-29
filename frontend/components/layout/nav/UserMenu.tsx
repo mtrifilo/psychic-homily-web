@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { getUserInitials, getUserDisplayName } from './userDisplay'
 import { NotificationBell } from '@/features/notifications'
 
@@ -51,6 +52,9 @@ export function UserMenu() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              // Radix DropdownMenu opens on pointerdown, which is why the
+              // primitive replays the whole pointer sequence, not just a click.
+              {...replayOnHydrate}
               variant="ghost"
               size="icon"
               className="relative size-9 cursor-pointer rounded-full ring-2 ring-muted-foreground/25 transition-all duration-150 hover:scale-105 hover:ring-primary/50"

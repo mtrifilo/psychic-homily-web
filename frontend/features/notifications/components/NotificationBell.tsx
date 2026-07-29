@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useUserNotifications, useMarkNotificationsRead } from '../hooks'
 import type { NotificationLogEntry } from '../types'
 import {
@@ -56,6 +57,7 @@ export function NotificationBell() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          {...replayOnHydrate}
           variant="ghost"
           size="icon"
           // Visibility is parent-controlled (the TopBar account cluster is

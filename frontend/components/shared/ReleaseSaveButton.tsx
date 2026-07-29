@@ -8,6 +8,7 @@ import { BracketLink } from './BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useReleaseSaveCount, useReleaseSaveToggle } from '@/features/releases'
 import { cn } from '@/lib/utils'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
   resolveBatchedSaveData,
   type BatchedSaveData,
@@ -99,6 +100,7 @@ export function ReleaseSaveButton({
         />
       ) : variant === 'text' ? (
         <button
+          {...replayOnHydrate}
           type="button"
           onClick={handleClick}
           disabled={isDisabled}
@@ -112,6 +114,7 @@ export function ReleaseSaveButton({
         </button>
       ) : (
         <Button
+          {...replayOnHydrate}
           type="button"
           variant={isSaved ? 'secondary' : 'ghost'}
           size="sm"

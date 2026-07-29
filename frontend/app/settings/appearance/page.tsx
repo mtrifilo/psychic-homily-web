@@ -40,6 +40,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { InlineErrorBanner } from '@/components/shared'
 import { parseNavMode, setNavModeCookie, type NavMode } from '@/lib/nav-mode'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 export default function AppearanceSettingsPage() {
   const { isAuthenticated, isLoading, user } = useAuthContext()
@@ -136,6 +137,7 @@ export default function AppearanceSettingsPage() {
               </p>
             </div>
             <Switch
+              {...replayOnHydrate}
               id="nav-mode-switch"
               checked={mode === 'side'}
               onCheckedChange={handleChange}

@@ -4,6 +4,7 @@ export { default as Footer } from './Footer'
 // to place it outside the hydration boundary.
 export { Providers } from './providers'
 export { AuthHydrator } from './AuthHydrator'
+export { ClickReplayScript } from './ClickReplayScript'
 export { ThemeProvider } from './theme-provider'
 export { ModeToggle } from './mode-toggle'
 export { CookieConsentBanner } from './CookieConsentBanner'

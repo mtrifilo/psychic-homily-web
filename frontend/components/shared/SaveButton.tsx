@@ -12,6 +12,7 @@ import {
 } from './batchedSaveData'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 interface SaveButtonProps {
   showId: number
@@ -127,6 +128,10 @@ export function SaveButton({
   return (
     <div className="relative">
       <Button
+        // A dropped Save is the worst case in PSY-1610's table: silent, so the
+        // user walks away believing the show is on their list. (The bracket
+        // variant above inherits replay from BracketLink.)
+        {...replayOnHydrate}
         variant={variant}
         size="icon"
         onClick={handleClick}

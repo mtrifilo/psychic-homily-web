@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { type Density } from '@/lib/hooks/common/useDensity'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
   Tooltip,
   TooltipContent,
@@ -53,7 +54,10 @@ export function DensityToggle({
   disabledTooltip,
 }: DensityToggleProps) {
   const group = (
+    // One replay root covers all three radios: this ships in server HTML and is
+    // among the last things on the page to hydrate (PSY-1615).
     <div
+      {...replayOnHydrate}
       className={cn(
         'inline-flex items-center rounded-md border border-border/50 bg-muted/30 p-0.5',
         disabled && 'opacity-50',

@@ -44,6 +44,7 @@ import {
   PostHogIdentify,
   AppShell,
   AuthHydrator,
+  ClickReplayScript,
 } from '@/components/layout'
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import { JsonLd } from '@/components/seo/JsonLd'
@@ -93,6 +94,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* First script in the document: it must already be listening during
+            the window where controls are painted but not yet interactive. */}
+        <ClickReplayScript />
         <link rel="preconnect" href="https://api.psychichomily.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="//api.psychichomily.com" />
         <link rel="dns-prefetch" href="//open.spotify.com" />

@@ -22,6 +22,7 @@ import {
 } from '@/features/collections/hooks'
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import type { CollectionEntityType } from '@/features/collections/types'
 import { useCreateCollectionDrawer } from '@/features/collections/components/CreateCollectionDrawer'
 import {
@@ -598,6 +599,7 @@ export function AddToCollectionButton({
           />
         ) : (
           <Button
+            {...replayOnHydrate}
             variant={variant}
             size={size}
             className={size === 'icon' ? 'h-8 w-8 p-0' : ''}

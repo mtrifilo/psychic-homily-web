@@ -79,6 +79,59 @@ desktop. Measure against a local prod build (not a Vercel preview) to avoid the
 
 ---
 
+## Visible does not imply interactive (PSY-1610 / PSY-1615)
+
+**Anything server-rendered is clickable before React wires it up, and a click in
+that window is discarded, not queued.** React 19 does not replay it. There is no
+error and no console warning — the control simply does not respond.
+
+Measured on a production build, median of 3, from FCP to the moment that node
+became interactive:
+
+| condition | dead window |
+| --- | --- |
+| M-series laptop, loopback | ~260 ms |
+| 4x CPU throttle | ~505 ms |
+| 6x CPU + 1.6 Mbps / 150 ms RTT | ~4.6 s |
+| 20x CPU + same network | ~6.7 s |
+
+Proof, not inference: React stamps a `__reactProps$…` key on a host node exactly
+when it hydrates that node. Correlating that with a capture-phase click listener
+gave **39 pre-hydration clicks → 0 effects, 42 post-hydration → 42 effects**, no
+overlap.
+
+This is a property of client-side hydration, **not** of authentication —
+anonymous surfaces have it too. Page-body controls are consistently the *last*
+things to wake up, later than the TopBar cluster.
+
+What this means when writing SSR-rendered UI:
+
+- **Navigation must be a real `<a href>` (or `next/link`), never an `onClick`
+  router push.** Anchors are handled by the browser, so they work throughout the
+  window for free. This is the single most valuable rule here — it is why the
+  `+ Submit` link never needed fixing.
+- **Interactive controls that ship in server HTML should opt into click
+  replay**: spread `{...replayOnHydrate}` onto the control. `BracketLink`
+  already carries it, so every bracket control inherits it for free. See
+  `lib/hydration/clickReplay.ts` for the mechanism and its exactly-once
+  guarantees. Limits: **a captured click expires after 10 s**
+  (`MAX_REPLAY_AGE_MS`) and is then dropped silently, and only clicks are
+  captured — keyboard activation of a Radix trigger goes through `onKeyDown`
+  and is still dropped.
+- **Do not "fix" this by gating rendering on hydration** — `suppressHydrationWarning`,
+  `typeof window` render branches, and effect-gated rendering all hide the
+  divergence instead of resolving it, and disabling a control for up to 6.7 s is
+  a worse regression than the dropped click.
+
+The proof harness is committed at `e2e-hydration/` so the next person does not
+have to build it a third time. Run it with `bun run test:e2e:hydration` (it
+needs a production build and its own stack — see the header of
+`e2e-hydration/prehydration-replay.spec.ts`). It is the ONLY guard against the
+double-fire regression: the unit suite cannot catch a move from the ref
+callback to a passive effect, because jsdom does not reproduce that gap.
+
+---
+
 ## Measuring Results
 
 ### Lighthouse

@@ -79,6 +79,7 @@ import { CollectionItemCard } from './CollectionItemCard'
 import { ANCHOR_SECTION_SCROLL_MT } from './CollectionAnchorNav'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { DensityToggle } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -328,6 +329,7 @@ export function CollectionItemsList({
         </span>
         {isCreator && (
           <Button
+            {...replayOnHydrate}
             variant="outline"
             size="sm"
             onClick={() => setIsAddItemsOpen(open => !open)}
@@ -349,6 +351,10 @@ export function CollectionItemsList({
           disabledTooltip="Density only applies to grid view"
         />
         <div
+          // Ships in server HTML behind a dynamic() import, so it is among the
+          // last controls to wake up — this is the toggle PSY-1610 caught
+          // dropping a click in CI.
+          {...replayOnHydrate}
           className="inline-flex items-center rounded-lg border border-border/50 bg-muted/30 p-0.5"
           role="radiogroup"
           aria-label="Items view"

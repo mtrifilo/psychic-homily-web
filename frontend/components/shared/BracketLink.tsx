@@ -1,8 +1,9 @@
 'use client'
 
-import { forwardRef } from 'react'
+import { forwardRef, useCallback } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 export interface BracketLinkProps
   extends Omit<
@@ -61,6 +62,25 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     },
     ref
   ) {
+    // Every bracket control ships in server HTML and is clickable before React
+    // wires it up, so replay is owned here rather than re-declared at ~71 call
+    // sites — one of which would inevitably forget, silently. The <Link> branch
+    // below deliberately does NOT get it: a real anchor already works through
+    // the whole window. See lib/hydration/clickReplay.ts.
+    //
+    // Composed locally rather than via `radix-ui/internal`: that is a private,
+    // unversioned entrypoint, and when a Radix upgrade breaks it the tempting
+    // repair is `ref={ref}` — which type-checks, renders identically, and
+    // silently deletes replay for every bracket control in the app.
+    const composedRef = useCallback(
+      (node: HTMLButtonElement | null) => {
+        replayOnHydrate.ref(node)
+        if (typeof ref === 'function') ref(node)
+        else if (ref) ref.current = node
+      },
+      [ref]
+    )
+
     const classes = cn(
       'inline-flex items-baseline whitespace-nowrap text-sm tabular-nums',
       // Tailwind's preflight leaves <button> at `cursor: default`, so the
@@ -73,6 +93,11 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         'text-muted-foreground hover:text-foreground',
       variant === 'default' && active && 'text-foreground font-medium',
       variant === 'danger' && 'text-destructive hover:text-destructive/80',
+      // LOAD-BEARING: `pointer-events-none` must stay. FollowButton's
+      // pre-hydration safety argument is that its disabled loading bracket
+      // cannot receive a click at all — a styling change here would silently
+      // turn that into a live gap. See FollowButton.tsx and
+      // lib/hydration/clickReplay.ts.
       disabled && 'opacity-50 cursor-not-allowed pointer-events-none',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-sm',
       className
@@ -102,7 +127,13 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
 
     return (
       <button
-        ref={ref}
+        // The spread is here for the MARKER ATTRIBUTE, which is the half that
+        // makes capture work; do not delete it as redundant. Its `ref` is
+        // deliberately overridden below because `composedRef` already calls
+        // `replayOnHydrate.ref` alongside the caller's forwarded ref, which
+        // Radix `asChild` triggers depend on. Order matters: spread first.
+        {...replayOnHydrate}
+        ref={composedRef}
         type="button"
         onClick={onClick}
         disabled={disabled}

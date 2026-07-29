@@ -17,6 +17,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:headed": "playwright test --headed",
+    "test:e2e:hydration": "playwright test --config=e2e-hydration/playwright.hydration.config.ts",
     "analyze": "ANALYZE=true next build --webpack",
     "api:types": "bash ../scripts/gen-api-types.sh",
     "api:types:check": "bash ../scripts/gen-api-types.sh && git diff --exit-code -- types/api.d.ts"
