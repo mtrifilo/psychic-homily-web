@@ -2,7 +2,11 @@ package system
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/db"
 )
@@ -36,6 +40,56 @@ func TestHealthHandler_DBNotInitialized(t *testing.T) {
 	}
 	if dbHealth.Error != "database not initialized" {
 		t.Errorf("database error = %q, want \"database not initialized\"", dbHealth.Error)
+	}
+}
+
+// TestHealthHandler_StaysLiveWhenDatabaseIsDown pins the liveness contract
+// against a well-meaning "fix". /health is Railway's deploy healthcheck with
+// restartPolicyType = "on_failure", so returning a StatusError here would make
+// Railway restart the backend during a database outage and then fail the
+// deploy — taking down the one surface still able to serve cached reads.
+//
+// The unhealthy signal belongs in the body (asserted above) and in
+// /health/ready's status code, never in this handler's error return.
+func TestHealthHandler_StaysLiveWhenDatabaseIsDown(t *testing.T) {
+	prev := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = prev })
+
+	resp, err := HealthHandler(context.Background(), &struct{}{})
+	if err != nil {
+		t.Fatalf("HealthHandler must not return an error with the database down; got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("HealthHandler returned a nil response")
+	}
+}
+
+// TestReadinessHandler_DBNotInitialized asserts the half of the split that
+// /health deliberately cannot provide: a status code an uptime monitor can act
+// on without parsing JSON.
+func TestReadinessHandler_DBNotInitialized(t *testing.T) {
+	prev := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = prev })
+
+	resp, err := ReadinessHandler(context.Background(), &struct{}{})
+	if err == nil {
+		t.Fatalf("ReadinessHandler returned no error with the database down (resp: %+v)", resp)
+	}
+
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("expected returned error to satisfy huma.StatusError, got %T (%v)", err, err)
+	}
+	if got := statusErr.GetStatus(); got != 503 {
+		t.Errorf("status = %d, want 503", got)
+	}
+
+	// The message names the failing component so an alert is actionable
+	// without a second request.
+	if msg := statusErr.Error(); !strings.Contains(msg, "database") {
+		t.Errorf("error message = %q, want it to name the database component", msg)
 	}
 }
 

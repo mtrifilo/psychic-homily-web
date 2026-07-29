@@ -246,22 +246,34 @@ func TestPublicReadRateLimiter_WritesNotLimited(t *testing.T) {
 	}
 }
 
-// /health is exempt — a load-balancer/uptime probe hammering it anonymously
-// from one IP must never be 429'd (that would flap the service unhealthy).
-func TestPublicReadRateLimiter_HealthPathExempt(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
-	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+// Both health endpoints are exempt — a load-balancer/uptime probe hammering one
+// anonymously from a single IP must never be 429'd (that would flap the service
+// unhealthy). /health/ready is the one alerting watches, so throttling it pages
+// a human about a service that is fine. The exemption is exact-match, so each
+// path needs its own entry and its own assertion here.
+func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
+	probes := map[string]string{
+		"/health":       "7.7.7.9:100",
+		"/health/ready": "7.7.7.11:100",
+	}
 
-	for i := 0; i < middleware.APIRequestsPerMinute+5; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		req.RemoteAddr = "7.7.7.9:100"
-		rr := httptest.NewRecorder()
-		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("health probe %d: status = %d, want 200 (/health must be exempt)", i, rr.Code)
-		}
+	for path, remoteAddr := range probes {
+		t.Run(path, func(t *testing.T) {
+			mw := PublicReadRateLimiter(nil, enableEnv)
+			handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			for i := 0; i < middleware.APIRequestsPerMinute+5; i++ {
+				req := httptest.NewRequest(http.MethodGet, path, nil)
+				req.RemoteAddr = remoteAddr
+				rr := httptest.NewRecorder()
+				handler.ServeHTTP(rr, req)
+				if rr.Code != http.StatusOK {
+					t.Fatalf("health probe %d: status = %d, want 200 (%s must be exempt)", i, rr.Code, path)
+				}
+			}
+		})
 	}
 }
 

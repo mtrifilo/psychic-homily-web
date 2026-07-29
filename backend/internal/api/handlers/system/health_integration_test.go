@@ -39,3 +39,30 @@ func TestHealthHandler_DBHealthy_Integration(t *testing.T) {
 		t.Error("expected non-empty latency on the healthy path")
 	}
 }
+
+// TestReadinessHandler_DBHealthy_Integration covers readiness' success branch:
+// with a reachable database it returns no error (HTTP 200) and a body that
+// agrees with /health's, since both are assembled by buildHealthResponse.
+func TestReadinessHandler_DBHealthy_Integration(t *testing.T) {
+	testDB := testutil.SetupTestPostgres(t)
+	t.Cleanup(testDB.Cleanup)
+
+	prev := db.DB
+	db.DB = testDB.DB
+	t.Cleanup(func() { db.DB = prev })
+
+	resp, err := ReadinessHandler(context.Background(), &struct{}{})
+	if err != nil {
+		t.Fatalf("ReadinessHandler returned error with a healthy database: %v", err)
+	}
+	if resp.Body.Status != "healthy" {
+		t.Errorf("overall status = %q, want \"healthy\"", resp.Body.Status)
+	}
+	dbHealth, ok := resp.Body.Components["database"]
+	if !ok {
+		t.Fatal("expected a \"database\" component in the response")
+	}
+	if dbHealth.Status != "healthy" {
+		t.Errorf("database status = %q, want \"healthy\" (error: %s)", dbHealth.Status, dbHealth.Error)
+	}
+}

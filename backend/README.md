@@ -564,19 +564,42 @@ docker compose exec db bash
 
 ### Health Check
 
+Two endpoints, deliberately split. **They are not interchangeable — see
+[Infrastructure Sizing and Monitoring](#infrastructure-sizing-and-monitoring)
+before pointing anything at either.**
+
 ```bash
-GET /health
+GET /health        # liveness  — ALWAYS 200 while the process serves
+GET /health/ready  # readiness — 503 when a critical dependency is unreachable
 ```
 
-**Response:**
+`/health` is Railway's deploy healthcheck (`railway.toml`), so its failure
+restarts the service. It reports component detail in the body but never in its
+status code. **`/health/ready` is the endpoint uptime monitoring and alerting
+should watch**; nothing restarts on its result.
+
+**Response (both, when healthy — HTTP 200):**
 
 ```json
 {
   "body": {
-    "status": "ok"
+    "status": "healthy",
+    "components": {
+      "database": { "status": "healthy", "latency": "1.23ms" }
+    },
+    "timestamp": "2026-01-15T10:30:00Z"
   }
 }
 ```
+
+With the database unreachable, `/health` returns the same shape with
+`"status": "unhealthy"` and **still HTTP 200**; `/health/ready` returns **HTTP
+503** with a problem+json body naming the failing component.
+
+Both paths are exempt from the public-read rate limiter
+(`infraPathsExemptFromRateLimit`). That list is **exact-match** — a new health
+path, or a rename, needs an entry there or probes land on the anonymous per-IP
+budget and a 429 pages someone about a healthy service.
 
 ### Submit Show
 
@@ -813,6 +836,75 @@ for interactively-created artists — admin create + entity-request fulfillment)
 | `ARTIST_LOCATION_SWEEP_INTERVAL_HOURS` | `24`        | Tick cadence                                                    |
 | `ARTIST_LOCATION_SWEEP_BATCH`          | `50`        | Artists processed per tick                                      |
 | `ARTIST_LOCATION_SWEEP_REATTEMPT_DAYS` | `30`        | Don't re-attempt a locationless artist for this many days       |
+
+### Infrastructure Sizing and Monitoring
+
+**Read this before provisioning a new environment.** A production outage was
+caused by a volume that could never have survived a write burst, and nothing
+alerted — the API was fully down while cached frontend pages kept serving 200s.
+
+#### The volume sizing rule
+
+```
+volume >= pg_database_size + max_wal_size + filesystem overhead,  with margin
+```
+
+`max_wal_size` is a **ceiling Postgres is entitled to reach**, not a
+high-water mark it works up to. If it exceeds free space, the volume is already
+doomed at 0% used — the first sustained burst of `UPDATE`s fills it. A
+percentage-usage alert cannot catch that: usage looks fine right up until
+checkpoint churn claims the headroom the config always allowed it to claim.
+
+So there are **two** checks, and the floor is the one that catches a
+misconfiguration:
+
+1. **Floor (catches misconfiguration).** Does `data + max_wal_size + overhead`
+   fit the volume with margin? Verify at provisioning time, not from a graph.
+2. **Percentage (catches gradual growth).** Alert at ~70% of the volume. This is
+   the second check, not the first.
+
+Verify the floor against a live database:
+
+```sql
+SELECT pg_size_pretty(pg_database_size(current_database())) AS data,
+       current_setting('max_wal_size')                     AS max_wal,
+       current_setting('min_wal_size')                     AS min_wal,
+       current_setting('wal_keep_size')                    AS wal_keep,
+       (SELECT count(*) FROM pg_replication_slots)         AS slots;
+```
+
+`max_wal_size` is only the bound if nothing is **pinning** WAL. A non-zero
+`wal_keep_size`, or any replication slot (especially an inactive one, which
+retains WAL indefinitely), lets WAL grow past that ceiling — so the arithmetic
+above no longer holds. Both must be checked, not assumed.
+
+Note that WAL volume tracks **write churn, not row count**. A backfill that
+rewrites existing rows generates far more WAL than one that inserts new ones,
+and a mass `DELETE` is a write burst too — which is why large retention
+operations should be a partition `DETACH` rather than a `DELETE`.
+
+Postgres on Railway is a managed service with no config file in this repo, so
+`max_wal_size` is set through the platform rather than here. Set it
+**explicitly**; a default that happens to fit today is not the same as a value
+chosen against the volume.
+
+#### What watches what
+
+| Signal | Watched by | On failure |
+| --- | --- | --- |
+| Process alive | Railway deploy healthcheck → `/health` | Restarts the service |
+| Dependencies reachable | External uptime monitor → `/health/ready` | Pages a human; **no restart** |
+| Volume usage % | Railway native volume alerts | Pages a human |
+| Background sweeps running | `sweep_health_check` → Sentry | Pages a human |
+
+The external monitor must live **outside the platform**. The frontend is served
+from a CDN cache that keeps returning 200s through a total API outage, so
+checking the site's homepage proves nothing about the backend. Point the monitor
+at `/health/ready` and alert on the status code — 503 means "serving, but cannot
+do its job".
+
+Do not point it at `/health`: that endpoint returns 200 by design whenever the
+process is alive, so it stays green during exactly the outage you want detected.
 
 ### Security Notes
 

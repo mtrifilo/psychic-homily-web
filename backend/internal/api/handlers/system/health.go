@@ -35,10 +35,9 @@ type HealthResponse struct {
 // That looks like a bug and is not. Making /health return 503 when the database
 // is unreachable would hand Railway a reason to restart the backend during a
 // database outage, up to restartPolicyMaxRetries, and then mark the deploy
-// failed — converting "API up, database down" into "nothing up at all". In the
-// 2026-07-29 incident, where Postgres was down for hours, that would have taken
-// the API down with it and removed the one surface still able to serve cached
-// reads.
+// failed — converting "API up, database down" into "nothing up at all". A
+// prolonged database outage would take the API down with it and remove the one
+// surface still able to serve cached reads.
 //
 // /health/ready answers the different question — "can this process actually do
 // its job?" — and returns 503 when it cannot. That is the endpoint uptime

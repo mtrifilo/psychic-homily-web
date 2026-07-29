@@ -54,11 +54,16 @@ func IsPublicReadRateLimitEnabled(getenv func(string) string) bool {
 }
 
 // infraPathsExemptFromRateLimit are exact request paths a global anonymous
-// limiter must NEVER throttle. /health is polled anonymously and often from a
-// single IP by load balancers / uptime probes; a 429 there would flap the
-// service unhealthy and cause an outage — the opposite of what abuse-protection
-// should do.
-var infraPathsExemptFromRateLimit = []string{"/health"}
+// limiter must NEVER throttle. Both health endpoints are polled anonymously and
+// often from a single IP by load balancers / uptime probes; a 429 there would
+// flap the service unhealthy and cause an outage — the opposite of what
+// abuse-protection should do. /health/ready is the worse of the two to throttle:
+// it is the endpoint alerting watches, so a 429 pages a human about a service
+// that is fine.
+//
+// Matching is EXACT, not by prefix — adding a health endpoint requires adding it
+// here too, or it silently lands on the anonymous per-IP budget.
+var infraPathsExemptFromRateLimit = []string{"/health", "/health/ready"}
 
 // personalFeedPathPrefixesExemptFromRateLimit are token-authenticated personal
 // feeds (PSY-1430 iCal + PSY-1505 Atom). Google Calendar / Apple Calendar / RSS
