@@ -43,12 +43,29 @@ function parseCalendarDate(iso: string): Date {
   return new Date(y, (m ?? 1) - 1, d ?? 1)
 }
 
+/** `JUL 27` — the shared stem of every uppercase date label here. */
+function monthDay(iso: string): string {
+  const date = parseCalendarDate(iso)
+  const month = date.toLocaleDateString('en-US', { month: 'short' })
+  return `${month} ${date.getDate()}`.toUpperCase()
+}
+
 /** `MON JUL 27` — the day-group heading. */
 export function formatDayHeading(iso: string): string {
-  const date = parseCalendarDate(iso)
-  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' })
-  const month = date.toLocaleDateString('en-US', { month: 'short' })
-  return `${weekday} ${month} ${date.getDate()}`.toUpperCase()
+  const weekday = parseCalendarDate(iso).toLocaleDateString('en-US', { weekday: 'short' })
+  return `${weekday.toUpperCase()} ${monthDay(iso)}`
+}
+
+/**
+ * `JUL 27 – AUG 2` — the share card's week range.
+ *
+ * Drops the weekday and year the page header carries: on a card the range sits
+ * above the city at display scale and only has to say *which week*, and at the
+ * 300px a link renders at in a group chat every dropped word buys size on the
+ * words that remain.
+ */
+export function formatWeekRangeCompact(startISO: string, endISO: string): string {
+  return `${monthDay(startISO)} – ${monthDay(endISO)}`
 }
 
 /** `Mon Jul 27 – Sun Aug 2, 2026` — the header's week range. */

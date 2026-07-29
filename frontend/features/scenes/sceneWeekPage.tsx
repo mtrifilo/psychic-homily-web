@@ -1,54 +1,25 @@
 import { cache } from 'react'
 import type { Metadata } from 'next'
-import * as Sentry from '@sentry/nextjs'
-import { API_BASE_URL } from '@/lib/api-base'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema } from '@/lib/seo/jsonld'
 import { SceneWeekView } from './components/SceneWeekView'
+import { fetchSceneWeek } from './sceneWeekApi'
 import { countShows, formatWeekRange, showDisplayTitle, type SceneWeekResponse } from './sceneWeek'
 
 const SITE = 'https://psychichomily.com'
 
 /**
- * Fetch one scene-week.
- *
- * `week` is an ISO week key, or omitted for the scene's CURRENT week. Current
- * is resolved SERVER-side by the backend, in the scene's own timezone — a
- * reader in Berlin and a reader in Chicago must see the same Chicago week, so
- * the client must not compute it.
+ * Fetch one scene-week for the page.
  *
  * Wrapped in `React.cache` so `generateMetadata` and the page body share one
  * round-trip per request, matching the existing scene-page pattern (PSY-906).
+ * The wrapper stays here rather than in `sceneWeekApi` because `React.cache` is
+ * server-component-only — the share card, which renders on the edge, calls the
+ * underlying fetch directly.
  */
 export const getSceneWeek = cache(
-  async (slug: string, week?: string): Promise<SceneWeekResponse | null> => {
-    const path = week
-      ? `${API_BASE_URL}/scenes/${slug}/week/${week}`
-      : `${API_BASE_URL}/scenes/${slug}/week`
-    try {
-      // An archived week is immutable once past; the rolling week is not. The
-      // caller picks the revalidate window.
-      const res = await fetch(path, { next: { revalidate: week ? 86400 : 900 } })
-      if (res.ok) return res.json()
-      // 404 is the expected answer for an unknown slug, a below-threshold
-      // scene, or a week key that does not exist (e.g. 2025-W53) — not an error
-      // worth reporting.
-      if (res.status >= 500) {
-        Sentry.captureMessage(`Scene week: API returned ${res.status}`, {
-          level: 'error',
-          tags: { service: 'scene-week' },
-          extra: { slug, week, status: res.status },
-        })
-      }
-    } catch (error) {
-      Sentry.captureException(error, {
-        level: 'error',
-        tags: { service: 'scene-week' },
-        extra: { slug, week },
-      })
-    }
-    return null
-  }
+  (slug: string, week?: string): Promise<SceneWeekResponse | null> =>
+    fetchSceneWeek(slug, week, 'scene-week')
 )
 
 export async function buildSceneWeekMetadata(

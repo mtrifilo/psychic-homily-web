@@ -3,6 +3,7 @@ import {
   countShows,
   formatDayHeading,
   formatWeekRange,
+  formatWeekRangeCompact,
   looksLikeISOWeek,
   showDisplayTitle,
   showHref,
@@ -49,6 +50,25 @@ describe('formatWeekRange', () => {
     expect(formatWeekRange('2025-12-29', '2026-01-04')).toBe(
       'Mon, Dec 29 – Sun, Jan 4, 2026'
     )
+  })
+})
+
+describe('formatWeekRangeCompact', () => {
+  it('drops the weekday and year the share card has no room for', () => {
+    expect(formatWeekRangeCompact('2026-07-27', '2026-08-02')).toBe('JUL 27 – AUG 2')
+  })
+
+  // The separator is an EN DASH. A hyphen would be an invisible regression:
+  // it renders, it just looks wrong on a card nobody re-reads.
+  it('separates the two dates with an en dash', () => {
+    expect(formatWeekRangeCompact('2026-07-27', '2026-08-02')).toContain(' – ')
+    expect(formatWeekRangeCompact('2026-07-27', '2026-08-02')).not.toContain('-')
+  })
+
+  // Same calendar-date hazard as its siblings: parsed component-wise, so a
+  // negative-offset timezone must not shift either end back a day.
+  it('renders the calendar dates, not timezone-shifted ones', () => {
+    expect(formatWeekRangeCompact('2025-12-29', '2026-01-04')).toBe('DEC 29 – JAN 4')
   })
 })
 
