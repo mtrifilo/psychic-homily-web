@@ -1693,10 +1693,8 @@ func (s *RadioService) fetchImportAndRecordPlaylist(episode *catalogm.RadioEpiso
 // would zero/shrink play_count while the original rows persist, surfacing "0 plays" on
 // an episode that has tracks. max() + the empty-fetch skip make the count never decrease.
 func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, playsImported int, fetchFailed bool, now time.Time) error {
-	facts := episodePlaylistFacts(episode)
-	isAired := catalogm.ComputeEpisodeStatus(
-		episode.StartsAt, episode.EndsAt, catalogm.RadioPlaylistStatePending, now) == catalogm.RadioEpisodeStatusAired
-	newState, newAttempts := catalogm.SettlePlaylistStateAfterFetch(facts, playsImported > 0 && !fetchFailed, now)
+	newState, newAttempts, postAir := catalogm.SettlePlaylistStateAfterFetch(
+		episodePlaylistFacts(episode), playsImported > 0 && !fetchFailed, now)
 	newStatus := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, newState, now)
 
 	updates := map[string]any{
@@ -1706,11 +1704,11 @@ func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, pla
 		"status":                  newStatus,
 	}
 	// Stamp the post-air retry memo (PSY-1562) so this episode is not re-selected by
-	// the next sweep. Aired attempts only: the live refresh deliberately runs every
+	// the next sweep. Post-air attempts only: the live refresh deliberately runs every
 	// tick to accumulate tracks, and cooling it down would be a regression. Written in
 	// the SAME update as the state it rate-limits, so the memo cannot silently fall
 	// behind the attempt counter.
-	if isAired {
+	if postAir {
 		updates["playlist_backfill_attempted_at"] = now
 	}
 	// Only advance play_count on a fetch that actually returned plays, and never
@@ -1728,7 +1726,7 @@ func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, pla
 	episode.PlaylistFetchAttempts = newAttempts
 	episode.Status = newStatus
 	episode.PlaylistFetchedAt = &now
-	if isAired {
+	if postAir {
 		episode.PlaylistBackfillAttemptedAt = &now
 	}
 	episode.PlayCount = newPlayCount

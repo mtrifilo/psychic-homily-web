@@ -163,7 +163,10 @@ func TestEmptyEpisodeIsNotRefetchedOnTheNextCycle(t *testing.T) {
 	facts := windowedFacts(RadioPlaylistStatePending, 0)
 	attemptAt := epAfter
 
-	state, attempts := SettlePlaylistStateAfterFetch(facts, false, attemptAt)
+	state, attempts, postAir := SettlePlaylistStateAfterFetch(facts, false, attemptAt)
+	if !postAir {
+		t.Fatal("an aired empty fetch must report a post-air attempt so the memo gets stamped")
+	}
 	if state != RadioPlaylistStatePending || attempts != 1 {
 		t.Fatalf("after one empty post-air fetch = (%q, %d), want (pending, 1)", state, attempts)
 	}
@@ -280,7 +283,11 @@ func TestSettlePlaylistStateAfterFetch(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			state, attempts := SettlePlaylistStateAfterFetch(tc.facts, tc.hasPlays, tc.now)
+			state, attempts, postAir := SettlePlaylistStateAfterFetch(tc.facts, tc.hasPlays, tc.now)
+			wantPostAir := ComputeEpisodeStatus(tc.facts.StartsAt, tc.facts.EndsAt, RadioPlaylistStatePending, tc.now) == RadioEpisodeStatusAired
+			if postAir != wantPostAir {
+				t.Errorf("postAir = %v, want %v — the memo must be stamped for exactly the aired attempts", postAir, wantPostAir)
+			}
 			if state != tc.wantState || attempts != tc.wantAttempts {
 				t.Errorf("SettlePlaylistStateAfterFetch(%+v, plays=%v, %v) = (%q, %d), want (%q, %d)",
 					tc.facts, tc.hasPlays, tc.now, state, attempts, tc.wantState, tc.wantAttempts)

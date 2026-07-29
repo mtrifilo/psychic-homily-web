@@ -305,30 +305,34 @@ func playlistGiveUpDeadline(f PlaylistFetchFacts) (time.Time, bool) {
 // the fetch returned: those labels would contradict the tracks the episode is showing.
 // It settles to 'partial' — some tracks, no final playlist — which is the same answer
 // RederivePlaylistState gives, so the two writers cannot disagree about a row.
-func SettlePlaylistStateAfterFetch(f PlaylistFetchFacts, hasPlays bool, now time.Time) (state string, attempts int) {
+// postAir reports whether this was a POST-AIR attempt, which is what the caller
+// stamps the retry memo on. Returned rather than recomputed by the caller so the memo
+// and the state it rate-limits cannot disagree about which phase the fetch happened
+// in.
+func SettlePlaylistStateAfterFetch(f PlaylistFetchFacts, hasPlays bool, now time.Time) (state string, attempts int, postAir bool) {
 	aired := ComputeEpisodeStatus(f.StartsAt, f.EndsAt, RadioPlaylistStatePending, now) == RadioEpisodeStatusAired
 
 	if hasPlays {
 		if aired {
-			return RadioPlaylistStateComplete, f.Attempts
+			return RadioPlaylistStateComplete, f.Attempts, true
 		}
-		return RadioPlaylistStatePartial, f.Attempts
+		return RadioPlaylistStatePartial, f.Attempts, false
 	}
 	if !aired {
 		// Live or scheduled with nothing yet — expected, not a failure. 'partial' is
 		// monotonic within the live window (PSY-1370): a transient empty round must
 		// not erase "this show already has tracks".
 		if f.PlaylistState == RadioPlaylistStatePartial || f.PlayCount > 0 {
-			return RadioPlaylistStatePartial, f.Attempts
+			return RadioPlaylistStatePartial, f.Attempts, false
 		}
-		return RadioPlaylistStatePending, f.Attempts
+		return RadioPlaylistStatePending, f.Attempts, false
 	}
 
 	// A genuine failed post-air attempt: burn one regardless of the label below, since
 	// the attempt happened and the ceiling counts attempts.
 	attempts = f.Attempts + 1
 	if f.PlayCount > 0 {
-		return RadioPlaylistStatePartial, attempts
+		return RadioPlaylistStatePartial, attempts, true
 	}
 
 	// The label is decided by the same predicate the sweep uses, evaluated one
@@ -339,9 +343,9 @@ func SettlePlaylistStateAfterFetch(f PlaylistFetchFacts, hasPlays bool, now time
 	next.PlaylistState = RadioPlaylistStatePending
 	next.LastBackfillAttemptAt = &now
 	if PlanPlaylistFetch(next, now.Add(RadioPlaylistRetryCooldown)).Exhausted {
-		return RadioPlaylistStateUnavailable, attempts
+		return RadioPlaylistStateUnavailable, attempts, true
 	}
-	return RadioPlaylistStatePending, attempts
+	return RadioPlaylistStatePending, attempts, true
 }
 
 // RederivePlaylistState re-settles playlist_state and playlist_fetch_attempts from an
@@ -393,10 +397,10 @@ func RederivePlaylistState(f PlaylistFetchFacts, now time.Time) (state string, a
 	// says about this episode right now — 'unavailable' once it is past its deadline,
 	// 'pending' while it can still be tried. Asking the predicate rather than trusting
 	// the stored label is what makes a stale 'unavailable' self-correcting instead of
-	// something a reader has to normalize away.
-	probe := f
-	probe.PlaylistState = RadioPlaylistStatePending
-	if PlanPlaylistFetch(probe, now).Exhausted {
+	// something a reader has to normalize away. Passing f unmodified is safe because
+	// 'complete' is the only label PlanPlaylistFetch short-circuits on, and it returned
+	// above.
+	if PlanPlaylistFetch(f, now).Exhausted {
 		return RadioPlaylistStateUnavailable, f.Attempts
 	}
 	return RadioPlaylistStatePending, f.Attempts
