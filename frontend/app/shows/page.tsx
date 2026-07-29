@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
-import { fetchSeoList } from '@/lib/build-time-api'
+import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 export const metadata = {
@@ -26,7 +26,6 @@ interface ShowListItem {
   venues: Array<{ name: string }>
 }
 
-/** Feeds the JSON-LD `ItemList` only — see `fetchSeoList` for why it fails open. */
 function getUpcomingShows(): Promise<ShowListItem[]> {
   return fetchSeoList<ShowListItem>({
     url: `${API_BASE_URL}/shows/upcoming`,

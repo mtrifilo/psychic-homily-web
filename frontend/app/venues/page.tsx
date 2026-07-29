@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { VenueList } from '@/features/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
-import { fetchSeoList } from '@/lib/build-time-api'
+import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 export const metadata = {
@@ -34,7 +34,6 @@ interface VenueListItem {
  */
 const VENUE_LIST_LIMIT = 100
 
-/** Feeds the JSON-LD `ItemList` only — see `fetchSeoList` for why it fails open. */
 function getVenues(): Promise<VenueListItem[]> {
   return fetchSeoList<VenueListItem>({
     url: `${API_BASE_URL}/venues?limit=${VENUE_LIST_LIMIT}`,

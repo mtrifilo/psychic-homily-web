@@ -10,11 +10,8 @@ vi.mock('@sentry/nextjs', () => ({
   captureMessage,
 }))
 
-import {
-  BUILD_TIME_API_FETCH_TIMEOUT_MS,
-  SEO_LIST_REVALIDATE_SECONDS,
-  fetchSeoList,
-} from './build-time-api'
+import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
+import { SEO_LIST_REVALIDATE_SECONDS, fetchSeoList } from './fetchSeoList'
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
