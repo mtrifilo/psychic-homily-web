@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { useUpcomingShows, useShowCities } from '../hooks/useShows'
+import { batchedSaveFor } from '@/components/shared/batchedSaveData'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -174,7 +175,7 @@ export function HomeShowList() {
                 key={show.id}
                 show={show}
                 isAdmin={isAdmin}
-                saveData={saveCounts?.[String(show.id)]}
+                saveData={batchedSaveFor(saveCounts, show.id)}
               />
             ))}
           </div>

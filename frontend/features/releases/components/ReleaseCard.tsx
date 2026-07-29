@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Disc3 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { EntityCardTitle, ReleaseSaveButton } from '@/components/shared'
+import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
 import { getReleaseTypeLabel } from '../types'
 import type { ReleaseListItem } from '../types'
 
@@ -12,7 +13,8 @@ export type ReleaseCardDensity = 'compact' | 'comfortable' | 'expanded'
 interface ReleaseCardProps {
   release: ReleaseListItem
   density?: ReleaseCardDensity
-  saveData?: { save_count: number; is_saved: boolean }
+  /** Forwarded to ReleaseSaveButton; `'pending'` while the list's batch is in flight. */
+  saveData?: BatchedSaveData
   saveDisabled?: boolean
   showSaveAction?: boolean
 }
