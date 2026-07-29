@@ -767,6 +767,17 @@ stopped running to Sentry. Turn it off with `DISABLE_SWEEP_HEALTH_CHECK=1`.
   discards its run history. The `UPDATE` above retires without resetting the
   schedule, and is safe even if the loop is still wired (it re-registers on the
   next pass).
+- **Not covered — the detector's own liveness.** Nothing reports that the health
+  check itself stopped: it holds no run-state row by design (so it cannot monitor
+  itself), which means `DISABLE_SWEEP_HEALTH_CHECK=1` left set, or its goroutine
+  stopped by the loop-stopping outer recover, removes all coverage with only a
+  boot log line as evidence. Tracked in PSY-1636.
+- **Not covered — a process killed mid-report.** The throttle stamp commits before
+  the alert is delivered (it must, or two replicas both report). A handler panic
+  and an in-progress shutdown both release the claim for retry, but a SIGKILL or
+  OOM between the commit and delivery does not — that sweep stays silent for up to
+  one re-assert window. So the honest bound is "within the detection bound, or up
+  to `SWEEP_OVERDUE_REALERT_HOURS` later if a process dies mid-report".
 - **Not covered:** a loop that runs and *fails* every cycle. It keeps stamping
   `last_completed_at`, so it never reads as overdue and nothing pages. Tracked in
   PSY-1620.

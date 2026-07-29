@@ -522,6 +522,28 @@ func (c *SweepHealthCheck) refreshRegistrations(ctx context.Context) {
 	}
 }
 
+// releaseClaim hands a claim back so the next pass reports it again, rather than
+// leaving a row asserting an alert nobody received.
+//
+// ALWAYS on a detached, bounded context. Both callers reach this precisely when
+// something has gone wrong, and the most likely something is shutdown — which
+// means the caller's ctx is already cancelled and would refuse the write. Passing
+// the live ctx (an earlier version of the undelivered path did) makes the release
+// fail in exactly the case it exists for, leaving the loop silent for a full
+// re-assert window: a silent failure inside the thing built to catch silent
+// failures. One helper rather than two call sites so they cannot drift apart.
+func (c *SweepHealthCheck) releaseClaim(ctx context.Context, name, why string) {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := c.store.ReleaseOverdueAlert(releaseCtx, name); err != nil {
+		c.logger.Error("sweep health check: could not release an alert claim",
+			"service", name,
+			"reason", why,
+			"error", err,
+		)
+	}
+}
+
 // RunCheckNow runs one pass immediately (tests / manual trigger). Nil-safe like
 // Start and Stop: NewSweepHealthCheck yields nil without a database, and a caller
 // that starts the check unconditionally should be able to poke it the same way.
@@ -563,16 +585,7 @@ func (c *SweepHealthCheck) runCycle(ctx context.Context) {
 			c.logger.Warn("sweep health check: shutting down mid-report, releasing the remaining claims",
 				"unreported", loop.Name,
 			)
-			// Detached: ctx is already cancelled, and releasing with it would fail —
-			// leaving the row asserting an alert nobody received, which is the exact
-			// state this branch exists to avoid. Same reasoning as Complete's
-			// shutdown path.
-			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			if err := c.store.ReleaseOverdueAlert(releaseCtx, loop.Name); err != nil {
-				c.logger.Error("sweep health check: could not release an unreported claim",
-					"service", loop.Name, "error", err)
-			}
-			cancel()
+			c.releaseClaim(ctx, loop.Name, "unreported")
 			continue
 		}
 		c.logger.Error("background sweep overdue",
@@ -585,16 +598,7 @@ func (c *SweepHealthCheck) runCycle(ctx context.Context) {
 			"run_count", loop.RunCount,
 		)
 		if delivered := invokeOverdueHandler(loop); !delivered {
-			// Put the claim back. Leaving it stamped would mean the row asserts a
-			// report that never reached anyone, and the loop then stays silent for
-			// the whole re-assert window — a silent failure inside the thing built
-			// to catch silent failures.
-			if err := c.store.ReleaseOverdueAlert(ctx, loop.Name); err != nil {
-				c.logger.Error("sweep health check: could not release an undelivered alert claim",
-					"service", loop.Name,
-					"error", err,
-				)
-			}
+			c.releaseClaim(ctx, loop.Name, "undelivered")
 		}
 	}
 }

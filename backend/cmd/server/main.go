@@ -169,14 +169,22 @@ func main() {
 		// next pass retries. Discarding this bool would leave the one signal that
 		// can detect the drop unused.
 		//
-		// Gated on a client EXISTING: Flush returns false when there is no DSN, so
-		// an unguarded check would treat every alert in a DSN-less environment
-		// (local dev, tests, CI) as undelivered, release the claim, and re-report
-		// on every pass forever. With no sink configured the log line IS the
-		// delivery — the same reasoning invokeOverdueHandler applies to a nil
-		// handler.
-		if sentry.CurrentHub().Client() != nil && !sentry.Flush(2*time.Second) {
-			panic("sentry flush timed out before the overdue alert was delivered")
+		// Its result is INFORMATIONAL and must not be treated as this event's
+		// delivery status. Flush drains the whole current batch — which on a live
+		// server also holds sampled transaction events from concurrent HTTP traffic
+		// — and reports whether that batch cleared in time, not whether this alert
+		// got through. Wiring it to the release path (an earlier attempt) meant an
+		// ordinary Sentry latency blip released the claim and re-reported every
+		// pass, ~96 events/day/sweep, for an event that had in fact been delivered:
+		// the exact flood this feature exists to prevent, triggered by something
+		// unrelated to the sweeps.
+		//
+		// So: flush to get the alert out promptly, log if the batch did not clear,
+		// and leave delivery-failure detection to the one signal that genuinely
+		// means this handler failed — a panic.
+		if !sentry.Flush(2*time.Second) && sentry.CurrentHub().Client() != nil {
+			log.Printf("sentry batch did not flush within 2s while reporting overdue sweep %q "+
+				"(the event is queued; delivery is not confirmed)", loop.Name)
 		}
 	})
 
@@ -469,9 +477,15 @@ func main() {
 	// its last registration, so the sweep reads as overdue and reports once a day
 	// until the retirement window (7 days without any process registering it)
 	// expires. A sweep that has never been enabled here has no row and is never
-	// reported. To retire one immediately:
+	// reported. To retire one immediately (see backend/README.md, "Overdue-sweep
+	// alerting", for the full procedure):
 	//
-	//	DELETE FROM background_service_runs WHERE name = '<loop name>';
+	//	UPDATE background_service_runs SET last_registered_at = NULL WHERE name = '<loop name>';
+	//
+	// Do NOT DELETE the row: if any process still owns that loop the health check
+	// re-creates it within one pass with created_at = NOW(), which hands a
+	// genuinely stalled sweep a FRESH grace window, makes it report as never_ran
+	// afterwards, and discards its run history.
 	if os.Getenv("DISABLE_SWEEP_HEALTH_CHECK") != "1" {
 		var sweepHealthCheckCtx context.Context
 		sweepHealthCheckCtx, sweepHealthCheckCancel = context.WithCancel(context.Background())
