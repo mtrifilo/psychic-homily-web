@@ -343,10 +343,63 @@ func (r *loopRunner) register(ctx context.Context) {
 	if r.store == nil {
 		return
 	}
+	rememberLoop(r.name, r.interval, r.lease)
 	defer recoverAndLog("background run state: register panicked — continuing", r.name)
 	if err := r.store.Register(ctx, r.name, r.interval, r.lease); err != nil {
 		logStoreError(r.name, "register", err)
 	}
+}
+
+// Loops this process has wired up. Registration liveness is a property of the
+// PROCESS, not of any loop's goroutine, and conflating the two is a trap:
+//
+//   - Refreshing on Claim or per cycle would tie it to the loop's own health, so
+//     a loop whose goroutine died would stop refreshing, retire itself, and go
+//     silent — deleting exactly the alert it should have raised.
+//   - Stamping only at start (the original mistake) ties it to DEPLOY cadence, so
+//     a process that simply stays up longer than the retirement window ages every
+//     row out and switches the whole fleet's alerting off.
+//
+// Keeping the set in memory and having the health check re-stamp it on its own
+// cadence means "this loop is expected to run" stays true for as long as a
+// process that wired it is alive, and stops being true when no such process
+// remains — which is the actual question retirement asks.
+var (
+	registeredLoopsMu sync.Mutex
+	registeredLoops   = map[string]LoopRegistration{}
+)
+
+// LoopRegistration is the identity and cadence of a loop this process runs.
+type LoopRegistration struct {
+	Name     string
+	Interval time.Duration
+	Lease    time.Duration
+}
+
+// rememberLoop records a loop as owned by this process.
+func rememberLoop(name string, interval, lease time.Duration) {
+	registeredLoopsMu.Lock()
+	registeredLoops[name] = LoopRegistration{Name: name, Interval: interval, Lease: lease}
+	registeredLoopsMu.Unlock()
+}
+
+// RegisteredLoops returns the loops this process has wired up.
+func RegisteredLoops() []LoopRegistration {
+	registeredLoopsMu.Lock()
+	defer registeredLoopsMu.Unlock()
+	out := make([]LoopRegistration, 0, len(registeredLoops))
+	for _, l := range registeredLoops {
+		out = append(out, l)
+	}
+	return out
+}
+
+// resetRegisteredLoops clears the process registry. Tests only — production has
+// exactly one process lifetime.
+func resetRegisteredLoops() {
+	registeredLoopsMu.Lock()
+	registeredLoops = map[string]LoopRegistration{}
+	registeredLoopsMu.Unlock()
 }
 
 // firstCycleDelay decides when the first cycle happens for a loop that does not

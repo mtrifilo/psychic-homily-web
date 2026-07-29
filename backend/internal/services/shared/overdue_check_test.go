@@ -17,10 +17,20 @@ import (
 // it reports, and what it does when the store misbehaves — can be tested without
 // a container.
 type fakeClaimer struct {
-	mu     sync.Mutex
-	loops  []OverdueLoop
-	err    error
-	window time.Duration
+	mu       sync.Mutex
+	loops    []OverdueLoop
+	err      error
+	window   time.Duration
+	released []string
+}
+
+// ReleaseOverdueAlert records which claims were handed back because their report
+// never reached anyone.
+func (f *fakeClaimer) ReleaseOverdueAlert(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.released = append(f.released, name)
+	return nil
 }
 
 func (f *fakeClaimer) ClaimOverdueAlerts(_ context.Context, reAlertAfter time.Duration) ([]OverdueLoop, error) {
@@ -33,14 +43,84 @@ func (f *fakeClaimer) ClaimOverdueAlerts(_ context.Context, reAlertAfter time.Du
 	return f.loops, nil
 }
 
+// newTestHealthCheck wires the registrar only when the claimer can register, so
+// unit tests can pass a claim-only fake while integration tests get the real
+// refresh path.
 func newTestHealthCheck(claimer OverdueClaimer) *SweepHealthCheck {
-	return &SweepHealthCheck{
+	c := &SweepHealthCheck{
 		store:        claimer,
 		interval:     defaultHealthCheckInterval,
 		reAlertAfter: defaultOverdueReAlertAfter,
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 	}
+	if r, ok := claimer.(LoopRegistrar); ok {
+		c.registrar = r
+	}
+	return c
+}
+
+// TestUndeliveredAlertIsReleasedForRetry: the throttle stamp is committed BEFORE
+// the handler runs, because two replicas must not both report one occurrence. The
+// cost of that ordering is that a handler which dies leaves a row asserting an
+// alert nobody received — silence for the whole re-assert window, produced inside
+// the machinery built to prevent silence. The claim must be handed back.
+func TestUndeliveredAlertIsReleasedForRetry(t *testing.T) {
+	withCapturedSlog(t)
+
+	SetOverdueHandler(func(OverdueLoop) { panic("sentry exploded") })
+	t.Cleanup(func() { SetOverdueHandler(nil) })
+
+	claimer := &fakeClaimer{loops: []OverdueLoop{
+		{Name: "undelivered", IntervalSeconds: 3600, OverdueSeconds: 99999},
+		{Name: "also-undelivered", IntervalSeconds: 3600, OverdueSeconds: 99999},
+	}}
+	newTestHealthCheck(claimer).RunCheckNow(context.Background())
+
+	claimer.mu.Lock()
+	defer claimer.mu.Unlock()
+	assert.ElementsMatch(t, []string{"undelivered", "also-undelivered"}, claimer.released,
+		"a report that never reached its sink must release the claim so the next pass retries")
+}
+
+// TestDeliveredAlertIsNotReleased: the retry path must not undo a successful
+// report, or the throttle stops throttling and every pass re-alerts.
+func TestDeliveredAlertIsNotReleased(t *testing.T) {
+	SetOverdueHandler(func(OverdueLoop) {})
+	t.Cleanup(func() { SetOverdueHandler(nil) })
+
+	claimer := &fakeClaimer{loops: []OverdueLoop{
+		{Name: "delivered", IntervalSeconds: 3600, OverdueSeconds: 99999},
+	}}
+	newTestHealthCheck(claimer).RunCheckNow(context.Background())
+
+	claimer.mu.Lock()
+	defer claimer.mu.Unlock()
+	assert.Empty(t, claimer.released, "a delivered alert must stay claimed")
+}
+
+// TestEnvDurationRejectsOverflow guards a trap that fails toward the WORST
+// outcome. time.Duration is int64 nanoseconds, so a large hour count wraps
+// negative; a bare positivity check passes it through, and a negative duration
+// inverts every predicate it is bound into — including the SQL that throttles
+// alerting, which would then re-alert on every pass. The realistic input is an
+// operator typing a huge number to mean "effectively never".
+func TestEnvDurationRejectsOverflow(t *testing.T) {
+	logs := withCapturedSlog(t)
+
+	t.Setenv("PSY_TEST_OVERFLOW_HOURS", "99999999")
+	got := EnvPositiveDuration("PSY_TEST_OVERFLOW_HOURS", time.Hour, 24*time.Hour)
+
+	assert.Positive(t, got, "an unrepresentable value must never yield a negative duration")
+	assert.Equal(t, 24*time.Hour, got, "it must fall back to the default")
+	assert.Contains(t, logs.String(), "too large to represent")
+
+	// And the clamps downstream must also refuse a non-positive result.
+	t.Setenv("SWEEP_OVERDUE_REALERT_HOURS", "99999999")
+	assert.Positive(t, overdueReAlertAfter())
+	t.Setenv("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES", "99999999999")
+	assert.Positive(t, healthCheckInterval())
+	assert.Less(t, healthCheckInterval(), runStatePersistenceThreshold)
 }
 
 func strptr(s string) *string        { return &s }

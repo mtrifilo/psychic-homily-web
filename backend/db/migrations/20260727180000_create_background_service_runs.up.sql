@@ -44,7 +44,9 @@ CREATE TABLE background_service_runs (
 
     -- Last cycle that actually succeeded. Split from last_completed_at so health
     -- ("has this worked lately?") is separable from schedule ("when is it next
-    -- due?"). PSY-1612 alerts on this one.
+    -- due?"). NOTE: PSY-1612 shipped alerting keyed on last_completed_at, NOT on
+    -- this column -- it reports a loop that STOPPED RUNNING. This column is
+    -- carried as alert context only.
     last_success_at TIMESTAMPTZ,
 
     -- 'running' | 'success' | 'error' | 'panic'. Deliberately a TEXT check rather
@@ -60,8 +62,10 @@ CREATE TABLE background_service_runs (
     -- ("it ran and found nothing to do") — PSY-1613 needs to tell those apart.
     last_rows_processed BIGINT,
 
-    -- Reset to 0 on success. The alerting signal for "failing every cycle but
-    -- never going overdue", which last_completed_at alone would hide.
+    -- Reset to 0 on success. INTENDED as the alerting signal for "failing every
+    -- cycle but never going overdue", which last_completed_at alone would hide --
+    -- but as of PSY-1612 nothing predicates on it, so that gap is still open and
+    -- a permanently-failing loop does not page. Tracked in PSY-1620.
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     run_count BIGINT NOT NULL DEFAULT 0,
 

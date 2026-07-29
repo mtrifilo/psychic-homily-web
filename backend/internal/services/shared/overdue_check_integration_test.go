@@ -214,6 +214,73 @@ func TestRetiredLoopStopsAlerting(t *testing.T) {
 	}
 }
 
+// TestLongLivedProcessDoesNotRetireItsOwnLoops is the regression test for the
+// worst defect found in review, and it is worth stating plainly because the
+// mechanism was subtle.
+//
+// Registration was originally written ONLY at loop start, so a row's
+// last_registered_at was effectively process start time, frozen. Any process that
+// stayed up longer than retireAfter — a quiet week, a code freeze — aged every row
+// out of the retirement gate, and the overdue query then returned nothing for the
+// entire fleet, forever, with no error and no log above Debug. Monitoring that
+// silently switches itself off, coupled to deploy cadence: PSY-1606's exact shape,
+// re-created by the feature built to prevent it.
+//
+// The fix separates CONFIGURATION liveness from GOROUTINE liveness. The health
+// check re-stamps the loops this process owns on its own cadence, so a wired loop
+// stays eligible for as long as something runs it — while a loop whose goroutine
+// has died still alerts, because the process still declares it.
+func TestLongLivedProcessDoesNotRetireItsOwnLoops(t *testing.T) {
+	db, store := setupRunStore(t)
+
+	resetRegisteredLoops()
+	t.Cleanup(resetRegisteredLoops)
+
+	// A loop this process owns, whose row was last stamped long before the
+	// retirement window — i.e. a process that has simply been up a long time.
+	rememberLoop("long-uptime-sweep", time.Hour, defaultRunLease)
+	registerLoop(t, store, "long-uptime-sweep", time.Hour)
+	backdateCompletion(t, db, "long-uptime-sweep", 30*24*time.Hour)
+	retireRow(t, db, "long-uptime-sweep")
+
+	var received []OverdueLoop
+	SetOverdueHandler(func(loop OverdueLoop) { received = append(received, loop) })
+	t.Cleanup(func() { SetOverdueHandler(nil) })
+
+	newTestHealthCheck(store).RunCheckNow(context.Background())
+
+	if _, found := findLoop(received, "long-uptime-sweep"); !found {
+		t.Fatal("a loop this process still owns must stay alertable no matter how long the process has been up — " +
+			"tying registration to deploy cadence silently disables the whole subsystem")
+	}
+}
+
+// TestRetirementSurvivesWhenNoProcessOwnsTheLoop is the other half: the refresh
+// must not make retirement unreachable. A row for a loop NOT in this process's
+// registry is never re-stamped, so it still ages out.
+func TestRetirementSurvivesWhenNoProcessOwnsTheLoop(t *testing.T) {
+	db, store := setupRunStore(t)
+
+	resetRegisteredLoops()
+	t.Cleanup(resetRegisteredLoops)
+
+	// Deliberately NOT remembered — nothing in this process wires it up.
+	registerLoop(t, store, "orphan-sweep", time.Hour)
+	backdateCompletion(t, db, "orphan-sweep", 30*24*time.Hour)
+	retireRow(t, db, "orphan-sweep")
+
+	var received []OverdueLoop
+	SetOverdueHandler(func(loop OverdueLoop) { received = append(received, loop) })
+	t.Cleanup(func() { SetOverdueHandler(nil) })
+
+	newTestHealthCheck(store).RunCheckNow(context.Background())
+
+	if _, found := findLoop(received, "orphan-sweep"); found {
+		t.Fatal("the registration refresh must only cover loops this process owns, " +
+			"or retirement can never happen and a restored/renamed row alerts forever")
+	}
+}
+
 // TestUnregisteredRowIsNotAlerted: rows created before registration existed (or by
 // Claim alone) carry NULL. Treating NULL as retired is what stops the first deploy
 // of this feature from paging for every historical row at once; any loop that is
@@ -678,6 +745,21 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(got.Summary(), "starved_sweep") {
 		t.Fatalf("summary must name the sweep, got %q", got.Summary())
+	}
+
+	// The checker must hold NO run-state row of its own. Asserted here rather than
+	// only against the constants, because the property actually depends on
+	// newLoopRunner's store-selection branch in another file — both constants could
+	// still satisfy a unit assertion while a stray explicit Store put the checker
+	// into the very set of loops it scans.
+	var selfRows int64
+	if err := db.Raw(`SELECT COUNT(*) FROM background_service_runs WHERE name = ?`, "sweep_health_check").
+		Scan(&selfRows).Error; err != nil {
+		t.Fatalf("count checker rows: %v", err)
+	}
+	if selfRows != 0 {
+		t.Fatal("the health check must not persist run state — with a row it enters its own candidate set, " +
+			"and a checker that stops running becomes the thing responsible for noticing")
 	}
 
 	// And the throttle holds against a second pass, so a redeploy loop cannot flood.

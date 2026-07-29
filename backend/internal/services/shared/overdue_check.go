@@ -42,20 +42,29 @@ const (
 	// produces in practice is two hours.
 	overdueIntervalMultiplier = 2
 
-	// overdueRecoveryMargin is slack on top of interval + lease, covering the
-	// boot catch-up stagger and ordinary scheduling jitter so a loop that is
-	// recovering exactly on time is not reported the instant it succeeds.
-	overdueRecoveryMargin = 15 * time.Minute
+	// overdueRecoveryJitter is scheduling slop on top of the catch-up stagger.
+	overdueRecoveryJitter = 15 * time.Minute
 
 	// retireAfter is how long a row survives without any process re-registering
 	// it before it stops being treated as something that should be running.
 	//
-	// Sized against DEPLOY cadence, not sweep cadence: production redeploys many
-	// times a week, so a week of silence means no process has claimed this loop
-	// across many boots. Long enough that a loop accidentally dropped from wiring
-	// still alerts for days first — the case worth catching — and short enough
-	// that a stage-to-prod database restore stops paging within a week instead of
-	// forever.
+	// Sized against the HEALTH-CHECK cadence, not deploy cadence. A live process
+	// re-stamps every loop it owns on each pass (see refreshRegistrations), so a
+	// wired loop's registration is at most one pass old no matter how long the
+	// process has been up — 15 minutes against a 7-day window, four orders of
+	// magnitude of headroom.
+	//
+	// Sizing this against deploys instead was a real bug, caught in review: with
+	// registration written only at boot, a process that stayed up longer than this
+	// window aged out every row and silently switched off alerting for the entire
+	// fleet — PSY-1606's own shape, reproduced by the mechanism meant to reduce
+	// noise. If you ever make registration depend on deploys again, this constant
+	// becomes a time bomb.
+	//
+	// What the window now measures is how long a row outlives the last process
+	// that wired it: long enough that a loop accidentally dropped from the wiring
+	// still alerts for days first, short enough that a stage-to-prod restore stops
+	// paging within a week rather than forever.
 	retireAfter = 7 * 24 * time.Hour
 
 	// defaultOverdueReAlertAfter bounds re-reporting of a loop that is still
@@ -192,15 +201,31 @@ func SetOverdueHandler(h OverdueHandler) {
 // background failure went unnoticed; a monitoring hook that could itself take
 // down a loop would make the system less reliable than having no monitoring at
 // all, which is the opposite of the point.
-func invokeOverdueHandler(loop OverdueLoop) {
+// It reports whether the handler ran to completion. That return value is what
+// makes the claim recoverable: the stamp is committed BEFORE the handler runs
+// (it has to be, or two replicas would both report), so a handler that dies
+// leaves a row claiming an alert nobody received. Telling the caller lets it put
+// the claim back rather than sit silent for the whole re-assert window.
+func invokeOverdueHandler(loop OverdueLoop) (delivered bool) {
 	overdueHandlerMu.RLock()
 	h := overdueHandler
 	overdueHandlerMu.RUnlock()
 	if h == nil {
-		return
+		// No sink installed (local dev, tests). The log line in runCycle is the
+		// delivery, so the claim stands rather than retrying every pass forever.
+		return true
 	}
-	defer recoverAndLog("overdue handler itself panicked", loop.Name)
+	defer func() {
+		if r := recover(); r != nil {
+			delivered = false
+			slog.Default().Error("overdue handler itself panicked",
+				"service", loop.Name,
+				"panic", r,
+			)
+		}
+	}()
 	h(loop)
+	return true
 }
 
 // OverdueClaimer reports loops that have stopped running, claiming each report so
@@ -210,12 +235,24 @@ func invokeOverdueHandler(loop OverdueLoop) {
 // contract that every loop depends on, and widening it would force a health query
 // onto in-memory doubles that have no interest in one. Only the health check
 // needs this.
+// LoopRegistrar re-asserts that the loops this process owns are still expected to
+// run. Split from RunStore because the health check needs only this one method,
+// and from OverdueClaimer because they answer different questions.
+type LoopRegistrar interface {
+	Register(ctx context.Context, name string, interval, lease time.Duration) error
+}
+
 type OverdueClaimer interface {
 	// ClaimOverdueAlerts atomically finds every loop that is overdue and not
 	// currently throttled, marks each as reported, and returns them. Claiming and
 	// reporting in one statement is what makes the once-per-occurrence guarantee
 	// hold across replicas.
 	ClaimOverdueAlerts(ctx context.Context, reAlertAfter time.Duration) ([]OverdueLoop, error)
+
+	// ReleaseOverdueAlert undoes a claim whose report was never delivered, so the
+	// next pass reports it again rather than leaving a row that asserts an alert
+	// nobody received.
+	ReleaseOverdueAlert(ctx context.Context, name string) error
 }
 
 var _ OverdueClaimer = (*GormRunStore)(nil)
@@ -282,13 +319,31 @@ func (s *GormRunStore) ClaimOverdueAlerts(ctx context.Context, reAlertAfter time
 		retireAfter.Seconds(),
 		overdueIntervalMultiplier,
 		defaultRunLease.Seconds(),
-		overdueRecoveryMargin.Seconds(),
+		overdueRecoveryMargin().Seconds(),
 		reAlertAfter.Seconds(),
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("claim overdue alerts: %w", err)
 	}
 	return rows, nil
+}
+
+// ReleaseOverdueAlert implements OverdueClaimer.
+//
+// Guarded on the stamp still being the one this pass wrote is deliberately NOT
+// done: if another replica has since re-claimed and genuinely reported, clearing
+// costs at most one duplicate alert, whereas leaving a stale stamp costs a missed
+// one. Duplicates are noticed; silence is not.
+func (s *GormRunStore) ReleaseOverdueAlert(ctx context.Context, name string) error {
+	err := s.db.WithContext(ctx).Exec(`
+		UPDATE background_service_runs
+		SET last_overdue_alert_at = NULL, updated_at = NOW()
+		WHERE name = ?
+	`, name).Error
+	if err != nil {
+		return fmt.Errorf("release overdue alert for %q: %w", name, err)
+	}
+	return nil
 }
 
 // SweepHealthCheck reports background loops that have stopped running.
@@ -299,7 +354,12 @@ func (s *GormRunStore) ClaimOverdueAlerts(ctx context.Context, reAlertAfter time
 // continuously were exactly the ones that ran often), and RunAtBoot, which makes
 // every deploy re-run the check rather than reset a timer toward it.
 type SweepHealthCheck struct {
-	store        OverdueClaimer
+	store OverdueClaimer
+	// registrar re-stamps this process's loops each pass. Without it,
+	// registration recency would decay with process UPTIME rather than with
+	// whether anything still wires the loop up, and a process that simply stayed
+	// alive past the retirement window would silence the entire fleet.
+	registrar    LoopRegistrar
 	interval     time.Duration
 	reAlertAfter time.Duration
 	stopCh       chan struct{}
@@ -316,6 +376,7 @@ func NewSweepHealthCheck(database *gorm.DB) *SweepHealthCheck {
 	}
 	return &SweepHealthCheck{
 		store:        store,
+		registrar:    store,
 		interval:     healthCheckInterval(),
 		reAlertAfter: overdueReAlertAfter(),
 		stopCh:       make(chan struct{}),
@@ -323,15 +384,22 @@ func NewSweepHealthCheck(database *gorm.DB) *SweepHealthCheck {
 	}
 }
 
-// healthCheckInterval reads the configured cadence and CLAMPS it below the
-// persistence threshold.
+// overdueRecoveryMargin is how much slack the overdue threshold allows on top of
+// interval + lease.
 //
-// The clamp is load-bearing, not defensive tidying. At or above the threshold
-// the checker is handed a run-state row of its own, which puts it into the very
-// set of loops it scans — it would start reporting on itself, and worse, a
-// checker that stopped running would be the thing responsible for noticing. The
-// env knob exists for operability (dropping the cadence during an incident), so
-// it stays; it just cannot be used to disable the property the design rests on.
+// DERIVED from catchUpMaxDelay rather than hardcoded, because that delay is the
+// real quantity it must cover and it is independently env-tunable
+// (SWEEP_CATCHUP_MAX_SECONDS). A boot catch-up hands successive overdue loops
+// successive slots — 60s + n*90s, capped — so a loop recovering perfectly
+// normally can legitimately wait out that whole cap before its cycle completes.
+// A fixed margin smaller than the cap would report that loop as stalled while it
+// was doing exactly what it was told, which is the false positive the floor
+// exists to prevent. An operator widening the stagger to spread third-party load
+// would otherwise silently eat into this margin from another file.
+func overdueRecoveryMargin() time.Duration {
+	return catchUpMaxDelay + overdueRecoveryJitter
+}
+
 // maxOverdueReAlertAfter caps the re-assert window. Beyond about a week the
 // policy stops being "throttled" and becomes "report once, then never again",
 // which is the failure this design explicitly rejected: a single alert that gets
@@ -344,6 +412,16 @@ const maxOverdueReAlertAfter = 7 * 24 * time.Hour
 // overshooting is silence, which looks identical to health.
 func overdueReAlertAfter() time.Duration {
 	window := EnvPositiveDuration("SWEEP_OVERDUE_REALERT_HOURS", time.Hour, defaultOverdueReAlertAfter)
+	// Both ends. A non-positive window would invert the SQL predicate into
+	// always-true and re-alert every pass — the flood, produced by the one action
+	// an operator takes to reduce noise. EnvPositiveDuration now rejects the
+	// overflow that could produce this, but the guard is kept because the cost of
+	// being wrong here is a Sentry storm during an incident.
+	if window <= 0 {
+		slog.Default().Warn("SWEEP_OVERDUE_REALERT_HOURS resolved to a non-positive window — using default",
+			"resolved", window, "using", defaultOverdueReAlertAfter)
+		return defaultOverdueReAlertAfter
+	}
 	if window > maxOverdueReAlertAfter {
 		slog.Default().Warn("SWEEP_OVERDUE_REALERT_HOURS is long enough to read as report-once — clamping so a dead sweep keeps re-asserting",
 			"configured", window,
@@ -354,10 +432,27 @@ func overdueReAlertAfter() time.Duration {
 	return window
 }
 
+// healthCheckInterval reads the configured cadence and CLAMPS it below the
+// persistence threshold.
+//
+// The clamp is load-bearing, not defensive tidying. At or above the threshold
+// the checker is handed a run-state row of its own, which puts it into the very
+// set of loops it scans — it would start reporting on itself, and worse, a
+// checker that stopped running would be the thing responsible for noticing. The
+// env knob exists for operability (dropping the cadence during an incident), so
+// it stays; it just cannot be used to disable the property the design rests on.
 func healthCheckInterval() time.Duration {
 	interval := EnvPositiveDuration("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES", time.Minute, defaultHealthCheckInterval)
+	// A non-positive interval slips past the >= guard below and is then rewritten
+	// to one hour by newLoopRunner — landing exactly ON the persistence threshold,
+	// which hands the checker a run-state row and puts it in the set it scans.
+	if interval <= 0 {
+		slog.Default().Warn("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES resolved to a non-positive interval — using default",
+			"resolved", interval, "using", defaultHealthCheckInterval)
+		return defaultHealthCheckInterval
+	}
 	if interval >= runStatePersistenceThreshold {
-		slog.Default().Warn("SWEEP_HEALTH_CHECK_INTERVAL is at or above the run-state persistence threshold — clamping so the health check cannot monitor itself",
+		slog.Default().Warn("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES is at or above the run-state persistence threshold — clamping so the health check cannot monitor itself",
 			"configured", interval,
 			"threshold", runStatePersistenceThreshold,
 			"using", defaultHealthCheckInterval,
@@ -401,6 +496,29 @@ func (c *SweepHealthCheck) Stop() {
 	c.logger.Info("sweep health check stopped")
 }
 
+// refreshRegistrations re-asserts every loop this process wired up, so a row's
+// registration recency tracks "something still runs this" rather than "a deploy
+// happened recently".
+//
+// Runs BEFORE the overdue query in the same pass, so a long-lived process can
+// never age its own loops out from under the retirement gate. Best-effort per
+// loop: a failure to re-stamp one must not stop the others being re-stamped or
+// the overdue check running, since the consequence of skipping is at worst a
+// delayed alert, while aborting the pass would be a missed one.
+func (c *SweepHealthCheck) refreshRegistrations(ctx context.Context) {
+	if c.registrar == nil {
+		return
+	}
+	for _, loop := range RegisteredLoops() {
+		if err := c.registrar.Register(ctx, loop.Name, loop.Interval, loop.Lease); err != nil {
+			c.logger.Error("sweep health check: could not refresh loop registration",
+				"service", loop.Name,
+				"error", err,
+			)
+		}
+	}
+}
+
 // RunCheckNow runs one pass immediately (tests / manual trigger). Nil-safe like
 // Start and Stop: NewSweepHealthCheck yields nil without a database, and a caller
 // that starts the check unconditionally should be able to poke it the same way.
@@ -417,6 +535,8 @@ func (c *SweepHealthCheck) RunCheckNow(ctx context.Context) {
 // job is observation, so a database blip must leave the sweeps it watches exactly
 // as it found them. The next pass is fifteen minutes away.
 func (c *SweepHealthCheck) runCycle(ctx context.Context) {
+	c.refreshRegistrations(ctx)
+
 	loops, err := c.store.ClaimOverdueAlerts(ctx, c.reAlertAfter)
 	if err != nil {
 		c.logger.Error("sweep health check: overdue query failed", "error", err)
@@ -438,6 +558,17 @@ func (c *SweepHealthCheck) runCycle(ctx context.Context) {
 			"consecutive_failures", loop.ConsecutiveFailures,
 			"run_count", loop.RunCount,
 		)
-		invokeOverdueHandler(loop)
+		if delivered := invokeOverdueHandler(loop); !delivered {
+			// Put the claim back. Leaving it stamped would mean the row asserts a
+			// report that never reached anyone, and the loop then stays silent for
+			// the whole re-assert window — a silent failure inside the thing built
+			// to catch silent failures.
+			if err := c.store.ReleaseOverdueAlert(ctx, loop.Name); err != nil {
+				c.logger.Error("sweep health check: could not release an undelivered alert claim",
+					"service", loop.Name,
+					"error", err,
+				)
+			}
+		}
 	}
 }

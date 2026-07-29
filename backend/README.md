@@ -659,7 +659,7 @@ disabled at startup by setting the corresponding `DISABLE_*` env var to `"1"`.
 Any other value (including unset) leaves the service enabled, so local
 `go run ./cmd/server` keeps starting everything by default.
 
-The frontend E2E harness (`frontend/e2e/global-setup.ts`) sets all eight flags
+The frontend E2E harness (`frontend/e2e/global-setup.ts`) sets all nine flags
 to `"1"` so the E2E backend runs lean — no scheduled tickers, no log spam,
 no nondeterministic DB state changes from ambient background jobs.
 
@@ -673,6 +673,7 @@ no nondeterministic DB state changes from ambient background jobs.
 | `DISABLE_REMINDERS`               | Show reminder service (24h-before email reminders)              |
 | `DISABLE_RELATIONSHIP_DERIVATION` | Derived artist relationships (shared_bills + shared_label)      |
 | `DISABLE_STREET_GEOCODE_SWEEP`    | Daily venue street-geocode reconciliation via Nominatim (PSY-1544) |
+| `DISABLE_SWEEP_HEALTH_CHECK`      | Overdue-sweep alerting — reports stopped background loops to Sentry (PSY-1612) |
 
 The street-geocode sweep's cadence and per-run network budget are tunable:
 `STREET_GEOCODE_SWEEP_INTERVAL_HOURS` (default `24`),
@@ -715,11 +716,39 @@ Operational notes:
 - A failed cycle still stamps `last_completed_at`, so it retries on the normal
   cadence rather than firing on every deploy; `last_success_at` and
   `consecutive_failures` carry the health signal instead.
-- Loops with a sub-hour interval (`enrichment_worker`, `image_enrich_outbox`,
-  `radio_slot_fetch`) deliberately write no rows — their first cycle already fits
-  inside any plausible uptime, so persistence would be pure overhead.
+- Loops with a sub-hour interval (`enrichment_worker` 30s, `image_enrich_outbox`
+  60s, `radio_slot_fetch` 10m, `reminder` 30m) deliberately write no rows — their
+  first cycle already fits inside any plausible uptime, so persistence would be
+  pure overhead. **This list is also the coverage map for overdue alerting
+  below: a loop with no row cannot be reported as stopped.** Lowering a monitored
+  sweep's interval below one hour therefore removes its alerting silently.
 - To answer "when did this last run?" for any loop:
   `SELECT name, last_completed_at, last_success_at, last_outcome, consecutive_failures FROM background_service_runs ORDER BY name;`
+
+**Overdue-sweep alerting (PSY-1612).** A `sweep_health_check` loop runs every 15
+minutes (`SWEEP_HEALTH_CHECK_INTERVAL_MINUTES`) and reports loops that have
+stopped running to Sentry. Turn it off with `DISABLE_SWEEP_HEALTH_CHECK=1`.
+
+- **Detection bound.** A loop is overdue once `max(2 × interval, interval + lease
+  + catch-up margin)` has passed with no completed cycle. In practice: a 1h sweep
+  is reported within ~2h15m, a daily sweep within ~2 days. The floor exists
+  because a process killed mid-cycle holds its claim for a full lease, so a
+  perfectly healthy recovery can take `interval + lease`.
+- **Throttling.** One report when a loop crosses healthy → overdue, then at most
+  one re-assert per 24h (`SWEEP_OVERDUE_REALERT_HOURS`) while it stays overdue.
+  Any completed cycle — success *or* failure — clears the throttle, so a later
+  stall reports immediately instead of inheriting a half-spent window.
+- **Retirement.** Rows are only reported while some live process still declares
+  the loop (the health check re-stamps `last_registered_at` for the loops it owns
+  on every pass). A row nobody re-registers for 7 days stops being reported —
+  which covers renames, and rows carried in by `psy-deploy-prod --with-db-restore`
+  from stage, where extra `ENABLE_*` sweeps run. **Consequence:** switching off a
+  sweep that has previously run here keeps paging daily until it retires. To
+  retire one immediately:
+  `DELETE FROM background_service_runs WHERE name = '<loop name>';`
+- **Not covered:** a loop that runs and *fails* every cycle. It keeps stamping
+  `last_completed_at`, so it never reads as overdue and nothing pages. Tracked in
+  PSY-1620.
 
 **Opt-in (default OFF) — image enrichment sweep (PSY-1246).** Unlike the
 `DISABLE_*` services above, the ongoing image-enrichment sweep is gated by an

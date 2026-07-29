@@ -90,12 +90,17 @@ var (
 // token rides in the path — must still redact at the source (utils.RedactErrorURL)
 // and not rely on this hook.
 //
-// NOT scrubbed (deliberate scope): event.Extra / Breadcrumbs / Contexts /
-// Threads / stacktrace frames. Today those carry only sanitized values (the
-// per-request scope sets a hashed email + method/path, never the query string —
-// internal/api/middleware/sentry.go; the few SetExtra sites pass non-secrets). A
-// future SetExtra("payload", <secret>) would bypass this hook — scrub at that
-// call site, or extend this hook, if that changes.
+// event.Extra IS scrubbed (string values only). It used to be out of scope on the
+// grounds that every SetExtra site passed known-safe values — a property that
+// held until PSY-1612's overdue-sweep handler began attaching `last_error`, which
+// is text from third-party providers and demonstrably carries request URLs with
+// query strings and raw HTTP response bodies. Rather than redact at that one call
+// site, the hook now covers the field, so the guarantee does not depend on every
+// future SetExtra author remembering.
+//
+// NOT scrubbed (deliberate scope): Breadcrumbs / Contexts / Threads / stacktrace
+// frames, and non-string Extra values (numbers, timestamps, counters — they
+// cannot carry a secret pattern).
 func ScrubSentryEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	if event == nil {
 		return nil
@@ -106,6 +111,11 @@ func ScrubSentryEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	}
 	if event.Request != nil {
 		scrubRequest(event.Request)
+	}
+	for k, v := range event.Extra {
+		if s, ok := v.(string); ok {
+			event.Extra[k] = scrubText(s)
+		}
 	}
 	return event
 }

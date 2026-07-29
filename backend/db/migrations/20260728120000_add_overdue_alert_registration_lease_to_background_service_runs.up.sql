@@ -6,9 +6,10 @@
 -- on every pass floods Sentry until someone mutes it.
 --
 -- Policy (see internal/services/shared/overdue_check.go, which owns it): report
--- on the healthy -> overdue transition, re-assert at most once per window, clear
--- on the next successful cycle. NULL means "not currently in an alerted overdue
--- episode".
+-- on the healthy -> overdue transition, re-assert at most once per window, and
+-- clear when a cycle COMPLETES -- success or failure alike, because completing is
+-- what stops a loop being overdue (see Complete in run_state.go, which argues the
+-- point). NULL means "not currently in an alerted overdue episode".
 --
 -- The timestamp lives in the run-state row, not in process memory, so the throttle
 -- survives deploys and holds across replicas — the health check claims an alert
@@ -16,8 +17,12 @@
 -- occurrence. Process-local state here would re-create the fault being monitored
 -- for (PSY-1606).
 --
--- ADDITIVE: one nullable column on a ~20-row table, no FKs, no backfill. Existing
--- rows start NULL, so any sweep already overdue reports on the first pass.
+-- ADDITIVE: three nullable columns on a ~20-row table, no FKs, no backfill.
+-- Existing rows start NULL on all three. Note this means NOTHING is reported on
+-- the first pass after deploy: last_registered_at is NULL, which reads as
+-- retired, so a loop becomes eligible only once a live process registers it at
+-- boot. That is deliberate -- it keeps the first deploy from paging for every
+-- historical row at once.
 
 ALTER TABLE background_service_runs
     ADD COLUMN last_overdue_alert_at TIMESTAMPTZ,
@@ -25,17 +30,20 @@ ALTER TABLE background_service_runs
     ADD COLUMN lease_seconds         BIGINT;
 
 -- Deliberately does not name the window length: it is configurable at runtime
--- (SWEEP_OVERDUE_REALERT_HOURS), and a column comment cannot be corrected in
--- place once deployed, so a hardcoded figure here would eventually be a lie told
--- by the schema itself.
+-- (SWEEP_OVERDUE_REALERT_HOURS), so a figure written here would drift from the
+-- deployed value and the schema would assert something false.
 COMMENT ON COLUMN background_service_runs.last_overdue_alert_at IS
     'PSY-1612: when this loop was last reported overdue. NULL = not in an alerted overdue episode; cleared when a cycle completes. Throttles re-alerting; window is set in application config.';
 
--- last_registered_at is how a loop stays "expected". A loop announces itself on
--- every boot, so a row nobody has re-registered for a long time describes
--- something that is no longer wired up: renamed, switched off, or carried into
--- this environment by a database restore (psy-deploy-prod --with-db-restore
--- copies stage into prod, and stage runs sweeps prod does not). Without this,
+-- last_registered_at is how a loop stays "expected". A loop announces itself at
+-- boot AND the health check re-stamps every loop this process owns on its own
+-- cadence, so recency here tracks "some live process still wires this up" rather
+-- than "a deploy happened recently" -- if it tracked deploys, a process simply
+-- staying up past the window would retire the whole fleet and silence alerting.
+-- A row nobody re-registers therefore describes something no longer wired up:
+-- renamed, switched off, or carried into this environment by a database restore
+-- (psy-deploy-prod --with-db-restore copies stage into prod, and stage runs
+-- sweeps prod does not). Without this,
 -- such a row is indistinguishable from a stalled sweep and alerts every day
 -- forever with no in-app way to clear it — the precise alert fatigue this
 -- feature exists to avoid.

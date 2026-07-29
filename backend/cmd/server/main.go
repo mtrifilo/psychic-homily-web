@@ -160,6 +160,11 @@ func main() {
 			}
 			sentry.CaptureException(errors.New(loop.Summary()))
 		})
+		// Flush before returning. CaptureException is asynchronous and the deferred
+		// process-level Flush only runs on a graceful shutdown, so an alert raised
+		// moments before a kill — which is exactly when deploys break sweeps — would
+		// otherwise be dropped while the database row already claims it was sent.
+		sentry.Flush(2 * time.Second)
 	})
 
 	// Connect to database
@@ -443,9 +448,17 @@ func main() {
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
 	// require a deliberate act to switch off, never an omission.
 	//
-	// It watches every loop started above, including the ones gated off here: a
-	// disabled sweep simply never registers, so it is not expected to run and is
-	// not reported.
+	// It watches every loop started above that has an interval of an hour or more
+	// (shorter loops keep no run state, so they are outside its coverage).
+	//
+	// Switching a sweep off with its DISABLE_*/ENABLE_* flag does NOT silence it
+	// immediately if it has run in this environment before: the row survives with
+	// its last registration, so the sweep reads as overdue and reports once a day
+	// until the retirement window (7 days without any process registering it)
+	// expires. A sweep that has never been enabled here has no row and is never
+	// reported. To retire one immediately:
+	//
+	//	DELETE FROM background_service_runs WHERE name = '<loop name>';
 	if os.Getenv("DISABLE_SWEEP_HEALTH_CHECK") != "1" {
 		var sweepHealthCheckCtx context.Context
 		sweepHealthCheckCtx, sweepHealthCheckCancel = context.WithCancel(context.Background())
