@@ -315,11 +315,11 @@ test.describe('pre-hydration clicks on a mutation control', () => {
     // replays the whole pointer sequence instead of a lone click, so it is
     // worth proving end-to-end rather than trusting the unit test.
     await login(page)
-    // At the default 1280px the TopBar cluster overflows: the trigger's right
-    // edge lands past the viewport, so its centre point has nothing to hit and
-    // no click can be aimed at it. Widen so the control is fully on-screen.
-    await page.setViewportSize({ width: 1600, height: 900 })
-
+    // Runs at the config's default viewport. It used to widen to 1600px because
+    // the TopBar account cluster overflowed at 1280 and the trigger's centre had
+    // nothing to hit; PSY-1638 fixed the overflow, so the default width is a
+    // real user's width again — and the harness is now also the thing that would
+    // notice if the trigger drifted off-screen a second time.
     await throttle(page)
     await page.goto(`/shows/${SHOW_SLUG}`, { waitUntil: 'commit' })
 

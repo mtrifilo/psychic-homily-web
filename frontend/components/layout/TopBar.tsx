@@ -54,8 +54,13 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
       {glitchFilter}
 
       <header className="sticky top-0 z-50 flex h-[var(--topbar-height)] w-full items-center justify-between border-b border-border/50 bg-background/95 px-4 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 sm:px-6">
-        {/* Left: mobile hamburger + brand + primary nav */}
-        <div className="flex items-center gap-3 xl:gap-[30px]">
+        {/* Left: mobile hamburger + brand + primary nav.
+            `shrink-0`: the brand and the nav labels are the bar's fixed frame.
+            Left to itself the group would absorb part of any width shortfall by
+            wrapping the wordmark onto two lines (measured at 1280px before
+            PSY-1638) — and it still would not free enough room. The search
+            field on the right is the designated slack absorber instead. */}
+        <div className="flex shrink-0 items-center gap-3 xl:gap-[30px]">
           <div className="flex items-center gap-3">
             <MobileNav />
             <Link href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
@@ -78,9 +83,25 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
           {variant === 'full' && <PrimaryNav />}
         </div>
 
-        {/* Right: search + theme + account */}
-        <div className="flex items-center gap-[14px]">
-          <div role="search" className="hidden sm:block">
+        {/* Right: search + theme + account.
+            PSY-1638. Every control in here is `shrink-0` (the Button base
+            variant sets it), so before this the whole row was rigid: at exactly
+            `xl` the 8-item PrimaryNav appears AND the search jumps 220→320px in
+            the same breakpoint, which put 1277px of content in a 1232px box at
+            a 1280px viewport. `justify-between` lays out from the start when
+            free space is negative, so the overflow fell off the right edge and
+            took the avatar with it (its centre was not even hittable).
+
+            The search field is the one element here with an arbitrary width, so
+            it is the one that gives: `min-w-0` on this group lets the group
+            shrink past its content, and `min-w-0` on the search box lets the
+            flex algorithm take the shortfall out of the only item that still
+            has a shrink factor. It keeps its full 220/320px whenever the row
+            fits, and narrows (label truncates, ⌘K hint stays) when it does not.
+            This is width-agnostic on purpose: adding a nav item narrows the
+            search rather than pushing the account cluster off-screen again. */}
+        <div className="flex min-w-0 items-center gap-[14px]">
+          <div role="search" className="hidden w-[220px] min-w-0 sm:block xl:w-[320px]">
             <SearchTrigger />
           </div>
 
