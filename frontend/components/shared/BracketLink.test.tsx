@@ -172,4 +172,32 @@ describe('BracketLink', () => {
       expect(button).toBeDisabled()
     })
   })
+
+  describe('pre-hydration click replay (PSY-1615)', () => {
+    // BracketLink owns replay for ~71 bracket controls, so none of them declare
+    // it themselves. Without these assertions, deleting the `{...replayOnHydrate}`
+    // spread would type-check, render identically, pass every other test, and
+    // silently drop clicks on every bracket control in the app.
+    it('marks the button branch as a replay root', () => {
+      render(<BracketLink label="Save" onClick={() => {}} />)
+      expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute(
+        'data-replay-on-hydrate'
+      )
+    })
+
+    it('does NOT mark the link branch — a real anchor already survives the window', () => {
+      render(<BracketLink label="History" href="/history" />)
+      expect(screen.getByRole('link', { name: 'History' })).not.toHaveAttribute(
+        'data-replay-on-hydrate'
+      )
+    })
+
+    it('still forwards the caller ref that Radix asChild triggers depend on', () => {
+      // The replay ref is composed with the forwarded one; neither may be lost.
+      const ref = { current: null as HTMLButtonElement | null }
+      render(<BracketLink ref={ref} label="Open" onClick={() => {}} />)
+      expect(ref.current).toBeInstanceOf(HTMLButtonElement)
+      expect(ref.current).toHaveAttribute('data-replay-on-hydrate')
+    })
+  })
 })

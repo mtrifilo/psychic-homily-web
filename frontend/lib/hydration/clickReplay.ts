@@ -61,9 +61,15 @@
  * dead, and the flag then suppresses any further capture for that subtree. When
  * in doubt, put the root on the element that owns the handler.
  *
- * It is a single spreadable object on purpose: an earlier revision needed a
- * `ref` *and* a separate attribute, and attaching only the attribute silently
- * reproduced the original bug on an element that looked adopted.
+ * It is a single spreadable object so an ordinary adopter cannot attach one
+ * half without the other: an earlier revision needed a `ref` *and* a separate
+ * attribute, and attaching only the attribute silently reproduced the original
+ * bug on an element that looked adopted. The halves are still *separable* by a
+ * component that must compose the ref with a forwarded one — `BracketLink`
+ * does exactly that — so in those files the marker attribute is the
+ * load-bearing half and must survive any ref refactor. Two things guard that:
+ * `BracketLink`'s own tests assert the attribute reaches the DOM, and in
+ * development an unflagged replay root logs an error after load.
  *
  * `BracketLink` and the shared bracket/menu controls already carry it, so most
  * new code inherits this without doing anything.
@@ -82,7 +88,13 @@
  * - Capture stops after {@link MAX_REPLAY_AGE_MS} so the per-click ancestor walk
  *   leaves the steady state. Anything still buffered stays replayable until the
  *   staleness check rejects it.
- * - A replay is skipped if the target has become disabled since the click.
+ * - A replay is skipped if the target has become disabled since the click, and
+ *   an interaction that never produced a click is never replayed at all.
+ * - A replay is dropped if the clicked node itself does not survive hydration
+ *   (a control that swaps out its children once real state arrives). Falling
+ *   back to the replay root was considered and rejected: for a group root it
+ *   would dispatch at a node with no handler — a silent no-op reading as
+ *   success.
  */
 
 /** Marks an element as a replay root. Clicks inside it are buffered pre-hydration. */
@@ -132,7 +144,20 @@ interface ReplayRecord {
 interface ReplayEntry {
   /** The deepest element actually clicked — replay targets the node, never a coordinate. */
   target: HTMLElement
-  /** `event.timeStamp` of the most recent event in the sequence. */
+  /**
+   * `performance.now()` when the most recent event of the sequence was
+   * captured — deliberately NOT `event.timeStamp`.
+   *
+   * {@link consumePendingReplay} compares this against `performance.now()`, so
+   * both sides must share one clock. Real browsers put `event.timeStamp` on the
+   * same origin (verified: 0.4ms apart in Chromium), but jsdom does not for
+   * constructed events, and `Date.now()` would be ~1.7e12 ms out. Reading the
+   * clock directly makes the invariant true by construction everywhere, and the
+   * sub-millisecond difference from the true event time is irrelevant against a
+   * 10s cutoff. Do NOT substitute `Date.now()`: it fails silently and in
+   * opposite directions — nothing ever stale in capture, everything instantly
+   * stale in consume.
+   */
   time: number
   events: ReplayRecord[]
 }
@@ -165,6 +190,11 @@ declare global {
  * values are internal to this script.
  */
 export const CLICK_REPLAY_SCRIPT = `(function () {
+  /* EDITING BELOW: this is a TEMPLATE LITERAL injected via
+     dangerouslySetInnerHTML. Three sequences must never appear in it -- a
+     backtick and a dollar-brace each break the build (loud, fine), and a
+     closing script tag would break out of the element (silent, not fine).
+     clickReplay.test.ts asserts the last one. */
   // A browser re-executes an inline script if the node is re-inserted. Without
   // this, a second evaluation would swap in an empty buffer -- discarding every
   // click captured so far -- and leave a duplicate set of listeners behind.
@@ -203,6 +233,11 @@ export const CLICK_REPLAY_SCRIPT = `(function () {
   function capture(e) {
     // Untrusted events are our own replays: never re-buffer them.
     if (!e.isTrusted) return;
+    // Only primary, unmodified interactions. A middle/right button or a
+    // cmd/ctrl/shift-click is a browser-owned gesture (open in a new tab, range
+    // select) that the browser has already acted on -- replaying it would run
+    // the action a second time. React handlers do not drive those gestures.
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     var target = e.target;
     if (!target || typeof target.closest !== 'function') return;
     var root = target.closest('[' + ATTR + ']');
@@ -220,12 +255,19 @@ export const CLICK_REPLAY_SCRIPT = `(function () {
     var last = entry && entry.events.length
       ? entry.events[entry.events.length - 1].type
       : null;
-    if (!entry || e.type === 'pointerdown' || last === 'click') {
-      entry = { target: target, time: e.timeStamp, events: [] };
+    // Also start fresh when this event belongs to a different control inside
+    // the same root: pressing down on one button, dragging off, then activating
+    // a sibling would otherwise splice one gesture onto another and dispatch
+    // both at the sibling. Containment is allowed because a genuine click
+    // legitimately lands pointerdown on an inner icon and click on the button.
+    var sameControl = entry && (entry.target === target
+      || entry.target.contains(target) || target.contains(entry.target));
+    if (!entry || e.type === 'pointerdown' || last === 'click' || !sameControl) {
+      entry = { target: target, time: performance.now(), events: [] };
       store.buffer.set(root, entry);
     }
     entry.target = target;
-    entry.time = e.timeStamp;
+    entry.time = performance.now();
     if (entry.events.length < MAX) entry.events.push(snapshot(e));
   }
 
@@ -290,13 +332,26 @@ export function consumePendingReplay(root: HTMLElement): boolean {
     return false
   }
 
-  // Enforce "at most one click" on the consuming side too — this is the side
-  // that actually causes the mutation, so it is the side worth making
-  // unconditional. The capture listener already starts a new interaction after
-  // a click; this survives that invariant being broken by a future edit.
-  const lastClick = entry.events.map(record => record.type).lastIndexOf('click')
+  const types = entry.events.map(record => record.type)
+
+  // Only completed interactions replay. A gesture that produced no click — a
+  // touch-scroll that began on a control, a press that dragged off before
+  // release, teardown landing mid-gesture — must not be re-enacted: a bare
+  // pointerdown is enough to open a Radix DropdownMenu, so a user who merely
+  // swiped with their thumb starting on the avatar would find the account menu
+  // open by itself at hydration. The whole-sequence replay exists to satisfy
+  // pointerdown-opening triggers INSIDE a completed click, not on their own.
+  if (types.lastIndexOf('click') === -1) return false
+
+  // Keep at most one record per event type, on the consuming side too — this is
+  // the side that actually causes the mutation, so it is worth making
+  // unconditional rather than trusting the capture-side reset to stay correct.
+  // Per-type rather than click-only: `pointerdown` activates a Radix
+  // DropdownMenu, so a duplicate pointerdown toggles a menu open then shut just
+  // as surely as a duplicate click double-fires a save. A real interaction has
+  // each type once, so this is a no-op in the normal case.
   const records = entry.events.filter(
-    (record, i) => record.type !== 'click' || i === lastClick
+    (record, i) => types.lastIndexOf(record.type) === i
   )
 
   for (const record of records) {

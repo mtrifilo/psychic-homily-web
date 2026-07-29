@@ -240,11 +240,100 @@ describe('pre-hydration click capture and replay', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
-  it('bounds the buffer against sustained keyboard repeat', () => {
+  it('keeps the buffer at one entry-worth under sustained keyboard repeat', () => {
+    // Asserting the per-entry CAP here would be vacuous now that a completed
+    // click resets the entry — 40 clicks leave exactly one record, which is the
+    // property actually worth pinning.
     const { root, button } = mountControl()
     for (let i = 0; i < 40; i++) clickAsUser(button)
 
-    expect(store.buffer.get(root)!.events.length).toBeLessThanOrEqual(8)
+    expect(store.buffer.get(root)!.events).toHaveLength(1)
+  })
+
+  it('never lets a full mouse interaction exceed one record per type', () => {
+    const { root, button } = mountControl()
+    clickAsUser(button, 'pointerdown')
+    clickAsUser(button, 'mousedown')
+    clickAsUser(button, 'pointerup')
+    clickAsUser(button, 'mouseup')
+    clickAsUser(button)
+
+    const events = store.buffer.get(root)!.events
+    expect(events).toHaveLength(5)
+    expect(new Set(events.map(e => e.type)).size).toBe(5)
+  })
+
+  it('captures a timestamp on performance.now()\'s origin, not Date.now()', () => {
+    // The staleness check compares entry.time against performance.now().
+    // Swapping either side to Date.now() fails silently and in opposite
+    // directions, and no other test would notice.
+    const { root, button } = mountControl()
+    clickAsUser(button)
+
+    const entry = store.buffer.get(root)!
+    expect(Math.abs(performance.now() - entry.time)).toBeLessThan(5_000)
+  })
+
+  it('never replays an interaction that produced no click', () => {
+    // A touch-scroll that begins on a control emits pointerdown and then
+    // pointercancel — never a click. Replaying the bare pointerdown would open
+    // a Radix DropdownMenu the user never asked for, at hydration.
+    const { root, button } = mountControl()
+    const onPointerDown = vi.fn()
+
+    clickAsUser(button, 'pointerdown')
+    clickAsUser(button, 'mousedown')
+
+    button.addEventListener('pointerdown', onPointerDown)
+    expect(consumePendingReplay(root)).toBe(false)
+    expect(onPointerDown).not.toHaveBeenCalled()
+  })
+
+  it('ignores non-primary buttons', () => {
+    // Middle/right-click are browser-owned gestures, not React interactions.
+    const { root, button } = mountControl()
+    clickAsUser(button, 'pointerdown', { button: 1 })
+    clickAsUser(button, 'click', { button: 1 })
+
+    expect(store.buffer.get(root)).toBeUndefined()
+    expect(consumePendingReplay(root)).toBe(false)
+  })
+
+  it('ignores modifier clicks, which the browser has already acted on', () => {
+    const { root, button } = mountControl()
+    clickAsUser(button, 'click', { metaKey: true })
+    clickAsUser(button, 'click', { shiftKey: true })
+    clickAsUser(button, 'click', { ctrlKey: true })
+
+    expect(store.buffer.get(root)).toBeUndefined()
+    expect(consumePendingReplay(root)).toBe(false)
+  })
+
+  it('does not splice a gesture on one control onto a sibling', () => {
+    // Press down on A, drag off without releasing, then activate sibling B by
+    // keyboard. B must not receive A's pointerdown.
+    const root = document.createElement('div')
+    root.setAttribute(REPLAY_ATTR, '')
+    const a = document.createElement('button')
+    const b = document.createElement('button')
+    root.append(a, b)
+    document.body.appendChild(root)
+
+    clickAsUser(a, 'pointerdown')
+    clickAsUser(a, 'mousedown')
+    clickAsUser(b) // bare keyboard click on the sibling
+
+    const onAPointerDown = vi.fn()
+    const onBPointerDown = vi.fn()
+    const onBClick = vi.fn()
+    a.addEventListener('pointerdown', onAPointerDown)
+    b.addEventListener('pointerdown', onBPointerDown)
+    b.addEventListener('click', onBClick)
+
+    expect(consumePendingReplay(root)).toBe(true)
+    expect(onBClick).toHaveBeenCalledTimes(1)
+    expect(onBPointerDown).not.toHaveBeenCalled()
+    expect(onAPointerDown).not.toHaveBeenCalled()
   })
 
   it('targets the clicked node rather than a coordinate', () => {
@@ -336,6 +425,50 @@ describe('pre-hydration click capture and replay', () => {
   })
 })
 
+describe('the shipped script string', () => {
+  it('contains no sequence that would break out of the script tag', () => {
+    // It is injected with dangerouslySetInnerHTML, so this invariant belongs
+    // next to the string rather than asserted in a comment in the consumer.
+    expect(CLICK_REPLAY_SCRIPT.toLowerCase()).not.toContain('</script')
+  })
+})
+
+describe('script re-entry', () => {
+  let teardownBridge: () => void
+  beforeAll(() => { teardownBridge = installTrustedEventBridge() })
+  afterAll(() => teardownBridge())
+
+  it('a second evaluation is a no-op and keeps what was already captured', () => {
+    // A browser re-executes an inline script if its node is re-inserted.
+    // Without the guard, the second run would install a fresh empty buffer and
+    // silently discard every click captured so far.
+    const previous = window.__phClickReplay
+    delete window.__phClickReplay
+    new Function(CLICK_REPLAY_SCRIPT)()
+    const store = window.__phClickReplay!
+
+    const root = document.createElement('div')
+    root.setAttribute(REPLAY_ATTR, '')
+    const button = document.createElement('button')
+    root.appendChild(button)
+    document.body.appendChild(root)
+
+    clickAsUser(button)
+    expect(store.buffer.get(root)).toBeDefined()
+
+    new Function(CLICK_REPLAY_SCRIPT)() // re-insertion
+    expect(window.__phClickReplay).toBe(store)
+
+    const onClick = vi.fn()
+    button.addEventListener('click', onClick)
+    expect(consumePendingReplay(root)).toBe(true)
+    expect(onClick).toHaveBeenCalledTimes(1)
+
+    store.stop()
+    window.__phClickReplay = previous
+  })
+})
+
 describe('capture teardown', () => {
   // Its own describe block: this installs a second, independently stoppable
   // copy of the script so stopping it cannot disturb the suite above.
@@ -348,8 +481,13 @@ describe('capture teardown', () => {
 
   it('stops buffering once capture is torn down', () => {
     const previous = window.__phClickReplay
+    // Explicit: the script's re-entry guard makes a second evaluation a no-op
+    // unless the global is cleared first. Without this the suite passed by
+    // accident, aliasing the other describe's store and asserting nothing.
+    delete window.__phClickReplay
     new Function(CLICK_REPLAY_SCRIPT)()
     const store = window.__phClickReplay!
+    expect(store).not.toBe(previous)
 
     const root = document.createElement('div')
     root.setAttribute(REPLAY_ATTR, '')

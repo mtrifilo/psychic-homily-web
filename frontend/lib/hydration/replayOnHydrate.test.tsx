@@ -3,6 +3,7 @@ import { act } from '@testing-library/react'
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { CLICK_REPLAY_SCRIPT, replayOnHydrate } from './clickReplay'
+import { BracketLink } from '@/components/shared/BracketLink'
 import { installTrustedEventBridge, clickAsUser } from './testing/trustedEvents'
 
 /**
@@ -87,6 +88,30 @@ describe('replayOnHydrate', () => {
       clickAsUser(button)
     })
     expect(store.buffer.get(button)).toBeUndefined()
+  })
+
+  it('replays through BracketLink, which owns replay for every bracket control', () => {
+    // End-to-end through the shared primitive, not through a local <button>.
+    // This is what catches a BracketLink refactor that keeps the marker
+    // attribute but loses the composed replay ref — markup-only assertions
+    // cannot tell those apart, and ~71 controls depend on this path.
+    const onActivate = vi.fn()
+    const node = <BracketLink label="Save" onClick={onActivate} />
+
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(node)
+    document.body.appendChild(container)
+    const button = container.querySelector('button')!
+
+    clickAsUser(button, 'pointerdown')
+    clickAsUser(button)
+    expect(onActivate).not.toHaveBeenCalled()
+
+    act(() => {
+      hydrateRoot(container, node)
+    })
+
+    expect(onActivate).toHaveBeenCalledTimes(1)
   })
 
   it('renders the marker attribute into the server HTML', () => {
