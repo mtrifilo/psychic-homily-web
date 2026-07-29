@@ -26,11 +26,25 @@ import (
 // on a guess. PSY-1608 shipped on a guess and did not move production at all.
 const TrustedProxyHopsEnvVar = "RATE_LIMIT_TRUSTED_PROXY_HOPS"
 
-// defaultTrustedProxyHops assumes exactly one proxy: Railway terminates TLS at
-// its edge (the `railway-hikari` server header) and forwards to the container.
+// defaultTrustedProxyHops is 2, MEASURED rather than assumed.
 //
-// Treat this as an ASSUMPTION until the observation below confirms it.
-const defaultTrustedProxyHops = 1
+// The `ratelimit_proxy_trust` observation below reports xff_chain_length=2 on
+// BOTH Railway environments (production and stage), with no caller-supplied
+// header — so two hops append before the request reaches the container, and the
+// real client IP sits at index len-2.
+//
+// This was 1 first, on the reasoning that "Railway terminates TLS at its edge,
+// so exactly one". That was wrong, and wrong silently: the limiter kept working
+// on the intermediate proxy's address, buckets stayed shared, and a burst never
+// hit 429. Verified after the correction — a single client now counts 4 3 2 1 0
+// and is then rejected, on both the report and auth limiters.
+//
+// Environments WITHOUT a proxy (local dev, CI/E2E) are unaffected either way:
+// X-Forwarded-For is absent, so the key falls back to RemoteAddr regardless of
+// this value. An environment behind a DIFFERENT number of hops should set
+// RATE_LIMIT_TRUSTED_PROXY_HOPS rather than change this default, and the
+// observation log tells it which number to use.
+const defaultTrustedProxyHops = 2
 
 func trustedProxyHops() int {
 	if v := os.Getenv(TrustedProxyHopsEnvVar); v != "" {

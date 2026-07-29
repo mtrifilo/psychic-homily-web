@@ -94,12 +94,15 @@ func TestClientIPFromForwardedFor_SpoofResistance(t *testing.T) {
 // shared one — meaning one abuser could exhaust the budget for everyone else
 // routed through that edge node.
 func TestKeyByClientIP_DistinguishesClients(t *testing.T) {
-	newReq := func(xff string) *http.Request {
+	// Models the MEASURED Railway topology: two appending hops, so the chain is
+	// "<client>, <intermediate proxy>" and the client sits at index len-2.
+	// Both callers share the same intermediate proxy AND the same RemoteAddr —
+	// which is precisely the production shape that used to collapse them into
+	// one bucket.
+	newReq := func(clientIP string) *http.Request {
 		r := httptest.NewRequest("POST", "/auth/login", nil)
 		r.RemoteAddr = "10.0.0.1:4000" // same proxy for both callers
-		if xff != "" {
-			r.Header.Set("X-Forwarded-For", xff)
-		}
+		r.Header.Set("X-Forwarded-For", clientIP+", 10.0.0.1")
 		return r
 	}
 
