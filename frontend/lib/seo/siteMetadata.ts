@@ -14,3 +14,13 @@
  */
 export const SITE_DESCRIPTION =
   'Show lists for your city, real-time freeform radio playlists, and your music knowledge graph for artists, labels, venues, and releases around the world.'
+
+/**
+ * Canonical public origin, with no trailing slash.
+ *
+ * The absolute URLs a page publishes — `alternates.canonical`, Open Graph URLs,
+ * and every `url`/`item` inside JSON-LD — must agree, because a crawler treats
+ * two spellings of the same page as two pages. Build them from this rather than
+ * from a per-module literal.
+ */
+export const SITE_URL = 'https://psychichomily.com'

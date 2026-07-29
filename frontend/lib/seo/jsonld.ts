@@ -292,7 +292,12 @@ export function generateMusicEventSchema(show: {
     })
   }
 
-  if (show.price !== undefined && show.price !== null) {
+  // A cancelled show has no offer to describe. Emitting one anyway produced
+  // `eventStatus: EventCancelled` alongside `availability: InStock` — the two
+  // halves of the same block contradicting each other, which is worse than
+  // saying nothing. Every available `ItemAvailability` value would be a guess
+  // at what "cancelled" maps to, so the claim is dropped rather than invented.
+  if (show.price !== undefined && show.price !== null && !show.is_cancelled) {
     schema.offers = {
       '@type': 'Offer',
       price: show.price,

@@ -268,6 +268,13 @@ describe('generateMusicEventSchema', () => {
     expect(schema.offers).toBeUndefined()
   })
 
+  // Otherwise the same block said EventCancelled and InStock at once.
+  it('omits offers for a cancelled show even when priced', () => {
+    const schema = generateMusicEventSchema({ ...baseShow, price: 25, is_cancelled: true })
+    expect(schema.eventStatus).toBe('https://schema.org/EventCancelled')
+    expect(schema.offers).toBeUndefined()
+  })
+
   it('includes offers when price is 0 (free show)', () => {
     const schema = generateMusicEventSchema({ ...baseShow, price: 0 })
     expect(schema.offers).toBeDefined()
