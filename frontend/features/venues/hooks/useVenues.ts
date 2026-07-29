@@ -39,6 +39,14 @@ interface UseVenuesOptions {
    */
   includeRail?: boolean
   /**
+   * Widen `city`/`state` from that literal city to the whole CBSA metro it
+   * belongs to (PSY-1574) — the same scope an Atlas scene is keyed by, so a
+   * Tempe venue lists under Phoenix. Off by default: the venue browse page's
+   * city filter means the literal city there. Ignored by the API unless both
+   * `city` and `state` are set, and when `cities` is used instead.
+   */
+  metroRollup?: boolean
+  /**
    * Gate the request. Defaults to true (every existing caller wants the
    * fetch immediately). Set false when the scope isn't resolved yet — an
    * unscoped GET /venues is a whole-catalogue page, not a cheap no-op, and
@@ -60,13 +68,22 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
     tags,
     tagMatch,
     includeRail = false,
+    metroRollup = false,
     enabled = true,
   } = options
 
+  // The rollup only means anything alongside a single city+state: the API
+  // documents itself as ignoring it when `cities` is set. Resolved ONCE, here,
+  // because it has to govern the URL and the cache key together — a key that
+  // said "metro" over a URL that didn't would split one response across two
+  // cache entries that can never disagree, which is pure fragmentation.
+  const multiCity = Boolean(cities && cities.length > 0)
+  const metroRollupApplies = metroRollup && !multiCity
+
   // Build query params
   const params = new URLSearchParams()
-  if (cities && cities.length > 0) {
-    params.set('cities', buildCitiesParam(cities))
+  if (multiCity) {
+    params.set('cities', buildCitiesParam(cities as CityState[]))
   } else {
     if (state) params.set('state', state)
     if (city) params.set('city', city)
@@ -78,6 +95,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
     if (tagMatch === 'any') params.set('tag_match', 'any')
   }
   if (includeRail) params.set('include_rail', 'true')
+  if (metroRollupApplies) params.set('metro_rollup', 'true')
 
   const queryString = params.toString()
   const endpoint = queryString
@@ -96,6 +114,11 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
       // Part of the key: the same city with and without the rail fields are
       // two different payloads and must not share a cache entry.
       includeRail: includeRail || undefined,
+      // Same reasoning: "Phoenix" and "the Phoenix metro" are different row
+      // sets and must not share a cache entry. Keyed on what was actually
+      // SENT, not what was asked for, so a rollup the URL dropped doesn't
+      // mint a second entry for a byte-identical request.
+      metroRollup: metroRollupApplies || undefined,
     }),
     queryFn: async (): Promise<VenuesListResponse> => {
       return apiRequest<VenuesListResponse>(endpoint, {

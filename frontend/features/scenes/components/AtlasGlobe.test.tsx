@@ -64,7 +64,11 @@ vi.mock('../hooks', () => ({
 
 // City view's venue list (PSY-1539). Tests that need venues override via
 // mockUseVenues; the default is an un-entered city view (no venues).
-const mockUseVenues = vi.fn<() => Record<string, unknown>>(() => ({
+// Options are forwarded (not swallowed) so the scoping AtlasGlobe asks for —
+// the city, and the PSY-1574 metro rollup — is assertable.
+const mockUseVenues = vi.fn<
+  (options?: Record<string, unknown>) => Record<string, unknown>
+>(() => ({
   data: undefined,
   isFetching: false,
   isPlaceholderData: false,
@@ -77,7 +81,7 @@ const mockUseVenueShows = vi.fn<() => Record<string, unknown>>(() => ({
   isError: false,
 }))
 vi.mock('@/features/venues/hooks', () => ({
-  useVenues: () => mockUseVenues(),
+  useVenues: (options?: Record<string, unknown>) => mockUseVenues(options),
   useVenueShows: () => mockUseVenueShows(),
   // VenuePanel's confirm mutation (PSY-1542). Inert here — the panel's own
   // suite covers the confirm behaviour; this file's concern is the stack.
@@ -706,6 +710,37 @@ describe('AtlasGlobe', () => {
         'Empty Bottle',
         'Hideout',
       ])
+    })
+
+    // PSY-1574: the scene is keyed by CBSA metro, so the rail must ask for the
+    // metro, not the principal city — otherwise it contradicts the scene page
+    // that already counts a member-city venue.
+    it('asks for the metro, not just the principal city', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+
+      settleCamera(-87.63, 41.88, 13)
+
+      expect(mockUseVenues).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          city: 'Chicago',
+          state: 'IL',
+          metroRollup: true,
+        }),
+      )
+    })
+
+    // The camera deliberately does NOT move to frame the metro: fitting a
+    // 66-280 km metro into the pane lands below CITY_VIEW_MIN_ZOOM and would
+    // close the rail it was fitting for.
+    it('does not move the camera when the metro widens the rail', async () => {
+      renderWithProviders(<AtlasGlobe />)
+      await screen.findByTestId('globe-canvas')
+      flyToSpy.mockClear()
+
+      settleCamera(-87.63, 41.88, 13)
+
+      expect(flyToSpy).not.toHaveBeenCalled()
     })
 
     it('leaves the camera space for the rail rather than letting it overlay', async () => {

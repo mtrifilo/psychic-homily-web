@@ -36,6 +36,19 @@ export const CITY_VIEW_MIN_ZOOM = 11
 // rail. Also comfortably larger than the ~3 km center shift the rail itself
 // causes when it opens and narrows the map pane, so opening the rail can
 // never hand the camera to a DIFFERENT city (a feedback loop).
+//
+// PSY-1574 re-examined this once the rail started listing metro members, on
+// the worry that 60 km can't cover a big metro. Measured against the embedded
+// Census/GeoNames dataset (distance from each CBSA's principal city to its
+// member places), it can't — and doesn't need to. Full metro EXTENT runs
+// 66-280 km (Phoenix 164, Chicago 128, Boston 120, LA 91, Riverside 280), but
+// the radius holding 95% of a metro's POPULATION is 31-68 km for every top-25
+// metro but Miami and Riverside. So 60 km covers where a metro's rooms
+// actually are, and this constant is not a membership test anyway: membership
+// is resolved server-side from the CBSA rollup, which is exactly why the rail
+// can list a venue further out than this without the camera rule needing to
+// grow. Enlarging it would instead let a camera parked over open country claim
+// a metro 100 km away. Left at 60.
 export const CITY_VIEW_CLAIM_RADIUS_KM = 60
 
 // The rail's fixed width, from the mock. Exported because GlobeCanvas must
@@ -239,6 +252,48 @@ export function labelledVenuePinIds(
   return new Set(kept.map((p) => p.id))
 }
 
+// ── Metro members (PSY-1574) ──────────────────────────────────────────────
+
+/**
+ * The city to print on a rail row, or '' when the row needs none.
+ *
+ * The rail is scoped to a CBSA METRO, not a municipality (PSY-1574) — the
+ * scene page already counts a Tempe room toward Phoenix, so the rail beside it
+ * lists one too. That makes some rows sit in a city the header doesn't name,
+ * which the row has to SAY: a row whose pin is outside the current frame is
+ * confusing unless it explains where it is. Rows in the principal city itself
+ * carry no label — every row wearing "Phoenix" would be noise on a rail
+ * already headed "Phoenix, AZ".
+ *
+ * Matched case-insensitively and trimmed, the same way the backend's fallback
+ * scope matches, so a "phoenix " row isn't labelled as somewhere else.
+ */
+export function venueLocalityLabel(
+  venue: Pick<VenueWithShowCount, 'city'>,
+  principalCity: string,
+): string {
+  const city = venue.city?.trim() ?? ''
+  if (!city) return ''
+  return city.toLowerCase() === principalCity.trim().toLowerCase() ? '' : city
+}
+
+/**
+ * Whether this list actually reaches past the principal city.
+ *
+ * The rail's header names ONE city while the list is scoped to a whole metro,
+ * so the header has to qualify its venue count whenever the rows go wider —
+ * "12 metro venues" rather than a flat "12 venues" that reads as a claim about
+ * Phoenix proper. Derived from the rows rather than from the request flag on
+ * purpose: a metro whose only venues happen to sit in the principal city is
+ * not a metro list to the person reading it, and saying so would be noise.
+ */
+export function venuesSpanMetro(
+  venues: readonly Pick<VenueWithShowCount, 'city'>[],
+  principalCity: string,
+): boolean {
+  return venues.some((v) => venueLocalityLabel(v, principalCity) !== '')
+}
+
 // ── Filters ───────────────────────────────────────────────────────────────
 
 export interface CityVenueFilters {
@@ -295,10 +350,12 @@ export interface CityRailStats {
 
 /**
  * The header's counts, derived from the SAME venue rows the rail lists below
- * it. Deliberately not the scene's own venue/show counts: those are
- * metro-wide (a Tempe venue counts toward the Phoenix scene) while this list
- * is city-scoped, so a header sourced from the scene would contradict the
- * rows underneath it. "Local artists" is genuinely a scene-level stat and
+ * it, rather than from the scene's own venue/show counts. Since PSY-1574 the
+ * two describe the same metro, so they no longer contradict each other — but
+ * deriving stays right regardless: the rows are one capped page, and a header
+ * quoting an uncapped scene total over a truncated list would overstate what
+ * is actually on screen (the "showing the N busiest of M" line is where the
+ * uncapped total belongs). "Local artists" is genuinely a scene-level stat and
  * comes from the scene detail endpoint instead.
  */
 export function cityRailStats(

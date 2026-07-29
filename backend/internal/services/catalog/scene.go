@@ -117,8 +117,18 @@ func (sc sceneScope) isMetro() bool { return sc.metro != "" }
 // fallback. ResolveMetro already refuses an unpinned ambiguous name, so a
 // wrong-namesake metro is never selected.
 func (s *SceneService) scopeFor(city, state string) sceneScope {
-	if s.geocoder != nil {
-		if m, ok := s.geocoder.ResolveMetro(city, state, usCountry); ok {
+	return metroScopeFor(s.geocoder, city, state)
+}
+
+// metroScopeFor is scopeFor without a SceneService — the geocoder is the only
+// thing the resolution actually needs. Package-level so the venue list can key
+// the Atlas city rail on the SAME scope the scene is computed from (PSY-1574).
+// A second, independently-written "near this city" rule would drift from the
+// scene rosters and give two different answers to one question, so there is
+// exactly one definition of a scene's scope and both callers reach for it.
+func metroScopeFor(g geo.Geocoder, city, state string) sceneScope {
+	if g != nil {
+		if m, ok := g.ResolveMetro(city, state, usCountry); ok {
 			return sceneScope{metro: m.CBSACode, city: city, state: state}
 		}
 	}

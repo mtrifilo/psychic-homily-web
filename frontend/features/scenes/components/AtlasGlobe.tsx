@@ -203,11 +203,23 @@ export function AtlasGlobe() {
     setSelected(null)
   }
 
-  // City-scoped, never bounding-box scoped (explicitly deferred): the rail
-  // lists the venues of the scene's principal city. A metro-member city's
-  // venues (a Tempe room under the Phoenix scene) are therefore NOT listed —
-  // the venues endpoint filters on the literal city, and widening that to a
-  // metro's member cities is its own change.
+  // Metro-scoped, never bounding-box scoped (explicitly deferred): the rail
+  // lists the venues of the scene's whole CBSA metro (PSY-1574), which is the
+  // scope the scene itself is keyed by — so a Tempe room the Phoenix scene
+  // page already counts also appears in the Phoenix rail. `metroRollup` is
+  // resolved server-side from the same scope the scene is built on; nothing
+  // here re-implements "near this city".
+  //
+  // The CAMERA deliberately does not move for this. A metro-scoped rail can
+  // list a venue whose pin is outside the current frame, and the obvious fix —
+  // fit the camera to the metro's bounds on entry — is self-defeating: metros
+  // span 66-280 km (measured against the embedded Census dataset), and fitting
+  // even the narrow end of that into a ~1000 px pane lands at z10.5 or lower,
+  // BELOW CITY_VIEW_MIN_ZOOM. The fit would close the very rail it was fitting
+  // for, and the camera it moved is the same signal resolveCityScene reads, so
+  // it would also be free to hand the rail to a different city mid-fit. Instead
+  // the rail SAYS where an out-of-frame row is (venueLocalityLabel) and leaves
+  // the camera to the user, who put it where it is.
   //
   // Gated on there BEING a city: with city/state undefined this hook asks for
   // an unscoped page of the whole venue catalogue, which the globe view has no
@@ -221,6 +233,7 @@ export function AtlasGlobe() {
     state: cityScene?.state,
     limit: CITY_VENUE_FETCH_LIMIT,
     includeRail: true,
+    metroRollup: true,
     enabled: cityScene !== null,
   })
   // isPlaceholderData is the guard that matters here. The hook keeps previous
@@ -484,6 +497,7 @@ export function AtlasGlobe() {
         {railOpen && cityScene && (
           <VenueRail
             cityLabel={`${cityScene.city}, ${cityScene.state}`}
+            principalCity={cityScene.city}
             venues={filteredVenues}
             allVenues={cityVenues}
             localArtistCount={sceneDetail?.stats.artist_count}

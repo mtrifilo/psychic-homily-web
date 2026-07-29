@@ -543,6 +543,15 @@ type VenueListFilters struct {
 	// three extra batched aggregations, and the venue browse page — the
 	// endpoint's other caller — renders none of those fields.
 	IncludeRailFields bool
+	// MetroRollup widens a City+State filter from that literal city to the
+	// whole US Census CBSA metro it belongs to, so a Tempe venue lists under
+	// Phoenix and an Oakland venue under San Francisco (PSY-1574). This is the
+	// SAME scope the Atlas scene itself is computed from, which is the point:
+	// the scene page already counts those venues, so the city rail beside it
+	// must not disagree. Ignored when Cities is set (an explicit multi-city
+	// pick is already saying which cities it wants) or when either City or
+	// State is empty (a metro can only be resolved from a disambiguated place).
+	MetroRollup bool
 }
 
 // VenueShowResponse represents a show in the venue shows endpoint

@@ -31096,6 +31096,8 @@ export interface operations {
                 tag_match?: "all" | "any";
                 /** @description Include the Atlas city-view rail fields: next_show_date/title/artists, shows_this_week, dominant_genre */
                 include_rail?: boolean;
+                /** @description Widen the city+state filter to the whole US Census CBSA metro, matching how Atlas scenes are keyed (Tempe lists under Phoenix). Requires both city and state; ignored when 'cities' is set. */
+                metro_rollup?: boolean;
             };
             header?: never;
             path?: never;

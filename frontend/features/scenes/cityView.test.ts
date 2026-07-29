@@ -18,6 +18,8 @@ import {
   resolveCityScene,
   venuePanelIdentityLine,
   venuePanelShowCount,
+  venueLocalityLabel,
+  venuesSpanMetro,
   venuePinPosition,
   venueProvenanceSegments,
   mergeVenueConfirmation,
@@ -207,6 +209,57 @@ describe('labelledVenuePinIds', () => {
 
   it('is empty for no pins', () => {
     expect(labelledVenuePinIds([]).size).toBe(0)
+  })
+})
+
+describe('venueLocalityLabel (PSY-1574 metro members)', () => {
+  it('labels a venue in a member city of the metro', () => {
+    expect(venueLocalityLabel(venue({ city: 'Tempe' }), 'Phoenix')).toBe('Tempe')
+  })
+
+  it('omits the label for the principal city itself', () => {
+    expect(venueLocalityLabel(venue({ city: 'Phoenix' }), 'Phoenix')).toBe('')
+  })
+
+  // The backend's fallback scope matches LOWER(TRIM(...)), so the rail must
+  // agree — otherwise a "phoenix " row would be tagged as somewhere else.
+  it('compares case-insensitively and ignores padding', () => {
+    expect(venueLocalityLabel(venue({ city: ' phoenix ' }), 'Phoenix')).toBe('')
+    expect(venueLocalityLabel(venue({ city: 'Phoenix' }), '  PHOENIX')).toBe('')
+  })
+
+  it('has nothing to say about a venue with no city', () => {
+    expect(venueLocalityLabel(venue({ city: '' }), 'Phoenix')).toBe('')
+    expect(
+      venueLocalityLabel(
+        venue({ city: undefined as unknown as string }),
+        'Phoenix',
+      ),
+    ).toBe('')
+  })
+})
+
+describe('venuesSpanMetro', () => {
+  it('is true as soon as one venue sits outside the principal city', () => {
+    expect(
+      venuesSpanMetro(
+        [venue({ city: 'Phoenix' }), venue({ city: 'Tempe' })],
+        'Phoenix',
+      ),
+    ).toBe(true)
+  })
+
+  it('is false when every venue is in the principal city', () => {
+    expect(
+      venuesSpanMetro(
+        [venue({ city: 'Phoenix' }), venue({ city: 'phoenix ' })],
+        'Phoenix',
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for an empty list', () => {
+    expect(venuesSpanMetro([], 'Phoenix')).toBe(false)
   })
 })
 

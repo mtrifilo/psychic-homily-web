@@ -13,6 +13,8 @@ import {
   cityRailStats,
   formatNextShowDate,
   nextShowBill,
+  venueLocalityLabel,
+  venuesSpanMetro,
   type CityVenueFilters,
 } from '../cityView'
 
@@ -25,6 +27,12 @@ const GENRE_LABEL_BY_KEY: ReadonlyMap<string, string> = new Map(
 interface VenueRailProps {
   /** Display name of the city the camera is on, e.g. "Austin, TX". */
   cityLabel: string
+  /**
+   * The metro's principal city on its own, e.g. "Austin". Rows in any OTHER
+   * city of the metro print theirs (PSY-1574); rows in this one don't, since
+   * the header already says it.
+   */
+  principalCity: string
   /** Venues AFTER filtering — the same array the map pins. */
   venues: readonly VenueWithShowCount[]
   /** Venues BEFORE filtering, for the header stats and the genre menu. */
@@ -61,6 +69,7 @@ interface VenueRailProps {
  */
 export function VenueRail({
   cityLabel,
+  principalCity,
   venues,
   allVenues,
   localArtistCount,
@@ -75,6 +84,10 @@ export function VenueRail({
   const stats = useMemo(() => cityRailStats(allVenues), [allVenues])
   const genreFamilies = useMemo(() => cityGenreFamilies(allVenues), [allVenues])
   const updatedAt = useMemo(() => cityDataUpdatedAt(allVenues), [allVenues])
+  const spansMetro = useMemo(
+    () => venuesSpanMetro(allVenues, principalCity),
+    [allVenues, principalCity],
+  )
   const contributionSegments = useMemo(
     () => cityContributionSegments(cityContributionCounts(allVenues)),
     [allVenues],
@@ -107,8 +120,13 @@ export function VenueRail({
         </div>
 
         <p className="mt-2 font-mono text-[11px] uppercase leading-4 tracking-wide text-muted-foreground">
-          {stats.venueCount} {stats.venueCount === 1 ? 'venue' : 'venues'} ·{' '}
-          {stats.upcomingCount} upcoming · {stats.thisWeekCount} this week
+          {/* "metro venues" whenever the rows reach past the principal city
+              (PSY-1574). The heading above names ONE city; a flat "12 venues"
+              under it would read as a claim about Phoenix proper while the
+              list also holds Tempe and Mesa. */}
+          {stats.venueCount} {spansMetro ? 'metro ' : ''}
+          {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
+          upcoming · {stats.thisWeekCount} this week
           {localArtistCount !== undefined && (
             <> · {localArtistCount} local artists</>
           )}
@@ -196,6 +214,7 @@ export function VenueRail({
               <li key={venue.id}>
                 <VenueRow
                   venue={venue}
+                  principalCity={principalCity}
                   selected={venue.id === selectedVenueId}
                   onSelect={() => onVenueSelect(venue.id)}
                 />
@@ -283,10 +302,12 @@ function FilterChip({
 
 function VenueRow({
   venue,
+  principalCity,
   selected,
   onSelect,
 }: {
   venue: VenueWithShowCount
+  principalCity: string
   selected: boolean
   onSelect: () => void
 }) {
@@ -295,6 +316,7 @@ function VenueRow({
   const genre = venue.dominant_genre
     ? GENRE_LABEL_BY_KEY.get(venue.dominant_genre)
     : undefined
+  const locality = venueLocalityLabel(venue, principalCity)
 
   return (
     <button
@@ -311,21 +333,34 @@ function VenueRow({
           {venue.upcoming_show_count} upcoming
         </span>
       </div>
-      {nextDate ? (
-        <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
-          {/* See the DATA label: full-strength muted for contrast; the date
-              carries the emphasis by being brighter. */}
-          <span className="text-muted-foreground">NEXT</span>{' '}
-          <span className="text-foreground/70">{nextDate}</span>
-          {bill && <> · {bill}</>}
-          {genre && <> · {genre}</>}
-        </p>
-      ) : (
-        <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
-          nothing on the calendar
-          {genre && <> · {genre}</>}
-        </p>
-      )}
+      <p className="mt-1 font-mono text-[11px] leading-4 text-muted-foreground">
+        {/* The rail is scoped to the METRO (PSY-1574), so a row can sit in a
+            city the header doesn't name and outside the current frame. Leading
+            the meta line with that city is what keeps such a row from reading
+            as a mistake. Uppercase, matching the NEXT/DATA label convention —
+            it's a place stamp, not prose — and absent for the principal city,
+            where it would be noise on every row. */}
+        {locality && (
+          <>
+            <span className="uppercase tracking-wide text-foreground/70">
+              {locality}
+            </span>{' '}
+            ·{' '}
+          </>
+        )}
+        {nextDate ? (
+          <>
+            {/* See the DATA label: full-strength muted for contrast; the date
+                carries the emphasis by being brighter. */}
+            <span className="text-muted-foreground">NEXT</span>{' '}
+            <span className="text-foreground/70">{nextDate}</span>
+            {bill && <> · {bill}</>}
+          </>
+        ) : (
+          <>nothing on the calendar</>
+        )}
+        {genre && <> · {genre}</>}
+      </p>
     </button>
   )
 }

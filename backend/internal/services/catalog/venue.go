@@ -795,6 +795,55 @@ type VenueWithCount struct {
 	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
 }
 
+// metroRollupPredicate returns the WHERE fragment that widens a City+State
+// filter to the whole CBSA metro (PSY-1574), plus its bind args, plus whether
+// it applies at all.
+//
+// The metro half comes from `metroScopeFor` — the SAME resolution the Atlas
+// scene itself is built on — so "which venues belong to the Phoenix scene" has
+// exactly one definition and the rail cannot drift from the scene page beside
+// it. It yields `venues.metro = <CBSA>`, the denormalized rollup written by
+// every venue write path (applyGeocoding) and indexed.
+//
+// It is a UNION with the literal city, not a replacement, and the ticket's own
+// verb is why: the rail INCLUDES metro members, it does not trade the city for
+// the metro. `venues.metro` is a derived column reconciled by a human-run
+// backfill (cmd/backfill-entity-metro), so a venue sitting in a CBSA city with
+// a NULL metro is a real state — and swapping the city predicate for the metro
+// one would silently empty that city's rail of venues it lists today. The union
+// can only ever be a superset of both readings: every row it adds is either in
+// the metro or literally in the city.
+//
+// It deliberately does NOT extend the scope to member-city NAMES the way
+// artistPredicate does. Artists needed that because `artists.metro` is often
+// NULL for a hand-entered home town and a member city is the only other signal;
+// here the principal city is already unioned in, and enumerating hundreds of
+// member-city names (New York's CBSA has 889 places in the dataset) would put a
+// vast OR-chain on a query that the indexed metro equality already answers.
+//
+// ok is false unless MetroRollup was asked for AND both City and State are
+// present: a metro cannot be resolved from a bare city name without risking the
+// wrong namesake (Pasadena CA vs TX), and silently widening to the wrong metro
+// is worse than not widening.
+func (s *VenueService) metroRollupPredicate(filters contracts.VenueListFilters) (string, []any, bool) {
+	if !filters.MetroRollup || filters.City == "" || filters.State == "" {
+		return "", nil, false
+	}
+	scope := metroScopeFor(s.geocoder, filters.City, filters.State)
+	pred, args := scope.venuePredicate("venues")
+	if !scope.isMetro() {
+		// No CBSA: the scope IS the literal city already, so there is nothing
+		// to union — and it matches case-insensitively, which the plain
+		// `city = ?` filter it replaces did not.
+		return pred, args, true
+	}
+	cityPred, cityArgs := sceneScope{city: filters.City, state: filters.State}.venuePredicate("venues")
+	all := make([]any, 0, len(args)+len(cityArgs))
+	all = append(all, args...)
+	all = append(all, cityArgs...)
+	return "(" + pred + " OR (" + cityPred + "))", all, true
+}
+
 // GetVenuesWithShowCounts retrieves verified venues with their upcoming show counts.
 // Results are sorted by upcoming show count (descending), then by name (ascending),
 // so venues with upcoming shows appear first.
@@ -820,6 +869,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		Where("venues.verified = ?", true)
 
 	// Apply optional filters
+	metroPred, metroArgs, metroRollup := s.metroRollupPredicate(filters)
 	if len(filters.Cities) > 0 {
 		var conditions []string
 		var args []interface{}
@@ -832,6 +882,8 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		if len(conditions) > 0 {
 			query = query.Where(strings.Join(conditions, " OR "), args...)
 		}
+	} else if metroRollup {
+		query = query.Where(metroPred, metroArgs...)
 	} else {
 		if filters.State != "" {
 			query = query.Where("venues.state = ?", filters.State)
@@ -858,6 +910,11 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		if len(conditions) > 0 {
 			countQuery = countQuery.Where(strings.Join(conditions, " OR "), args...)
 		}
+	} else if metroRollup {
+		// Same predicate object, not a re-derivation: the total under the list
+		// must be counted over exactly the rows the list pages through, and
+		// "venues." qualifies fine here — this query's table IS venues.
+		countQuery = countQuery.Where(metroPred, metroArgs...)
 	} else {
 		if filters.State != "" {
 			countQuery = countQuery.Where("state = ?", filters.State)
