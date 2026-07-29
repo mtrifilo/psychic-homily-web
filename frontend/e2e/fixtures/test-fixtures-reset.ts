@@ -1,5 +1,6 @@
 import { type APIRequestContext, request as playwrightRequest } from '@playwright/test'
 import * as path from 'path'
+import { BACKEND_BASE_URL } from '../backend-url'
 
 /**
  * PSY-432 — E2E helper for the admin-only `/admin/test-fixtures/reset`
@@ -12,12 +13,26 @@ import * as path from 'path'
 
 const AUTH_DIR = path.resolve(__dirname, '../.auth')
 
-// PSY-432: we talk to the backend directly on :8080 rather than through the
-// frontend Next.js proxy (/api → :8080). The proxy strips non-auth headers
+// PSY-432: we talk to the backend directly rather than through the frontend
+// Next.js proxy. The proxy strips non-auth headers
 // (app/api/[...path]/route.ts:17-30), so a custom `X-Test-Fixtures` header
-// would be dropped before reaching the backend. The cookie we stored for
-// `domain=localhost` still works against :8080.
-const BACKEND_BASE_URL = 'http://localhost:8080'
+// would be dropped before reaching the backend. The cookie we stored is scoped
+// to `domain=localhost`, and cookies ignore port, so it still authenticates
+// against the backend's own origin.
+//
+// PSY-1645: that port-blindness is exactly why this used to fail quietly — a
+// cookie minted by the backend the browser used is *sent* to whatever owns
+// :8080, so a mismatch surfaced as a 401 rather than a connection error.
+// `BACKEND_BASE_URL` now resolves from the same `BACKEND_URL` the proxy reads
+// (see ../backend-url.ts), so the two cannot drift apart.
+
+// Appended to both failure messages. These errors abort the run, so the message
+// is the whole diagnosis the reader gets — a bare "HTTP 401" here previously
+// read as an auth bug rather than "you are pointed at the wrong process".
+const BACKEND_HINT =
+  'A 401/404 here usually means the harness is talking to a DIFFERENT backend ' +
+  'than the browser authenticated against — check BACKEND_URL (unset defaults ' +
+  'to http://localhost:8080) and that no other process owns that port.'
 
 /**
  * DEFAULT_RESET_SCOPES is the canonical set of tables a worker teardown
@@ -64,7 +79,8 @@ export async function resetTestFixtures(
     if (!resp.ok()) {
       const bodyText = await resp.text().catch(() => '<unreadable body>')
       throw new Error(
-        `test-fixtures reset failed: HTTP ${resp.status()} ${bodyText}`,
+        `test-fixtures reset failed: HTTP ${resp.status()} ${bodyText} ` +
+          `(backend=${BACKEND_BASE_URL}, user_id=${userId}). ${BACKEND_HINT}`,
       )
     }
     return (await resp.json()) as ResetResponse
@@ -87,7 +103,8 @@ export async function lookupWorkerUserId(authFile: string): Promise<number> {
     const resp = await ctx.get('/auth/profile')
     if (!resp.ok()) {
       throw new Error(
-        `profile lookup failed: HTTP ${resp.status()} for ${authFile}`,
+        `profile lookup failed: HTTP ${resp.status()} for ${authFile} ` +
+          `(backend=${BACKEND_BASE_URL}). ${BACKEND_HINT}`,
       )
     }
     const profile = (await resp.json()) as { id?: number; user?: { id?: number } }

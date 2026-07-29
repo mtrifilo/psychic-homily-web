@@ -1,5 +1,6 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import { BACKEND_BASE_URL } from '../backend-url'
 
 // PSY-914: Google OAuth login, end-to-end through a faux "google" provider.
 //
@@ -33,7 +34,9 @@ import { expect } from '@playwright/test'
 // signup — keeping this spec off the terms/consent path. The signup-consent
 // flow is a separate follow-up.
 
-const BACKEND_ORIGIN = 'http://localhost:8080'
+// PSY-1645: resolved, not hardcoded — this must be the backend global-setup
+// actually started, or the callback below lands on an unrelated process.
+const BACKEND_ORIGIN = BACKEND_BASE_URL
 
 test.describe('Google OAuth', () => {
   test('logs in via the faux Google provider', { tag: '@smoke' }, async ({ page }) => {
