@@ -53,6 +53,16 @@ export const FOOTER_GAP = 48
 
 export const WORDMARK = 'psychichomily.com'
 
+/**
+ * Next requires a STATIC alt, so it cannot say "this week" — the same card
+ * serves archived weeks, where that would be false.
+ *
+ * Lives here rather than beside the renderer so the page can reference it
+ * without dragging `next/og` into its bundle.
+ */
+export const SCENE_WEEK_OG_ALT =
+  'Weekly show listing: city, dates, show count, and the rooms we track'
+
 /** What the room list gets once the wordmark has taken its share of the footer. */
 export const ROOMS_MAX_WIDTH =
   CONTENT_WIDTH - measureMono(WORDMARK, FOOTER_SIZE) - FOOTER_GAP

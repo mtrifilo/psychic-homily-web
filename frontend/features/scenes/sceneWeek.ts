@@ -30,6 +30,40 @@ export function looksLikeISOWeek(segment: string): boolean {
 }
 
 /**
+ * Resolve a requested week segment into what should actually be fetched.
+ *
+ * Three outcomes, and the difference between the last two is the whole point:
+ * - `undefined` — no segment supplied; the caller wants the CURRENT week.
+ * - a normalized key — a well-formed week to fetch.
+ * - `null` — the segment is junk and NOTHING should be fetched.
+ *
+ * The archived route's segment is dynamic, so it also catches any unmatched
+ * child path under a scene. Collapsing junk to `undefined` would quietly serve
+ * the current week for a URL whose page 404s — handing out a confident-looking
+ * answer to a question nobody asked. It returns the TRIMMED key because that is
+ * the string the shape check approved; sending the raw one on would mean
+ * validating one string and using another.
+ */
+export function resolveRequestedWeek(segment: string | undefined): string | undefined | null {
+  if (segment === undefined) return undefined
+  return looksLikeISOWeek(segment) ? segment.trim() : null
+}
+
+/**
+ * The card's count line.
+ *
+ * "this week" is only true of the rolling week. An archived card carries its
+ * date range directly above this line, so dropping the phrase reads correctly
+ * for a week shared months later rather than claiming to be current. A quiet
+ * week says so in words — `0 shows` is a bad thing to post.
+ */
+export function formatShowCountLine(total: number, isCurrentWeek: boolean): string {
+  const period = isCurrentWeek ? ' this week' : ''
+  if (total === 0) return `No shows${period}`
+  return `${total} ${total === 1 ? 'show' : 'shows'}${period}`
+}
+
+/**
  * Parse a `YYYY-MM-DD` date as LOCAL midnight.
  *
  * `new Date('2026-07-27')` parses as UTC midnight, which renders as Jul 26 in

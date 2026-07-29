@@ -11,7 +11,12 @@ import {
   CURRENT_WEEK_REVALIDATE,
   fetchSceneWeek,
 } from './sceneWeekApi'
-import { countShows, formatWeekRangeCompact, looksLikeISOWeek } from './sceneWeek'
+import {
+  countShows,
+  formatShowCountLine,
+  formatWeekRangeCompact,
+  resolveRequestedWeek,
+} from './sceneWeek'
 import {
   CITY_SIZE_MAX,
   CITY_SIZE_MIN,
@@ -31,13 +36,6 @@ import {
   cityMaxWidth,
 } from './sceneWeekOgLayout'
 
-/**
- * Next requires a STATIC alt, so it cannot say "this week" — the same card
- * component also serves archived weeks, where that would be false.
- */
-export const SCENE_WEEK_OG_ALT =
-  'Weekly show listing: city, dates, show count, and the rooms we track'
-
 /** Degenerate case for the footer: not even one room name fits. */
 const roomsOverflowLabel = (count: number) =>
   `${count} ${count === 1 ? 'room' : 'rooms'} tracked`
@@ -52,31 +50,25 @@ const roomsOverflowLabel = (count: number) =>
 export async function renderSceneWeekOgCard(
   slug: string,
   week?: string
-): Promise<ImageResponse> {
-  // The archived route's segment is dynamic, so it also catches any unmatched
-  // child path under a scene. A junk segment must reach the fallback card, NOT
-  // silently fall through to the current week — that would hand a URL whose
-  // page 404s a confident-looking card for a week it never asked for.
-  const validWeek = week !== undefined && !looksLikeISOWeek(week) ? null : week
+): Promise<ImageResponse | Response> {
+  const requestedWeek = resolveRequestedWeek(week)
 
-  const [fonts, data] = await Promise.all([
+  // A junk segment gets a real 404, not a card. Rendering one would mean paying
+  // the most expensive response this route has — wasm instantiation, four font
+  // parses and a PNG encode — for a URL whose page 404s anyway, on an endpoint
+  // anyone can hit with unlimited distinct paths.
+  if (requestedWeek === null) return new Response(null, { status: 404 })
+
+  const [{ fonts, degraded }, data] = await Promise.all([
     loadBrandFontsOrDefault(),
-    validWeek === null ? null : fetchSceneWeek(slug, validWeek, 'og-image'),
+    fetchSceneWeek(slug, requestedWeek, 'og-image'),
   ])
 
   if (!data) return ogFallbackCard(fonts)
 
   const total = countShows(data)
   const range = formatWeekRangeCompact(data.start_date, data.end_date)
-
-  // "this week" is only true of the rolling week. An archived card carries its
-  // date range directly above the count, so dropping the phrase reads correctly
-  // for a week shared months later instead of claiming to be current.
-  const period = data.is_current_week ? ' this week' : ''
-  const countLine =
-    total === 0
-      ? `No shows${period}`
-      : `${total} ${total === 1 ? 'show' : 'shows'}${period}`
+  const countLine = formatShowCountLine(total, data.is_current_week)
 
   // The city has to survive being skimmed at thumbnail size, but "Columbus" and
   // "Portland" are genuinely ambiguous to someone arriving cold from a shared
@@ -88,7 +80,8 @@ export async function renderSceneWeekOgCard(
     'satoshiBold',
     cityMaxWidth(state),
     CITY_SIZE_MAX,
-    CITY_SIZE_MIN
+    CITY_SIZE_MIN,
+    CITY_TRACKING_EM
   )
 
   const roomsLine = fitItemList(
@@ -124,7 +117,11 @@ export async function renderSceneWeekOgCard(
           {range}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {/* `overflow: hidden` is the backstop for a text run this card cannot
+            measure exactly — a non-Latin city name falls outside the subset and
+            is deliberately over-estimated, but if that estimate is ever wrong
+            the card should clip, not bleed off the canvas. */}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: CITY_STATE_GAP }}>
             <div
               style={{
@@ -171,6 +168,7 @@ export async function renderSceneWeekOgCard(
             justifyContent: 'space-between',
             alignItems: 'center',
             fontSize: FOOTER_SIZE,
+            overflow: 'hidden',
           }}
         >
           {/* Rendered even when there are no rooms to name: `space-between`
@@ -200,11 +198,16 @@ export async function renderSceneWeekOgCard(
     {
       ...OG_SIZE,
       fonts,
-      // Matches the freshness of the data the card was drawn from, so the
-      // picture and the numbers on it never disagree about how stale they are.
+      // Only a week that has actually ENDED may be cached hard — the response,
+      // not the URL shape, is what knows that. A card drawn without the brand
+      // fonts is held to the short window too: its fit budgets were computed
+      // from Satoshi's metrics, so it may be visually wrong, and a wrong card
+      // should expire rather than sit in the CDN for a day.
       headers: {
         'cache-control': ogCacheControl(
-          data.is_current_week ? CURRENT_WEEK_REVALIDATE : ARCHIVED_WEEK_REVALIDATE
+          degraded || data.is_current_week
+            ? CURRENT_WEEK_REVALIDATE
+            : ARCHIVED_WEEK_REVALIDATE
         ),
       },
     }

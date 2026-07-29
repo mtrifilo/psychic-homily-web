@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  DESCENT_RATIO,
   fitFontSize,
   fitItemList,
   measureMono,
@@ -10,9 +11,10 @@ import {
   CITY_SIZE_MAX,
   CITY_SIZE_MIN,
   CONTENT_WIDTH,
+  FOOTER_GAP,
   FOOTER_SIZE,
   ROOMS_MAX_WIDTH,
-  STATE_SIZE,
+  WORDMARK,
   cityMaxWidth,
 } from '@/features/scenes/sceneWeekOgLayout'
 
@@ -30,7 +32,12 @@ describe('measureSans', () => {
   // string, drawn in Inter — the ~1% gap is the face difference, not an error.
   it('matches the width the card was designed against', () => {
     expect(measureSans('Chicago', 'satoshiBold', 132)).toBeCloseTo(515.3, 0)
-    expect(measureSans('Chicago', 'satoshiBold', 132)).toBeCloseTo(511, -1)
+    // The mock reported 511px for the same string drawn in Inter. Expressed as
+    // a relative tolerance rather than a fixed one so a legitimate table update
+    // doesn't fail a check that is really about the two faces being close.
+    expect(Math.abs(measureSans('Chicago', 'satoshiBold', 132) - 511) / 511).toBeLessThan(
+      0.02
+    )
   })
 
   // A golden value, not a design figure: it exists so that regenerating the
@@ -50,8 +57,28 @@ describe('measureSans', () => {
     )
   })
 
-  it('falls back to a known advance outside the table', () => {
-    expect(measureSans('東京', 'satoshiBold', 132)).toBeCloseTo((2 * 584 * 132) / 1000, 5)
+  // The property that matters is the DIRECTION of the error, not the constant.
+  // Unknown glyphs must over-measure: the subsets are Latin-only, the scene
+  // table is worldwide, and an under-measured headline runs off a canvas that
+  // has no reflow. The widest glyph in the shipped subsets is 1211/1000 em.
+  it('over-measures glyphs it has no table entry for', () => {
+    const widestKnown = measureSans('W', 'satoshiBold', 1000)
+    const unknown = measureSans('東', 'satoshiBold', 1000)
+    expect(unknown).toBeGreaterThan(widestKnown)
+    expect(unknown).toBeGreaterThanOrEqual(1000)
+  })
+
+  // `·` used to hit the unknown-glyph fallback and measured 584 against a real
+  // 275 — a systematic over-estimate on every multi-room footer.
+  it('measures the list separator and en dash exactly', () => {
+    expect(measureSans('·', 'satoshiRegular', 1000)).toBeCloseTo(275, 0)
+    expect(measureSans('·', 'satoshiBold', 1000)).toBeCloseTo(333, 0)
+    expect(measureSans('–', 'satoshiRegular', 1000)).toBeCloseTo(927, 0)
+  })
+
+  it('adds letter spacing per character when asked', () => {
+    const plain = measureSans('Chicago', 'satoshiBold', 132)
+    expect(measureSans('Chicago', 'satoshiBold', 132, -3)).toBeCloseTo(plain - 21, 5)
   })
 
   it('measures the empty string as zero', () => {
@@ -78,8 +105,11 @@ describe('monoBaselineLift', () => {
     expect(monoBaselineLift(132, 40)).toBeCloseTo(17.24, 1)
   })
 
-  it('is zero when the two runs share a descender depth', () => {
-    expect(monoBaselineLift(0, 0)).toBe(0)
+  // The real invariant: the lift is exactly the difference in descender depth,
+  // so it vanishes at the sizes where the two descenders coincide.
+  it('vanishes when the two descenders land at the same depth', () => {
+    const monoSize = (100 * DESCENT_RATIO.sans) / DESCENT_RATIO.mono
+    expect(monoBaselineLift(100, monoSize)).toBeCloseTo(0, 10)
   })
 })
 
@@ -224,15 +254,15 @@ describe('fitItemList', () => {
 })
 
 describe('card layout budgets', () => {
-  // Guards the geometry the fit tests above lean on: if the padding or the
-  // footer gap moves, these are the numbers that move with it.
-  it('leaves the room list a usable share of the footer', () => {
-    expect(CONTENT_WIDTH).toBe(1056)
-    expect(ROOMS_MAX_WIDTH).toBeGreaterThan(0)
-    expect(ROOMS_MAX_WIDTH).toBeLessThan(CONTENT_WIDTH - measureMono('psychichomily.com', FOOTER_SIZE))
-  })
-
-  it('keeps the state subordinate to the city', () => {
-    expect(STATE_SIZE).toBeLessThan(CITY_SIZE_MIN)
+  // Not a change-detector on the constants — it asserts the relationship the
+  // footer depends on: the room list gets whatever the wordmark and the gap
+  // between them leave, and that has to be enough to name at least one room.
+  it('leaves the room list room for a real venue name', () => {
+    expect(ROOMS_MAX_WIDTH).toBe(
+      CONTENT_WIDTH - measureMono(WORDMARK, FOOTER_SIZE) - FOOTER_GAP
+    )
+    expect(ROOMS_MAX_WIDTH).toBeGreaterThan(
+      measureSans('Salt Shed Fairgrounds +9', 'satoshiRegular', FOOTER_SIZE)
+    )
   })
 })

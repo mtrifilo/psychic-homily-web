@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   countShows,
   formatDayHeading,
+  formatShowCountLine,
   formatWeekRange,
   formatWeekRangeCompact,
+  resolveRequestedWeek,
   looksLikeISOWeek,
   showDisplayTitle,
   showHref,
@@ -69,6 +71,50 @@ describe('formatWeekRangeCompact', () => {
   // negative-offset timezone must not shift either end back a day.
   it('renders the calendar dates, not timezone-shifted ones', () => {
     expect(formatWeekRangeCompact('2025-12-29', '2026-01-04')).toBe('DEC 29 – JAN 4')
+  })
+})
+
+describe('resolveRequestedWeek', () => {
+  it('passes an absent segment through as "the current week"', () => {
+    expect(resolveRequestedWeek(undefined)).toBeUndefined()
+  })
+
+  it('normalizes a well-formed key to the string that was validated', () => {
+    expect(resolveRequestedWeek('2026-W31')).toBe('2026-W31')
+    expect(resolveRequestedWeek(' 2026-W31 ')).toBe('2026-W31')
+  })
+
+  // The distinction that matters: junk must be DISTINGUISHABLE from "no segment
+  // supplied". Collapsing the two would serve the current week's card for a URL
+  // whose page 404s — a confident answer to a question nobody asked.
+  it('rejects junk rather than falling back to the current week', () => {
+    for (const junk of ['garbage', '2026-31', 'W31', '', 'opengraph-image']) {
+      expect(resolveRequestedWeek(junk)).toBeNull()
+    }
+    expect(resolveRequestedWeek('garbage')).not.toBeUndefined()
+  })
+})
+
+describe('formatShowCountLine', () => {
+  it('says "this week" only for the current week', () => {
+    expect(formatShowCountLine(32, true)).toBe('32 shows this week')
+    expect(formatShowCountLine(32, false)).toBe('32 shows')
+  })
+
+  // A card for a week that ended must not claim to be current — it is the one
+  // thing separating a truthful archived card from a lying one.
+  it('never claims an archived week is current', () => {
+    expect(formatShowCountLine(24, false)).not.toContain('this week')
+    expect(formatShowCountLine(0, false)).not.toContain('this week')
+  })
+
+  it('says a quiet week in words rather than posting a zero', () => {
+    expect(formatShowCountLine(0, true)).toBe('No shows this week')
+    expect(formatShowCountLine(0, false)).toBe('No shows')
+  })
+
+  it('uses the singular for one show', () => {
+    expect(formatShowCountLine(1, true)).toBe('1 show this week')
   })
 })
 

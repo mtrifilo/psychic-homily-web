@@ -101,18 +101,35 @@ export function loadBrandFonts(): Promise<OgFont[]> {
   return fontsPromise
 }
 
+/**
+ * Fetch one font asset, failing loudly on anything that is not a real font.
+ *
+ * `arrayBuffer()` resolves perfectly happily on a 404 or 500 body, which would
+ * hand Satori an error page as a typeface — and because the loader memoizes on
+ * success, those garbage bytes would be pinned for the life of the isolate and
+ * every later render would fail inside the PNG stream, after the 200 response
+ * had already been sent. Better to reject here so the fallback path can run.
+ */
+async function fetchFont(url: URL): Promise<ArrayBuffer> {
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error(`OG font asset ${url.pathname} responded ${res.status}`)
+  }
+  const data = await res.arrayBuffer()
+  // Every TrueType/OpenType file opens with one of these sfnt version tags.
+  const tag = new DataView(data).getUint32(0)
+  if (tag !== 0x00010000 && tag !== 0x4f54544f && tag !== 0x74727565) {
+    throw new Error(`OG font asset ${url.pathname} is not a font (tag ${tag.toString(16)})`)
+  }
+  return data
+}
+
 async function fetchBrandFonts(): Promise<OgFont[]> {
   const [bold, medium, regular, mono] = await Promise.all([
-    fetch(new URL('./fonts/Satoshi-Bold.ttf', import.meta.url)).then(r => r.arrayBuffer()),
-    fetch(new URL('./fonts/Satoshi-Medium.ttf', import.meta.url)).then(r =>
-      r.arrayBuffer()
-    ),
-    fetch(new URL('./fonts/Satoshi-Regular.ttf', import.meta.url)).then(r =>
-      r.arrayBuffer()
-    ),
-    fetch(new URL('./fonts/SpaceMono-Regular.ttf', import.meta.url)).then(r =>
-      r.arrayBuffer()
-    ),
+    fetchFont(new URL('./fonts/Satoshi-Bold.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/Satoshi-Medium.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/Satoshi-Regular.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/SpaceMono-Regular.ttf', import.meta.url)),
   ])
 
   return [

@@ -9,6 +9,29 @@ import {
 } from './brand'
 
 /**
+ * A font load that may have degraded.
+ *
+ * `degraded` is not cosmetic bookkeeping: every fit budget on a card is
+ * computed from Satoshi's metrics, so a card drawn in Satori's fallback face
+ * is measured against the wrong numbers and can overrun. Callers use this to
+ * refuse to cache such a card for long.
+ */
+export interface BrandFontsResult {
+  fonts: OgFont[] | undefined
+  degraded: boolean
+}
+
+/**
+ * One-shot reporting latch.
+ *
+ * A broken font asset fails on EVERY request, and the loader deliberately does
+ * not retain the rejection, so without this a persistent failure converts
+ * request volume 1:1 into Sentry events — burning the quota exactly when the
+ * signal matters. One report per isolate is enough to raise the alarm.
+ */
+let fontFailureReported = false
+
+/**
  * Load the brand fonts, degrading to Satori's bundled default instead of
  * throwing.
  *
@@ -17,15 +40,18 @@ import {
  * losing the branded fallback the failure path exists to guarantee. An
  * off-brand card still beats a broken link preview.
  */
-export async function loadBrandFontsOrDefault(): Promise<OgFont[] | undefined> {
+export async function loadBrandFontsOrDefault(): Promise<BrandFontsResult> {
   try {
-    return await loadBrandFonts()
+    return { fonts: await loadBrandFonts(), degraded: false }
   } catch (error) {
-    Sentry.captureException(error, {
-      tags: { service: 'og-image' },
-      extra: { stage: 'load-brand-fonts' },
-    })
-    return undefined
+    if (!fontFailureReported) {
+      fontFailureReported = true
+      Sentry.captureException(error, {
+        tags: { service: 'og-image' },
+        extra: { stage: 'load-brand-fonts' },
+      })
+    }
+    return { fonts: undefined, degraded: true }
   }
 }
 

@@ -8,22 +8,36 @@
  * against a 1056px content box, and a long room list overruns its share of the
  * footer outright. So the card measures before it renders.
  *
- * Measurement is exact, not approximate: the tables below are the real advance
- * widths of the shipping `.ttf` files, per 1000 units of em, read straight out
- * of each font's `hmtx` table:
+ * Measurement is EXACT for ASCII, the accented Latin that folds onto it, and
+ * the handful of punctuation glyphs the cards actually emit. Everything else is
+ * deliberately OVER-estimated — see `UNKNOWN_ADVANCE`. Over-estimating is the
+ * safe direction: it can cost a headline a size step it did not need, whereas
+ * under-estimating clips text off a canvas that has no reflow.
  *
+ * The tables are the real advance widths of the shipping `.ttf` files, per 1000
+ * units of em, read straight out of each font's `hmtx` table. Regenerate them
+ * together with the fonts (see `brand.ts`); `textFit.fonts.test.ts` fails if the
+ * files and these numbers ever drift apart:
+ *
+ *     # ASCII advances (one line per face)
  *     python -c "from fontTools.ttLib import TTFont; \
  *       f=TTFont('lib/og/fonts/Satoshi-Bold.ttf'); c=f.getBestCmap(); \
  *       h=f['hmtx']; u=f['head'].unitsPerEm; \
  *       print(','.join(str(round(h[c[i]][0]*1000/u)) for i in range(0x20,0x7F)))"
+ *     # the non-ASCII glyphs the cards emit, and the vertical metrics
+ *     python -c "from fontTools.ttLib import TTFont; \
+ *       f=TTFont('lib/og/fonts/Satoshi-Bold.ttf'); c=f.getBestCmap(); \
+ *       h=f['hmtx']; u=f['head'].unitsPerEm; \
+ *       print({hex(g): round(h[c[g]][0]*1000/u) for g in (0xB7, 0x2013, 0x2019)}, \
+ *             'descent', abs(f['hhea'].descent)/u)"
  *
  * This module owns every number derived from those font files — advances and
- * vertical metrics both — so there is ONE place to re-emit if a face is ever
- * replaced (see `brand.ts` for the font regeneration recipe).
+ * vertical metrics both — so there is ONE place to re-emit.
  *
  * Kerning is deliberately ignored. Satori applies it, and it almost always
- * TIGHTENS text, so an unkerned measurement over-estimates slightly — the safe
- * direction for a fit test.
+ * TIGHTENS text, so an unkerned measurement over-estimates slightly — again the
+ * safe direction. Letter-spacing is NOT ignored; pass it explicitly, because at
+ * the card's tracking it is a ~4% effect rather than a rounding error.
  */
 
 export type SansFace = 'satoshiBold' | 'satoshiRegular'
@@ -40,19 +54,43 @@ const TABLES: Record<SansFace, number[]> = {
       .map(Number),
 }
 
-/** Space Mono is monospaced — every ASCII glyph advances 612/1000. */
+/**
+ * Non-ASCII advances for the glyphs the cards genuinely emit.
+ *
+ * `·` separates rooms in the footer and `–` separates the two dates in the week
+ * range, so both appear on essentially every card. Left to the unknown-glyph
+ * fallback, `·` measured 584 against a real 275 — a systematic over-estimate of
+ * ~10px per separator that could drop a room name that would have fitted.
+ */
+const EXTRA_ADVANCES: Record<SansFace, Record<number, number>> = {
+  satoshiBold: { 0xb7: 333, 0x2013: 977, 0x2019: 281 },
+  satoshiRegular: { 0xb7: 275, 0x2013: 927, 0x2019: 245 },
+}
+
+/** Space Mono is monospaced — every glyph in the subset advances 612/1000. */
 const MONO_ADVANCE = 612
 
 /**
  * Descender depth as a fraction of font size, from each face's `hhea` table
- * (Satoshi -240/1000, Space Mono -361/1000). Used only by `monoBaselineLift`.
+ * (Satoshi -240/1000, Space Mono -361/1000). Exported so the drift test can
+ * check them against the font files.
  */
-const DESCENT_RATIO = { sans: 0.24, mono: 0.361 } as const
+export const DESCENT_RATIO = { sans: 0.24, mono: 0.361 } as const
 
 const FIRST_CODE = 0x20
 const LAST_CODE = 0x7e
-/** Fallback for anything outside the table; 'n'-ish, mid-range for both faces. */
-const UNKNOWN_ADVANCE = 584
+
+/**
+ * Width charged to a glyph this module has no table entry for.
+ *
+ * Set to the widest advance in the shipped subsets (1211) so unknown text is
+ * always OVER-measured. This matters more than it looks: the subsets are Latin
+ * only, the scene table is worldwide, and Satori resolves a glyph it cannot
+ * find by fetching a face from Google Fonts mid-render — so an unknown-script
+ * city name both renders in another face AND, if under-measured, runs off a
+ * canvas with no clipping. Over-measuring merely costs it a size step.
+ */
+const UNKNOWN_ADVANCE = 1211
 
 /** The separator between named items in a fitted list. */
 const LIST_SEPARATOR = ' · '
@@ -69,18 +107,32 @@ function toMeasurable(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '')
 }
 
-/** Width of `text` in px, for a Satoshi face at `fontSize`. */
-export function measureSans(text: string, face: SansFace, fontSize: number): number {
+/**
+ * Width of `text` in px, for a Satoshi face at `fontSize`.
+ *
+ * `letterSpacing` must be passed whenever the rendered element sets it — the
+ * card tracks its headline at roughly -2.3% of the font size, which is far too
+ * large to absorb as measurement slack.
+ */
+export function measureSans(
+  text: string,
+  face: SansFace,
+  fontSize: number,
+  letterSpacing = 0
+): number {
   const table = TABLES[face]
+  const extra = EXTRA_ADVANCES[face]
   let units = 0
+  let chars = 0
   for (const char of toMeasurable(text)) {
     const code = char.codePointAt(0)!
     units +=
       code >= FIRST_CODE && code <= LAST_CODE
         ? table[code - FIRST_CODE]
-        : UNKNOWN_ADVANCE
+        : (extra[code] ?? UNKNOWN_ADVANCE)
+    chars += 1
   }
-  return (units * fontSize) / 1000
+  return (units * fontSize) / 1000 + chars * letterSpacing
 }
 
 /** Width of `text` in px for Space Mono, including per-character tracking. */
@@ -113,10 +165,14 @@ export function fitFontSize(
   face: SansFace,
   maxWidth: number,
   maxSize: number,
-  minSize: number
+  minSize: number,
+  trackingEm = 0
 ): number {
-  const widthAtMax = measureSans(text, face, maxSize)
+  const widthAt = (size: number) => measureSans(text, face, size, trackingEm * size)
+  const widthAtMax = widthAt(maxSize)
   if (widthAtMax <= maxWidth) return maxSize
+  // Width is linear in size (advances and tracking both scale with it), so one
+  // proportional step lands on the fit rather than needing a search.
   return Math.max(minSize, Math.floor((maxWidth / widthAtMax) * maxSize))
 }
 

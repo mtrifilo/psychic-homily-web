@@ -1,6 +1,8 @@
 import { cache } from 'react'
 import type { Metadata } from 'next'
 import { JsonLd } from '@/components/seo/JsonLd'
+import { OG_SIZE } from '@/lib/og/brand'
+import { SCENE_WEEK_OG_ALT } from './sceneWeekOgLayout'
 import { generateItemListSchema } from '@/lib/seo/jsonld'
 import { SceneWeekView } from './components/SceneWeekView'
 import { fetchSceneWeek } from './sceneWeekApi'
@@ -44,12 +46,34 @@ export async function buildSceneWeekMetadata(
   // engines at it would make every indexed snippet go stale.
   const canonical = `${SITE}/scenes/${data.slug}/${data.iso_week}`
 
+  // Both routes advertise the ARCHIVED card, and that is deliberate.
+  //
+  // Next would otherwise inject each route's own file-convention image, and the
+  // rolling route's URL is a constant — it carries a hash of the route source,
+  // not of the week. Our own `Cache-Control` cannot help: Facebook, Discord and
+  // Slack cache an unfurled image against its URL for far longer than any header
+  // we set, so the rolling URL — the one people actually post — would keep
+  // showing whichever week that scraper happened to see first. The archived
+  // URL carries the week, so a new week is a new image.
+  //
+  // Setting `images` explicitly suppresses the file convention, so the
+  // dimensions and alt that convention would have supplied are given here.
+  const ogImage = `${canonical}/opengraph-image`
+
   return {
     title,
     description,
     alternates: { canonical },
-    openGraph: { title, description, url: canonical, type: 'website' },
-    twitter: { card: 'summary_large_image', title, description },
+    openGraph: {
+      title,
+      description,
+      url: canonical,
+      type: 'website',
+      images: [
+        { url: ogImage, width: OG_SIZE.width, height: OG_SIZE.height, alt: SCENE_WEEK_OG_ALT },
+      ],
+    },
+    twitter: { card: 'summary_large_image', title, description, images: [ogImage] },
   }
 }
 

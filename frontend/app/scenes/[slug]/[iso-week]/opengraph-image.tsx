@@ -1,8 +1,6 @@
 import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
-import {
-  SCENE_WEEK_OG_ALT,
-  renderSceneWeekOgCard,
-} from '@/features/scenes/sceneWeekOgCard'
+import { renderSceneWeekOgCard } from '@/features/scenes/sceneWeekOgCard'
+import { SCENE_WEEK_OG_ALT } from '@/features/scenes/sceneWeekOgLayout'
 
 export const runtime = 'edge'
 export const alt = SCENE_WEEK_OG_ALT
