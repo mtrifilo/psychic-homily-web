@@ -10,6 +10,7 @@ import * as path from 'path'
 import * as net from 'net'
 import * as http from 'http'
 import pLimit from 'p-limit'
+import { BACKEND_BASE_URL, BACKEND_PORT } from './backend-url'
 
 const BACKEND_DIR = path.resolve(__dirname, '../../backend')
 const PID_FILE = path.resolve(__dirname, '.backend-pid')
@@ -153,12 +154,17 @@ async function seedDatabase() {
 }
 
 function startBackend(): ChildProcess {
-  log('Starting backend on port 8080...')
+  log(`Starting backend on port ${BACKEND_PORT}...`)
   const proc = spawn('go', ['run', './cmd/server'], {
     cwd: BACKEND_DIR,
     env: {
       ...process.env,
       DATABASE_URL: E2E_DB_URL,
+      // PSY-1645: bind where BACKEND_URL says, so the spawned backend, the
+      // health check, the Next proxy and the fixture-reset helper all agree.
+      // Without this the server took its default :8080 while everything else
+      // followed BACKEND_URL elsewhere.
+      API_ADDR: `localhost:${BACKEND_PORT}`,
       JWT_SECRET_KEY: 'e2e-jwt-secret-key-for-testing-only',
       OAUTH_SECRET_KEY: 'e2e-oauth-secret-key-for-testing-only',
       CORS_ALLOWED_ORIGINS: 'http://localhost:3000',
@@ -372,17 +378,19 @@ export default async function globalSetup(_config: FullConfig) {
   // 2. Seed data
   await seedDatabase()
 
-  // 3. Check port 8080 is free, then start backend
-  if (await isPortInUse(8080)) {
+  // 3. Check the backend port is free, then start backend
+  if (await isPortInUse(BACKEND_PORT)) {
     throw new Error(
-      'Port 8080 is already in use. Stop the dev backend before running E2E tests.'
+      `Port ${BACKEND_PORT} is already in use. Stop the dev backend before ` +
+        `running E2E tests, or point the harness at a free port with ` +
+        `BACKEND_URL (e.g. BACKEND_URL=http://localhost:8099 bun run test:e2e).`
     )
   }
   startBackend()
 
   // 4. Wait for backend health
   log('Waiting for backend health check...')
-  await waitForUrl('http://localhost:8080/health', SERVER_READY_TIMEOUT_MS)
+  await waitForUrl(`${BACKEND_BASE_URL}/health`, SERVER_READY_TIMEOUT_MS)
   log('Backend is healthy.')
 
   // 5. Wait for frontend (started by Playwright webServer config)
