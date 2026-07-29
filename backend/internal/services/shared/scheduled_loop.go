@@ -197,6 +197,12 @@ func RunScheduledLoop(ctx context.Context, cfg LoopConfig, work func(context.Con
 
 	runner := newLoopRunner(cfg, work)
 
+	// Announce existence before scheduling anything. Until a loop's first cycle
+	// completes there is no row, so without this a loop that never starts looks
+	// exactly like a loop that was never deployed — and overdue alerting would be
+	// blind to the registration failures it most needs to catch.
+	runner.register(ctx)
+
 	// The boot cycle is forced past the due check: a caller asking for RunAtBoot
 	// wants output after a deploy, which is the behaviour ten healthy loops rely
 	// on today. The claim's LEASE check still applies, so a boot cycle cannot
@@ -290,6 +296,35 @@ func newLoopRunner(cfg LoopConfig, work func(context.Context)) *loopRunner {
 		lease:      lease,
 		store:      store,
 		work:       work,
+	}
+}
+
+// register records the loop's identity and cadence so health checks can tell
+// "never started" from "never existed".
+//
+// Best-effort by design: a loop must still run when the state table is
+// unreachable. Losing the ability to observe a sweep is bad; refusing to run it
+// because we cannot observe it would be worse.
+//
+// That is also why this swallows panics instead of letting the outer recover
+// handle them. The outer recover STOPS the loop, which is the right response to a
+// panic in scheduling — but registration is pure observability, and a monitoring
+// write that can kill the twenty sweeps it was added to watch is worse than no
+// monitoring at all.
+func (r *loopRunner) register(ctx context.Context) {
+	if r.store == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Default().Error("background run state: register panicked — continuing",
+				"service", r.name,
+				"panic", rec,
+			)
+		}
+	}()
+	if err := r.store.Register(ctx, r.name, r.interval); err != nil {
+		logStoreError(r.name, "register", err)
 	}
 }
 

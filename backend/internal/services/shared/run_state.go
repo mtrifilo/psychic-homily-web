@@ -69,6 +69,12 @@ type BackgroundServiceRun struct {
 	ConsecutiveFailures int   `gorm:"column:consecutive_failures"`
 	RunCount            int64 `gorm:"column:run_count"`
 
+	// LastOverdueAlertAt throttles overdue reporting. NULL means the loop is not
+	// in an alerted overdue episode; a successful cycle resets it, so recovery
+	// followed by a later stall reads as a fresh transition rather than waiting
+	// out the re-alert window.
+	LastOverdueAlertAt *time.Time `gorm:"column:last_overdue_alert_at"`
+
 	CreatedAt time.Time `gorm:"column:created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at"`
 }
@@ -140,6 +146,18 @@ func (o CycleOutcome) outcomeLabel() string {
 // an app/DB clock skew would otherwise translate directly into a loop running
 // early, late, or twice. The store never accepts a timestamp from the caller.
 type RunStore interface {
+	// Register records that `name` exists and is expected to run every
+	// `interval`, without touching any run state.
+	//
+	// Scheduling does not need this — Claim would create the row on the first
+	// cycle. HEALTH does: until a loop's first cycle completes there is no row,
+	// so a loop that never starts is indistinguishable from a loop that was never
+	// deployed, and an alerter reading the table is blind to exactly the
+	// registration failure it most needs to catch. Registering at loop start
+	// turns the table into a record of what is SUPPOSED to be running, against
+	// which silence becomes detectable.
+	Register(ctx context.Context, name string, interval time.Duration) error
+
 	// DueIn reports how long until `name` is next due, measured against the
 	// database clock. A value <= 0 means overdue — including the never-run case,
 	// where there is no row at all.
@@ -210,6 +228,30 @@ func dueSlack(interval time.Duration) time.Duration {
 // so this floor only ever applies at test scale — which is exactly why it must
 // be small enough to leave the due gate live there too.
 const minDueSlack = 10 * time.Millisecond
+
+// Register implements RunStore.
+//
+// Deliberately writes nothing but identity and cadence. A loop restarts on every
+// deploy, so if this touched last_completed_at a redeploy would reset the very
+// schedule the table exists to preserve, and if it touched last_overdue_alert_at
+// a crash-looping process would silence its own alert by restarting.
+//
+// interval_seconds IS refreshed, so the overdue threshold always reflects how the
+// loop is configured now rather than whenever it last completed a cycle.
+func (s *GormRunStore) Register(ctx context.Context, name string, interval time.Duration) error {
+	err := s.db.WithContext(ctx).Exec(`
+		INSERT INTO background_service_runs
+			(name, interval_seconds, created_at, updated_at)
+		VALUES (?, ?, NOW(), NOW())
+		ON CONFLICT (name) DO UPDATE
+		SET interval_seconds = EXCLUDED.interval_seconds,
+		    updated_at       = NOW()
+	`, name, int64(interval/time.Second)).Error
+	if err != nil {
+		return fmt.Errorf("register run state for %q: %w", name, err)
+	}
+	return nil
+}
 
 // DueIn implements RunStore.
 func (s *GormRunStore) DueIn(ctx context.Context, name string, interval time.Duration) (time.Duration, error) {
@@ -339,10 +381,16 @@ func (s *GormRunStore) Complete(ctx context.Context, name string, token time.Tim
 			last_rows_processed  = ?,
 			consecutive_failures = CASE WHEN ?::boolean THEN 0 ELSE consecutive_failures + 1 END,
 			run_count            = run_count + 1,
+			-- Clearing on success is what makes overdue reporting a TRANSITION
+			-- rather than a level: a loop that recovers and later stalls again
+			-- reports immediately instead of waiting out the re-alert window it
+			-- was already partway through. Left alone on failure, because a loop
+			-- that keeps failing has not recovered and must stay throttled.
+			last_overdue_alert_at = CASE WHEN ?::boolean THEN NULL ELSE last_overdue_alert_at END,
 			updated_at           = NOW()
 		WHERE name = ? AND last_started_at = ?
 	`,
-		ok, label, errText, outcome.Duration.Milliseconds(), rowsProcessed, ok, name, token,
+		ok, label, errText, outcome.Duration.Milliseconds(), rowsProcessed, ok, ok, name, token,
 	)
 	if res.Error != nil {
 		return fmt.Errorf("complete run for %q: %w", name, res.Error)

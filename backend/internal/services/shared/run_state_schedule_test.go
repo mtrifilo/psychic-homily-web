@@ -32,13 +32,15 @@ type memRunStore struct {
 	mu   sync.Mutex
 	rows map[string]*memRunRow
 
-	claimed  atomic.Int32
-	refused  atomic.Int32
-	finished atomic.Int32
-	released atomic.Int32
+	registered atomic.Int32
+	claimed    atomic.Int32
+	refused    atomic.Int32
+	finished   atomic.Int32
+	released   atomic.Int32
 
-	failDueIn error
-	failClaim error
+	failDueIn    error
+	failClaim    error
+	failRegister error
 }
 
 type memRunRow struct {
@@ -84,6 +86,21 @@ func (s *memRunStore) snapshot(name string) memRunRow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return *s.row(name)
+}
+
+// Register mirrors the SQL: create-or-refresh identity and cadence, touching no
+// run state. A double that reset completion here would hide the production bug
+// where a redeploy wipes the schedule the table exists to preserve.
+func (s *memRunStore) Register(_ context.Context, name string, interval time.Duration) error {
+	if s.failRegister != nil {
+		return s.failRegister
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.row(name)
+	r.intervalSeconds = int64(interval / time.Second)
+	s.registered.Add(1)
+	return nil
 }
 
 func (s *memRunStore) DueIn(_ context.Context, name string, interval time.Duration) (time.Duration, error) {
