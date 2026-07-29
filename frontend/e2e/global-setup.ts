@@ -10,6 +10,7 @@ import * as path from 'path'
 import * as net from 'net'
 import * as http from 'http'
 import pLimit from 'p-limit'
+import { E2E_BACKEND_URL } from './backend-url'
 
 const BACKEND_DIR = path.resolve(__dirname, '../../backend')
 const PID_FILE = path.resolve(__dirname, '.backend-pid')
@@ -17,6 +18,20 @@ const AUTH_DIR = path.resolve(__dirname, '.auth')
 
 const E2E_DB_URL =
   'postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable'
+
+// PSY-1645: this harness OWNS its backend and pins it here. The ephemeral
+// database, the ENABLE_TEST_FIXTURES flag, and every auth cookie captured
+// below belong to the process started at this origin — nothing about it is
+// configurable, because everything it provisions is hardcoded alongside it.
+//
+// The fixtures, by contrast, resolve their direct-to-backend origin from
+// BACKEND_URL (e2e/backend-url.ts), which exists for runs against an
+// externally-managed stack. Those two must not be allowed to disagree: cookies
+// minted against this backend while the row-DELETING fixture reset is sent to
+// a different one is precisely the cross-talk PSY-1645 removed. See the guard
+// in globalSetup below.
+const HARNESS_BACKEND_URL = 'http://localhost:8080'
+const HARNESS_BACKEND_PORT = Number(new URL(HARNESS_BACKEND_URL).port)
 
 // Shared password for all seeded test users (see setup-db.sh).
 const TEST_PASSWORD = 'e2e-test-password-123'
@@ -153,7 +168,7 @@ async function seedDatabase() {
 }
 
 function startBackend(): ChildProcess {
-  log('Starting backend on port 8080...')
+  log(`Starting backend on ${HARNESS_BACKEND_URL}...`)
   const proc = spawn('go', ['run', './cmd/server'], {
     cwd: BACKEND_DIR,
     env: {
@@ -366,23 +381,42 @@ async function loginAs(page: Page, email: string, password: string) {
 export default async function globalSetup(_config: FullConfig) {
   log('Starting E2E global setup...')
 
+  // 0. PSY-1645: refuse to run a self-contradictory stack. Sourcing a dispatch
+  // stack's .env (which exports BACKEND_URL — see scripts/dispatch/stack-up.sh)
+  // and then running `bun run test:e2e` used to produce exactly that: this
+  // harness provisioning and seeding a backend here while the fixtures spoke
+  // to a different one. Fail now, naming both origins, instead of surfacing it
+  // later as a 401 inside a worker fixture — or, when the two stacks happen to
+  // share a JWT secret, as a successful reset against the wrong database.
+  if (E2E_BACKEND_URL !== HARNESS_BACKEND_URL) {
+    throw new Error(
+      `BACKEND_URL points at ${E2E_BACKEND_URL}, but E2E global setup ` +
+        `provisions its own backend at ${HARNESS_BACKEND_URL} — the seeded ` +
+        `database, the test-fixture flags and the auth cookies captured here ` +
+        `all belong to that one. Either unset BACKEND_URL and let global ` +
+        `setup own the stack, or run your externally-managed stack with a ` +
+        `Playwright config that has no globalSetup (see ` +
+        `e2e-hydration/playwright.hydration.config.ts for that pattern).`
+    )
+  }
+
   // 1. Start database
   await startDatabase()
 
   // 2. Seed data
   await seedDatabase()
 
-  // 3. Check port 8080 is free, then start backend
-  if (await isPortInUse(8080)) {
+  // 3. Check the backend port is free, then start backend
+  if (await isPortInUse(HARNESS_BACKEND_PORT)) {
     throw new Error(
-      'Port 8080 is already in use. Stop the dev backend before running E2E tests.'
+      `Port ${HARNESS_BACKEND_PORT} is already in use. Stop the dev backend before running E2E tests.`
     )
   }
   startBackend()
 
   // 4. Wait for backend health
   log('Waiting for backend health check...')
-  await waitForUrl('http://localhost:8080/health', SERVER_READY_TIMEOUT_MS)
+  await waitForUrl(`${HARNESS_BACKEND_URL}/health`, SERVER_READY_TIMEOUT_MS)
   log('Backend is healthy.')
 
   // 5. Wait for frontend (started by Playwright webServer config)

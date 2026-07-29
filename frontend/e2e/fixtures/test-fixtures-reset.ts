@@ -4,7 +4,8 @@ import { E2E_BACKEND_URL, E2E_BACKEND_TARGET } from '../backend-url'
 
 /**
  * PSY-432 — E2E helper for the admin-only `/admin/test-fixtures/reset`
- * endpoint. See backend/internal/api/handlers/test_fixtures.go.
+ * endpoint. See backend/internal/api/handlers/admin/test_fixtures.go
+ * (registered in backend/internal/api/routes/test_fixtures.go).
  *
  * The endpoint is only registered when the backend boots with
  * `ENABLE_TEST_FIXTURES=1` + `ENVIRONMENT` in {test,ci,development}. Global
@@ -14,10 +15,13 @@ import { E2E_BACKEND_URL, E2E_BACKEND_TARGET } from '../backend-url'
 const AUTH_DIR = path.resolve(__dirname, '../.auth')
 
 // PSY-432: we talk to the backend directly rather than through the frontend
-// Next.js proxy (/api → backend). The proxy strips non-auth headers
-// (app/api/[...path]/route.ts:17-30), so a custom `X-Test-Fixtures` header
-// would be dropped before reaching the backend. The cookie we stored for
-// `domain=localhost` still works against the backend's own port.
+// Next.js proxy (/api → backend). The proxy builds a fresh header set and
+// forwards only content-type plus the auth cookie (see the header construction
+// in app/api/[...path]/route.ts), so a custom `X-Test-Fixtures` header would be
+// dropped before reaching the backend. The cookie we stored for
+// `domain=localhost` still works against the backend's own port — cookie
+// domains ignore the port, but NOT the host, which is why backend-url.ts
+// requires a localhost origin.
 //
 // PSY-1645: the origin used to be hardcoded here. See e2e/backend-url.ts.
 
@@ -66,8 +70,12 @@ export async function resetTestFixtures(
     if (!resp.ok()) {
       const bodyText = await resp.text().catch(() => '<unreadable body>')
       throw new Error(
-        `test-fixtures reset failed against ${E2E_BACKEND_TARGET}: ` +
-          `HTTP ${resp.status()} ${bodyText}`,
+        // user_id is included because on an otherwise-green worker this error
+        // is reported with no test attached to it (see fixtures/auth.ts), so
+        // this message is the only place the reader can learn which seeded
+        // user's cleanup failed.
+        `test-fixtures reset failed for user_id=${userId} against ` +
+          `${E2E_BACKEND_TARGET}: HTTP ${resp.status()} ${bodyText}`,
       )
     }
     return (await resp.json()) as ResetResponse

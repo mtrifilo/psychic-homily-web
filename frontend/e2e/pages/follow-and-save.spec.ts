@@ -47,7 +47,13 @@ test.describe('Follow and save', () => {
   // workerCleanup (PSY-432) only fires on worker teardown, not between
   // tests. Scope the reset to just `user_bookmarks` — narrower than the
   // teardown reset so it stays cheap when run per test.
-  let workerUserId: number | null = null
+  //
+  // PSY-1645: deliberately non-nullable. The old `number | null` + `if
+  // (workerUserId !== null)` guard was the same silently-skip-the-cleanup
+  // shape that made the fixture-reset bug so expensive to diagnose. `beforeAll`
+  // throws if the lookup fails, so an unset id can only mean the reset was
+  // never reachable — which must fail the run, not quietly no-op.
+  let workerUserId!: number
 
   test.beforeAll(async ({}, testInfo) => {
     const seededIndex = testInfo.workerIndex % USER_COUNT
@@ -55,9 +61,7 @@ test.describe('Follow and save', () => {
   })
 
   test.afterEach(async () => {
-    if (workerUserId !== null) {
-      await resetTestFixtures(workerUserId, ['user_bookmarks'])
-    }
+    await resetTestFixtures(workerUserId, ['user_bookmarks'])
   })
 
   test('follow an artist round-trip surfaces in Library', { tag: '@smoke' }, async ({

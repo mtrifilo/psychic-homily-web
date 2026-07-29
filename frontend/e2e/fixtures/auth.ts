@@ -53,9 +53,22 @@ export const test = base.extend<
   // theory that a cleanup hiccup shouldn't mask a real test failure — but a
   // skipped cleanup isn't a hiccup, it's a broken precondition for every
   // mutating spec that follows, and the resulting failures read as product
-  // bugs rather than as the configuration error they are. Playwright reports
-  // a fixture error alongside the test's own errors, so a genuine failure is
-  // still visible; letting these throw only adds the cause.
+  // bugs rather than as the configuration error they are.
+  //
+  // Know the two shapes this failure takes, because they read very
+  // differently and only one of them is retried:
+  //
+  //   - Lookup throws (before `use()`): a normal fixture-setup error. It is
+  //     attributed to each test in the worker and consumes the retry budget.
+  //   - Reset throws (after `use()`) on a worker whose tests all PASSED:
+  //     Playwright surfaces it as a top-level runner error with no test
+  //     attached — the shard exits non-zero while every listed test is green,
+  //     and it is NOT retried. That is why the message from
+  //     `resetTestFixtures` carries the user_id and the backend origin; there
+  //     is no failing test to hang that context on.
+  //
+  // Both fail the run, which is the point. A green-looking shard that exits 1
+  // is still far better than the silent state corruption it replaced.
   workerCleanup: [
     async ({}, use, workerInfo) => {
       const seededIndex = workerInfo.workerIndex % USER_COUNT
