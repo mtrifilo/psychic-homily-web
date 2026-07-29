@@ -85,21 +85,20 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
 
         {/* Right: search + theme + account.
             PSY-1638. Every control in here is `shrink-0` (the Button base
-            variant sets it), so before this the whole row was rigid: at exactly
-            `xl` the 8-item PrimaryNav appears AND the search jumps 220→320px in
-            the same breakpoint, which put 1277px of content in a 1232px box at
-            a 1280px viewport. `justify-between` lays out from the start when
-            free space is negative, so the overflow fell off the right edge and
-            took the avatar with it (its centre was not even hittable).
+            variant sets it), so the row used to be rigid: at exactly `xl` the
+            8-item PrimaryNav appears AND the search jumps 220→320px in the same
+            breakpoint, putting 1277px of content in a 1232px box at a 1280px
+            viewport. `justify-between` lays out from the start when free space
+            is negative, so the surplus fell off the right edge and took the
+            avatar with it — its centre was not even hittable.
 
             The search field is the one element here with an arbitrary width, so
-            it is the one that gives: `min-w-0` on this group lets the group
-            shrink past its content, and `min-w-0` on the search box lets the
-            flex algorithm take the shortfall out of the only item that still
-            has a shrink factor. It keeps its full 220/320px whenever the row
-            fits, and narrows (label truncates, ⌘K hint stays) when it does not.
-            This is width-agnostic on purpose: adding a nav item narrows the
-            search rather than pushing the account cluster off-screen again. */}
+            it is the one that gives: the two `min-w-0`s below let the flex
+            algorithm take the shortfall out of the only item that still has a
+            shrink factor. It keeps its full 220/320px whenever the row fits and
+            narrows (label truncates, ⌘K hint stays) when it does not — so
+            adding a nav item now costs search width rather than pushing the
+            account cluster off-screen again. */}
         <div className="flex min-w-0 items-center gap-[14px]">
           <div role="search" className="hidden w-[220px] min-w-0 sm:block xl:w-[320px]">
             <SearchTrigger />

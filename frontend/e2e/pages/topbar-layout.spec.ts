@@ -39,7 +39,7 @@ test.describe('TopBar layout (authenticated)', () => {
       const measured = await page.evaluate(() => {
         const header = document.querySelector('header')
         const node = document.querySelector('button[aria-label="User menu"]')
-        if (!header || !node) return null
+        if (!header || !node) throw new Error('header or user-menu trigger not found')
         const rect = node.getBoundingClientRect()
         const hit = document.elementFromPoint(
           rect.left + rect.width / 2,
@@ -54,17 +54,16 @@ test.describe('TopBar layout (authenticated)', () => {
         }
       })
 
-      expect(measured, 'header or user-menu trigger not found').not.toBeNull()
       expect(
-        measured!.triggerRight,
+        measured.triggerRight,
         `user-menu trigger runs past the ${width}px viewport`
       ).toBeLessThanOrEqual(width)
       expect(
-        measured!.headerScrollWidth,
+        measured.headerScrollWidth,
         `top bar content overflows the ${width}px viewport`
       ).toBeLessThanOrEqual(width)
       expect(
-        measured!.centreHitsTrigger,
+        measured.centreHitsTrigger,
         'the centre of the user-menu trigger is not hittable'
       ).toBe(true)
     })
