@@ -153,10 +153,9 @@ describe('Space Mono metrics', () => {
 })
 
 describe('subset coverage', () => {
-  // All FOUR shipped faces, not just the two with advance tables. Satoshi
-  // Medium draws the count line and Space Mono draws the range, the state and
-  // the wordmark, so a re-subset that dropped their digits or the en dash would
-  // be just as visible — and neither is covered by the tables above.
+  // Space Mono has no advance table (it is monospaced, so one constant covers
+  // it), but it draws the range, the state and the wordmark — a re-subset that
+  // dropped its digits or the en dash would be just as visible on a card.
   const ALL_FACES = [...SANS.map(([, path]) => path), `${FONTS}/SpaceMono-Regular.ttf`]
 
   it('carries every glyph the cards actually draw, in every shipped face', () => {

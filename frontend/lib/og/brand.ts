@@ -54,6 +54,16 @@ export const OG_COLORS = {
   foreground: '#eee7d9',
   primary: '#e89960',
   mutedForeground: '#9c8c7c',
+  destructive: '#f14d4c',
+  /**
+   * White, not `--destructive-foreground` (`#0d0805`).
+   *
+   * A deliberate departure: the token pairs dark-on-red for in-app badges,
+   * but a share card is read at a quarter size on someone else's feed, where
+   * white-on-red holds far more contrast. Written down so it reads as a
+   * decision rather than the drift that produced `#b8a99a`.
+   */
+  destructiveForeground: '#ffffff',
 } as const
 
 /** Family names registered with Satori; use these in `fontFamily`. */

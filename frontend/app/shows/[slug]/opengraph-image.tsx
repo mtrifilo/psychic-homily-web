@@ -8,7 +8,22 @@ import {
   ogCacheControl,
   ogFallbackCard,
 } from '@/lib/og/response'
-import { fitFontSize, measureMono } from '@/lib/og/textFit'
+import {
+  DATE_SIZE,
+  DOMAIN_SIZE,
+  HEADLINE_GAP,
+  PAD_X,
+  PAD_Y,
+  SOLD_OUT_SIZE,
+  SUPPORT_SIZE,
+  TITLE_LINE_HEIGHT,
+  TITLE_SIZE_MAX,
+  WORDMARK,
+  buildVenueLine,
+  fitTitleSize,
+  fitVenueSize,
+  venueOverflows,
+} from '@/features/shows/showOgLayout'
 
 export const runtime = 'edge'
 export const alt = 'Show details'
@@ -25,45 +40,11 @@ export const contentType = OG_CONTENT_TYPE
  * the city and domain both at 5.5px.
  *
  * The structural fix is removing an element rather than shrinking everything to
- * fit: the city is folded into the venue line. Everything that remains clears
- * ~8px effective. Divide by 4 to check: date 8.5 · title 19.5 · support 8.5 ·
- * venue 9.5 · domain 8.
+ * fit: the city is folded into the venue line.
  *
- * Design: Figma `XakQQ0nYGqnt77PrHKO9IE`, node `1192:15` (the PROPOSED column of
- * the side-by-side), with its true 300px render at `1192:40`.
+ * Geometry and the fit rules live in `showOgLayout`, free of `next/og`, so the
+ * budgets can be unit-tested against the values the card actually uses.
  */
-const PAD_X = 70
-const PAD_Y = 60
-const CONTENT_WIDTH = OG_SIZE.width - PAD_X * 2
-
-const DATE_SIZE = 34
-const TITLE_SIZE_MAX = 78
-const TITLE_LINE_HEIGHT = 84
-const SUPPORT_SIZE = 34
-const VENUE_SIZE = 38
-/** 26px is 6.5px at the share size — below that the line stops being readable,
- *  so a truly enormous venue+city clips instead of shrinking into decoration. */
-const VENUE_SIZE_MIN = 26
-const DOMAIN_SIZE = 32
-/** Keeps the venue line clear of the wordmark on the opposite edge. */
-const FOOTER_GAP = 40
-
-/**
- * The title is the one element whose length varies without bound, and it wraps
- * rather than shrinking to one line. Two lines is what the layout budgets; a
- * longer bill steps the size down instead of pushing the venue off the canvas.
- */
-const TITLE_MAX_LINES = 2
-const TITLE_SIZE_MIN = 48
-/**
- * Wrapped text never fills its lines completely — a line breaks at the last
- * word that fits, so some of the width is always left behind. 0.9 is the
- * allowance, checked against a real long-title render rather than assumed.
- */
-const WRAP_EFFICIENCY = 0.9
-
-const WORDMARK = 'psychichomily.com'
-
 interface ShowData {
   title?: string
   event_date: string
@@ -108,33 +89,14 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
   // City folded into the venue line — the structural change. At 300px a
   // separate city line was 5.5px, i.e. decoration that was carrying meaning.
-  const venueLine = venue?.city
-    ? `${venueName} · ${venue.city}, ${venue.state}`
-    : venueName
+  const venueLine = buildVenueLine(venueName, venue?.city, venue?.state)
 
-  const titleSize = fitFontSize(
-    displayTitle,
-    'satoshiBold',
-    CONTENT_WIDTH * TITLE_MAX_LINES * WRAP_EFFICIENCY,
-    TITLE_SIZE_MAX,
-    TITLE_SIZE_MIN
-  )
-
-  // The footer is a single row, so a long venue line and the wordmark compete
-  // for one width. Step the venue down rather than let it wrap — folding the
-  // city in made this line much longer, and "The Fillmore New Orleans · New
-  // Orleans, LA" wraps at full size, dropping the state onto its own line and
-  // shoving the wordmark off the edge.
-  //
-  // The wordmark is measured in MONO because that is the face it renders in;
-  // measuring it as sans under-reserves its width by ~60px.
-  const venueSize = fitFontSize(
-    venueLine,
-    'satoshiMedium',
-    CONTENT_WIDTH - measureMono(WORDMARK, DOMAIN_SIZE) - FOOTER_GAP,
-    VENUE_SIZE,
-    VENUE_SIZE_MIN
-  )
+  const titleSize = fitTitleSize(displayTitle)
+  const venueSize = fitVenueSize(venueLine)
+  // Past the minimum size the line still overruns. It must CLIP rather than
+  // run under the wordmark and push it off the canvas — the two elements this
+  // retune exists to make legible are the two that would be destroyed.
+  const venueClips = venueOverflows(venueLine)
 
   return new ImageResponse(
     (
@@ -165,7 +127,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           >
             <div
               style={{
-                color: '#ef4444',
+                color: OG_COLORS.destructive,
                 fontFamily: OG_FONT_FAMILY.sans,
                 fontSize: 96,
                 fontWeight: 700,
@@ -196,10 +158,10 @@ export default async function Image({ params }: { params: Promise<{ slug: string
                 display: 'flex',
                 fontFamily: OG_FONT_FAMILY.sans,
                 fontWeight: 700,
-                backgroundColor: '#ef4444',
-                color: '#ffffff',
-                fontSize: 22,
-                padding: '6px 16px',
+                backgroundColor: OG_COLORS.destructive,
+                color: OG_COLORS.destructiveForeground,
+                fontSize: SOLD_OUT_SIZE,
+                padding: '4px 14px',
                 borderRadius: 6,
                 letterSpacing: '0.05em',
               }}
@@ -211,7 +173,23 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
         {/* Clipped rather than allowed to bleed: the title is measured, but a
             script outside the font subset cannot be measured exactly. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}>
+        {/* `flex: 1, minHeight: 0` is what makes the clip real. Without a
+            basis this box is content-driven, so `overflow: hidden` never
+            clipped vertically — a very long title simply grew the box and
+            pushed the venue and wordmark off the canvas entirely. Titles are
+            VARCHAR(500) in the schema and the discovery pipeline writes them
+            without the handlers' 255 cap, so this is a reachable input. */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: HEADLINE_GAP,
+            flex: 1,
+            minHeight: 0,
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
           <div
             style={{
               display: 'flex',
@@ -256,6 +234,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
               fontSize: venueSize,
               color: OG_COLORS.foreground,
               whiteSpace: 'nowrap',
+              ...(venueClips ? { minWidth: 0, overflow: 'hidden' } : {}),
             }}
           >
             {venueLine}
@@ -267,6 +246,10 @@ export default async function Image({ params }: { params: Promise<{ slug: string
               fontSize: DOMAIN_SIZE,
               color: OG_COLORS.primary,
               whiteSpace: 'nowrap',
+              // Past the venue's minimum size the row is over budget, and
+              // `space-between` would push the RIGHT-hand element out. The
+              // wordmark is the one thing that must never be what disappears.
+              flexShrink: 0,
             }}
           >
             {WORDMARK}
@@ -277,18 +260,41 @@ export default async function Image({ params }: { params: Promise<{ slug: string
     {
       ...OG_SIZE,
       fonts,
-      // A show's details do not change often, but they DO change — a cancelled
-      // or sold-out show must not keep advertising itself for a day. An hour
-      // matches the data revalidate below. A card drawn without the brand fonts
-      // is held shorter still: its fit budgets assumed Satoshi's metrics.
+      // Same rule the weekly card writes down: anything that can STILL CHANGE
+      // gets the short window; only genuinely settled content caches hard. A
+      // show that has not happened yet can be cancelled or sell out from the
+      // admin at any moment, and `ogCacheControl` sets stale-while-revalidate
+      // equal to s-maxage — so an hour here would mean up to two hours of
+      // serving a card that says a sold-out show is available.
+      //
+      // A card drawn without the brand fonts is held shorter still: its fit
+      // budgets assumed Satoshi's metrics, so it may be visually wrong.
       headers: {
-        'cache-control': ogCacheControl(degraded ? 60 : SHOW_REVALIDATE),
+        'cache-control': ogCacheControl(
+          degraded ? 60 : showHasPassed(show.event_date) ? SETTLED_REVALIDATE : LIVE_REVALIDATE
+        ),
       },
     }
   )
 }
 
-const SHOW_REVALIDATE = 3600
+/** A show that has not happened yet can be cancelled or sell out at any time. */
+const LIVE_REVALIDATE = 900
+/** Once it is past, nothing about it changes. */
+const SETTLED_REVALIDATE = 86400
+/** The data fetch cannot know which it is, so it always asks for the fresh one. */
+const SHOW_REVALIDATE = LIVE_REVALIDATE
+
+/**
+ * Compared in UTC, which can run a day ahead of the venue's own clock. The
+ * error direction is "treat it as still live", i.e. cache it less — the
+ * harmless one.
+ */
+function showHasPassed(eventDate: string): boolean {
+  const at = new Date(eventDate).getTime()
+  if (Number.isNaN(at)) return false
+  return at < Date.now() - 24 * 60 * 60 * 1000
+}
 
 /**
  * Deliberate fail-open, classified during the PSY-1630 sweep: every failure
@@ -330,5 +336,9 @@ function asShow(body: unknown): ShowData | null {
   const show = body as ShowData | null
   if (!show || typeof show !== 'object') return null
   if (typeof show.event_date !== 'string') return null
+  // A string is not enough: `event_date: "n/a"` passes a typeof check and then
+  // renders the literal "Invalid Date" as the card's date line — the exact
+  // wrong-but-plausible outcome this guard exists to prevent.
+  if (Number.isNaN(new Date(show.event_date).getTime())) return null
   return show
 }
