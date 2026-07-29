@@ -42,6 +42,20 @@ import (
 // response (the 429 body and Retry-After header) to the ResponseWriter, so
 // returning without calling next is correct and complete — Huma must not also
 // write a response.
+//
+// # How this fails, and why "expect not-429" tests miss it
+//
+// If the sentinel detection ever breaks, this returns WITHOUT calling next. Huma
+// never runs the operation and emits a bare 200 with an EMPTY BODY. It does not
+// error, it does not 404 — it looks like a successful request that silently did
+// nothing, which is the worst shape a failure can take on an auth endpoint.
+//
+// Every assertion of the form "the response was not 429" passes against that. So
+// a test for a BYPASS or a no-op limiter (PSY-475) is not evidence on its own:
+// it has to prove the handler actually ran. See assertReachedHandler in
+// subapi_auth_test.go, which checks for the empty-200 signature; it was added
+// after a negative control showed the naive version passing against a
+// deliberately broken bridge.
 func humaFromHTTP(mw func(http.Handler) http.Handler) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		r, w := humachi.Unwrap(ctx)
