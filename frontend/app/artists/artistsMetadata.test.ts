@@ -12,6 +12,12 @@ vi.mock('@sentry/nextjs', () => ({
 
 import { getArtistsForMetadata } from './artistsMetadata'
 
+const jsonResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+
 describe('getArtistsForMetadata', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -23,12 +29,7 @@ describe('getArtistsForMetadata', () => {
 
   it('returns artists from a successful response', async () => {
     const artists = [{ name: 'Desert Static', slug: 'desert-static' }]
-    const fetchArtists = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ artists }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    )
+    const fetchArtists = vi.fn().mockResolvedValue(jsonResponse({ artists }))
 
     await expect(getArtistsForMetadata(fetchArtists)).resolves.toEqual(artists)
     expect(fetchArtists).toHaveBeenCalledWith(
@@ -40,31 +41,16 @@ describe('getArtistsForMetadata', () => {
     )
   })
 
-  it('uses a ten-second timeout signal and falls back when it aborts', async () => {
-    const controller = new AbortController()
+  // The shared 10s build-time budget is deliberately overridden here: `/artists`
+  // is unpaginated and has no `limit` parameter to bound it with.
+  it('asks for a thirty-second budget, not the shared ten-second one', async () => {
     const timeoutSpy = vi
       .spyOn(AbortSignal, 'timeout')
-      .mockReturnValue(controller.signal)
-    const timeoutError = new DOMException(
-      'The operation was aborted due to timeout',
-      'TimeoutError'
-    )
-    const fetchArtists = vi.fn(
-      (_input: RequestInfo | URL, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => reject(timeoutError))
-        })
-    )
+      .mockReturnValue(new AbortController().signal)
+    const fetchArtists = vi.fn().mockResolvedValue(jsonResponse({ artists: [] }))
 
-    const result = getArtistsForMetadata(fetchArtists)
-    controller.abort(timeoutError)
-
-    await expect(result).resolves.toEqual([])
-    expect(timeoutSpy).toHaveBeenCalledWith(10_000)
-    expect(captureException).toHaveBeenCalledWith(
-      timeoutError,
-      expect.objectContaining({ tags: { service: 'artists-listing' } })
-    )
+    await getArtistsForMetadata(fetchArtists)
+    expect(timeoutSpy).toHaveBeenCalledWith(30_000)
   })
 
   it('reports server errors and returns the fallback', async () => {
@@ -74,7 +60,18 @@ describe('getArtistsForMetadata', () => {
 
     await expect(getArtistsForMetadata(fetchArtists)).resolves.toEqual([])
     expect(captureMessage).toHaveBeenCalledWith(
-      'Artists listing: API returned 503',
+      'artists-listing: API returned 503',
+      expect.objectContaining({ tags: { service: 'artists-listing' } })
+    )
+  })
+
+  it('reports a thrown fetch error and returns the fallback', async () => {
+    const error = new TypeError('fetch failed')
+    const fetchArtists = vi.fn().mockRejectedValue(error)
+
+    await expect(getArtistsForMetadata(fetchArtists)).resolves.toEqual([])
+    expect(captureException).toHaveBeenCalledWith(
+      error,
       expect.objectContaining({ tags: { service: 'artists-listing' } })
     )
   })

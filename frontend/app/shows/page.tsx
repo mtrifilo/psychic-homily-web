@@ -1,9 +1,8 @@
 import { Suspense } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
-import { createBuildTimeApiSignal } from '@/lib/build-time-api'
+import { fetchSeoList } from '@/lib/build-time-api'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 export const metadata = {
@@ -27,34 +26,13 @@ interface ShowListItem {
   venues: Array<{ name: string }>
 }
 
-interface UpcomingShowsApiResponse {
-  shows: ShowListItem[]
-}
-
-async function getUpcomingShows(): Promise<ShowListItem[]> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/shows/upcoming`, {
-      next: { revalidate: 3600 },
-      signal: createBuildTimeApiSignal(),
-    })
-    if (res.ok) {
-      const data: UpcomingShowsApiResponse = await res.json()
-      return data.shows ?? []
-    }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Shows listing: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'shows-listing' },
-        extra: { status: res.status },
-      })
-    }
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'shows-listing' },
-    })
-  }
-  return []
+/** Feeds the JSON-LD `ItemList` only — see `fetchSeoList` for why it fails open. */
+function getUpcomingShows(): Promise<ShowListItem[]> {
+  return fetchSeoList<ShowListItem>({
+    url: `${API_BASE_URL}/shows/upcoming`,
+    collection: 'shows',
+    service: 'shows-listing',
+  })
 }
 
 function getShowName(show: ShowListItem): string {

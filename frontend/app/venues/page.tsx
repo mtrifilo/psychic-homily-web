@@ -1,9 +1,8 @@
 import { Suspense } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { VenueList } from '@/features/venues'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
-import { createBuildTimeApiSignal } from '@/lib/build-time-api'
+import { fetchSeoList } from '@/lib/build-time-api'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 export const metadata = {
@@ -25,34 +24,23 @@ interface VenueListItem {
   name: string
 }
 
-interface VenuesApiResponse {
-  venues: VenueListItem[]
-}
+/**
+ * The endpoint's ceiling, not a product choice. `GET /venues` declares
+ * `maximum:"100"` on `limit`, and huma enforces that as a 422 before the
+ * handler runs. This call asked for 200, so it 422'd on every render and the
+ * fail-open below dropped the `ItemList` — verified absent from the production
+ * `/venues` HTML on 2026-07-29, and reproduced directly against the API. Raising
+ * this past 100 needs the backend maximum raised first.
+ */
+const VENUE_LIST_LIMIT = 100
 
-async function getVenues(): Promise<VenueListItem[]> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/venues?limit=200`, {
-      next: { revalidate: 3600 },
-      signal: createBuildTimeApiSignal(),
-    })
-    if (res.ok) {
-      const data: VenuesApiResponse = await res.json()
-      return data.venues ?? []
-    }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Venues listing: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'venues-listing' },
-        extra: { status: res.status },
-      })
-    }
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'venues-listing' },
-    })
-  }
-  return []
+/** Feeds the JSON-LD `ItemList` only — see `fetchSeoList` for why it fails open. */
+function getVenues(): Promise<VenueListItem[]> {
+  return fetchSeoList<VenueListItem>({
+    url: `${API_BASE_URL}/venues?limit=${VENUE_LIST_LIMIT}`,
+    collection: 'venues',
+    service: 'venues-listing',
+  })
 }
 
 function VenueListLoading() {
