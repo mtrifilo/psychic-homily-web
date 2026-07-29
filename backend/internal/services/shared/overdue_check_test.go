@@ -22,14 +22,27 @@ type fakeClaimer struct {
 	err      error
 	window   time.Duration
 	released []string
+	// releasedOnCancelledCtx records releases attempted with an already-cancelled
+	// context — in production those silently fail, leaving the row asserting an
+	// alert nobody received.
+	releasedOnCancelledCtx []string
 }
 
-// ReleaseOverdueAlert records which claims were handed back because their report
-// never reached anyone.
-func (f *fakeClaimer) ReleaseOverdueAlert(_ context.Context, name string) error {
+// ReleaseOverdueAlert records which claims were handed back, AND whether the
+// context it was handed was already cancelled.
+//
+// Recording ctx.Err() is the point: the release exists for the paths where
+// something has gone wrong, and the likeliest something is shutdown — so a
+// release issued on the caller's live context would fail exactly when it matters.
+// A fake that discarded the context would let that regression back in with a
+// green suite.
+func (f *fakeClaimer) ReleaseOverdueAlert(ctx context.Context, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.released = append(f.released, name)
+	if ctx.Err() != nil {
+		f.releasedOnCancelledCtx = append(f.releasedOnCancelledCtx, name)
+	}
 	return nil
 }
 
@@ -97,6 +110,38 @@ func TestDeliveredAlertIsNotReleased(t *testing.T) {
 	claimer.mu.Lock()
 	defer claimer.mu.Unlock()
 	assert.Empty(t, claimer.released, "a delivered alert must stay claimed")
+}
+
+// TestShutdownReleasesClaimsOnADetachedContext pins the fix for a defect that a
+// green suite happily hid: the release ran on the CALLER's context, which during
+// shutdown is already cancelled, so the write was refused and the row kept
+// asserting an alert nobody received — silence for a full re-assert window,
+// produced inside the machinery built to prevent silence.
+//
+// Driving runCycle with a pre-cancelled context reproduces the exact production
+// path (SIGTERM mid-pass) and fails if releaseClaim ever stops detaching.
+func TestShutdownReleasesClaimsOnADetachedContext(t *testing.T) {
+	withCapturedSlog(t)
+
+	SetOverdueHandler(func(OverdueLoop) { t.Error("no alert should be reported after shutdown starts") })
+	t.Cleanup(func() { SetOverdueHandler(nil) })
+
+	claimer := &fakeClaimer{loops: []OverdueLoop{
+		{Name: "caught-by-shutdown", IntervalSeconds: 3600, OverdueSeconds: 99999},
+	}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // shutdown already underway when the pass reaches the report loop
+
+	newTestHealthCheck(claimer).RunCheckNow(ctx)
+
+	claimer.mu.Lock()
+	defer claimer.mu.Unlock()
+	assert.Equal(t, []string{"caught-by-shutdown"}, claimer.released,
+		"a claim not reported because shutdown started must be handed back")
+	assert.Empty(t, claimer.releasedOnCancelledCtx,
+		"the release must use a DETACHED context — issued on the cancelled caller ctx it "+
+			"fails in production, and the row keeps asserting an alert nobody received")
 }
 
 // TestEnvDurationRejectsOverflow guards a trap that fails toward the WORST

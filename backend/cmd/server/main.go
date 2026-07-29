@@ -160,16 +160,11 @@ func main() {
 			}
 			sentry.CaptureException(errors.New(loop.Summary()))
 		})
-		// Flush before returning, and TREAT A FAILED FLUSH AS A FAILED DELIVERY.
-		// CaptureException is asynchronous and the deferred process-level Flush only
-		// runs on a graceful shutdown, so an alert raised moments before a kill —
-		// exactly when deploys break sweeps — can be dropped while the database row
-		// already claims it was sent. Panicking here is not laziness: the caller's
-		// recover turns it into delivered=false, which releases the claim so the
-		// next pass retries. Discarding this bool would leave the one signal that
-		// can detect the drop unused.
+		// Flush before returning, so an alert raised moments before a kill — exactly
+		// when deploys break sweeps — is pushed rather than waiting on the deferred
+		// process-level Flush that only runs on a graceful shutdown.
 		//
-		// Its result is INFORMATIONAL and must not be treated as this event's
+		// Its result is INFORMATIONAL and must NOT be treated as this event's
 		// delivery status. Flush drains the whole current batch — which on a live
 		// server also holds sampled transaction events from concurrent HTTP traffic
 		// — and reports whether that batch cleared in time, not whether this alert
