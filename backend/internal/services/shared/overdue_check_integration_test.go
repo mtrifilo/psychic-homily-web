@@ -2,7 +2,6 @@ package shared
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -33,31 +32,35 @@ func registerLoop(t *testing.T, store *GormRunStore, name string, interval time.
 	}
 }
 
-// backdateCreation ages a row's registration on the DATABASE clock. This is how a
-// never-run loop becomes overdue: there is no completion to move, so the grace
-// window is measured from when the loop announced itself.
+// backdateColumn ages one timestamp column on the DATABASE clock, so no test ever
+// depends on the test process and Postgres agreeing about what time it is — the
+// same reason the store itself never accepts a caller-supplied timestamp.
+//
+// The column name is interpolated rather than bound because identifiers cannot be
+// parameters in SQL; every caller passes a compile-time constant from this file.
+func backdateColumn(t *testing.T, db *gorm.DB, name, column string, ago time.Duration) {
+	t.Helper()
+	err := db.Exec(
+		`UPDATE background_service_runs SET `+column+` = NOW() - make_interval(secs => ?) WHERE name = ?`,
+		ago.Seconds(), name,
+	).Error
+	if err != nil {
+		t.Fatalf("backdate %s.%s: %v", name, column, err)
+	}
+}
+
+// backdateCreation makes a never-run loop overdue: there is no completion to move,
+// so its grace window is measured from when it announced itself.
 func backdateCreation(t *testing.T, db *gorm.DB, name string, ago time.Duration) {
 	t.Helper()
-	err := db.Exec(`
-		UPDATE background_service_runs
-		SET created_at = NOW() - make_interval(secs => ?)
-		WHERE name = ?`, ago.Seconds(), name).Error
-	if err != nil {
-		t.Fatalf("backdate creation %s: %v", name, err)
-	}
+	backdateColumn(t, db, name, "created_at", ago)
 }
 
 // backdateAlert ages the throttle stamp, simulating the passage of the re-alert
 // window without a test that sleeps for it.
 func backdateAlert(t *testing.T, db *gorm.DB, name string, ago time.Duration) {
 	t.Helper()
-	err := db.Exec(`
-		UPDATE background_service_runs
-		SET last_overdue_alert_at = NOW() - make_interval(secs => ?)
-		WHERE name = ?`, ago.Seconds(), name).Error
-	if err != nil {
-		t.Fatalf("backdate alert %s: %v", name, err)
-	}
+	backdateColumn(t, db, name, "last_overdue_alert_at", ago)
 }
 
 func alertStamp(t *testing.T, db *gorm.DB, name string) *time.Time {
@@ -463,13 +466,7 @@ func TestStalledSweepEndToEnd(t *testing.T) {
 	})
 	t.Cleanup(func() { SetOverdueHandler(nil) })
 
-	check := &SweepHealthCheck{
-		store:        store,
-		interval:     defaultHealthCheckInterval,
-		reAlertAfter: defaultOverdueReAlertAfter,
-		stopCh:       make(chan struct{}),
-		logger:       slog.Default(),
-	}
+	check := newTestHealthCheck(store)
 
 	// The boot cycle, as a deploy would trigger it.
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)

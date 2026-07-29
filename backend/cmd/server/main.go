@@ -135,10 +135,7 @@ func main() {
 	// and a stalled one stay separable in Sentry and neither buries the other.
 	servicesshared.SetOverdueHandler(func(loop servicesshared.OverdueLoop) {
 		sentry.WithScope(func(scope *sentry.Scope) {
-			mode := "stalled"
-			if loop.NeverRan() {
-				mode = "never_ran"
-			}
+			mode := loop.FailureMode()
 			scope.SetLevel(sentry.LevelError)
 			scope.SetTag("service", loop.Name)
 			scope.SetTag("source", "sweep_health_check")

@@ -57,6 +57,12 @@ const (
 //
 // Every field exists to answer a question an operator would otherwise have to go
 // digging for: which loop, how bad, and did it fail loudly or just stop.
+//
+// It is a projection of background_service_runs rather than a reuse of
+// BackgroundServiceRun because it carries a column that does not exist on the
+// table — OverdueSeconds, computed on the database clock — and deliberately omits
+// the scheduling fields an alert has no business consulting. The two structs must
+// agree about nullability of the columns they share; they describe one table.
 type OverdueLoop struct {
 	Name            string `gorm:"column:name"`
 	IntervalSeconds int64  `gorm:"column:interval_seconds"`
@@ -86,7 +92,7 @@ func (o OverdueLoop) Interval() time.Duration {
 // Overdue is how long it has been since the loop last completed (or since it was
 // registered, if it never has).
 func (o OverdueLoop) Overdue() time.Duration {
-	return time.Duration(o.OverdueSeconds * float64(time.Second))
+	return secondsToDuration(o.OverdueSeconds)
 }
 
 // OutcomeLabel renders last_outcome for logs and alert context, naming the
@@ -106,6 +112,27 @@ func (o OverdueLoop) OutcomeLabel() string {
 // whereas a stalled one was working and broke. Reporting them identically would
 // send an operator looking in the wrong place.
 func (o OverdueLoop) NeverRan() bool { return o.LastCompletedAt == nil }
+
+// Failure modes. These are alert POLICY, not cosmetics: they tag the Sentry
+// event and form part of its fingerprint, so changing a string re-groups every
+// existing issue and can bury an ongoing outage under a new one.
+const (
+	FailureModeStalled  = "stalled"
+	FailureModeNeverRan = "never_ran"
+)
+
+// FailureMode classifies the failure for tagging and fingerprinting.
+//
+// It lives here rather than in the Sentry handler so the classification is
+// reachable from a test — nothing can call into cmd/server's main(), and an
+// untestable branch that decides how alerts group is exactly the kind of thing
+// that is discovered to be wrong during an incident.
+func (o OverdueLoop) FailureMode() string {
+	if o.NeverRan() {
+		return FailureModeNeverRan
+	}
+	return FailureModeStalled
+}
 
 // Summary renders the one-line description used as the alert title.
 func (o OverdueLoop) Summary() string {
@@ -156,14 +183,7 @@ func invokeOverdueHandler(loop OverdueLoop) {
 	if h == nil {
 		return
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Default().Error("overdue handler itself panicked",
-				"service", loop.Name,
-				"panic", r,
-			)
-		}
-	}()
+	defer recoverAndLog("overdue handler itself panicked", loop.Name)
 	h(loop)
 }
 
@@ -258,11 +278,33 @@ func NewSweepHealthCheck(database *gorm.DB) *SweepHealthCheck {
 	}
 	return &SweepHealthCheck{
 		store:        store,
-		interval:     EnvPositiveDuration("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES", time.Minute, defaultHealthCheckInterval),
+		interval:     healthCheckInterval(),
 		reAlertAfter: EnvPositiveDuration("SWEEP_OVERDUE_REALERT_HOURS", time.Hour, defaultOverdueReAlertAfter),
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 	}
+}
+
+// healthCheckInterval reads the configured cadence and CLAMPS it below the
+// persistence threshold.
+//
+// The clamp is load-bearing, not defensive tidying. At or above the threshold
+// the checker is handed a run-state row of its own, which puts it into the very
+// set of loops it scans — it would start reporting on itself, and worse, a
+// checker that stopped running would be the thing responsible for noticing. The
+// env knob exists for operability (dropping the cadence during an incident), so
+// it stays; it just cannot be used to disable the property the design rests on.
+func healthCheckInterval() time.Duration {
+	interval := EnvPositiveDuration("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES", time.Minute, defaultHealthCheckInterval)
+	if interval >= runStatePersistenceThreshold {
+		slog.Default().Warn("SWEEP_HEALTH_CHECK_INTERVAL is at or above the run-state persistence threshold — clamping so the health check cannot monitor itself",
+			"configured", interval,
+			"threshold", runStatePersistenceThreshold,
+			"using", defaultHealthCheckInterval,
+		)
+		return defaultHealthCheckInterval
+	}
+	return interval
 }
 
 // Start begins the health check.
@@ -299,8 +341,15 @@ func (c *SweepHealthCheck) Stop() {
 	c.logger.Info("sweep health check stopped")
 }
 
-// RunCheckNow runs one pass immediately (tests / manual trigger).
-func (c *SweepHealthCheck) RunCheckNow(ctx context.Context) { c.runCycle(ctx) }
+// RunCheckNow runs one pass immediately (tests / manual trigger). Nil-safe like
+// Start and Stop: NewSweepHealthCheck yields nil without a database, and a caller
+// that starts the check unconditionally should be able to poke it the same way.
+func (c *SweepHealthCheck) RunCheckNow(ctx context.Context) {
+	if c == nil {
+		return
+	}
+	c.runCycle(ctx)
+}
 
 // runCycle claims and reports one batch of overdue loops.
 //
@@ -313,8 +362,6 @@ func (c *SweepHealthCheck) runCycle(ctx context.Context) {
 		c.logger.Error("sweep health check: overdue query failed", "error", err)
 		return
 	}
-
-	ReportCycle(ctx, len(loops), nil)
 
 	if len(loops) == 0 {
 		c.logger.Debug("sweep health check: all background loops within schedule")

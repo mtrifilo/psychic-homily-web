@@ -61,7 +61,11 @@ type BackgroundServiceRun struct {
 	// LastSuccessAt carries health, separate from schedule.
 	LastSuccessAt *time.Time `gorm:"column:last_success_at"`
 
-	LastOutcome       string  `gorm:"column:last_outcome"`
+	// LastOutcome is a pointer because the column is genuinely nullable: a loop
+	// that has REGISTERED but not yet completed a cycle has no outcome, which is
+	// distinct from one that ran and produced an empty result. Reading it into a
+	// plain string would silently render both as "".
+	LastOutcome       *string `gorm:"column:last_outcome"`
 	LastError         *string `gorm:"column:last_error"`
 	LastDurationMs    *int64  `gorm:"column:last_duration_ms"`
 	LastRowsProcessed *int64  `gorm:"column:last_rows_processed"`
@@ -176,6 +180,13 @@ type RunStore interface {
 	Complete(ctx context.Context, name string, token time.Time, outcome CycleOutcome) error
 }
 
+// secondsToDuration converts a Postgres EXTRACT(EPOCH …) result to a Duration.
+// Both the scheduler and the overdue check read intervals out of SQL this way, so
+// the float-to-Duration conversion is written once.
+func secondsToDuration(secs float64) time.Duration {
+	return time.Duration(secs * float64(time.Second))
+}
+
 // ErrClaimSuperseded reports that Complete found no row matching the claim token:
 // something else re-claimed the loop while this cycle was running. The cycle's
 // result is dropped rather than overwriting the newer run's state.
@@ -270,7 +281,7 @@ func (s *GormRunStore) DueIn(ctx context.Context, name string, interval time.Dur
 	if len(secs) == 0 {
 		return 0, nil
 	}
-	due := time.Duration(secs[0] * float64(time.Second))
+	due := secondsToDuration(secs[0])
 	if due < 0 {
 		return 0, nil
 	}

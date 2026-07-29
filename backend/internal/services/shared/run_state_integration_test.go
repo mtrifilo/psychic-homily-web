@@ -109,8 +109,8 @@ func TestGormRunStore_ClaimCompleteRoundTrip(t *testing.T) {
 	if err := db.Table("background_service_runs").Where("name = ?", "round-trip").Take(&got).Error; err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if got.LastOutcome != RunOutcomeSuccess {
-		t.Fatalf("outcome = %q, want success", got.LastOutcome)
+	if got.LastOutcome == nil || *got.LastOutcome != RunOutcomeSuccess {
+		t.Fatalf("outcome = %v, want success", got.LastOutcome)
 	}
 	if got.LastCompletedAt == nil || got.LastSuccessAt == nil {
 		t.Fatal("a successful cycle must stamp both completion and success")
@@ -317,8 +317,8 @@ func TestGormRunStore_FailureRecordsHealthButKeepsCadence(t *testing.T) {
 	if err := db.Table("background_service_runs").Where("name = ?", "flaky").Take(&got).Error; err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if got.LastOutcome != RunOutcomeError {
-		t.Fatalf("outcome = %q, want error", got.LastOutcome)
+	if got.LastOutcome == nil || *got.LastOutcome != RunOutcomeError {
+		t.Fatalf("outcome = %v, want error", got.LastOutcome)
 	}
 	if got.ConsecutiveFailures != 2 {
 		t.Fatalf("consecutive_failures = %d, want 2", got.ConsecutiveFailures)

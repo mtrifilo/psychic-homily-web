@@ -20,14 +20,12 @@ type fakeClaimer struct {
 	mu     sync.Mutex
 	loops  []OverdueLoop
 	err    error
-	calls  int
 	window time.Duration
 }
 
 func (f *fakeClaimer) ClaimOverdueAlerts(_ context.Context, reAlertAfter time.Duration) ([]OverdueLoop, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls++
 	f.window = reAlertAfter
 	if f.err != nil {
 		return nil, f.err
@@ -64,6 +62,32 @@ func TestHealthCheckerCannotMonitorItself(t *testing.T) {
 		"short intervals are the property that makes the checker immune to deploy starvation")
 }
 
+// TestHealthCheckIntervalIsClampedBelowPersistence closes the hole the constant
+// alone leaves open: the effective cadence comes from an env var, so asserting on
+// the const proves nothing about a deployed process. An operator setting 60
+// minutes would push the checker over runStatePersistenceThreshold, hand it a
+// run-state row, and put it in the candidate set it scans — at which point a
+// checker that stopped running is the thing responsible for noticing.
+func TestHealthCheckIntervalIsClampedBelowPersistence(t *testing.T) {
+	logs := withCapturedSlog(t)
+
+	t.Setenv("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES", "60")
+	got := healthCheckInterval()
+
+	assert.Less(t, got, runStatePersistenceThreshold,
+		"an over-threshold interval must be clamped, not honoured")
+	assert.Equal(t, defaultHealthCheckInterval, got)
+	assert.Contains(t, logs.String(), "clamping",
+		"silently ignoring an operator's setting is worse than saying so")
+}
+
+// TestHealthCheckIntervalHonoursUsableOverrides: the clamp must not swallow the
+// legitimate reason the knob exists — dropping the cadence during an incident.
+func TestHealthCheckIntervalHonoursUsableOverrides(t *testing.T) {
+	t.Setenv("SWEEP_HEALTH_CHECK_INTERVAL_MINUTES", "2")
+	assert.Equal(t, 2*time.Minute, healthCheckInterval())
+}
+
 // TestOverdueReportsNameTheActionableFacts covers the acceptance criterion that
 // the alert names the sweep, its interval, and how long it has actually been. An
 // alert that says only "something is wrong" costs an operator the same
@@ -88,6 +112,10 @@ func TestOverdueReportsNameTheActionableFacts(t *testing.T) {
 		OverdueSeconds:  259200, // 3d
 	}
 	assert.True(t, neverRan.NeverRan())
+	assert.Equal(t, FailureModeStalled, stalled.FailureMode())
+	assert.Equal(t, FailureModeNeverRan, neverRan.FailureMode(),
+		"failure mode feeds the Sentry fingerprint; the two causes must group separately "+
+			"so an ongoing outage is not buried under a newly-broken deploy")
 	assert.Contains(t, neverRan.Summary(), "NEVER",
 		"a never-run sweep points at a wiring problem, not a stuck job — the two must not read alike")
 	assert.Equal(t, "none", neverRan.OutcomeLabel(),

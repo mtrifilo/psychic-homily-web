@@ -2,6 +2,12 @@
 // (panic-safe scheduled loops, durable run state, etc.). Per-service business
 // logic stays in the per-domain service packages — this package is
 // intentionally tiny.
+//
+// SweepHealthCheck is the one exception to that rule: it is a real service, wired
+// into the container like any other, but it lives here because it monitors the
+// loop machinery itself and depends on runStatePersistenceThreshold. Hosting it
+// in a domain package would mean exporting that threshold purely so an outsider
+// could reason about which loops have state — a worse trade than the exception.
 package shared
 
 import (
@@ -54,15 +60,30 @@ func invokePanicHandler(service string, panicValue any, stack []byte) {
 	if h == nil {
 		return
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Default().Error("scheduled-loop panic handler itself panicked",
-				"service", service,
-				"panic", r,
-			)
-		}
-	}()
+	defer recoverAndLog("scheduled-loop panic handler itself panicked", service)
 	h(service, panicValue, stack)
+}
+
+// recoverAndLog contains a panic raised by OBSERVABILITY code and logs it.
+//
+// Used as `defer recoverAndLog(msg, service)`. It exists so the rule it encodes
+// is stated once instead of re-derived at each site: code whose only job is to
+// watch or record a background loop must never be able to stop one. Three call
+// sites — the panic handler, the overdue handler, and loop registration — are all
+// hooks or writes that a failure in must be strictly less costly than the work
+// they observe.
+//
+// Note this is deliberately NOT used for the loop-level recovers in
+// RunScheduledLoop: those recover the WORK, where stopping (outer) or skipping a
+// cycle (inner) is the correct response, and both additionally capture a stack
+// and escalate to the panic handler.
+func recoverAndLog(msg, service string) {
+	if r := recover(); r != nil {
+		slog.Default().Error(msg,
+			"service", service,
+			"panic", r,
+		)
+	}
 }
 
 // Scheduling policy. Fixed for the process — a caller that needs different
@@ -79,6 +100,13 @@ const (
 	// its first cycle inside any plausible uptime (the sub-hour loops were the
 	// control group that proved this empirically), so a row write every 30s buys
 	// nothing.
+	//
+	// It is ALSO the monitoring-coverage boundary, which is easy to miss and worth
+	// stating here rather than only at the alerting end. A loop with no row is a
+	// loop PSY-1612's overdue check cannot see, so lowering a monitored sweep's
+	// interval below this — every one of them is env-tunable — silently removes its
+	// alerting. Nothing fails, nothing logs; it just stops being watched. Raising
+	// the boundary is the safe direction; lowering a specific sweep past it is not.
 	runStatePersistenceThreshold = time.Hour
 
 	// defaultRunLease is how long a claim stays valid before another instance may
@@ -315,14 +343,7 @@ func (r *loopRunner) register(ctx context.Context) {
 	if r.store == nil {
 		return
 	}
-	defer func() {
-		if rec := recover(); rec != nil {
-			slog.Default().Error("background run state: register panicked — continuing",
-				"service", r.name,
-				"panic", rec,
-			)
-		}
-	}()
+	defer recoverAndLog("background run state: register panicked — continuing", r.name)
 	if err := r.store.Register(ctx, r.name, r.interval); err != nil {
 		logStoreError(r.name, "register", err)
 	}
