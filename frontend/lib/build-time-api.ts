@@ -1,12 +1,13 @@
 export const BUILD_TIME_API_FETCH_TIMEOUT_MS = 10_000
 
 /**
- * The ceiling on a server-render API fetch. Pass a wider budget only with the
- * reason written down at the call site — see `app/sitemap.ts` and
- * `app/artists/artistsMetadata.ts` for the two that do.
+ * The ceiling on a server-render API fetch.
+ *
+ * The only caller is `lib/seo/fetchSeoList.ts`, which forwards a per-call-site
+ * budget — see `app/artists/artistsMetadata.ts` for the one override and the
+ * reasoning behind it. `app/sitemap.ts` deliberately bypasses this helper and
+ * builds its own signal; its comment explains why.
  */
-export function createBuildTimeApiSignal(
-  timeoutMs: number = BUILD_TIME_API_FETCH_TIMEOUT_MS
-): AbortSignal {
+export function createBuildTimeApiSignal(timeoutMs: number): AbortSignal {
   return AbortSignal.timeout(timeoutMs)
 }

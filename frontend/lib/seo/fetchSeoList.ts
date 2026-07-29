@@ -14,8 +14,12 @@ export const SEO_LIST_REVALIDATE_SECONDS = 3600
 interface SeoListOptions {
   /** Absolute API URL, already carrying any query parameters. */
   url: string
-  /** The response body key holding the array — `shows`, `venues`, `artists`. */
-  collection: string
+  /**
+   * The response body key holding the array. A union rather than `string`
+   * because a typo here produces a permanently empty `ItemList` that only
+   * surfaces at runtime — the same discovery path as the bug this helper fixes.
+   */
+  collection: 'shows' | 'venues' | 'artists'
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /** Override only with the reason written down at the call site. */
@@ -63,7 +67,11 @@ export async function fetchSeoList<T>({
       // break, not an empty list — report it rather than rendering as though
       // the catalogue were genuinely empty.
       if (Array.isArray(items)) {
-        return items as T[]
+        // Drop null/undefined elements: `Array.isArray` admits `[null]`, and
+        // every caller dereferences `item.slug` OUTSIDE this try block, so one
+        // null element would 500 the page — with no Sentry event, since the
+        // throw escapes this catch. `app/sitemap.ts` guards the same hazard.
+        return items.filter(item => item != null) as T[]
       }
       Sentry.captureMessage(`${service}: response has no "${collection}" array`, {
         level: 'error',

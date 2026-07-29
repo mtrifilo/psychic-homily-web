@@ -26,9 +26,25 @@ interface ShowListItem {
   venues: Array<{ name: string }>
 }
 
-function getUpcomingShows(): Promise<ShowListItem[]> {
+/**
+ * Explicit because the implicit value was a surprise. Sending no `limit` let
+ * `GET /shows/upcoming` apply its `default:"50"` — the tightest bound of the
+ * three SEO lists, arrived at by accident and written down nowhere.
+ *
+ * 50 is what this call has always effectively sent, so stating it changes no
+ * output. It is NOT an argued number, and it is measurably short: production
+ * still reports `has_more: true` at the endpoint's `maximum` of 200
+ * (2026-07-29), so even the largest single request would not cover the
+ * catalogue — full coverage needs the cursor. How many entries an SEO
+ * `ItemList` should carry is a product question, and it is deliberately not
+ * being settled here by nudging a number. It is left visible instead of
+ * invisible.
+ */
+export const UPCOMING_SHOWS_LIMIT = 50
+
+export function getUpcomingShows(): Promise<ShowListItem[]> {
   return fetchSeoList<ShowListItem>({
-    url: `${API_BASE_URL}/shows/upcoming`,
+    url: `${API_BASE_URL}/shows/upcoming?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
   })

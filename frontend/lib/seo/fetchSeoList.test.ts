@@ -79,6 +79,17 @@ describe('fetchSeoList', () => {
     )
   })
 
+  // Array.isArray admits [null], and every caller dereferences item.slug
+  // outside this helper's try block — one null element would 500 the page with
+  // no Sentry event, which is the opposite of the fail-open this helper promises.
+  it('drops null elements rather than handing callers something to deref', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ venues: [null, { slug: 'a' }, undefined] }))
+
+    await expect(call(fetchImpl)).resolves.toEqual([{ slug: 'a' }])
+  })
+
   it('treats a 200 without the collection array as a contract break', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: null }))
 

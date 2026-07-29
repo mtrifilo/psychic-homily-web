@@ -40,6 +40,10 @@ function formatDate(
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
 
+  // Deliberate fail-open, classified during the PSY-1630 sweep: a failure here
+  // falls through to the branded fallback card below. An OG image that renders
+  // generically is better than a share preview that errors, and there is no
+  // reader-visible content behind this to protect.
   let show: ShowData | null = null
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${slug}`, {
