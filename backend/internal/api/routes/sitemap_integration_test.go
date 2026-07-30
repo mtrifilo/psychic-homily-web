@@ -52,12 +52,18 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 	}
 
 	var body struct {
-		Shows []struct {
+		Shows      []struct {
 			Slug      string    `json:"slug"`
 			UpdatedAt time.Time `json:"updated_at"`
 		} `json:"shows"`
-		Artists []json.RawMessage `json:"artists"`
-		Venues  []json.RawMessage `json:"venues"`
+		Artists    []json.RawMessage `json:"artists"`
+		Venues     []json.RawMessage `json:"venues"`
+		Scenes     []json.RawMessage `json:"scenes"`
+		SceneWeeks []json.RawMessage `json:"scene_weeks"`
+		Labels     []json.RawMessage `json:"labels"`
+		Releases   []json.RawMessage `json:"releases"`
+		Festivals  []json.RawMessage `json:"festivals"`
+		Tags       []json.RawMessage `json:"tags"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("parse response: %v; body: %s", err, w.Body.String())
@@ -73,7 +79,13 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 	// Empty families must serialise as [] rather than null: the generator
 	// iterates each list, and a null would need a nil check that is easy to omit
 	// and silent when forgotten.
-	if body.Artists == nil || body.Venues == nil {
-		t.Errorf("empty families serialised as null, want []; body: %s", w.Body.String())
+	for name, raw := range map[string][]json.RawMessage{
+		"artists": body.Artists, "venues": body.Venues, "scenes": body.Scenes,
+		"scene_weeks": body.SceneWeeks, "labels": body.Labels, "releases": body.Releases,
+		"festivals": body.Festivals, "tags": body.Tags,
+	} {
+		if raw == nil {
+			t.Errorf("%s serialised as null, want []; body: %s", name, w.Body.String())
+		}
 	}
 }

@@ -53,6 +53,14 @@ import "time"
 //     is null or absent rather than coercing it to empty.
 //   - Empty families serialise as [], never null. Asserted over real HTTP in
 //     the routes integration test.
+//
+// # Scene-weeks
+//
+// Scene-weeks have two dynamic path segments and no backing row with a slug
+// column. Their SitemapEntry.Slug is the composite "{scene-slug}/{iso-week}"
+// (e.g. "phoenix-az/2026-W31") so the generator can keep one prefix map for
+// every family. UpdatedAt is MAX(show.updated_at) among approved shows in that
+// week window.
 type SitemapEntry struct {
 	Slug      string    `json:"slug"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -62,10 +70,19 @@ type SitemapEntry struct {
 // fields rather than one tagged list because the generator maps each to a
 // different path prefix, changeFrequency and priority — keeping them distinct
 // is what lets the frontend's mapping be type-checked against this schema.
+//
+// Public collections are deliberately absent (PSY-1622): they are user-created
+// and can flip private, so indexing them risks 404s in the index.
 type SitemapEntries struct {
-	Shows   []SitemapEntry `json:"shows"`
-	Artists []SitemapEntry `json:"artists"`
-	Venues  []SitemapEntry `json:"venues"`
+	Shows      []SitemapEntry `json:"shows"`
+	Artists    []SitemapEntry `json:"artists"`
+	Venues     []SitemapEntry `json:"venues"`
+	Scenes     []SitemapEntry `json:"scenes"`
+	SceneWeeks []SitemapEntry `json:"scene_weeks"`
+	Labels     []SitemapEntry `json:"labels"`
+	Releases   []SitemapEntry `json:"releases"`
+	Festivals  []SitemapEntry `json:"festivals"`
+	Tags       []SitemapEntry `json:"tags"`
 }
 
 // Counts returns per-family entry counts keyed by JSON field name, for logging.
@@ -76,8 +93,14 @@ type SitemapEntries struct {
 // not this comment, is what actually keeps the two in sync.
 func (e SitemapEntries) Counts() map[string]int {
 	return map[string]int{
-		"shows":   len(e.Shows),
-		"artists": len(e.Artists),
-		"venues":  len(e.Venues),
+		"shows":       len(e.Shows),
+		"artists":     len(e.Artists),
+		"venues":      len(e.Venues),
+		"scenes":      len(e.Scenes),
+		"scene_weeks": len(e.SceneWeeks),
+		"labels":      len(e.Labels),
+		"releases":    len(e.Releases),
+		"festivals":   len(e.Festivals),
+		"tags":        len(e.Tags),
 	}
 }

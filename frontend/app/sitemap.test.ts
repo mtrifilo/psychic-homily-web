@@ -21,9 +21,26 @@ vi.mock('@/features/blog', () => ({
   getMix: () => undefined,
 }))
 
-import sitemap from './sitemap'
+import sitemap, { generateSitemaps } from './sitemap'
 
 const ISO = '2026-07-20T12:00:00Z'
+
+function emptyFamilies(
+  overrides: Partial<Record<string, unknown>> = {}
+): Record<string, unknown> {
+  return {
+    shows: [],
+    artists: [],
+    venues: [],
+    scenes: [],
+    scene_weeks: [],
+    labels: [],
+    releases: [],
+    festivals: [],
+    tags: [],
+    ...overrides,
+  }
+}
 
 function respondWith(body: unknown, status = 200) {
   return vi.fn().mockResolvedValue(
@@ -34,7 +51,8 @@ function respondWith(body: unknown, status = 200) {
   )
 }
 
-function urlsOf(entries: Awaited<ReturnType<typeof sitemap>>) {
+async function urlsOf(id: string) {
+  const entries = await sitemap({ id: Promise.resolve(id) })
   return entries.map(e => e.url)
 }
 
@@ -47,34 +65,67 @@ describe('sitemap', () => {
     vi.restoreAllMocks()
   })
 
+  it('generateSitemaps lists the pages shard plus every entity family', async () => {
+    const ids = (await generateSitemaps()).map(s => s.id)
+    expect(ids).toContain('pages')
+    expect(ids).toContain('shows')
+    expect(ids).toContain('scenes')
+    expect(ids).toContain('scene_weeks')
+    expect(ids).toContain('labels')
+    expect(ids).toContain('releases')
+    expect(ids).toContain('festivals')
+    expect(ids).toContain('tags')
+  })
+
   it('maps every entity family onto its URL prefix', async () => {
-    vi.stubGlobal(
-      'fetch',
-      respondWith({
-        shows: [{ slug: 'a-show', updated_at: ISO }],
-        artists: [{ slug: 'an-artist', updated_at: ISO }],
-        venues: [{ slug: 'a-venue', updated_at: ISO }],
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const family = new URL(url).searchParams.get('family')!
+      const body: Record<string, unknown> = emptyFamilies({
+        [family]: [{ slug: `a-${family}`, updated_at: ISO }],
       })
+      if (family === 'scene_weeks') {
+        body.scene_weeks = [{ slug: 'phoenix-az/2026-W31', updated_at: ISO }]
+      }
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await urlsOf('shows')).toContain('https://psychichomily.com/shows/a-shows')
+    expect(await urlsOf('artists')).toContain(
+      'https://psychichomily.com/artists/a-artists'
     )
-
-    const urls = urlsOf(await sitemap())
-
-    expect(urls).toContain('https://psychichomily.com/shows/a-show')
-    expect(urls).toContain('https://psychichomily.com/artists/an-artist')
-    expect(urls).toContain('https://psychichomily.com/venues/a-venue')
+    expect(await urlsOf('venues')).toContain(
+      'https://psychichomily.com/venues/a-venues'
+    )
+    expect(await urlsOf('scenes')).toContain(
+      'https://psychichomily.com/scenes/a-scenes'
+    )
+    expect(await urlsOf('scene_weeks')).toContain(
+      'https://psychichomily.com/scenes/phoenix-az/2026-W31'
+    )
+    expect(await urlsOf('labels')).toContain(
+      'https://psychichomily.com/labels/a-labels'
+    )
+    expect(await urlsOf('releases')).toContain(
+      'https://psychichomily.com/releases/a-releases'
+    )
+    expect(await urlsOf('festivals')).toContain(
+      'https://psychichomily.com/festivals/a-festivals'
+    )
+    expect(await urlsOf('tags')).toContain('https://psychichomily.com/tags/a-tags')
   })
 
   it('carries updated_at through to lastModified', async () => {
     vi.stubGlobal(
       'fetch',
-      respondWith({
-        shows: [{ slug: 'a-show', updated_at: ISO }],
-        artists: [],
-        venues: [],
-      })
+      respondWith(emptyFamilies({ shows: [{ slug: 'a-show', updated_at: ISO }] }))
     )
 
-    const entry = (await sitemap()).find(
+    const entry = (await sitemap({ id: Promise.resolve('shows') })).find(
       e => e.url === 'https://psychichomily.com/shows/a-show'
     )
 
@@ -85,9 +136,7 @@ describe('sitemap', () => {
   // render, telling crawlers the whole site changed every time. That devalues
   // <lastmod> for the entries that genuinely did change.
   it('does not stamp static pages with a render-time lastModified', async () => {
-    vi.stubGlobal('fetch', respondWith({ shows: [], artists: [], venues: [] }))
-
-    const home = (await sitemap()).find(
+    const home = (await sitemap({ id: Promise.resolve('pages') })).find(
       e => e.url === 'https://psychichomily.com'
     )
 
@@ -95,17 +144,24 @@ describe('sitemap', () => {
     expect(home?.lastModified).toBeUndefined()
   })
 
+  it('includes /scenes and the other list pages on the pages shard', async () => {
+    const urls = await urlsOf('pages')
+    expect(urls).toContain('https://psychichomily.com/scenes')
+    expect(urls).toContain('https://psychichomily.com/labels')
+    expect(urls).toContain('https://psychichomily.com/releases')
+    expect(urls).toContain('https://psychichomily.com/festivals')
+    expect(urls).toContain('https://psychichomily.com/tags')
+  })
+
   it('keeps an entry but omits lastModified when updated_at is unparseable', async () => {
     vi.stubGlobal(
       'fetch',
-      respondWith({
-        shows: [{ slug: 'a-show', updated_at: 'not-a-date' }],
-        artists: [],
-        venues: [],
-      })
+      respondWith(
+        emptyFamilies({ shows: [{ slug: 'a-show', updated_at: 'not-a-date' }] })
+      )
     )
 
-    const entry = (await sitemap()).find(
+    const entry = (await sitemap({ id: Promise.resolve('shows') })).find(
       e => e.url === 'https://psychichomily.com/shows/a-show'
     )
 
@@ -116,14 +172,17 @@ describe('sitemap', () => {
   it('skips entries with no slug — they have no canonical URL', async () => {
     vi.stubGlobal(
       'fetch',
-      respondWith({
-        shows: [{ slug: '', updated_at: ISO }, { slug: 'real', updated_at: ISO }],
-        artists: [],
-        venues: [],
-      })
+      respondWith(
+        emptyFamilies({
+          shows: [
+            { slug: '', updated_at: ISO },
+            { slug: 'real', updated_at: ISO },
+          ],
+        })
+      )
     )
 
-    const showUrls = urlsOf(await sitemap()).filter(u =>
+    const showUrls = (await urlsOf('shows')).filter(u =>
       u.startsWith('https://psychichomily.com/shows/')
     )
 
@@ -131,9 +190,7 @@ describe('sitemap', () => {
   })
 
   it('carries blog frontmatter dates through, and omits lastModified when absent', async () => {
-    vi.stubGlobal('fetch', respondWith({ shows: [], artists: [], venues: [] }))
-
-    const entries = await sitemap()
+    const entries = await sitemap({ id: Promise.resolve('pages') })
     const dated = entries.find(e => e.url.endsWith('/blog/dated-post'))
     const undated = entries.find(e => e.url.endsWith('/blog/undated-post'))
 
@@ -146,72 +203,74 @@ describe('sitemap', () => {
   // turned into `[]`, so the route rendered successfully with an entire entity
   // family missing and no failure signal anywhere (see the backend's
   // contracts.SitemapEntry).
-  //
-  // What failing closed buys depends on how the deploy was built — see the
-  // module header in sitemap.ts for the measurements. Built against a healthy
-  // backend the route is prerendered, so an outage is survived by serving the
-  // last good document. Built against an unreachable backend there is no
-  // prerendered body and a request during an outage returns 500.
-  //
-  // What this guard protects is the same either way, and is the point: a
-  // sitemap missing an entity family is never published.
   describe('fails closed', () => {
     it('throws when the feed errors rather than emitting a partial sitemap', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
 
-      await expect(sitemap()).rejects.toThrow('network down')
+      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(
+        'network down'
+      )
       expect(captureException).toHaveBeenCalled()
     })
 
     it('throws on a non-ok response', async () => {
       vi.stubGlobal('fetch', respondWith({}, 500))
 
-      await expect(sitemap()).rejects.toThrow(/500/)
+      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(/500/)
       expect(captureException).toHaveBeenCalled()
     })
 
-    // A 200 whose family is null is the original failure wearing a success
-    // code: a document that renders fine and is missing thousands of URLs.
-    // Coercing it to [] is what made the first incident invisible, so the
-    // shape is rejected rather than tolerated. The generated contract types
-    // these families as nullable, so this is reachable, not hypothetical.
     it.each([
-      ['null', { shows: null, artists: [], venues: [] }],
-      ['absent', { artists: [], venues: [] }],
-      ['not an array', { shows: {}, artists: [], venues: [] }],
+      ['null', emptyFamilies({ shows: null })],
+      ['absent', (() => {
+        const body = emptyFamilies()
+        delete (body as { shows?: unknown }).shows
+        return body
+      })()],
+      ['not an array', emptyFamilies({ shows: {} })],
       ['an empty body', {}],
     ])('throws when a family is %s', async (_label, body) => {
       vi.stubGlobal('fetch', respondWith(body))
 
-      await expect(sitemap()).rejects.toThrow(/missing the "(shows|artists|venues)" family/)
+      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(
+        /missing the "shows" family/
+      )
       expect(captureException).toHaveBeenCalled()
     })
 
-    // A malformed ROW is the same failure at finer granularity: silently
-    // filtering it away would publish a sitemap short a URL with no signal.
-    // It is rejected inside the try, so it keeps the tagged Sentry capture.
     it.each([
       ['a null row', [null, { slug: 'real', updated_at: ISO }]],
       ['a row with no slug key', [{ updated_at: ISO }]],
       ['a row whose slug is not a string', [{ slug: 42, updated_at: ISO }]],
     ])('throws on %s', async (_label, shows) => {
-      vi.stubGlobal('fetch', respondWith({ shows, artists: [], venues: [] }))
+      vi.stubGlobal('fetch', respondWith(emptyFamilies({ shows })))
 
-      await expect(sitemap()).rejects.toThrow(/malformed row in the "shows" family/)
+      await expect(sitemap({ id: Promise.resolve('shows') })).rejects.toThrow(
+        /malformed row in the "shows" family/
+      )
       expect(captureException).toHaveBeenCalled()
     })
   })
 
-  it('requests the projection feed, not a heavyweight list endpoint', async () => {
-    const fetchMock = respondWith({ shows: [], artists: [], venues: [] })
+  it('requests the projection feed scoped to the shard family', async () => {
+    const fetchMock = respondWith(emptyFamilies())
     vi.stubGlobal('fetch', fetchMock)
 
-    await sitemap()
+    await sitemap({ id: Promise.resolve('releases') })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringMatching(/\/sitemap\/entries$/),
+      expect.stringMatching(/\/sitemap\/entries\?family=releases$/),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
+  })
+
+  it('does not fetch the backend for the pages shard', async () => {
+    const fetchMock = respondWith(emptyFamilies())
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sitemap({ id: Promise.resolve('pages') })
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

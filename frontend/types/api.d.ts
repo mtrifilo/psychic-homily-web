@@ -15426,7 +15426,13 @@ export interface components {
              */
             readonly $schema?: string;
             artists: components["schemas"]["SitemapEntry"][] | null;
+            festivals: components["schemas"]["SitemapEntry"][] | null;
+            labels: components["schemas"]["SitemapEntry"][] | null;
+            releases: components["schemas"]["SitemapEntry"][] | null;
+            scene_weeks: components["schemas"]["SitemapEntry"][] | null;
+            scenes: components["schemas"]["SitemapEntry"][] | null;
             shows: components["schemas"]["SitemapEntry"][] | null;
+            tags: components["schemas"]["SitemapEntry"][] | null;
             venues: components["schemas"]["SitemapEntry"][] | null;
         };
         SitemapEntry: {
@@ -31506,7 +31512,10 @@ export interface operations {
     };
     "get-sitemap-entries": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description When set, only this family is populated; others are empty arrays. */
+                family?: "shows" | "artists" | "venues" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags";
+            };
             header?: never;
             path?: never;
             cookie?: never;

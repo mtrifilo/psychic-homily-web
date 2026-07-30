@@ -146,6 +146,9 @@ export default function robots(): MetadataRoute.Robots {
       { userAgent: RETRIEVAL_AGENTS, ...PUBLIC_ACCESS },
       { userAgent: TRAINING_CRAWLERS, disallow: '/' },
     ],
-    sitemap: 'https://psychichomily.com/sitemap.xml',
+    // With generateSitemaps() (PSY-1622), child documents live at
+    // /sitemap/{id}.xml. Next does not emit an index for that shape, so
+    // app/sitemap-index/route.ts lists them and robots points here.
+    sitemap: 'https://psychichomily.com/sitemap-index',
   }
 }
