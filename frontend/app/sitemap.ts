@@ -9,20 +9,22 @@
  *
  * With `generateSitemaps()` (PSY-1622) the route shards by family. Each shard
  * fetches `GET /sitemap/entries?family=…`, so each Next Data Cache entry stays
- * under the ~1.5 MB effective budget (2 MB cap, body base64-encoded). The
- * index lives at `/sitemap.xml`; children at `/sitemap/{id}.xml`.
+ * under the ~1.5 MB effective budget (2 MB cap, body base64-encoded). Children
+ * live at `/sitemap/{id}.xml`; the index is `/sitemap-index` (robots points
+ * there). `/sitemap.xml` 308s to the index — do not add `app/sitemap.xml/route.ts`
+ * (collides with the metadata `[__metadata_id__]` route).
  *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds:
  *
  *   Backend reachable at build time (the normal production path):
- *     ├ ○ /sitemap.xml                       1h      1y
+ *     ├ ○ /sitemap/[id]                      1h      1y
  *     prerender-manifest: renderingMode STATIC, initialRevalidateSeconds 3600,
- *     initialExpireSeconds 31536000, and a rendered `.next/server/app/
- *     sitemap.xml.body` on disk. A later backend outage is SURVIVED — the
- *     prerendered document keeps being served while revalidation fails.
+ *     initialExpireSeconds 31536000, and a rendered body on disk. A later
+ *     backend outage is SURVIVED — the prerendered document keeps being served
+ *     while revalidation fails.
  *
  *   Backend unreachable at build time (degraded):
- *     ├ ƒ /sitemap.xml                                   ← no window at all
+ *     ├ ƒ /sitemap/[id]                                  ← no window at all
  *     No prerendered body. The route re-renders per request, so a request while
  *     the backend is down returns 500. `next build` still EXITS 0 — the
  *     degradation is silent, and it persists until the next deploy.
@@ -41,16 +43,25 @@
  * it could not have shown an effect. If you add one for an unrelated reason, be
  * aware it silently CAPS sitemap freshness.
  *
- * On a build where the fetch succeeded, the window above comes from the
- * per-fetch `next: { revalidate }` below.
+ * On a build where the fetch succeeded, the revalidate half of the window comes
+ * from the per-fetch `next: { revalidate }` below. The one-YEAR expire is NOT
+ * from that hint — Next fills `cacheControl.expire` from config `expireTime`
+ * (default `CACHE_ONE_YEAR` = 31536000) whenever expire is unset
+ * (`next/dist/build/index.js`). Measured: `initialExpireSeconds: 31536000`.
  *
- * The one-YEAR expire in the static case is worth knowing about: a prerendered
- * document can be served for that long if revalidations keep failing. That is a
- * candidate mechanism for the original unexplained staleness — see PSY-1644,
- * where it is recorded as a lead to measure, NOT as an established cause.
+ * PSY-1644 (measured): that one-year Full Route Cache expire is what held the
+ * stale production sitemap. On the healthy STATIC path, a prerendered body
+ * keeps being served for up to a year while revalidations fail (the old
+ * `/shows` fetch aborted at 10s every time). One prerender ⇒ every family
+ * stale together — including artists that answered in 0.2s. The CDN edge is
+ * not the holder (`cache-control: max-age=0`; stage serves `PRERENDER`/`HIT`
+ * of the Next document). Hourly revalidate still works when the feed is
+ * healthy (stage probe: held inside the 1h window, appeared after ≥1h). Bound
+ * expire before relying on revalidate alone when fetches can fail; see the
+ * follow-up filed from PSY-1644.
  *
- * NOTE: this file fixes the fail-open half of the incident in the backend's
- * contracts.SitemapEntry, not the staleness half.
+ * NOTE: this file fixes the fail-open half of the incident via the projection
+ * feed. The year-expire holder is a separate fix.
  */
 import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
