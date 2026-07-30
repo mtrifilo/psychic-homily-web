@@ -28,13 +28,16 @@ function escapeForScriptElement(json: string): string {
     .replace(/\u2029/g, '\\u2029')
 }
 
+/** Serialize + escape for `<script>` embedding. Exported for unit tests. */
+export function serializeJsonLd(data: object): string {
+  return escapeForScriptElement(JSON.stringify(data))
+}
+
 export function JsonLd({ data }: JsonLdProps) {
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{
-        __html: escapeForScriptElement(JSON.stringify(data)),
-      }}
+      dangerouslySetInnerHTML={{ __html: serializeJsonLd(data) }}
     />
   )
 }

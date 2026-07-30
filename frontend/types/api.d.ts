@@ -14726,9 +14726,19 @@ export interface components {
             id: number;
             is_cancelled: boolean;
             is_sold_out: boolean;
+            /** Format: double */
+            price?: number;
             slug?: string;
+            /** Format: date-time */
+            starts_at: string;
             title: string;
+            venue_address?: string;
+            venue_city?: string;
+            venue_country?: string;
             venue_name?: string;
+            venue_slug?: string;
+            venue_state?: string;
+            venue_timezone?: string;
         };
         SceneStats: {
             /** Format: int64 */

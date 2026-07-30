@@ -6,6 +6,7 @@
  */
 
 import type { ArtistGraphCardShow } from '@/features/artists/types'
+import type { components } from '@/types/api'
 
 export interface SceneListItem {
   city: string
@@ -93,21 +94,16 @@ export interface SceneArtistsResponse {
   representative_embed?: SceneRepresentativeEmbed | null
 }
 
-// One upcoming show in the scene preview's "This week" row (PSY-1309) —
-// deliberately thin (a line, not the full show payload).
-export interface SceneShowSummary {
-  id: number
-  // Canonical /shows/{slug} target; absent when the show has no slug (fall
-  // back to the id — the detail route accepts either).
-  slug?: string
-  title: string
-  event_date: string // ISO date (YYYY-MM-DD)
-  venue_name?: string
-  // Bill artists in position order — the row's link-text fallback when the
-  // title is empty (full rationale on the backend SceneShowSummary contract,
-  // PSY-1325).
-  artist_names?: string[]
-}
+/**
+ * One upcoming show in the scene preview's "This week" row (PSY-1309).
+ *
+ * DERIVED from the generated OpenAPI schema, not hand-written. The hand-written
+ * copy that used to live here had already fallen two fields behind the API
+ * (`is_sold_out`, `is_cancelled` — so the Atlas preview panel could not have
+ * told a cancelled show from a live one), and the `api:types:check` drift gate
+ * cannot see a type it does not generate. Same rule as `sceneWeek.ts`.
+ */
+export type SceneShowSummary = components['schemas']['SceneShowSummary']
 
 export interface SceneShowsResponse {
   shows: SceneShowSummary[]

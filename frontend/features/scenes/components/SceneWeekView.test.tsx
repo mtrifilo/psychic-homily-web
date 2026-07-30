@@ -7,6 +7,7 @@ const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow => ({
   id: 1,
   title: '',
   event_date: '2026-07-27',
+  starts_at: '2026-07-28T01:00:00Z',
   venue_name: 'Empty Bottle',
   artist_names: ['Ovlov', 'Cusp'],
   is_sold_out: false,

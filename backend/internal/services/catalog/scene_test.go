@@ -383,6 +383,101 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows() {
 	suite.Contains(err.Error(), "scene not found")
 }
 
+// The weekly city page publishes each show as schema.org MusicEvent, which
+// needs a real instant, a postal address and a price — none of which can be
+// recovered from the scene-local EventDate string.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_CarriesVenueDetail() {
+	user := suite.createUser()
+	crescent := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(crescent).Updates(map[string]any{
+		"slug":     "crescent-ballroom",
+		"address":  "308 N 2nd Ave",
+		"country":  "US",
+		"timezone": "America/Phoenix",
+	}).Error)
+	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ") // meets the 2-venue scene threshold
+	artist := suite.createArtist("Riff Wood")
+
+	// 20:00 Phoenix on the 27th. The date-only EventDate a client sees is
+	// "2026-07-27"; re-parsing that as an instant lands on the 26th in Arizona,
+	// which is exactly why StartsAt has to be carried separately.
+	start := time.Date(2026, 7, 28, 3, 0, 0, 0, time.UTC)
+	show := suite.createApprovedShow("", crescent.ID, artist.ID, user.ID, start)
+	price := 20.0
+	suite.Require().NoError(suite.db.Model(show).Updates(map[string]any{
+		"slug":  "riff-wood-crescent-ballroom",
+		"price": price,
+	}).Error)
+
+	phx, err := time.LoadLocation("America/Phoenix")
+	suite.Require().NoError(err)
+	shows, err := suite.sceneService.GetSceneShowsInRange(
+		"Phoenix", "AZ", start.AddDate(0, 0, -1), start.AddDate(0, 0, 1), phx, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1)
+
+	got := shows[0]
+	suite.Equal("2026-07-27", got.EventDate, "scene-local calendar date")
+	suite.True(got.StartsAt.Equal(start), "absolute instant, not the calendar date")
+	suite.Require().NotNil(got.Price)
+	suite.InDelta(price, *got.Price, 0.001)
+	suite.Equal("Crescent Ballroom", got.VenueName)
+	suite.Equal("crescent-ballroom", got.VenueSlug)
+	suite.Equal("308 N 2nd Ave", got.VenueAddress)
+	suite.Equal("Phoenix", got.VenueCity)
+	suite.Equal("AZ", got.VenueState)
+	// Scenes are not US-only, so the country travels rather than being assumed
+	// by whoever renders the address.
+	suite.Equal("US", got.VenueCountry)
+	suite.Equal("America/Phoenix", got.VenueTimezone)
+}
+
+// The street address of an UNVERIFIED venue is withheld everywhere else
+// (buildVenueResponse, the show detail payload); a listing endpoint that leaked
+// it would publish a house venue's address before any human reviewed it.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_WithholdsUnverifiedAddress() {
+	user := suite.createUser()
+	suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	house := suite.createUnverifiedVenue("Someone's Basement", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(house).Update("address", "123 Private St").Error)
+	artist := suite.createArtist("Basement Act")
+
+	start := time.Now().UTC().AddDate(0, 0, 2)
+	suite.createApprovedShow("House Show", house.ID, artist.ID, user.ID, start)
+
+	shows, err := suite.sceneService.GetSceneShowsInRange(
+		"Phoenix", "AZ", start.AddDate(0, 0, -1), start.AddDate(0, 0, 1), time.UTC, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1)
+	suite.Equal("Someone's Basement", shows[0].VenueName, "the venue is still listed")
+	suite.Empty(shows[0].VenueAddress, "but its street address is not published")
+	suite.Equal("Phoenix", shows[0].VenueCity, "city-level location stays")
+}
+
+// Venue columns must all describe ONE room. Under the previous MIN(name) +
+// GROUP BY shape a multi-venue show would have paired the alphabetically-first
+// venue's NAME with an arbitrary sibling's address.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneShowsInRange_MultiVenueStaysCoherent() {
+	user := suite.createUser()
+	alpha := suite.createVerifiedVenue("Alpha Room", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(alpha).Update("address", "1 Alpha Way").Error)
+	omega := suite.createVerifiedVenue("Omega Room", "Phoenix", "AZ")
+	suite.Require().NoError(suite.db.Model(omega).Update("address", "99 Omega Way").Error)
+	artist := suite.createArtist("Two Room Band")
+
+	start := time.Now().UTC().AddDate(0, 0, 2)
+	show := suite.createApprovedShow("Two Venue Show", omega.ID, artist.ID, user.ID, start)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: alpha.ID}).Error)
+
+	shows, err := suite.sceneService.GetSceneShowsInRange(
+		"Phoenix", "AZ", start.AddDate(0, 0, -1), start.AddDate(0, 0, 1), time.UTC, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(shows, 1)
+	suite.Equal("Alpha Room", shows[0].VenueName, "lowest name wins, as MIN(name) did")
+	suite.Equal("1 Alpha Way", shows[0].VenueAddress, "and the address is THAT room's")
+}
+
 func (suite *SceneServiceIntegrationTestSuite) TestListScenes_IncludesGeocodedCoords() {
 	// A qualifying scene gets its coordinate from the geocoded (city, state)
 	// centroid — the same offline geocoder GetShowCities and venue writes use.

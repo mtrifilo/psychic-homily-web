@@ -7,7 +7,7 @@
 
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { toZonedISOString } from '@/lib/utils/timeUtils'
-import { SITE_DESCRIPTION } from '@/lib/seo/siteMetadata'
+import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -158,9 +158,9 @@ export function generateOrganizationSchema(): OrganizationSchema {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: 'Psychic Homily',
-    url: 'https://psychichomily.com',
+    url: SITE_URL,
     description: SITE_DESCRIPTION,
-    logo: 'https://psychichomily.com/og-image.jpg',
+    logo: `${SITE_URL}/og-image.jpg`,
   }
 }
 
@@ -172,7 +172,7 @@ export function generateWebSiteSchema(): WebSiteSchema {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: 'Psychic Homily',
-    url: 'https://psychichomily.com',
+    url: SITE_URL,
   }
 }
 
@@ -203,12 +203,22 @@ export function generateMusicEventSchema(show: {
   description?: string
   is_cancelled?: boolean
   is_sold_out?: boolean
+  /**
+   * The show has already happened, so there is nothing left to offer.
+   *
+   * Caller-supplied rather than derived from `date` here, so this stays a pure
+   * function of its input: its output is reproducible and its tests do not
+   * depend on the clock.
+   */
+  is_past?: boolean
   venue?: {
     name: string
     slug?: string
     address?: string
     city?: string
     state?: string
+    /** ISO country code. Defaults to US when the caller does not know. */
+    country?: string
     timezone?: string | null
     zip_code?: string
   }
@@ -247,7 +257,7 @@ export function generateMusicEventSchema(show: {
     organizer: {
       '@type': 'Organization',
       name: 'Psychic Homily',
-      url: 'https://psychichomily.com',
+      url: SITE_URL,
     },
   }
 
@@ -256,7 +266,7 @@ export function generateMusicEventSchema(show: {
   }
 
   if (show.venue?.slug) {
-    schema.location.url = `https://psychichomily.com/venues/${show.venue.slug}`
+    schema.location.url = `${SITE_URL}/venues/${show.venue.slug}`
   }
 
   if (show.venue?.address || show.venue?.city) {
@@ -266,7 +276,11 @@ export function generateMusicEventSchema(show: {
       addressLocality: show.venue.city,
       addressRegion: show.venue.state,
       postalCode: show.venue.zip_code,
-      addressCountry: 'US',
+      // US only as the fallback for callers that cannot supply a country. The
+      // scene list is not US-only — a non-US scene stamped `US` would be a
+      // machine-readable false statement about a real place, repeated once per
+      // show on the page.
+      addressCountry: show.venue.country || 'US',
     }
   }
 
@@ -278,7 +292,7 @@ export function generateMusicEventSchema(show: {
       }
 
       if (artist.slug) {
-        performer.url = `https://psychichomily.com/artists/${artist.slug}`
+        performer.url = `${SITE_URL}/artists/${artist.slug}`
       }
 
       if (artist.socials) {
@@ -292,23 +306,36 @@ export function generateMusicEventSchema(show: {
     })
   }
 
-  if (show.price !== undefined && show.price !== null) {
+  // An offer describes what a reader can still get. A cancelled show has
+  // nothing to sell and neither does one that already happened, so both drop
+  // the offer entirely: emitting one produced `EventCancelled` next to
+  // `availability: InStock` — the two halves of the same block contradicting
+  // each other. No `ItemAvailability` value honestly means "cancelled" or
+  // "over", so the claim is dropped rather than mapped onto a guess.
+  //
+  // Sold-out is NOT gated on price. `availability` is the only channel
+  // schema.org has for it (there is no EventSoldOut status), so gating it on a
+  // price the show may simply not have recorded would leave the sold-out badge
+  // the page renders with no machine-readable counterpart. Price and currency
+  // stay optional inside the offer — Google marks both Recommended, not
+  // required, so a price-less Offer still validates.
+  const hasPrice = show.price !== undefined && show.price !== null
+  if (!show.is_cancelled && !show.is_past && (hasPrice || show.is_sold_out)) {
     schema.offers = {
       '@type': 'Offer',
-      price: show.price,
-      priceCurrency: 'USD',
+      ...(hasPrice ? { price: show.price, priceCurrency: 'USD' } : {}),
       availability: show.is_sold_out
         ? 'https://schema.org/SoldOut'
         : 'https://schema.org/InStock',
       url: show.slug
-        ? `https://psychichomily.com/shows/${show.slug}`
+        ? `${SITE_URL}/shows/${show.slug}`
         : undefined,
     }
   }
 
   if (show.slug) {
-    schema.url = `https://psychichomily.com/shows/${show.slug}`
-    schema.image = [`https://psychichomily.com/shows/${show.slug}/opengraph-image`]
+    schema.url = `${SITE_URL}/shows/${show.slug}`
+    schema.image = [`${SITE_URL}/shows/${show.slug}/opengraph-image`]
   }
 
   return schema
@@ -334,7 +361,7 @@ export function generateBlogPostingSchema(post: {
       '@type': 'Organization',
       name: 'Psychic Homily',
     },
-    url: `https://psychichomily.com/blog/${post.slug}`,
+    url: `${SITE_URL}/blog/${post.slug}`,
   }
 }
 
@@ -366,7 +393,7 @@ export function generateMusicVenueSchema(venue: {
   }
 
   if (venue.slug) {
-    schema.url = `https://psychichomily.com/venues/${venue.slug}`
+    schema.url = `${SITE_URL}/venues/${venue.slug}`
   }
 
   return schema
@@ -389,7 +416,7 @@ export function generateMusicGroupSchema(artist: {
   }
 
   if (artist.slug) {
-    schema.url = `https://psychichomily.com/artists/${artist.slug}`
+    schema.url = `${SITE_URL}/artists/${artist.slug}`
   }
 
   // Add social links to sameAs
@@ -437,7 +464,7 @@ export function generateMusicRecordingSchema(mix: {
       name: mix.artist,
     },
     datePublished: mix.date,
-    url: `https://psychichomily.com/dj-sets/${mix.slug}`,
+    url: `${SITE_URL}/dj-sets/${mix.slug}`,
   }
 }
 
