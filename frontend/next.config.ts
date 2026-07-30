@@ -14,10 +14,10 @@ const nextConfig: NextConfig = {
   // ISR under cacheComponents — measured PSY-1641 (Next 16.1.4), do not
   // restate from intuition:
   //
-  //   • Fully-prerendered list pages that fetch at build
-  //     (`/artists`, `/shows`, `/venues`) DO inherit a `1h`/`1y` window
-  //     from per-fetch `next: { revalidate: 3600 }` alone (route table +
-  //     prerender-manifest `initialRevalidateSeconds: 3600`).
+  //   • PPR list pages that bind a window at build (`/artists`, `/shows`,
+  //     `/venues` — route table `◐ … 1h 1y`) DO inherit that window from
+  //     per-fetch `next: { revalidate: 3600 }` alone (prerender-manifest
+  //     `initialRevalidateSeconds: 3600`). They are still `◐`, not `○`.
   //
   //   • Dynamic entity `[slug]` pages do NOT. Their prerender-manifest
   //     entry has `fallbackRevalidate: false`; production serves them
@@ -28,10 +28,10 @@ const nextConfig: NextConfig = {
   //
   //   • `export const revalidate` is a build error on page routes under
   //     `cacheComponents` ("Route segment config revalidate is not
-  //     compatible"). It cannot be the fix for slug pages — that needs
-  //     `"use cache"` + `cacheLife` (or equivalent). Metadata routes
-  //     like `sitemap.ts` are a different compiler path; do not conflate
-  //     (PSY-1621 / PSY-1644).
+  //     compatible"). It cannot be the fix for slug pages. A candidate
+  //     replacement is `"use cache"` + `cacheLife` (unmeasured here —
+  //     PSY-1650). Metadata routes like `sitemap.ts` are a different
+  //     compiler path; do not conflate (PSY-1621 / PSY-1644).
   cacheComponents: true,
   experimental: {
     // Optimize barrel imports for common libraries
