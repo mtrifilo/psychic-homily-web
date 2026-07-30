@@ -111,8 +111,6 @@ const FAMILY_ROUTES: Record<
   tags: { prefix: '/tags', changeFrequency: 'monthly', priority: 0.5 },
 }
 
-const FAMILY_IDS = FAMILY_SHARD_IDS
-
 /**
  * Deliberately not the shared `createBuildTimeApiSignal()` 10s budget — that
  * budget is what the old generator silently blew. The projection feed answers
@@ -248,7 +246,7 @@ function pagesShard(): MetadataRoute.Sitemap {
  * `/sitemap/{id}.xml` under the `/sitemap.xml` index Next emits.
  */
 export async function generateSitemaps() {
-  return [{ id: PAGES_SHARD_ID }, ...FAMILY_IDS.map(id => ({ id }))]
+  return [{ id: PAGES_SHARD_ID }, ...FAMILY_SHARD_IDS.map(id => ({ id }))]
 }
 
 export default async function sitemap(props: {

@@ -9,12 +9,10 @@ export type Family = Exclude<keyof SitemapEntries, '$schema'>
 export const PAGES_SHARD_ID = 'pages'
 
 /**
- * Entity-family shard ids, in the same order as FAMILY_ROUTES keys would
- * enumerate. Shared by generateSitemaps() and the /sitemap.xml index route so
- * a new family cannot appear in one place without the other.
- *
- * Typed as a total tuple of Family so adding a backend field forces a compile
- * error here until the id is listed.
+ * Entity-family shard ids. Shared by generateSitemaps() and the
+ * /sitemap-index route so a new family cannot appear in one place without
+ * the other. Keep in sync with the Huma `family` query enum on
+ * GET /sitemap/entries and the known-family map in SitemapService.Entries.
  */
 export const FAMILY_SHARD_IDS = [
   'shows',

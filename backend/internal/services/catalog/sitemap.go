@@ -71,6 +71,8 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	known := map[string]bool{
+		// Keep in sync with the Huma `family` enum on GetSitemapEntriesRequest
+		// and frontend/app/sitemap-shards.ts FAMILY_SHARD_IDS.
 		"shows": true, "artists": true, "venues": true,
 		"scenes": true, "scene_weeks": true,
 		"labels": true, "releases": true, "festivals": true, "tags": true,
