@@ -9,10 +9,29 @@ const nextConfig: NextConfig = {
   // hard-deprecated config error in Next 16; `cacheComponents` is the
   // only switch and enables PPR globally. Every route's static shell
   // prerenders; anything wrapped in `<Suspense>` (here, `<AuthHydrator>`
-  // in the root layout) streams dynamically. Per-route ISR
-  // (`next: { revalidate: 3600 }` on the hydrated entity routes) is
-  // preserved because the route body — the part with the `fetch` cache
-  // hint — stays in the static shell.
+  // in the root layout) streams dynamically.
+  //
+  // ISR under cacheComponents — measured PSY-1641 (Next 16.1.4), do not
+  // restate from intuition:
+  //
+  //   • PPR list pages that bind a window at build (`/artists`, `/shows`,
+  //     `/venues` — route table `◐ … 1h 1y`) DO inherit that window from
+  //     per-fetch `next: { revalidate: 3600 }` alone (prerender-manifest
+  //     `initialRevalidateSeconds: 3600`). They are still `◐`, not `○`.
+  //
+  //   • Dynamic entity `[slug]` pages do NOT. Their prerender-manifest
+  //     entry has `fallbackRevalidate: false`; production serves them
+  //     as `x-vercel-cache: HIT` with Age ≫ 3600 (measured ~17h on
+  //     `/artists/{slug}` and `/venues/{slug}`). Per-fetch revalidate
+  //     alone does not re-render those routes until the next deploy or
+  //     an on-demand `revalidatePath` (see `lib/proxy-revalidation.ts`).
+  //
+  //   • `export const revalidate` is a build error on page routes under
+  //     `cacheComponents` ("Route segment config revalidate is not
+  //     compatible"). It cannot be the fix for slug pages. A candidate
+  //     replacement is `"use cache"` + `cacheLife` (unmeasured here —
+  //     PSY-1650). Metadata routes like `sitemap.ts` are a different
+  //     compiler path; do not conflate (PSY-1621 / PSY-1644).
   cacheComponents: true,
   experimental: {
     // Optimize barrel imports for common libraries
