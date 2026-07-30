@@ -70,6 +70,14 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      // Flat /sitemap.xml predated generateSitemaps() sharding (PSY-1622). The
+      // index now lives at /sitemap-index; keep the old URL resolving so
+      // crawlers that still have it land on the index rather than a 404.
+      {
+        source: '/sitemap.xml',
+        destination: '/sitemap-index',
+        permanent: true,
+      },
       // Hugo shows used /shows/YYYY/MM/slug/ — flatten to /shows/slug
       {
         source: '/shows/:year(\\d{4})/:month(\\d{2})/:slug',

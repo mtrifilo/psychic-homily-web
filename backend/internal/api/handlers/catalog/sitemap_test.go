@@ -16,7 +16,7 @@ type stubSitemapService struct {
 	err     error
 }
 
-func (s stubSitemapService) Entries(context.Context) (*contracts.SitemapEntries, error) {
+func (s stubSitemapService) Entries(context.Context, string) (*contracts.SitemapEntries, error) {
 	return s.entries, s.err
 }
 
@@ -85,5 +85,20 @@ func TestSitemapEntriesHandlerSetsCacheControl(t *testing.T) {
 	}
 	if !strings.Contains(resp.CacheControl, "max-age=") {
 		t.Errorf("Cache-Control = %q, want a max-age directive", resp.CacheControl)
+	}
+}
+
+// TestSitemapEntriesHandlerUnknownFamilyIs400 pins the family filter's
+// fail-soft path: an unknown name must not become a 500 that looks like a DB
+// fault.
+func TestSitemapEntriesHandlerUnknownFamilyIs400(t *testing.T) {
+	handler := NewSitemapHandler(stubSitemapService{
+		err: errors.New(`unknown sitemap family "collections"`),
+	})
+
+	_, err := handler.GetSitemapEntriesHandler(context.Background(), &GetSitemapEntriesRequest{Family: "collections"})
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) || statusErr.GetStatus() != 400 {
+		t.Errorf("expected a 400 huma.StatusError, got %T %v", err, err)
 	}
 }
