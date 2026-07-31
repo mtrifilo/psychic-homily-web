@@ -11,8 +11,9 @@ import { defineConfig, devices } from '@playwright/test'
  * someone else already brought up, which the run should *use* rather than
  * duplicate.
  *
- * This config is that second mode: no `globalSetup`, no `globalTeardown`, no
- * `webServer`. It owns nothing.
+ * This config is that second mode: no `globalTeardown`, no `webServer`, and a
+ * `globalSetup` that only validates (`external-preflight.ts`) rather than
+ * provisioning. It owns nothing.
  *
  * ## What it requires of the stack
  *
@@ -33,8 +34,11 @@ import { defineConfig, devices } from '@playwright/test'
  *
  * ## Known NOT to work: `scripts/dispatch/stack-up.sh`
  *
- * Stated plainly because the natural assumption is that it does. As of PSY-1659
- * a dispatch stack cannot satisfy (2) or (3):
+ * Stated plainly because the natural assumption is that it does. A dispatch
+ * stack DOES satisfy (1) and (2) — `stack-up.sh` seeds via `setup-db.sh`
+ * (:163) and sets `ENVIRONMENT=test`, `ENABLE_TEST_FIXTURES=1` and
+ * `DISABLE_AUTH_RATE_LIMITS=1` (:175, :176, :186). What it cannot satisfy, as
+ * of PSY-1659, is (3):
  *
  * - `stack-up.sh` pins `JWT_SECRET_KEY=dispatch-jwt-secret-key-for-testing-only`
  *   while `global-setup.ts` captures `e2e/.auth` under
@@ -57,39 +61,28 @@ import { defineConfig, devices } from '@playwright/test'
  *     E2E_BASE_URL=http://localhost:3095 \
  *       bun run test:e2e:external
  *
- * Both variables are REQUIRED and are validated below. There is deliberately no
- * default: falling back to `localhost:3000`/`:8080` would silently drive a
- * developer's real dev stack and point a row-deleting fixture reset at their
- * database. `global-setup`'s port-in-use check is what normally makes that
- * impossible, and this config removes it.
+ * Both variables are REQUIRED, enforced by `external-preflight.ts`. There is
+ * deliberately no default: falling back to `localhost:3000`/`:8080` would
+ * silently drive a developer's real dev stack and point a row-deleting fixture
+ * reset at their database. `global-setup`'s port-in-use check is what normally
+ * makes that impossible, and this config removes it.
  */
-function required(name: string, value: string | undefined): string {
-  if (!value) {
-    throw new Error(
-      `${name} is required by e2e/playwright.external.config.ts. This config ` +
-        `never provisions a stack — it only talks to one that is already ` +
-        `running, so it cannot guess where that is. Set BACKEND_URL and ` +
-        `E2E_BASE_URL (or STACK_FRONTEND_URL) to the SAME stack. They are ` +
-        `separate variables with no cross-check: pointing them at different ` +
-        `stacks runs the browser against one and deletes rows in the other.`
-    )
+/** Reject a malformed numeric env var by name rather than passing NaN along. */
+function positiveInt(name: string, raw: string | undefined, fallback: number) {
+  if (raw === undefined) return fallback
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer, got ${JSON.stringify(raw)}.`)
   }
   return value
 }
 
-const baseURL = required(
-  'E2E_BASE_URL (or STACK_FRONTEND_URL)',
-  process.env.E2E_BASE_URL ?? process.env.STACK_FRONTEND_URL
-)
-const backendURL = required('BACKEND_URL', process.env.BACKEND_URL)
-
-// Print the resolved pair. The failure this guards against is a run that goes
-// green against the wrong stack, which is invisible unless the targets are
-// stated up front.
-console.log(`[e2e:external] frontend=${baseURL} backend=${backendURL}`)
-
 export default defineConfig({
   testDir: '.',
+  // Validates BACKEND_URL / E2E_BASE_URL before the first test. Provisions
+  // nothing — see external-preflight.ts for why it is a global setup rather
+  // than module-scope validation.
+  globalSetup: './external-preflight.ts',
   // Unit tests colocated beside fixtures belong to vitest, not Playwright.
   testIgnore: '**/*.test.ts',
   fullyParallel: true,
@@ -97,15 +90,18 @@ export default defineConfig({
   // Explicit rather than inherited-by-default: `trace: 'on-first-retry'` below
   // is dead config at 0, and an external stack is exactly where a trace is
   // most useful (no HTML report, often headless on someone else's machine).
-  retries: Number(process.env.E2E_RETRIES ?? 1),
+  retries: positiveInt('E2E_RETRIES', process.env.E2E_RETRIES, 1),
   // Matches the local default in `playwright.config.ts`. An externally-managed
   // stack is usually a dev server, which is the contention this bound exists
   // for (PSY-1565); raise it with E2E_WORKERS when the stack can take it.
-  workers: Number(process.env.E2E_WORKERS ?? 2),
+  // Passed through unconverted: Playwright accepts "50%" as well as a count,
+  // and Number("50%") would reach it as a silent NaN.
+  workers: process.env.E2E_WORKERS ?? 2,
   reporter: 'list',
 
   use: {
-    baseURL,
+    // Guaranteed non-empty by external-preflight.ts before any test runs.
+    baseURL: process.env.E2E_BASE_URL ?? process.env.STACK_FRONTEND_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

@@ -83,11 +83,13 @@ export const test = base.extend<
       //
       // `cleanBetweenRetries` below is deliberately NOT given the same guard,
       // but not because it is protected — it is test-scoped, so its teardown
-      // error is attributed to a test and CI's `retries: 2` can absorb a blip.
-      // Local runs and `test:e2e:external` are `retries: 0`, so there it is
-      // just as exposed. Left alone to keep this change to the case that
-      // cannot be retried at all; widening it is PSY-1659 follow-up work, not
-      // a licence to swallow.
+      // error is attributed to a test, so whatever retry budget exists can
+      // absorb a blip. That budget differs by config and is worth knowing
+      // before assuming it protects anything: CI is 2, a LOCAL default run is
+      // 0 (`playwright.config.ts`: `CI ? 2 : 0`), and `test:e2e:external` is 1
+      // (`E2E_RETRIES`). So local runs are just as exposed there as here.
+      // Left alone to keep this change to the case that cannot be retried at
+      // all; widening it is follow-up work, not a licence to swallow.
       const RESET_RETRY_DELAY_MS = 500 // one backend request-timeout's worth; not tuned
       try {
         await resetTestFixtures(workerUserId)
