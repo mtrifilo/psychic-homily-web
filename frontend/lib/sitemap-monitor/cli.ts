@@ -171,6 +171,10 @@ export async function main(env: Env, now: Date): Promise<number> {
 
 // `import.meta.main` is true only when this file is the entry point, so the
 // module stays importable from tests without executing.
-if (import.meta.main) {
+//
+// Cast because `main` is a Bun extension to ImportMeta that the standard lib
+// does not declare — `tsc` in CI rejects the bare property access even though
+// it resolves locally, so the cast is what keeps the two in agreement.
+if ((import.meta as ImportMeta & { main?: boolean }).main) {
   process.exitCode = await main(process.env, new Date())
 }
