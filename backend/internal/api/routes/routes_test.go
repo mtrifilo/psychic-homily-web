@@ -328,8 +328,9 @@ func TestSetupSystemRoutes(t *testing.T) {
 	// not handler logic: a typo in the path, registering on rc.Admin instead of
 	// rc.API, or dropping the line entirely all leave handler-level tests green
 	// while the URL an external monitor polls returns 404. That is not
-	// hypothetical — this endpoint shipped once with the handler written and the
-	// route unregistered, and nothing caught it.
+	// hypothetical: a WIP commit on this branch had the handler written with no
+	// route registration, so /health/ready 404'd at runtime. This test is what
+	// makes that state unshippable rather than merely noticed.
 	//
 	// Both methods are asserted because an uptime monitor may probe with either,
 	// and a 405 matches no alert rule.

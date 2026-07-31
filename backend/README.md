@@ -128,6 +128,11 @@ The database connection is configured for Docker networking (`db:5432`) when run
 
 ## Deployment commands to run
 
+> **Provisioning a new environment?** Read
+> [Infrastructure Sizing and Monitoring](#infrastructure-sizing-and-monitoring)
+> first. A production outage was caused by a Postgres volume that could not
+> survive a write burst, and the volume looked fine right up until it filled.
+
 ### Development
 
 docker-compose up -d
@@ -308,7 +313,7 @@ tail -f /var/log/backup.log
 ./scripts/update-production.sh
 
 # 3. Verify deployment
-curl https://psychichomily.com/api/health
+curl https://api.psychichomily.com/health/ready   # 503 = up but a dependency is unreachable
 ```
 
 #### **Emergency Recovery**
@@ -874,7 +879,8 @@ alerted — the API was fully down while cached frontend pages kept serving 200s
 volume >= pg_database_size + max_wal_size + filesystem overhead,  with margin
 ```
 
-`max_wal_size` is a **ceiling Postgres is entitled to reach**, not a
+`max_wal_size` is a **soft ceiling Postgres is entitled to reach** (and can
+exceed under load), not a
 high-water mark it works up to. If it exceeds free space, the volume is already
 doomed at 0% used — the first sustained burst of `UPDATE`s fills it. A
 percentage-usage alert cannot catch that: usage looks fine right up until
@@ -896,10 +902,24 @@ record rather than restating them here:
 cd backend && bash ../scripts/check-volume-headroom.sh production
 ```
 
-Run it from `backend/`. The script shells out to the Railway CLI, which resolves
-the project and environment from **the current directory's** link — `backend/`
-is the directory this repo links by convention, and from an unlinked directory
-the script cannot determine anything and exits 3.
+**Precondition:** the working directory, or one of its ancestors, must be
+`railway link`ed to this project — the CLI resolves the project and environment
+from that link, which is machine-local state in `~/.railway/config.json`, not
+anything this repo carries. Run it from `backend/` if that is what you have
+linked.
+
+**It mutates the link while it runs.** `railway volume list` has no environment
+flag, so the script links to the target environment, reads, and relinks on exit.
+A hard kill skips the relink and leaves the directory pointed at whatever it was
+inspecting — quite possibly production. If it is interrupted, run `railway
+status` and re-link before any other `railway` command.
+
+**Its exit codes are not fully trustworthy from an unlinked directory.** Measured:
+from a directory with no link the script exits **1**, silently, rather than the
+3 the table below implies — `set -euo pipefail` aborts on the first `railway`
+call before the guard that would have exited 3. Since the table reads 1 as
+"below the floor, STOP and resize", a check that never ran can present as a
+capacity failure. Confirm the link before trusting any result.
 
 | Exit | Meaning | Action |
 | --- | --- | --- |
@@ -908,27 +928,39 @@ the script cannot determine anything and exits 3.
 | `2` | clears the floor, usage past the threshold | proceed, but plan a resize |
 | `3` | **could not determine** — missing `psql`/`jq`/`railway`, environment not linkable, volume name mismatch, no `DATABASE_PUBLIC_URL`, **or the database is unreachable** | **STOP** — an unrun check is not a passed check, and an unreachable database is itself a finding |
 
-Overhead and threshold are tunable via `VOLUME_CHECK_OVERHEAD_PCT` and
-`VOLUME_CHECK_USAGE_PCT`; the script prints the effective values on every run,
-which is the copy to trust. Exit 3 deserves the same respect as exit 1: it means
-the volume is *unverified*, which is the state the environment was in before the
-outage.
+Tunable via `VOLUME_CHECK_OVERHEAD_PCT`, `VOLUME_CHECK_USAGE_PCT`,
+`VOLUME_CHECK_VOLUME` (the volume name, the usual cause of a "not found" exit 3)
+and `VOLUME_CHECK_DB_SERVICE`. On any run that reaches its summary the script
+prints the effective overhead and the computed floor — but note that the exit-1
+and exit-3 paths bail out *before* that summary, so a failing run gives you no
+values to read. Exit 3 deserves the same respect as exit 1: it means the volume
+is *unverified*, which is the state the environment was in before the outage.
 
-**What exit 0 does not cover.** The script computes the floor from
-`pg_database_size` and `max_wal_size` only. If anything is *pinning* WAL — a
-non-zero `wal_keep_size`, or any replication slot, especially an inactive one —
-WAL can grow past `max_wal_size` and the floor understates the requirement. The
-script will still say `0`. Check those by hand when provisioning, with the query
-below.
+**What exit 0 does not cover.** The floor is computed from
+`pg_database_size(current_database())` and `max_wal_size` only. Three gaps:
+
+- **`max_wal_size` is a *soft* limit.** Write load that outruns checkpointing can
+  exceed it even with nothing pinning WAL. The overhead margin is what absorbs
+  this, which is why you should not provision at exactly the floor.
+- **Pinned WAL isn't counted.** A non-zero `wal_keep_size`, or any replication
+  slot — especially an inactive one, which retains WAL indefinitely — lets WAL
+  grow past `max_wal_size` entirely.
+- **The floor counts one database, not the cluster.** The volume holds all of
+  PGDATA: other databases, logs, temp files. Currently a small gap absorbed by
+  the overhead margin; it stops being small the moment a second application
+  database lands on the same Postgres.
+
+Check these by hand when provisioning, with the query below.
 
 To inspect the inputs by hand:
 
 ```sql
-SELECT pg_size_pretty(pg_database_size(current_database())) AS data,
+SELECT pg_size_pretty(sum(pg_database_size(datname))) AS cluster_data,
        current_setting('max_wal_size')                     AS max_wal,
        current_setting('min_wal_size')                     AS min_wal,
        current_setting('wal_keep_size')                    AS wal_keep,
-       (SELECT count(*) FROM pg_replication_slots)         AS slots;
+       (SELECT count(*) FROM pg_replication_slots)         AS slots
+  FROM pg_database;
 ```
 
 `max_wal_size` is only the bound if nothing is **pinning** WAL. A non-zero
@@ -995,6 +1027,12 @@ Configure it as: **`GET https://<api host>/health/ready`, alert on any non-200.*
   dependency deadline, so a slow database returns a 503 you can read rather than
   a client-side timeout you have to guess at.
 - Use the exact path, no trailing slash. Either GET or HEAD works.
+- Point it at the **API host** (`api.psychichomily.com`), *not*
+  `psychichomily.com/api/…`. That path goes through the frontend deployment,
+  which is the thing you are trying to test independently of — a probe routed
+  through it can be answered by a cache rather than by the backend. The
+  endpoints send `Cache-Control: no-store`, but do not rely on an intermediary
+  honouring it when you can just avoid the intermediary.
 
 Do not point it at `/health`: that endpoint returns 200 by design whenever the
 process is alive, so it stays green during exactly the outage you want detected.

@@ -42,6 +42,7 @@ const (
 // A hung dependency is not a hypothetical failure mode here: it is the observed
 // shape of the outage this endpoint was built for, where TCP and TLS connected
 // in ~60ms and no HTTP response ever came.
+//
 // A var, not a const, solely so tests can shorten it — nothing in production
 // reassigns it.
 var databaseProbeTimeout = 2 * time.Second
@@ -50,11 +51,19 @@ var databaseProbeTimeout = 2 * time.Second
 type ComponentHealth struct {
 	Status  string `json:"status" example:"healthy" doc:"Component health status: healthy, unhealthy"`
 	Latency string `json:"latency,omitempty" example:"1.23ms" doc:"Response time for the health check"`
-	Error   string `json:"error,omitempty" example:"connection refused" doc:"Error message if unhealthy"`
+	Error   string `json:"error,omitempty" example:"ping failed" doc:"Error message if unhealthy"`
 }
 
 // HealthResponse represents the health check response
 type HealthResponse struct {
+	// A 200 carrying neither Cache-Control nor Expires is heuristically
+	// cacheable (RFC 9111 §4.2.2), and the caching failure direction here is
+	// always the dangerous one: a stale 200 masks an outage, while a 503 is not
+	// heuristically cacheable and so cannot produce a false alarm. An outage
+	// hidden behind a cached success is the exact shape of the incident these
+	// endpoints exist to catch, so refuse the cache explicitly.
+	CacheControl string `header:"Cache-Control"`
+
 	Body struct {
 		Status     string                     `json:"status" example:"healthy" doc:"Overall health status: healthy, unhealthy"`
 		Components map[string]ComponentHealth `json:"components" doc:"Health status of individual components"`
@@ -69,21 +78,31 @@ type HealthResponse struct {
 // therefore ALWAYS returns 200 while the process is serving, even when it
 // reports a dependency as unhealthy in the body.
 //
-// That looks like a bug and is not. A deploy healthcheck gates a NEW deployment
-// going live: if it never returns 200 the deployment is marked failed and the
-// previous one keeps serving. It is not polled after a deployment is live, so a
-// 503 here would not restart or replace a running process — the failure mode is
-// different and worse than it first appears.
+// That looks like a bug and is not. Two verified facts set the shape:
 //
-// If /health returned 503 whenever the database was unreachable, then during a
-// database outage EVERY new deployment would fail its healthcheck and never go
-// live. You would be unable to ship anything — including the fix for the outage
-// — for exactly as long as the outage lasted. Deploys would be blocked at the
-// moment deploying matters most.
+//  1. The deploy healthcheck gates a NEW deployment going live — if it never
+//     returns 200 the deployment is marked failed and the previous one keeps
+//     serving. Railway does not poll it after a deployment is live, so it is
+//     not a runtime monitor and nothing here restarts a running process.
+//  2. This process already refuses to start without a database:
+//     cmd/server/main.go log.Fatalf's when db.Connect fails, before the HTTP
+//     server binds.
 //
-// /health/ready answers the different question — "can this process actually do
-// its job?" — and returns 503 when it cannot. That is the endpoint uptime
-// monitoring and alerting should watch. Nothing gates a deploy on its result.
+// Together those mean a dependency-aware /health would add no signal. During a
+// database outage a new deployment never reaches the healthcheck at all — it
+// exits at boot — so making /health 503 would only add a second way to express
+// a failure the boot sequence already enforces, while coupling the deploy gate
+// to a runtime condition it should not care about.
+//
+// The case that /health genuinely cannot serve is the one that matters here: a
+// process that booted fine and whose database failed LATER. It is alive, it is
+// correctly reporting 200 for liveness, and nothing about that answers whether
+// it can still do its job.
+//
+// /health/ready answers that question and returns 503 when it cannot. It lives
+// on its own path precisely so the monitorable signal is not the same signal a
+// platform gates deploys on. That is the endpoint uptime monitoring and
+// alerting should watch.
 //
 // If you are here because a monitor reported 200 during an outage: point the
 // monitor at /health/ready. Do not change /health.
@@ -132,7 +151,7 @@ func unhealthyDetail(resp *HealthResponse) string {
 // buildHealthResponse assembles the component report both endpoints share, so
 // liveness and readiness can never disagree about what "healthy" means.
 func buildHealthResponse(ctx context.Context) *HealthResponse {
-	resp := &HealthResponse{}
+	resp := &HealthResponse{CacheControl: "no-store"}
 	resp.Body.Components = make(map[string]ComponentHealth)
 	resp.Body.Timestamp = time.Now().UTC().Format(time.RFC3339)
 

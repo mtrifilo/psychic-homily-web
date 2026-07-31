@@ -125,13 +125,23 @@ func TestReadinessHandler_PingFails_Integration(t *testing.T) {
 	}
 }
 
-// TestReadinessHandler_PingTimesOut_Integration pins the bounded probe and the
-// literal that distinguishes a hung dependency from a refused one.
+// TestReadinessHandler_PingTimesOut_Integration pins the deadline-exceeded to
+// "ping timed out" mapping, and that a blown deadline surfaces as a 503 rather
+// than a hang.
 //
-// A database that accepts the connection and never answers is the shape of the
-// outage this endpoint was built for, and it is the branch most likely to be
-// silently lost in a refactor — deleting the WithTimeout leaves every other
-// test green.
+// KNOWN LIMIT, do not over-read this test: with a 1ns deadline the context is
+// already expired when PingContext is entered, so database/sql short-circuits
+// on ctx.Done() and never reaches the driver. It therefore exercises the
+// sentinel mapping, NOT a genuinely slow database — the elapsed-time assertion
+// below is close to a tautology.
+//
+// The real hung-dependency path was verified by hand against a live pool
+// (2.01s, correctly labelled "ping timed out"), but nothing here pins it. To
+// pin it properly, point the pool at a TCP listener that accepts and never
+// responds and use a small non-zero timeout. Worth doing if this branch ever
+// changes: a pgx upgrade could reclassify a mid-flight timeout as
+// driver.ErrBadConn, which would silently fall into "ping failed" with every
+// test still green.
 func TestReadinessHandler_PingTimesOut_Integration(t *testing.T) {
 	testDB := testutil.SetupTestPostgres(t)
 	t.Cleanup(testDB.Cleanup)

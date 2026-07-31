@@ -43,10 +43,11 @@ func TestHealthHandler_DBNotInitialized(t *testing.T) {
 }
 
 // TestHealthHandler_StaysLiveWhenDatabaseIsDown pins the liveness contract
-// against a well-meaning "fix". /health is the platform's DEPLOY healthcheck,
-// so returning a StatusError here would fail every new deployment for as long
-// as the database was down — you could not ship the fix for an outage during
-// the outage.
+// against a well-meaning "fix". /health is the platform's DEPLOY healthcheck;
+// making it dependency-aware would couple the deploy gate to a runtime
+// condition the boot sequence already enforces, and would break the one case
+// liveness exists for — a process that booted fine and whose database failed
+// later is still alive, and should still say so.
 //
 // The unhealthy signal belongs in the body (asserted above) and in
 // /health/ready's status code, never in this handler's error return.
