@@ -28,21 +28,31 @@ const nextConfig: NextConfig = {
   //
   //   • `export const revalidate` is a build error on page routes under
   //     `cacheComponents` ("Route segment config revalidate is not
-  //     compatible"). It cannot be the fix for slug pages. The candidate
-  //     replacement is `"use cache"` + `cacheLife`. Metadata routes like
-  //     `sitemap.ts` are a different compiler path; do not conflate
-  //     (PSY-1621 / PSY-1644).
+  //     compatible"). It cannot be the fix for slug pages. A candidate
+  //     replacement is `"use cache"` + `cacheLife`, still UNMEASURED on page
+  //     routes. Metadata routes like `sitemap.ts` are a different compiler
+  //     path; do not conflate.
   //
-  //   • `cacheLife` IS now measured, on the sitemap metadata route
-  //     (PSY-1652) — it moves BOTH halves of the route window, including
-  //     `expire`, which nothing else can reach route-locally. Two results
-  //     transfer to any `"use cache"` adopter: a per-fetch
-  //     `next: { revalidate }` inside the scope does NOT bind the route
-  //     window (cacheLife wins even when LARGER), and a cache scope has no
-  //     dynamic bail-out, so a throw at build time is FATAL rather than
-  //     demoted to a per-request render. Full measurement tables are in the
-  //     module header of `app/sitemap.ts`. Whether page routes behave the
-  //     same is still open (PSY-1650) — that is a different compiler path.
+  //   • `cacheLife` has been measured on ONE metadata route (the sitemap).
+  //     Scope these results to that route; none is verified on a page route:
+  //       – It sets the prerender-manifest window, including
+  //         `initialExpireSeconds`, which no route-segment export can reach.
+  //       – A per-fetch `next: { revalidate }` inside the scope does NOT bind
+  //         the route window — cacheLife wins even when LARGER.
+  //       – An entry whose `expire` is under `DYNAMIC_EXPIRE` (300s) is not
+  //         prerendered at all.
+  //       – Observed, mechanism NOT established: with the cache scope, a
+  //         build-time throw fails `next build`; without it the route was
+  //         silently demoted to dynamic. Do not restate the tempting
+  //         "cache scopes have no dynamic bail-out" explanation — the export
+  //         catch keys on `isDynamicUsageError`, which a rejected fetch is
+  //         not, so that does not account for the old behaviour.
+  //     IMPORTANT: setting `expire` is NOT the same as it being enforced. The
+  //     OSS origin ISR path derives staleness from `revalidate` alone, and
+  //     metadata routes emit their own `Cache-Control`, so no
+  //     `stale-while-revalidate` carries `expire` to a CDN. Whether Vercel's
+  //     ISR honours `initialExpireSeconds` is untested. Full detail and the
+  //     measurement tables are in the module header of `app/sitemap.ts`.
   cacheComponents: true,
   experimental: {
     // Optimize barrel imports for common libraries

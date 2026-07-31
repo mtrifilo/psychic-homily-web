@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { captureException } = vi.hoisted(() => ({
+const { captureException, cacheLife } = vi.hoisted(() => ({
   captureException: vi.fn(),
+  cacheLife: vi.fn(),
 }))
 
 vi.mock('@sentry/nextjs', () => ({
@@ -11,13 +12,15 @@ vi.mock('@sentry/nextjs', () => ({
 // `cacheLife()` throws "only available with the `cacheComponents` config"
 // outside a Next server context, and vitest does not apply the SWC transform
 // that gives `"use cache"` meaning — so under test the directive is inert and
-// the call is all that is left. Stubbing it keeps these tests on what they
-// actually cover: URL mapping and fail-closed semantics. The cache window it
-// sets is not unit-testable at all; it is verified by `next build` +
-// prerender-manifest, recorded in the module header of app/sitemap.ts.
+// the call is all that is left.
+//
+// Stubbed as a spy rather than a no-op so the ARGUMENTS stay pinned. What the
+// framework does with them (the Full Route Cache window) is only observable in
+// `next build` output, but the two numbers themselves are exactly what a
+// refactor would drop or drift, so they are asserted below.
 vi.mock('next/cache', async orig => ({
   ...(await orig<typeof import('next/cache')>()),
-  cacheLife: vi.fn(),
+  cacheLife,
 }))
 
 // Blog and DJ sets read local MDX off disk. Stubbed with one dated and one
@@ -273,8 +276,45 @@ describe('sitemap', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/sitemap\/entries\?family=releases$/),
-      expect.objectContaining({ signal: expect.any(AbortSignal) })
+      // `cache: 'no-store'` is pinned deliberately. Re-adding a per-fetch
+      // `next: { revalidate }` here would stack a second cache layer under the
+      // `"use cache"` scope without binding the route window — the exact
+      // regression the module header warns about, and otherwise invisible.
+      expect.objectContaining({
+        cache: 'no-store',
+        signal: expect.any(AbortSignal),
+      })
     )
+    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty('next')
+  })
+
+  // The window these arguments produce is only observable in `next build`
+  // output, so this pins the inputs rather than the outcome: it catches the
+  // expire being dropped, the two numbers drifting apart, or the fetch being
+  // moved out of the cached function. It does NOT prove the bound is enforced
+  // at runtime — see the enforcement warning in app/sitemap.ts.
+  it('declares a bounded cache window for entity shards', async () => {
+    vi.stubGlobal('fetch', respondWith(emptyFamilies()))
+
+    await sitemap({ id: Promise.resolve('releases') })
+
+    expect(cacheLife).toHaveBeenCalledWith({
+      revalidate: 3600,
+      expire: 86_400,
+    })
+  })
+
+  it('bounds expire well below the one-year default Next would otherwise use', async () => {
+    vi.stubGlobal('fetch', respondWith(emptyFamilies()))
+
+    await sitemap({ id: Promise.resolve('shows') })
+
+    const { expire } = cacheLife.mock.calls[0][0] as { expire: number }
+    // 31536000 is Next's `expireTime` default, the value this route regressed
+    // to before an explicit expire was set.
+    expect(expire).toBeLessThan(31_536_000)
+    // Below 300s (`DYNAMIC_EXPIRE`) Next stops prerendering the route entirely.
+    expect(expire).toBeGreaterThanOrEqual(300)
   })
 
   it('does not fetch the backend for the pages shard', async () => {
