@@ -148,6 +148,15 @@ func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (
 // mergeVenues is the single implementation behind both the preview and the
 // commit. When preview is true the transaction is rolled back after every
 // mutation has run and every count has been taken.
+//
+// A preview therefore costs the same work as a real merge and holds the same
+// row locks for its duration. That is a deliberate trade: this is an admin-only
+// path used a handful of times, and paying it buys a preview that cannot
+// disagree with the merge it previews.
+//
+// NOTE: result is accumulated in place inside the closure (EntityRefsMoved sums
+// across tables). The closure is therefore NOT safe to retry — wrapping this in
+// a retry loop would double the counts. GORM's Transaction does not retry.
 func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) (*contracts.MergeVenueResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
