@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Footer from './Footer'
+import { AI_POLICY_PATH } from '@/app/ai-policy/content'
 
 // --- Mocks ---
 
@@ -56,6 +57,27 @@ describe('Footer', () => {
     expect(discover.querySelector('a[href="/artists"]')).toBeInTheDocument()
     expect(discover.querySelector('a[href="/venues"]')).toBeInTheDocument()
     expect(discover.querySelector('a[href="/labels"]')).toBeInTheDocument()
+  })
+
+  // The href is a literal in Footer.tsx (see the note there — this is a client
+  // component and must not pull the policy text into the global bundle). This
+  // is what stops it drifting from the constant the page and sitemap key off.
+  it('renders AI Policy link in the About column, at the canonical path', () => {
+    render(<Footer />)
+    const about = screen.getByRole('navigation', { name: 'About' })
+    const link = screen.getByText('AI Policy').closest('a')!
+    expect(about.contains(link)).toBe(true)
+    expect(link).toHaveAttribute('href', AI_POLICY_PATH)
+  })
+
+  // The AI policy is a positioning statement meant to be read, not a legal
+  // footnote. Pin that it sits above Privacy/Terms rather than below them.
+  it('lists AI Policy ahead of the legal links', () => {
+    render(<Footer />)
+    const about = screen.getByRole('navigation', { name: 'About' })
+    const labels = Array.from(about.querySelectorAll('a')).map(a => a.textContent)
+    expect(labels.indexOf('AI Policy')).toBeGreaterThanOrEqual(0)
+    expect(labels.indexOf('AI Policy')).toBeLessThan(labels.indexOf('Privacy Policy'))
   })
 
   it('renders Privacy Policy link', () => {
