@@ -296,12 +296,13 @@ func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_AND_Transitiv
 	s.tag("artist", aSG, "shoegaze")
 	s.tag("artist", aPPOnly, "post-punk")
 
-	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+	resp, _, total, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
 		TagSlugs: []string{"post-punk", "shoegaze"},
 	})
 	s.Require().NoError(err)
 	s.Require().Len(resp, 1)
 	s.Equal("Upcoming-A", resp[0].Title)
+	s.Equal(int64(1), total, "total counts the tag-filtered set, not every upcoming show")
 }
 
 func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_OR_Transitive() {
@@ -318,12 +319,24 @@ func (s *TagFilterIntegrationTestSuite) TestShows_GetUpcomingShows_OR_Transitive
 	s.tag("artist", aPP, "post-punk")
 	s.tag("artist", aSG, "shoegaze")
 
-	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+	resp, _, total, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
 		TagSlugs:    []string{"post-punk", "shoegaze"},
 		TagMatchAny: true,
 	})
 	s.Require().NoError(err)
 	s.Require().Len(resp, 2)
+	s.Equal(int64(2), total, "3 upcoming shows seeded, 2 match the tag filter")
+
+	// The count must survive pagination: a one-row page still reports the
+	// full tag-filtered set.
+	page, cursor, pagedTotal, err := s.showService.GetUpcomingShows("UTC", "", 1, false, &contracts.UpcomingShowsFilter{
+		TagSlugs:    []string{"post-punk", "shoegaze"},
+		TagMatchAny: true,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(page, 1)
+	s.NotNil(cursor)
+	s.Equal(int64(2), pagedTotal)
 }
 
 // TestShows_SingleTag_Transitive is the canonical PSY-499 scenario: a single
@@ -346,7 +359,7 @@ func (s *TagFilterIntegrationTestSuite) TestShows_SingleTag_Transitive() {
 	// Intentionally do NOT tag show X directly with anything; filter should
 	// still exclude it because the transitive filter ignores show-level tags.
 
-	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+	resp, _, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
 		TagSlugs: []string{"shoegaze"},
 	})
 	s.Require().NoError(err)
@@ -371,7 +384,7 @@ func (s *TagFilterIntegrationTestSuite) TestShows_DirectTagNotSufficient() {
 	s.addArtistToShow(sA, aUntagged, 0)
 	s.tag("show", sA, "shoegaze")
 
-	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+	resp, _, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
 		TagSlugs: []string{"shoegaze"},
 	})
 	s.Require().NoError(err)
@@ -395,7 +408,7 @@ func (s *TagFilterIntegrationTestSuite) TestShows_DistinctShowIDs() {
 	s.tag("artist", a2, "shoegaze")
 	s.tag("artist", a3, "shoegaze")
 
-	resp, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
+	resp, _, _, err := s.showService.GetUpcomingShows("UTC", "", 50, false, &contracts.UpcomingShowsFilter{
 		TagSlugs: []string{"shoegaze"},
 	})
 	s.Require().NoError(err)

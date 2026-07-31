@@ -1187,7 +1187,10 @@ type ShowServiceInterface interface {
 	GetUserSubmissions(userID uint, limit, offset int) ([]ShowResponse, int, error)
 	UpdateShow(showID uint, req *UpdateShowRequest) (*ShowResponse, error)
 	UpdateShowWithRelations(showID uint, req *UpdateShowRequest, venues []CreateShowVenue, artists []CreateShowArtist, isAdmin bool) (*ShowResponse, []OrphanedArtist, error)
-	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error)
+	// GetUpcomingShows returns one page of upcoming shows plus a next-page
+	// cursor and the filter-aware total matching set size (ignores cursor —
+	// total is always the full matching upcoming catalog for these filters).
+	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, int64, error)
 	GetShowCities(timezone string) ([]ShowCityResponse, error)
 	DeleteShow(showID uint) error
 	// SearchShows returns up to 20 shows matching the query in show title or

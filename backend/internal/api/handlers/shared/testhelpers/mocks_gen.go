@@ -3555,7 +3555,7 @@ type MockShowService struct {
 	GetUserSubmissionsFn      func(uint, int, int) ([]contracts.ShowResponse, int, error)
 	UpdateShowFn              func(uint, *contracts.UpdateShowRequest) (*contracts.ShowResponse, error)
 	UpdateShowWithRelationsFn func(uint, *contracts.UpdateShowRequest, []contracts.CreateShowVenue, []contracts.CreateShowArtist, bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
-	GetUpcomingShowsFn        func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
+	GetUpcomingShowsFn        func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error)
 	GetShowCitiesFn           func(string) ([]contracts.ShowCityResponse, error)
 	DeleteShowFn              func(uint) error
 	SearchShowsFn             func(string) ([]*contracts.ShowSearchResult, error)
@@ -3603,11 +3603,11 @@ func (m *MockShowService) UpdateShowWithRelations(showID uint, req *contracts.Up
 	}
 	return nil, nil, nil
 }
-func (m *MockShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
+func (m *MockShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error) {
 	if m.GetUpcomingShowsFn != nil {
 		return m.GetUpcomingShowsFn(timezone, cursor, limit, includeNonApproved, filters)
 	}
-	return nil, nil, nil
+	return nil, nil, 0, nil
 }
 func (m *MockShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
 	if m.GetShowCitiesFn != nil {

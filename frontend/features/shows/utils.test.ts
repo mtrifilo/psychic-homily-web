@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dedupArtistShows, dedupVenueShows } from './utils'
+import { dedupArtistShows, dedupVenueShows, formatShowCountLabel } from './utils'
 
 // =============================================================================
 // PSY-559: dedup helpers
@@ -165,5 +165,24 @@ describe('dedupVenueShows', () => {
       },
     ]
     expect(dedupVenueShows(shows).map(s => s.id)).toEqual([1])
+  })
+})
+
+describe('formatShowCountLabel', () => {
+  it('uses the simple form when total equals loaded', () => {
+    expect(formatShowCountLabel(12, 12)).toBe('12 shows')
+  })
+
+  it('uses singular when one show and complete', () => {
+    expect(formatShowCountLabel(1, 1)).toBe('1 show')
+  })
+
+  it('shows loaded of total when truncated', () => {
+    expect(formatShowCountLabel(150, 1088)).toBe('150 of 1,088 shows')
+  })
+
+  it('falls back to loaded-only when total is missing', () => {
+    expect(formatShowCountLabel(50)).toBe('50 shows')
+    expect(formatShowCountLabel(50, null)).toBe('50 shows')
   })
 })
