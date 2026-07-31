@@ -193,9 +193,10 @@ func (s *RadioService) findSingleShowRow(query string, args ...interface{}) *cat
 // (same broadcast, same instant — KEXP rows imported from the listing carry
 // start_time but the listing publishes no end_time, so sweep-created rows for
 // the current broadcast arrive end-less and would otherwise never read "live").
-// When the healed row is now LIVE, a prematurely-settled playlist state is
-// reopened (reopenLivePlaylistState) so the live refresh + final post-air fetch
-// can run at the correct phase.
+// The window change re-derives the playlist state (RederivePlaylistState), so a
+// verdict settled at the wrong phase — a sweep-created end-less row that read as
+// 'aired' mid-broadcast — is corrected and the live refresh + final post-air fetch
+// run at the right one.
 func (s *RadioService) healAiringWindow(existing *catalogm.RadioEpisode, ep RadioEpisodeImport, now time.Time) bool {
 	updates := map[string]any{}
 	switch {
@@ -217,7 +218,9 @@ func (s *RadioService) healAiringWindow(existing *catalogm.RadioEpisode, ep Radi
 	}
 
 	newStatus := catalogm.ComputeEpisodeStatus(existing.StartsAt, existing.EndsAt, existing.PlaylistState, now)
-	if newState, newAttempts := reopenLivePlaylistState(newStatus, existing.PlaylistState, existing.PlaylistFetchAttempts, existing.PlayCount); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
+	if newState, newAttempts := catalogm.RederivePlaylistState(
+		episodePlaylistFacts(existing), now,
+	); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
 		existing.PlaylistState = newState
 		existing.PlaylistFetchAttempts = newAttempts
 		updates["playlist_state"] = newState
@@ -234,35 +237,4 @@ func (s *RadioService) healAiringWindow(existing *catalogm.RadioEpisode, ep Radi
 		return false
 	}
 	return true
-}
-
-// reopenLivePlaylistState clears a prematurely-settled playlist state on an
-// episode that just became LIVE via a window heal. A sweep-created KEXP row is
-// end-less → settles to 'aired' mid-broadcast → a backfill fetch can mark it
-// 'complete' (or burn attempts to 'unavailable') while the show is still
-// airing; once the heal reveals it is actually live, those settlements were
-// made at the wrong phase:
-//
-//   - complete + plays → partial (still growing; the final post-air fetch
-//     re-settles it to complete after ends_at);
-//   - unavailable → pending, attempts reset (the "gave up" verdict was reached
-//     pre-air/mid-air; the post-air backfill deserves its real attempts).
-//
-// pending/partial (the live-refresh-eligible states) pass through untouched,
-// as does everything on a non-live episode. Pure — unit-tested without a DB.
-func reopenLivePlaylistState(status, playlistState string, attempts, playCount int) (state string, newAttempts int) {
-	if status != catalogm.RadioEpisodeStatusLive {
-		return playlistState, attempts
-	}
-	switch playlistState {
-	case catalogm.RadioPlaylistStateComplete:
-		if playCount > 0 {
-			return catalogm.RadioPlaylistStatePartial, attempts
-		}
-		return catalogm.RadioPlaylistStatePending, 0
-	case catalogm.RadioPlaylistStateUnavailable:
-		return catalogm.RadioPlaylistStatePending, 0
-	default:
-		return playlistState, attempts
-	}
 }

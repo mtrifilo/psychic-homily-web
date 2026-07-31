@@ -14,8 +14,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // =============================================================================
@@ -403,33 +401,6 @@ func TestNTSFetchCurrentAirings_OtherChannelNothingOnAir(t *testing.T) {
 	assert.Nil(t, airings, "channel 2 reports now:null")
 }
 
-// =============================================================================
-// reopenLivePlaylistState (pure)
-// =============================================================================
-
-func TestReopenLivePlaylistState(t *testing.T) {
-	tests := []struct {
-		name         string
-		status       string
-		state        string
-		attempts     int
-		playCount    int
-		wantState    string
-		wantAttempts int
-	}{
-		{"live complete with plays reopens to partial", catalogm.RadioEpisodeStatusLive, catalogm.RadioPlaylistStateComplete, 0, 12, catalogm.RadioPlaylistStatePartial, 0},
-		{"live complete without plays reopens to pending", catalogm.RadioEpisodeStatusLive, catalogm.RadioPlaylistStateComplete, 2, 0, catalogm.RadioPlaylistStatePending, 0},
-		{"live unavailable reopens to pending with attempts reset", catalogm.RadioEpisodeStatusLive, catalogm.RadioPlaylistStateUnavailable, 5, 0, catalogm.RadioPlaylistStatePending, 0},
-		{"live pending untouched", catalogm.RadioEpisodeStatusLive, catalogm.RadioPlaylistStatePending, 1, 0, catalogm.RadioPlaylistStatePending, 1},
-		{"live partial untouched", catalogm.RadioEpisodeStatusLive, catalogm.RadioPlaylistStatePartial, 0, 4, catalogm.RadioPlaylistStatePartial, 0},
-		{"non-live complete untouched", catalogm.RadioEpisodeStatusAired, catalogm.RadioPlaylistStateComplete, 0, 12, catalogm.RadioPlaylistStateComplete, 0},
-		{"non-live unavailable untouched", catalogm.RadioEpisodeStatusArchived, catalogm.RadioPlaylistStateUnavailable, 5, 0, catalogm.RadioPlaylistStateUnavailable, 5},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			state, attempts := reopenLivePlaylistState(tt.status, tt.state, tt.attempts, tt.playCount)
-			assert.Equal(t, tt.wantState, state)
-			assert.Equal(t, tt.wantAttempts, attempts)
-		})
-	}
-}
+// reopenLivePlaylistState's cases moved to the model layer with PSY-1562: the
+// prematurely-settled-mid-broadcast repair is now one branch of RederivePlaylistState,
+// covered by TestRederivePlaylistState in internal/models/catalog.

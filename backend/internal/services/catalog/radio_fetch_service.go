@@ -53,8 +53,9 @@ const DefaultBackfillInterval = 1 * time.Hour
 // Default post-air backfill lookback (7 days). Only episodes that aired within this
 // window are swept — it bounds the candidate set (and the one-time re-fetch burst at
 // rollout) and reflects that providers only keep recent episodes listable for
-// re-fetch. The per-episode attempt cap (RadioBackfillMaxAttempts) is the real
-// give-up control; the lookback just bounds the scan.
+// re-fetch. The per-episode give-up deadline in PlanPlaylistFetch is the real
+// give-up control and the retry cooldown is the real rate limit (PSY-1562); the
+// lookback just bounds the scan.
 //
 // RADIO_BACKFILL_LOOKBACK_DAYS=0 disables the DEDICATED sweep (this loop's goroutine
 // isn't started). It does NOT disable post-air healing entirely: the scheduled fetch
@@ -81,6 +82,13 @@ const DefaultJanitorDormantDays = 30
 // Env: RADIO_JANITOR_BACKFILL_LOOKBACK_DAYS. NOTE: 0 is a today-only window (not a
 // disable — the sweep still runs); to disable the whole janitor use
 // RADIO_JANITOR_INTERVAL_HOURS=0.
+//
+// PSY-1562: the EFFECTIVE reach of this lookback is now capped by the per-episode
+// give-up deadline (RadioPlaylistGiveUpAfter + RadioAirDateZoneSlack ≈ 6.5 days), not
+// by the value here — past the deadline an episode is terminal and the sweep skips it
+// however wide the window. Widening this env var beyond that buys nothing but scan
+// cost. That narrowing is the point of the ticket: the straggler sweep used to re-list
+// episodes whose playlist was never published upstream, forever.
 const DefaultJanitorBackfillLookbackDays = 30
 
 // Default WFMU schedule-scrape interval (7 days — weekly). The WFMU program grid
@@ -1457,7 +1465,7 @@ type backfillSweepResult struct {
 func (s *RadioFetchService) runBackfillSweep(lookback time.Duration) backfillSweepResult {
 	var r backfillSweepResult
 
-	candidates, err := s.radioService.ListBackfillCandidates(lookback, catalogm.RadioBackfillMaxAttempts, time.Now())
+	candidates, err := s.radioService.ListBackfillCandidates(lookback, time.Now())
 	if err != nil {
 		s.logger.Error("radio backfill: listing candidates failed", "error", err)
 		return r

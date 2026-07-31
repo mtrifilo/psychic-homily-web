@@ -53,305 +53,294 @@ func TestComputeEpisodeStatus(t *testing.T) {
 	}
 }
 
-// TestComputePlaylistState locks the PSY-1154 post-air completeness transition table:
-// a fetch with plays settles to complete (aired) or partial (live); a fetch with no
-// playlist on an aired episode burns an attempt and gives up (unavailable) at the cap;
-// a non-aired episode never burns an attempt.
-func TestComputePlaylistState(t *testing.T) {
-	const cap = 3
+// airedWindow is a fixed bounded air window plus the instants around it, shared by
+// the playlist-eligibility tests below.
+var (
+	epStart    = time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
+	epEnd      = time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	epBefore   = time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
+	epDuring   = time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
+	epAfter    = time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC)
+	epDeadline = epEnd.Add(RadioPlaylistGiveUpAfter)
+)
 
+func tp(tm time.Time) *time.Time { return &tm }
+
+// windowedFacts is a bounded-window episode with the given state/attempts, no plays
+// and no post-air attempt recorded yet. withPlays adds a play count to it.
+func windowedFacts(state string, attempts int) PlaylistFetchFacts {
+	return PlaylistFetchFacts{
+		StartsAt: tp(epStart), EndsAt: tp(epEnd), AirDate: time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC),
+		PlaylistState: state, Attempts: attempts,
+	}
+}
+
+func withPlays(f PlaylistFetchFacts, playCount int) PlaylistFetchFacts {
+	f.PlayCount = playCount
+	return f
+}
+
+// TestPlanPlaylistFetch locks the single eligibility predicate (PSY-1562) across all
+// three time phases: scheduled never fetches, live refreshes while incomplete, and
+// aired backfills subject to the cooldown and the give-up deadline.
+func TestPlanPlaylistFetch(t *testing.T) {
 	cases := []struct {
-		name                           string
-		isAired, hasPlays, fetchFailed bool
-		attempts                       int
-		wantState                      string
-		wantAttempts                   int
+		name  string
+		facts PlaylistFetchFacts
+		now   time.Time
+		want  PlaylistFetchPlan
 	}{
-		// Success paths — plays returned, no failure.
-		{"aired + plays → complete", true, true, false, 0, RadioPlaylistStateComplete, 0},
-		{"aired + plays → complete (attempts untouched)", true, true, false, 2, RadioPlaylistStateComplete, 2},
-		{"live + plays → partial (growing, no attempt)", false, true, false, 0, RadioPlaylistStatePartial, 0},
+		// Scheduled: the playlist legitimately does not exist yet.
+		{"scheduled → nothing", windowedFacts(RadioPlaylistStatePending, 0), epBefore, PlaylistFetchPlan{}},
+		{"scheduled + a stale unavailable label → still nothing, still not terminal",
+			windowedFacts(RadioPlaylistStateUnavailable, 5), epBefore, PlaylistFetchPlan{}},
 
-		// Empty-success / fetch-failure on a non-aired episode — expected, never counts.
-		{"live + no plays → pending (no attempt)", false, false, false, 0, RadioPlaylistStatePending, 0},
-		{"live + fetch failed → pending (no attempt)", false, false, true, 1, RadioPlaylistStatePending, 1},
+		// Live: refresh while incomplete, no cooldown, no ceiling.
+		{"live + pending → live refresh", windowedFacts(RadioPlaylistStatePending, 0), epDuring,
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
+		{"live + partial → live refresh", windowedFacts(RadioPlaylistStatePartial, 0), epDuring,
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
+		{"at starts_at → live", windowedFacts(RadioPlaylistStatePending, 0), epStart,
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
+		{"at ends_at → still live", windowedFacts(RadioPlaylistStatePending, 0), epEnd,
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
+		{"live + complete → nothing", windowedFacts(RadioPlaylistStateComplete, 0), epDuring, PlaylistFetchPlan{}},
 
-		// Failed post-air attempts — increment, then give up at the cap.
-		{"aired + no plays, first attempt → pending, attempts=1", true, false, false, 0, RadioPlaylistStatePending, 1},
-		{"aired + fetch failed, first attempt → pending, attempts=1", true, false, true, 0, RadioPlaylistStatePending, 1},
-		{"aired + no plays, below cap → pending, attempts=2", true, false, false, 1, RadioPlaylistStatePending, 2},
-		{"aired + no plays, reaches cap → unavailable", true, false, false, 2, RadioPlaylistStateUnavailable, 3},
+		// Aired: the post-air backfill.
+		{"one ns past ends_at → backfill", windowedFacts(RadioPlaylistStatePending, 0), epEnd.Add(time.Nanosecond),
+			PlaylistFetchPlan{Fetch: true}},
+		{"aired + pending → backfill", windowedFacts(RadioPlaylistStatePending, 0), epAfter,
+			PlaylistFetchPlan{Fetch: true}},
+		{"aired + partial → backfill (the final post-air fetch)", windowedFacts(RadioPlaylistStatePartial, 0), epAfter,
+			PlaylistFetchPlan{Fetch: true}},
+		{"aired + complete → nothing, and never terminal", windowedFacts(RadioPlaylistStateComplete, 0), epAfter,
+			PlaylistFetchPlan{}},
+		// The inversion PSY-1562 turns on: the label does NOT gate post-air eligibility,
+		// so a stale give-up cannot strand an episode and needs no normalizer to clear it.
+		{"aired + unavailable INSIDE the deadline → still eligible", windowedFacts(RadioPlaylistStateUnavailable, 5), epAfter,
+			PlaylistFetchPlan{Fetch: true}},
+		{"aired + past the deadline → terminal", windowedFacts(RadioPlaylistStatePending, 0), epDeadline,
+			PlaylistFetchPlan{Exhausted: true}},
+		{"aired + attempt ceiling reached → terminal", windowedFacts(RadioPlaylistStatePending, RadioBackfillMaxAttempts), epAfter,
+			PlaylistFetchPlan{Exhausted: true}},
 
-		// Defensive: a fetch error reported alongside plays still counts as a failure.
-		{"aired + plays BUT fetch failed → failed attempt", true, true, true, 0, RadioPlaylistStatePending, 1},
+		// Windowless: aired the moment it exists; the deadline comes from air_date
+		// widened by the timezone air_date does not record.
+		{"windowless + pending → backfill",
+			PlaylistFetchFacts{AirDate: epBefore.Truncate(24 * time.Hour), PlaylistState: RadioPlaylistStatePending},
+			epAfter, PlaylistFetchPlan{Fetch: true}},
+		{"windowless with no air date at all → fails closed as terminal",
+			PlaylistFetchFacts{PlaylistState: RadioPlaylistStatePending}, epAfter,
+			PlaylistFetchPlan{Exhausted: true}},
+
+		// Cooldown: wants a fetch, just not yet — distinct from terminal.
+		{"aired but attempted 1h ago → cooling down, NOT terminal",
+			PlaylistFetchFacts{StartsAt: tp(epStart), EndsAt: tp(epEnd), PlaylistState: RadioPlaylistStatePending,
+				LastBackfillAttemptAt: tp(epAfter.Add(-time.Hour))},
+			epAfter, PlaylistFetchPlan{}},
+		{"aired and the cooldown has elapsed → backfill",
+			PlaylistFetchFacts{StartsAt: tp(epStart), EndsAt: tp(epEnd), PlaylistState: RadioPlaylistStatePending,
+				LastBackfillAttemptAt: tp(epAfter.Add(-RadioPlaylistRetryCooldown))},
+			epAfter, PlaylistFetchPlan{Fetch: true}},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			state, attempts := ComputePlaylistState(tc.isAired, tc.hasPlays, tc.fetchFailed, tc.attempts, cap)
-			if state != tc.wantState || attempts != tc.wantAttempts {
-				t.Errorf("ComputePlaylistState(aired=%v, plays=%v, failed=%v, attempts=%d, cap=%d) = (%q, %d), want (%q, %d)",
-					tc.isAired, tc.hasPlays, tc.fetchFailed, tc.attempts, cap, state, attempts, tc.wantState, tc.wantAttempts)
+			if got := PlanPlaylistFetch(tc.facts, tc.now); got != tc.want {
+				t.Errorf("PlanPlaylistFetch(%+v, %v) = %+v, want %+v", tc.facts, tc.now, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestShouldBackfillPlaylist locks the single backfill-eligibility predicate shared by
-// importEpisode's re-fetch branch and the sweep's candidate query: only an aired,
-// still-incomplete episode with attempts left is eligible.
-func TestShouldBackfillPlaylist(t *testing.T) {
-	const cap = 3
-	start := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	during := time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
-	before := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
-	after := time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC)
-	ptr := func(tm time.Time) *time.Time { return &tm }
+// TestEmptyEpisodeIsNotRefetchedOnTheNextCycle is the PSY-1558 acceptance criterion
+// PSY-1562 exists to meet, driven through the real settle→plan round trip rather than
+// asserted on the cooldown constant: a post-air fetch that finds nothing must leave
+// the episode ineligible for the sweep that follows an hour later.
+func TestEmptyEpisodeIsNotRefetchedOnTheNextCycle(t *testing.T) {
+	const sweepInterval = time.Hour // RADIO_BACKFILL_INTERVAL_HOURS default
 
-	cases := []struct {
-		name         string
-		starts, ends *time.Time
-		state        string
-		attempts     int
-		now          time.Time
-		want         bool
-	}{
-		{"aired + pending + attempts left → eligible", ptr(start), ptr(end), RadioPlaylistStatePending, 0, after, true},
-		{"aired + partial + attempts left → eligible", ptr(start), ptr(end), RadioPlaylistStatePartial, 1, after, true},
-		{"windowless + pending → eligible (counts as aired)", nil, nil, RadioPlaylistStatePending, 0, during, true},
-		{"live → NOT eligible (playlist not final)", ptr(start), ptr(end), RadioPlaylistStatePending, 0, during, false},
-		{"scheduled → NOT eligible (not aired)", ptr(start), ptr(end), RadioPlaylistStatePending, 0, before, false},
-		{"complete → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateComplete, 0, after, false},
-		{"unavailable → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 3, after, false},
-		{"attempts at cap → NOT eligible", ptr(start), ptr(end), RadioPlaylistStatePending, cap, after, false},
+	facts := windowedFacts(RadioPlaylistStatePending, 0)
+	attemptAt := epAfter
+
+	state, attempts, postAir := SettlePlaylistStateAfterFetch(facts, false, attemptAt)
+	if !postAir {
+		t.Fatal("an aired empty fetch must report a post-air attempt so the memo gets stamped")
+	}
+	if state != RadioPlaylistStatePending || attempts != 1 {
+		t.Fatalf("after one empty post-air fetch = (%q, %d), want (pending, 1)", state, attempts)
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ShouldBackfillPlaylist(tc.starts, tc.ends, tc.state, tc.attempts, cap, tc.now)
-			if got != tc.want {
-				t.Errorf("ShouldBackfillPlaylist(%v, %v, %q, %d, %d, %v) = %v, want %v",
-					tc.starts, tc.ends, tc.state, tc.attempts, cap, tc.now, got, tc.want)
-			}
-		})
+	// The row as the sweep would next read it.
+	facts.PlaylistState = state
+	facts.Attempts = attempts
+	facts.LastBackfillAttemptAt = &attemptAt
+
+	if plan := PlanPlaylistFetch(facts, attemptAt.Add(sweepInterval)); plan.Fetch {
+		t.Errorf("the sweep one interval later re-fetched an episode just found empty: %+v", plan)
+	}
+	// ...and it is not terminal either — it is merely waiting.
+	if plan := PlanPlaylistFetch(facts, attemptAt.Add(sweepInterval)); plan.Exhausted {
+		t.Errorf("an episode inside its give-up deadline must not be terminal: %+v", plan)
+	}
+	if plan := PlanPlaylistFetch(facts, attemptAt.Add(RadioPlaylistRetryCooldown)); !plan.Fetch {
+		t.Errorf("once the cooldown elapses the episode must be eligible again: %+v", plan)
 	}
 }
 
-// TestShouldRefreshLivePlaylist pins the PSY-1370 live-refresh eligibility: exactly the
-// complement of the backfill gate in the time dimension — LIVE + incomplete is eligible,
-// every non-live phase (scheduled/aired/windowless) is not, and complete/unavailable
-// never qualify regardless of phase. No attempts arg by design (a live re-fetch never
-// burns one), so eligibility is purely (live ∧ incomplete).
-func TestShouldRefreshLivePlaylist(t *testing.T) {
-	start := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	during := time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
-	before := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
-	after := time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC)
-	ptr := func(tm time.Time) *time.Time { return &tm }
+// TestLatePublishedTracklistIsStillCaught guards the bound that makes the retry policy
+// worth having: NTS routinely publishes a tracklist 0-3 days after air and rarely 4
+// (measured 2026-07-29 on PSY-1556). An episode must still be fetched on day 4 —
+// including a WINDOWLESS one, whose air instant is only known to the day.
+func TestLatePublishedTracklistIsStillCaught(t *testing.T) {
+	airDate := time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC)
 
-	cases := []struct {
-		name         string
-		starts, ends *time.Time
-		state        string
-		now          time.Time
-		want         bool
-	}{
-		{"live + pending → eligible", ptr(start), ptr(end), RadioPlaylistStatePending, during, true},
-		{"live + partial → eligible (growing snapshot)", ptr(start), ptr(end), RadioPlaylistStatePartial, during, true},
-		{"exactly at starts_at → eligible (live begins)", ptr(start), ptr(end), RadioPlaylistStatePending, start, true},
-		{"exactly at ends_at → eligible (still live at the boundary)", ptr(start), ptr(end), RadioPlaylistStatePending, end, true},
-		{"one ns past ends_at → NOT eligible (aired)", ptr(start), ptr(end), RadioPlaylistStatePending, end.Add(time.Nanosecond), false},
-		{"scheduled → NOT eligible (hasn't started)", ptr(start), ptr(end), RadioPlaylistStatePending, before, false},
-		{"aired → NOT eligible (post-air backfill owns it)", ptr(start), ptr(end), RadioPlaylistStatePending, after, false},
-		{"live + complete → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateComplete, during, false},
-		{"live + unavailable → NOT eligible", ptr(start), ptr(end), RadioPlaylistStateUnavailable, during, false},
-		// Windowless (no bounded window) is never live → never refreshed here; the
-		// exact instant the backfill gate calls "aired" is what live refresh skips.
-		{"windowless → NOT eligible (never live)", nil, nil, RadioPlaylistStatePending, during, false},
-		{"start but no end (NTS) → NOT eligible (unbounded, never live)", ptr(start), nil, RadioPlaylistStatePending, during, false},
+	// Worst case for a windowless row: air_date parses at UTC midnight but the episode
+	// really aired late on that local day in the westernmost zone, 36h later.
+	windowless := PlaylistFetchFacts{AirDate: airDate, PlaylistState: RadioPlaylistStateUnavailable, Attempts: 5}
+	trueAir := airDate.Add(RadioAirDateZoneSlack)
+	for _, lag := range []time.Duration{0, 24 * time.Hour, 3 * 24 * time.Hour, 4 * 24 * time.Hour} {
+		if plan := PlanPlaylistFetch(windowless, trueAir.Add(lag)); !plan.Fetch {
+			t.Errorf("windowless episode at a %s publish lag is not eligible: %+v", lag, plan)
+		}
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ShouldRefreshLivePlaylist(tc.starts, tc.ends, tc.state, tc.now)
-			if got != tc.want {
-				t.Errorf("ShouldRefreshLivePlaylist(%v, %v, %q, %v) = %v, want %v",
-					tc.starts, tc.ends, tc.state, tc.now, got, tc.want)
-			}
-		})
+	windowed := windowedFacts(RadioPlaylistStateUnavailable, 5)
+	if plan := PlanPlaylistFetch(windowed, epEnd.Add(4*24*time.Hour)); !plan.Fetch {
+		t.Errorf("windowed episode at a 4-day publish lag is not eligible: %+v", plan)
 	}
 }
 
-// TestBackfillAndLiveRefreshAreMutuallyExclusive pins the clean handoff (PSY-1370): for
-// an incomplete episode, at most one of the two re-fetch gates is ever open, so nothing
-// double-drives — live refresh during the window, post-air backfill after ends_at.
-func TestBackfillAndLiveRefreshAreMutuallyExclusive(t *testing.T) {
-	start := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	ptr := func(tm time.Time) *time.Time { return &tm }
-	for _, now := range []time.Time{
-		time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC), // scheduled
-		start, // exactly at starts_at (live begins)
-		time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC), // live
-		end,                      // exactly at ends_at (still live)
-		end.Add(time.Nanosecond), // one ns past → aired
-		time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC), // aired
-	} {
-		backfill := ShouldBackfillPlaylist(ptr(start), ptr(end), RadioPlaylistStatePending, 0, 5, now)
-		live := ShouldRefreshLivePlaylist(ptr(start), ptr(end), RadioPlaylistStatePending, now)
-		if backfill && live {
-			t.Errorf("both gates open at now=%v (backfill=%v live=%v) — would double-drive", now, backfill, live)
+// TestGiveUpIsTerminalAndUnresettable pins the property PSY-1558 proved the old design
+// lacked. The deadline is a function of frozen air time, so once it passes there is no
+// combination of state and attempt count — the two fields every old normalizer reset —
+// that reopens the episode.
+func TestGiveUpIsTerminalAndUnresettable(t *testing.T) {
+	for _, state := range []string{RadioPlaylistStatePending, RadioPlaylistStatePartial, RadioPlaylistStateUnavailable} {
+		for _, attempts := range []int{0, 1, RadioBackfillMaxAttempts} {
+			facts := windowedFacts(state, attempts)
+			facts.LastBackfillAttemptAt = nil // the most permissive memo there is
+			plan := PlanPlaylistFetch(facts, epDeadline)
+			if plan.Fetch || !plan.Exhausted {
+				t.Errorf("state=%q attempts=%d past the deadline = %+v, want terminal", state, attempts, plan)
+			}
 		}
 	}
 }
 
-// TestNormalizeScheduledPlaylistState pins the PSY-1285 invariant: a not-yet-aired
-// (scheduled) episode is never 'unavailable' and carries no burned backfill attempts;
-// every other phase (live/aired/windowless) is left untouched.
-func TestNormalizeScheduledPlaylistState(t *testing.T) {
-	start := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	during := time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC)
-	before := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
-	after := time.Date(2026, 6, 16, 17, 0, 0, 0, time.UTC)
-	ptr := func(tm time.Time) *time.Time { return &tm }
+// TestAttemptCeilingCannotFireBeforeTheDeadline is the structural guard against
+// PSY-1558's actual defect: two bounds that contradict each other. The ceiling is
+// defense-in-depth only, so it must always outlast the longest possible deadline —
+// a hand-edited smaller value would silently swallow the late-publish window.
+func TestAttemptCeilingCannotFireBeforeTheDeadline(t *testing.T) {
+	longest := RadioPlaylistGiveUpAfter + RadioAirDateZoneSlack
+	slots := int(longest / RadioPlaylistRetryCooldown)
+	if RadioBackfillMaxAttempts <= slots {
+		t.Errorf("RadioBackfillMaxAttempts = %d but the longest deadline holds %d cooldown slots — "+
+			"the ceiling would terminate an episode before its deadline",
+			RadioBackfillMaxAttempts, slots)
+	}
+	if RadioPlaylistGiveUpAfter < 4*24*time.Hour {
+		t.Errorf("RadioPlaylistGiveUpAfter = %s, under the measured 4-day NTS publish lag", RadioPlaylistGiveUpAfter)
+	}
+}
 
+// TestSettlePlaylistStateAfterFetch locks the post-fetch transition table: a fetch with
+// plays settles to complete (aired) or partial (live); an aired fetch with no playlist
+// burns an attempt and records the give-up once no further attempt is possible; a
+// non-aired fetch never burns an attempt and never erases a live 'partial' (PSY-1370).
+func TestSettlePlaylistStateAfterFetch(t *testing.T) {
 	cases := []struct {
 		name         string
-		starts, ends *time.Time
-		state        string
-		attempts     int
+		facts        PlaylistFetchFacts
+		hasPlays     bool
 		now          time.Time
 		wantState    string
 		wantAttempts int
 	}{
-		// Scheduled (now < starts): the invariant resets a stranded terminal state.
-		{"scheduled + unavailable → reset", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 5, before, RadioPlaylistStatePending, 0},
-		{"scheduled + pending w/ burned attempts → clear attempts", ptr(start), ptr(end), RadioPlaylistStatePending, 2, before, RadioPlaylistStatePending, 0},
-		{"scheduled + pending + 0 attempts → no-op", ptr(start), ptr(end), RadioPlaylistStatePending, 0, before, RadioPlaylistStatePending, 0},
-		// A scheduled episode that captured real plays keeps its completeness label —
-		// it's not the AC#2 'unavailable' violation, so it must not be clobbered.
-		{"scheduled + partial → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStatePartial, 0, before, RadioPlaylistStatePartial, 0},
-		{"scheduled + complete → untouched (real plays)", ptr(start), ptr(end), RadioPlaylistStateComplete, 0, before, RadioPlaylistStateComplete, 0},
-		// Even with stray burned attempts, a partial/complete keeps its label + count — only
-		// a still-'pending' scheduled episode has its attempts cleared.
-		{"scheduled + complete w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStateComplete, 2, before, RadioPlaylistStateComplete, 2},
-		{"scheduled + partial w/ stray attempts → still untouched", ptr(start), ptr(end), RadioPlaylistStatePartial, 1, before, RadioPlaylistStatePartial, 1},
-		// Non-scheduled phases are left exactly as-is.
-		{"aired + unavailable → untouched (PSY-1287, not this invariant)", ptr(start), ptr(end), RadioPlaylistStateUnavailable, 5, after, RadioPlaylistStateUnavailable, 5},
-		{"live + pending → untouched", ptr(start), ptr(end), RadioPlaylistStatePending, 0, during, RadioPlaylistStatePending, 0},
-		{"windowless + unavailable → untouched (windowless is 'aired', never scheduled)", nil, nil, RadioPlaylistStateUnavailable, 5, during, RadioPlaylistStateUnavailable, 5},
+		{"aired + plays → complete", windowedFacts(RadioPlaylistStatePending, 0), true, epAfter, RadioPlaylistStateComplete, 0},
+		{"aired + plays leaves attempts untouched", windowedFacts(RadioPlaylistStatePending, 2), true, epAfter, RadioPlaylistStateComplete, 2},
+		{"live + plays → partial", windowedFacts(RadioPlaylistStatePending, 0), true, epDuring, RadioPlaylistStatePartial, 0},
+		{"live + no plays → pending, no attempt burned", windowedFacts(RadioPlaylistStatePending, 1), false, epDuring, RadioPlaylistStatePending, 1},
+		{"live + no plays holds an existing partial (PSY-1370)", windowedFacts(RadioPlaylistStatePartial, 0), false, epDuring, RadioPlaylistStatePartial, 0},
+		{"scheduled + no plays → pending, no attempt burned", windowedFacts(RadioPlaylistStatePending, 0), false, epBefore, RadioPlaylistStatePending, 0},
+		{"aired + no plays → pending, one attempt burned", windowedFacts(RadioPlaylistStatePending, 0), false, epAfter, RadioPlaylistStatePending, 1},
+		{"aired + no plays below the ceiling stays eligible", windowedFacts(RadioPlaylistStatePending, 3), false, epAfter, RadioPlaylistStatePending, 4},
+		{"aired + no plays reaching the ceiling → unavailable",
+			windowedFacts(RadioPlaylistStatePending, RadioBackfillMaxAttempts-1), false, epAfter, RadioPlaylistStateUnavailable, RadioBackfillMaxAttempts},
+		// The give-up label is written on the LAST attempt the deadline allows, rather
+		// than leaving a row that reads 'pending' forever while never being fetched again.
+		{"aired + no plays with under one cooldown left → unavailable",
+			windowedFacts(RadioPlaylistStatePending, 0), false, epDeadline.Add(-time.Minute), RadioPlaylistStateUnavailable, 1},
+		// An episode that already has tracks never reads 'pending' or 'unavailable' —
+		// those would contradict what it is showing. Same answer RederivePlaylistState
+		// gives, so the two writers cannot disagree about a row.
+		{"aired + empty re-fetch of an episode that has plays → partial",
+			withPlays(windowedFacts(RadioPlaylistStatePartial, 0), 5), false, epAfter, RadioPlaylistStatePartial, 1},
+		{"aired + empty re-fetch past the deadline with plays → still partial, never unavailable",
+			withPlays(windowedFacts(RadioPlaylistStatePartial, 0), 5), false, epDeadline.Add(-time.Minute), RadioPlaylistStatePartial, 1},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotState, gotAttempts := NormalizeScheduledPlaylistState(tc.starts, tc.ends, tc.state, tc.attempts, tc.now)
-			if gotState != tc.wantState || gotAttempts != tc.wantAttempts {
-				t.Errorf("NormalizeScheduledPlaylistState(%v,%v,%q,%d,%v) = (%q,%d), want (%q,%d)",
-					tc.starts, tc.ends, tc.state, tc.attempts, tc.now, gotState, gotAttempts, tc.wantState, tc.wantAttempts)
+			state, attempts, postAir := SettlePlaylistStateAfterFetch(tc.facts, tc.hasPlays, tc.now)
+			wantPostAir := ComputeEpisodeStatus(tc.facts.StartsAt, tc.facts.EndsAt, RadioPlaylistStatePending, tc.now) == RadioEpisodeStatusAired
+			if postAir != wantPostAir {
+				t.Errorf("postAir = %v, want %v — the memo must be stamped for exactly the aired attempts", postAir, wantPostAir)
+			}
+			if state != tc.wantState || attempts != tc.wantAttempts {
+				t.Errorf("SettlePlaylistStateAfterFetch(%+v, plays=%v, %v) = (%q, %d), want (%q, %d)",
+					tc.facts, tc.hasPlays, tc.now, state, attempts, tc.wantState, tc.wantAttempts)
 			}
 		})
 	}
 }
 
-// TestNormalizeWindowHealPlaylistState pins PSY-1287: a false give-up from the
-// windowless era is cleared once a real air window is assigned.
-func TestNormalizeWindowHealPlaylistState(t *testing.T) {
-	start := time.Date(2026, 6, 28, 3, 0, 0, 0, time.UTC)
-	ptr := func(tm time.Time) *time.Time { return &tm }
-
-	cases := []struct {
-		name                string
-		hadWindow           bool
-		starts              *time.Time
-		state               string
-		attempts, playCount int
-		wantState           string
-		wantAttempts        int
-	}{
-		{"new window + unavailable + no plays → pending, 0", false, ptr(start), RadioPlaylistStateUnavailable, 5, 0, RadioPlaylistStatePending, 0},
-		{"new window + pending with attempts → pending, 0", false, ptr(start), RadioPlaylistStatePending, 2, 0, RadioPlaylistStatePending, 0},
-		{"already had window → untouched", true, ptr(start), RadioPlaylistStateUnavailable, 5, 0, RadioPlaylistStateUnavailable, 5},
-		{"still windowless → untouched", false, nil, RadioPlaylistStateUnavailable, 5, 0, RadioPlaylistStateUnavailable, 5},
-		{"new window but has plays → untouched", false, ptr(start), RadioPlaylistStateUnavailable, 5, 3, RadioPlaylistStateUnavailable, 5},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			gotState, gotAttempts := NormalizeWindowHealPlaylistState(tc.hadWindow, tc.starts, tc.state, tc.attempts, tc.playCount)
-			if gotState != tc.wantState || gotAttempts != tc.wantAttempts {
-				t.Errorf("got (%q,%d), want (%q,%d)", gotState, gotAttempts, tc.wantState, tc.wantAttempts)
-			}
-		})
-	}
-}
-
-// TestNormalizeStrandedWindowlessPlaylistState pins PSY-1287 candidate reopening and
-// the PSY-1558 bound that terminates it: past RadioStrandedWindowlessReopenWindow from
-// the air date, a stranded windowless give-up is final and stops being re-fetched.
-func TestNormalizeStrandedWindowlessPlaylistState(t *testing.T) {
-	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
-	airDate := time.Date(2026, 6, 28, 0, 0, 0, 0, time.UTC)
-	start := time.Date(2026, 6, 28, 9, 0, 0, 0, time.UTC)
-	ptr := func(tm time.Time) *time.Time { return &tm }
-
+// TestRederivePlaylistState pins the write-time invariant enforcement that replaced the
+// three read-time normalizers and reopenLivePlaylistState: after the air window changes,
+// a verdict settled at the old phase is re-derived at the new one.
+func TestRederivePlaylistState(t *testing.T) {
 	cases := []struct {
 		name         string
-		airDate      time.Time
-		starts       *time.Time
-		state        string
-		attempts     int
-		playCount    int
+		facts        PlaylistFetchFacts
+		now          time.Time
 		wantState    string
 		wantAttempts int
 	}{
-		{
-			name:    "windowless unavailable inside window reopens",
-			airDate: airDate, state: RadioPlaylistStateUnavailable, attempts: 5,
-			wantState: RadioPlaylistStatePending, wantAttempts: 0,
-		},
-		{
-			name:    "windowed row untouched",
-			airDate: airDate, starts: ptr(start), state: RadioPlaylistStateUnavailable, attempts: 5,
-			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
-		},
-		{
-			// A tracklist published late (NTS lag is 0-2 days, PSY-1556) is still caught.
-			name:    "at the window edge still reopens",
-			airDate: now.Add(-RadioStrandedWindowlessReopenWindow), state: RadioPlaylistStateUnavailable, attempts: 5,
-			wantState: RadioPlaylistStatePending, wantAttempts: 0,
-		},
-		{
-			// The PSY-1558 loop: before this bound existed, this row reopened forever.
-			name:    "past the window the give-up is final",
-			airDate: now.Add(-RadioStrandedWindowlessReopenWindow - time.Second), state: RadioPlaylistStateUnavailable, attempts: 5,
-			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
-		},
-		{
-			name:  "unknown air date fails closed",
-			state: RadioPlaylistStateUnavailable, attempts: 5,
-			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
-		},
-		{
-			name:    "windowless row with real plays untouched",
-			airDate: airDate, state: RadioPlaylistStateUnavailable, attempts: 5, playCount: 12,
-			wantState: RadioPlaylistStateUnavailable, wantAttempts: 5,
-		},
-		{
-			name:    "non-terminal state untouched",
-			airDate: airDate, state: RadioPlaylistStatePending, attempts: 2,
-			wantState: RadioPlaylistStatePending, wantAttempts: 2,
-		},
+		// PSY-1285: a corrected schedule reveals the episode has not aired yet, so no
+		// give-up and no burned attempt can stand.
+		{"scheduled + unavailable → pending, 0", windowedFacts(RadioPlaylistStateUnavailable, 5), epBefore, RadioPlaylistStatePending, 0},
+		{"scheduled + burned attempts → pending, 0", windowedFacts(RadioPlaylistStatePending, 2), epBefore, RadioPlaylistStatePending, 0},
+		{"scheduled carrying real plays is left alone", withPlays(windowedFacts(RadioPlaylistStatePartial, 1), 4), epBefore, RadioPlaylistStatePartial, 1},
+
+		// The reopenLivePlaylistState cases, now handled by the same function: an
+		// end-less row that read as 'aired' mid-broadcast is corrected once its end
+		// bound arrives from the airing feed.
+		{"live + complete with plays → partial", withPlays(windowedFacts(RadioPlaylistStateComplete, 0), 6), epDuring, RadioPlaylistStatePartial, 0},
+		{"live + complete without plays → pending, 0", windowedFacts(RadioPlaylistStateComplete, 2), epDuring, RadioPlaylistStatePending, 0},
+		{"live + unavailable → pending, 0", windowedFacts(RadioPlaylistStateUnavailable, 5), epDuring, RadioPlaylistStatePending, 0},
+		{"live + pending → unchanged", windowedFacts(RadioPlaylistStatePending, 0), epDuring, RadioPlaylistStatePending, 0},
+
+		// PSY-1287: a windowless false give-up gets a real window; inside the deadline
+		// it reopens, past it the label stays terminal and truthful.
+		{"aired inside the deadline + unavailable → pending, attempts KEPT", windowedFacts(RadioPlaylistStateUnavailable, 5), epAfter, RadioPlaylistStatePending, 5},
+		{"aired past the deadline stays unavailable, attempts KEPT", windowedFacts(RadioPlaylistStatePending, 2), epDeadline, RadioPlaylistStateUnavailable, 2},
+		{"aired + complete is final", withPlays(windowedFacts(RadioPlaylistStateComplete, 0), 9), epAfter, RadioPlaylistStateComplete, 0},
+		{"aired with plays but no post-air playlist yet → partial", withPlays(windowedFacts(RadioPlaylistStatePending, 1), 5), epAfter, RadioPlaylistStatePartial, 1},
+		// This function runs on EVERY re-list, so an aired episode's attempt counter must
+		// survive it — a reset here would be PSY-1558's defect reintroduced on a path that
+		// runs every cycle.
+		{"aired re-derive never clears an earned attempt counter",
+			windowedFacts(RadioPlaylistStatePending, RadioBackfillMaxAttempts-1), epAfter,
+			RadioPlaylistStatePending, RadioBackfillMaxAttempts - 1},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotState, gotAttempts := NormalizeStrandedWindowlessPlaylistState(
-				tc.airDate, tc.starts, tc.state, tc.attempts, tc.playCount, now)
-			if gotState != tc.wantState || gotAttempts != tc.wantAttempts {
-				t.Errorf("got (%q,%d), want (%q,%d)", gotState, gotAttempts, tc.wantState, tc.wantAttempts)
+			state, attempts := RederivePlaylistState(tc.facts, tc.now)
+			if state != tc.wantState || attempts != tc.wantAttempts {
+				t.Errorf("RederivePlaylistState(%+v, %v) = (%q, %d), want (%q, %d)",
+					tc.facts, tc.now, state, attempts, tc.wantState, tc.wantAttempts)
 			}
 		})
 	}

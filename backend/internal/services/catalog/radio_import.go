@@ -289,8 +289,8 @@ const fetchLookbackFloorDays = 45
 //
 // Re-scanning the wider window is cheap: an already-COMPLETE episode hits a
 // dedup no-op (importEpisode keys on (show_id, external_id)); only a
-// recently-aired, still-pending episode re-fetches its playlist, bounded by
-// RadioBackfillMaxAttempts. A genuinely older lastFetch — a re-enabled station,
+// recently-aired, still-pending episode re-fetches its playlist, bounded by the
+// retry cooldown and give-up deadline in PlanPlaylistFetch. A genuinely older lastFetch — a re-enabled station,
 // a multi-day provider outage during which shouldAdvanceLastFetch held the
 // timestamp back (PSY-1241), or a single show held back by its OWN watermark
 // while its siblings advanced (PSY-1272) — widens the window further so recovery
@@ -978,49 +978,52 @@ type BackfillCandidate struct {
 }
 
 // ListBackfillCandidates finds shows whose aired episodes still need a post-air
-// playlist re-fetch (PSY-1154): playlist_state pending/partial, attempts left, aired,
-// and aired within `lookback` of `now`. The lookback bounds the candidate set (and,
-// at rollout, the one-time re-fetch of recently-aired episodes) and matches the
+// playlist re-fetch (PSY-1154). The lookback bounds the candidate set and matches the
 // reality that providers only keep recent episodes listable for re-fetch — older
 // stragglers are the janitor's job (PSY-1155).
 //
-// A coarse SQL filter (state / attempts / air_date) narrows the scan; the precise
-// aired check is the shared ShouldBackfillPlaylist predicate applied per row, so the
+// A coarse SQL filter narrows the scan; PlanPlaylistFetch decides per row, so the
 // sweep selection and the in-flight re-fetch decision (importEpisode) can never
-// diverge. Results are grouped by show — one [min, max] air-date window each — and
-// ordered by show id for deterministic processing.
-func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempts int, now time.Time) ([]BackfillCandidate, error) {
+// diverge. Every SQL condition except the lookback is one the predicate also enforces,
+// so within the lookback the SQL is a strict SUPERSET — it must never reject a row the
+// predicate would accept. That is why terminality is absent from it: the give-up
+// deadline is per-episode and time-derived, not expressible as a column test. Results
+// are grouped by show — one [min, max] air-date window each — and ordered by show id
+// for deterministic processing.
+//
+// The cooldown filter (PSY-1562) is what makes the sweep cheap: an episode found empty
+// is not re-selected on the next cycle. Before it, 23 stranded episodes were re-listed
+// on every hourly sweep forever.
+func (s *RadioService) ListBackfillCandidates(lookback time.Duration, now time.Time) ([]BackfillCandidate, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	cutoff := now.Add(-lookback).Format("2006-01-02")
+	cooledSince := now.Add(-catalogm.RadioPlaylistRetryCooldown)
 
 	type candidateRow struct {
-		ShowID                uint
-		StationID             uint
-		AirDate               string
-		StartsAt              *time.Time
-		EndsAt                *time.Time
-		PlaylistState         string
-		PlaylistFetchAttempts int
-		PlayCount             int
+		ShowID                      uint
+		StationID                   uint
+		AirDate                     string
+		StartsAt                    *time.Time
+		EndsAt                      *time.Time
+		PlaylistState               string
+		PlaylistFetchAttempts       int
+		PlaylistBackfillAttemptedAt *time.Time
 	}
 	var rows []candidateRow
 	err := s.db.Model(&catalogm.RadioEpisode{}).
 		Select("radio_episodes.show_id, radio_shows.station_id, radio_episodes.air_date, "+
 			"radio_episodes.starts_at, radio_episodes.ends_at, radio_episodes.playlist_state, "+
-			"radio_episodes.playlist_fetch_attempts, radio_episodes.play_count").
+			"radio_episodes.playlist_fetch_attempts, radio_episodes.playlist_backfill_attempted_at").
 		Joins("JOIN radio_shows ON radio_shows.id = radio_episodes.show_id").
-		// Branch 1 is the ordinary "still incomplete, attempts left" case. Branch 2
-		// deliberately ignores the attempt cap so an already-terminal windowless
-		// give-up can be re-considered; what bounds THAT branch is the reopen window
-		// in NormalizeStrandedWindowlessPlaylistState, applied per row below — not SQL.
-		Where(`(
-			(radio_episodes.playlist_state IN ? AND radio_episodes.playlist_fetch_attempts < ?)
-			OR (radio_episodes.playlist_state = ? AND radio_episodes.starts_at IS NULL AND radio_episodes.play_count = 0)
-		)`, []string{catalogm.RadioPlaylistStatePending, catalogm.RadioPlaylistStatePartial}, maxAttempts, catalogm.RadioPlaylistStateUnavailable).
+		// 'unavailable' is NOT excluded here: it is a label, not the terminal signal.
+		// The give-up deadline in PlanPlaylistFetch is, and it is applied per row below.
+		Where("radio_episodes.playlist_state <> ?", catalogm.RadioPlaylistStateComplete).
+		Where("radio_episodes.playlist_fetch_attempts < ?", catalogm.RadioBackfillMaxAttempts).
 		Where("radio_episodes.air_date >= ?", cutoff).
+		Where("(radio_episodes.playlist_backfill_attempted_at IS NULL OR radio_episodes.playlist_backfill_attempted_at <= ?)", cooledSince).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("listing backfill candidates: %w", err)
@@ -1028,17 +1031,23 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, maxAttempt
 
 	byShow := make(map[uint]*BackfillCandidate)
 	for _, r := range rows {
-		// Parsed first: air_date both bounds the stranded re-open (PSY-1558) and forms
-		// the per-show re-list window below. An unparseable one can do neither, and the
-		// episode wouldn't be re-listed anyway.
+		// Parsed first: air_date both bounds a windowless episode's give-up deadline and
+		// forms the per-show re-list window below. An unparseable one can do neither, and
+		// the episode wouldn't be re-listed anyway.
 		d, perr := parseImportDate(r.AirDate)
 		if perr != nil {
 			continue
 		}
-		state, attempts := catalogm.NormalizeStrandedWindowlessPlaylistState(
-			d, r.StartsAt, r.PlaylistState, r.PlaylistFetchAttempts, r.PlayCount, now,
-		)
-		if !catalogm.ShouldBackfillPlaylist(r.StartsAt, r.EndsAt, state, attempts, maxAttempts, now) {
+		plan := catalogm.PlanPlaylistFetch(catalogm.PlaylistFetchFacts{
+			StartsAt:              r.StartsAt,
+			EndsAt:                r.EndsAt,
+			AirDate:               d,
+			PlaylistState:         r.PlaylistState,
+			Attempts:              r.PlaylistFetchAttempts,
+			LastBackfillAttemptAt: r.PlaylistBackfillAttemptedAt,
+		}, now)
+		// Live refreshes are the slot fetcher's job (PSY-1370), not this sweep's.
+		if !plan.Fetch || plan.LiveRefresh {
 			continue
 		}
 		c, ok := byShow[r.ShowID]
@@ -1534,19 +1543,15 @@ func (s *RadioService) reactivateShowIfDormant(showID uint, now time.Time) {
 // across the deploy would lose its ON AIR strip until re-ingest. The window comes
 // from the provider's instants (KEXP/NTS) or, for WFMU, the show's schedule +
 // air_date (PSY-1238) — so a windowless WFMU episode that gets re-listed inside
-// the fetch window self-heals. It then re-fetches the playlist iff the episode is
-// aired + incomplete with attempts left (post-air backfill, PSY-1154) OR airing
-// right now + incomplete (live refresh, PSY-1370, so tracks accumulate during the
-// show) — a complete, exhausted (unavailable), or scheduled episode is left
-// untouched (dedup skip), so a routine re-list never re-fetches a playlist that is
-// already final or hasn't started.
+// the fetch window self-heals. It then asks PlanPlaylistFetch whether to re-fetch the
+// playlist — a complete, scheduled, cooling-down or terminally given-up episode is
+// left untouched (dedup skip), so a routine re-list never re-fetches a playlist that
+// is already final, hasn't started, or was just attempted.
 func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, ep RadioEpisodeImport, provider RadioPlaylistProvider, now time.Time) (*contracts.EpisodeImportResult, error) {
-	// Heal a missing frozen window AND enforce the PSY-1285 scheduled-never-unavailable
-	// invariant in a SINGLE update: both can change `status`, so the fields are collected
-	// here and status is computed once from the final window + state — no redundant second
-	// write on the heal+reset path.
+	// Heal a missing frozen window AND re-derive the playlist state it invalidates in a
+	// SINGLE update: both can change `status`, so the fields are collected here and
+	// status is computed once from the final window + state.
 	updates := map[string]any{}
-	hadWindow := existing.StartsAt != nil
 
 	if existing.StartsAt == nil {
 		// Resolve a window (provider instants, or schedule-derived for a recent
@@ -1563,25 +1568,16 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 		}
 	}
 
-	// PSY-1285: a windowless episode is settled to 'aired', so the backfill burns attempts
-	// on it → 'unavailable'; once it is given a FUTURE window (the heal above, or PSY-1283's
-	// schedule correction) it is 'scheduled' but its playlist_state would otherwise stay
-	// stuck 'unavailable'. Reset it so the post-air backfill can run once it actually airs —
-	// whether the window was just healed or was already present (so it also clears rows
-	// stranded before this fix). A no-op for aired/live episodes.
-	if newState, newAttempts := catalogm.NormalizeScheduledPlaylistState(
-		existing.StartsAt, existing.EndsAt, existing.PlaylistState, existing.PlaylistFetchAttempts, now,
-	); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
-		existing.PlaylistState = newState
-		existing.PlaylistFetchAttempts = newAttempts
-		updates["playlist_state"] = newState
-		updates["playlist_fetch_attempts"] = newAttempts
-	}
-
-	// PSY-1287: once a windowless false give-up gets a real air window (schedule heal),
-	// clear the exhausted playlist state so post-air backfill can run at the right phase.
-	if newState, newAttempts := catalogm.NormalizeWindowHealPlaylistState(
-		hadWindow, existing.StartsAt, existing.PlaylistState, existing.PlaylistFetchAttempts, existing.PlayCount,
+	// Re-derive the playlist verdict from the CURRENT window (PSY-1562). A windowless
+	// episode reads as 'aired' the moment it starts, so the backfill burns attempts on
+	// it and gives up; only a window — healed above, or corrected by PSY-1283 on an
+	// earlier pass — reveals it was really scheduled (PSY-1285) or aired at a different
+	// time (PSY-1287). Unconditional, NOT gated on the heal: the stranded rows PSY-1285
+	// targets already have their window, so a heal-only trigger would never reach them.
+	// Safe to run every re-list because RederivePlaylistState is idempotent and leaves
+	// an aired episode's attempt counter alone.
+	if newState, newAttempts := catalogm.RederivePlaylistState(
+		episodePlaylistFacts(existing), now,
 	); newState != existing.PlaylistState || newAttempts != existing.PlaylistFetchAttempts {
 		existing.PlaylistState = newState
 		existing.PlaylistFetchAttempts = newAttempts
@@ -1598,19 +1594,33 @@ func (s *RadioService) reimportExistingEpisode(existing *catalogm.RadioEpisode, 
 		}
 	}
 
-	// Re-fetch when the episode is either (a) aired + incomplete with attempts left —
-	// the post-air backfill (PSY-1154) — or (b) airing RIGHT NOW + incomplete — the
-	// live refresh (PSY-1370, so tracks accumulate during the show). Both funnel into
-	// the same idempotent fetch. A complete/exhausted/scheduled episode matches neither
-	// and is a dedup skip. The two predicates are mutually exclusive by time phase, so
-	// the handoff at ends_at is clean (live refresh → one final post-air fetch).
-	if !catalogm.ShouldBackfillPlaylist(existing.StartsAt, existing.EndsAt, existing.PlaylistState,
-		existing.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts, now) &&
-		!catalogm.ShouldRefreshLivePlaylist(existing.StartsAt, existing.EndsAt, existing.PlaylistState, now) {
+	// One predicate decides both the post-air backfill (PSY-1154) and the live refresh
+	// (PSY-1370, so tracks accumulate during the show); they are mutually exclusive by
+	// time phase, so the handoff at ends_at is clean — live refresh, then one final
+	// post-air fetch. A complete, scheduled, cooling-down, or terminally given-up
+	// episode is a dedup skip.
+	if !catalogm.PlanPlaylistFetch(episodePlaylistFacts(existing), now).Fetch {
 		return &contracts.EpisodeImportResult{}, nil
 	}
 
 	return s.fetchImportAndRecordPlaylist(existing, ep.ExternalID, provider, now)
+}
+
+// episodePlaylistFacts builds the durable fact set PlanPlaylistFetch reads from a
+// loaded episode row. air_date is parsed here because it is stored as a bare date
+// string; an unparseable one yields the zero time, which fails CLOSED — a windowless
+// episode whose air instant is unknown cannot be bounded, so it is never fetched.
+func episodePlaylistFacts(ep *catalogm.RadioEpisode) catalogm.PlaylistFetchFacts {
+	airDate, _ := parseImportDate(ep.AirDate)
+	return catalogm.PlaylistFetchFacts{
+		StartsAt:              ep.StartsAt,
+		EndsAt:                ep.EndsAt,
+		AirDate:               airDate,
+		PlaylistState:         ep.PlaylistState,
+		PlayCount:             ep.PlayCount,
+		Attempts:              ep.PlaylistFetchAttempts,
+		LastBackfillAttemptAt: ep.PlaylistBackfillAttemptedAt,
+	}
 }
 
 // fetchImportAndRecordPlaylist fetches an episode's provider playlist, imports its
@@ -1669,7 +1679,7 @@ func (s *RadioService) fetchImportAndRecordPlaylist(episode *catalogm.RadioEpiso
 
 // recordPlaylistOutcome applies the PSY-1154 completeness policy to an episode after
 // one playlist fetch attempt: it derives the new playlist_state + attempt count
-// (ComputePlaylistState), recomputes the episode status from the frozen window
+// (SettlePlaylistStateAfterFetch), recomputes the episode status from the frozen window
 // (ComputeEpisodeStatus — so a now-complete playlist promotes the episode to
 // 'archived'), stamps playlist_fetched_at, and persists them in a single update. The
 // in-memory episode is kept in sync for the caller.
@@ -1683,25 +1693,8 @@ func (s *RadioService) fetchImportAndRecordPlaylist(episode *catalogm.RadioEpiso
 // would zero/shrink play_count while the original rows persist, surfacing "0 plays" on
 // an episode that has tracks. max() + the empty-fetch skip make the count never decrease.
 func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, playsImported int, fetchFailed bool, now time.Time) error {
-	phase := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, catalogm.RadioPlaylistStatePending, now)
-	isAired := phase == catalogm.RadioEpisodeStatusAired
-	newState, newAttempts := catalogm.ComputePlaylistState(
-		isAired, playsImported > 0, fetchFailed, episode.PlaylistFetchAttempts, catalogm.RadioBackfillMaxAttempts)
-
-	// PSY-1370: 'partial' is monotonic within the live window. A live re-fetch that
-	// returns nothing (transient empty/failed provider round — now reachable every
-	// tick, where before PSY-1370 a live episode was never re-fetched) computes back to
-	// 'pending' via ComputePlaylistState's non-aired branch; hold it at 'partial' so a
-	// momentary blip doesn't erase "this show already has tracks". play_count is already
-	// max()-guarded; this keeps the state label from flapping alongside it. Live-only:
-	// the aired give-up path (pending→unavailable) and the scheduled/pending cases are
-	// untouched.
-	if phase == catalogm.RadioEpisodeStatusLive &&
-		episode.PlaylistState == catalogm.RadioPlaylistStatePartial &&
-		newState == catalogm.RadioPlaylistStatePending {
-		newState = catalogm.RadioPlaylistStatePartial
-	}
-
+	newState, newAttempts, postAir := catalogm.SettlePlaylistStateAfterFetch(
+		episodePlaylistFacts(episode), playsImported > 0 && !fetchFailed, now)
 	newStatus := catalogm.ComputeEpisodeStatus(episode.StartsAt, episode.EndsAt, newState, now)
 
 	updates := map[string]any{
@@ -1709,6 +1702,14 @@ func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, pla
 		"playlist_fetched_at":     now,
 		"playlist_fetch_attempts": newAttempts,
 		"status":                  newStatus,
+	}
+	// Stamp the post-air retry memo (PSY-1562) so this episode is not re-selected by
+	// the next sweep. Post-air attempts only: the live refresh deliberately runs every
+	// tick to accumulate tracks, and cooling it down would be a regression. Written in
+	// the SAME update as the state it rate-limits, so the memo cannot silently fall
+	// behind the attempt counter.
+	if postAir {
+		updates["playlist_backfill_attempted_at"] = now
 	}
 	// Only advance play_count on a fetch that actually returned plays, and never
 	// below the current value (a failed/empty/short re-fetch must not clobber it).
@@ -1725,6 +1726,9 @@ func (s *RadioService) recordPlaylistOutcome(episode *catalogm.RadioEpisode, pla
 	episode.PlaylistFetchAttempts = newAttempts
 	episode.Status = newStatus
 	episode.PlaylistFetchedAt = &now
+	if postAir {
+		episode.PlaylistBackfillAttemptedAt = &now
+	}
 	episode.PlayCount = newPlayCount
 	return nil
 }
