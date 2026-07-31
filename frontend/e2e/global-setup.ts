@@ -394,9 +394,9 @@ export default async function globalSetup(_config: FullConfig) {
         `provisions its own backend at ${HARNESS_BACKEND_URL} — the seeded ` +
         `database, the test-fixture flags and the auth cookies captured here ` +
         `all belong to that one. Either unset BACKEND_URL and let global ` +
-        `setup own the stack, or run your externally-managed stack with a ` +
-        `Playwright config that has no globalSetup (see ` +
-        `e2e-hydration/playwright.hydration.config.ts for that pattern).`
+        `setup own the stack, or run against your own stack with ` +
+        `\`bun run test:e2e:external\` (e2e/playwright.external.config.ts), ` +
+        `which has no globalSetup and honours BACKEND_URL.`
     )
   }
 

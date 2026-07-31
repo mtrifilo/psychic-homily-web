@@ -25,6 +25,10 @@
  * - It is only meaningful for a run whose backend is managed OUTSIDE the
  *   Playwright harness. `global-setup.ts` provisions its own backend and
  *   refuses to start if `BACKEND_URL` disagrees with it — see the guard there.
+ *   The supported way to use this variable is therefore
+ *   `bun run test:e2e:external` (`e2e/playwright.external.config.ts`), which
+ *   runs the same suite with no globalSetup. Without that config this variable
+ *   would have no reachable caller at all.
  * - The Playwright process does not read `frontend/.env.local`; Next does. So
  *   setting `BACKEND_URL` there moves the proxy but not these calls. Set it in
  *   the environment of the `playwright test` command.

@@ -78,7 +78,25 @@ export const test = base.extend<
 
       await use()
 
-      await resetTestFixtures(workerUserId)
+      // Retry once before failing the run. The throw is deliberate — a
+      // swallowed reset is what this ticket removed — but this particular
+      // throw lands after `use()`, where Playwright reports it as a top-level
+      // runner error with NO test attached and does NOT apply `retries`. So a
+      // single transient blip (the backend hiccupping while several workers
+      // tear down at once) would turn a shard whose every test passed into a
+      // red build showing zero failures: the same "reads as something it
+      // isn't" failure this change set out to remove, relocated. Only a
+      // persistent failure should fail the run.
+      try {
+        await resetTestFixtures(workerUserId)
+      } catch (first) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        try {
+          await resetTestFixtures(workerUserId)
+        } catch {
+          throw first
+        }
+      }
     },
     { scope: 'worker', auto: true },
   ],
