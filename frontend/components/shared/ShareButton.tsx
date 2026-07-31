@@ -11,16 +11,18 @@ import { Check, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
 
 /**
- * What this browser can actually do, resolved on the client only.
+ * What this browser can actually do.
  *
- * `unknown` is the server/hydration snapshot and renders nothing — capability
- * is not knowable during SSR, and a control that might turn out to be dead must
- * not ship in server HTML.
+ * `share` and `copy` render an IDENTICAL control — same label, same icon, same
+ * width. Only the click behaviour differs. That equivalence is what lets the
+ * server render the button without knowing which one it will turn out to be,
+ * and it is load-bearing: see {@link getServerCapability}.
  */
-type ShareCapability = 'unknown' | 'share' | 'copy' | 'none'
+type ShareCapability = 'share' | 'copy' | 'none'
 
 /** Inline confirmation state; mirrors the copy-link convention already in use. */
 type FeedbackState = 'idle' | 'copied' | 'failed'
@@ -132,7 +134,33 @@ function detectShareCapability(): ShareCapability {
  * return primitives, or `useSyncExternalStore` re-renders forever.
  */
 const subscribeToNothing = () => () => {}
-const getServerCapability = (): ShareCapability => 'unknown'
+
+/**
+ * The server assumes `copy`, and that assumption is why this control ships in
+ * server HTML instead of appearing after hydration.
+ *
+ * An earlier revision returned an `unknown` snapshot and rendered nothing until
+ * the client had measured itself. That was wrong, and measurably so. Both host
+ * rows — `ShowHeader`'s `sm:items-end` cluster and `EntityHeader`'s
+ * `sm:justify-between` row — are RIGHT-ALIGNED and shrink-to-fit, so a control
+ * appearing at hydration widens the row and drags every existing sibling
+ * leftward. Measured on the show page at 1280px: **the save button moved 91px**.
+ * Playwright resolves a click point and then stability-checks the box, so a
+ * jump landing in that window turns a save into a miss or a retry — which is
+ * exactly the intermittent, CI-only, show-and-artist-page-only E2E failure this
+ * replaced. Users got the same jump as layout shift.
+ *
+ * `copy` is the honest default rather than a guess: every secure context exposes
+ * `navigator.clipboard`, so a browser that renders this page at all almost
+ * always has it. And because `share` and `copy` render identically, the
+ * post-hydration swap between them changes nothing on screen — there is no
+ * second layout to shift to.
+ *
+ * `none` (an insecure origin, e.g. a phone on `http://192.168.x.x`) is the one
+ * case that still unmounts. It shifts, but it is the case where the control
+ * genuinely must not exist, and no HTTPS visitor reaches it.
+ */
+const getServerCapability = (): ShareCapability => 'copy'
 
 export interface ShareButtonProps {
   /**
@@ -173,12 +201,12 @@ export interface ShareButtonProps {
  * into the share payload or the clipboard — only an origin-locked URL built
  * from a path.
  *
- * Note on hydration: because the control mounts only after capability is
- * resolved, it never exists in server HTML and therefore has no pre-hydration
- * click window to replay (`lib/hydration/clickReplay.ts`). That is a
- * requirement here, not just a happy accident — `navigator.share` needs
- * transient user activation, which a replayed untrusted click does not carry,
- * so a replayed share click would reject where a real one succeeds.
+ * Note on hydration: this ships in server HTML rather than appearing once the
+ * client has measured its own capabilities. Both host rows are right-aligned
+ * and shrink-to-fit, so a control that arrives at hydration drags its siblings
+ * sideways — 91px on the show page, onto the save button. See
+ * {@link getServerCapability}. Being in server HTML means it needs
+ * `replayOnHydrate` like any other pre-hydration-clickable control.
  */
 export function ShareButton({
   path,
@@ -250,9 +278,9 @@ export function ShareButton({
   }, [capability, shareUrl, copyToClipboard])
 
   // The "never a dead button, never the wrong link" guarantee: nothing renders
-  // until capability is known, nothing renders when neither mechanism exists,
-  // and nothing renders when there is no real URL to hand out.
-  if (capability === 'unknown' || capability === 'none') return null
+  // when neither mechanism exists, and nothing renders when there is no real
+  // URL to hand out.
+  if (capability === 'none') return null
   if (!shareUrl) return null
 
   const label =
@@ -294,6 +322,16 @@ export function ShareButton({
 
   return (
     <Button
+      // This ships in server HTML, so it is clickable before React wires it up
+      // and a click in that window is otherwise dropped silently. The bracket
+      // branch above inherits replay from BracketLink.
+      //
+      // A replayed click is untrusted and so carries no transient activation:
+      // `navigator.share` will reject it with NotAllowedError. That is handled,
+      // not ignored — the non-Abort branch in `handleShare` falls through to the
+      // clipboard, so an early clicker still gets a copied link rather than
+      // nothing.
+      {...replayOnHydrate}
       type="button"
       variant="outline"
       size="sm"

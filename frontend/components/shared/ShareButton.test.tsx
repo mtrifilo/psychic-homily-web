@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/dom'
+import { renderToString } from 'react-dom/server'
 import { ShareButton, buildShareUrl } from './ShareButton'
 
 const SHOW_PATH = '/shows/some-show'
@@ -231,6 +232,32 @@ describe('ShareButton — clipboard fallback path', () => {
       expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument()
     )
     vi.useRealTimers()
+  })
+})
+
+describe('ShareButton — server rendering', () => {
+  // This is a layout regression test, not an SSR nicety. Both host rows are
+  // right-aligned and shrink-to-fit, so a control that only appears at
+  // hydration drags its siblings sideways — measured at 91px onto the save
+  // button on the show page, which is what made the E2E save specs
+  // intermittently miss their click. If this test fails, that comes back.
+  it('renders the control in server HTML rather than after hydration', () => {
+    const html = renderToString(
+      <ShareButton path="/shows/some-show" ariaLabel="Share this show" />
+    )
+    expect(html).toContain('Share this show')
+    expect(html).toContain('<button')
+  })
+
+  it('renders the bracket variant server-side too', () => {
+    const html = renderToString(
+      <ShareButton path="/artists/foo" variant="bracket" ariaLabel="Share this artist" />
+    )
+    expect(html).toContain('Share this artist')
+  })
+
+  it('still renders nothing server-side when there is no path', () => {
+    expect(renderToString(<ShareButton path={null} />)).toBe('')
   })
 })
 
