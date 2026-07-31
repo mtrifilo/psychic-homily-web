@@ -6,14 +6,16 @@ single copy of the licence below (SIL OFL 1.1 in each case).
     (https://github.com/googlefonts/spacemono)
     Subset of google/fonts @ dd0c1f1.
 
-  NotoSans-Regular.ttf, NotoSans-Bold.ttf
+  NotoSans-Regular.ttf
     Copyright 2022 The Noto Project Authors
     (https://github.com/notofonts/latin-greek-cyrillic)
-    Instanced and subset from google/fonts @ 2984c575,
+    Instanced at wght=400 and subset from google/fonts @ 2984c575,
     ofl/notosans/NotoSans[wdth,wght].ttf
     sha256 bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d
-    These carry the non-Latin script coverage the brand faces do not have; see
-    the header of ../brand.ts for why they exist and what they do not cover.
+    Carries the Greek / Cyrillic / Latin-Ext-B coverage the brand faces do not
+    have. Subset to living-language ranges and shipped at a single weight to fit
+    a 1 MiB Vercel Edge Function limit; see the header of ../brand.ts for the
+    measured budget and for what is deliberately NOT covered.
 
 Satoshi-*.ttf are NOT OFL and are NOT covered by this file. They are the brand
 face, self-hosted under the Fontshare / ITF Free Font License, and are the same

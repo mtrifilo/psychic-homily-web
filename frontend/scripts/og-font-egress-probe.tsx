@@ -40,7 +40,6 @@ const fonts = [
     ? []
     : [
         { name: 'PH Fallback', data: read('NotoSans-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
-        { name: 'PH Fallback', data: read('NotoSans-Bold.ttf'), weight: 700 as const, style: 'normal' as const },
       ]),
 ]
 
@@ -48,11 +47,17 @@ const THIRD_PARTY = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.jsdelivr.
 
 /** Cases the widened subset promises to render offline. */
 const COVERED: Array<[string, string]> = [
-  ['Cyrillic (Russian)', 'Москва'],
-  ['Cyrillic (Ukrainian)', 'Київ'],
-  ['Cyrillic (Serbian)', 'Београд'],
+  ['Russian', 'Москва'],
+  ['Ukrainian', 'Київ'],
+  ['Ukrainian (ґ)', 'Ґалаґан'],
+  ['Serbian', 'Београд'],
+  ['Bulgarian', 'София'],
+  ['Macedonian', 'Скопје'],
   ['Greek', 'Αθήνα'],
-  ['Vietnamese', 'Đà Nẵng'],
+  ['Greek (Thessaloniki)', 'Θεσσαλονίκη'],
+  ['Romanian', 'București'],
+  ['Azerbaijani', 'Əə'],
+  ['Numero', 'Клуб №1'],
   ['Latin Ext-A', 'Kraków'],
   ['Latin baseline', 'Phoenix'],
 ]
@@ -61,6 +66,8 @@ const COVERED: Array<[string, string]> = [
 const UNCOVERED: Array<[string, string]> = [
   ['CJK', '東京'],
   ['Hangul', '서울'],
+  // Dropped to fit the 1 MiB edge limit, not by preference.
+  ['Vietnamese', 'Đà Nẵng'],
   ['Emoji', 'Chicago 🔥'],
 ]
 

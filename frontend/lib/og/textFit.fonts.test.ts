@@ -194,19 +194,34 @@ describe('subset coverage', () => {
  * narrowing anything below.
  */
 describe('fallback face script coverage', () => {
-  const FALLBACKS = [`${FONTS}/NotoSans-Regular.ttf`, `${FONTS}/NotoSans-Bold.ttf`]
+  const FALLBACKS = [`${FONTS}/NotoSans-Regular.ttf`]
   const BRAND = [...SANS.map(([, path]) => path), `${FONTS}/SpaceMono-Regular.ttf`]
 
-  /** One representative per script the cards promise to render offline. */
+  /**
+   * One representative per LIVING language the cards promise to render offline.
+   *
+   * Named by language rather than by Unicode block on purpose: the subset is
+   * enumerated per language to fit the 1 MiB edge limit, so "the Cyrillic block"
+   * is not the unit that ships and testing it as one would misdescribe what is
+   * guaranteed. Ukrainian `ґ` and Romanian `ș` sit outside the base blocks and
+   * are exactly the characters a block-shaped subset would have dropped.
+   */
   const COVERED: Array<[string, string]> = [
     ['Greek', 'Αθήνα'],
-    ['Cyrillic', 'Москва'],
-    ['Cyrillic (Ukrainian)', 'Київ'],
-    ['Cyrillic (Serbian)', 'Београд'],
-    ['Latin Ext-B', 'Ǆ'],
-    ['Latin Ext Additional (Vietnamese)', 'Đà Nẵng'],
-    ['General Punctuation', '‚„…‹›‰'],
-    ['Letterlike', '№™'],
+    ['Greek (Thessaloniki)', 'Θεσσαλονίκη'],
+    ['Russian', 'Москва'],
+    ['Ukrainian', 'Київ'],
+    ['Ukrainian (ge with upturn)', 'Ґ'],
+    ['Serbian', 'Београд'],
+    ['Bulgarian', 'София'],
+    ['Macedonian', 'Скопје'],
+    ['Belarusian', 'Мінск'],
+    ['Kazakh / Azeri schwa', 'Әә'],
+    ['Romanian (comma below)', 'Șș Țț'],
+    ['Azerbaijani schwa', 'Əə'],
+    ['Croatian digraph', 'Ǆǆ'],
+    ['General Punctuation', '–—‘’“”•…‧'],
+    ['Numero', '№'],
   ]
 
   it.each(COVERED)('renders %s from the shipped bytes, with no network fetch', (_label, sample) => {
@@ -222,16 +237,21 @@ describe('fallback face script coverage', () => {
     }
   })
 
-  it('ships both weights so a bold headline is not drawn at regular weight', () => {
-    // The city headline and the show title are the largest text on either card
-    // and both are weight 700; Satori picks the nearest weight WITHIN a family,
-    // so a single 400 face would quietly render every non-Latin headline light.
-    for (const path of FALLBACKS) {
-      const font = parseFont(path)
-      expect(font.advance(0x0410), `${path} is missing Cyrillic А`).not.toBeNull()
-    }
-    const [regular, bold] = FALLBACKS.map(parseFont)
-    expect(bold.advance(0x0410)).not.toBeCloseTo(regular.advance(0x0410)!, 1)
+  it('stays within the byte budget the 1 MiB edge limit leaves it', () => {
+    // Not style policing. These routes are Edge Functions and deploy at ~0.977
+    // of a 1 MiB cap, with roughly 36 KiB of brotli headroom for the whole
+    // family — a limit `next build` does not enforce, so it fails at DEPLOY.
+    // A re-subset that quietly grows this file is the most likely way to break
+    // the deploy, and this is the only place that would catch it first.
+    const bytes = readFileSync(`${FONTS}/NotoSans-Regular.ttf`).byteLength
+    expect(bytes).toBeLessThan(40_000)
+  })
+
+  it('ships exactly one fallback weight, as the budget requires', () => {
+    // A second weight cost 121 KB raw and pushed the function over the limit.
+    // If someone adds one back, the size guard above should be the thing that
+    // fails -- but assert the count too, so the reason is legible.
+    expect(FALLBACKS).toHaveLength(1)
   })
 
   it('carries no Latin, so the brand face always wins there', () => {
@@ -260,6 +280,10 @@ describe('fallback face script coverage', () => {
       ['Thai', 0x0e01],
       ['Devanagari', 0x0905],
       ['Misc Symbols (★)', 0x2605],
+      // Dropped to fit the edge limit, not because it is unwanted -- `Đà Nẵng`
+      // draws Đ and à from the brand face but fetches ẵ. Cheapest thing to add
+      // back if the limit ever rises; see the gap section of brand.ts.
+      ['Vietnamese (Latin Ext Additional)', 0x1eb5],
     ]
     for (const [label, cp] of uncovered) {
       expect(
