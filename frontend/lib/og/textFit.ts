@@ -191,6 +191,13 @@ export function measureMono(text: string, fontSize: number, letterSpacing = 0): 
  * beside a 40px mono, which these descent ratios predict as 17px. So the card
  * aligns the boxes explicitly with `flex-end` and lifts the smaller run by the
  * difference in descender depth, which is exactly what that drift is.
+ *
+ * `DESCENT_RATIO.sans` is Satoshi's. A headline drawn from the fallback face
+ * instead — a Cyrillic or Greek city — sits on a deeper descender (0.293 vs
+ * 0.24), so the state pill beside it lands roughly `citySize * 0.05` too high,
+ * about 7px at the largest headline size. Left uncorrected on purpose: fixing it
+ * means threading the resolved face through the fit path, and Satori resolves it
+ * per grapheme, so a mixed-script name has no single answer to thread.
  */
 export function monoBaselineLift(sansSize: number, monoSize: number): number {
   return sansSize * DESCENT_RATIO.sans - monoSize * DESCENT_RATIO.mono

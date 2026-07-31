@@ -74,11 +74,16 @@
  *
  * Measured against production data (4,941 artists, 237 venues, 4,119 upcoming
  * shows, 26 scenes = 25,333 card-bound strings): 10 strings — 0.039% — contained
- * anything outside the Latin subset, and NONE of it was a non-Latin script. It
- * was three decorative symbols in band names (★ U+2605, ♱ U+2671, ‧ U+2027) and
- * five C1 control bytes from double-decoded UTF-8 upstream. So the Greek and
- * Cyrillic coverage below is deliberate HEADROOM for the worldwide expansion,
- * not a response to rows that exist today; the symbol coverage is not.
+ * anything outside the Latin subset, and NONE of it was a non-Latin script. Every
+ * scene, venue and show-title string was already fully covered. The whole of the
+ * miss was three decorative symbols in band names (‧ U+2027, ★ U+2605, ♱ U+2671)
+ * and five C1 control bytes from double-decoded UTF-8 upstream — the latter a
+ * data-quality bug, not a script this card should be designing for.
+ *
+ * So the Greek and Cyrillic coverage below is deliberate HEADROOM for the
+ * worldwide scene table, not a response to rows that exist today. Of the three
+ * symbols, only ‧ falls in a block this subset picks up (General Punctuation);
+ * ★ and ♱ remain uncovered, and are the one gap today's data actually hits.
  *
  * COVERED (no outbound request):
  *   Latin + Latin-1 + Latin Ext-A       Satoshi / Space Mono
@@ -180,8 +185,12 @@ export const OG_FONT_FAMILY = {
  * Deliberately NOT part of `OG_FONT_FAMILY`: nothing should ever set this as a
  * `fontFamily`. It is registered only so Satori's cross-family glyph search can
  * find it, which is what keeps a non-Latin name from becoming a Google Fonts
- * request mid-render. Naming it directly would draw Latin text in Noto Sans and
- * silently take the card off-brand.
+ * request mid-render.
+ *
+ * Setting it as a `fontFamily` would be actively wrong rather than merely
+ * redundant — this face carries no Latin at all, so a card that named it would
+ * resolve its ordinary text through the fallback chain instead of directly, and
+ * every layout budget in `textFit.ts` is keyed to a `SansFace` that this is not.
  */
 const OG_FALLBACK_FAMILY = 'PH Fallback'
 
@@ -260,9 +269,12 @@ async function fetchBrandFonts(): Promise<OgFont[]> {
     fetchFont(new URL('./fonts/NotoSans-Bold.ttf', import.meta.url)),
   ])
 
-  // Order matters. Satori searches the requested family first and then every
-  // other family in THIS order, so the brand faces must precede the fallback —
-  // otherwise a Latin glyph present in both would be drawn in Noto Sans.
+  // Order matters: Satori searches the requested family first and then every
+  // other family in THIS order, so the brand faces must precede the fallback.
+  // Nothing depends on it TODAY — the fallback carries no Latin, so there is no
+  // glyph both could serve — but that is a property of the current subset, not
+  // of the design. Anyone who widens the fallback to overlap Latin would
+  // otherwise silently start drawing brand text in Noto Sans.
   return [
     { name: OG_FONT_FAMILY.sans, data: bold, weight: 700, style: 'normal' },
     { name: OG_FONT_FAMILY.sans, data: medium, weight: 500, style: 'normal' },
