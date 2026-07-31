@@ -12,7 +12,8 @@ import (
 // setupSystemRoutes configures system/infrastructure endpoints
 func setupSystemRoutes(rc RouteContext) {
 	// Liveness: always 200 while the process serves. This is Railway's deploy
-	// healthcheck, so its failure restarts the service.
+	// healthcheck — its failure blocks a new deployment from going live, so a
+	// dependency-aware 503 here would make outages un-deployable.
 	huma.Get(rc.API, "/health", systemh.HealthHandler)
 	huma.Head(rc.API, "/health", systemh.HealthHandler)
 

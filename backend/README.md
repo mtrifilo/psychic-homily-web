@@ -573,10 +573,16 @@ GET|HEAD /health        # liveness  — ALWAYS 200 while the process serves
 GET|HEAD /health/ready  # readiness — 503 when a critical dependency is unreachable
 ```
 
-`/health` is Railway's deploy healthcheck (`railway.toml`), so its failure
-restarts the service. It reports component detail in the body but never in its
-status code. **`/health/ready` is the endpoint uptime monitoring and alerting
-should watch**; nothing restarts on its result.
+`/health` is Railway's **deploy** healthcheck (`railway.toml`). It gates a new
+deployment going live — if it never returns 200 the deployment is marked failed
+and the previous one keeps serving. Railway does **not** poll it after a
+deployment is live, so it is not a runtime monitor and a 503 there would not
+restart anything. What it *would* do is block every deploy for as long as the
+database was down, which is why it reports component detail in the body and
+never in its status code.
+
+**`/health/ready` is the endpoint uptime monitoring and alerting should
+watch**; no deploy is gated on its result.
 
 Both answer GET and HEAD. Use the exact paths — **no trailing slash**
 (`/health/ready/` is a 404, not a redirect).
@@ -585,6 +591,7 @@ Both answer GET and HEAD. Use the exact paths — **no trailing slash**
 
 ```json
 {
+  "$schema": "https://<api host>/schemas/HealthResponseBody.json",
   "status": "healthy",
   "components": {
     "database": { "status": "healthy", "latency": "1.23ms" }
@@ -592,6 +599,10 @@ Both answer GET and HEAD. Use the exact paths — **no trailing slash**
   "timestamp": "2026-01-15T10:30:00Z"
 }
 ```
+
+`$schema` is injected into every response body by Huma's schema-link
+transformer (see `internal/api/routes/routes.go`) — it is part of the wire
+contract, not an artifact of this example.
 
 With the database unreachable, `/health` returns the same shape with
 `"status": "unhealthy"` and **still HTTP 200**; `/health/ready` returns **HTTP
@@ -611,7 +622,7 @@ budget and a 429 pages someone about a healthy service.
 ### Submit Show
 
 ```bash
-POST /show
+POST /shows
 Content-Type: application/json
 ```
 
@@ -635,18 +646,16 @@ Content-Type: application/json
 }
 ```
 
-**Response:**
-
-```json
-{
-  "success": true,
-  "show_id": "1234567890"
-}
-```
+**Response:** the created show, as `contracts.ShowResponse`
+(`internal/api/handlers/catalog/show.go`). Rather than reproduce it here where
+it would drift, read the generated contract in `frontend/types/api.d.ts` under
+`post-shows`, or the OpenAPI document.
 
 > Huma serializes a handler's `Body` field **as** the response body — there is
-> no `{"body": …}` envelope on the wire. Examples in this file show the real
-> wire shape.
+> no `{"body": …}` envelope on the wire, and every body carries an injected
+> `$schema`. Older examples in this file predate that correction; trust
+> `frontend/types/api.d.ts` (generated from the live OpenAPI document) over any
+> hand-written example here.
 
 ## Environment Variables
 
@@ -884,20 +893,33 @@ prefer it over doing this by hand, and treat its defaults as the numbers of
 record rather than restating them here:
 
 ```bash
-scripts/check-volume-headroom.sh production   # run from the repo root
+cd backend && bash ../scripts/check-volume-headroom.sh production
 ```
+
+Run it from `backend/`. The script shells out to the Railway CLI, which resolves
+the project and environment from **the current directory's** link — `backend/`
+is the directory this repo links by convention, and from an unlinked directory
+the script cannot determine anything and exits 3.
 
 | Exit | Meaning | Action |
 | --- | --- | --- |
 | `0` | clears the floor, under the usage threshold | proceed |
 | `1` | **below the floor** — cannot hold the database plus a full WAL cycle | **STOP** — resize before deploying |
 | `2` | clears the floor, usage past the threshold | proceed, but plan a resize |
-| `3` | **could not determine** (missing `psql`/`jq`/`railway`, environment not linkable, volume name mismatch) | **STOP** — an unrun check is not a passed check |
+| `3` | **could not determine** — missing `psql`/`jq`/`railway`, environment not linkable, volume name mismatch, no `DATABASE_PUBLIC_URL`, **or the database is unreachable** | **STOP** — an unrun check is not a passed check, and an unreachable database is itself a finding |
 
-Overhead and threshold are tunable via `VOLUME_CHECK_OVERHEAD_PCT` (default 25)
-and `VOLUME_CHECK_USAGE_PCT` (default 75). Exit 3 deserves the same respect as
-exit 1: it means the volume is *unverified*, which is the state the environment
-was in before the outage.
+Overhead and threshold are tunable via `VOLUME_CHECK_OVERHEAD_PCT` and
+`VOLUME_CHECK_USAGE_PCT`; the script prints the effective values on every run,
+which is the copy to trust. Exit 3 deserves the same respect as exit 1: it means
+the volume is *unverified*, which is the state the environment was in before the
+outage.
+
+**What exit 0 does not cover.** The script computes the floor from
+`pg_database_size` and `max_wal_size` only. If anything is *pinning* WAL — a
+non-zero `wal_keep_size`, or any replication slot, especially an inactive one —
+WAL can grow past `max_wal_size` and the floor understates the requirement. The
+script will still say `0`. Check those by hand when provisioning, with the query
+below.
 
 To inspect the inputs by hand:
 
@@ -924,15 +946,31 @@ Postgres on Railway is a managed service with no config file in this repo, so
 **explicitly**; a default that happens to fit today is not the same as a value
 chosen against the volume.
 
+> **Open question — the mechanism is not recorded yet.** When
+> `check-volume-headroom.sh` fails, it offers two remedies: grow the volume, or
+> lower `max_wal_size`. Only the first is documented anywhere (Railway
+> dashboard; `railway volume update` has no size flag). Nobody has written down
+> how `max_wal_size` is actually set on this Postgres service, or what value it
+> runs today versus what was chosen against the current volume. Until someone
+> does, treat "grow the volume" as the only executable remedy — and be aware
+> that leaves the original misconfiguration (a ceiling inherited by default
+> rather than chosen against the disk) in place.
+
 ### What watches what
 
-**In this repo — verifiable from code:**
+**Automatic — runs without anyone remembering:**
 
 | Signal | Watched by | On failure |
 | --- | --- | --- |
-| Process alive | Railway deploy healthcheck → `/health` (`railway.toml`) | Restarts the service |
+| New deployment can serve | Railway deploy healthcheck → `/health` (`railway.toml`) | Fails the deploy; previous version keeps serving |
 | Background sweeps running | `sweep_health_check` → Sentry | Pages a human |
-| Volume floor + usage | `scripts/check-volume-headroom.sh`, run in the deploy preflight | Blocks the deploy |
+
+**Manual — in this repo, but only runs if a human runs it. Nothing in CI or any
+deploy pipeline invokes this:**
+
+| Signal | Tool | On failure |
+| --- | --- | --- |
+| Volume floor + usage | `scripts/check-volume-headroom.sh` | Blocks the deploy **only if someone ran it** |
 
 **Configured OUTSIDE this repo — nothing here can verify these are live. If you
 are reading this during an incident and wondering why nobody was paged, check

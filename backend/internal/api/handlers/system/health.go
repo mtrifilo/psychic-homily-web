@@ -16,9 +16,15 @@ import (
 // appear in the OpenAPI doc tags below and in every consumer's alert rule — so
 // they live here as constants rather than as literals repeated across handlers
 // and tests.
+//
+// There is deliberately no "degraded": overallStatus derives the summary by
+// matching healthy and treating everything else as unhealthy, so no code path
+// could emit it. Publishing a status the API cannot produce would give
+// consumers an alert rule that never fires. Add it together with the
+// critical/non-critical classification that would make it reachable, not
+// before.
 const (
 	statusHealthy   = "healthy"
-	statusDegraded  = "degraded"
 	statusUnhealthy = "unhealthy"
 )
 
@@ -36,7 +42,9 @@ const (
 // A hung dependency is not a hypothetical failure mode here: it is the observed
 // shape of the outage this endpoint was built for, where TCP and TLS connected
 // in ~60ms and no HTTP response ever came.
-const databaseProbeTimeout = 2 * time.Second
+// A var, not a const, solely so tests can shorten it — nothing in production
+// reassigns it.
+var databaseProbeTimeout = 2 * time.Second
 
 // ComponentHealth represents the health status of a single component
 type ComponentHealth struct {
@@ -48,7 +56,7 @@ type ComponentHealth struct {
 // HealthResponse represents the health check response
 type HealthResponse struct {
 	Body struct {
-		Status     string                     `json:"status" example:"healthy" doc:"Overall health status: healthy, degraded, unhealthy"`
+		Status     string                     `json:"status" example:"healthy" doc:"Overall health status: healthy, unhealthy"`
 		Components map[string]ComponentHealth `json:"components" doc:"Health status of individual components"`
 		Timestamp  string                     `json:"timestamp" example:"2024-01-15T10:30:00Z" doc:"Time of health check"`
 	}
@@ -56,21 +64,26 @@ type HealthResponse struct {
 
 // LIVENESS vs READINESS — the split is load-bearing, do not collapse it.
 //
-// /health is Railway's deploy healthcheck (backend/railway.toml: healthcheckPath
-// = "/health", restartPolicyType = "on_failure"). It answers "is this process
-// alive?" and therefore ALWAYS returns 200 while the process is serving, even
-// when it reports a dependency as unhealthy in the body.
+// /health is the platform's DEPLOY healthcheck (backend/railway.toml:
+// healthcheckPath = "/health"). It answers "is this process alive?" and
+// therefore ALWAYS returns 200 while the process is serving, even when it
+// reports a dependency as unhealthy in the body.
 //
-// That looks like a bug and is not. Making /health return 503 when the database
-// is unreachable would hand Railway a reason to restart the backend during a
-// database outage, up to restartPolicyMaxRetries, and then mark the deploy
-// failed — converting "API up, database down" into "nothing up at all". A
-// prolonged database outage would take the API down with it and remove the one
-// surface still able to serve cached reads.
+// That looks like a bug and is not. A deploy healthcheck gates a NEW deployment
+// going live: if it never returns 200 the deployment is marked failed and the
+// previous one keeps serving. It is not polled after a deployment is live, so a
+// 503 here would not restart or replace a running process — the failure mode is
+// different and worse than it first appears.
+//
+// If /health returned 503 whenever the database was unreachable, then during a
+// database outage EVERY new deployment would fail its healthcheck and never go
+// live. You would be unable to ship anything — including the fix for the outage
+// — for exactly as long as the outage lasted. Deploys would be blocked at the
+// moment deploying matters most.
 //
 // /health/ready answers the different question — "can this process actually do
 // its job?" — and returns 503 when it cannot. That is the endpoint uptime
-// monitoring and alerting should watch. Nothing restarts on its result.
+// monitoring and alerting should watch. Nothing gates a deploy on its result.
 //
 // If you are here because a monitor reported 200 during an outage: point the
 // monitor at /health/ready. Do not change /health.
@@ -89,15 +102,9 @@ func HealthHandler(ctx context.Context, input *struct{}) (*HealthResponse, error
 // provide. The healthy body is identical to /health's so the two can be diffed.
 func ReadinessHandler(ctx context.Context, input *struct{}) (*HealthResponse, error) {
 	resp := buildHealthResponse(ctx)
-	if resp.Body.Status == statusUnhealthy {
+	if resp.Body.Status != statusHealthy {
 		return nil, huma.Error503ServiceUnavailable("not ready: " + unhealthyDetail(resp))
 	}
-	// statusDegraded stays READY on purpose: it means a NON-critical component is
-	// down, and the process can still do its job. Taking readiness away for it
-	// would page someone (and, wherever readiness gates traffic, shed it) over a
-	// failure the service is designed to absorb. A component whose loss should
-	// fail readiness is critical by definition and belongs in the statusUnhealthy
-	// branch above.
 	return resp, nil
 }
 
@@ -133,17 +140,35 @@ func buildHealthResponse(ctx context.Context) *HealthResponse {
 	dbHealth := checkDatabaseHealth(ctx)
 	resp.Body.Components["database"] = dbHealth
 
-	// Determine overall status based on component health
-	// - healthy: all components healthy
-	// - degraded: some non-critical components unhealthy (none currently)
-	// - unhealthy: critical components (database) unhealthy
-	if dbHealth.Status == statusHealthy {
-		resp.Body.Status = statusHealthy
-	} else {
-		resp.Body.Status = statusUnhealthy
-	}
+	resp.Body.Status = overallStatus(resp.Body.Components)
 
 	return resp
+}
+
+// overallStatus summarises the component map.
+//
+// The polarity is the point: it matches HEALTHY and treats everything else as
+// unhealthy, rather than matching "unhealthy" and defaulting to healthy. Those
+// are equivalent for the statuses we emit today and differ for any status
+// neither branch anticipated — a typo, a new component reporting its own
+// vocabulary, a zero value from an uninitialised struct. A monitoring endpoint
+// must fail CLOSED on a status it does not recognise; reporting "healthy"
+// because a value was unfamiliar is how a monitor goes quiet during an outage.
+//
+// Split out from buildHealthResponse so this can be tested against inputs the
+// live dependency check cannot produce.
+func overallStatus(components map[string]ComponentHealth) string {
+	// No components means nothing was actually checked. Reporting healthy would
+	// assert a fact never established — the same fail-open shape, one level up.
+	if len(components) == 0 {
+		return statusUnhealthy
+	}
+	for _, c := range components {
+		if c.Status != statusHealthy {
+			return statusUnhealthy
+		}
+	}
+	return statusHealthy
 }
 
 // checkDatabaseHealth verifies database connectivity.

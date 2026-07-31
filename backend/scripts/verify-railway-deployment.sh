@@ -26,11 +26,12 @@ echo ""
 #
 # Deliberately /health/ready and NOT /health. /health is a liveness probe: it
 # returns 200 whenever the process is serving, even with the database
-# unreachable, because Railway restarts the service when it fails. Verifying a
+# unreachable, so that a dependency outage cannot block deployments. Verifying a
 # deployment against it therefore proves only "a process is listening" — which
 # is precisely how a total database outage passed verification before.
 #
-# Nothing restarts on /health/ready's result, so it is safe to gate on here.
+# This script is run by a human after a deploy; no platform behaviour is gated
+# on its result, so it is safe to assert the stricter signal here.
 echo "1. Testing readiness endpoint..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/health/ready")
 if [ "$HTTP_CODE" = "200" ]; then

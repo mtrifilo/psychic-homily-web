@@ -43,10 +43,10 @@ func TestHealthHandler_DBNotInitialized(t *testing.T) {
 }
 
 // TestHealthHandler_StaysLiveWhenDatabaseIsDown pins the liveness contract
-// against a well-meaning "fix". /health is Railway's deploy healthcheck with
-// restartPolicyType = "on_failure", so returning a StatusError here would make
-// Railway restart the backend during a database outage and then fail the
-// deploy — taking down the one surface still able to serve cached reads.
+// against a well-meaning "fix". /health is the platform's DEPLOY healthcheck,
+// so returning a StatusError here would fail every new deployment for as long
+// as the database was down — you could not ship the fix for an outage during
+// the outage.
 //
 // The unhealthy signal belongs in the body (asserted above) and in
 // /health/ready's status code, never in this handler's error return.
@@ -113,25 +113,41 @@ func TestUnhealthyDetail_NamesEveryFailingComponent(t *testing.T) {
 	}
 }
 
-// TestBuildHealthResponse_UnknownComponentStatusFailsClosed pins the polarity.
-// The overall status is derived by matching HEALTHY and defaulting everything
-// else to unhealthy — not by matching "unhealthy" and defaulting to healthy.
-// The difference only shows up for a status neither branch anticipated, which
-// is exactly when a monitoring endpoint must not report success.
-func TestBuildHealthResponse_UnknownComponentStatusFailsClosed(t *testing.T) {
-	if statusHealthy == statusDegraded || statusHealthy == statusUnhealthy {
-		t.Fatal("status constants must be distinct")
+// TestOverallStatus_FailsClosed pins the polarity against inputs the live
+// dependency check cannot produce.
+//
+// This matters because the obvious alternative — match "unhealthy", default to
+// healthy — is indistinguishable from the correct version for the two statuses
+// we actually emit. It only diverges on an UNRECOGNISED status, so a test that
+// feeds it recognised values passes under both polarities and guards nothing.
+func TestOverallStatus_FailsClosed(t *testing.T) {
+	cases := []struct {
+		name       string
+		components map[string]ComponentHealth
+		want       string
+	}{
+		{"all healthy", map[string]ComponentHealth{"database": {Status: statusHealthy}}, statusHealthy},
+		{"unhealthy", map[string]ComponentHealth{"database": {Status: statusUnhealthy}}, statusUnhealthy},
+		// The cases that distinguish the two polarities:
+		{"unrecognised status", map[string]ComponentHealth{"database": {Status: "degraded"}}, statusUnhealthy},
+		{"empty status", map[string]ComponentHealth{"database": {Status: ""}}, statusUnhealthy},
+		{"typo", map[string]ComponentHealth{"database": {Status: "helthy"}}, statusUnhealthy},
+		{"one bad among many", map[string]ComponentHealth{
+			"database": {Status: statusHealthy},
+			"cache":    {Status: "who knows"},
+		}, statusUnhealthy},
+		// No components means nothing was checked. Reporting healthy there
+		// would be asserting a fact never established.
+		{"no components", map[string]ComponentHealth{}, statusUnhealthy},
+		{"nil components", nil, statusUnhealthy},
 	}
 
-	prev := db.DB
-	db.DB = nil
-	t.Cleanup(func() { db.DB = prev })
-
-	// A nil handle yields statusUnhealthy, which is neither healthy nor a
-	// status the readiness branch special-cases.
-	resp := buildHealthResponse(context.Background())
-	if resp.Body.Status == statusHealthy {
-		t.Error("overall status must not be healthy when a component is not healthy")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := overallStatus(tc.components); got != tc.want {
+				t.Errorf("overallStatus = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

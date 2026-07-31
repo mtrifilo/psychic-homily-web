@@ -119,6 +119,7 @@ scripts/test-runner/test-runner
 
 # Local-only skill (not ready to share)
 .claude/skills/psy-ticket/
+.claude/skills/psy-deploy-prod/
 
 # Playwright blob-reporter output (CI-only reporter; local artifacts)
 frontend/blob-report/

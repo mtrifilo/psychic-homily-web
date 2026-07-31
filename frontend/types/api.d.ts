@@ -12169,7 +12169,7 @@ export interface components {
                 [key: string]: components["schemas"]["ComponentHealth"];
             };
             /**
-             * @description Overall health status: healthy, degraded, unhealthy
+             * @description Overall health status: healthy, unhealthy
              * @example healthy
              */
             status: string;

@@ -5,14 +5,17 @@ dockerfilePath = "Dockerfile"
 [deploy]
 # LIVENESS ONLY — do NOT point this at /health/ready.
 #
+# This gates a NEW deployment going live: if it never returns 200 the deploy is
+# marked failed and the previous deployment keeps serving. Railway does not poll
+# it once a deployment is live, so it is not a runtime monitor.
+#
 # /health returns 200 whenever the process is serving, even with the database
-# down. That is deliberate: restartPolicyType below means a failing healthcheck
-# RESTARTS the service, so a readiness-style 503 here would restart the backend
-# during a database outage and then fail the deploy — turning "API up, database
-# down" into "nothing up at all".
+# down, and that is deliberate. Pointing this at a readiness-style 503 would
+# make every deployment fail for as long as a dependency was down — you could
+# not ship the fix for an outage during the outage.
 #
 # /health/ready is the 503-on-dependency-failure endpoint. It is for external
-# uptime monitoring, which pages a human and restarts nothing.
+# uptime monitoring, which pages a human and gates no deploy.
 # See internal/api/handlers/system/health.go.
 healthcheckPath = "/health"
 healthcheckTimeout = 120

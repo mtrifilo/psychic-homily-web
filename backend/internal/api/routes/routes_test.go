@@ -362,10 +362,11 @@ func TestSetupSystemRoutes(t *testing.T) {
 					http.StatusOK, livenessW.Code)
 			}
 
-			// Go discards the body for HEAD, so only GET can assert content.
-			if method != "GET" {
-				return
-			}
+			// Body suppression for HEAD happens in net/http's response
+			// writer, NOT in httptest.ResponseRecorder — the recorder holds
+			// the full body for both methods. So these assertions cover the
+			// content shape the handler produces on both paths; they do not
+			// describe what a real HEAD response puts on the wire.
 			if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/problem+json") {
 				t.Errorf("Expected a problem+json error body, got Content-Type %q", ct)
 			}
