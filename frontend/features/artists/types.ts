@@ -6,6 +6,7 @@
  */
 
 import { formatLocation } from '@/lib/formatLocation'
+import type { EntityReportResponse } from '@/features/contributions/types'
 
 export interface ArtistSocial {
   instagram: string | null
@@ -183,47 +184,17 @@ export interface ArtistShowsResponse {
  */
 export type ArtistTimeFilter = 'upcoming' | 'past' | 'all'
 
-// Artist report types
-export type ArtistReportType = 'inaccurate' | 'removal_request'
-export type ArtistReportStatus = 'pending' | 'dismissed' | 'resolved'
-
-// Artist info for report responses
-export interface ArtistReportArtistInfo {
-  id: number
-  name: string
-  slug: string
-}
-
-// Artist report response
-export interface ArtistReportResponse {
-  id: number
-  artist_id: number
-  report_type: ArtistReportType
-  details?: string | null
-  status: ArtistReportStatus
-  admin_notes?: string | null
-  reviewed_by?: number | null
-  reviewed_at?: string | null
-  created_at: string
-  updated_at: string
-  artist?: ArtistReportArtistInfo
-}
-
-// Request to create an artist report
-export interface CreateArtistReportRequest {
-  report_type: ArtistReportType
-  details?: string
-}
-
-// Response for my-report endpoint
+/**
+ * Response for `GET /artists/{id}/my-report`.
+ *
+ * PSY-1633: artists have no report shape of their own any more. Reporting an
+ * artist goes through the generic entity pipeline (`useReportEntity`), lands in
+ * `entity_reports`, and comes back as an `EntityReportResponse` — which is what
+ * the endpoint had been returning all along while this feature's types claimed
+ * an `artist_id`/`report_type` shape that no longer existed on the wire.
+ */
 export interface MyArtistReportResponse {
-  report: ArtistReportResponse | null
-}
-
-// Response for admin artist reports list
-export interface ArtistReportsListResponse {
-  reports: ArtistReportResponse[]
-  total: number
+  report: EntityReportResponse | null
 }
 
 // Artist alias

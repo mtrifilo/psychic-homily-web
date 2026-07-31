@@ -19,6 +19,13 @@ type EntityReportServiceInterface interface {
 	// GetEntityReports returns all reports for a specific entity.
 	GetEntityReports(entityType string, entityID uint) ([]EntityReportResponse, error)
 
+	// GetUserPendingReport returns the caller's own PENDING report for an
+	// entity, or nil when they have none. It answers exactly one question —
+	// "would my next report be rejected as a duplicate?" — so it must stay
+	// aligned with CreateEntityReport's duplicate rule, which only rejects
+	// while a prior report is still pending.
+	GetUserPendingReport(userID uint, entityType string, entityID uint) (*EntityReportResponse, error)
+
 	// ListEntityReports returns reports for the admin review queue.
 	ListEntityReports(filters *EntityReportFilters) ([]EntityReportResponse, int64, error)
 

@@ -7,10 +7,7 @@ export {
 
 export { useArtistSearch, artistSearchQueryOptions } from './useArtistSearch'
 
-export {
-  useMyArtistReport,
-  useReportArtist,
-} from './useArtistReports'
+export { useMyArtistReport } from './useArtistReports'
 
 export {
   useArtistGraph,

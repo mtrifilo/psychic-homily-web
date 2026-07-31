@@ -30,8 +30,12 @@ export const artistEndpoints = {
       `${API_BASE_URL}/artists/relationships/${sourceId}/${targetId}/vote`,
   },
   DELETE: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}`,
-  REPORT: (artistId: string | number) =>
-    `${API_BASE_URL}/artists/${artistId}/report`,
+  /**
+   * The caller's own pending report for an artist. Submitting one goes through
+   * `useReportEntity` (POST /artists/{id}/report) rather than an artist-specific
+   * endpoint — PSY-1633 consolidated artist reports onto the entity pipeline, so
+   * there is no artist-only REPORT endpoint here to drift out of sync with it.
+   */
   MY_REPORT: (artistId: string | number) =>
     `${API_BASE_URL}/artists/${artistId}/my-report`,
 } as const

@@ -46,36 +46,18 @@ func setupShowReportRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/admin/reports/{report_id}/resolve", showReportHandler.ResolveReportHandler)
 }
 
-// setupArtistReportRoutes configures artist report endpoints
-func setupArtistReportRoutes(rc RouteContext) {
-	artistReportHandler := communityh.NewArtistReportHandler(rc.SC.ArtistReport, rc.SC.Discord, rc.SC.User, rc.SC.AuditLog)
-
-	// Rate-limited report submission: 5 requests per minute per IP
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(
-			middleware.ReportRequestsPerMinute,
-			time.Minute,
-			httprate.WithKeyFuncs(middleware.KeyByClientIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		))
-		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Artist Reports"))
-		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
-		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
-		huma.Post(reportAPI, "/artists/{artist_id}/report", artistReportHandler.ReportArtistHandler)
-	})
-
-	// Protected report endpoints (no additional rate limiting)
-	huma.Get(rc.Protected, "/artists/{artist_id}/my-report", artistReportHandler.GetMyArtistReportHandler)
-
-	// Admin endpoints for managing artist reports (PSY-423: rc.Admin enforces auth + IsAdmin)
-	huma.Get(rc.Admin, "/admin/artist-reports", artistReportHandler.GetPendingArtistReportsHandler)
-	huma.Post(rc.Admin, "/admin/artist-reports/{report_id}/dismiss", artistReportHandler.DismissArtistReportHandler)
-	huma.Post(rc.Admin, "/admin/artist-reports/{report_id}/resolve", artistReportHandler.ResolveArtistReportHandler)
-}
-
 // setupEntityReportRoutes configures entity report endpoints.
-// Protected endpoints for submitting reports.
+// Protected endpoints for submitting and reading back reports.
 // Admin endpoints for reviewing, resolving, and dismissing reports.
+//
+// Artists have no dedicated report surface: PSY-1633 folded the former
+// artist_reports pipeline (POST /artists/{artist_id}/report, its my-report
+// sibling, and the /admin/artist-reports queue) into this one. It had to go
+// somewhere — chi keys its routing tree on path SHAPE, not on parameter name,
+// so `/artists/{artist_id}/report` and `/artists/{entity_id}/report` were one
+// route with two claimants and the later registration silently won. Reports
+// therefore landed in entity_reports while the read-back and admin queue still
+// searched artist_reports, and neither ever found them.
 func setupEntityReportRoutes(rc RouteContext) {
 	entityReportHandler := communityh.NewEntityReportHandler(rc.SC.EntityReport, rc.SC.AuditLog)
 
@@ -110,6 +92,9 @@ func setupEntityReportRoutes(rc RouteContext) {
 		// moderation queue deep-links via the resolved slug.
 		huma.Post(reportAPI, "/labels/{entity_id}/report", entityReportHandler.ReportLabelHandler)
 	})
+
+	// Read back the caller's own pending report (no additional rate limiting).
+	huma.Get(rc.Protected, "/artists/{entity_id}/my-report", entityReportHandler.GetMyArtistReportHandler)
 
 	// Admin: entity report management (PSY-423: rc.Admin enforces auth + IsAdmin)
 	huma.Get(rc.Admin, "/admin/entity-reports", entityReportHandler.AdminListEntityReportsHandler)

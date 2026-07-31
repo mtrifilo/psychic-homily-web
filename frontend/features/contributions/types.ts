@@ -1,3 +1,5 @@
+import type { components } from '@/types/api'
+
 // ──────────────────────────────────────────────
 // Data Quality / Contribution Opportunities
 // ──────────────────────────────────────────────
@@ -196,6 +198,22 @@ export function validateUrlField(value: string): string | null {
 }
 
 export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection' | 'release' | 'label'
+
+/**
+ * A row in `entity_reports` — the ONE table every entity report round-trips
+ * through, whatever the entity type.
+ *
+ * Aliased from the generated OpenAPI types, not hand-written (PSY-1550/1600):
+ * the reporter's read-back and the moderation queue must not be able to drift
+ * apart, and generating both from the spec enforces that structurally rather
+ * than by discipline. Regenerate with `bun run api:types`.
+ *
+ * PSY-1633 folded the last per-entity report shape (`ArtistReportResponse`,
+ * keyed on `artist_id`) into this one, after the artist route turned out to be
+ * answering with this shape all along.
+ */
+export type EntityReportResponse =
+  components['schemas']['EntityReportResponse']
 
 export interface ReportTypeOption {
   value: string

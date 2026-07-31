@@ -8,7 +8,6 @@ var (
 	_ contracts.AuditLogServiceInterface      = (*AuditLogService)(nil)
 	_ contracts.DataSyncServiceInterface      = (*DataSyncService)(nil)
 	_ contracts.ShowReportServiceInterface    = (*ShowReportService)(nil)
-	_ contracts.ArtistReportServiceInterface  = (*ArtistReportService)(nil)
 	_ contracts.APITokenServiceInterface      = (*APITokenService)(nil)
 	_ contracts.RevisionServiceInterface      = (*RevisionService)(nil)
 	_ contracts.DataQualityServiceInterface   = (*DataQualityService)(nil)

@@ -678,8 +678,8 @@ func TestSubAPIOperationsAreAbsentFromSpec(t *testing.T) {
 		t.Fatalf("parse spec: %v", err)
 	}
 
-	// Shrinks as groups graduate. Only the REPORT groups remain on their own
-	// humachi.New instances:
+	// Shrinks as groups graduate. Only the entity-report SUBMIT group remains on
+	// its own humachi.New instance:
 	//
 	//   step 2 — shows + tags   → TestShowsAndTagsOperationsAreInMainSpec
 	//   step 3 — auth + passkey → TestAuthOperationsAreInMainSpec
@@ -687,14 +687,14 @@ func TestSubAPIOperationsAreAbsentFromSpec(t *testing.T) {
 	// Those tests pin presence AND the limiter/bypass behaviour each move had to
 	// preserve, which is the coverage this characterization test hands off to.
 	//
-	// The reports are blocked on PSY-1633, not merely un-done. `/artists/{artist_id}/report`
-	// is absent from ROUTING too, not just the spec: setupEntityReportRoutes registers
-	// the same chi pattern with a different param name (`{entity_id}`) and chi silently
-	// keeps only the later one. Converting the report groups before that is resolved
-	// would publish both paths while chi still serves one — making the contract actively
-	// wrong rather than merely incomplete, which is the opposite of PSY-1598's goal.
+	// PSY-1633 cleared the blocker that kept this group off the main API: there
+	// used to be TWO registrations of the artist report path with different
+	// parameter names, so publishing both would have described a contract chi
+	// could not serve. There is now one route per path — `/artists/{entity_id}/report`,
+	// asserted in TestArtistReportRoutesAreRegisteredOnce — so this group is
+	// merely un-converted, not blocked. Converting it is PSY-1598's remaining step.
 	for _, path := range []string{
-		"/artists/{artist_id}/report",
+		"/artists/{entity_id}/report",
 		"/venues/{entity_id}/report",
 	} {
 		if _, ok := spec.Paths[path]; ok {

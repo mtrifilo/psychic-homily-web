@@ -1,23 +1,12 @@
 import { useMutation } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
-import type { ReportableEntityType } from '../types'
+import type { EntityReportResponse, ReportableEntityType } from '../types'
 
 interface ReportEntityInput {
   entityType: ReportableEntityType
   entityId: number
   reportType: string
   details?: string
-}
-
-interface ReportEntityResponse {
-  success: boolean
-  report?: {
-    id: number
-    entity_type: string
-    entity_id: number
-    report_type: string
-    status: string
-  }
 }
 
 /**
@@ -65,11 +54,11 @@ export const useReportEntity = () => {
       entityId,
       reportType,
       details,
-    }: ReportEntityInput): Promise<ReportEntityResponse> => {
+    }: ReportEntityInput): Promise<EntityReportResponse> => {
       const pluralType = REPORT_PLURAL[entityType]
       const suffix = REPORT_SUFFIX[entityType]
 
-      return apiRequest<ReportEntityResponse>(
+      return apiRequest<EntityReportResponse>(
         `${API_BASE_URL}/${pluralType}/${entityId}/${suffix}`,
         {
           method: 'POST',

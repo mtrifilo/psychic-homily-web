@@ -2,7 +2,6 @@
 
 import { useUnverifiedVenues } from './useAdminVenues'
 import { usePendingReports } from './useAdminReports'
-import { usePendingArtistReports } from './useAdminArtistReports'
 import { usePendingShows } from './useAdminShows'
 import { useAdminPendingEdits } from './useAdminPendingEdits'
 import { useAdminEntityReports } from './useAdminEntityReports'
@@ -38,7 +37,6 @@ export function useAdminNavCounts({ enabled }: { enabled: boolean }): AdminNavCo
   const { data: pendingShowsData } = usePendingShows({ enabled })
   const { data: unverifiedVenuesData } = useUnverifiedVenues({ enabled })
   const { data: reportsData } = usePendingReports({ enabled })
-  const { data: artistReportsData } = usePendingArtistReports({ enabled })
   const { data: pendingEditsData } = useAdminPendingEdits({ status: 'pending', enabled })
   const { data: entityReportsData } = useAdminEntityReports({ status: 'pending', enabled })
   const { data: pendingCommentsData } = useAdminPendingComments(25, 0, { enabled })
@@ -52,6 +50,6 @@ export function useAdminNavCounts({ enabled }: { enabled: boolean }): AdminNavCo
       (entityRequestsData?.total || 0),
     pendingShows: pendingShowsData?.total || 0,
     unverifiedVenues: unverifiedVenuesData?.total || 0,
-    reports: (reportsData?.total || 0) + (artistReportsData?.total || 0),
+    reports: reportsData?.total || 0,
   }
 }

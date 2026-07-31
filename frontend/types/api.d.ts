@@ -106,57 +106,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/artist-reports": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get admin artist reports */
-        get: operations["get-admin-artist-reports"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/artist-reports/{report_id}/dismiss": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Post admin artist reports by report ID dismiss */
-        post: operations["post-admin-artist-reports-by-report-id-dismiss"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/artist-reports/{report_id}/resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Post admin artist reports by report ID resolve */
-        post: operations["post-admin-artist-reports-by-report-id-resolve"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin/artists": {
         parameters: {
             query?: never;
@@ -2067,23 +2016,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/artists/{artist_id}/my-report": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get artists by artist ID my report */
-        get: operations["get-artists-by-artist-id-my-report"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/artists/{artist_id}/related": {
         parameters: {
             query?: never;
@@ -2144,6 +2076,23 @@ export interface paths {
         };
         /** Get artists by artist ID shows */
         get: operations["get-artists-by-artist-id-shows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/artists/{entity_id}/my-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get artists by entity ID my report */
+        get: operations["get-artists-by-entity-id-my-report"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7853,36 +7802,6 @@ export interface components {
             slug: string;
             title: string;
         };
-        ArtistReportArtistInfo: {
-            /** Format: int64 */
-            id: number;
-            name: string;
-            slug: string;
-        };
-        ArtistReportResponse: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ArtistReportResponse.json
-             */
-            readonly $schema?: string;
-            admin_notes?: string;
-            artist?: components["schemas"]["ArtistReportArtistInfo"];
-            /** Format: int64 */
-            artist_id: number;
-            /** Format: date-time */
-            created_at: string;
-            details: string | null;
-            /** Format: int64 */
-            id: number;
-            report_type: string;
-            reviewed_at?: string;
-            /** Format: int64 */
-            reviewed_by?: number;
-            status: string;
-            /** Format: date-time */
-            updated_at: string;
-        };
         ArtistResponse: {
             bandcamp_embed_url: string | null;
             city: string | null;
@@ -10039,16 +9958,6 @@ export interface components {
             };
             PropertyName: string;
         };
-        DismissArtistReportRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/DismissArtistReportRequestBody.json
-             */
-            readonly $schema?: string;
-            /** @description Optional admin notes about the dismissal */
-            notes: string | null;
-        };
         DismissReportRequestBody: {
             /**
              * Format: uri
@@ -11457,14 +11366,14 @@ export interface components {
             total: number;
             window: string;
         };
-        GetMyArtistReportResponseBody: {
+        GetMyEntityReportResponseBody: {
             /**
              * Format: uri
              * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetMyArtistReportResponseBody.json
+             * @example https://example.com/schemas/GetMyEntityReportResponseBody.json
              */
             readonly $schema?: string;
-            report: components["schemas"]["ArtistReportResponse"];
+            report: components["schemas"]["EntityReportResponse"];
         };
         GetMyFollowingResponseBody: {
             /**
@@ -11633,17 +11542,6 @@ export interface components {
              */
             readonly $schema?: string;
             sections: components["schemas"]["ProfileSectionResponse"][] | null;
-        };
-        GetPendingArtistReportsResponseBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/GetPendingArtistReportsResponseBody.json
-             */
-            readonly $schema?: string;
-            reports: components["schemas"]["ArtistReportResponse"][] | null;
-            /** Format: int64 */
-            total: number;
         };
         GetPendingReportsResponseBody: {
             /**
@@ -14372,16 +14270,6 @@ export interface components {
             vote_score: number;
             /** Format: double */
             wilson_score: number;
-        };
-        ResolveArtistReportRequestBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/schemas/ResolveArtistReportRequestBody.json
-             */
-            readonly $schema?: string;
-            /** @description Optional admin notes about the resolution */
-            notes: string | null;
         };
         ResolveCollectionItemEntry: {
             entity_type: string;
@@ -17204,112 +17092,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeriveRelationshipsResponseBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "get-admin-artist-reports": {
-        parameters: {
-            query?: {
-                /** @description Number of reports to return (max 100) */
-                limit?: number;
-                /** @description Offset for pagination */
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GetPendingArtistReportsResponseBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "post-admin-artist-reports-by-report-id-dismiss": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Report ID */
-                report_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DismissArtistReportRequestBody"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtistReportResponse"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "post-admin-artist-reports-by-report-id-resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Report ID */
-                report_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResolveArtistReportRequestBody"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtistReportResponse"];
                 };
             };
             /** @description Error */
@@ -21540,38 +21322,6 @@ export interface operations {
             };
         };
     };
-    "get-artists-by-artist-id-my-report": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Artist ID */
-                artist_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GetMyArtistReportResponseBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
     "get-artists-by-artist-id-related": {
         parameters: {
             query?: {
@@ -21725,6 +21475,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetArtistShowsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-artists-by-entity-id-my-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetMyEntityReportResponseBody"];
                 };
             };
             /** @description Error */

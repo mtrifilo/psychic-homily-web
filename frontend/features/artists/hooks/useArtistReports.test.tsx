@@ -1,11 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
+import { renderHook, waitFor } from '@testing-library/react'
 import { createWrapper } from '@/test/utils'
-import type { ArtistReportResponse } from '@/features/artists'
 
 // Create mocks
 const mockApiRequest = vi.fn()
-const mockInvalidateArtistReports = vi.fn()
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -16,7 +14,6 @@ vi.mock('@/lib/api', () => ({
 // Mock the feature api module
 vi.mock('@/features/artists/api', () => ({
   artistEndpoints: {
-    REPORT: (artistId: string | number) => `/artists/${artistId}/report`,
     MY_REPORT: (artistId: string | number) => `/artists/${artistId}/my-report`,
   },
 }))
@@ -29,13 +26,10 @@ vi.mock('@/lib/queryClient', () => ({
         ['artistReports', 'myReport', String(artistId)],
     },
   },
-  createInvalidateQueries: () => ({
-    artistReports: mockInvalidateArtistReports,
-  }),
 }))
 
 // Import hooks after mocks are set up
-import { useMyArtistReport, useReportArtist } from './useArtistReports'
+import { useMyArtistReport } from './useArtistReports'
 
 describe('useMyArtistReport', () => {
   beforeEach(() => {
@@ -43,16 +37,22 @@ describe('useMyArtistReport', () => {
     mockApiRequest.mockReset()
   })
 
-  it('fetches the user\'s existing report for an artist', async () => {
+  it("fetches the user's existing report for an artist", async () => {
+    // PSY-1633: the endpoint answers with the ENTITY report shape
+    // (entity_type / entity_id), not the retired artist_id shape.
     const mockResponse = {
       report: {
         id: 1,
-        artist_id: 42,
+        entity_type: 'artist',
+        entity_id: 42,
+        entity_name: 'Test Artist',
+        entity_slug: 'test-artist',
+        reported_by: 7,
+        reporter_username: null,
         report_type: 'inaccurate',
         details: 'Wrong city listed',
         status: 'pending',
         created_at: '2025-03-01T00:00:00Z',
-        updated_at: '2025-03-01T00:00:00Z',
       },
     }
     mockApiRequest.mockResolvedValueOnce(mockResponse)
@@ -66,6 +66,8 @@ describe('useMyArtistReport', () => {
     expect(mockApiRequest).toHaveBeenCalledWith('/artists/42/my-report', {
       method: 'GET',
     })
+    expect(result.current.data?.report?.entity_type).toBe('artist')
+    expect(result.current.data?.report?.entity_id).toBe(42)
   })
 
   it('returns null report when user has not reported', async () => {
@@ -125,139 +127,5 @@ describe('useMyArtistReport', () => {
 
     expect(mockApiRequest).not.toHaveBeenCalled()
     expect(result.current.fetchStatus).toBe('idle')
-  })
-})
-
-describe('useReportArtist', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-    mockInvalidateArtistReports.mockReset()
-  })
-
-  it('creates a report and invalidates queries', async () => {
-    const mockResponse = {
-      id: 10,
-      artist_id: 42,
-      report_type: 'inaccurate',
-      details: 'Wrong social links',
-      status: 'pending',
-      created_at: '2025-03-15T00:00:00Z',
-      updated_at: '2025-03-15T00:00:00Z',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useReportArtist(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      await result.current.mutateAsync({
-        artistId: 42,
-        reportType: 'inaccurate',
-        details: 'Wrong social links',
-      })
-    })
-
-    expect(mockApiRequest).toHaveBeenCalledWith('/artists/42/report', {
-      method: 'POST',
-      body: JSON.stringify({
-        report_type: 'inaccurate',
-        details: 'Wrong social links',
-      }),
-    })
-    expect(mockInvalidateArtistReports).toHaveBeenCalled()
-  })
-
-  it('creates a report without details', async () => {
-    const mockResponse: ArtistReportResponse = {
-      id: 11,
-      artist_id: 42,
-      report_type: 'removal_request',
-      details: null,
-      status: 'pending',
-      created_at: '2025-03-15T00:00:00Z',
-      updated_at: '2025-03-15T00:00:00Z',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useReportArtist(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      await result.current.mutateAsync({
-        artistId: 42,
-        reportType: 'removal_request',
-      })
-    })
-
-    expect(mockApiRequest).toHaveBeenCalledWith('/artists/42/report', {
-      method: 'POST',
-      body: JSON.stringify({
-        report_type: 'removal_request',
-        details: null,
-      }),
-    })
-  })
-
-  it('handles duplicate report error', async () => {
-    const error = new Error('You have already reported this artist')
-    Object.assign(error, { status: 409 })
-    mockApiRequest.mockRejectedValueOnce(error)
-
-    const { result } = renderHook(() => useReportArtist(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      try {
-        await result.current.mutateAsync({
-          artistId: 42,
-          reportType: 'inaccurate',
-          details: 'Test',
-        })
-      } catch (e) {
-        expect((e as Error).message).toBe(
-          'You have already reported this artist'
-        )
-      }
-    })
-
-    expect(mockInvalidateArtistReports).not.toHaveBeenCalled()
-  })
-
-  it('handles empty string details as null', async () => {
-    const mockResponse: ArtistReportResponse = {
-      id: 12,
-      artist_id: 42,
-      report_type: 'inaccurate',
-      details: null,
-      status: 'pending',
-      created_at: '2025-03-15T00:00:00Z',
-      updated_at: '2025-03-15T00:00:00Z',
-    }
-    mockApiRequest.mockResolvedValueOnce(mockResponse)
-
-    const { result } = renderHook(() => useReportArtist(), {
-      wrapper: createWrapper(),
-    })
-
-    await act(async () => {
-      await result.current.mutateAsync({
-        artistId: 42,
-        reportType: 'inaccurate',
-        details: '',
-      })
-    })
-
-    // The hook sends `details || null`, so empty string becomes null
-    expect(mockApiRequest).toHaveBeenCalledWith('/artists/42/report', {
-      method: 'POST',
-      body: JSON.stringify({
-        report_type: 'inaccurate',
-        details: null,
-      }),
-    })
   })
 })

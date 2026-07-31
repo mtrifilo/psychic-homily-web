@@ -106,7 +106,6 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupCalendarRoutes(rc)
 	setupSavedShowRoutes(rc)
 	setupShowReportRoutes(rc)
-	setupArtistReportRoutes(rc)
 	setupAdminRoutes(rc)
 	setupPipelineRoutes(rc)
 	setupAIExtractionRoutes(rc)

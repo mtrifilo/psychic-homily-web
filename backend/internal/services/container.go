@@ -41,7 +41,6 @@ type ServiceContainer struct {
 	Charts                 *catalog.ChartsService
 	Artist                 *catalog.ArtistService
 	ContributorProfile     *usersvc.ContributorProfileService
-	ArtistReport           *adminsvc.ArtistReportService
 	AuditLog               *adminsvc.AuditLogService
 	Explore                *exploresvc.ExploreService
 	EntityExistence        *catalog.EntityExistenceService
@@ -289,7 +288,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Charts:                 catalog.NewChartsService(database),
 		Artist:                 artist,
 		ContributorProfile:     usersvc.NewContributorProfileService(database),
-		ArtistReport:           adminsvc.NewArtistReportService(database),
 		AuditLog:               adminsvc.NewAuditLogService(database),
 		Explore:                exploreService,
 		EntityExistence:        catalog.NewEntityExistenceService(database),
