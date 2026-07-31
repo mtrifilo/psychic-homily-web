@@ -153,6 +153,43 @@ describe('sitemap', () => {
     expect(urls).toContain('https://psychichomily.com/tags')
   })
 
+  // A noindex page advertised in the sitemap is a contradiction crawlers
+  // report as an error, so /ai-policy is gated on its copy actually existing.
+  describe('/ai-policy', () => {
+    it('is omitted while the policy copy is unwritten', async () => {
+      expect(await urlsOf('pages')).not.toContain(
+        'https://psychichomily.com/ai-policy'
+      )
+    })
+
+    it('appears once the copy lands', async () => {
+      vi.resetModules()
+      const actual =
+        await vi.importActual<typeof import('./ai-policy/content')>(
+          './ai-policy/content'
+        )
+      vi.doMock('./ai-policy/content', () => ({
+        ...actual,
+        AI_POLICY_COPY: {
+          description: 'FIXTURE description.',
+          intro: ['FIXTURE intro.'],
+          lastUpdated: null,
+          sections: [{ id: 'a', heading: 'A', body: ['FIXTURE body.'] }],
+        },
+      }))
+
+      const reloaded = await import('./sitemap')
+      const urls = (await reloaded.default({ id: Promise.resolve('pages') })).map(
+        e => e.url
+      )
+
+      expect(urls).toContain('https://psychichomily.com/ai-policy')
+
+      vi.doUnmock('./ai-policy/content')
+      vi.resetModules()
+    })
+  })
+
   it('keeps an entry but omits lastModified when updated_at is unparseable', async () => {
     vi.stubGlobal(
       'fetch',

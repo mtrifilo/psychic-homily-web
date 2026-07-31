@@ -58,6 +58,24 @@ describe('Footer', () => {
     expect(discover.querySelector('a[href="/labels"]')).toBeInTheDocument()
   })
 
+  it('renders AI Policy link in the About column', () => {
+    render(<Footer />)
+    const about = screen.getByRole('navigation', { name: 'About' })
+    const link = screen.getByText('AI Policy').closest('a')!
+    expect(about.contains(link)).toBe(true)
+    expect(link).toHaveAttribute('href', '/ai-policy')
+  })
+
+  // The AI policy is a positioning statement meant to be read, not a legal
+  // footnote. Pin that it sits above Privacy/Terms rather than below them.
+  it('lists AI Policy ahead of the legal links', () => {
+    render(<Footer />)
+    const about = screen.getByRole('navigation', { name: 'About' })
+    const labels = Array.from(about.querySelectorAll('a')).map(a => a.textContent)
+    expect(labels.indexOf('AI Policy')).toBeGreaterThanOrEqual(0)
+    expect(labels.indexOf('AI Policy')).toBeLessThan(labels.indexOf('Privacy Policy'))
+  })
+
   it('renders Privacy Policy link', () => {
     render(<Footer />)
     const link = screen.getByText('Privacy Policy')

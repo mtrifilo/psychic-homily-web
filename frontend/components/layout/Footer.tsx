@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { AI_POLICY_PATH } from '@/app/ai-policy/content'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 
 /**
@@ -109,6 +110,17 @@ export default function Footer() {
             <p className="font-mono text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
               ABOUT
             </p>
+            {/*
+              First in the column on purpose: the AI policy is a positioning
+              statement meant to be read and quoted, not a legal footnote like
+              the two below it.
+            */}
+            <Link
+              href={AI_POLICY_PATH}
+              className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              AI Policy
+            </Link>
             <Link
               href="/privacy"
               className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"

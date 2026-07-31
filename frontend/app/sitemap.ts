@@ -69,6 +69,11 @@ import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import type { components } from '@/types/api'
 import {
+  AI_POLICY_COPY,
+  AI_POLICY_PATH,
+  isAiPolicyCopyPending,
+} from './ai-policy/content'
+import {
   FAMILY_SHARD_IDS,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
@@ -230,6 +235,19 @@ function pagesShard(): MetadataRoute.Sitemap {
     { url: `${BASE_URL}/privacy`, changeFrequency: 'monthly', priority: 0.3 },
     { url: `${BASE_URL}/terms`, changeFrequency: 'monthly', priority: 0.3 },
   ]
+
+  // The AI policy is meant to be found and quoted, so it carries a higher
+  // priority than the legal pages — but only once it says something. While its
+  // copy slots are empty the page is noindex, and advertising a noindex URL in
+  // the sitemap is a contradiction crawlers report as an error. Gated on the
+  // same check that drives the page banner so the two cannot drift.
+  if (!isAiPolicyCopyPending(AI_POLICY_COPY)) {
+    staticPages.push({
+      url: `${BASE_URL}${AI_POLICY_PATH}`,
+      changeFrequency: 'monthly',
+      priority: 0.6,
+    })
+  }
 
   // Blog and DJ sets are local MDX — no network, nothing to fail closed on.
   const blogPages: MetadataRoute.Sitemap = getBlogSlugs().map(slug => {
