@@ -202,22 +202,33 @@ describe('main', () => {
     expect(await main(env({ DISCORD_WEBHOOK_URL: WEBHOOK }), NOW)).toBe(1)
   })
 
-  // The webhook path carries a secret token; a malformed URL makes fetch throw
-  // "Failed to parse URL from <the-url>", which would land in the Actions log.
-  it('never prints the webhook URL when the post fails', async () => {
-    stubWorld()
+  /**
+   * The webhook path carries a bearer-equivalent secret. A malformed
+   * DISCORD_WEBHOOK_URL makes fetch throw "Failed to parse URL from <the-url>",
+   * which would print the token straight into a public Actions log.
+   *
+   * The webhook call must THROW here — with a 2xx stub the catch block never
+   * runs and this test would pass with the scrub deleted.
+   */
+  it('scrubs the webhook URL out of a failed-post error', async () => {
+    const spy = stubWorld()
+    spy.mockImplementation(async (url: string) => {
+      if (url.startsWith(WEBHOOK)) {
+        throw new Error(`Failed to parse URL from ${WEBHOOK}`)
+      }
+      throw new Error('unreachable in this test')
+    })
+
     const errors: string[] = []
     vi.spyOn(console, 'error').mockImplementation(msg => errors.push(String(msg)))
 
     await main(
-      env({
-        DISCORD_WEBHOOK_URL: WEBHOOK,
-        SITEMAP_MONITOR_NOTIFY_ON_SUCCESS: 'true',
-        SITEMAP_MONITOR_DRIFT_RATIO: 'nonsense',
-      }),
+      env({ DISCORD_WEBHOOK_URL: WEBHOOK, SITEMAP_MONITOR_DRIFT_RATIO: 'nonsense' }),
       NOW
     )
 
+    const scrubbed = errors.filter(line => line.includes('[redacted]'))
+    expect(scrubbed.length).toBeGreaterThan(0)
     for (const line of errors) {
       expect(line).not.toContain('secret-token')
     }

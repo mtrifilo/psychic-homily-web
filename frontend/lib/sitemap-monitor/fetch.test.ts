@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
-import { fetchExpectedCounts, rebaseOnTarget, walkSitemap } from './fetch'
+import { fetchExpectedCounts, rebaseOnTarget, sampleUrls, walkSitemap } from './fetch'
 
 const STAGE = 'https://stage.psychichomily.com'
 
@@ -271,5 +271,97 @@ describe('fetchExpectedCounts', () => {
   it('throws when the endpoint is unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('404 page not found', { status: 404 })))
     await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(/returned 404/)
+  })
+
+  // A routine backend redeploy landing on the cron must not alarm.
+  it('retries a 5xx once and succeeds on the second attempt', async () => {
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls++
+        if (calls === 1) return new Response('bad gateway', { status: 502 })
+        return new Response(entriesBody({ shows: [{ slug: 'a' }] }))
+      })
+    )
+
+    expect((await fetchExpectedCounts(testConfig())).shows).toBe(1)
+    expect(calls).toBe(2)
+  })
+
+  // A 404 is a stable answer; retrying only doubles the time to the same verdict.
+  it('does not retry a 4xx', async () => {
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls++
+        return new Response('nope', { status: 404 })
+      })
+    )
+
+    await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(/returned 404/)
+    expect(calls).toBe(1)
+  })
+})
+
+/**
+ * The probe path issues most of the monitor's requests — ten dynamically
+ * rendered pages at the cron instant — so its retry behaviour is what decides
+ * whether a routine redeploy produces a false alarm.
+ */
+describe('sampleUrls', () => {
+  const TARGET = 'https://psychichomily.com'
+
+  it('reports a reachable URL', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok')))
+    const [result] = await sampleUrls([`${TARGET}/shows/a`], testConfig())
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe(200)
+  })
+
+  // A 5xx is RETURNED rather than thrown, so retrying the transport error alone
+  // would have skipped the far more likely case.
+  it('retries a 5xx probe and reports the recovered status', async () => {
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls++
+        return calls === 1 ? new Response('bad gateway', { status: 502 }) : new Response('ok')
+      })
+    )
+
+    const [result] = await sampleUrls([`${TARGET}/shows/a`], testConfig())
+    expect(calls).toBe(2)
+    expect(result.ok).toBe(true)
+  })
+
+  // The finding itself must not be retried away or softened.
+  it('reports a 404 without retrying', async () => {
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls++
+        return new Response('gone', { status: 404 })
+      })
+    )
+
+    const [result] = await sampleUrls([`${TARGET}/shows/gone`], testConfig())
+    expect(calls).toBe(1)
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(404)
+  })
+
+  // The bypass token must never reach a host the document named.
+  it('refuses to probe an off-target origin', async () => {
+    const spy = vi.fn(async () => new Response('ok'))
+    vi.stubGlobal('fetch', spy)
+
+    const [result] = await sampleUrls(['https://evil.com/shows/a'], testConfig())
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/off-target origin/)
+    expect(spy).not.toHaveBeenCalled()
   })
 })

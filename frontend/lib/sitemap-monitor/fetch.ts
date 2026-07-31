@@ -101,12 +101,19 @@ async function requestFollowing(
   config: MonitorConfig,
   timeoutMs: number
 ): Promise<Response> {
+  // ONE budget for the whole redirect chain, not one per hop. A per-hop signal
+  // multiplies: 6 hops × 2 attempts × 30s is 6 minutes for a single document,
+  // and ~11 documents in sequence would blow the job's timeout-minutes. The
+  // runner then kills the process, main()'s crash handler never runs, and NO
+  // alert is posted — the monitor goes silent exactly when an origin is
+  // unhealthy, which is the failure class it exists to eliminate.
+  const deadline = AbortSignal.timeout(timeoutMs)
   let current = url
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const response = await fetch(current, {
       headers: headersFor(current, config),
       redirect: 'manual',
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: deadline,
     })
 
     if (!isRedirect(response.status)) return response
@@ -145,6 +152,47 @@ async function withRetry<T>(attempt: () => Promise<T>, retryDelayMs: number): Pr
 }
 
 /**
+ * Read a body, enforcing the cap on BYTES ACTUALLY READ.
+ *
+ * `content-length` alone is not enforcement: it is absent on any streamed
+ * response — which is the normal case for a Next route handler, not an exotic
+ * one — and `Number(null)` is 0, so a header check silently passes everything
+ * it was meant to stop. It is kept only as a cheap fast-path for an origin
+ * honest enough to declare an oversized body.
+ */
+async function readCapped(response: Response, url: string): Promise<string> {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    await response.body?.cancel()
+    throw new Error(`GET ${url} declared ${declared} bytes, over the ${MAX_BODY_BYTES} cap`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel()
+      throw new Error(`GET ${url} exceeded the ${MAX_BODY_BYTES} byte cap`)
+    }
+    chunks.push(value)
+  }
+
+  const joined = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    joined.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(joined)
+}
+
+/**
  * Fetch one sitemap document as text, with retry.
  *
  * Fails on any non-2xx so a served error page never parses as data, and caps
@@ -157,12 +205,7 @@ async function fetchDocument(url: string, config: MonitorConfig): Promise<string
       await response.body?.cancel()
       throw new Error(`GET ${url} returned ${response.status}`)
     }
-    const declared = Number(response.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-      await response.body?.cancel()
-      throw new Error(`GET ${url} declared ${declared} bytes, over the ${MAX_BODY_BYTES} cap`)
-    }
-    return response.text()
+    return readCapped(response, url)
   }, config.retryDelayMs)
 }
 
@@ -367,11 +410,11 @@ export async function fetchExpectedCounts(
  * the first hop would fail every sample.
  *
  * Every URL is re-anchored to the target origin before the request, so the
- * bypass header in `headers()` cannot be sent to a host named by the fetched
- * document. `walkSitemap` already rebases; this is the enforcing boundary, and
- * it fails the sample rather than silently probing elsewhere. (A target that
- * itself redirects off-origin would still carry the header — but a compromised
- * first-party origin already has the token.)
+ * bypass header cannot be sent to a host named by the fetched document.
+ * `walkSitemap` already rebases; this is the enforcing boundary, and it fails
+ * the sample rather than silently probing elsewhere. Even if the target itself
+ * redirected off-origin, `headersFor` re-derives per hop, so the token is
+ * dropped on the foreign hop rather than following it.
  */
 export async function sampleUrls(
   urls: readonly string[],
@@ -389,18 +432,26 @@ export async function sampleUrls(
             error: `refusing to probe off-target origin (expected ${targetOrigin})`,
           }
         }
-        // Retried for TRANSPORT failures only: requestFollowing returns the
-        // response for any HTTP status, so a 404 — the actual finding — is
-        // never retried, while a dropped connection on one of ten probes no
-        // longer fails the whole run.
-        const response = await withRetry(
-          () => requestFollowing(url, config, config.sampleTimeoutMs),
-          config.retryDelayMs
-        )
-        // Only the status matters; release the body rather than buffering a
-        // full SSR page for each probe.
-        await response.body?.cancel()
-        return { url, status: response.status, ok: response.ok }
+        // These probe dynamically-rendered pages, ten at once, at the cron
+        // instant — so a backend mid-redeploy answers 502/503 and would post a
+        // FAILED alert with no sitemap defect behind it.
+        //
+        // A 5xx is RETURNED, not thrown, so wrapping requestFollowing alone
+        // would retry the transport error and silently skip the far more likely
+        // case. Throw on 5xx inside the attempt to make it retryable, and turn
+        // the final failure back into a result below. 4xx is deliberately left
+        // alone: a 404 on a sitemap-advertised URL is the finding.
+        const status = await withRetry(async () => {
+          const response = await requestFollowing(url, config, config.sampleTimeoutMs)
+          // Only the status matters; release the body rather than buffering a
+          // full SSR page for each probe.
+          await response.body?.cancel()
+          if (response.status >= 500) {
+            throw new Error(`GET ${url} returned ${response.status}`)
+          }
+          return response.status
+        }, config.retryDelayMs)
+        return { url, status, ok: status >= 200 && status < 300 }
       } catch (error) {
         return { url, status: null, ok: false, error: (error as Error).message }
       }
