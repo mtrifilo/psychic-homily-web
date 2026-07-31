@@ -45,6 +45,7 @@ import {
   DenseTable,
   DenseTableGroupHeader,
   ImageAttribution,
+  ShareButton,
 } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
@@ -1154,6 +1155,15 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         entityId={artist.id}
         entityName={artist.name}
         variant="bracket"
+      />
+      {/* Anonymous-visible, so it sits with the other ungated controls rather
+          than down among the authenticated ones. Path comes from the artist's
+          own slug — never the current URL, which may carry `#graph` or an
+          inbound campaign tag. */}
+      <ShareButton
+        path={`/artists/${artist.slug}`}
+        variant="bracket"
+        ariaLabel="Share this artist"
       />
       {isAuthenticated && (
         <BracketLink

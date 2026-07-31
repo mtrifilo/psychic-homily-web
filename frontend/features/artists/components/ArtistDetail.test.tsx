@@ -179,6 +179,13 @@ vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links">Social Links</div>,
   MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
   ImageAttribution: () => null,
+  // Surfaces `path` so the page-level test can assert WHICH url this artist
+  // hands out — the primitive's own behaviour is covered in ShareButton.test.
+  ShareButton: ({ path }: { path: string }) => (
+    <button data-testid="share-button" data-path={path}>
+      Share
+    </button>
+  ),
   EntityDetailLayout: ({
     children,
     sidebar,
@@ -414,6 +421,13 @@ describe('ArtistDetail', () => {
       // useUrlHash → graphDialogOpen plumbing, but the link itself no
       // longer renders as an anchor.
       expect(screen.getByTestId('bracket-Graph').tagName).toBe('BUTTON')
+    })
+
+    it('offers a share affordance pointing at the artist canonical path', () => {
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const share = screen.getByTestId('share-button')
+      expect(screen.getByTestId('header-actions')).toContainElement(share)
+      expect(share).toHaveAttribute('data-path', '/artists/test-artist')
     })
 
     // PSY-664: the graph dialog drives the `#graph` URL hash so the open

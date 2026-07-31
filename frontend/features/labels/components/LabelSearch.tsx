@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,9 @@ export function LabelSearch() {
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => () => clearTimeout(blurTimer.current), [])
 
   const { data: searchResults } = useLabelSearch({ query })
   const labels = searchResults?.labels ?? []
@@ -68,8 +71,19 @@ export function LabelSearch() {
   }
 
   const handleBlur = () => {
-    // Delay to allow click on dropdown items
-    setTimeout(() => {
+    // Delay to allow click on dropdown items.
+    //
+    // Tracked and cleared on unmount: an untracked timer here still fires
+    // ~150ms after the component is gone, and its `setState` then runs against
+    // a React DOM that no longer has a document. In the browser that is a
+    // no-op warning; under vitest it lands after the jsdom environment has been
+    // torn down and throws `ReferenceError: window is not defined` from
+    // `resolveUpdatePriority`, which vitest reports as an unhandled error and
+    // fails the whole run — every test having passed. It is a race against
+    // teardown, so it stays invisible on a fast machine and surfaces on a
+    // loaded CI runner.
+    clearTimeout(blurTimer.current)
+    blurTimer.current = setTimeout(() => {
       setIsOpen(false)
       setActiveIndex(-1)
     }, 150)

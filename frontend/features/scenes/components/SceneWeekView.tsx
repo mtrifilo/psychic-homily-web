@@ -1,4 +1,8 @@
 import Link from 'next/link'
+// Imported directly, not through the `components/shared` barrel: this page had
+// no dependency on that barrel at all, and going through it would pull all ~30
+// shared components into this route's module graph to use one of them.
+import { ShareButton } from '@/components/shared/ShareButton'
 import {
   countShows,
   formatDayHeading,
@@ -137,12 +141,23 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
           </div>
         </div>
 
-        <p className="mt-3 font-mono text-sm">
-          {formatWeekRange(week.start_date, week.end_date)}
-          {'   ·   '}
-          {total} {total === 1 ? 'show' : 'shows'}
-          {rooms.length > 0 && `   ·   ${rooms.length} rooms tracked`}
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="font-mono text-sm">
+            {formatWeekRange(week.start_date, week.end_date)}
+            {'   ·   '}
+            {total} {total === 1 ? 'show' : 'shows'}
+            {rooms.length > 0 && `   ·   ${rooms.length} rooms tracked`}
+          </p>
+          {/* Always the DATED permalink, even when this renders at the rolling
+              `/scenes/{slug}/week` URL. Sharing the rolling URL would hand a
+              friend a page whose contents change out from under the message
+              next Monday — the one divergence on this page between the
+              canonical and what the address bar shows. */}
+          <ShareButton
+            path={`/scenes/${week.slug}/${week.iso_week}`}
+            ariaLabel="Share this week"
+          />
+        </div>
 
         {/* Load-bearing, not filler: coverage is a curated slice (11 rooms in
             Chicago, not all of Chicago). A page that implied full city coverage

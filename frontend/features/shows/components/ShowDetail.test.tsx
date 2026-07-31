@@ -63,6 +63,13 @@ vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  // Surfaces `path` so the page-level test can assert WHICH url this show
+  // hands out — the primitive's own behaviour is covered in ShareButton.test.
+  ShareButton: ({ path }: { path: string }) => (
+    <button data-testid="share-button" data-path={path}>
+      Share
+    </button>
+  ),
   RevisionHistory: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
     <div data-testid="revision-history">History for {entityType} {entityId}</div>
   ),
@@ -288,6 +295,16 @@ describe('ShowDetail', () => {
       render(<ShowDetail showId="1" />)
       expect(screen.getByText('Headliner')).toBeInTheDocument()
       expect(screen.getByText('Opener')).toBeInTheDocument()
+    })
+
+    it('offers a share affordance built from the show slug, not the route param', () => {
+      // `showId` here is the numeric id the route happened to be hit with;
+      // the shared link must still be the durable slug URL.
+      render(<ShowDetail showId="1" />)
+      expect(screen.getByTestId('share-button')).toHaveAttribute(
+        'data-path',
+        '/shows/test-show'
+      )
     })
 
     it('links artists with slugs to artist pages', () => {

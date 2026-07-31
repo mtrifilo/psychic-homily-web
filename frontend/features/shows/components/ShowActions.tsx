@@ -2,7 +2,11 @@
 
 import { Loader2, Pencil, X, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { SaveButton, AddToCollectionButton } from '@/components/shared'
+import {
+  SaveButton,
+  AddToCollectionButton,
+  ShareButton,
+} from '@/components/shared'
 import type { ShowResponse } from '../types'
 import { ReportShowButton } from './ReportShowButton'
 
@@ -64,6 +68,10 @@ export function ShowActions({
           entityId={show.id}
           entityName={showTitle}
         />
+        {/* Built from the show's own slug rather than the current location, so
+            the link stays canonical from any deploy and carries no inbound
+            campaign tags. */}
+        <ShareButton path={`/shows/${show.slug}`} ariaLabel="Share this show" />
         <ReportShowButton showId={show.id} showTitle={showTitle} />
 
         {isAdmin && (
