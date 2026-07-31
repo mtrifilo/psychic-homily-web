@@ -6,6 +6,7 @@ import {
   AI_POLICY_TITLE,
   COPY_PENDING_PLACEHOLDER,
   isAiPolicyCopyPending,
+  isCopySlotBlank,
   type CopySlot,
 } from './content'
 
@@ -32,7 +33,7 @@ export const metadata: Metadata = {
   // description to surface in a preview, and an explicit noindex. Both derive
   // from the same copy object that drives the on-page banner and the sitemap
   // entry, so the three cannot drift apart.
-  ...(AI_POLICY_COPY.description === null
+  ...(isCopySlotBlank(AI_POLICY_COPY.description)
     ? {}
     : { description: AI_POLICY_COPY.description }),
   alternates: {
@@ -42,7 +43,7 @@ export const metadata: Metadata = {
 }
 
 function Paragraphs({ body }: { body: CopySlot }) {
-  if (body === null) {
+  if (isCopySlotBlank(body)) {
     return (
       <p className="text-destructive font-mono text-sm leading-relaxed">
         {COPY_PENDING_PLACEHOLDER}
@@ -57,7 +58,7 @@ function Paragraphs({ body }: { body: CopySlot }) {
         constant, never reordered or filtered at runtime, and two paragraphs of
         the copy could legitimately be identical.
       */}
-      {body.map((paragraph, index) => (
+      {(body ?? []).map((paragraph, index) => (
         <p
           key={index}
           className="text-foreground/90 leading-relaxed mb-3 last:mb-0"
@@ -76,7 +77,7 @@ export default function AiPolicyPage() {
         <h1 className="text-3xl font-bold text-center mb-2">
           {AI_POLICY_TITLE}
         </h1>
-        {AI_POLICY_COPY.lastUpdated !== null && (
+        {!isCopySlotBlank(AI_POLICY_COPY.lastUpdated) && (
           <p className="text-center text-muted-foreground mb-8">
             Last Updated: {AI_POLICY_COPY.lastUpdated}
           </p>

@@ -99,6 +99,30 @@ describe('AI policy page (/ai-policy) — copy pending', () => {
     expect(metadata.description).toBeUndefined()
   })
 
+  // An empty array reads as "written" to a naive null check but renders a bare
+  // heading. The page must mark it, not silently show nothing.
+  it('marks a section whose body is empty rather than rendering nothing', async () => {
+    const { default: Page } = await loadPage({
+      ...PENDING_COPY,
+      intro: ['FIXTURE intro paragraph.'],
+      sections: [{ id: 'first', heading: 'First disclosure', body: [] }],
+    })
+    render(<Page />)
+
+    expect(screen.getByText(COPY_PENDING_PLACEHOLDER)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
+
+  it('omits a blank last-updated line rather than dangling the label', async () => {
+    const { default: Page } = await loadPage({
+      ...PENDING_COPY,
+      lastUpdated: '   ',
+    })
+    render(<Page />)
+
+    expect(screen.queryByText(/Last Updated/)).not.toBeInTheDocument()
+  })
+
   it('omits the last-updated line while there is nothing to date', async () => {
     const { default: Page } = await loadPage(PENDING_COPY)
     render(<Page />)

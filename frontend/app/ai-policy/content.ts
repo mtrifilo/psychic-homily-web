@@ -95,6 +95,23 @@ export const AI_POLICY_COPY: AiPolicyCopy = {
 }
 
 /**
+ * A slot counts as unwritten if it is absent, empty, or only whitespace.
+ *
+ * Exported so page.tsx decides "show the placeholder here" with the exact same
+ * rule that decides "hold the page back". Two spellings of blankness would let
+ * `body: []` render an empty section under a heading while the page still
+ * called itself published.
+ */
+export function isCopySlotBlank(slot: CopySlot | string | null): boolean {
+  if (slot === null) return true
+  if (typeof slot === 'string') return slot.trim().length === 0
+  // An empty array, or one whose every paragraph is blank, would render a
+  // heading with nothing under it — indistinguishable to a reader from a
+  // policy that says nothing, so it is not "written".
+  return slot.length === 0 || slot.every(p => p.trim().length === 0)
+}
+
+/**
  * True while any required copy slot is still unwritten.
  *
  * Takes the copy as an argument rather than reading the module constant so the
@@ -107,7 +124,7 @@ export const AI_POLICY_COPY: AiPolicyCopy = {
  * silently empty heading.
  */
 export function isAiPolicyCopyPending(copy: AiPolicyCopy): boolean {
-  if (copy.description === null) return true
-  if (copy.intro === null) return true
-  return copy.sections.some(section => section.body === null)
+  if (isCopySlotBlank(copy.description)) return true
+  if (isCopySlotBlank(copy.intro)) return true
+  return copy.sections.some(section => isCopySlotBlank(section.body))
 }

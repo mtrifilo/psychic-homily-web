@@ -47,6 +47,26 @@ describe('isAiPolicyCopyPending', () => {
     expect(isAiPolicyCopyPending(copy)).toBe(true)
   })
 
+  // The gate's real job is "would a reader see a section that says nothing?".
+  // `null` is the obvious way to get there; these are the ways that look
+  // written and are not.
+  it.each([
+    ['an empty description', filled({ description: '' })],
+    ['a whitespace-only description', filled({ description: '   ' })],
+    ['an empty intro', filled({ intro: [] })],
+    ['a whitespace-only intro paragraph', filled({ intro: ['  '] })],
+    [
+      'an empty section body',
+      filled({ sections: [{ id: 'a', heading: 'A', body: [] }] }),
+    ],
+    [
+      'a whitespace-only section body',
+      filled({ sections: [{ id: 'a', heading: 'A', body: ['', ' '] }] }),
+    ],
+  ])('fails closed on %s', (_label, copy) => {
+    expect(isAiPolicyCopyPending(copy)).toBe(true)
+  })
+
   it('lastUpdated is not part of the gate', () => {
     expect(isAiPolicyCopyPending(filled({ lastUpdated: null }))).toBe(false)
     expect(isAiPolicyCopyPending(filled({ lastUpdated: 'July 31, 2026' }))).toBe(
