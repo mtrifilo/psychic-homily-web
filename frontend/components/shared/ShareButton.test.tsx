@@ -91,8 +91,8 @@ describe('ShareButton — Web Share API path', () => {
 
     await waitFor(() => expect(share).toHaveBeenCalled())
     // The OS sheet is its own feedback; a "Copied" badge here would be a lie.
-    expect(screen.queryByText('Copied')).not.toBeInTheDocument()
-    expect(screen.queryByText('Copy failed')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copy failed' })).not.toBeInTheDocument()
   })
 
   it('prefers the share sheet over the clipboard when both exist', async () => {
@@ -121,8 +121,8 @@ describe('ShareButton — AbortError dismissal', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
 
     await waitFor(() => expect(share).toHaveBeenCalled())
-    expect(screen.queryByText('Copy failed')).not.toBeInTheDocument()
-    expect(screen.queryByText('Copied')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copy failed' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument()
     // Dismissing means "I decided not to share" — silently copying anyway
     // would put a link on the clipboard the user never asked for.
     expect(writeText).not.toHaveBeenCalled()
@@ -141,7 +141,7 @@ describe('ShareButton — AbortError dismissal', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
 
     await waitFor(() => expect(share).toHaveBeenCalled())
-    expect(screen.queryByText('Copy failed')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copy failed' })).not.toBeInTheDocument()
   })
 
   it('falls back to the clipboard when the sheet fails for any other reason', async () => {
@@ -155,7 +155,7 @@ describe('ShareButton — AbortError dismissal', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(SHOW_URL))
-    expect(await screen.findByText('Copied')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
   })
 })
 
@@ -168,7 +168,7 @@ describe('ShareButton — clipboard fallback path', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(SHOW_URL))
-    expect(await screen.findByText('Copied')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
   })
 
   it('copies the canonical URL, not the current location', async () => {
@@ -195,7 +195,7 @@ describe('ShareButton — clipboard fallback path', () => {
     render(<ShareButton path={SHOW_PATH} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
 
-    expect(await screen.findByText('Copy failed')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Copy failed' })).toBeInTheDocument()
   })
 
   it('reverts to the idle label after the confirmation window', async () => {
@@ -205,11 +205,11 @@ describe('ShareButton — clipboard fallback path', () => {
 
     render(<ShareButton path={SHOW_PATH} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
-    expect(await screen.findByText('Copied')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
 
     await vi.advanceTimersByTimeAsync(2100)
     await waitFor(() =>
-      expect(screen.queryByText('Copied')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument()
     )
     vi.useRealTimers()
   })
@@ -252,6 +252,19 @@ describe('ShareButton — variants and labelling', () => {
       name: 'Share this artist',
     })
     expect(button).toHaveTextContent('[Share]')
+  })
+
+  it('announces the confirmation on the bracket variant, where it is otherwise visual only', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    setCapabilities({ writeText })
+
+    render(<ShareButton path="/artists/foo" variant="bracket" />)
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Share' }))
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Copied')
+    )
   })
 
   it('uses the caller-supplied accessible name', async () => {

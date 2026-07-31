@@ -59,18 +59,6 @@ export function buildShareUrl(path: string): string {
 }
 
 /**
- * Feature-detect the best available share mechanism.
- *
- * Presence of the API IS the secure-context check: browsers expose neither
- * `navigator.share` nor `navigator.clipboard` outside a secure context, so an
- * explicit `window.isSecureContext` test would add a second source of truth
- * that can only ever disagree with the first.
- *
- * `none` is a real outcome, not a theoretical one — an insecure-origin page
- * (a phone hitting a dev server over plain `http://192.168.x.x`) reaches it —
- * and the caller renders nothing in that case rather than a dead button.
- */
-/**
  * Did the user simply dismiss the share sheet?
  *
  * Deliberately duck-typed on `name` rather than `instanceof Error`: browsers
@@ -88,6 +76,18 @@ function isAbortError(error: unknown): boolean {
   )
 }
 
+/**
+ * Feature-detect the best available share mechanism.
+ *
+ * Presence of the API IS the secure-context check: browsers expose neither
+ * `navigator.share` nor `navigator.clipboard` outside a secure context, so an
+ * explicit `window.isSecureContext` test would add a second source of truth
+ * that can only ever disagree with the first.
+ *
+ * `none` is a real outcome, not a theoretical one — an insecure-origin page
+ * (a phone hitting a dev server over plain `http://192.168.x.x`) reaches it —
+ * and the component renders nothing in that case rather than a dead button.
+ */
 function detectShareCapability(): ShareCapability {
   if (typeof navigator === 'undefined') return 'none'
   if (typeof navigator.share === 'function') return 'share'
@@ -212,7 +212,9 @@ export function ShareButton({
       }
     }
 
-    if (capability === 'none') return
+    // No `capability === 'none'` guard: that state renders nothing, so this is
+    // unreachable from it. If a future change did render it, the try/catch in
+    // `copyToClipboard` already covers a missing `navigator.clipboard`.
     await copyToClipboard(url)
   }, [capability, path, copyToClipboard])
 
@@ -227,16 +229,33 @@ export function ShareButton({
         ? 'Copy failed'
         : 'Share'
 
+  // While confirming, the accessible name must track the visible label or the
+  // two disagree (WCAG 2.5.3, "Label in Name") — a screen reader would keep
+  // saying "Share this show" on a control now reading "Copy failed".
+  const accessibleName = feedback === 'idle' ? (ariaLabel ?? 'Share') : label
+
+  // The confirmation is otherwise visual only. The button variant's label is
+  // itself the live region; the bracket variant renders its label through
+  // BracketLink, so it needs this separate one to reach parity.
+  const liveRegion = (
+    <span role="status" aria-live="polite" className="sr-only">
+      {feedback === 'idle' ? '' : label}
+    </span>
+  )
+
   if (variant === 'bracket') {
     return (
-      <BracketLink
-        label={label}
-        onClick={handleShare}
-        active={feedback === 'copied'}
-        variant={feedback === 'failed' ? 'danger' : 'default'}
-        ariaLabel={ariaLabel ?? 'Share'}
-        className={className}
-      />
+      <>
+        <BracketLink
+          label={label}
+          onClick={handleShare}
+          active={feedback === 'copied'}
+          variant={feedback === 'failed' ? 'danger' : 'default'}
+          ariaLabel={accessibleName}
+          className={className}
+        />
+        {liveRegion}
+      </>
     )
   }
 
@@ -246,7 +265,7 @@ export function ShareButton({
       variant="outline"
       size="sm"
       onClick={handleShare}
-      aria-label={ariaLabel ?? 'Share'}
+      aria-label={accessibleName}
       className={cn('gap-1.5', className)}
     >
       {feedback === 'copied' ? (
@@ -254,13 +273,10 @@ export function ShareButton({
       ) : (
         <Share2 className="h-4 w-4" />
       )}
-      <span
-        // Announced on change so the copy confirmation is not visual-only.
-        aria-live="polite"
-        className={cn(feedback === 'failed' && 'text-destructive')}
-      >
+      <span className={cn(feedback === 'failed' && 'text-destructive')}>
         {label}
       </span>
+      {liveRegion}
     </Button>
   )
 }
