@@ -1,5 +1,8 @@
 import Link from 'next/link'
-import { ShareButton } from '@/components/shared'
+// Imported directly, not through the `components/shared` barrel: this page had
+// no dependency on that barrel at all, and going through it would pull all ~30
+// shared components into this route's module graph to use one of them.
+import { ShareButton } from '@/components/shared/ShareButton'
 import {
   countShows,
   formatDayHeading,
