@@ -146,4 +146,25 @@ describe('LabelSearch', () => {
       expect(mockPush).not.toHaveBeenCalled()
     })
   })
+
+  // The blur delay used to be an untracked `setTimeout`, so it still fired
+  // ~150ms after unmount and called `setState` into a React DOM with no
+  // document. Under vitest that lands after jsdom teardown and throws
+  // `ReferenceError: window is not defined`, which fails the whole run with
+  // every test passing — a race against teardown, so it only showed on a
+  // loaded CI runner. Asserting no timer survives unmount is the invariant;
+  // the symptom itself is not reproducible from inside a test.
+  it('leaves no pending blur timer behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<LabelSearch />)
+      fireEvent.blur(screen.getByPlaceholderText('Search labels...'))
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
