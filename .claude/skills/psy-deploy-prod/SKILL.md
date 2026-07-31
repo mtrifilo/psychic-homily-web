@@ -47,16 +47,25 @@ cd backend
 PRODURL="$(railway variables --json -s Postgres -e production | jq -r '.DATABASE_PUBLIC_URL')"
 psql "$PRODURL" -tAc 'SELECT version, dirty FROM schema_migrations;'   # applied version + clean?
 ls db/migrations/*.up.sql | tail -1 | xargs basename                   # repo head
-git diff --name-only origin/production..origin/main -- backend/db/migrations/  # release adds?
+git diff --name-only origin/production..origin/main -- ':(top)backend/db/migrations/'  # release adds?
+#   NOTE the ':(top)' prefix on every pathspec below. We are in backend/ from here on,
+#   and git pathspecs are CWD-RELATIVE — a bare 'backend/...' resolves to
+#   backend/backend/... and silently matches NOTHING, which these checks would then
+#   read as "this release changes nothing". Measured: 'backend/**/*.go' matches 0 files
+#   from backend/ and 23 from the repo root. An empty result here must mean "no changes",
+#   never "wrong directory".
 #   version == repo head + dirty=f + empty diff → ZERO migrations apply on boot (lowest risk).
 #   dirty=t → a prior migration half-applied: STOP and resolve before deploying.
 #   Non-empty diff → those exact files auto-apply on boot; review each before pushing.
 
 # 4. Postgres volume headroom (PSY-1643). ~5s, and it is the check whose absence cost
 #    a 75-minute outage on 2026-07-29.
-bash scripts/check-volume-headroom.sh production
+bash ../scripts/check-volume-headroom.sh production   # repo-root script; we are in backend/
 #   Exit 0 = fine. Exit 1 = STOP: the volume is smaller than database + max_wal_size,
 #   so it will fill no matter how empty it looks. Exit 2 = warn, plan a resize.
+#   Exit 3 = COULD NOT DETERMINE (psql/jq/railway missing, environment not linkable,
+#   volume name mismatch). Treat as STOP. An unrun check is not a passed check — an
+#   unverified volume is exactly the state prod was in before it filled.
 #
 #   Why a FLOOR and not "is it 80% full": prod ran a 500 MB volume with
 #   max_wal_size=1024 MB. Postgres was configured to use twice the whole disk for WAL
@@ -66,9 +75,9 @@ bash scripts/check-volume-headroom.sh production
 
 # 5. New env vars? Grep the RELEASE RANGE for added config reads; anything new must be
 #    set on Railway prod service `psychic-homily-web` and/or Vercel Production BEFORE pushing.
-git diff origin/production..origin/main -- 'backend/**/*.go' \
+git diff origin/production..origin/main -- ':(top)backend/**/*.go' \
   | grep -E '^\+.*os\.Getenv' | grep -oE 'os\.Getenv\("[A-Z_]+"\)' | sort -u
-git diff origin/production..origin/main -- 'frontend/**' \
+git diff origin/production..origin/main -- ':(top)frontend/**' \
   | grep -E '^\+.*process\.env\.' | grep -oE 'process\.env\.[A-Z_]+' | sort -u
 #    Both empty → release adds no config. Name-level parity check:
 railway variables --json -s passionate-art -e stage | jq -r 'keys[]' | sort > /tmp/s.txt
@@ -82,15 +91,36 @@ Secret hygiene: NEVER print env var values. Compare names, lengths (`jq '.KEY|le
 
 Only when the release intent is "prod data should match stage" (rare after launch; normal releases keep prod data and rely on boot-time migrations). Requires explicit user approval — it is destructive.
 
+Run the whole block under `set -euo pipefail`. Without it a failed `pg_dump`
+does not stop the script, and the next line DROPs production — destroying the
+data with no rollback artifact. `railway variables` is known to return empty
+outside the linked directory (see Gotchas), so an unset URL is a live failure
+mode, not a hypothetical one.
+
 ```bash
+set -euo pipefail
 cd backend   # railway CLI must run from the linked project dir
 PRODURL="$(railway variables --json -s Postgres -e production | jq -r '.DATABASE_PUBLIC_URL')"
 STAGEURL="$(railway variables --json -s Postgres -e stage | jq -r '.DATABASE_PUBLIC_URL')"
-# Confirm PRODURL host is shuttle.proxy.rlwy.net:24983 (prod) before anything destructive.
-pg_dump "$PRODURL" -Fc -f ~/dev/psychic-homily-backups/prod-archive-$(date +%F).dump   # rollback artifact
-pg_dump "$STAGEURL" -Fc -f ~/dev/psychic-homily-backups/stage-snapshot-$(date +%F).dump
+ARCHIVE=~/dev/psychic-homily-backups/prod-archive-$(date +%F).dump
+SNAPSHOT=~/dev/psychic-homily-backups/stage-snapshot-$(date +%F).dump
+
+# Assert both URLs resolved and PROD really is prod, programmatically — not by
+# eyeballing a comment.
+[ -n "$PRODURL" ] && [ -n "$STAGEURL" ] || { echo "ABORT: a database URL is empty"; exit 1; }
+case "$PRODURL" in *shuttle.proxy.rlwy.net:24983*) ;; *) echo "ABORT: PRODURL is not production"; exit 1;; esac
+
+pg_dump "$PRODURL" -Fc -f "$ARCHIVE"      # rollback artifact
+pg_dump "$STAGEURL" -Fc -f "$SNAPSHOT"
+
+# GATE: never DROP without a verified rollback artifact. `pg_dump` can die
+# partway through — a network blip to the Railway proxy, a full local disk, an
+# interrupted long dump — and leave a truncated file that looks fine by name.
+pg_restore --list "$ARCHIVE" >/dev/null || { echo "ABORT: prod archive is not a valid dump"; exit 1; }
+pg_restore --list "$SNAPSHOT" >/dev/null || { echo "ABORT: stage snapshot is not a valid dump"; exit 1; }
+
 psql "$PRODURL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
-pg_restore --no-owner --no-privileges -d "$PRODURL" ~/dev/psychic-homily-backups/stage-snapshot-$(date +%F).dump
+pg_restore --no-owner --no-privileges -d "$PRODURL" "$SNAPSHOT"
 # Scrub stage-only auth state:
 psql "$PRODURL" -c 'TRUNCATE webauthn_challenges; TRUNCATE api_tokens;'
 # PSY-1612 — REQUIRED, or the release plants a week of daily false Sentry alerts.
@@ -142,7 +172,13 @@ Then monitor both builds (~3–5 min):
 railway deployment list -s psychic-homily-web -e production --json \
   | jq -r '.[0] | "\(.status) commit=\(.meta.commitHash // "CLI")"'   # SUCCESS + your sha
 cd frontend && vercel ls --prod | sed -n '5,7p'                        # row 2 = newest; ● Ready
-curl -s -o /dev/null -w '%{http_code}\n' https://api.psychichomily.com/health              # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://api.psychichomily.com/health              # 200 (liveness only)
+# LIVENESS IS NOT ENOUGH. /health returns 200 whenever the process is serving, even with
+# the database completely down — that is exactly how the 2026-07-29 outage looked healthy
+# from outside. /health/ready is the one that proves the backend can do its job:
+curl -s -o /dev/null -w '%{http_code}\n' https://api.psychichomily.com/health/ready        # 200 REQUIRED
+#   503 here = the process is up but a critical dependency is unreachable. Do NOT call the
+#   release good on a 200 from /health alone.
 ```
 
 Don't script `vercel ls` output by awk column index — the column positions shift and a

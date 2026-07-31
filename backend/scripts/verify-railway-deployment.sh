@@ -22,13 +22,21 @@ echo "=== Verifying Railway Deployment: $ENV ==="
 echo "Base URL: $BASE_URL"
 echo ""
 
-# Test 1: Health endpoint
-echo "1. Testing health endpoint..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/health")
+# Test 1: Readiness endpoint
+#
+# Deliberately /health/ready and NOT /health. /health is a liveness probe: it
+# returns 200 whenever the process is serving, even with the database
+# unreachable, because Railway restarts the service when it fails. Verifying a
+# deployment against it therefore proves only "a process is listening" — which
+# is precisely how a total database outage passed verification before.
+#
+# Nothing restarts on /health/ready's result, so it is safe to gate on here.
+echo "1. Testing readiness endpoint..."
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/health/ready")
 if [ "$HTTP_CODE" = "200" ]; then
-    echo "   ✓ Health check passed (HTTP $HTTP_CODE)"
+    echo "   ✓ Readiness check passed (HTTP $HTTP_CODE)"
 else
-    echo "   ✗ Health check failed (HTTP $HTTP_CODE)"
+    echo "   ✗ Readiness check failed (HTTP $HTTP_CODE) — process may be up but a critical dependency is unreachable"
     exit 1
 fi
 

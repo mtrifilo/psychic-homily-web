@@ -569,8 +569,8 @@ Two endpoints, deliberately split. **They are not interchangeable — see
 before pointing anything at either.**
 
 ```bash
-GET /health        # liveness  — ALWAYS 200 while the process serves
-GET /health/ready  # readiness — 503 when a critical dependency is unreachable
+GET|HEAD /health        # liveness  — ALWAYS 200 while the process serves
+GET|HEAD /health/ready  # readiness — 503 when a critical dependency is unreachable
 ```
 
 `/health` is Railway's deploy healthcheck (`railway.toml`), so its failure
@@ -578,23 +578,30 @@ restarts the service. It reports component detail in the body but never in its
 status code. **`/health/ready` is the endpoint uptime monitoring and alerting
 should watch**; nothing restarts on its result.
 
+Both answer GET and HEAD. Use the exact paths — **no trailing slash**
+(`/health/ready/` is a 404, not a redirect).
+
 **Response (both, when healthy — HTTP 200):**
 
 ```json
 {
-  "body": {
-    "status": "healthy",
-    "components": {
-      "database": { "status": "healthy", "latency": "1.23ms" }
-    },
-    "timestamp": "2026-01-15T10:30:00Z"
-  }
+  "status": "healthy",
+  "components": {
+    "database": { "status": "healthy", "latency": "1.23ms" }
+  },
+  "timestamp": "2026-01-15T10:30:00Z"
 }
 ```
 
 With the database unreachable, `/health` returns the same shape with
 `"status": "unhealthy"` and **still HTTP 200**; `/health/ready` returns **HTTP
-503** with a problem+json body naming the failing component.
+503** and a problem+json body whose `detail` names each failing component
+(`not ready: database: ping failed`).
+
+The dependency probe is bounded at 2s, so a database that hangs rather than
+refuses still produces a 503 rather than an open connection. Component error
+strings are fixed literals — no host, DSN, or driver text reaches these
+responses.
 
 Both paths are exempt from the public-read rate limiter
 (`infraPathsExemptFromRateLimit`). That list is **exact-match** — a new health
@@ -632,12 +639,14 @@ Content-Type: application/json
 
 ```json
 {
-  "body": {
-    "success": true,
-    "show_id": "1234567890"
-  }
+  "success": true,
+  "show_id": "1234567890"
 }
 ```
+
+> Huma serializes a handler's `Body` field **as** the response body — there is
+> no `{"body": …}` envelope on the wire. Examples in this file show the real
+> wire shape.
 
 ## Environment Variables
 
@@ -837,13 +846,20 @@ for interactively-created artists — admin create + entity-request fulfillment)
 | `ARTIST_LOCATION_SWEEP_BATCH`          | `50`        | Artists processed per tick                                      |
 | `ARTIST_LOCATION_SWEEP_REATTEMPT_DAYS` | `30`        | Don't re-attempt a locationless artist for this many days       |
 
-### Infrastructure Sizing and Monitoring
+### Security Notes
+
+- **Never commit `.env.production`** to version control
+- **Use strong passwords** in production
+- **Rotate credentials** regularly
+- **Use secrets management** in production (Docker Secrets, Kubernetes Secrets, etc.)
+
+## Infrastructure Sizing and Monitoring
 
 **Read this before provisioning a new environment.** A production outage was
 caused by a volume that could never have survived a write burst, and nothing
 alerted — the API was fully down while cached frontend pages kept serving 200s.
 
-#### The volume sizing rule
+### The volume sizing rule
 
 ```
 volume >= pg_database_size + max_wal_size + filesystem overhead,  with margin
@@ -860,10 +876,30 @@ misconfiguration:
 
 1. **Floor (catches misconfiguration).** Does `data + max_wal_size + overhead`
    fit the volume with margin? Verify at provisioning time, not from a graph.
-2. **Percentage (catches gradual growth).** Alert at ~70% of the volume. This is
-   the second check, not the first.
+2. **Percentage (catches gradual growth).** This is the second check, not the
+   first.
 
-Verify the floor against a live database:
+**`scripts/check-volume-headroom.sh` is the canonical implementation of both** —
+prefer it over doing this by hand, and treat its defaults as the numbers of
+record rather than restating them here:
+
+```bash
+scripts/check-volume-headroom.sh production   # run from the repo root
+```
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| `0` | clears the floor, under the usage threshold | proceed |
+| `1` | **below the floor** — cannot hold the database plus a full WAL cycle | **STOP** — resize before deploying |
+| `2` | clears the floor, usage past the threshold | proceed, but plan a resize |
+| `3` | **could not determine** (missing `psql`/`jq`/`railway`, environment not linkable, volume name mismatch) | **STOP** — an unrun check is not a passed check |
+
+Overhead and threshold are tunable via `VOLUME_CHECK_OVERHEAD_PCT` (default 25)
+and `VOLUME_CHECK_USAGE_PCT` (default 75). Exit 3 deserves the same respect as
+exit 1: it means the volume is *unverified*, which is the state the environment
+was in before the outage.
+
+To inspect the inputs by hand:
 
 ```sql
 SELECT pg_size_pretty(pg_database_size(current_database())) AS data,
@@ -888,30 +924,42 @@ Postgres on Railway is a managed service with no config file in this repo, so
 **explicitly**; a default that happens to fit today is not the same as a value
 chosen against the volume.
 
-#### What watches what
+### What watches what
+
+**In this repo — verifiable from code:**
 
 | Signal | Watched by | On failure |
 | --- | --- | --- |
-| Process alive | Railway deploy healthcheck → `/health` | Restarts the service |
-| Dependencies reachable | External uptime monitor → `/health/ready` | Pages a human; **no restart** |
-| Volume usage % | Railway native volume alerts | Pages a human |
+| Process alive | Railway deploy healthcheck → `/health` (`railway.toml`) | Restarts the service |
 | Background sweeps running | `sweep_health_check` → Sentry | Pages a human |
+| Volume floor + usage | `scripts/check-volume-headroom.sh`, run in the deploy preflight | Blocks the deploy |
+
+**Configured OUTSIDE this repo — nothing here can verify these are live. If you
+are reading this during an incident and wondering why nobody was paged, check
+that these exist before assuming an alert broke:**
+
+| Signal | Configured in | On failure |
+| --- | --- | --- |
+| Dependencies reachable | External uptime monitor → `/health/ready` | Pages a human; **no restart** |
+| Volume usage % (continuous) | Railway native volume alerts | Pages a human |
 
 The external monitor must live **outside the platform**. The frontend is served
 from a CDN cache that keeps returning 200s through a total API outage, so
-checking the site's homepage proves nothing about the backend. Point the monitor
-at `/health/ready` and alert on the status code — 503 means "serving, but cannot
-do its job".
+checking the site's homepage proves nothing about the backend.
+
+Configure it as: **`GET https://<api host>/health/ready`, alert on any non-200.**
+
+- Alert on *any* non-200, not `== 503` specifically. A 503 is the healthy way to
+  report "cannot do my job", but a connection failure or a timeout is the same
+  outage and produces no status code at all. A rule written only against 503
+  stays silent for the worst cases.
+- Set the monitor's own request timeout **above** the probe's internal 2s
+  dependency deadline, so a slow database returns a 503 you can read rather than
+  a client-side timeout you have to guess at.
+- Use the exact path, no trailing slash. Either GET or HEAD works.
 
 Do not point it at `/health`: that endpoint returns 200 by design whenever the
 process is alive, so it stays green during exactly the outage you want detected.
-
-### Security Notes
-
-- **Never commit `.env.production`** to version control
-- **Use strong passwords** in production
-- **Rotate credentials** regularly
-- **Use secrets management** in production (Docker Secrets, Kubernetes Secrets, etc.)
 
 ## Database Schema
 

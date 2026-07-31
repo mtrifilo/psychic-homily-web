@@ -12,6 +12,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 
+	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services"
@@ -321,6 +322,58 @@ func TestSetupSystemRoutes(t *testing.T) {
 			t.Errorf("Expected valid health status, got %v", status)
 		}
 	})
+
+	// The readiness route is asserted THROUGH the router, not by calling the
+	// handler directly, because the failure this guards against is registration,
+	// not handler logic: a typo in the path, registering on rc.Admin instead of
+	// rc.API, or dropping the line entirely all leave handler-level tests green
+	// while the URL an external monitor polls returns 404. That is not
+	// hypothetical — this endpoint shipped once with the handler written and the
+	// route unregistered, and nothing caught it.
+	//
+	// Both methods are asserted because an uptime monitor may probe with either,
+	// and a 405 matches no alert rule.
+	for _, method := range []string{"GET", "HEAD"} {
+		t.Run("Readiness Route "+method, func(t *testing.T) {
+			// db.DB is a package global; pin it nil so this asserts the
+			// unhealthy path regardless of what other tests left behind.
+			prev := db.DB
+			db.DB = nil
+			t.Cleanup(func() { db.DB = prev })
+
+			req := httptest.NewRequest(method, "/health/ready", nil)
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("Expected status %d with no database, got %d (body: %s)",
+					http.StatusServiceUnavailable, w.Code, w.Body.String())
+			}
+
+			// Liveness must NOT follow readiness down — same router, same
+			// missing database, opposite status code. This pairing is the whole
+			// contract.
+			livenessReq := httptest.NewRequest(method, "/health", nil)
+			livenessW := httptest.NewRecorder()
+			router.ServeHTTP(livenessW, livenessReq)
+			if livenessW.Code != http.StatusOK {
+				t.Errorf("Expected /health to stay %d with no database, got %d",
+					http.StatusOK, livenessW.Code)
+			}
+
+			// Go discards the body for HEAD, so only GET can assert content.
+			if method != "GET" {
+				return
+			}
+			if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/problem+json") {
+				t.Errorf("Expected a problem+json error body, got Content-Type %q", ct)
+			}
+			if body := w.Body.String(); !strings.Contains(body, "database") {
+				t.Errorf("Expected the 503 detail to name the failing component, got %s", body)
+			}
+		})
+	}
 
 	// Test OpenAPI spec route
 	t.Run("OpenAPI Spec Route", func(t *testing.T) {

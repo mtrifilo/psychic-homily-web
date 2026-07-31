@@ -3,7 +3,6 @@ package system
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -38,8 +37,8 @@ func TestHealthHandler_DBNotInitialized(t *testing.T) {
 	if dbHealth.Status != "unhealthy" {
 		t.Errorf("database status = %q, want \"unhealthy\"", dbHealth.Status)
 	}
-	if dbHealth.Error != "database not initialized" {
-		t.Errorf("database error = %q, want \"database not initialized\"", dbHealth.Error)
+	if dbHealth.Error != "not initialized" {
+		t.Errorf("database error = %q, want \"not initialized\"", dbHealth.Error)
 	}
 }
 
@@ -86,10 +85,53 @@ func TestReadinessHandler_DBNotInitialized(t *testing.T) {
 		t.Errorf("status = %d, want 503", got)
 	}
 
-	// The message names the failing component so an alert is actionable
-	// without a second request.
-	if msg := statusErr.Error(); !strings.Contains(msg, "database") {
-		t.Errorf("error message = %q, want it to name the database component", msg)
+	// Asserted EXACTLY, not by substring. This string is the problem+json
+	// detail — the first thing an on-call human reads — so a duplicated or
+	// garbled component name is a real defect, and a Contains check cannot
+	// see one.
+	const want = "not ready: database: not initialized"
+	if got := statusErr.Error(); got != want {
+		t.Errorf("error message = %q, want %q", got, want)
+	}
+}
+
+// TestUnhealthyDetail_NamesEveryFailingComponent guards the generalization:
+// the detail is built from the component map, so a second critical dependency
+// reports itself instead of being masked by a hardcoded "database" lookup.
+func TestUnhealthyDetail_NamesEveryFailingComponent(t *testing.T) {
+	resp := &HealthResponse{}
+	resp.Body.Components = map[string]ComponentHealth{
+		"database": {Status: statusUnhealthy, Error: "ping failed"},
+		"cache":    {Status: statusUnhealthy, Error: "connection refused"},
+		"search":   {Status: statusHealthy},
+	}
+
+	// Sorted, so the same outage always produces the same alert text.
+	const want = "cache: connection refused, database: ping failed"
+	if got := unhealthyDetail(resp); got != want {
+		t.Errorf("detail = %q, want %q", got, want)
+	}
+}
+
+// TestBuildHealthResponse_UnknownComponentStatusFailsClosed pins the polarity.
+// The overall status is derived by matching HEALTHY and defaulting everything
+// else to unhealthy — not by matching "unhealthy" and defaulting to healthy.
+// The difference only shows up for a status neither branch anticipated, which
+// is exactly when a monitoring endpoint must not report success.
+func TestBuildHealthResponse_UnknownComponentStatusFailsClosed(t *testing.T) {
+	if statusHealthy == statusDegraded || statusHealthy == statusUnhealthy {
+		t.Fatal("status constants must be distinct")
+	}
+
+	prev := db.DB
+	db.DB = nil
+	t.Cleanup(func() { db.DB = prev })
+
+	// A nil handle yields statusUnhealthy, which is neither healthy nor a
+	// status the readiness branch special-cases.
+	resp := buildHealthResponse(context.Background())
+	if resp.Body.Status == statusHealthy {
+		t.Error("overall status must not be healthy when a component is not healthy")
 	}
 }
 

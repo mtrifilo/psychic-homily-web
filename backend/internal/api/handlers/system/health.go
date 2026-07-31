@@ -2,12 +2,41 @@ package system
 
 import (
 	"context"
+	"errors"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/db"
 )
+
+// Component and overall health statuses. These are a wire contract — they
+// appear in the OpenAPI doc tags below and in every consumer's alert rule — so
+// they live here as constants rather than as literals repeated across handlers
+// and tests.
+const (
+	statusHealthy   = "healthy"
+	statusDegraded  = "degraded"
+	statusUnhealthy = "unhealthy"
+)
+
+// databaseProbeTimeout bounds the dependency check so BOTH endpoints answer in
+// bounded time under every failure mode.
+//
+// Without it the probe inherits only the request context, and the server sets no
+// ReadTimeout/WriteTimeout, so a database that accepts the TCP connection but
+// never answers — a blackholed route, a saturated pool, a storage stall — makes
+// the handler block instead of respond. That breaks both halves of the split at
+// once: liveness stops returning its guaranteed 200, and readiness never emits
+// the 503 an alert rule is written against. A monitor sees a timeout, which is
+// exactly the ambiguous signal this endpoint exists to replace.
+//
+// A hung dependency is not a hypothetical failure mode here: it is the observed
+// shape of the outage this endpoint was built for, where TCP and TLS connected
+// in ~60ms and no HTTP response ever came.
+const databaseProbeTimeout = 2 * time.Second
 
 // ComponentHealth represents the health status of a single component
 type ComponentHealth struct {
@@ -60,15 +89,37 @@ func HealthHandler(ctx context.Context, input *struct{}) (*HealthResponse, error
 // provide. The healthy body is identical to /health's so the two can be diffed.
 func ReadinessHandler(ctx context.Context, input *struct{}) (*HealthResponse, error) {
 	resp := buildHealthResponse(ctx)
-	if resp.Body.Status == "unhealthy" {
-		// Detail names the component, so an alert is actionable without a second
-		// request. checkDatabaseHealth's Error strings are fixed literals — no
-		// connection string or driver text reaches the response.
-		return nil, huma.Error503ServiceUnavailable(
-			"not ready: database " + resp.Body.Components["database"].Error,
-		)
+	if resp.Body.Status == statusUnhealthy {
+		return nil, huma.Error503ServiceUnavailable("not ready: " + unhealthyDetail(resp))
 	}
+	// statusDegraded stays READY on purpose: it means a NON-critical component is
+	// down, and the process can still do its job. Taking readiness away for it
+	// would page someone (and, wherever readiness gates traffic, shed it) over a
+	// failure the service is designed to absorb. A component whose loss should
+	// fail readiness is critical by definition and belongs in the statusUnhealthy
+	// branch above.
 	return resp, nil
+}
+
+// unhealthyDetail names every failing component and why, so the alert is
+// actionable without a second request. Built from the component map rather than
+// a hardcoded key, so adding a critical dependency cannot leave this reporting
+// the one component that is still fine.
+//
+// Component Error strings are fixed literals (see checkDatabaseHealth) — no
+// connection string, host, or driver text reaches the response.
+func unhealthyDetail(resp *HealthResponse) string {
+	failures := make([]string, 0, len(resp.Body.Components))
+	for name, c := range resp.Body.Components {
+		if c.Status == statusHealthy {
+			continue
+		}
+		failures = append(failures, name+": "+c.Error)
+	}
+	// Map iteration order is random; sort so the same outage produces the same
+	// alert text instead of a new one each probe.
+	sort.Strings(failures)
+	return strings.Join(failures, ", ")
 }
 
 // buildHealthResponse assembles the component report both endpoints share, so
@@ -86,49 +137,61 @@ func buildHealthResponse(ctx context.Context) *HealthResponse {
 	// - healthy: all components healthy
 	// - degraded: some non-critical components unhealthy (none currently)
 	// - unhealthy: critical components (database) unhealthy
-	if dbHealth.Status == "unhealthy" {
-		resp.Body.Status = "unhealthy"
+	if dbHealth.Status == statusHealthy {
+		resp.Body.Status = statusHealthy
 	} else {
-		resp.Body.Status = "healthy"
+		resp.Body.Status = statusUnhealthy
 	}
 
 	return resp
 }
 
-// checkDatabaseHealth verifies database connectivity
+// checkDatabaseHealth verifies database connectivity.
+//
+// Every Error string here is a fixed literal. Driver errors are deliberately
+// NOT propagated: this response is public and unauthenticated, and a wrapped
+// driver error leaks the host, port, and database name. The literals omit the
+// component name because the caller supplies it (see unhealthyDetail).
 func checkDatabaseHealth(ctx context.Context) ComponentHealth {
 	start := time.Now()
+
+	unhealthy := func(reason string) ComponentHealth {
+		return ComponentHealth{
+			Status:  statusUnhealthy,
+			Latency: time.Since(start).String(),
+			Error:   reason,
+		}
+	}
 
 	// Get the underlying sql.DB from GORM
 	gormDB := db.GetDB()
 	if gormDB == nil {
-		return ComponentHealth{
-			Status:  "unhealthy",
-			Latency: time.Since(start).String(),
-			Error:   "database not initialized",
-		}
+		return unhealthy("not initialized")
 	}
 
 	sqlDB, err := gormDB.DB()
 	if err != nil {
-		return ComponentHealth{
-			Status:  "unhealthy",
-			Latency: time.Since(start).String(),
-			Error:   "failed to get database connection",
-		}
+		return unhealthy("connection unavailable")
 	}
 
-	// Ping the database with context for timeout support
+	// Bound the ping so a hung database cannot hold the response open. See
+	// databaseProbeTimeout — an unbounded probe is why a stalled dependency
+	// produces a timeout instead of the status code alerting is written against.
+	ctx, cancel := context.WithTimeout(ctx, databaseProbeTimeout)
+	defer cancel()
+
 	if err := sqlDB.PingContext(ctx); err != nil {
-		return ComponentHealth{
-			Status:  "unhealthy",
-			Latency: time.Since(start).String(),
-			Error:   "database ping failed",
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Distinct from "ping failed": a refused connection is a database
+			// that is down, a timeout is one that is reachable but not
+			// answering. They point at different causes during an incident.
+			return unhealthy("ping timed out")
 		}
+		return unhealthy("ping failed")
 	}
 
 	return ComponentHealth{
-		Status:  "healthy",
+		Status:  statusHealthy,
 		Latency: time.Since(start).String(),
 	}
 }

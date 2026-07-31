@@ -3,6 +3,17 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# LIVENESS ONLY — do NOT point this at /health/ready.
+#
+# /health returns 200 whenever the process is serving, even with the database
+# down. That is deliberate: restartPolicyType below means a failing healthcheck
+# RESTARTS the service, so a readiness-style 503 here would restart the backend
+# during a database outage and then fail the deploy — turning "API up, database
+# down" into "nothing up at all".
+#
+# /health/ready is the 503-on-dependency-failure endpoint. It is for external
+# uptime monitoring, which pages a human and restarts nothing.
+# See internal/api/handlers/system/health.go.
 healthcheckPath = "/health"
 healthcheckTimeout = 120
 restartPolicyType = "on_failure"
