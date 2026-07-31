@@ -22,14 +22,20 @@ export interface BrandFontsResult {
 }
 
 /**
- * One-shot reporting latch.
+ * One-shot reporting latches.
  *
  * A broken font asset fails on EVERY request, and the loader deliberately does
- * not retain the rejection, so without this a persistent failure converts
+ * not retain the rejection, so without these a persistent failure converts
  * request volume 1:1 into Sentry events — burning the quota exactly when the
  * signal matters. One report per isolate is enough to raise the alarm.
+ *
+ * The fallback gets its own latch because it is a different incident: the cards
+ * still look right, so nothing about the output would reveal that every
+ * non-Latin name has quietly gone back to being fetched from Google mid-render.
+ * It is only visible if something says so.
  */
 let fontFailureReported = false
+let fallbackMissingReported = false
 
 /**
  * Load the brand fonts, degrading to Satori's bundled default instead of
@@ -42,7 +48,19 @@ let fontFailureReported = false
  */
 export async function loadBrandFontsOrDefault(): Promise<BrandFontsResult> {
   try {
-    return { fonts: await loadBrandFonts(), degraded: false }
+    const { fonts, fallbackMissing } = await loadBrandFonts()
+    if (fallbackMissing && !fallbackMissingReported) {
+      fallbackMissingReported = true
+      Sentry.captureException(new Error('OG script-coverage fallback font failed to load'), {
+        tags: { service: 'og-image' },
+        extra: { stage: 'load-fallback-fonts', impact: 'non-Latin text now fetches from Google' },
+      })
+    }
+    // NOT `degraded`. That flag means the fit budgets may be wrong, and they are
+    // computed from the brand faces, which loaded fine. A missing fallback costs
+    // script coverage, not layout accuracy, so the card is still cacheable for
+    // its normal window.
+    return { fonts, degraded: false }
   } catch (error) {
     if (!fontFailureReported) {
       fontFailureReported = true

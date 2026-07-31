@@ -131,7 +131,12 @@
  *         {'wght':400,'wdth':100}); f.save('/tmp/NotoSans-Regular.ttf')"   # 700 for Bold
  *     pyftsubset /tmp/NotoSans-Regular.ttf --output-file=lib/og/fonts/NotoSans-Regular.ttf \
  *       --unicodes="U+0180-024F,U+0370-03FF,U+0400-04FF,U+0500-052F,U+1E00-1EFF,U+2000-206F,U+2100-214F,U+2212" \
- *       --layout-features="kern,liga,calt" --no-hinting --desubroutinize
+ *       --layout-features="kern,liga,calt" --no-hinting --desubroutinize \
+ *       --name-IDs='*' --name-legacy --name-languages='*'
+ *
+ * The `--name-*` flags are not cosmetic: pyftsubset keeps only name IDs 0-6 by
+ * default, and the OFL requires the copyright and licence notice to travel with
+ * the bytes. Dropping them would strip the notice out of a redistributed font.
  *
  * The range list is exactly what Noto Sans actually carries — asking for symbol
  * or arrow blocks adds nothing but implies coverage that is not there.
@@ -215,7 +220,23 @@ export interface OgFont {
  * roughly 8–15% of render time, plus ~150KB of buffer churn per request. The
  * same trick is what `@vercel/og` itself uses for its fallback font.
  */
-let fontsPromise: Promise<OgFont[]> | undefined
+let fontsPromise: Promise<BrandFontSet> | undefined
+
+/**
+ * The loaded faces, plus whether script coverage is complete.
+ *
+ * The two groups fail differently and must not be conflated. Losing a BRAND
+ * face is a layout problem — every fit budget on a card is computed from
+ * Satoshi's metrics, so the card may overrun. Losing the FALLBACK is a privacy
+ * and consistency problem — the card still lays out correctly, but any
+ * non-Latin text silently goes back to being fetched from Google mid-render,
+ * which is the exact behaviour this module exists to prevent.
+ */
+export interface BrandFontSet {
+  fonts: OgFont[]
+  /** True when the script-coverage fallback could not be loaded. */
+  fallbackMissing: boolean
+}
 
 /**
  * Load the six faces every card in the family uses.
@@ -225,7 +246,7 @@ let fontsPromise: Promise<OgFont[]> | undefined
  * computed path would silently fail to bundle and the card would fall back to
  * Satori's default font at runtime.
  */
-export function loadBrandFonts(): Promise<OgFont[]> {
+export function loadBrandFonts(): Promise<BrandFontSet> {
   // A rejected promise must not be retained: pinning it would strand every
   // later request in this isolate on the off-brand fallback card, which is the
   // opposite of what the failure path is for.
@@ -259,15 +280,28 @@ async function fetchFont(url: URL): Promise<ArrayBuffer> {
   return data
 }
 
-async function fetchBrandFonts(): Promise<OgFont[]> {
-  const [bold, medium, regular, mono, fallbackRegular, fallbackBold] = await Promise.all([
+async function fetchBrandFonts(): Promise<BrandFontSet> {
+  // The brand faces are REQUIRED: every fit budget on a card is derived from
+  // their metrics, so a card without them is measured against the wrong numbers.
+  // Losing one is worth failing the whole load for.
+  const brand = Promise.all([
     fetchFont(new URL('./fonts/Satoshi-Bold.ttf', import.meta.url)),
     fetchFont(new URL('./fonts/Satoshi-Medium.ttf', import.meta.url)),
     fetchFont(new URL('./fonts/Satoshi-Regular.ttf', import.meta.url)),
     fetchFont(new URL('./fonts/SpaceMono-Regular.ttf', import.meta.url)),
+  ])
+
+  // The fallback is ADDITIVE — it only ever adds glyph coverage — so it must not
+  // be able to take the brand faces down with it. Sharing one `Promise.all`
+  // would mean a single bad fallback asset dropped all six faces and rendered
+  // every card, Latin included, in Satori's default typeface: strictly worse
+  // than the coverage gap it was trying to report.
+  const fallback = Promise.all([
     fetchFont(new URL('./fonts/NotoSans-Regular.ttf', import.meta.url)),
     fetchFont(new URL('./fonts/NotoSans-Bold.ttf', import.meta.url)),
-  ])
+  ]).catch(() => null)
+
+  const [[bold, medium, regular, mono], fallbackFaces] = await Promise.all([brand, fallback])
 
   // Order matters: Satori searches the requested family first and then every
   // other family in THIS order, so the brand faces must precede the fallback.
@@ -275,12 +309,20 @@ async function fetchBrandFonts(): Promise<OgFont[]> {
   // glyph both could serve — but that is a property of the current subset, not
   // of the design. Anyone who widens the fallback to overlap Latin would
   // otherwise silently start drawing brand text in Noto Sans.
-  return [
+  const fonts: OgFont[] = [
     { name: OG_FONT_FAMILY.sans, data: bold, weight: 700, style: 'normal' },
     { name: OG_FONT_FAMILY.sans, data: medium, weight: 500, style: 'normal' },
     { name: OG_FONT_FAMILY.sans, data: regular, weight: 400, style: 'normal' },
     { name: OG_FONT_FAMILY.mono, data: mono, weight: 400, style: 'normal' },
-    { name: OG_FALLBACK_FAMILY, data: fallbackRegular, weight: 400, style: 'normal' },
-    { name: OG_FALLBACK_FAMILY, data: fallbackBold, weight: 700, style: 'normal' },
   ]
+
+  if (fallbackFaces) {
+    const [fallbackRegular, fallbackBold] = fallbackFaces
+    fonts.push(
+      { name: OG_FALLBACK_FAMILY, data: fallbackRegular, weight: 400, style: 'normal' },
+      { name: OG_FALLBACK_FAMILY, data: fallbackBold, weight: 700, style: 'normal' }
+    )
+  }
+
+  return { fonts, fallbackMissing: fallbackFaces === null }
 }
