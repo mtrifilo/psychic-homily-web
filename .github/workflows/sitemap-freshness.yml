@@ -1,0 +1,99 @@
+name: Sitemap Freshness
+
+# PSY-1629: compare the sitemap production actually serves against what the API
+# actually holds, from OUTSIDE the application.
+#
+# Why a scheduled workflow and not something in the app:
+#
+#   * The defect this closes was invisible from inside. `fetchShows()` caught
+#     its own abort and returned [], so the route rendered successfully with an
+#     entire entity family missing — no 500, no failed build, no red deploy.
+#     114 show URLs were served against 3,498 slugged shows for months. Every
+#     in-process health check was green the whole time.
+#   * A Go background ticker was explicitly rejected. Per
+#     pattern_ticker_starved_by_deploys.md, a ticker whose interval exceeds the
+#     deploy cadence never fires at all, silently — the same failure class.
+#
+# ALERT-ONLY. This never gates a deploy: coupling releases to an external
+# production observation trades one outage for another. A failure posts to
+# Discord and turns the run red; it blocks nothing.
+#
+# Thresholds are repository VARIABLES, not literals, so they can be retuned
+# from the GitHub UI without a code change — the numbers baked into
+# lib/sitemap-monitor/config.ts are a conservative starting point chosen to
+# avoid false alarms, not measured limits. Narrow them once a few weeks of runs
+# have established real variance (show counts move constantly as events pass
+# and get ingested, and a bulk release import moves `releases` by thousands).
+#
+# Setup:
+#   Settings → Secrets and variables → Actions
+#     Secret   DISCORD_WEBHOOK_URL   → the alerts channel webhook, same channel
+#                                      the backend's DISCORD_WEBHOOK_URL posts to
+#     Variables (all optional, override the code defaults):
+#       SITEMAP_MONITOR_TARGET, SITEMAP_MONITOR_API_BASE,
+#       SITEMAP_MONITOR_DRIFT_RATIO, SITEMAP_MONITOR_DRIFT_FLOOR,
+#       SITEMAP_MONITOR_MIN_FUTURE_SHOWS, SITEMAP_MONITOR_SAMPLE_SIZE
+#
+# Runbook: docs/runbooks/sitemap-freshness.md
+
+on:
+  schedule:
+    # 13:00 UTC daily — 06:00 Phoenix, 08:00 Chicago. Early enough that a
+    # failure is seen at the start of the day rather than discovered at night.
+    # Daily rather than hourly: the sitemap's own ISR window is 1h, so a
+    # tighter cadence would mostly re-measure the same cached document.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Origin to check (defaults to production)
+        required: false
+        type: string
+      drift_ratio:
+        description: Allowed relative drift per family, e.g. 0.2
+        required: false
+        type: string
+      min_future_shows:
+        description: Minimum number of upcoming show URLs required
+        required: false
+        type: string
+
+# A long run must never overlap the next scheduled one — two concurrent runs
+# would double-post the same alert.
+concurrency:
+  group: sitemap-freshness
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Sitemap vs API
+    runs-on: ubuntu-latest
+    # Walking every shard means ~33k URLs across 10 documents plus the sampled
+    # probes; a couple of minutes is normal, so this ceiling only catches a
+    # genuinely wedged endpoint.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      - name: Check sitemap freshness
+        working-directory: ./frontend
+        env:
+          # Unset inputs and variables arrive as empty strings, which
+          # resolveConfig() treats as "not set" and falls back to its defaults.
+          SITEMAP_MONITOR_TARGET: ${{ inputs.target || vars.SITEMAP_MONITOR_TARGET }}
+          SITEMAP_MONITOR_API_BASE: ${{ vars.SITEMAP_MONITOR_API_BASE }}
+          SITEMAP_MONITOR_DRIFT_RATIO: ${{ inputs.drift_ratio || vars.SITEMAP_MONITOR_DRIFT_RATIO }}
+          SITEMAP_MONITOR_DRIFT_FLOOR: ${{ vars.SITEMAP_MONITOR_DRIFT_FLOOR }}
+          SITEMAP_MONITOR_MIN_FUTURE_SHOWS: ${{ inputs.min_future_shows || vars.SITEMAP_MONITOR_MIN_FUTURE_SHOWS }}
+          SITEMAP_MONITOR_SAMPLE_SIZE: ${{ vars.SITEMAP_MONITOR_SAMPLE_SIZE }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: bun run sitemap:check

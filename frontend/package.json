@@ -19,6 +19,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:hydration": "playwright test --config=e2e-hydration/playwright.hydration.config.ts",
     "analyze": "ANALYZE=true next build --webpack",
+    "sitemap:check": "bun run lib/sitemap-monitor/cli.ts",
     "api:types": "bash ../scripts/gen-api-types.sh",
     "api:types:check": "bash ../scripts/gen-api-types.sh && git diff --exit-code -- types/api.d.ts"
   },
