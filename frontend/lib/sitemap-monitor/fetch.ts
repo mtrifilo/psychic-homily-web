@@ -13,6 +13,7 @@ import {
   parseSitemapIndex,
   parseUrlset,
   showDateFromLoc,
+  type LocBucket,
   type SitemapShape,
 } from './parse'
 import type { SampleResult } from './evaluate'
@@ -31,6 +32,8 @@ export interface SitemapObservation {
   errors: string[]
 }
 
+const USER_AGENT = 'psychic-homily-sitemap-monitor'
+
 function emptyCounts(): Record<Family, number> {
   return Object.fromEntries(FAMILY_SHARD_IDS.map(f => [f, 0])) as Record<Family, number>
 }
@@ -38,14 +41,15 @@ function emptyCounts(): Record<Family, number> {
 function headers(config: MonitorConfig): Record<string, string> {
   // A plain UA: some edges serve bot-flavoured responses to the default fetch
   // agent, which would make the monitor measure something no crawler sees.
-  const value: Record<string, string> = { 'user-agent': 'psychic-homily-sitemap-monitor' }
+  const value: Record<string, string> = { 'user-agent': USER_AGENT }
   if (config.vercelBypassToken) {
     value['x-vercel-protection-bypass'] = config.vercelBypassToken
   }
   return value
 }
 
-async function fetchText(url: string, config: MonitorConfig): Promise<string> {
+/** GET a URL, failing on any non-2xx so a served error page never parses as data. */
+async function request(url: string, config: MonitorConfig): Promise<Response> {
   const response = await fetch(url, {
     headers: headers(config),
     redirect: 'follow',
@@ -54,7 +58,7 @@ async function fetchText(url: string, config: MonitorConfig): Promise<string> {
   if (!response.ok) {
     throw new Error(`GET ${url} returned ${response.status}`)
   }
-  return response.text()
+  return response
 }
 
 /**
@@ -78,19 +82,17 @@ function shardIdFromUrl(url: string): string {
   return path.slice(path.lastIndexOf('/') + 1).replace(/\.xml$/, '')
 }
 
-function tally(observation: SitemapObservation, family: Family | 'pages' | 'other', locs: string[]) {
-  if (family === PAGES_SHARD_ID) observation.observedPages += locs.length
-  else if (family === 'other') observation.observedOther += locs.length
-  else observation.observedByFamily[family] += locs.length
+function countInto(observation: SitemapObservation, bucket: LocBucket, count: number): void {
+  if (bucket === PAGES_SHARD_ID) observation.observedPages += count
+  else if (bucket === 'other') observation.observedOther += count
+  else observation.observedByFamily[bucket] += count
 }
 
-function collectShowDates(locs: string[]): string[] {
-  const dates: string[] = []
+function collectShowDates(locs: readonly string[], into: string[]): void {
   for (const loc of locs) {
     const date = showDateFromLoc(loc)
-    if (date) dates.push(date)
+    if (date) into.push(date)
   }
-  return dates
 }
 
 /**
@@ -121,22 +123,15 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   }
 
   const entryUrl = `${config.target}${config.entryPath}`
-  const entryXml = await fetchText(entryUrl, config)
+  const entryXml = await request(entryUrl, config).then(r => r.text())
   observation.shape = detectShape(entryXml)
 
   if (observation.shape === 'urlset') {
-    const urls = parseUrlset(entryXml).map(u => u.loc)
-    observation.locs = urls
-    observation.showDates = collectShowDates(urls)
-
-    const grouped = new Map<Family | 'pages' | 'other', string[]>()
-    for (const loc of urls) {
-      const bucket = classifyLoc(loc)
-      const existing = grouped.get(bucket)
-      if (existing) existing.push(loc)
-      else grouped.set(bucket, [loc])
+    observation.locs = parseUrlset(entryXml)
+    collectShowDates(observation.locs, observation.showDates)
+    for (const loc of observation.locs) {
+      countInto(observation, classifyLoc(loc), 1)
     }
-    for (const [bucket, locs] of grouped) tally(observation, bucket, locs)
     return observation
   }
 
@@ -144,14 +139,17 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   observation.shardCount = shardUrls.length
 
   const known = new Set<string>([PAGES_SHARD_ID, ...FAMILY_SHARD_IDS])
+  const listed = new Set<string>()
+
   for (const shardUrl of shardUrls) {
     const id = shardIdFromUrl(shardUrl)
+    listed.add(id)
     if (!known.has(id)) {
       observation.errors.push(`sitemap index lists unknown shard "${id}" (${shardUrl})`)
       continue
     }
     try {
-      const xml = await fetchText(shardUrl, config)
+      const xml = await request(shardUrl, config).then(r => r.text())
       // A shard must be a urlset. An index here would mean nested sharding
       // this monitor does not understand, and counting it as zero URLs would
       // read as a catastrophically empty family.
@@ -160,10 +158,13 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
         observation.errors.push(`shard "${id}" served a <${shape}> where a <urlset> was expected`)
         continue
       }
-      const locs = parseUrlset(xml).map(u => u.loc)
-      observation.locs.push(...locs)
-      if (id === 'shows') observation.showDates.push(...collectShowDates(locs))
-      tally(observation, id as Family | 'pages', locs)
+      const locs = parseUrlset(xml)
+      // Not `push(...locs)`: the releases shard is already ~20k entries and
+      // spreading it into the argument list approaches the engine's stack
+      // argument limit.
+      for (const loc of locs) observation.locs.push(loc)
+      if (id === 'shows') collectShowDates(locs, observation.showDates)
+      countInto(observation, id as Family | typeof PAGES_SHARD_ID, locs.length)
     } catch (error) {
       observation.errors.push(`shard "${id}": ${(error as Error).message}`)
     }
@@ -172,7 +173,6 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   // Every family the sitemap claims to shard must actually be listed. A family
   // silently dropped from the index is thousands of URLs vanishing with no
   // other signal — the incident's exact shape.
-  const listed = new Set(shardUrls.map(shardIdFromUrl))
   for (const family of FAMILY_SHARD_IDS) {
     if (!listed.has(family)) {
       observation.errors.push(`sitemap index is missing the "${family}" shard`)
@@ -188,7 +188,7 @@ export async function fetchExpectedCounts(
 ): Promise<Record<Family, number>> {
   const url = `${config.apiBase}/sitemap/entries`
   const response = await fetch(url, {
-    headers: { 'user-agent': 'psychic-homily-sitemap-monitor' },
+    headers: { 'user-agent': USER_AGENT },
     signal: AbortSignal.timeout(config.fetchTimeoutMs),
   })
   if (!response.ok) {
@@ -212,9 +212,12 @@ export async function fetchExpectedCounts(
     // Count only rows the sitemap would actually emit: app/sitemap.ts drops
     // entries with an empty slug, so counting them here would manufacture
     // drift that does not exist.
-    counts[family] = rows.filter(
-      row => typeof (row as { slug?: unknown })?.slug === 'string' && (row as { slug: string }).slug !== ''
-    ).length
+    let emitted = 0
+    for (const row of rows) {
+      const slug = (row as { slug?: unknown } | null)?.slug
+      if (typeof slug === 'string' && slug !== '') emitted++
+    }
+    counts[family] = emitted
   }
   return counts
 }
@@ -241,6 +244,9 @@ export async function sampleUrls(
           redirect: 'follow',
           signal: AbortSignal.timeout(config.sampleTimeoutMs),
         })
+        // Only the status matters; release the body rather than buffering a
+        // full SSR page for each probe.
+        await response.body?.cancel()
         return { url, status: response.status, ok: response.ok }
       } catch (error) {
         return { url, status: null, ok: false, error: (error as Error).message }

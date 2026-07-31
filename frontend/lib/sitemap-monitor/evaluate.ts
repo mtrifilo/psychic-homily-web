@@ -60,8 +60,13 @@ export interface Report {
   expectedTotal: number
   futureShows: { observed: number; required: number; ok: boolean }
   samples: SampleResult[]
-  errors: string[]
-  /** One line per failed assertion, with the numbers that failed it. */
+  /**
+   * One line per failed assertion, with the numbers that failed it.
+   *
+   * Gathering errors from `EvaluationInput` are folded in here rather than kept
+   * as a separate field, so a formatter cannot render the same problem twice or
+   * miss half of it.
+   */
   failures: string[]
 }
 
@@ -140,7 +145,6 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
     expectedTotal: families.reduce((sum, c) => sum + c.expected, 0),
     futureShows,
     samples: input.samples,
-    errors: input.errors,
     failures,
   }
 }
@@ -160,11 +164,15 @@ export function pickSample<T>(items: readonly T[], size: number, rng: () => numb
   const pool = [...items]
   const picked: T[] = []
   for (let i = 0; i < size; i++) {
-    const index = Math.floor(rng() * pool.length)
-    // Guard against an rng returning exactly 1 (or a hair under, rounding up).
-    const safeIndex = Math.min(Math.max(index, 0), pool.length - 1)
-    picked.push(pool[safeIndex])
-    pool.splice(safeIndex, 1)
+    // Guard against an rng returning exactly 1, which would index past the end
+    // and push undefined into the sample.
+    const index = Math.min(Math.floor(rng() * pool.length), pool.length - 1)
+    picked.push(pool[index])
+    // Swap-with-last then pop, rather than splice: same draw-without-replacement
+    // semantics in O(1) instead of an O(n) memmove over a 33k-element array on
+    // every pick.
+    pool[index] = pool[pool.length - 1]
+    pool.pop()
   }
   return picked
 }

@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { FAMILY_SHARD_IDS, type Family } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
 import { evaluate, type EvaluationInput } from './evaluate'
-import { formatConsoleReport, formatDiscordPayload, truncate } from './format'
+import {
+  formatConsoleReport,
+  formatCrashPayload,
+  formatDiscordPayload,
+  truncate,
+} from './format'
 
 const config = resolveConfig({})
 const NOW = new Date('2026-07-30T12:00:00Z')
@@ -101,6 +106,12 @@ describe('formatDiscordPayload', () => {
     )
   })
 
+  it('reports the shard count only for an index', () => {
+    const single = formatDiscordPayload(report({ shape: 'urlset', shardCount: 0 }), NOW)
+    expect(single.embeds[0].description).toContain('`<urlset>`')
+    expect(single.embeds[0].description).not.toContain('shards')
+  })
+
   /**
    * Discord rejects an oversized embed with a 400, which would lose the alert
    * at exactly the moment it matters. Every string must be capped.
@@ -123,5 +134,31 @@ describe('formatDiscordPayload', () => {
       expect(field.value.length).toBeLessThanOrEqual(1024)
     }
     expect(embed.fields?.length ?? 0).toBeLessThanOrEqual(25)
+  })
+})
+
+/**
+ * "The monitor crashed" and "the sitemap is fine" must never look the same from
+ * the outside, so the unrunnable case gets its own alert rather than silence.
+ */
+describe('formatCrashPayload', () => {
+  it('names the target and carries the cause', () => {
+    const embed = formatCrashPayload(
+      'https://psychichomily.com',
+      'GET https://api.psychichomily.com/sitemap/entries returned 404',
+      NOW
+    ).embeds[0]
+    expect(embed.title).toBe('Sitemap freshness check could not run')
+    expect(embed.description).toContain('https://psychichomily.com')
+    expect(embed.description).toContain('returned 404')
+    expect(embed.color).toBe(0xffa500)
+  })
+
+  // The limit is owned by format.ts alone; an oversized embed 400s and the
+  // alert is lost at exactly the moment it matters.
+  it('keeps an enormous error message within the description limit', () => {
+    const embed = formatCrashPayload('https://psychichomily.com', 'x'.repeat(20_000), NOW)
+      .embeds[0]
+    expect(embed.description?.length ?? 0).toBeLessThanOrEqual(4096)
   })
 })

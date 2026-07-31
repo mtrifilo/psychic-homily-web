@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { FAMILY_SHARD_IDS } from '@/app/sitemap-shards'
+import { FAMILY_SHARD_IDS, FAMILY_URL_PREFIXES } from '@/app/sitemap-shards'
 import {
   classifyLoc,
   detectShape,
   parseSitemapIndex,
   parseUrlset,
   showDateFromLoc,
+  SHARED_PREFIXES,
 } from './parse'
 
 const INDEX_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -68,19 +69,21 @@ describe('parseSitemapIndex', () => {
 })
 
 describe('parseUrlset', () => {
-  it('pairs each loc with its lastmod', () => {
+  it('returns every loc in document order', () => {
     expect(parseUrlset(URLSET_XML)).toEqual([
-      {
-        loc: 'https://psychichomily.com/shows/2026-03-20-lonna-kelley-at-rv-phone-home',
-        lastModified: '2026-03-20T02:17:34.909Z',
-      },
-      { loc: 'https://psychichomily.com/artists/no-lastmod-here', lastModified: undefined },
+      'https://psychichomily.com/shows/2026-03-20-lonna-kelley-at-rv-phone-home',
+      'https://psychichomily.com/artists/no-lastmod-here',
     ])
   })
 
   it('decodes XML entities in a loc', () => {
     const xml = `<urlset><url><loc>https://psychichomily.com/tags/rock&amp;roll</loc></url></urlset>`
-    expect(parseUrlset(xml)[0].loc).toBe('https://psychichomily.com/tags/rock&roll')
+    expect(parseUrlset(xml)[0]).toBe('https://psychichomily.com/tags/rock&roll')
+  })
+
+  it('leaves an entity-free loc untouched by the decode fast path', () => {
+    const xml = `<urlset><url><loc>https://psychichomily.com/tags/punk</loc></url></urlset>`
+    expect(parseUrlset(xml)[0]).toBe('https://psychichomily.com/tags/punk')
   })
 
   it('skips a url block with no loc', () => {
@@ -128,24 +131,30 @@ describe('classifyLoc', () => {
     expect(classifyLoc('not a url')).toBe('other')
   })
 
-  // The guard that matters: a family added to the sitemap must be countable
-  // here too, or the single-document path would under-report it forever.
-  it('classifies every family the sitemap shards by', () => {
-    const samples: Record<string, string> = {
-      shows: 'https://psychichomily.com/shows/2026-03-20-x',
-      artists: 'https://psychichomily.com/artists/x',
-      venues: 'https://psychichomily.com/venues/x',
-      scenes: 'https://psychichomily.com/scenes/x',
-      scene_weeks: 'https://psychichomily.com/scenes/x/2026-W28',
-      labels: 'https://psychichomily.com/labels/x',
-      releases: 'https://psychichomily.com/releases/x',
-      festivals: 'https://psychichomily.com/festivals/x',
-      tags: 'https://psychichomily.com/tags/x',
-    }
+  /**
+   * The guard that matters, and the reason the prefix table is shared rather
+   * than restated here: the sample URLs are BUILT from FAMILY_URL_PREFIXES, so
+   * renaming a prefix in sitemap-shards.ts moves the generator and this
+   * classifier together. A hand-written sample map would keep passing while
+   * `classifyLoc` silently bucketed the renamed family as `other`.
+   */
+  it('classifies every family from the shared prefix table', () => {
     for (const family of FAMILY_SHARD_IDS) {
-      expect(samples[family], `no sample URL for family "${family}"`).toBeDefined()
-      expect(classifyLoc(samples[family])).toBe(family)
+      // scene_weeks is the one family whose slug is itself composite.
+      const slug = family === 'scene_weeks' ? 'austin-tx/2026-W28' : 'a-slug'
+      const loc = `https://psychichomily.com${FAMILY_URL_PREFIXES[family]}/${slug}`
+      expect(classifyLoc(loc), `misclassified ${family} (${loc})`).toBe(family)
     }
+  })
+
+  /**
+   * `classifyLoc` can only split families that share a prefix if it has an
+   * explicit rule for that prefix. Today `/scenes` is the only collision. If a
+   * new family adds a second one, this fails loudly instead of letting the new
+   * family be silently misbucketed.
+   */
+  it('has a disambiguation rule for every shared prefix', () => {
+    expect(SHARED_PREFIXES).toEqual(['scenes'])
   })
 })
 

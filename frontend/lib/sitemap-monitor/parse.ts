@@ -14,21 +14,20 @@
  * against the root element.
  */
 
-import { FAMILY_SHARD_IDS, PAGES_SHARD_ID, type Family } from '@/app/sitemap-shards'
-
-/** One `<url>` entry from a `<urlset>` document. */
-export interface SitemapUrl {
-  loc: string
-  lastModified?: string
-}
+import {
+  FAMILY_SHARD_IDS,
+  FAMILY_URL_PREFIXES,
+  PAGES_SHARD_ID,
+  type Family,
+} from '@/app/sitemap-shards'
 
 /**
  * Which document shape was served.
  *
- * `index` is what production serves once the generateSitemaps() sharding is
- * deployed; `urlset` is the older single-document shape. The monitor supports
- * both because it has to keep working across that deploy boundary — see
- * `walkSitemap` in fetch.ts.
+ * `index` is what production serves now that the generateSitemaps() sharding
+ * is deployed; `urlset` is the older single-document shape. The monitor
+ * supports both because it has to keep working across that deploy boundary —
+ * see `walkSitemap` in fetch.ts.
  */
 export type SitemapShape = 'index' | 'urlset'
 
@@ -45,10 +44,13 @@ export type LocBucket = Family | typeof PAGES_SHARD_ID | 'other'
 const URL_BLOCK = /<url\b[^>]*>([\s\S]*?)<\/url\s*>/gi
 const SITEMAP_BLOCK = /<sitemap\b[^>]*>([\s\S]*?)<\/sitemap\s*>/gi
 const LOC_TAG = /<loc\b[^>]*>([\s\S]*?)<\/loc\s*>/i
-const LASTMOD_TAG = /<lastmod\b[^>]*>([\s\S]*?)<\/lastmod\s*>/i
+const SHOW_SLUG_DATE = /\/shows\/(\d{4}-\d{2}-\d{2})-/
 
 /** The five predefined XML entities. Sitemap `<loc>` values must escape these. */
 function decodeEntities(value: string): string {
+  // Sitemap locs essentially never contain entities, and this runs on every one
+  // of ~33k URLs; one indexOf beats five full regex scans in the common case.
+  if (!value.includes('&')) return value
   return value
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -58,8 +60,8 @@ function decodeEntities(value: string): string {
     .replace(/&amp;/g, '&')
 }
 
-function extract(block: string, tag: RegExp): string | undefined {
-  const match = tag.exec(block)
+function extractLoc(block: string): string | undefined {
+  const match = LOC_TAG.exec(block)
   if (!match) return undefined
   const value = decodeEntities(match[1].trim())
   return value.length > 0 ? value : undefined
@@ -85,60 +87,60 @@ export function detectShape(xml: string): SitemapShape {
 export function parseSitemapIndex(xml: string): string[] {
   const locs: string[] = []
   for (const [, block] of xml.matchAll(SITEMAP_BLOCK)) {
-    const loc = extract(block, LOC_TAG)
+    const loc = extractLoc(block)
     if (loc) locs.push(loc)
   }
   return locs
 }
 
-/** The `<url>` entries of a `<urlset>` document. */
-export function parseUrlset(xml: string): SitemapUrl[] {
-  const urls: SitemapUrl[] = []
+/**
+ * The `<loc>` values of a `<urlset>` document.
+ *
+ * `<lastmod>` is deliberately not returned. It carries `updated_at`, which
+ * cannot answer the freshness question — a bulk re-ingest of historical rows
+ * refreshes every `<lastmod>` while the catalogue stays entirely in the past.
+ * `showDateFromLoc` reads the event date instead, so parsing lastmod would be
+ * pure cost across ~33k entries.
+ */
+export function parseUrlset(xml: string): string[] {
+  const locs: string[] = []
   for (const [, block] of xml.matchAll(URL_BLOCK)) {
-    const loc = extract(block, LOC_TAG)
-    if (!loc) continue
-    urls.push({ loc, lastModified: extract(block, LASTMOD_TAG) })
+    const loc = extractLoc(block)
+    if (loc) locs.push(loc)
   }
-  return urls
+  return locs
 }
 
 /**
  * Path prefixes that belong to the `pages` shard.
  *
  * Listing pages (`/shows`, `/venues`, …) are single-segment and handled by the
- * segment-count rule below, so only the multi-segment page families need to be
- * named here.
+ * segment-count rule in `classifyLoc`, so only the multi-segment page families
+ * need naming here.
  */
 const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
 
 /**
- * First path segment → family, for the families whose URLs are exactly
- * `/{prefix}/{slug}`.
+ * First path segment → the families claiming it, derived from the shared
+ * FAMILY_URL_PREFIXES table rather than restated.
  *
- * Typed as a total record over the shard ids so that adding a family to
- * sitemap-shards.ts stops this file compiling until the new family is
- * classified — the same compile-time guard app/sitemap.ts uses on
- * FAMILY_ROUTES. `scenes` and `scene_weeks` share the `/scenes` prefix and are
- * split by segment count instead, so they are mapped to `null` here.
+ * Most prefixes have exactly one claimant. `/scenes` has two, which is why this
+ * is a list: the collision is DETECTED here rather than assumed, so a future
+ * family sharing an existing prefix surfaces in `SHARED_PREFIXES` (and fails
+ * the guard test in parse.test.ts) instead of being silently misbucketed.
  */
-const PREFIX_TO_FAMILY: Record<Family, string | null> = {
-  shows: 'shows',
-  artists: 'artists',
-  venues: 'venues',
-  labels: 'labels',
-  releases: 'releases',
-  festivals: 'festivals',
-  tags: 'tags',
-  scenes: null,
-  scene_weeks: null,
+const FAMILIES_BY_PREFIX = new Map<string, Family[]>()
+for (const family of FAMILY_SHARD_IDS) {
+  const prefix = FAMILY_URL_PREFIXES[family].replace(/^\//, '')
+  const claimants = FAMILIES_BY_PREFIX.get(prefix)
+  if (claimants) claimants.push(family)
+  else FAMILIES_BY_PREFIX.set(prefix, [family])
 }
 
-const SIMPLE_PREFIXES = new Map<string, Family>(
-  FAMILY_SHARD_IDS.flatMap(family => {
-    const prefix = PREFIX_TO_FAMILY[family]
-    return prefix ? ([[prefix, family]] as [string, Family][]) : []
-  })
-)
+/** Prefixes claimed by more than one family; each needs a rule in `classifyLoc`. */
+export const SHARED_PREFIXES = [...FAMILIES_BY_PREFIX]
+  .filter(([, claimants]) => claimants.length > 1)
+  .map(([prefix]) => prefix)
 
 /**
  * Bucket a `<loc>` by its URL path.
@@ -147,10 +149,6 @@ const SIMPLE_PREFIXES = new Map<string, Family>(
  * `<urlset>`. When the target serves a sitemap index the shard id is the
  * family and this is not consulted — which is why the sharded path cannot be
  * fooled by a classification gap here.
- *
- * Mirrors FAMILY_ROUTES in app/sitemap.ts. Kept as a separate declaration on
- * purpose: importing app/sitemap.ts would drag Sentry and the MDX blog loader
- * into a CLI that needs neither. classify.test.ts asserts the two stay in step.
  */
 export function classifyLoc(loc: string): LocBucket {
   let path: string
@@ -168,14 +166,16 @@ export function classifyLoc(loc: string): LocBucket {
   const [prefix] = segments
   if (PAGE_PREFIXES.has(prefix)) return PAGES_SHARD_ID
 
+  const claimants = FAMILIES_BY_PREFIX.get(prefix)
+  if (!claimants) return 'other'
+
+  if (claimants.length === 1) {
+    return segments.length === 2 ? claimants[0] : 'other'
+  }
+
   // `/scenes/{city}` is a scene; `/scenes/{city}/{iso-week}` is a scene week.
   if (prefix === 'scenes') {
     return segments.length === 2 ? 'scenes' : 'scene_weeks'
-  }
-
-  if (segments.length === 2) {
-    const family = SIMPLE_PREFIXES.get(prefix)
-    if (family) return family
   }
 
   return 'other'
@@ -184,17 +184,13 @@ export function classifyLoc(loc: string): LocBucket {
 /**
  * The event date encoded in a show slug (`2026-03-20-lonna-kelley-at-…`).
  *
- * Show `<lastmod>` carries `updated_at`, not the event date, so it cannot
- * answer "does this sitemap contain upcoming shows" — a bulk re-ingest of
- * historical rows would refresh every `<lastmod>` while the catalogue stayed
- * entirely in the past. The slug prefix is the only event-date signal in the
- * document.
+ * The slug prefix is the only event-date signal in the document — see the note
+ * on `parseUrlset` about why `<lastmod>` cannot serve here.
  *
  * Returns undefined for the minority of show slugs with no date prefix
  * (measured: 10 of 1458 on stage), which are skipped rather than treated as
  * malformed.
  */
 export function showDateFromLoc(loc: string): string | undefined {
-  const match = /\/shows\/(\d{4}-\d{2}-\d{2})-/.exec(loc)
-  return match?.[1]
+  return SHOW_SLUG_DATE.exec(loc)?.[1]
 }

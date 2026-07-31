@@ -21,7 +21,12 @@
 import { resolveConfig, type MonitorConfig } from './config'
 import { countFutureShows, evaluate, isoDate, pickSample, type Report } from './evaluate'
 import { fetchExpectedCounts, sampleUrls, walkSitemap } from './fetch'
-import { formatConsoleReport, formatDiscordPayload, type DiscordPayload } from './format'
+import {
+  formatConsoleReport,
+  formatCrashPayload,
+  formatDiscordPayload,
+  type DiscordPayload,
+} from './format'
 
 export async function runCheck(config: MonitorConfig, now: Date): Promise<Report> {
   // Sequential, not Promise.all: if the API feed is down there is nothing to
@@ -80,26 +85,6 @@ async function postToDiscord(
   }
 }
 
-/**
- * The alert sent when the check could not run at all — an unreachable API
- * feed, a sitemap that is neither shape, a malformed threshold.
- *
- * Reported as loudly as a drift failure. "The monitor crashed" and "the
- * sitemap is fine" must never look the same from the outside.
- */
-function crashPayload(target: string, message: string, now: Date): DiscordPayload {
-  return {
-    embeds: [
-      {
-        title: 'Sitemap freshness check could not run',
-        description: `**${target}**\n\`\`\`\n${message.slice(0, 3900)}\n\`\`\``,
-        color: 0xffa500,
-        timestamp: now.toISOString(),
-      },
-    ],
-  }
-}
-
 export async function main(env: NodeJS.ProcessEnv, now: Date): Promise<number> {
   let config: MonitorConfig
   try {
@@ -120,7 +105,7 @@ export async function main(env: NodeJS.ProcessEnv, now: Date): Promise<number> {
     if (config.discordWebhookUrl) {
       await postToDiscord(
         config.discordWebhookUrl,
-        crashPayload(config.target, message, now),
+        formatCrashPayload(config.target, message, now),
         config.fetchTimeoutMs
       )
     }

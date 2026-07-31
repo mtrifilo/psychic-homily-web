@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
 import { fetchExpectedCounts, rebaseOnTarget, walkSitemap } from './fetch'
 
@@ -49,18 +50,10 @@ ${ids
 </sitemapindex>`
 }
 
-const ALL_IDS = [
-  'pages',
-  'shows',
-  'artists',
-  'venues',
-  'scenes',
-  'scene_weeks',
-  'labels',
-  'releases',
-  'festivals',
-  'tags',
-]
+// Derived, not hand-copied: a family added to sitemap-shards.ts must flow into
+// these fixtures, or the shard-count assertions below would keep passing for
+// the wrong reason.
+const ALL_IDS: string[] = [PAGES_SHARD_ID, ...FAMILY_SHARD_IDS]
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -91,7 +84,7 @@ describe('walkSitemap', () => {
     )
 
     expect(observation.shape).toBe('index')
-    expect(observation.shardCount).toBe(10)
+    expect(observation.shardCount).toBe(ALL_IDS.length)
     expect(observation.observedByFamily.shows).toBe(2)
     expect(observation.observedByFamily.artists).toBe(1)
     expect(observation.observedPages).toBe(1)
@@ -109,8 +102,8 @@ describe('walkSitemap', () => {
 
     await walkSitemap(resolveConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
 
-    // 1 index + 10 shards.
-    expect(spy).toHaveBeenCalledTimes(11)
+    // 1 index + every shard.
+    expect(spy).toHaveBeenCalledTimes(ALL_IDS.length + 1)
     for (const id of ALL_IDS) {
       expect(spy).toHaveBeenCalledWith(`${STAGE}/sitemap/${id}.xml`, expect.anything())
     }
@@ -184,19 +177,7 @@ describe('walkSitemap', () => {
 
 describe('fetchExpectedCounts', () => {
   function entriesBody(overrides: Record<string, unknown> = {}) {
-    const base = Object.fromEntries(
-      [
-        'shows',
-        'artists',
-        'venues',
-        'scenes',
-        'scene_weeks',
-        'labels',
-        'releases',
-        'festivals',
-        'tags',
-      ].map(family => [family, []])
-    )
+    const base = Object.fromEntries(FAMILY_SHARD_IDS.map(family => [family, []]))
     return JSON.stringify({ ...base, ...overrides })
   }
 

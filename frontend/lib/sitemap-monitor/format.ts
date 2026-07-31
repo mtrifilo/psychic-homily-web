@@ -11,6 +11,7 @@ import type { Report } from './evaluate'
 /** Matches the backend's Discord embed palette in services/notification/discord.go. */
 const COLOR_RED = 0xff0000
 const COLOR_GREEN = 0x00ff00
+const COLOR_ORANGE = 0xffa500
 
 // Discord's documented embed limits. Exceeding any of them makes the webhook
 // return 400, i.e. the alert is silently lost at exactly the moment it matters.
@@ -42,6 +43,16 @@ export function truncate(value: string, limit: number): string {
   return value.slice(0, Math.max(0, limit - ellipsis.length)) + ellipsis
 }
 
+/** `<index> (10 shards)` — shared so the two formatters cannot word it differently. */
+function shapeLabel(report: Report): string {
+  return `<${report.shape}>${report.shape === 'index' ? ` (${report.shardCount} shards)` : ''}`
+}
+
+/** `9/10` reachable sampled URLs. */
+function sampleTally(report: Report): string {
+  return `${report.samples.filter(s => s.ok).length}/${report.samples.length}`
+}
+
 /** `shows  1458 / 1458  (+0, ±292)` — one aligned line per family. */
 function familyLines(report: Report): string[] {
   const width = Math.max(...report.families.map(c => c.family.length))
@@ -57,13 +68,13 @@ export function formatConsoleReport(report: Report): string {
   const lines: string[] = [
     `Sitemap freshness — ${report.ok ? 'PASS' : 'FAIL'}`,
     `target:  ${report.target}`,
-    `shape:   <${report.shape}>${report.shape === 'index' ? ` (${report.shardCount} shards)` : ''}`,
+    `shape:   ${shapeLabel(report)}`,
     `totals:  sitemap ${report.observedTotal} locs (entities ${report.expectedTotal} per API, pages ${report.observedPages}, unclassified ${report.observedOther})`,
     '',
     ...familyLines(report),
     '',
     `${report.futureShows.ok ? 'ok  ' : 'FAIL'} upcoming shows  ${report.futureShows.observed} (need ≥ ${report.futureShows.required})`,
-    `${report.samples.every(s => s.ok) ? 'ok  ' : 'FAIL'} sampled URLs    ${report.samples.filter(s => s.ok).length}/${report.samples.length} reachable`,
+    `${report.samples.every(s => s.ok) ? 'ok  ' : 'FAIL'} sampled URLs    ${sampleTally(report)} reachable`,
   ]
 
   const badSamples = report.samples.filter(s => !s.ok)
@@ -97,10 +108,10 @@ export function formatDiscordPayload(report: Report, now: Date): DiscordPayload 
 
   const table = ['```', ...familyLines(report), '```'].join('\n')
   const summary = [
-    `**${report.target}** — \`<${report.shape}>\`${report.shape === 'index' ? ` (${report.shardCount} shards)` : ''}`,
+    `**${report.target}** — \`${shapeLabel(report)}\``,
     `${report.observedTotal} sitemap URLs vs ${report.expectedTotal} API entities`,
     `Upcoming shows: **${report.futureShows.observed}** (need ≥ ${report.futureShows.required})`,
-    `Sampled URLs reachable: **${report.samples.filter(s => s.ok).length}/${report.samples.length}**`,
+    `Sampled URLs reachable: **${sampleTally(report)}**`,
     '',
     table,
   ].join('\n')
@@ -120,6 +131,33 @@ export function formatDiscordPayload(report: Report, now: Date): DiscordPayload 
         description: truncate(summary, MAX_DESCRIPTION),
         color: report.ok ? COLOR_GREEN : COLOR_RED,
         fields: fields.length > 0 ? fields : undefined,
+        timestamp: now.toISOString(),
+      },
+    ],
+  }
+}
+
+/**
+ * The alert sent when the check could not run at all — an unreachable API feed,
+ * a sitemap that is neither shape, a malformed threshold.
+ *
+ * Lives here beside the other formatter so Discord's limits have exactly one
+ * owner; when this was inlined in cli.ts it carried its own, different cap.
+ * Reported as loudly as a drift failure: "the monitor crashed" and "the sitemap
+ * is fine" must never look the same from the outside.
+ */
+export function formatCrashPayload(
+  target: string,
+  message: string,
+  now: Date
+): DiscordPayload {
+  const wrapper = `**${target}**\n\`\`\`\n\n\`\`\``
+  return {
+    embeds: [
+      {
+        title: 'Sitemap freshness check could not run',
+        description: `**${target}**\n\`\`\`\n${truncate(message, MAX_DESCRIPTION - wrapper.length)}\n\`\`\``,
+        color: COLOR_ORANGE,
         timestamp: now.toISOString(),
       },
     ],

@@ -14,6 +14,8 @@
  * incident this exists to catch.
  */
 
+import { SITE_URL } from '@/lib/seo/siteMetadata'
+
 /** Defaults are documented next to each field in `resolveConfig`. */
 export interface MonitorConfig {
   /** Origin whose sitemap is being checked, e.g. `https://psychichomily.com`. */
@@ -113,7 +115,7 @@ function normalizeOrigin(value: string, key: string): string {
 export function resolveConfig(env: Env): MonitorConfig {
   return {
     target: normalizeOrigin(
-      readString(env, 'SITEMAP_MONITOR_TARGET', 'https://psychichomily.com'),
+      readString(env, 'SITEMAP_MONITOR_TARGET', SITE_URL),
       'SITEMAP_MONITOR_TARGET'
     ),
     apiBase: normalizeOrigin(

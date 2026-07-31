@@ -33,3 +33,32 @@ type AssertNoMissingFamily = [MissingFamily] extends [never]
   : { missing: MissingFamily }
 const _assertNoMissingFamily: AssertNoMissingFamily = true
 void _assertNoMissingFamily
+
+/**
+ * The URL path prefix each family's entries live under.
+ *
+ * Owned here, next to the family ids, because two independent consumers need
+ * the same fact: app/sitemap.ts builds `<loc>` values FROM it, and
+ * lib/sitemap-monitor classifies served URLs BACK INTO families with it. When
+ * each kept its own copy, renaming a prefix in one still compiled and still
+ * passed every test, while the monitor silently bucketed the whole family as
+ * unrecognised and alarmed forever after. The compile-time `Record<Family, …>`
+ * guards catch a family being ADDED; only a shared table catches a prefix
+ * being CHANGED.
+ *
+ * `scenes` and `scene_weeks` deliberately share `/scenes`: a scene is
+ * `/scenes/{city}` and a scene week is `/scenes/{city}/{iso-week}`. Anything
+ * mapping a URL back to a family has to disambiguate those two by segment
+ * count, not by prefix.
+ */
+export const FAMILY_URL_PREFIXES = {
+  shows: '/shows',
+  artists: '/artists',
+  venues: '/venues',
+  scenes: '/scenes',
+  scene_weeks: '/scenes',
+  labels: '/labels',
+  releases: '/releases',
+  festivals: '/festivals',
+  tags: '/tags',
+} as const satisfies Record<Family, string>

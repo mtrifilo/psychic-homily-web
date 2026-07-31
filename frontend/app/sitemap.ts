@@ -70,6 +70,7 @@ import { API_BASE_URL } from '@/lib/api-base'
 import type { components } from '@/types/api'
 import {
   FAMILY_SHARD_IDS,
+  FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
   type Family,
 } from './sitemap-shards'
@@ -90,7 +91,7 @@ export { FAMILY_SHARD_IDS, PAGES_SHARD_ID }
 export type { Family }
 
 /**
- * How each family maps onto a URL.
+ * The crawl hints each family carries.
  *
  * Typed as a total `Record<Family, …>` on purpose: when the backend adds a
  * family to `SitemapEntries`, this object stops compiling until it is mapped
@@ -98,28 +99,29 @@ export type { Family }
  * schema makes tsc emit TS2741 on this declaration. Without it a new family
  * would be fetched, ignored, and silently absent from the XML.
  *
- * `scene_weeks` slugs are already composite (`phoenix-az/2026-W31`), so the
- * same `/scenes` prefix yields the archived canonical URL shape.
+ * The URL prefix is deliberately NOT here: it lives in FAMILY_URL_PREFIXES in
+ * sitemap-shards.ts because lib/sitemap-monitor has to map served URLs back
+ * onto families with the same table. `changeFrequency` and `priority` stay
+ * local because nothing outside this generator has any use for them.
  *
  * Public collections are deliberately absent — see contracts.SitemapEntries.
  */
 const FAMILY_ROUTES: Record<
   Family,
   {
-    prefix: string
     changeFrequency: MetadataRoute.Sitemap[number]['changeFrequency']
     priority: number
   }
 > = {
-  shows: { prefix: '/shows', changeFrequency: 'weekly', priority: 0.8 },
-  artists: { prefix: '/artists', changeFrequency: 'monthly', priority: 0.6 },
-  venues: { prefix: '/venues', changeFrequency: 'monthly', priority: 0.6 },
-  scenes: { prefix: '/scenes', changeFrequency: 'weekly', priority: 0.7 },
-  scene_weeks: { prefix: '/scenes', changeFrequency: 'weekly', priority: 0.6 },
-  labels: { prefix: '/labels', changeFrequency: 'monthly', priority: 0.5 },
-  releases: { prefix: '/releases', changeFrequency: 'monthly', priority: 0.5 },
-  festivals: { prefix: '/festivals', changeFrequency: 'monthly', priority: 0.6 },
-  tags: { prefix: '/tags', changeFrequency: 'monthly', priority: 0.5 },
+  shows: { changeFrequency: 'weekly', priority: 0.8 },
+  artists: { changeFrequency: 'monthly', priority: 0.6 },
+  venues: { changeFrequency: 'monthly', priority: 0.6 },
+  scenes: { changeFrequency: 'weekly', priority: 0.7 },
+  scene_weeks: { changeFrequency: 'weekly', priority: 0.6 },
+  labels: { changeFrequency: 'monthly', priority: 0.5 },
+  releases: { changeFrequency: 'monthly', priority: 0.5 },
+  festivals: { changeFrequency: 'monthly', priority: 0.6 },
+  tags: { changeFrequency: 'monthly', priority: 0.5 },
 }
 
 /**
@@ -195,7 +197,8 @@ function mapFamilyEntries(
   family: Family,
   rows: SitemapEntry[]
 ): MetadataRoute.Sitemap {
-  const { prefix, changeFrequency, priority } = FAMILY_ROUTES[family]
+  const { changeFrequency, priority } = FAMILY_ROUTES[family]
+  const prefix = FAMILY_URL_PREFIXES[family]
   // Rows are known well-formed: fetchSitemapFamily rejected the response
   // otherwise. The remaining filter is the empty-slug case — a real row whose
   // name produced no slug — which is legitimately skipped, not an error.

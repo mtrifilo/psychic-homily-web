@@ -57,6 +57,11 @@ on:
         description: Minimum number of upcoming show URLs required
         required: false
         type: string
+      notify_on_success:
+        description: Post to Discord even when the check passes (proves alerting still works)
+        required: false
+        default: false
+        type: boolean
 
 # A long run must never overlap the next scheduled one — two concurrent runs
 # would double-post the same alert.
@@ -95,5 +100,13 @@ jobs:
           SITEMAP_MONITOR_DRIFT_FLOOR: ${{ vars.SITEMAP_MONITOR_DRIFT_FLOOR }}
           SITEMAP_MONITOR_MIN_FUTURE_SHOWS: ${{ inputs.min_future_shows || vars.SITEMAP_MONITOR_MIN_FUTURE_SHOWS }}
           SITEMAP_MONITOR_SAMPLE_SIZE: ${{ vars.SITEMAP_MONITOR_SAMPLE_SIZE }}
+          # Lets a manual run prove the alerting path still works without
+          # waiting for a real failure. An alert channel nobody has seen fire is
+          # indistinguishable from a healthy system.
+          SITEMAP_MONITOR_NOTIFY_ON_SUCCESS: ${{ inputs.notify_on_success }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Required to reach an SSO-gated stage or preview deployment; unused
+          # for production, which is public. Without it the `target` input above
+          # can only ever point at production.
+          VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
         run: bun run sitemap:check
