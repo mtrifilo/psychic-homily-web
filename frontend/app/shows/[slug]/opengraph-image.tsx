@@ -1,18 +1,50 @@
 import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
+import { API_BASE_URL } from '@/lib/api-base'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { OG_COLORS, OG_CONTENT_TYPE, OG_FONT_FAMILY, OG_SIZE } from '@/lib/og/brand'
+import {
+  loadBrandFontsOrDefault,
+  ogCacheControl,
+  ogFallbackCard,
+} from '@/lib/og/response'
+import {
+  DATE_SIZE,
+  DOMAIN_SIZE,
+  HEADLINE_GAP,
+  PAD_X,
+  PAD_Y,
+  SOLD_OUT_SIZE,
+  SUPPORT_SIZE,
+  TITLE_LINE_HEIGHT,
+  TITLE_SIZE_MAX,
+  WORDMARK,
+  buildVenueLine,
+  fitTitleSize,
+  fitVenueSize,
+  venueOverflows,
+} from '@/features/shows/showOgLayout'
 
 export const runtime = 'edge'
 export const alt = 'Show details'
-export const size = { width: 1200, height: 630 }
-export const contentType = 'image/png'
+export const size = OG_SIZE
+export const contentType = OG_CONTENT_TYPE
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
-
+/**
+ * Retuned for the size this card is actually consumed at.
+ *
+ * A 1200×630 card renders about 300px wide in an iMessage bubble or a Discord
+ * embed — a 4× downscale — and group chats are the highest-intent surface for
+ * live music, so that is the size the hierarchy has to survive. The previous
+ * tuning put three elements under 7px effective: the support act at 6.5px, and
+ * the city and domain both at 5.5px.
+ *
+ * The structural fix is removing an element rather than shrinking everything to
+ * fit: the city is folded into the venue line.
+ *
+ * Geometry and the fit rules live in `showOgLayout`, free of `next/og`, so the
+ * budgets can be unit-tested against the values the card actually uses.
+ */
 interface ShowData {
   title?: string
   event_date: string
@@ -40,60 +72,31 @@ function formatDate(
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
 
-  // Deliberate fail-open, classified during the PSY-1630 sweep: a failure here
-  // falls through to the branded fallback card below. An OG image that renders
-  // generically is better than a share preview that errors, and there is no
-  // reader-visible content behind this to protect.
-  let show: ShowData | null = null
-  try {
-    const res = await fetch(`${API_BASE_URL}/shows/${slug}`, {
-      next: { revalidate: 3600 },
-    })
-    if (res.ok) {
-      show = await res.json()
-    }
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: { service: 'og-image' },
-      extra: { slug },
-    })
-  }
+  const [{ fonts, degraded }, show] = await Promise.all([
+    loadBrandFontsOrDefault(),
+    fetchShow(slug),
+  ])
 
-  if (!show) {
-    return new ImageResponse(
-      (
-        <div
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: '#0d0805',
-            color: '#eee7d9',
-            fontSize: 48,
-            fontWeight: 700,
-          }}
-        >
-          Psychic Homily
-        </div>
-      ),
-      { ...size }
-    )
-  }
+  if (!show) return ogFallbackCard(fonts)
 
   const headliner =
-    show.artists?.find(a => a.is_headliner)?.name ||
-    show.artists?.[0]?.name ||
-    'Live Music'
+    show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
   const venue = show.venues?.[0]
   const venueName = venue?.name || 'TBA'
-  const location = venue ? `${venue.city}, ${venue.state}` : ''
   const showDate = formatDate(show.event_date, venue?.state, venue?.timezone)
   const displayTitle = show.title || `${headliner} at ${venueName}`
-  const otherArtists = show.artists
-    ?.filter(a => a.name !== headliner)
-    .map(a => a.name)
+  const otherArtists = show.artists?.filter(a => a.name !== headliner).map(a => a.name)
+
+  // City folded into the venue line — the structural change. At 300px a
+  // separate city line was 5.5px, i.e. decoration that was carrying meaning.
+  const venueLine = buildVenueLine(venueName, venue?.city, venue?.state)
+
+  const titleSize = fitTitleSize(displayTitle)
+  const venueSize = fitVenueSize(venueLine)
+  // Past the minimum size the line still overruns. It must CLIP rather than
+  // run under the wordmark and push it off the canvas — the two elements this
+  // retune exists to make legible are the two that would be destroyed.
+  const venueClips = venueOverflows(venueLine)
 
   return new ImageResponse(
     (
@@ -104,13 +107,11 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
-          backgroundColor: '#0d0805',
-          color: '#eee7d9',
-          padding: '60px 70px',
+          backgroundColor: OG_COLORS.background,
+          padding: `${PAD_Y}px ${PAD_X}px`,
           position: 'relative',
         }}
       >
-        {/* Cancelled overlay */}
         {show.is_cancelled && (
           <div
             style={{
@@ -122,14 +123,14 @@ export default async function Image({ params }: { params: Promise<{ slug: string
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              zIndex: 10,
             }}
           >
             <div
               style={{
-                color: '#ef4444',
+                color: OG_COLORS.destructive,
+                fontFamily: OG_FONT_FAMILY.sans,
                 fontSize: 96,
-                fontWeight: 800,
+                fontWeight: 700,
                 letterSpacing: '0.1em',
                 opacity: 0.3,
                 transform: 'rotate(-15deg)',
@@ -140,19 +141,27 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           </div>
         )}
 
-        {/* Top: Date + Sold Out badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <div style={{ color: '#e89960', fontSize: 28, fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div
+            style={{
+              display: 'flex',
+              fontFamily: OG_FONT_FAMILY.mono,
+              fontSize: DATE_SIZE,
+              color: OG_COLORS.primary,
+            }}
+          >
             {showDate}
           </div>
           {show.is_sold_out && (
             <div
               style={{
-                backgroundColor: '#ef4444',
-                color: '#ffffff',
-                fontSize: 18,
+                display: 'flex',
+                fontFamily: OG_FONT_FAMILY.sans,
                 fontWeight: 700,
-                padding: '6px 16px',
+                backgroundColor: OG_COLORS.destructive,
+                color: OG_COLORS.destructiveForeground,
+                fontSize: SOLD_OUT_SIZE,
+                padding: '4px 14px',
                 borderRadius: 6,
                 letterSpacing: '0.05em',
               }}
@@ -162,42 +171,174 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           )}
         </div>
 
-        {/* Middle: Show title */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, justifyContent: 'center' }}>
+        {/* Clipped rather than allowed to bleed: the title is measured, but a
+            script outside the font subset cannot be measured exactly. */}
+        {/* `flex: 1, minHeight: 0` is what makes the clip real. Without a
+            basis this box is content-driven, so `overflow: hidden` never
+            clipped vertically — a very long title simply grew the box and
+            pushed the venue and wordmark off the canvas entirely. Titles are
+            VARCHAR(500) in the schema and the discovery pipeline writes them
+            without the handlers' 255 cap, so this is a reachable input. */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: HEADLINE_GAP,
+            flex: 1,
+            minHeight: 0,
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
           <div
             style={{
-              fontSize: displayTitle.length > 40 ? 52 : 64,
-              fontWeight: 800,
-              lineHeight: 1.1,
-              letterSpacing: '-0.02em',
+              display: 'flex',
+              fontFamily: OG_FONT_FAMILY.sans,
+              fontWeight: 700,
+              fontSize: titleSize,
+              lineHeight: `${Math.round((TITLE_LINE_HEIGHT / TITLE_SIZE_MAX) * titleSize)}px`,
+              color: OG_COLORS.foreground,
             }}
           >
             {displayTitle}
           </div>
-
-          {/* Other artists */}
           {otherArtists && otherArtists.length > 0 && (
-            <div style={{ fontSize: 26, color: '#b8a99a', fontWeight: 400 }}>
+            <div
+              style={{
+                display: 'flex',
+                fontFamily: OG_FONT_FAMILY.sans,
+                fontWeight: 400,
+                fontSize: SUPPORT_SIZE,
+                color: OG_COLORS.mutedForeground,
+              }}
+            >
               with {otherArtists.slice(0, 4).join(', ')}
               {otherArtists.length > 4 ? ` + ${otherArtists.length - 4} more` : ''}
             </div>
           )}
         </div>
 
-        {/* Bottom: Venue + branding */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <div style={{ fontSize: 30, fontWeight: 600 }}>{venueName}</div>
-            {location && (
-              <div style={{ fontSize: 22, color: '#b8a99a' }}>{location}</div>
-            )}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              fontFamily: OG_FONT_FAMILY.sans,
+              fontWeight: 500,
+              fontSize: venueSize,
+              color: OG_COLORS.foreground,
+              whiteSpace: 'nowrap',
+              ...(venueClips ? { minWidth: 0, overflow: 'hidden' } : {}),
+            }}
+          >
+            {venueLine}
           </div>
-          <div style={{ fontSize: 22, color: '#e89960', fontWeight: 600 }}>
-            psychichomily.com
+          <div
+            style={{
+              display: 'flex',
+              fontFamily: OG_FONT_FAMILY.mono,
+              fontSize: DOMAIN_SIZE,
+              color: OG_COLORS.primary,
+              whiteSpace: 'nowrap',
+              // Past the venue's minimum size the row is over budget, and
+              // `space-between` would push the RIGHT-hand element out. The
+              // wordmark is the one thing that must never be what disappears.
+              flexShrink: 0,
+            }}
+          >
+            {WORDMARK}
           </div>
         </div>
       </div>
     ),
-    { ...size }
+    {
+      ...OG_SIZE,
+      fonts,
+      // Same rule the weekly card writes down: anything that can STILL CHANGE
+      // gets the short window; only genuinely settled content caches hard. A
+      // show that has not happened yet can be cancelled or sell out from the
+      // admin at any moment, and `ogCacheControl` sets stale-while-revalidate
+      // equal to s-maxage — so an hour here would mean up to two hours of
+      // serving a card that says a sold-out show is available.
+      //
+      // A card drawn without the brand fonts is held shorter still: its fit
+      // budgets assumed Satoshi's metrics, so it may be visually wrong.
+      headers: {
+        'cache-control': ogCacheControl(
+          degraded ? 60 : showHasPassed(show.event_date) ? SETTLED_REVALIDATE : LIVE_REVALIDATE
+        ),
+      },
+    }
   )
+}
+
+/** A show that has not happened yet can be cancelled or sell out at any time. */
+const LIVE_REVALIDATE = 900
+/** Once it is past, nothing about it changes. */
+const SETTLED_REVALIDATE = 86400
+/** The data fetch cannot know which it is, so it always asks for the fresh one. */
+const SHOW_REVALIDATE = LIVE_REVALIDATE
+
+/**
+ * Compared in UTC, which can run a day ahead of the venue's own clock. The
+ * error direction is "treat it as still live", i.e. cache it less — the
+ * harmless one.
+ */
+function showHasPassed(eventDate: string): boolean {
+  const at = new Date(eventDate).getTime()
+  if (Number.isNaN(at)) return false
+  return at < Date.now() - 24 * 60 * 60 * 1000
+}
+
+/**
+ * Deliberate fail-open, classified during the PSY-1630 sweep: every failure
+ * here returns null and the route falls through to the branded fallback card.
+ * An OG image that renders generically is better than a share preview that
+ * errors, and there is no reader-visible content behind this to protect.
+ */
+async function fetchShow(slug: string): Promise<ShowData | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/shows/${encodeURIComponent(slug)}`, {
+      next: { revalidate: SHOW_REVALIDATE },
+    })
+    // `await` inside the try is load-bearing: `return res.json()` would adopt
+    // the promise after the block exits, so a malformed body would reject past
+    // this catch and 500 the route instead of reaching the fallback card.
+    if (res.ok) return asShow(await res.json())
+    if (res.status >= 500) {
+      Sentry.captureMessage(`Show OG: API returned ${res.status}`, {
+        level: 'error',
+        tags: { service: 'og-image' },
+        extra: { slug, status: res.status },
+      })
+    }
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { service: 'og-image' },
+      extra: { slug },
+    })
+  }
+  return null
+}
+
+/**
+ * A 200 is not proof of the right shape. `event_date` goes straight into date
+ * maths that throws on `undefined`, so a redirect or an error page served with
+ * 200 would 500 the route rather than reaching the fallback card.
+ */
+function asShow(body: unknown): ShowData | null {
+  const show = body as ShowData | null
+  if (!show || typeof show !== 'object') return null
+  if (typeof show.event_date !== 'string') return null
+  // A string is not enough: `event_date: "n/a"` passes a typeof check and then
+  // renders the literal "Invalid Date" as the card's date line — the exact
+  // wrong-but-plausible outcome this guard exists to prevent.
+  if (Number.isNaN(new Date(show.event_date).getTime())) return null
+  return show
 }
