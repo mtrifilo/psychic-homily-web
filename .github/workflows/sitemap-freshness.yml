@@ -1,0 +1,145 @@
+name: Sitemap Freshness
+
+# PSY-1629: compare the sitemap production actually serves against what the API
+# actually holds, from OUTSIDE the application.
+#
+# Why a scheduled workflow and not something in the app:
+#
+#   * The defect this closes was invisible from inside. `fetchShows()` caught
+#     its own abort and returned [], so the route rendered successfully with an
+#     entire entity family missing — no 500, no failed build, no red deploy.
+#     114 show URLs were served against 3,498 slugged shows for months. Every
+#     in-process health check was green the whole time.
+#   * A Go background ticker was explicitly rejected. Per
+#     pattern_ticker_starved_by_deploys.md, a ticker whose interval exceeds the
+#     deploy cadence never fires at all, silently — the same failure class.
+#
+# ALERT-ONLY. This never gates a deploy: coupling releases to an external
+# production observation trades one outage for another. A failure posts to
+# Discord and turns the run red; it blocks nothing.
+#
+# Thresholds are repository VARIABLES, not literals, so they can be retuned
+# from the GitHub UI without a code change — the numbers baked into
+# lib/sitemap-monitor/config.ts are a conservative starting point chosen to
+# avoid false alarms, not measured limits. Narrow them once a few weeks of runs
+# have established real variance (show counts move constantly as events pass
+# and get ingested, and a bulk release import moves `releases` by thousands).
+#
+# Setup:
+#   Settings → Secrets and variables → Actions
+#     Secret   DISCORD_WEBHOOK_URL   → the alerts channel webhook, same channel
+#                                      the backend's DISCORD_WEBHOOK_URL posts to
+#     Variables (all optional, override the code defaults):
+#       SITEMAP_MONITOR_TARGET, SITEMAP_MONITOR_API_BASE,
+#       SITEMAP_MONITOR_DRIFT_RATIO, SITEMAP_MONITOR_DRIFT_FLOOR,
+#       SITEMAP_MONITOR_MIN_FUTURE_SHOWS, SITEMAP_MONITOR_SAMPLE_SIZE
+#
+# Runbook: docs/runbooks/sitemap-freshness.md
+
+on:
+  schedule:
+    # 13:00 UTC daily — 06:00 Phoenix, 08:00 Chicago. Early enough that a
+    # failure is seen at the start of the day rather than discovered at night.
+    # Daily rather than hourly: the sitemap's own ISR window is 1h, so a
+    # tighter cadence would mostly re-measure the same cached document.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+    inputs:
+      environment:
+        # A CHOICE, not a free-form URL, and this is load-bearing rather than
+        # cosmetic. A string input interpolated into SITEMAP_MONITOR_TARGET in a
+        # job that also holds VERCEL_PROTECTION_BYPASS would let anyone able to
+        # dispatch this workflow point it at a host they control and receive the
+        # bypass token in the request headers — secret exfiltration as a
+        # supported feature, no PR and no review required. The origins are
+        # resolved from this enum in the step below.
+        description: Which deployment to check
+        required: false
+        default: production
+        type: choice
+        options:
+          - production
+          - stage
+      drift_ratio:
+        description: Allowed relative drift per family, e.g. 0.2
+        required: false
+        type: string
+      min_future_shows:
+        description: Minimum number of upcoming show URLs required
+        required: false
+        type: string
+      notify_on_success:
+        description: Post to Discord even when the check passes (proves alerting still works)
+        required: false
+        default: false
+        type: boolean
+
+# A long run must never overlap the next scheduled one — two concurrent runs
+# would double-post the same alert.
+concurrency:
+  group: sitemap-freshness
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Sitemap vs API
+    runs-on: ubuntu-latest
+    # Walking every shard means ~33k URLs across 10 documents plus the sampled
+    # probes; a couple of minutes is normal, so this ceiling only catches a
+    # genuinely wedged endpoint.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned — deliberately unlike the other workflows here, which float.
+          # This one runs unattended on a schedule, so a bun release that
+          # changed tsconfig `paths` resolution or top-level-await handling
+          # would stop the monitor on a day nobody touched the repo, and a
+          # monitor that silently stopped is the failure this exists to catch.
+          # 1.3.3 is the version the check was verified against.
+          bun-version: 1.3.3
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      - name: Check sitemap freshness
+        working-directory: ./frontend
+        env:
+          # Origins are resolved HERE from the environment enum, never taken as
+          # a caller-supplied URL — see the note on the `environment` input.
+          SITEMAP_MONITOR_TARGET: >-
+            ${{ inputs.environment == 'stage'
+                && 'https://stage.psychichomily.com'
+                || vars.SITEMAP_MONITOR_TARGET }}
+          SITEMAP_MONITOR_API_BASE: >-
+            ${{ inputs.environment == 'stage'
+                && 'https://stage.api.psychichomily.com'
+                || vars.SITEMAP_MONITOR_API_BASE }}
+          # Unset inputs and variables arrive as empty strings, which
+          # resolveConfig() treats as "not set" and falls back to its defaults.
+          SITEMAP_MONITOR_DRIFT_RATIO: ${{ inputs.drift_ratio || vars.SITEMAP_MONITOR_DRIFT_RATIO }}
+          SITEMAP_MONITOR_DRIFT_FLOOR: ${{ vars.SITEMAP_MONITOR_DRIFT_FLOOR }}
+          SITEMAP_MONITOR_MIN_FUTURE_SHOWS: ${{ inputs.min_future_shows || vars.SITEMAP_MONITOR_MIN_FUTURE_SHOWS }}
+          SITEMAP_MONITOR_SAMPLE_SIZE: ${{ vars.SITEMAP_MONITOR_SAMPLE_SIZE }}
+          SITEMAP_MONITOR_ENTRY_PATH: ${{ vars.SITEMAP_MONITOR_ENTRY_PATH }}
+          SITEMAP_MONITOR_FETCH_TIMEOUT_MS: ${{ vars.SITEMAP_MONITOR_FETCH_TIMEOUT_MS }}
+          SITEMAP_MONITOR_SAMPLE_TIMEOUT_MS: ${{ vars.SITEMAP_MONITOR_SAMPLE_TIMEOUT_MS }}
+          SITEMAP_MONITOR_RETRY_DELAY_MS: ${{ vars.SITEMAP_MONITOR_RETRY_DELAY_MS }}
+          # Lets a manual run prove the alerting path still works without
+          # waiting for a real failure. An alert channel nobody has seen fire is
+          # indistinguishable from a healthy system.
+          SITEMAP_MONITOR_NOTIFY_ON_SUCCESS: ${{ inputs.notify_on_success }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Only injected for the SSO-gated stage run. Production is public and
+          # does not need it, so the scheduled job never carries the token at
+          # all — the smaller the number of runs holding it, the smaller the
+          # blast radius if anything else in the job is compromised.
+          VERCEL_PROTECTION_BYPASS: >-
+            ${{ inputs.environment == 'stage' && secrets.VERCEL_PROTECTION_BYPASS || '' }}
+        run: bun run sitemap:check
