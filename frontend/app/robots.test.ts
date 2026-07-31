@@ -146,7 +146,12 @@ describe('robots.txt rules', () => {
     expect(allowed.filter(agent => disallowed.includes(agent))).toEqual([])
   })
 
-  it('points at the sitemap', () => {
-    expect(robots().sitemap).toBe('https://psychichomily.com/sitemap.xml')
+  // Deliberately /sitemap-index, NOT /sitemap.xml. Under generateSitemaps()
+  // the child documents live at /sitemap/{id}.xml and Next emits no index for
+  // that shape, so app/sitemap-index/route.ts serves the index and robots
+  // points there (PSY-1622). robots.ts is authoritative here — if this
+  // assertion fails, check whether the sitemap shape changed before editing it.
+  it('points at the sitemap index', () => {
+    expect(robots().sitemap).toBe('https://psychichomily.com/sitemap-index')
   })
 })
