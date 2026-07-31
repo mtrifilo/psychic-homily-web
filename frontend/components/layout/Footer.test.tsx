@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Footer from './Footer'
+import { AI_POLICY_PATH } from '@/app/ai-policy/content'
 
 // --- Mocks ---
 
@@ -58,12 +59,15 @@ describe('Footer', () => {
     expect(discover.querySelector('a[href="/labels"]')).toBeInTheDocument()
   })
 
-  it('renders AI Policy link in the About column', () => {
+  // The href is a literal in Footer.tsx (see the note there — this is a client
+  // component and must not pull the policy text into the global bundle). This
+  // is what stops it drifting from the constant the page and sitemap key off.
+  it('renders AI Policy link in the About column, at the canonical path', () => {
     render(<Footer />)
     const about = screen.getByRole('navigation', { name: 'About' })
     const link = screen.getByText('AI Policy').closest('a')!
     expect(about.contains(link)).toBe(true)
-    expect(link).toHaveAttribute('href', '/ai-policy')
+    expect(link).toHaveAttribute('href', AI_POLICY_PATH)
   })
 
   // The AI policy is a positioning statement meant to be read, not a legal

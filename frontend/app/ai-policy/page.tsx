@@ -52,9 +52,14 @@ function Paragraphs({ body }: { body: CopySlot }) {
 
   return (
     <>
-      {body.map(paragraph => (
+      {/*
+        Index keys: the list is static content read straight off a module
+        constant, never reordered or filtered at runtime, and two paragraphs of
+        the copy could legitimately be identical.
+      */}
+      {body.map((paragraph, index) => (
         <p
-          key={paragraph}
+          key={index}
           className="text-foreground/90 leading-relaxed mb-3 last:mb-0"
         >
           {paragraph}

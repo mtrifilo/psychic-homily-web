@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { AI_POLICY_PATH } from '@/app/ai-policy/content'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 
 /**
@@ -114,9 +113,16 @@ export default function Footer() {
               First in the column on purpose: the AI policy is a positioning
               statement meant to be read and quoted, not a legal footnote like
               the two below it.
+
+              The href is a literal, matching every sibling link, rather than
+              importing AI_POLICY_PATH — this is a client component, and pulling
+              in app/ai-policy/content would put the whole policy text in the
+              global client bundle if it ever failed to tree-shake. Footer.test
+              imports the constant and asserts this href equals it, so the two
+              still cannot drift.
             */}
             <Link
-              href={AI_POLICY_PATH}
+              href="/ai-policy"
               className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               AI Policy

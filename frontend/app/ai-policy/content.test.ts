@@ -19,13 +19,6 @@ function filled(overrides: Partial<AiPolicyCopy> = {}): AiPolicyCopy {
 }
 
 describe('isAiPolicyCopyPending', () => {
-  it('reports the shipped copy as pending — it has not been written yet', () => {
-    // This assertion is expected to be INVERTED by the commit that adds the
-    // real copy. That is the point: the flip is deliberate and reviewed, not
-    // silent. See content.ts.
-    expect(isAiPolicyCopyPending(AI_POLICY_COPY)).toBe(true)
-  })
-
   it('reports fully-written copy as published', () => {
     expect(isAiPolicyCopyPending(filled())).toBe(false)
   })
@@ -62,11 +55,11 @@ describe('isAiPolicyCopyPending', () => {
   })
 })
 
-describe('AI_POLICY_COPY scaffold', () => {
-  it('carries a slot for each of the three required disclosures', () => {
-    expect(AI_POLICY_COPY.sections).toHaveLength(3)
-  })
-
+describe('AI_POLICY_COPY', () => {
+  // Deliberately no assertion on the section COUNT or on the headings: those
+  // are the owner's to rename, merge, or reorder along with the prose. What
+  // must hold in any arrangement is that each section is separately
+  // addressable, and that the path the footer and sitemap key off is stable.
   it('gives every section a unique anchor id so it can be quoted on its own', () => {
     const ids = AI_POLICY_COPY.sections.map(s => s.id)
     expect(new Set(ids).size).toBe(ids.length)

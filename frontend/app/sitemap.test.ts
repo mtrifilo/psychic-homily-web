@@ -153,40 +153,52 @@ describe('sitemap', () => {
     expect(urls).toContain('https://psychichomily.com/tags')
   })
 
-  // A noindex page advertised in the sitemap is a contradiction crawlers
-  // report as an error, so /ai-policy is gated on its copy actually existing.
+  // A noindex page advertised in the sitemap is a contradiction crawlers report
+  // as an error, so /ai-policy is gated on its copy actually existing.
+  //
+  // Both regimes are driven by fixtures rather than by the shipped copy, so
+  // writing the real policy prose stays a one-file change — nothing here needs
+  // editing when AI_POLICY_COPY fills in.
   describe('/ai-policy', () => {
-    it('is omitted while the policy copy is unwritten', async () => {
-      expect(await urlsOf('pages')).not.toContain(
-        'https://psychichomily.com/ai-policy'
-      )
-    })
-
-    it('appears once the copy lands', async () => {
+    async function pagesUrlsWithPolicyCopy(copy: unknown) {
       vi.resetModules()
       const actual =
         await vi.importActual<typeof import('./ai-policy/content')>(
           './ai-policy/content'
         )
-      vi.doMock('./ai-policy/content', () => ({
-        ...actual,
-        AI_POLICY_COPY: {
-          description: 'FIXTURE description.',
-          intro: ['FIXTURE intro.'],
-          lastUpdated: null,
-          sections: [{ id: 'a', heading: 'A', body: ['FIXTURE body.'] }],
-        },
-      }))
+      vi.doMock('./ai-policy/content', () => ({ ...actual, AI_POLICY_COPY: copy }))
+      try {
+        const reloaded = await import('./sitemap')
+        const entries = await reloaded.default({ id: Promise.resolve('pages') })
+        return entries.map(e => e.url)
+      } finally {
+        vi.doUnmock('./ai-policy/content')
+        vi.resetModules()
+      }
+    }
 
-      const reloaded = await import('./sitemap')
-      const urls = (await reloaded.default({ id: Promise.resolve('pages') })).map(
-        e => e.url
-      )
+    const SECTION = { id: 'a', heading: 'A', body: ['FIXTURE body.'] }
+
+    it('is omitted while the policy copy is unwritten', async () => {
+      const urls = await pagesUrlsWithPolicyCopy({
+        description: null,
+        intro: null,
+        lastUpdated: null,
+        sections: [{ ...SECTION, body: null }],
+      })
+
+      expect(urls).not.toContain('https://psychichomily.com/ai-policy')
+    })
+
+    it('appears once the copy lands', async () => {
+      const urls = await pagesUrlsWithPolicyCopy({
+        description: 'FIXTURE description.',
+        intro: ['FIXTURE intro.'],
+        lastUpdated: null,
+        sections: [SECTION],
+      })
 
       expect(urls).toContain('https://psychichomily.com/ai-policy')
-
-      vi.doUnmock('./ai-policy/content')
-      vi.resetModules()
     })
   })
 
