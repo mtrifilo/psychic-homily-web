@@ -79,19 +79,31 @@
  * year there strands a JSON-LD block on a page that otherwise works. Here the
  * fetch IS the artifact.
  *
- * !! THE BOUND IS MANIFEST-ONLY AND ITS ENFORCEMENT IS UNVERIFIED. !!
- * `initialExpireSeconds` demonstrably changes. What consumes it does not:
- *   - The OSS origin ISR path ignores expire. `IncrementalCache.get` derives
+ * !! THE BOUND DOES NOT HOLD UNDER `next start`. MEASURED, NOT THEORISED. !!
+ * `initialExpireSeconds` demonstrably changes — and nothing observable acts on
+ * it. Built a shard with `revalidate: 900, expire: 960` (route table confirmed
+ * `15m / 16m`), served it with `next start`, killed the backend immediately,
+ * and polled: still HTTP 200, still the stale body, 1043s after the entry was
+ * created — 83s PAST its expire. The `.body`/`.meta` files were re-stamped
+ * mid-poll, so every failed revalidation resets the entry's age and an
+ * age-vs-expire check can never fire.
+ *
+ * That matches the source:
+ *   - The origin ISR path ignores expire. `IncrementalCache.get` derives
  *     `isStale` from `revalidateAfter`, and `calculateRevalidate` reads only
- *     `cacheControl.revalidate` (`incremental-cache/index.js`). `expire`
- *     appears nowhere in that decision.
+ *     `cacheControl.revalidate`. `expire` appears nowhere in that decision.
  *   - It cannot reach a CDN as `stale-while-revalidate` either: metadata routes
- *     hardcode their own `Cache-Control: public, max-age=0, must-revalidate`
+ *     hardcode `Cache-Control: public, max-age=0, must-revalidate`
  *     (`CACHE_HEADERS.REVALIDATE` in `next-metadata-route-loader.js`), and the
  *     app-route template only adds an SWR header when none is already set.
- * So under `next start` nothing stops the stale document at 86400s. Whether
- * Vercel's platform ISR reads `initialExpireSeconds` is UNTESTED and is now the
- * entire load-bearing assumption. Probe it on stage before trusting this bound.
+ *
+ * So this constant does NOT, on its own, stop a stale sitemap being served.
+ * Whether Vercel's platform ISR reads `initialExpireSeconds` from the manifest
+ * is the entire remaining hope and is UNTESTED. Do not describe this route as
+ * "bounded to a day" until a stage probe says so. If the probe comes back
+ * negative, the fix has to be something the app controls — an age check
+ * against a feed timestamp inside the route, or on-demand revalidation — not
+ * a cache-layer knob.
  *
  * NOTHING AUTOMATED ENFORCES IT EITHER. The unit tests pin the `cacheLife`
  * arguments (that much is testable), but the framework's translation of those
@@ -130,9 +142,9 @@ const ENTRY_REVALIDATE_SECONDS = 3600
 
 /**
  * How long a prerendered shard is DECLARED servable while every revalidation
- * fails — read the enforcement warning in the module header before trusting
- * that this actually stops anything. It sets `initialExpireSeconds`; what
- * honours that value is platform-dependent and unverified.
+ * fails. It sets `initialExpireSeconds` and nothing more: measured, `next
+ * start` goes on serving the stale document past this value. Read the
+ * enforcement section in the module header before treating it as a guarantee.
  *
  * PROPOSED, NOT CONFIRMED. The number is a product threshold — how long we
  * prefer a stale-but-valid document over a loud failure — and is awaiting

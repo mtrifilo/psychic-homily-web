@@ -47,11 +47,15 @@ const nextConfig: NextConfig = {
   //         "cache scopes have no dynamic bail-out" explanation — the export
   //         catch keys on `isDynamicUsageError`, which a rejected fetch is
   //         not, so that does not account for the old behaviour.
-  //     IMPORTANT: setting `expire` is NOT the same as it being enforced. The
-  //     OSS origin ISR path derives staleness from `revalidate` alone, and
-  //     metadata routes emit their own `Cache-Control`, so no
-  //     `stale-while-revalidate` carries `expire` to a CDN. Whether Vercel's
-  //     ISR honours `initialExpireSeconds` is untested. Full detail and the
+  //     IMPORTANT: setting `expire` is NOT the same as it being enforced.
+  //     Measured under `next start` — a shard built with expire 960s was
+  //     still serving its stale body 1043s after the entry was created, with
+  //     the entry re-stamped on every failed revalidation. The origin ISR
+  //     path derives staleness from `revalidate` alone, and metadata routes
+  //     emit their own `Cache-Control`, so no `stale-while-revalidate`
+  //     carries `expire` to a CDN. Whether Vercel's ISR honours
+  //     `initialExpireSeconds` is untested. Do NOT adopt `cacheLife` expire
+  //     elsewhere expecting it to bound stale serving. Detail and the
   //     measurement tables are in the module header of `app/sitemap.ts`.
   cacheComponents: true,
   experimental: {
