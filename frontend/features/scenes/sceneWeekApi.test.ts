@@ -47,9 +47,11 @@ const jsonResponse = (body: unknown) =>
 const KEYED_URL = `${API_BASE_URL}/scenes/chicago-il/week/2026-W31`
 const ROLLING_URL = `${API_BASE_URL}/scenes/chicago-il/week`
 
+type NextInit = { next: { revalidate: number } }
+
 /** The `revalidate` each call asked for, in order. */
 const windowsRequested = (fetchMock: ReturnType<typeof vi.fn>): number[] =>
-  fetchMock.mock.calls.map(([, init]) => (init as RequestInit & { next: { revalidate: number } }).next.revalidate)
+  fetchMock.mock.calls.map(([, init]) => (init as NextInit).next.revalidate)
 
 describe('fetchSceneWeek', () => {
   let fetchMock: ReturnType<typeof vi.fn>

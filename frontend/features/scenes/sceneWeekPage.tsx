@@ -12,10 +12,10 @@ import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
  * Fetch one scene-week for the page.
  *
  * Wrapped in `React.cache` so `generateMetadata` and the page body share one
- * round-trip per request, matching the existing scene-page pattern (PSY-906).
- * The wrapper stays here rather than in `sceneWeekApi` because `React.cache` is
- * server-component-only — the share card, which renders on the edge, calls the
- * underlying fetch directly.
+ * trip to the API per request, matching the existing scene-page pattern
+ * (PSY-906). The wrapper stays here rather than in `sceneWeekApi` because
+ * `React.cache` is server-component-only — the share card, which renders on the
+ * edge, calls the fetch directly.
  */
 export const getSceneWeek = cache(
   (slug: string, week?: string): Promise<SceneWeekResponse | null> =>

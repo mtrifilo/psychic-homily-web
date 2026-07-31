@@ -1,3 +1,11 @@
+/**
+ * Reading scene-weeks from the API, and nothing else.
+ *
+ * A leaf module by design, importing nothing but the API base and the response
+ * type: the share card renders on the edge runtime, and reaching this through
+ * the page module would drag the page view and its JSON-LD helpers into that
+ * bundle for no reason.
+ */
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import type { SceneWeekResponse } from './sceneWeek'
@@ -115,11 +123,6 @@ async function fetchWeekPayload(
  * A stale probe can only err one way. If it still says "not ended" for a week
  * that just ended, the fall-through costs one extra refresh and the next
  * request sees the corrected flag; it can never report a live week as frozen.
- *
- * Kept in its own leaf module, importing nothing but the API base and the
- * response type: the share card renders on the edge runtime, and reaching this
- * through the page module would drag the page view and its JSON-LD helpers into
- * that bundle for no reason.
  */
 export async function fetchSceneWeek(
   slug: string,
