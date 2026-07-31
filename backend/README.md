@@ -128,6 +128,11 @@ The database connection is configured for Docker networking (`db:5432`) when run
 
 ## Deployment commands to run
 
+> **Provisioning a new environment?** Read
+> [Infrastructure Sizing and Monitoring](#infrastructure-sizing-and-monitoring)
+> first. A production outage was caused by a Postgres volume that could not
+> survive a write burst, and the volume looked fine right up until it filled.
+
 ### Development
 
 docker-compose up -d
@@ -308,7 +313,7 @@ tail -f /var/log/backup.log
 ./scripts/update-production.sh
 
 # 3. Verify deployment
-curl https://psychichomily.com/api/health
+curl https://api.psychichomily.com/health/ready   # 503 = up but a dependency is unreachable
 ```
 
 #### **Emergency Recovery**
@@ -564,24 +569,65 @@ docker compose exec db bash
 
 ### Health Check
 
+Two endpoints, deliberately split. **They are not interchangeable — see
+[Infrastructure Sizing and Monitoring](#infrastructure-sizing-and-monitoring)
+before pointing anything at either.**
+
 ```bash
-GET /health
+GET|HEAD /health        # liveness  — ALWAYS 200 while the process serves
+GET|HEAD /health/ready  # readiness — 503 when a critical dependency is unreachable
 ```
 
-**Response:**
+`/health` is Railway's **deploy** healthcheck (`railway.toml`). It gates a new
+deployment going live — if it never returns 200 the deployment is marked failed
+and the previous one keeps serving. Railway does **not** poll it after a
+deployment is live, so it is not a runtime monitor and a 503 there would not
+restart anything. What it *would* do is block every deploy for as long as the
+database was down, which is why it reports component detail in the body and
+never in its status code.
+
+**`/health/ready` is the endpoint uptime monitoring and alerting should
+watch**; no deploy is gated on its result.
+
+Both answer GET and HEAD. Use the exact paths — **no trailing slash**
+(`/health/ready/` is a 404, not a redirect).
+
+**Response (both, when healthy — HTTP 200):**
 
 ```json
 {
-  "body": {
-    "status": "ok"
-  }
+  "$schema": "https://<api host>/schemas/HealthResponseBody.json",
+  "status": "healthy",
+  "components": {
+    "database": { "status": "healthy", "latency": "1.23ms" }
+  },
+  "timestamp": "2026-01-15T10:30:00Z"
 }
 ```
+
+`$schema` is injected into every response body by Huma's schema-link
+transformer (see `internal/api/routes/routes.go`) — it is part of the wire
+contract, not an artifact of this example.
+
+With the database unreachable, `/health` returns the same shape with
+`"status": "unhealthy"` and **still HTTP 200**; `/health/ready` returns **HTTP
+503** and a problem+json body whose `detail` names each failing component
+(`not ready: database: ping failed`).
+
+The dependency probe is bounded at 2s, so a database that hangs rather than
+refuses still produces a 503 rather than an open connection. Component error
+strings are fixed literals — no host, DSN, or driver text reaches these
+responses.
+
+Both paths are exempt from the public-read rate limiter
+(`infraPathsExemptFromRateLimit`). That list is **exact-match** — a new health
+path, or a rename, needs an entry there or probes land on the anonymous per-IP
+budget and a 429 pages someone about a healthy service.
 
 ### Submit Show
 
 ```bash
-POST /show
+POST /shows
 Content-Type: application/json
 ```
 
@@ -605,16 +651,16 @@ Content-Type: application/json
 }
 ```
 
-**Response:**
+**Response:** the created show, as `contracts.ShowResponse`
+(`internal/api/handlers/catalog/show.go`). Rather than reproduce it here where
+it would drift, read the generated contract in `frontend/types/api.d.ts` under
+`post-shows`, or the OpenAPI document.
 
-```json
-{
-  "body": {
-    "success": true,
-    "show_id": "1234567890"
-  }
-}
-```
+> Huma serializes a handler's `Body` field **as** the response body — there is
+> no `{"body": …}` envelope on the wire, and every body carries an injected
+> `$schema`. Older examples in this file predate that correction; trust
+> `frontend/types/api.d.ts` (generated from the live OpenAPI document) over any
+> hand-written example here.
 
 ## Environment Variables
 
@@ -820,6 +866,176 @@ for interactively-created artists — admin create + entity-request fulfillment)
 - **Use strong passwords** in production
 - **Rotate credentials** regularly
 - **Use secrets management** in production (Docker Secrets, Kubernetes Secrets, etc.)
+
+## Infrastructure Sizing and Monitoring
+
+**Read this before provisioning a new environment.** A production outage was
+caused by a volume that could never have survived a write burst, and nothing
+alerted — the API was fully down while cached frontend pages kept serving 200s.
+
+### The volume sizing rule
+
+```
+volume >= pg_database_size + max_wal_size + filesystem overhead,  with margin
+```
+
+`max_wal_size` is a **soft ceiling Postgres is entitled to reach** (and can
+exceed under load), not a
+high-water mark it works up to. If it exceeds free space, the volume is already
+doomed at 0% used — the first sustained burst of `UPDATE`s fills it. A
+percentage-usage alert cannot catch that: usage looks fine right up until
+checkpoint churn claims the headroom the config always allowed it to claim.
+
+So there are **two** checks, and the floor is the one that catches a
+misconfiguration:
+
+1. **Floor (catches misconfiguration).** Does `data + max_wal_size + overhead`
+   fit the volume with margin? Verify at provisioning time, not from a graph.
+2. **Percentage (catches gradual growth).** This is the second check, not the
+   first.
+
+**`scripts/check-volume-headroom.sh` is the canonical implementation of both** —
+prefer it over doing this by hand, and treat its defaults as the numbers of
+record rather than restating them here:
+
+```bash
+cd backend && bash ../scripts/check-volume-headroom.sh production
+```
+
+**Precondition:** the working directory, or one of its ancestors, must be
+`railway link`ed to this project — the CLI resolves the project and environment
+from that link, which is machine-local state in `~/.railway/config.json`, not
+anything this repo carries. Run it from `backend/` if that is what you have
+linked.
+
+**It mutates the link while it runs.** `railway volume list` has no environment
+flag, so the script links to the target environment, reads, and relinks on exit.
+A hard kill skips the relink and leaves the directory pointed at whatever it was
+inspecting — quite possibly production. If it is interrupted, run `railway
+status` and re-link before any other `railway` command.
+
+**Its exit codes are not fully trustworthy from an unlinked directory.** Measured:
+from a directory with no link the script exits **1**, silently, rather than the
+3 the table below implies — `set -euo pipefail` aborts on the first `railway`
+call before the guard that would have exited 3. Since the table reads 1 as
+"below the floor, STOP and resize", a check that never ran can present as a
+capacity failure. Confirm the link before trusting any result.
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| `0` | clears the floor, under the usage threshold | proceed |
+| `1` | **below the floor** — cannot hold the database plus a full WAL cycle | **STOP** — resize before deploying |
+| `2` | clears the floor, usage past the threshold | proceed, but plan a resize |
+| `3` | **could not determine** — missing `psql`/`jq`/`railway`, environment not linkable, volume name mismatch, no `DATABASE_PUBLIC_URL`, **or the database is unreachable** | **STOP** — an unrun check is not a passed check, and an unreachable database is itself a finding |
+
+Tunable via `VOLUME_CHECK_OVERHEAD_PCT`, `VOLUME_CHECK_USAGE_PCT`,
+`VOLUME_CHECK_VOLUME` (the volume name, the usual cause of a "not found" exit 3)
+and `VOLUME_CHECK_DB_SERVICE`. On any run that reaches its summary the script
+prints the effective overhead and the computed floor — but note that the exit-1
+and exit-3 paths bail out *before* that summary, so a failing run gives you no
+values to read. Exit 3 deserves the same respect as exit 1: it means the volume
+is *unverified*, which is the state the environment was in before the outage.
+
+**What exit 0 does not cover.** The floor is computed from
+`pg_database_size(current_database())` and `max_wal_size` only. Three gaps:
+
+- **`max_wal_size` is a *soft* limit.** Write load that outruns checkpointing can
+  exceed it even with nothing pinning WAL. The overhead margin is what absorbs
+  this, which is why you should not provision at exactly the floor.
+- **Pinned WAL isn't counted.** A non-zero `wal_keep_size`, or any replication
+  slot — especially an inactive one, which retains WAL indefinitely — lets WAL
+  grow past `max_wal_size` entirely.
+- **The floor counts one database, not the cluster.** The volume holds all of
+  PGDATA: other databases, logs, temp files. Currently a small gap absorbed by
+  the overhead margin; it stops being small the moment a second application
+  database lands on the same Postgres.
+
+Check these by hand when provisioning, with the query below.
+
+To inspect the inputs by hand:
+
+```sql
+SELECT pg_size_pretty(sum(pg_database_size(datname))) AS cluster_data,
+       current_setting('max_wal_size')                     AS max_wal,
+       current_setting('min_wal_size')                     AS min_wal,
+       current_setting('wal_keep_size')                    AS wal_keep,
+       (SELECT count(*) FROM pg_replication_slots)         AS slots
+  FROM pg_database;
+```
+
+`max_wal_size` is only the bound if nothing is **pinning** WAL. A non-zero
+`wal_keep_size`, or any replication slot (especially an inactive one, which
+retains WAL indefinitely), lets WAL grow past that ceiling — so the arithmetic
+above no longer holds. Both must be checked, not assumed.
+
+Note that WAL volume tracks **write churn, not row count**. A backfill that
+rewrites existing rows generates far more WAL than one that inserts new ones,
+and a mass `DELETE` is a write burst too — which is why large retention
+operations should be a partition `DETACH` rather than a `DELETE`.
+
+Postgres on Railway is a managed service with no config file in this repo, so
+`max_wal_size` is set through the platform rather than here. Set it
+**explicitly**; a default that happens to fit today is not the same as a value
+chosen against the volume.
+
+> **Open question — the mechanism is not recorded yet.** When
+> `check-volume-headroom.sh` fails, it offers two remedies: grow the volume, or
+> lower `max_wal_size`. Only the first is documented anywhere (Railway
+> dashboard; `railway volume update` has no size flag). Nobody has written down
+> how `max_wal_size` is actually set on this Postgres service, or what value it
+> runs today versus what was chosen against the current volume. Until someone
+> does, treat "grow the volume" as the only executable remedy — and be aware
+> that leaves the original misconfiguration (a ceiling inherited by default
+> rather than chosen against the disk) in place.
+
+### What watches what
+
+**Automatic — runs without anyone remembering:**
+
+| Signal | Watched by | On failure |
+| --- | --- | --- |
+| New deployment can serve | Railway deploy healthcheck → `/health` (`railway.toml`) | Fails the deploy; previous version keeps serving |
+| Background sweeps running | `sweep_health_check` → Sentry | Pages a human |
+
+**Manual — in this repo, but only runs if a human runs it. Nothing in CI or any
+deploy pipeline invokes this:**
+
+| Signal | Tool | On failure |
+| --- | --- | --- |
+| Volume floor + usage | `scripts/check-volume-headroom.sh` | Blocks the deploy **only if someone ran it** |
+
+**Configured OUTSIDE this repo — nothing here can verify these are live. If you
+are reading this during an incident and wondering why nobody was paged, check
+that these exist before assuming an alert broke:**
+
+| Signal | Configured in | On failure |
+| --- | --- | --- |
+| Dependencies reachable | External uptime monitor → `/health/ready` | Pages a human; **no restart** |
+| Volume usage % (continuous) | Railway native volume alerts | Pages a human |
+
+The external monitor must live **outside the platform**. The frontend is served
+from a CDN cache that keeps returning 200s through a total API outage, so
+checking the site's homepage proves nothing about the backend.
+
+Configure it as: **`GET https://<api host>/health/ready`, alert on any non-200.**
+
+- Alert on *any* non-200, not `== 503` specifically. A 503 is the healthy way to
+  report "cannot do my job", but a connection failure or a timeout is the same
+  outage and produces no status code at all. A rule written only against 503
+  stays silent for the worst cases.
+- Set the monitor's own request timeout **above** the probe's internal 2s
+  dependency deadline, so a slow database returns a 503 you can read rather than
+  a client-side timeout you have to guess at.
+- Use the exact path, no trailing slash. Either GET or HEAD works.
+- Point it at the **API host** (`api.psychichomily.com`), *not*
+  `psychichomily.com/api/…`. That path goes through the frontend deployment,
+  which is the thing you are trying to test independently of — a probe routed
+  through it can be answered by a cache rather than by the backend. The
+  endpoints send `Cache-Control: no-store`, but do not rely on an intermediary
+  honouring it when you can just avoid the intermediary.
+
+Do not point it at `/health`: that endpoint returns 200 by design whenever the
+process is alive, so it stays green during exactly the outage you want detected.
 
 ## Database Schema
 
