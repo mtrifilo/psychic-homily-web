@@ -389,7 +389,14 @@ export async function sampleUrls(
             error: `refusing to probe off-target origin (expected ${targetOrigin})`,
           }
         }
-        const response = await requestFollowing(url, config, config.sampleTimeoutMs)
+        // Retried for TRANSPORT failures only: requestFollowing returns the
+        // response for any HTTP status, so a 404 — the actual finding — is
+        // never retried, while a dropped connection on one of ten probes no
+        // longer fails the whole run.
+        const response = await withRetry(
+          () => requestFollowing(url, config, config.sampleTimeoutMs),
+          config.retryDelayMs
+        )
         // Only the status matters; release the body rather than buffering a
         // full SSR page for each probe.
         await response.body?.cancel()
