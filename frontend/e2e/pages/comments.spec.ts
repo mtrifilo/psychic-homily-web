@@ -119,7 +119,15 @@ test.describe('Comments (general)', () => {
 
   test(
     'authenticated user upvotes a comment',
-    async ({ authenticatedPage }) => {
+    // PSY-1663: the vote is undone by the second click at the END of this
+    // test, so a failure before that leaves the vote in the database. The
+    // retry then clicks an already-active upvote button, the handler fires
+    // DELETE, and the `waitForResponse` for POST below can never match —
+    // a transient failure would become a permanent one. `cleanBetweenRetries`
+    // clears this worker's `comment_votes` between attempts (the backend
+    // scope is per-voter, so other workers' votes on the shared seed comment
+    // are untouched).
+    async ({ authenticatedPage, cleanBetweenRetries: _cleanup }) => {
       await authenticatedPage.goto(`/venues/${VOTE_VENUE_SLUG}`)
       const main = visibleMain(authenticatedPage)
 

@@ -1,9 +1,33 @@
 import { test, expect } from '../fixtures'
+import {
+  PENDING_SHOW_APPROVE_SEED_SLUG,
+  PENDING_SHOW_REJECT_SEED_SLUG,
+  setPendingShowSeedStatus,
+  type PendingShowSeedStatus,
+} from '../fixtures/seed-restore'
+
+// PSY-1663: approving and rejecting are one-way moves — nothing in the product
+// returns a show to `pending`. Each test therefore states the seed state it
+// needs instead of inheriting whatever the previous attempt left behind, which
+// is what makes a retry recoverable (and each test runnable on its own).
+//
+// Restoring at entry cannot mask a product regression: on a clean database
+// these are no-op writes, so the first attempt runs against exactly the seeded
+// state it always did.
+function seedPendingShows(
+  approve: PendingShowSeedStatus,
+  reject: PendingShowSeedStatus,
+) {
+  setPendingShowSeedStatus(PENDING_SHOW_APPROVE_SEED_SLUG, approve)
+  setPendingShowSeedStatus(PENDING_SHOW_REJECT_SEED_SLUG, reject)
+}
 
 test.describe('Admin: Pending Shows', () => {
   test.describe.configure({ mode: 'serial' })
 
   test('displays pending shows for admin review', async ({ adminPage }) => {
+    seedPendingShows('pending', 'pending')
+
     await adminPage.goto('/admin/pending-shows')
 
     // Page heading
@@ -30,6 +54,10 @@ test.describe('Admin: Pending Shows', () => {
   })
 
   test('can approve a pending show', { tag: '@smoke' }, async ({ adminPage }) => {
+    // Both seeds pending: this test approves one and asserts the other is
+    // still listed.
+    seedPendingShows('pending', 'pending')
+
     await adminPage.goto('/admin/pending-shows')
 
     // Wait for page to load
@@ -69,6 +97,11 @@ test.describe('Admin: Pending Shows', () => {
   })
 
   test('can reject a pending show with reason', async ({ adminPage }) => {
+    // The approve seed is forced back to `approved` so it is off the pending
+    // list: this test ends by asserting the empty state, which the previous
+    // test's approval is what normally produces.
+    seedPendingShows('approved', 'pending')
+
     await adminPage.goto('/admin/pending-shows')
 
     // Wait for page to load

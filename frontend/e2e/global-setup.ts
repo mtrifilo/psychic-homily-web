@@ -11,13 +11,13 @@ import * as net from 'net'
 import * as http from 'http'
 import pLimit from 'p-limit'
 import { BACKEND_BASE_URL, BACKEND_PORT } from './backend-url'
+// PSY-1663: shared with the seed-restore helper the admin specs use, so the
+// database this seeds and the one they restore rows in cannot drift apart.
+import { E2E_DATABASE_URL as E2E_DB_URL } from './e2e-db'
 
 const BACKEND_DIR = path.resolve(__dirname, '../../backend')
 const PID_FILE = path.resolve(__dirname, '.backend-pid')
 const AUTH_DIR = path.resolve(__dirname, '.auth')
-
-const E2E_DB_URL =
-  'postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable'
 
 // Shared password for all seeded test users (see setup-db.sh).
 const TEST_PASSWORD = 'e2e-test-password-123'

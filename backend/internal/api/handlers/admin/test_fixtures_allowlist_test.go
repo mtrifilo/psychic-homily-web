@@ -62,9 +62,10 @@ var testFixturesAllowlistContractSkips = map[string]string{
 
 	// Comments / field notes — tests clean up via direct DELETE API calls,
 	// as called out in the PSY-432 ticket. Keep separate paths.
+	// PSY-1663 moved comment_votes OUT of this map and into the allowlist —
+	// its in-test cleanup ran last and so did not survive a mid-test failure.
 	"comments":              "cleaned up via direct DELETE API calls per test",
 	"comment_edits":         "cascades from comments; handled by comments cleanup",
-	"comment_votes":         "cleaned up via direct DELETE in the same test that casts them",
 	"comment_subscriptions": "auto-subscribe flow; cascades from comments",
 	"comment_last_reads":    "tracked but not asserted on; re-creation is cheap",
 

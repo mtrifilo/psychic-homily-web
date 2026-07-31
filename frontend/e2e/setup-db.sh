@@ -735,14 +735,23 @@ psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 -- Admin workflow seed data: pending shows, unverified venue, pending venue edits
 DO $$
 DECLARE
-  test_user_id INTEGER;
+  admin_user_id INTEGER;
   v_id INTEGER;
   a_id INTEGER;
   s_id INTEGER;
   worker_user RECORD;
 BEGIN
-  -- Get test user ID
-  SELECT id INTO test_user_id FROM users WHERE email = 'e2e-user@test.local';
+  -- PSY-1663: the two pending shows below are submitted by the ADMIN user,
+  -- not by e2e-user@test.local. The fixture-reset endpoint's `pending_shows`
+  -- scope deletes `submitted_by = <worker user> AND status = 'pending'`, and
+  -- it runs at every worker teardown plus every `cleanBetweenRetries` test —
+  -- so while worker 0 owned these rows, any worker-0 test could delete the
+  -- admin spec's own seeds, including while that spec was mid-run. Admin is
+  -- never a reset target (the harness only ever looks up worker users, see
+  -- fixtures/auth.ts), which removes the interaction by construction rather
+  -- than narrowing it. Do NOT point these back at a worker user.
+  -- Same reasoning as the admin-authored comment seeds further below.
+  SELECT id INTO admin_user_id FROM users WHERE email = 'e2e-admin@test.local';
 
   -- Get an existing venue and artist for pending shows
   SELECT id INTO v_id FROM venues LIMIT 1;
@@ -753,7 +762,7 @@ BEGIN
   VALUES (
     'E2E Pending Show Approve',
     NOW() + INTERVAL '90 days',
-    'Phoenix', 'AZ', 'pending', 'user', test_user_id,
+    'Phoenix', 'AZ', 'pending', 'user', admin_user_id,
     NOW(), NOW(),
     'e2e-pending-show-approve'
   )
@@ -765,7 +774,7 @@ BEGIN
   VALUES (
     'E2E Pending Show Reject',
     NOW() + INTERVAL '91 days',
-    'Phoenix', 'AZ', 'pending', 'user', test_user_id,
+    'Phoenix', 'AZ', 'pending', 'user', admin_user_id,
     NOW(), NOW(),
     'e2e-pending-show-reject'
   )

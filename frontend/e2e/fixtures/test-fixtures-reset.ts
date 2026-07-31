@@ -39,12 +39,19 @@ const BACKEND_HINT =
  * should clear for its seeded user. Kept broad on purpose — tests want a
  * clean slate, and `user_bookmarks` covers five mutating flows at once
  * (saves, favorite venues, follows, going, interested).
+ *
+ * PSY-1663 added `comment_votes`: the vote spec's own cleanup is its last
+ * step, so it does not survive a mid-test failure, and a leftover vote makes
+ * the retry's first click fire DELETE where the spec waits for POST. The
+ * backend scope deletes only the target user's votes, so a worker clearing
+ * its own vote on the shared seed comment leaves other workers' votes intact.
  */
 export const DEFAULT_RESET_SCOPES = [
   'user_bookmarks',
   'collection_items',
   'collection_subscribers',
   'collections',
+  'comment_votes',
   'pending_shows',
 ] as const
 

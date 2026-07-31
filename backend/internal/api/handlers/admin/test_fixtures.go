@@ -105,6 +105,20 @@ var testFixtureAllowlist = []testFixtureScope{
 		},
 	},
 	{
+		// PSY-1663: per-user comment votes; composite PK (comment_id, user_id)
+		// with an FK to users. Previously left out on the reasoning that the
+		// vote test toggles its own vote off at the end — but that cleanup is
+		// the LAST step of the test, so any failure before it leaves the vote
+		// in place, and the retry's first click then fires DELETE where the
+		// spec waits for POST. Resettable state is what makes that retry
+		// recoverable.
+		displayName: "comment_votes",
+		delete: func(tx *gorm.DB, userID uint) (int64, error) {
+			res := tx.Where("user_id = ?", userID).Delete(&engagementm.CommentVote{})
+			return res.RowsAffected, res.Error
+		},
+	},
+	{
 		displayName: "collections",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
 			res := tx.

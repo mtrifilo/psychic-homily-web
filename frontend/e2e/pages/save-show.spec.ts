@@ -26,8 +26,15 @@ test.describe('Save/unsave a show', () => {
     ).not.toBeVisible()
   })
 
+  // PSY-1663: the unsave is this test's last step, so a failure between the
+  // save and it leaves the show saved; the retry then finds "Remove from My
+  // List" where it waits for "Add to My List". Opting into
+  // `cleanBetweenRetries` clears the worker user's bookmarks between
+  // attempts, which does not depend on the failing attempt reaching its own
+  // cleanup.
   test('can save and unsave a show from detail page', { tag: '@smoke' }, async ({
     authenticatedPage,
+    cleanBetweenRetries: _cleanup,
   }) => {
     await authenticatedPage.goto(RESERVED_SHOW_URL)
 

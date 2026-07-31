@@ -1,7 +1,19 @@
 import { test, expect } from '../fixtures'
+import { restoreUnverifiedVenueSeed } from '../fixtures/seed-restore'
 
 test.describe('Admin: Verify Venue', () => {
   test.describe.configure({ mode: 'serial' })
+
+  // PSY-1663: verifying a venue is one-way — no product surface un-verifies
+  // one, and the fixture-reset endpoint only deletes rows owned by a seeded
+  // worker user, so it cannot restore an admin fixture either. Without this
+  // hook, a failure anywhere after the verify click left BOTH tests asserting
+  // against a state the database could never return to, and every retry was
+  // guaranteed to fail. Restoring at entry is a no-op on a clean database, so
+  // the first attempt still exercises the real flow.
+  test.beforeEach(() => {
+    restoreUnverifiedVenueSeed()
+  })
 
   test('displays unverified venues list', async ({ adminPage }) => {
     await adminPage.goto('/admin/unverified-venues')
