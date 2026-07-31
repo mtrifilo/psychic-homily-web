@@ -6,7 +6,6 @@ import {
   formatWeekRange,
   formatWeekRangeCompact,
   resolveRequestedWeek,
-  weekHasEnded,
   looksLikeISOWeek,
   showDisplayTitle,
   showHref,
@@ -115,27 +114,6 @@ describe('resolveRequestedWeek', () => {
   })
 })
 
-describe('weekHasEnded', () => {
-  const past = '2020-01-05'
-  const future = '2099-12-27'
-
-  it('is false for the current week', () => {
-    expect(weekHasEnded(past, true)).toBe(false)
-  })
-
-  // The case that matters. A FUTURE week also reports is_current_week: false,
-  // and the "next week →" link is on every page — so next week's card gets
-  // fetched days early. Caching it hard would freeze it, and the rolling page
-  // points at exactly that URL once the week turns over.
-  it('is false for a week that has not happened yet', () => {
-    expect(weekHasEnded(future, false)).toBe(false)
-  })
-
-  it('is true only once the week is genuinely behind us', () => {
-    expect(weekHasEnded(past, false)).toBe(true)
-  })
-})
-
 describe('formatShowCountLine', () => {
   it('says "this week" only for the current week', () => {
     expect(formatShowCountLine(32, true)).toBe('32 shows this week')
@@ -232,6 +210,7 @@ describe('countShows', () => {
       prev_week: '2026-W30',
       next_week: '2026-W32',
       is_current_week: false,
+      is_past_week: true,
       days: [],
       tracked_venues: [],
       ...over,

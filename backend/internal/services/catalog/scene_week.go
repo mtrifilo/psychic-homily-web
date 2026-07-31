@@ -73,6 +73,22 @@ func ISOWeekStart(year, week int, loc *time.Location) time.Time {
 	return week1Monday.AddDate(0, 0, (week-1)*7)
 }
 
+// weekHasEnded reports whether a scene's week is entirely behind it.
+//
+// end is the week's EXCLUSIVE end — the same instant that closes the show
+// query's half-open window — so this asks "has the scene's own clock reached
+// the following Monday". Both arguments are absolute instants, which is what
+// keeps it right across a DST transition: end was walked forward by calendar
+// days rather than by 168 hours, so a week containing a transition still ends
+// at local midnight rather than an hour either side of it.
+//
+// False for the current week and for every future week alike. That is the whole
+// distinction the caller needs and the reason this is not simply
+// !IsCurrentWeek: only a week that can no longer gain shows is safe to freeze.
+func weekHasEnded(now, end time.Time) bool {
+	return !now.Before(end)
+}
+
 // sceneLocation resolves the timezone a scene's week boundaries are computed
 // in: the most common explicit timezone among its verified venues, falling back
 // to the state map via utils.EventLocation.
@@ -218,6 +234,7 @@ func (s *SceneService) GetSceneWeek(city, state, weekKey string) (*contracts.Sce
 		PrevWeek:      ISOWeekKey(start.AddDate(0, 0, -7)),
 		NextWeek:      ISOWeekKey(start.AddDate(0, 0, 7)),
 		IsCurrentWeek: ISOWeekKey(start) == currentKey,
+		IsPastWeek:    weekHasEnded(nowLocal, end),
 		Days:          days,
 		TrackedVenues: venues,
 	}, nil

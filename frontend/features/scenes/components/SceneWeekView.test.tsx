@@ -29,6 +29,7 @@ const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
     prev_week: '2026-W30',
     next_week: '2026-W32',
     is_current_week: true,
+    is_past_week: false,
     days: [{ date: '2026-07-27', shows: [show()] }],
     tracked_venues: ['Empty Bottle', 'Thalia Hall'],
     ...over,

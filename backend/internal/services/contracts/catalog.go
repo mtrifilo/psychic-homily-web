@@ -879,7 +879,17 @@ type SceneWeekResponse struct {
 	NextWeek string `json:"next_week"`
 	// IsCurrentWeek lets the client mark the rolling week without recomputing
 	// the scene-local "now" itself (and getting a different answer).
-	IsCurrentWeek bool           `json:"is_current_week"`
+	IsCurrentWeek bool `json:"is_current_week"`
+	// IsPastWeek says the week is over and can no longer gain shows — the only
+	// state in which a client may cache this payload hard.
+	//
+	// Deliberately NOT the negation of IsCurrentWeek: a FUTURE week is neither
+	// current nor past, and it is the one a client must never freeze, because
+	// the "next week" link is on every page and gets followed days before that
+	// week goes live. Answered here because the boundary depends on the SCENE's
+	// timezone; a client comparing dates in UTC would call a week over up to a
+	// day early.
+	IsPastWeek    bool           `json:"is_past_week"`
 	Days          []SceneWeekDay `json:"days"`
 	TrackedVenues []string       `json:"tracked_venues"`
 }

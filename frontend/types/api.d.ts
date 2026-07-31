@@ -14672,6 +14672,7 @@ export interface components {
             days: components["schemas"]["SceneWeekDay"][] | null;
             end_date: string;
             is_current_week: boolean;
+            is_past_week: boolean;
             iso_week: string;
             next_week: string;
             prev_week: string;

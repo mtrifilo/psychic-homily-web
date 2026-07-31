@@ -72,25 +72,6 @@ export function resolveRequestedWeek(segment: string | undefined): string | unde
  * for a week shared months later rather than claiming to be current. A quiet
  * week says so in words — `0 shows` is a bad thing to post.
  */
-/**
- * Whether a week is genuinely over and can therefore be cached hard.
- *
- * `is_current_week` alone is NOT this test: it is false for FUTURE weeks too,
- * and a future week is the one thing that must not be frozen — the "next week"
- * link is on every page, so next week's card gets fetched and cached days
- * before it becomes the live week, and the rolling page then points at that
- * frozen card. Requiring the end date to be behind us excludes it.
- *
- * Compared in UTC, which can run up to a day ahead of a scene's own clock. That
- * skew can only make this return false early, never late, and the
- * `isCurrentWeek` guard covers the boundary — so the error direction is "keep
- * it fresh", which is the harmless one.
- */
-export function weekHasEnded(endDate: string, isCurrentWeek: boolean): boolean {
-  if (isCurrentWeek) return false
-  return endDate < new Date().toISOString().slice(0, 10)
-}
-
 export function formatShowCountLine(total: number, isCurrentWeek: boolean): string {
   const period = isCurrentWeek ? ' this week' : ''
   if (total === 0) return `No shows${period}`
