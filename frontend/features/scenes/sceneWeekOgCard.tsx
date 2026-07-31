@@ -207,7 +207,12 @@ export async function renderSceneWeekOgCard(
       // a wrong card should expire rather than sit in the CDN for a day.
       headers: {
         'cache-control': ogCacheControl(
-          !degraded && data.is_past_week ? ARCHIVED_WEEK_REVALIDATE : CURRENT_WEEK_REVALIDATE
+          // `=== true` for the same reason the data fetch uses it: this reads an
+          // untrusted payload, and a non-boolean must not pin a live card in
+          // the CDN for a day.
+          !degraded && data.is_past_week === true
+            ? ARCHIVED_WEEK_REVALIDATE
+            : CURRENT_WEEK_REVALIDATE
         ),
       },
     }

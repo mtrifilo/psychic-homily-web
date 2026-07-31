@@ -136,7 +136,13 @@ export async function fetchSceneWeek(
   if (!week) return fetchWeekPayload(slug, undefined, service, CURRENT_WEEK_REVALIDATE)
 
   const archived = await fetchWeekPayload(slug, week, service, ARCHIVED_WEEK_REVALIDATE)
-  if (!archived || archived.is_past_week) return archived
+  // `=== true` rather than a truthy test, because this reads an untrusted wire
+  // payload — the same reason `asSceneWeek` exists. The type says boolean; a
+  // body that says anything else must not be allowed to freeze a live week for
+  // a day. It also gives the right answer while a deploy has a newer frontend
+  // talking to a backend that does not send the field yet: absent reads as
+  // "might still change", which costs a short window and self-heals.
+  if (!archived || archived.is_past_week === true) return archived
 
   // `?? archived` because the week demonstrably exists — the ask above returned
   // it. A blip on this second request must not turn a real page into a 404;

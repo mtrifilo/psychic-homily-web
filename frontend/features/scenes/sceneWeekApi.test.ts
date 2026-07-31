@@ -138,6 +138,36 @@ describe('fetchSceneWeek', () => {
     )
   })
 
+  // A newer frontend can be live before the backend that sends the field —
+  // both auto-deploy, and they do not land together. Absent must read as
+  // "might still change" so the window errs fresh and heals itself, rather
+  // than freezing whatever week is live for a day.
+  it('keeps the short window when the backend does not send the flag', async () => {
+    const withoutFlag: Record<string, unknown> = { ...week({ is_current_week: true }) }
+    delete withoutFlag.is_past_week
+    fetchMock.mockResolvedValue(jsonResponse(withoutFlag))
+
+    await fetchSceneWeek('chicago-il', '2026-W31', 'scene-week')
+
+    expect(windowsRequested(fetchMock)).toEqual([
+      ARCHIVED_WEEK_REVALIDATE,
+      CURRENT_WEEK_REVALIDATE,
+    ])
+  })
+
+  // The wire is not trusted — that is why `asSceneWeek` exists. A body whose
+  // flag is not a boolean must not be allowed to freeze a live week.
+  it('refuses a non-boolean flag as grounds for the long window', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...week(), is_past_week: 'yes' }))
+
+    await fetchSceneWeek('chicago-il', '2026-W31', 'scene-week')
+
+    expect(windowsRequested(fetchMock)).toEqual([
+      ARCHIVED_WEEK_REVALIDATE,
+      CURRENT_WEEK_REVALIDATE,
+    ])
+  })
+
   // A 404 is the normal answer for an unknown slug or a week key that does not
   // exist. It must not be probed a second time.
   it('stops at the first ask when the week does not exist', async () => {
