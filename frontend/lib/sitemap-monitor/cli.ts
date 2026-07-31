@@ -18,8 +18,14 @@
  * state, and coupling releases to it trades one outage for another.
  */
 
-import { resolveConfig, type MonitorConfig } from './config'
-import { countFutureShows, evaluate, isoDate, pickSample, type Report } from './evaluate'
+import { resolveConfig, type Env, type MonitorConfig } from './config'
+import {
+  countFutureShows,
+  evaluate,
+  isoDate,
+  pickStratifiedSample,
+  type Report,
+} from './evaluate'
 import { fetchExpectedCounts, sampleUrls, walkSitemap } from './fetch'
 import {
   formatConsoleReport,
@@ -35,7 +41,7 @@ export async function runCheck(config: MonitorConfig, now: Date): Promise<Report
   const expectedByFamily = await fetchExpectedCounts(config)
   const observation = await walkSitemap(config)
 
-  const sampled = pickSample(observation.locs, config.sampleSize)
+  const sampled = pickStratifiedSample(observation.locsByBucket, config.sampleSize)
   const samples = await sampleUrls(sampled, config)
 
   return evaluate(
@@ -80,19 +86,51 @@ async function postToDiscord(
     }
     return true
   } catch (error) {
-    console.error(`Discord webhook failed: ${(error as Error).message}`)
+    // Scrub the URL out of the message before printing. A malformed webhook
+    // URL makes fetch throw "Failed to parse URL from <the-url>", which would
+    // print the secret token straight into the Actions log — the same hazard
+    // the backend's utils.RedactErrorURL exists for.
+    const message = (error as Error).message.split(webhookUrl).join('[redacted]')
+    console.error(`Discord webhook failed: ${message}`)
     return false
   }
 }
 
-export async function main(env: NodeJS.ProcessEnv, now: Date): Promise<number> {
+/**
+ * Exit codes:
+ *   0 — the sitemap is healthy.
+ *   1 — the sitemap FAILED an assertion (alerted, if a webhook is configured).
+ *   2 — the check could not run, or could not deliver its alert.
+ *
+ * 1 and 2 are kept distinct on purpose: "the sitemap is stale" and "the monitor
+ * is broken" need different responses, and conflating them is how a broken
+ * monitor gets mistaken for a quiet one.
+ */
+export async function main(env: Env, now: Date): Promise<number> {
   let config: MonitorConfig
   try {
     config = resolveConfig(env)
   } catch (error) {
-    // No config means no webhook URL to alert on; the non-zero exit and the
-    // red Actions run are the whole signal here.
-    console.error(`configuration error: ${(error as Error).message}`)
+    const message = (error as Error).message
+    console.error(`configuration error: ${message}`)
+    // Alert from the RAW env rather than giving up. A typo'd threshold set from
+    // the GitHub UI throws here, and without this the monitor would be dead
+    // every day with nothing but a red scheduled run to show for it — and
+    // GitHub disables scheduled workflows after 60 days of repo inactivity, so
+    // even that signal decays. resolveConfig never throws on the webhook URL
+    // itself, so it is still usable at this point.
+    const webhookUrl = env.DISCORD_WEBHOOK_URL?.trim()
+    if (webhookUrl) {
+      await postToDiscord(
+        webhookUrl,
+        formatCrashPayload(
+          env.SITEMAP_MONITOR_TARGET?.trim() || '(target unresolved)',
+          `configuration error: ${message}`,
+          now
+        ),
+        30_000
+      )
+    }
     return 2
   }
 
@@ -120,7 +158,10 @@ export async function main(env: NodeJS.ProcessEnv, now: Date): Promise<number> {
       formatDiscordPayload(report, now),
       config.fetchTimeoutMs
     )
-    if (!delivered) return 2
+    // A failed delivery must not overwrite a real sitemap failure with the
+    // "monitor broken" code — the stale sitemap is still the finding, and 1 is
+    // what says so.
+    if (!delivered && report.ok) return 2
   } else if (!config.discordWebhookUrl && !report.ok) {
     console.error('DISCORD_WEBHOOK_URL is not set — failure was not alerted anywhere')
   }

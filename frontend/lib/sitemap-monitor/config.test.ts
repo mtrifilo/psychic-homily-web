@@ -52,8 +52,41 @@ describe('resolveConfig', () => {
   })
 
   it('rejects an out-of-range threshold', () => {
-    expect(() => resolveConfig({ SITEMAP_MONITOR_DRIFT_RATIO: '2' })).toThrow(/between 0 and 1/)
+    expect(() => resolveConfig({ SITEMAP_MONITOR_DRIFT_RATIO: '2' })).toThrow(/between 0 and 0.5/)
     expect(() => resolveConfig({ SITEMAP_MONITOR_DRIFT_FLOOR: '-1' })).toThrow(/between 0 and/)
+  })
+
+  /**
+   * Each of these would leave the monitor reporting a cheerful pass while
+   * asserting nothing — the shape of the incident it exists to catch. Widening
+   * a knob to silence a noisy alarm must not be able to disable the check.
+   */
+  it('refuses settings that would make the check vacuous', () => {
+    // ratio 1 would make the budget equal the expected count, so observed 0
+    // would pass for every family.
+    expect(() => resolveConfig({ SITEMAP_MONITOR_DRIFT_RATIO: '1' })).toThrow(/between 0 and 0.5/)
+    // 0 upcoming shows required is satisfied by an entirely empty sitemap.
+    expect(() => resolveConfig({ SITEMAP_MONITOR_MIN_FUTURE_SHOWS: '0' })).toThrow(/between 1 and/)
+    // 0 samples renders as "0/0 reachable", which reads as a pass.
+    expect(() => resolveConfig({ SITEMAP_MONITOR_SAMPLE_SIZE: '0' })).toThrow(/between 1 and/)
+  })
+
+  // The bypass token rides on these requests as a header.
+  it('requires https off localhost', () => {
+    expect(() => resolveConfig({ SITEMAP_MONITOR_TARGET: 'http://psychichomily.com' })).toThrow(
+      /must use https off localhost/
+    )
+    expect(resolveConfig({ SITEMAP_MONITOR_TARGET: 'http://127.0.0.1:8787' }).target).toBe(
+      'http://127.0.0.1:8787'
+    )
+  })
+
+  // walkSitemap would append the entry path to it while rebaseOnTarget builds
+  // shard URLs from the origin alone — the two halves would disagree.
+  it('rejects a target carrying a path', () => {
+    expect(() => resolveConfig({ SITEMAP_MONITOR_TARGET: 'https://example.com/base' })).toThrow(
+      /must be a bare origin/
+    )
   })
 
   it('rejects a non-boolean flag', () => {

@@ -7,6 +7,7 @@ import {
   evaluate,
   isoDate,
   pickSample,
+  pickStratifiedSample,
   type EvaluationInput,
 } from './evaluate'
 
@@ -136,6 +137,34 @@ describe('evaluate', () => {
     expect(report.failures[0]).toContain('only 0 upcoming show URLs')
   })
 
+  /**
+   * The absolute floor keeps small families quiet, but it also made them
+   * unmonitorable: `festivals` has 10 entries and the default floor is 10, so
+   * the entire family disappearing sat exactly inside budget and reported
+   * green. Total disappearance is the defect class this monitor exists to
+   * catch, so it must fail at any tolerance.
+   */
+  it('fails a family that vanished entirely, even inside the drift budget', () => {
+    const report = evaluate(
+      input({
+        observedByFamily: counts({ festivals: 0 }),
+        expectedByFamily: counts({ festivals: 10 }),
+      }),
+      config
+    )
+    expect(report.ok).toBe(false)
+    expect(report.failures[0]).toContain('vanished — festivals')
+    expect(report.failures[0]).toContain('the API has 10 entries and the sitemap serves NONE')
+  })
+
+  it('does not cry vanished when the API itself has no entries', () => {
+    const report = evaluate(
+      input({ observedByFamily: counts({ festivals: 0 }), expectedByFamily: counts({ festivals: 0 }) }),
+      config
+    )
+    expect(report.ok).toBe(true)
+  })
+
   it('fails when a sampled URL does not resolve', () => {
     const report = evaluate(
       input({
@@ -229,5 +258,42 @@ describe('pickSample', () => {
     const picked = pickSample(items, 5, () => 1)
     expect(picked).toHaveLength(5)
     expect(picked.every(entry => typeof entry === 'string')).toBe(true)
+  })
+})
+
+/**
+ * Uniform sampling over the pooled URLs would make the reachability probe a
+ * releases-only check: releases is ~20k of the ~33k URLs, so a 10-URL sample
+ * expects 0.44 shows. Every family must be represented.
+ */
+describe('pickStratifiedSample', () => {
+  const skewed = new Map<string, string[]>([
+    ['releases', Array.from({ length: 20_000 }, (_, i) => `https://x/releases/${i}`)],
+    ['shows', Array.from({ length: 1_458 }, (_, i) => `https://x/shows/${i}`)],
+    ['festivals', ['https://x/festivals/only']],
+  ])
+
+  it('draws from every non-empty bucket', () => {
+    const picked = pickStratifiedSample(skewed, 10, () => 0)
+    expect(picked.some(u => u.includes('/releases/'))).toBe(true)
+    expect(picked.some(u => u.includes('/shows/'))).toBe(true)
+    expect(picked.some(u => u.includes('/festivals/'))).toBe(true)
+  })
+
+  it('still probes a family that has only one URL', () => {
+    expect(pickStratifiedSample(skewed, 3, () => 0)).toContain('https://x/festivals/only')
+  })
+
+  it('skips empty buckets rather than padding with nothing', () => {
+    const withEmpty = new Map<string, string[]>([
+      ['shows', ['https://x/shows/1']],
+      ['tags', []],
+    ])
+    expect(pickStratifiedSample(withEmpty, 4, () => 0)).toEqual(['https://x/shows/1'])
+  })
+
+  it('returns nothing when there is nothing to sample', () => {
+    expect(pickStratifiedSample(new Map(), 10)).toEqual([])
+    expect(pickStratifiedSample(skewed, 0)).toEqual([])
   })
 })

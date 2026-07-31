@@ -25,8 +25,21 @@ export interface SitemapObservation {
   observedByFamily: Record<Family, number>
   observedPages: number
   observedOther: number
-  /** Every `<loc>` seen, for sampling. */
-  locs: string[]
+  /**
+   * Every `<loc>` seen, rebased onto the target origin and grouped by bucket.
+   *
+   * Rebased for the same reason the shard URLs are, plus a second one: these
+   * get fetched WITH the Vercel bypass header, so a `<loc>` naming a foreign
+   * host would send that secret to it. Storing them target-anchored makes the
+   * off-origin case unrepresentable rather than merely unlikely.
+   *
+   * Grouped rather than flat so the reachability sample can be STRATIFIED.
+   * Drawing uniformly from the concatenation would make the probe a
+   * releases-only check: releases is ~20k of the ~33k URLs, so a 10-URL sample
+   * expects 0.44 shows and would probe the highest-churn families essentially
+   * never.
+   */
+  locsByBucket: Map<LocBucket, string[]>
   /** Slug dates of every show URL that carries one. */
   showDates: string[]
   errors: string[]
@@ -38,27 +51,119 @@ function emptyCounts(): Record<Family, number> {
   return Object.fromEntries(FAMILY_SHARD_IDS.map(f => [f, 0])) as Record<Family, number>
 }
 
-function headers(config: MonitorConfig): Record<string, string> {
+/** How many hops to follow. The real chain is at most one (apex → www). */
+const MAX_REDIRECTS = 5
+
+/** Bodies larger than this are a compromised or wedged origin, not a sitemap. */
+const MAX_BODY_BYTES = 128 * 1024 * 1024
+
+/**
+ * Headers for one request.
+ *
+ * The bypass token is attached ONLY when the request is going to the target
+ * origin itself. It is a Vercel deployment-protection secret granting read
+ * access to every SSO-gated preview, and the Fetch spec strips only
+ * `Authorization`/`Cookie`/`Proxy-Authorization` across a cross-origin
+ * redirect — a custom header like this one would be re-sent to whatever host
+ * the redirect names. Scoping it here rather than at the call site means no
+ * future caller can leak it by forgetting.
+ */
+function headersFor(url: string, config: MonitorConfig): Record<string, string> {
   // A plain UA: some edges serve bot-flavoured responses to the default fetch
   // agent, which would make the monitor measure something no crawler sees.
   const value: Record<string, string> = { 'user-agent': USER_AGENT }
-  if (config.vercelBypassToken) {
+  const targetOrigin = new URL(config.target).origin
+  if (config.vercelBypassToken && new URL(url).origin === targetOrigin) {
     value['x-vercel-protection-bypass'] = config.vercelBypassToken
   }
   return value
 }
 
-/** GET a URL, failing on any non-2xx so a served error page never parses as data. */
-async function request(url: string, config: MonitorConfig): Promise<Response> {
-  const response = await fetch(url, {
-    headers: headers(config),
-    redirect: 'follow',
-    signal: AbortSignal.timeout(config.fetchTimeoutMs),
-  })
-  if (!response.ok) {
-    throw new Error(`GET ${url} returned ${response.status}`)
+function isRedirect(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308
+}
+
+/**
+ * GET a URL, following redirects MANUALLY so each hop re-derives its own
+ * headers, and returning the final response whatever its status.
+ *
+ * Manual rather than `redirect: 'follow'` because production legitimately
+ * redirects the apex to `www`, and the automatic follow would carry the bypass
+ * token across that origin change. Following by hand is what lets `headersFor`
+ * decide per hop.
+ *
+ * Non-2xx is NOT an error here: the reachability probe needs the status code
+ * itself (a 404 is the finding, not an exception). `fetchDocument` applies the
+ * ok-check for the callers that are parsing a body.
+ */
+async function requestFollowing(
+  url: string,
+  config: MonitorConfig,
+  timeoutMs: number
+): Promise<Response> {
+  let current = url
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(current, {
+      headers: headersFor(current, config),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+
+    if (!isRedirect(response.status)) return response
+
+    const location = response.headers.get('location')
+    if (!location) {
+      throw new Error(`GET ${url} returned ${response.status} with no Location header`)
+    }
+    await response.body?.cancel()
+    current = new URL(location, current).toString()
   }
-  return response
+  throw new Error(`GET ${url} exceeded ${MAX_REDIRECTS} redirects`)
+}
+
+/**
+ * Retry transport failures and 5xx once before giving up.
+ *
+ * The backend redeploys on a normal cadence, and a single 502 at 13:00 UTC
+ * would otherwise post a "could not run" alert every time a release happened to
+ * land on the cron. An alert that cries wolf on routine deploys gets muted, and
+ * a muted alert is the end state this whole monitor exists to avoid.
+ *
+ * 4xx is NOT retried: a 404 on the entries feed is a real, stable answer, and
+ * retrying it just doubles the time to the same verdict.
+ */
+async function withRetry<T>(attempt: () => Promise<T>, retryDelayMs: number): Promise<T> {
+  try {
+    return await attempt()
+  } catch (error) {
+    const message = (error as Error).message
+    const isClientError = /returned 4\d\d/.test(message)
+    if (isClientError) throw error
+    await new Promise(resolve => setTimeout(resolve, retryDelayMs))
+    return attempt()
+  }
+}
+
+/**
+ * Fetch one sitemap document as text, with retry.
+ *
+ * Fails on any non-2xx so a served error page never parses as data, and caps
+ * the body so a wedged or hostile origin cannot OOM the runner.
+ */
+async function fetchDocument(url: string, config: MonitorConfig): Promise<string> {
+  return withRetry(async () => {
+    const response = await requestFollowing(url, config, config.fetchTimeoutMs)
+    if (!response.ok) {
+      await response.body?.cancel()
+      throw new Error(`GET ${url} returned ${response.status}`)
+    }
+    const declared = Number(response.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      await response.body?.cancel()
+      throw new Error(`GET ${url} declared ${declared} bytes, over the ${MAX_BODY_BYTES} cap`)
+    }
+    return response.text()
+  }, config.retryDelayMs)
 }
 
 /**
@@ -73,8 +178,20 @@ async function request(url: string, config: MonitorConfig): Promise<Response> {
  */
 export function rebaseOnTarget(loc: string, target: string): string {
   const source = new URL(loc)
-  const base = new URL(target)
-  return new URL(`${source.pathname}${source.search}`, base.origin).toString()
+  const rebased = new URL(target)
+  // Assigning the components rather than resolving `pathname` as a reference
+  // string against the origin. A `<loc>` of `https://x/​/evil.com/a.xml` has a
+  // pathname of `//evil.com/a.xml`, which URL resolution treats as
+  // SCHEME-RELATIVE — `new URL('//evil.com/a', 'https://target')` yields
+  // `https://evil.com/a`, walking the anchor straight off the target origin
+  // and taking the bypass header with it.
+  rebased.pathname = source.pathname
+  rebased.search = source.search
+
+  if (rebased.origin !== new URL(target).origin) {
+    throw new Error(`refused to rebase "${loc}" off the target origin`)
+  }
+  return rebased.toString()
 }
 
 function shardIdFromUrl(url: string): string {
@@ -86,6 +203,19 @@ function countInto(observation: SitemapObservation, bucket: LocBucket, count: nu
   if (bucket === PAGES_SHARD_ID) observation.observedPages += count
   else if (bucket === 'other') observation.observedOther += count
   else observation.observedByFamily[bucket] += count
+}
+
+/** Record a loc under its bucket, target-anchored, for stratified sampling. */
+function recordLoc(
+  observation: SitemapObservation,
+  bucket: LocBucket,
+  loc: string,
+  target: string
+): void {
+  const anchored = rebaseOnTarget(loc, target)
+  const existing = observation.locsByBucket.get(bucket)
+  if (existing) existing.push(anchored)
+  else observation.locsByBucket.set(bucket, [anchored])
 }
 
 function collectShowDates(locs: readonly string[], into: string[]): void {
@@ -117,20 +247,22 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
     observedByFamily: emptyCounts(),
     observedPages: 0,
     observedOther: 0,
-    locs: [],
+    locsByBucket: new Map(),
     showDates: [],
     errors: [],
   }
 
   const entryUrl = `${config.target}${config.entryPath}`
-  const entryXml = await request(entryUrl, config).then(r => r.text())
+  const entryXml = await fetchDocument(entryUrl, config)
   observation.shape = detectShape(entryXml)
 
   if (observation.shape === 'urlset') {
-    observation.locs = parseUrlset(entryXml)
-    collectShowDates(observation.locs, observation.showDates)
-    for (const loc of observation.locs) {
-      countInto(observation, classifyLoc(loc), 1)
+    const locs = parseUrlset(entryXml)
+    collectShowDates(locs, observation.showDates)
+    for (const loc of locs) {
+      const bucket = classifyLoc(loc)
+      countInto(observation, bucket, 1)
+      recordLoc(observation, bucket, loc, config.target)
     }
     return observation
   }
@@ -149,7 +281,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
       continue
     }
     try {
-      const xml = await request(shardUrl, config).then(r => r.text())
+      const xml = await fetchDocument(shardUrl, config)
       // A shard must be a urlset. An index here would mean nested sharding
       // this monitor does not understand, and counting it as zero URLs would
       // read as a catastrophically empty family.
@@ -158,13 +290,14 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
         observation.errors.push(`shard "${id}" served a <${shape}> where a <urlset> was expected`)
         continue
       }
+      const bucket = id as Family | typeof PAGES_SHARD_ID
       const locs = parseUrlset(xml)
-      // Not `push(...locs)`: the releases shard is already ~20k entries and
-      // spreading it into the argument list approaches the engine's stack
-      // argument limit.
-      for (const loc of locs) observation.locs.push(loc)
+      // One at a time, not `push(...locs)`: the releases shard is already ~20k
+      // entries and spreading it into the argument list approaches the engine's
+      // stack argument limit.
+      for (const loc of locs) recordLoc(observation, bucket, loc, config.target)
       if (id === 'shows') collectShowDates(locs, observation.showDates)
-      countInto(observation, id as Family | typeof PAGES_SHARD_ID, locs.length)
+      countInto(observation, bucket, locs.length)
     } catch (error) {
       observation.errors.push(`shard "${id}": ${(error as Error).message}`)
     }
@@ -187,15 +320,17 @@ export async function fetchExpectedCounts(
   config: MonitorConfig
 ): Promise<Record<Family, number>> {
   const url = `${config.apiBase}/sitemap/entries`
-  const response = await fetch(url, {
-    headers: { 'user-agent': USER_AGENT },
-    signal: AbortSignal.timeout(config.fetchTimeoutMs),
-  })
-  if (!response.ok) {
-    throw new Error(`GET ${url} returned ${response.status}`)
-  }
-
-  const body: unknown = await response.json()
+  // No bypass header: the API is a separate origin and never SSO-gated.
+  const body: unknown = await withRetry(async () => {
+    const response = await fetch(url, {
+      headers: { 'user-agent': USER_AGENT },
+      signal: AbortSignal.timeout(config.fetchTimeoutMs),
+    })
+    if (!response.ok) {
+      throw new Error(`GET ${url} returned ${response.status}`)
+    }
+    return response.json()
+  }, config.retryDelayMs)
   if (typeof body !== 'object' || body === null) {
     throw new Error(`GET ${url} did not return a JSON object`)
   }
@@ -230,20 +365,31 @@ export async function fetchExpectedCounts(
  * emits apex-host URLs (`https://psychichomily.com/...`) while the site is
  * served from `www`, so every entry legitimately redirects once; asserting on
  * the first hop would fail every sample.
+ *
+ * Every URL is re-anchored to the target origin before the request, so the
+ * bypass header in `headers()` cannot be sent to a host named by the fetched
+ * document. `walkSitemap` already rebases; this is the enforcing boundary, and
+ * it fails the sample rather than silently probing elsewhere. (A target that
+ * itself redirects off-origin would still carry the header — but a compromised
+ * first-party origin already has the token.)
  */
 export async function sampleUrls(
   urls: readonly string[],
   config: MonitorConfig
 ): Promise<SampleResult[]> {
+  const targetOrigin = new URL(config.target).origin
   return Promise.all(
     urls.map(async url => {
       try {
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: headers(config),
-          redirect: 'follow',
-          signal: AbortSignal.timeout(config.sampleTimeoutMs),
-        })
+        if (new URL(url).origin !== targetOrigin) {
+          return {
+            url,
+            status: null,
+            ok: false,
+            error: `refusing to probe off-target origin (expected ${targetOrigin})`,
+          }
+        }
+        const response = await requestFollowing(url, config, config.sampleTimeoutMs)
         // Only the status matters; release the body rather than buffering a
         // full SSR page for each probe.
         await response.body?.cancel()

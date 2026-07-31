@@ -59,7 +59,8 @@ function familyLines(report: Report): string[] {
   return report.families.map(c => {
     const mark = c.ok ? 'ok  ' : 'FAIL'
     const sign = c.delta > 0 ? '+' : ''
-    return `${mark} ${c.family.padEnd(width)}  sitemap ${c.observed} / api ${c.expected}  (${sign}${c.delta}, tol ±${c.allowed})`
+    const note = c.vanished ? ' VANISHED' : ''
+    return `${mark} ${c.family.padEnd(width)}  sitemap ${c.observed} / api ${c.expected}  (${sign}${c.delta}, tol ±${c.allowed})${note}`
   })
 }
 
@@ -69,7 +70,11 @@ export function formatConsoleReport(report: Report): string {
     `Sitemap freshness — ${report.ok ? 'PASS' : 'FAIL'}`,
     `target:  ${report.target}`,
     `shape:   ${shapeLabel(report)}`,
-    `totals:  sitemap ${report.observedTotal} locs (entities ${report.expectedTotal} per API, pages ${report.observedPages}, unclassified ${report.observedOther})`,
+    // `unclassified` only means anything for the single-document shape: on the
+    // sharded path the shard id IS the family, so nothing is ever classified
+    // and a printed `unclassified 0` would read as evidence that every URL was
+    // recognised.
+    `totals:  sitemap ${report.observedTotal} locs (entities ${report.expectedTotal} per API, pages ${report.observedPages}${report.shape === 'urlset' ? `, unclassified ${report.observedOther}` : ''})`,
     '',
     ...familyLines(report),
     '',

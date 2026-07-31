@@ -5,6 +5,11 @@ import { fetchExpectedCounts, rebaseOnTarget, walkSitemap } from './fetch'
 
 const STAGE = 'https://stage.psychichomily.com'
 
+/** Retry delay 0 — the real 5s backoff would add 5s to every failure-path test. */
+function testConfig(env: Record<string, string> = {}) {
+  return resolveConfig({ SITEMAP_MONITOR_RETRY_DELAY_MS: '0', ...env })
+}
+
 /**
  * The index served by every environment hardcodes the PRODUCTION base URL, so
  * a stage run must rewrite the host before following the links. Without this
@@ -23,10 +28,23 @@ describe('rebaseOnTarget', () => {
     )
   })
 
-  it('preserves the path when the target carries a trailing path', () => {
+  it('rebases onto an unrelated origin', () => {
     expect(rebaseOnTarget('https://psychichomily.com/sitemap/tags.xml', 'https://example.com')).toBe(
       'https://example.com/sitemap/tags.xml'
     )
+  })
+
+  /**
+   * The anchor must not be walkable off the target. A pathname beginning `//`
+   * is a SCHEME-RELATIVE reference, so resolving it against the origin string
+   * would yield `https://evil.com/...` — defeating the one control that keeps
+   * the bypass header on first-party hosts.
+   */
+  it('does not let a protocol-relative path escape the target origin', () => {
+    expect(
+      rebaseOnTarget('https://psychichomily.com//evil.com/sitemap.xml', STAGE)
+    ).toBe(`${STAGE}//evil.com/sitemap.xml`)
+    expect(new URL(rebaseOnTarget('https://x.com//evil.com/a.xml', STAGE)).origin).toBe(STAGE)
   })
 })
 
@@ -80,7 +98,7 @@ describe('walkSitemap', () => {
     )
 
     const observation = await walkSitemap(
-      resolveConfig({ SITEMAP_MONITOR_TARGET: STAGE })
+      testConfig({ SITEMAP_MONITOR_TARGET: STAGE })
     )
 
     expect(observation.shape).toBe('index')
@@ -92,6 +110,31 @@ describe('walkSitemap', () => {
     expect(observation.errors).toEqual([])
   })
 
+  /**
+   * Every collected loc must be anchored to the target, not to the production
+   * host baked into the document. Otherwise a stage run probes production —
+   * and does so carrying the Vercel bypass token.
+   */
+  it('anchors collected locs to the target origin, not the document host', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        xmlResponse(
+          url.endsWith('/sitemap-index')
+            ? index(ALL_IDS)
+            : urlset(['https://psychichomily.com/artists/a'])
+        )
+      )
+    )
+
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+    const everyLoc = [...observation.locsByBucket.values()].flat()
+    expect(everyLoc.length).toBeGreaterThan(0)
+    for (const loc of everyLoc) {
+      expect(new URL(loc).origin).toBe(STAGE)
+    }
+  })
+
   // The whole point of walking the index: fetching only the entry document
   // would report a near-empty catalogue.
   it('fetches every shard rather than the index alone', async () => {
@@ -100,7 +143,7 @@ describe('walkSitemap', () => {
     )
     vi.stubGlobal('fetch', spy)
 
-    await walkSitemap(resolveConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+    await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
 
     // 1 index + every shard.
     expect(spy).toHaveBeenCalledTimes(ALL_IDS.length + 1)
@@ -118,7 +161,7 @@ describe('walkSitemap', () => {
       )
     )
 
-    const observation = await walkSitemap(resolveConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
     expect(observation.errors).toContain('sitemap index is missing the "releases" shard')
   })
 
@@ -132,7 +175,7 @@ describe('walkSitemap', () => {
       })
     )
 
-    const observation = await walkSitemap(resolveConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
     expect(observation.errors.some(e => e.includes('shard "shows"') && e.includes('503'))).toBe(
       true
     )
@@ -158,7 +201,7 @@ describe('walkSitemap', () => {
       )
     )
 
-    const observation = await walkSitemap(resolveConfig({}))
+    const observation = await walkSitemap(testConfig())
     expect(observation.shape).toBe('urlset')
     expect(observation.shardCount).toBe(0)
     expect(observation.observedByFamily.shows).toBe(1)
@@ -171,7 +214,7 @@ describe('walkSitemap', () => {
 
   it('throws when the entry point is unreachable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => xmlResponse('nope', 500)))
-    await expect(walkSitemap(resolveConfig({}))).rejects.toThrow(/returned 500/)
+    await expect(walkSitemap(testConfig())).rejects.toThrow(/returned 500/)
   })
 })
 
@@ -195,7 +238,7 @@ describe('fetchExpectedCounts', () => {
       )
     )
 
-    const counts = await fetchExpectedCounts(resolveConfig({}))
+    const counts = await fetchExpectedCounts(testConfig())
     expect(counts.shows).toBe(2)
     expect(counts.artists).toBe(1)
     expect(counts.venues).toBe(0)
@@ -211,7 +254,7 @@ describe('fetchExpectedCounts', () => {
           new Response(entriesBody({ shows: [{ slug: 'a' }, { slug: '' }, { notASlug: 1 }] }))
       )
     )
-    expect((await fetchExpectedCounts(resolveConfig({}))).shows).toBe(1)
+    expect((await fetchExpectedCounts(testConfig())).shows).toBe(1)
   })
 
   // Coercing a missing family to zero would blame the sitemap for an API fault.
@@ -220,13 +263,13 @@ describe('fetchExpectedCounts', () => {
       'fetch',
       vi.fn(async () => new Response(JSON.stringify({ shows: [] })))
     )
-    await expect(fetchExpectedCounts(resolveConfig({}))).rejects.toThrow(
+    await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(
       /missing the "artists" family/
     )
   })
 
   it('throws when the endpoint is unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('404 page not found', { status: 404 })))
-    await expect(fetchExpectedCounts(resolveConfig({}))).rejects.toThrow(/returned 404/)
+    await expect(fetchExpectedCounts(testConfig())).rejects.toThrow(/returned 404/)
   })
 })

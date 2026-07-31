@@ -142,6 +142,9 @@ export const SHARED_PREFIXES = [...FAMILIES_BY_PREFIX]
   .filter(([, claimants]) => claimants.length > 1)
   .map(([prefix]) => prefix)
 
+/** The `/scenes` prefix without its slash, as `classifyLoc` compares segments. */
+const bareScenesPrefix = FAMILY_URL_PREFIXES.scenes.replace(/^\//, '')
+
 /**
  * Bucket a `<loc>` by its URL path.
  *
@@ -173,8 +176,11 @@ export function classifyLoc(loc: string): LocBucket {
     return segments.length === 2 ? claimants[0] : 'other'
   }
 
-  // `/scenes/{city}` is a scene; `/scenes/{city}/{iso-week}` is a scene week.
-  if (prefix === 'scenes') {
+  // The one shared prefix: `/scenes/{city}` is a scene, `/scenes/{city}/{week}`
+  // a scene week. Keyed off the shared table rather than the literal 'scenes',
+  // so renaming the prefix moves the generator and this rule together — which
+  // is the whole point of FAMILY_URL_PREFIXES having one owner.
+  if (prefix === bareScenesPrefix) {
     return segments.length === 2 ? 'scenes' : 'scene_weeks'
   }
 

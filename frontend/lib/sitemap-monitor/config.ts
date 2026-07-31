@@ -57,6 +57,8 @@ export interface MonitorConfig {
   discordWebhookUrl: string
   /** Sent as `x-vercel-protection-bypass`, for checking an SSO-gated preview. */
   vercelBypassToken: string
+  /** Pause before the single retry of a transport failure or 5xx. */
+  retryDelayMs: number
   /** Post to Discord even when the check passes. Used to prove the webhook works. */
   notifyOnSuccess: boolean
 }
@@ -98,7 +100,20 @@ function readBoolean(env: Env, key: string, fallback: boolean): boolean {
   throw new Error(`${key} must be true or false, got ${JSON.stringify(raw)}`)
 }
 
-/** Strip a trailing slash so `${origin}${path}` never doubles up. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+/**
+ * Validate an origin and strip its trailing slash so `${origin}${path}` never
+ * doubles up.
+ *
+ * Rejects a path-bearing value rather than silently half-honouring it:
+ * `walkSitemap` would append the entry path to it while `rebaseOnTarget` builds
+ * shard URLs from `origin` alone, so the two halves would disagree about what
+ * they were checking.
+ *
+ * Requires https off-localhost because the Vercel bypass token rides on these
+ * requests as a header, and plaintext would expose it to anything on the path.
+ */
 function normalizeOrigin(value: string, key: string): string {
   let url: URL
   try {
@@ -108,6 +123,13 @@ function normalizeOrigin(value: string, key: string): string {
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new Error(`${key} must be an http(s) URL, got ${JSON.stringify(value)}`)
+  }
+  if (url.protocol === 'http:' && !LOCAL_HOSTS.has(url.hostname)) {
+    throw new Error(`${key} must use https off localhost, got ${JSON.stringify(value)}`)
+  }
+  const path = url.pathname.replace(/\/+$/, '')
+  if (path !== '') {
+    throw new Error(`${key} must be a bare origin with no path, got ${JSON.stringify(value)}`)
   }
   return value.replace(/\/+$/, '')
 }
@@ -127,9 +149,14 @@ export function resolveConfig(env: Env): MonitorConfig {
     entryPath: readString(env, 'SITEMAP_MONITOR_ENTRY_PATH', '/sitemap-index'),
     // 20%: wide enough to absorb the sitemap's 1h revalidate window plus an
     // ingest run landing between the two reads. The incident was a 97% gap.
+    //
+    // Capped at 0.5, not 1. At a ratio of 1 the budget equals the expected
+    // count, so `observed: 0` would pass for EVERY family — widening this knob
+    // to silence a noisy alarm would otherwise turn the monitor into a
+    // permanent green light.
     driftRatio: readNumber(env, 'SITEMAP_MONITOR_DRIFT_RATIO', 0.2, {
       min: 0,
-      max: 1,
+      max: 0.5,
     }),
     driftFloor: readNumber(env, 'SITEMAP_MONITOR_DRIFT_FLOOR', 10, {
       min: 0,
@@ -139,13 +166,22 @@ export function resolveConfig(env: Env): MonitorConfig {
     // healthy catalogue has hundreds of upcoming shows, so a handful is enough
     // to separate "working" from "serving only history" without alarming
     // during a genuinely quiet stretch.
+    //
+    // Minimum 1: at 0 the assertion that would have caught the original
+    // incident is satisfied by an entirely empty sitemap.
     minFutureShows: readNumber(env, 'SITEMAP_MONITOR_MIN_FUTURE_SHOWS', 10, {
-      min: 0,
+      min: 1,
       max: 1_000_000,
     }),
+    // Minimum 1 for the same reason: at 0 the reachability check reports
+    // "0/0 reachable" and renders as a pass.
     sampleSize: readNumber(env, 'SITEMAP_MONITOR_SAMPLE_SIZE', 10, {
-      min: 0,
+      min: 1,
       max: 200,
+    }),
+    retryDelayMs: readNumber(env, 'SITEMAP_MONITOR_RETRY_DELAY_MS', 5_000, {
+      min: 0,
+      max: 60_000,
     }),
     fetchTimeoutMs: readNumber(env, 'SITEMAP_MONITOR_FETCH_TIMEOUT_MS', 30_000, {
       min: 1_000,

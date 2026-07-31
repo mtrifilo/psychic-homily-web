@@ -22,6 +22,8 @@ export interface FamilyComparison {
   /** The largest |delta| tolerated for this family under the current config. */
   allowed: number
   ok: boolean
+  /** The API has entries but the sitemap serves none — a failure at any tolerance. */
+  vanished: boolean
 }
 
 export interface SampleResult {
@@ -91,7 +93,21 @@ function compareFamilies(
     const expected = input.expectedByFamily[family] ?? 0
     const delta = observed - expected
     const allowed = allowedDrift(expected, config)
-    return { family, observed, expected, delta, allowed, ok: Math.abs(delta) <= allowed }
+    // The absolute floor exists to keep SMALL families quiet, but it also makes
+    // them unmonitorable: `festivals` has 10 entries and the default floor is
+    // 10, so the whole family disappearing would sit exactly inside budget and
+    // report green. Total disappearance is the defect class this monitor exists
+    // to catch, so it fails regardless of tolerance.
+    const vanished = expected > 0 && observed === 0
+    return {
+      family,
+      observed,
+      expected,
+      delta,
+      allowed,
+      ok: !vanished && Math.abs(delta) <= allowed,
+      vanished,
+    }
   })
 }
 
@@ -115,7 +131,13 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
   }
 
   for (const comparison of families) {
-    if (!comparison.ok) failures.push(`drift — ${describeDrift(comparison)}`)
+    if (comparison.vanished) {
+      failures.push(
+        `vanished — ${comparison.family}: the API has ${comparison.expected} entries and the sitemap serves NONE`
+      )
+    } else if (!comparison.ok) {
+      failures.push(`drift — ${describeDrift(comparison)}`)
+    }
   }
 
   if (!futureShows.ok) {
@@ -150,7 +172,35 @@ export function evaluate(input: EvaluationInput, config: MonitorConfig): Report 
 }
 
 /**
- * Choose `size` distinct entries at random.
+ * Draw at least one URL from EVERY bucket, `size` in total where possible.
+ *
+ * Sampling uniformly from all URLs pooled together would make the reachability
+ * probe a releases-only check: releases is ~20k of the ~33k URLs, so a 10-URL
+ * sample expects 0.44 shows and would probe the highest-churn families — shows,
+ * and the newest routes, scene weeks — essentially never. A broken
+ * `/scenes/{city}/{iso-week}` route could ship and stay green for weeks.
+ *
+ * Guarantees one probe per non-empty bucket, so the per-bucket quota rises
+ * above one only when `size` exceeds the bucket count.
+ */
+export function pickStratifiedSample(
+  locsByBucket: ReadonlyMap<string, string[]>,
+  size: number,
+  rng: () => number = Math.random
+): string[] {
+  const buckets = [...locsByBucket.values()].filter(locs => locs.length > 0)
+  if (buckets.length === 0 || size <= 0) return []
+
+  const perBucket = Math.max(1, Math.floor(size / buckets.length))
+  return buckets.flatMap(locs => pickSample(locs, perBucket, rng))
+}
+
+/**
+ * Choose `size` entries at random, without replacement.
+ *
+ * Distinct by POSITION, not by value: if the same URL appears twice in the
+ * pool it can be drawn twice. Deduping is not worth the pass — a duplicate loc
+ * is itself a sitemap defect the count check would surface.
  *
  * The RNG is injected so the sampling is deterministic under test. Sampling
  * randomly rather than taking the first N matters: the first entries of every
