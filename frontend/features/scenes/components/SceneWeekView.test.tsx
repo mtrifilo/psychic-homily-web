@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, within, waitFor } from '@testing-library/react'
+import { fireEvent } from '@testing-library/dom'
 import { SceneWeekView } from './SceneWeekView'
 import type { SceneWeekResponse, SceneWeekShow } from '../sceneWeek'
 
@@ -34,6 +35,46 @@ const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
     tracked_venues: ['Empty Bottle', 'Thalia Hall'],
     ...over,
   }) as SceneWeekResponse
+
+describe('SceneWeekView — share affordance', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'clipboard')
+    vi.restoreAllMocks()
+  })
+
+  it('shares the DATED permalink, never the rolling /week URL', async () => {
+    // This page is reachable at both `/scenes/{slug}/{iso-week}` and the
+    // rolling `/scenes/{slug}/week`. Sharing the rolling URL would hand a
+    // friend a page whose contents change next Monday, so the control must
+    // emit the archived permalink regardless of which route rendered it.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    })
+
+    render(<SceneWeekView week={week()} />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Share this week' })
+    )
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        'https://psychichomily.com/scenes/chicago-il/2026-W31'
+      )
+    )
+  })
+
+  it('renders no share control when the browser cannot share or copy', async () => {
+    render(<SceneWeekView week={week()} />)
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Share this week' })
+      ).not.toBeInTheDocument()
+    )
+  })
+})
 
 describe('SceneWeekView', () => {
   it('renders the city with its state alongside', () => {

@@ -55,3 +55,5 @@ export type {
   StatsListItem,
   StatsListVariant,
 } from './StatsList'
+export { ShareButton, buildShareUrl } from './ShareButton'
+export type { ShareButtonProps } from './ShareButton'
