@@ -1047,7 +1047,7 @@ func (s *RadioService) ListBackfillCandidates(lookback time.Duration, now time.T
 			LastBackfillAttemptAt: r.PlaylistBackfillAttemptedAt,
 		}, now)
 		// Live refreshes are the slot fetcher's job (PSY-1370), not this sweep's.
-		if !plan.Fetch || plan.Live {
+		if !plan.Fetch || plan.LiveRefresh {
 			continue
 		}
 		c, ok := byShow[r.ShowID]

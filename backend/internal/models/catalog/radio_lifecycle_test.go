@@ -97,13 +97,13 @@ func TestPlanPlaylistFetch(t *testing.T) {
 
 		// Live: refresh while incomplete, no cooldown, no ceiling.
 		{"live + pending → live refresh", windowedFacts(RadioPlaylistStatePending, 0), epDuring,
-			PlaylistFetchPlan{Fetch: true, Live: true}},
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
 		{"live + partial → live refresh", windowedFacts(RadioPlaylistStatePartial, 0), epDuring,
-			PlaylistFetchPlan{Fetch: true, Live: true}},
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
 		{"at starts_at → live", windowedFacts(RadioPlaylistStatePending, 0), epStart,
-			PlaylistFetchPlan{Fetch: true, Live: true}},
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
 		{"at ends_at → still live", windowedFacts(RadioPlaylistStatePending, 0), epEnd,
-			PlaylistFetchPlan{Fetch: true, Live: true}},
+			PlaylistFetchPlan{Fetch: true, LiveRefresh: true}},
 		{"live + complete → nothing", windowedFacts(RadioPlaylistStateComplete, 0), epDuring, PlaylistFetchPlan{}},
 
 		// Aired: the post-air backfill.

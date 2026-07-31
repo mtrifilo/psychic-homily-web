@@ -213,10 +213,12 @@ type PlaylistFetchFacts struct {
 type PlaylistFetchPlan struct {
 	// Fetch is true when the episode should have its playlist fetched right now.
 	Fetch bool
-	// Live marks the fetch as a live-window refresh (PSY-1370) rather than a post-air
-	// backfill. Only meaningful when Fetch is true; the two are mutually exclusive by
-	// time phase, so nothing double-drives an episode.
-	Live bool
+	// LiveRefresh marks THE FETCH as a live-window refresh (PSY-1370) rather than a
+	// post-air backfill. It describes the fetch, not the episode: a live episode whose
+	// playlist is already settled reports Fetch=false and LiveRefresh=false, because
+	// there is no fetch to describe. The two fetch kinds are mutually exclusive by time
+	// phase, so nothing double-drives an episode.
+	LiveRefresh bool
 	// Exhausted is the TERMINAL give-up: this episode has aired, still has no
 	// playlist, and is past the point where one could still appear. Nothing resets
 	// it, because it is a function of frozen air time and now.
@@ -250,7 +252,7 @@ func PlanPlaylistFetch(f PlaylistFetchFacts, now time.Time) PlaylistFetchPlan {
 		return PlaylistFetchPlan{}
 	case RadioEpisodeStatusLive:
 		incomplete := f.PlaylistState == RadioPlaylistStatePending || f.PlaylistState == RadioPlaylistStatePartial
-		return PlaylistFetchPlan{Fetch: incomplete, Live: incomplete}
+		return PlaylistFetchPlan{Fetch: incomplete, LiveRefresh: incomplete}
 	}
 
 	// Aired. A settled playlist is final: the post-air fetch that returned plays is
