@@ -15,7 +15,8 @@ vi.mock('@sentry/nextjs', () => ({
 // actually cover: URL mapping and fail-closed semantics. The cache window it
 // sets is not unit-testable at all; it is verified by `next build` +
 // prerender-manifest, recorded in the module header of app/sitemap.ts.
-vi.mock('next/cache', () => ({
+vi.mock('next/cache', async orig => ({
+  ...(await orig<typeof import('next/cache')>()),
   cacheLife: vi.fn(),
 }))
 

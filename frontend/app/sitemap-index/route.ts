@@ -8,7 +8,11 @@
  *
  * Keep the id list in lockstep with generateSitemaps() via sitemap-shards.ts.
  */
-import { FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '../sitemap-shards'
+import {
+  ENTRY_REVALIDATE_SECONDS,
+  FAMILY_SHARD_IDS,
+  PAGES_SHARD_ID,
+} from '../sitemap-shards'
 
 const BASE_URL = 'https://psychichomily.com'
 
@@ -29,9 +33,11 @@ ${ids
   return new Response(body, {
     headers: {
       'Content-Type': 'application/xml; charset=utf-8',
-      // Match the per-fetch revalidate window on the child shards so the index
-      // does not outlive a family rename / addition by a week.
-      'Cache-Control': 'public, max-age=0, s-maxage=3600',
+      // Match the revalidate window on the child shards so the index does not
+      // outlive a family rename / addition by a week. Shared constant rather
+      // than a literal: split across the two files, retuning one would silently
+      // desync the index from the children it indexes.
+      'Cache-Control': `public, max-age=0, s-maxage=${ENTRY_REVALIDATE_SECONDS}`,
     },
   })
 }

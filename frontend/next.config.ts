@@ -28,10 +28,21 @@ const nextConfig: NextConfig = {
   //
   //   • `export const revalidate` is a build error on page routes under
   //     `cacheComponents` ("Route segment config revalidate is not
-  //     compatible"). It cannot be the fix for slug pages. A candidate
-  //     replacement is `"use cache"` + `cacheLife` (unmeasured here —
-  //     PSY-1650). Metadata routes like `sitemap.ts` are a different
-  //     compiler path; do not conflate (PSY-1621 / PSY-1644).
+  //     compatible"). It cannot be the fix for slug pages. The candidate
+  //     replacement is `"use cache"` + `cacheLife`. Metadata routes like
+  //     `sitemap.ts` are a different compiler path; do not conflate
+  //     (PSY-1621 / PSY-1644).
+  //
+  //   • `cacheLife` IS now measured, on the sitemap metadata route
+  //     (PSY-1652) — it moves BOTH halves of the route window, including
+  //     `expire`, which nothing else can reach route-locally. Two results
+  //     transfer to any `"use cache"` adopter: a per-fetch
+  //     `next: { revalidate }` inside the scope does NOT bind the route
+  //     window (cacheLife wins even when LARGER), and a cache scope has no
+  //     dynamic bail-out, so a throw at build time is FATAL rather than
+  //     demoted to a per-request render. Full measurement tables are in the
+  //     module header of `app/sitemap.ts`. Whether page routes behave the
+  //     same is still open (PSY-1650) — that is a different compiler path.
   cacheComponents: true,
   experimental: {
     // Optimize barrel imports for common libraries
