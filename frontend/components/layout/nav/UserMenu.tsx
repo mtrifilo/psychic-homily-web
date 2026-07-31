@@ -138,10 +138,16 @@ export function UserMenu() {
     )
   }
 
+  // `shrink-0 whitespace-nowrap` for the same reason the authenticated controls
+  // carry it (the Button base variant): the search field is the top bar's only
+  // slack absorber, so nothing else here may give. Without it this link was
+  // shrinkable, and the flex algorithm split any shortfall between it and the
+  // search — stacking "login /" over "sign-up" at 640px and 1280px, which is
+  // where the anonymous bar ran out of room (PSY-1638).
   return (
     <Link
       href="/auth"
-      className="text-sm text-muted-foreground transition-colors hover:text-primary"
+      className="shrink-0 whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-primary"
     >
       login / sign-up
     </Link>
