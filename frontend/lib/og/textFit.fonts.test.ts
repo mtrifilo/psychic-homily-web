@@ -180,3 +180,92 @@ describe('subset coverage', () => {
     }
   })
 })
+
+/**
+ * The guard on the outbound-request behaviour documented in `brand.ts`.
+ *
+ * Satori resolves a grapheme against every supplied face and only fetches a
+ * typeface from Google Fonts when NONE of them has it — so "is this codepoint
+ * in the shipped bytes?" is exactly "does rendering it stay offline?". That
+ * makes this the one assertion standing between a re-subset and the silent
+ * return of a third-party request carrying DB-derived text.
+ *
+ * Failure here is not cosmetic. Read the `brand.ts` header before widening or
+ * narrowing anything below.
+ */
+describe('fallback face script coverage', () => {
+  const FALLBACKS = [`${FONTS}/NotoSans-Regular.ttf`, `${FONTS}/NotoSans-Bold.ttf`]
+  const BRAND = [...SANS.map(([, path]) => path), `${FONTS}/SpaceMono-Regular.ttf`]
+
+  /** One representative per script the cards promise to render offline. */
+  const COVERED: Array<[string, string]> = [
+    ['Greek', 'Αθήνα'],
+    ['Cyrillic', 'Москва'],
+    ['Cyrillic (Ukrainian)', 'Київ'],
+    ['Cyrillic (Serbian)', 'Београд'],
+    ['Latin Ext-B', 'Ǆ'],
+    ['Latin Ext Additional (Vietnamese)', 'Đà Nẵng'],
+    ['General Punctuation', '‚„…‹›‰'],
+    ['Letterlike', '№™'],
+  ]
+
+  it.each(COVERED)('renders %s from the shipped bytes, with no network fetch', (_label, sample) => {
+    const faces = [...BRAND, ...FALLBACKS].map(parseFont)
+    for (const char of sample) {
+      const cp = char.codePointAt(0)!
+      const covered = faces.some(f => f.advance(cp) !== null)
+      expect(
+        covered,
+        `U+${cp.toString(16).toUpperCase()} '${char}' is in no shipped face — ` +
+          `rendering it would fetch a typeface from Google Fonts at render time`
+      ).toBe(true)
+    }
+  })
+
+  it('ships both weights so a bold headline is not drawn at regular weight', () => {
+    // The city headline and the show title are the largest text on either card
+    // and both are weight 700; Satori picks the nearest weight WITHIN a family,
+    // so a single 400 face would quietly render every non-Latin headline light.
+    for (const path of FALLBACKS) {
+      const font = parseFont(path)
+      expect(font.advance(0x0410), `${path} is missing Cyrillic А`).not.toBeNull()
+    }
+    const [regular, bold] = FALLBACKS.map(parseFont)
+    expect(bold.advance(0x0410)).not.toBeCloseTo(regular.advance(0x0410)!, 1)
+  })
+
+  it('carries no Latin, so the brand face always wins there', () => {
+    // Satori searches the requested family first, but a fallback carrying Latin
+    // would still be dead weight in an edge bundle — and would mask a genuine
+    // regression in the Satoshi subset behind a Noto Sans glyph.
+    for (const path of FALLBACKS) {
+      const font = parseFont(path)
+      for (const char of 'AZaz09') {
+        expect(font.advance(char.codePointAt(0)!), `${path} should not carry '${char}'`).toBeNull()
+      }
+    }
+  })
+
+  it('does NOT claim the scripts brand.ts documents as still fetching', () => {
+    // Pins the residual gap so it stays a written decision rather than drifting
+    // into an assumption. If one of these ever starts passing, the gap section
+    // of the `brand.ts` header is out of date.
+    const faces = [...BRAND, ...FALLBACKS].map(parseFont)
+    const uncovered: Array<[string, number]> = [
+      ['CJK', 0x4e2d],
+      ['Hangul', 0xac00],
+      ['Hiragana', 0x3042],
+      ['Arabic', 0x0627],
+      ['Hebrew', 0x05d0],
+      ['Thai', 0x0e01],
+      ['Devanagari', 0x0905],
+      ['Misc Symbols (★)', 0x2605],
+    ]
+    for (const [label, cp] of uncovered) {
+      expect(
+        faces.some(f => f.advance(cp) !== null),
+        `${label} U+${cp.toString(16).toUpperCase()} is now covered — update the residual-gap section of brand.ts`
+      ).toBe(false)
+    }
+  })
+})

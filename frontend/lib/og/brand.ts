@@ -38,6 +38,108 @@
  * stay cheap to import from a unit test.
  */
 
+/*
+ * ---------------------------------------------------------------------------
+ * WHAT HAPPENS TO TEXT OUTSIDE THE SUBSET  (read this before re-subsetting)
+ * ---------------------------------------------------------------------------
+ *
+ * Satori resolves each grapheme against EVERY face in the `fonts` array below —
+ * the requested family first, then every other family, in registration order.
+ * Only when no supplied face has the glyph does it call its asset loader, and
+ * that loader fetches a typeface from **Google Fonts at render time**:
+ *
+ *     https://fonts.googleapis.com/css2?family=${font}&text=${encodeURIComponent(text)}
+ *
+ * These are public, unauthenticated routes, so that request means a card blocks
+ * on a third party before responding, parses remote bytes as a typeface inside
+ * the render, and — the part that actually matters — puts DB-derived text
+ * (a venue name, a city, an artist) into a URL query string sent to Google.
+ *
+ * The supplied `fonts` array is the ONLY lever on this. `next/og` hardcodes
+ * `loadAdditionalAsset` when it constructs Satori and `ImageResponseOptions`
+ * has no field to override it, so the loader cannot be replaced or disabled
+ * without patching next's vendored bundle. Widening coverage is therefore
+ * widening this array.
+ *
+ * DECISION: cover the scripts a worldwide scene table will realistically emit,
+ * and accept that the long tail still leaves the page.
+ *
+ * Satoshi and Space Mono are Latin-only TYPEFACES — not Latin-only subsets.
+ * Satoshi's full charset carries no Cyrillic at all and two stray Greek
+ * codepoints, so there is nothing to re-subset: the brand faces CANNOT be
+ * widened. Coverage past Latin therefore has to come from a separate fallback
+ * face, which is what `NotoSans-{Regular,Bold}.ttf` are. They are never named
+ * in a `fontFamily`; they exist purely to be found by the cross-family search
+ * described above.
+ *
+ * Measured against production data (4,941 artists, 237 venues, 4,119 upcoming
+ * shows, 26 scenes = 25,333 card-bound strings): 10 strings — 0.039% — contained
+ * anything outside the Latin subset, and NONE of it was a non-Latin script. It
+ * was three decorative symbols in band names (★ U+2605, ♱ U+2671, ‧ U+2027) and
+ * five C1 control bytes from double-decoded UTF-8 upstream. So the Greek and
+ * Cyrillic coverage below is deliberate HEADROOM for the worldwide expansion,
+ * not a response to rows that exist today; the symbol coverage is not.
+ *
+ * COVERED (no outbound request):
+ *   Latin + Latin-1 + Latin Ext-A       Satoshi / Space Mono
+ *   Latin Ext-B                         fallback
+ *   Latin Ext Additional (Vietnamese)   fallback
+ *   Greek + Coptic                      fallback
+ *   Cyrillic + Cyrillic Supplement      fallback
+ *   General Punctuation, Letterlike     fallback
+ *
+ * NOT COVERED — these STILL reach Google / jsDelivr at render time:
+ *   CJK, Hangul, Arabic, Hebrew, Devanagari, Thai and every other script.
+ *     A usable CJK face is megabytes; it cannot ride in an edge bundle. Closing
+ *     this needs a different architecture (satori + resvg directly, or patching
+ *     next's vendored loader), which is deliberately deferred.
+ *   Decorative symbols — stars, crosses, dingbats, arrows, card suits.
+ *     Noto Sans genuinely has none of these (verified against the shipped
+ *     bytes: zero glyphs in Misc Symbols, Dingbats or Arrows), so they are not
+ *     in the subset and asking for those ranges here would be a no-op. This is
+ *     the one gap the production sample actually exercised — ★ U+2605 in
+ *     "V★Silver" and ♱ U+2671 — but the category is unbounded, so covering the
+ *     two seen today would buy very little. Closing it means a symbols face
+ *     (Noto Sans Symbols 2), not a wider subset of this one.
+ *   Emoji — ALWAYS, and unconditionally.
+ *     Every `emoji` option `@vercel/og` accepts names a CDN (twemoji, openmoji,
+ *     blobmoji, noto, fluent — all jsdelivr). There is no local emoji option, so
+ *     an emoji in a band name is an outbound request no subset can prevent.
+ *
+ * Out-of-subset text is NOT stripped or transliterated: mangling a real place
+ * name to protect the render is a worse failure than the fetch it avoids.
+ * `textFit.ts` over-estimates anything it cannot measure so such a card CLIPS
+ * rather than bleeding off the canvas.
+ *
+ * Regenerating the fallback (`fonttools` + `brotli` installed) — Noto Sans is
+ * OFL; the ref is pinned because `main` is mutable and these bytes are parsed by
+ * a wasm renderer on a public route:
+ *
+ *     curl -sSLO https://raw.githubusercontent.com/google/fonts/2984c575/ofl/notosans/'NotoSans[wdth,wght].ttf'
+ *     shasum -a 256 'NotoSans[wdth,wght].ttf'
+ *     # bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d
+ *     # Pin the variable axes, then subset. Weight 400 and 700 both ship: the
+ *     # city headline and the show title are the largest text on either card and
+ *     # both are bold, so a single regular face would render them visibly light.
+ *     python -c "from fontTools.ttLib import TTFont; from fontTools.varLib import instancer; \
+ *       f=instancer.instantiateVariableFont(TTFont('NotoSans[wdth,wght].ttf'), \
+ *         {'wght':400,'wdth':100}); f.save('/tmp/NotoSans-Regular.ttf')"   # 700 for Bold
+ *     pyftsubset /tmp/NotoSans-Regular.ttf --output-file=lib/og/fonts/NotoSans-Regular.ttf \
+ *       --unicodes="U+0180-024F,U+0370-03FF,U+0400-04FF,U+0500-052F,U+1E00-1EFF,U+2000-206F,U+2100-214F,U+2212" \
+ *       --layout-features="kern,liga,calt" --no-hinting --desubroutinize
+ *
+ * The range list is exactly what Noto Sans actually carries — asking for symbol
+ * or arrow blocks adds nothing but implies coverage that is not there.
+ *
+ * The fallback deliberately carries NO Latin: Satoshi is searched first and
+ * always wins there, so Latin glyphs in this file would be dead bytes on a
+ * route whose bundle size is already dominated by the resvg wasm.
+ *
+ * `textFit.fonts.test.ts` asserts this coverage against the shipped bytes, so a
+ * re-subset that silently drops a script fails the suite instead of quietly
+ * reintroducing the outbound fetch.
+ */
+
 /** Every card in the family is a standard 1200×630 OG image. */
 export const OG_SIZE = { width: 1200, height: 630 } as const
 
@@ -73,6 +175,17 @@ export const OG_FONT_FAMILY = {
 } as const
 
 /**
+ * Family name of the script-coverage fallback.
+ *
+ * Deliberately NOT part of `OG_FONT_FAMILY`: nothing should ever set this as a
+ * `fontFamily`. It is registered only so Satori's cross-family glyph search can
+ * find it, which is what keeps a non-Latin name from becoming a Google Fonts
+ * request mid-render. Naming it directly would draw Latin text in Noto Sans and
+ * silently take the card off-brand.
+ */
+const OG_FALLBACK_FAMILY = 'PH Fallback'
+
+/**
  * Satori's font descriptor. Declared locally rather than imported because
  * `next/og` does not re-export it.
  */
@@ -96,7 +209,7 @@ export interface OgFont {
 let fontsPromise: Promise<OgFont[]> | undefined
 
 /**
- * Load the four faces every card in the family uses.
+ * Load the six faces every card in the family uses.
  *
  * `new URL(..., import.meta.url)` is what makes the bundler treat the `.ttf`
  * files as route assets, so these must stay static relative literals — a
@@ -138,17 +251,24 @@ async function fetchFont(url: URL): Promise<ArrayBuffer> {
 }
 
 async function fetchBrandFonts(): Promise<OgFont[]> {
-  const [bold, medium, regular, mono] = await Promise.all([
+  const [bold, medium, regular, mono, fallbackRegular, fallbackBold] = await Promise.all([
     fetchFont(new URL('./fonts/Satoshi-Bold.ttf', import.meta.url)),
     fetchFont(new URL('./fonts/Satoshi-Medium.ttf', import.meta.url)),
     fetchFont(new URL('./fonts/Satoshi-Regular.ttf', import.meta.url)),
     fetchFont(new URL('./fonts/SpaceMono-Regular.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/NotoSans-Regular.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/NotoSans-Bold.ttf', import.meta.url)),
   ])
 
+  // Order matters. Satori searches the requested family first and then every
+  // other family in THIS order, so the brand faces must precede the fallback —
+  // otherwise a Latin glyph present in both would be drawn in Noto Sans.
   return [
     { name: OG_FONT_FAMILY.sans, data: bold, weight: 700, style: 'normal' },
     { name: OG_FONT_FAMILY.sans, data: medium, weight: 500, style: 'normal' },
     { name: OG_FONT_FAMILY.sans, data: regular, weight: 400, style: 'normal' },
     { name: OG_FONT_FAMILY.mono, data: mono, weight: 400, style: 'normal' },
+    { name: OG_FALLBACK_FAMILY, data: fallbackRegular, weight: 400, style: 'normal' },
+    { name: OG_FALLBACK_FAMILY, data: fallbackBold, weight: 700, style: 'normal' },
   ]
 }
