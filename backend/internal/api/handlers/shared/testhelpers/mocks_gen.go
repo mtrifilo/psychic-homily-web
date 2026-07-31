@@ -4186,6 +4186,21 @@ func (m *MockUserService) SetNotifyOnEditNotifications(userID uint, enabled bool
 }
 
 // ============================================================================
+// Mock: VenueCalendarServiceInterface
+// ============================================================================
+
+type MockVenueCalendarService struct {
+	GenerateVenueFeedFn func(string, string) (*contracts.VenueCalendarFeed, error)
+}
+
+func (m *MockVenueCalendarService) GenerateVenueFeed(idOrSlug string, frontendURL string) (*contracts.VenueCalendarFeed, error) {
+	if m.GenerateVenueFeedFn != nil {
+		return m.GenerateVenueFeedFn(idOrSlug, frontendURL)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: VenueConfirmServiceInterface
 // ============================================================================
 
@@ -4527,6 +4542,7 @@ var _ contracts.ShowStateServiceInterface = (*MockShowStateService)(nil)
 var _ contracts.StreamingWorklistServiceInterface = (*MockStreamingWorklistService)(nil)
 var _ contracts.TagServiceInterface = (*MockTagService)(nil)
 var _ contracts.UserServiceInterface = (*MockUserService)(nil)
+var _ contracts.VenueCalendarServiceInterface = (*MockVenueCalendarService)(nil)
 var _ contracts.VenueConfirmServiceInterface = (*MockVenueConfirmService)(nil)
 var _ contracts.VenueServiceInterface = (*MockVenueService)(nil)
 var _ contracts.WebAuthnServiceInterface = (*MockWebAuthnService)(nil)

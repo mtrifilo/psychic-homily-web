@@ -10,5 +10,6 @@ export { VenueShowsList } from './VenueShowsList'
 // cycle — see ShowForm.tsx). Keeping forms out of barrels also avoids inviting
 // future shared-chunk hoist regressions (PSY-944/PSY-950).
 export { VenueBillNetwork } from './VenueBillNetwork'
+export { VenueCalendarSubscribe } from './VenueCalendarSubscribe'
 export { DeleteVenueDialog } from './DeleteVenueDialog'
 export { VenueDeniedDialog } from './VenueDeniedDialog'

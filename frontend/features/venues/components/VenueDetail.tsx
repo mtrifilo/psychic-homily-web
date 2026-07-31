@@ -21,6 +21,7 @@ import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork, VENUE_SHOWS_ANCHOR } from './VenueBillNetwork'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
+import { VenueCalendarSubscribe } from './VenueCalendarSubscribe'
 import { Button } from '@/components/ui/button'
 
 interface VenueDetailProps {
@@ -205,6 +206,11 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
                   <FollowButton entityType="venues" entityId={venue.id} />
                   <AddToCollectionButton entityType="venue" entityId={venue.id} entityName={venue.name} />
                   <NotifyMeButton entityType="venue" entityId={venue.id} entityName={venue.name} />
+                  {/* Public feed — deliberately available to anonymous
+                      visitors, unlike every other action in this row. A venue
+                      linking back to its own calendar is the point (PSY-1584);
+                      requiring a login to subscribe would defeat it. */}
+                  <VenueCalendarSubscribe venueSlug={venue.slug} venueName={venue.name} />
                   {isAuthenticated && (
                     <>
                       <Button

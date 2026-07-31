@@ -263,7 +263,11 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 			continue
 		}
 
-		event := cal.AddEvent(fmt.Sprintf("show-%d@psychichomily.com", show.ID))
+		// Shared with the public venue feed (venue_calendar.go): the same show
+		// reached through two different feeds must be the same calendar event,
+		// so the UID format lives in one place rather than being spelled out
+		// twice and drifting.
+		event := cal.AddEvent(showEventUID(show.ID))
 		event.SetCreatedTime(show.CreatedAt)
 		event.SetModifiedAt(show.UpdatedAt)
 
