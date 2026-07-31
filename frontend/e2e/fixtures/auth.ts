@@ -102,12 +102,15 @@ export const test = base.extend<
         try {
           await resetTestFixtures(workerUserId)
         } catch (secondError) {
-          // Throw the first (contemporaneous with whatever broke) but keep the
-          // second as `cause`: when they differ — ECONNREFUSED then 401 — the
-          // second is the one that identifies the real condition.
+          // Both errors go in the message, because when they DIFFER —
+          // ECONNREFUSED then 401 — the second is the one that identifies the
+          // real condition, and picking either alone reports the wrong cause.
+          // `cause` carries the first for stack-trace purposes (ES2022; the
+          // repo targets it).
           throw new Error(
-            `fixture reset failed twice; first error attached below`,
-            { cause: firstError instanceof Error ? firstError : secondError }
+            `fixture reset failed twice for user ${workerUserId}. ` +
+              `First: ${String(firstError)} | Second: ${String(secondError)}`,
+            { cause: firstError }
           )
         }
       }
