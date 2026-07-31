@@ -54,16 +54,35 @@ describe('buildShareUrl', () => {
   })
 
   it('cannot be redirected to another origin', () => {
+    // An absolute URL keeps only its path; the origin is re-imposed.
     expect(buildShareUrl('https://evil.example/x')).toBe(
       'https://psychichomily.com/x'
     )
-    expect(buildShareUrl('//evil.example')).toBe('https://psychichomily.com/')
+    // A protocol-relative host has no path left once the origin is re-imposed,
+    // so it is refused outright rather than degraded to the homepage.
+    expect(buildShareUrl('//evil.example')).toBeNull()
   })
 
   it('percent-encodes a path that is not already URL-safe', () => {
     expect(buildShareUrl('/artists/bad slug')).toBe(
       'https://psychichomily.com/artists/bad%20slug'
     )
+  })
+
+  it('returns null instead of throwing on an unparseable path', () => {
+    // `new URL()` really does throw on these. Left unhandled they surface as
+    // an unhandled promise rejection from the click handler, not as an error
+    // the user can see.
+    expect(buildShareUrl('http://')).toBeNull()
+    expect(buildShareUrl('//')).toBeNull()
+  })
+
+  it('returns null rather than degrading to the homepage', () => {
+    // An empty interpolation must not silently share the site root in place of
+    // the show someone meant to send.
+    expect(buildShareUrl('')).toBeNull()
+    expect(buildShareUrl('/')).toBeNull()
+    expect(buildShareUrl('?utm_source=x')).toBeNull()
   })
 })
 
@@ -224,6 +243,22 @@ describe('ShareButton — never a dead control', () => {
     // on the first paint.
     await waitFor(() => expect(container).toBeEmptyDOMElement())
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('renders nothing when the caller has no path to share', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    setCapabilities({ writeText })
+    const { container } = render(<ShareButton path={null} />)
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
+  })
+
+  it('renders nothing rather than a control that would share the wrong page', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    setCapabilities({ writeText })
+    const { container } = render(<ShareButton path="/" />)
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
   })
 
   it('appears once a usable capability is detected', async () => {

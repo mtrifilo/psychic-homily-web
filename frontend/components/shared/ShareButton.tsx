@@ -50,10 +50,33 @@ const FEEDBACK_RESET_MS = 2000
  *
  * Sharing `window.location.href` would violate both at once, which is why it is
  * never read here.
+ *
+ * Returns `null` for anything that cannot become a real entity URL, and the
+ * component then renders no control at all. Two cases reach that, and both are
+ * silent without it:
+ *
+ * - `new URL()` genuinely throws on some inputs (`'http://'`, `'//'`). This is
+ *   called from an async `onClick`, so a throw becomes an unhandled promise
+ *   rejection — noise in Sentry, and no feedback for the user.
+ * - A path that resolves to bare `/` means the caller interpolated something
+ *   empty. Handing out the homepage in place of the show someone meant to send
+ *   is worse than offering no share at all.
+ *
+ * Note what this deliberately does NOT catch: `/shows/null`, from interpolating
+ * a slug that was null at runtime. It is indistinguishable from a real slug, so
+ * callers must not interpolate a value that may be missing — pass `null` for
+ * `path` instead. `catalog.Show.Slug` and `catalog.Artist.Slug` are `*string`
+ * server-side even though the frontend types declare them required.
  */
-export function buildShareUrl(path: string): string {
+export function buildShareUrl(path: string): string | null {
   const canonical = new URL(SITE_URL)
-  const resolved = new URL(path, canonical)
+  let resolved: URL
+  try {
+    resolved = new URL(path, canonical)
+  } catch {
+    return null
+  }
+  if (resolved.pathname === '/') return null
   canonical.pathname = resolved.pathname
   return canonical.toString()
 }
@@ -115,8 +138,13 @@ export interface ShareButtonProps {
   /**
    * Canonical page path with a leading slash, e.g. `/shows/some-show`.
    * Any query string or fragment is stripped — see {@link buildShareUrl}.
+   *
+   * Pass `null` when the entity has no slug yet rather than interpolating a
+   * possibly-missing value: `/shows/${slug}` with a null slug silently becomes
+   * the literal path `/shows/null`, which no guard here can tell apart from a
+   * real one. No path means no control.
    */
-  path: string
+  path: string | null | undefined
   /**
    * Visual style. `bracket` is the dense entity-header linkbox (`[Share]`);
    * `button` is the standard outline Button used in ordinary action rows.
@@ -193,8 +221,11 @@ export function ShareButton({
     [showFeedback]
   )
 
+  const shareUrl = path ? buildShareUrl(path) : null
+
   const handleShare = useCallback(async () => {
-    const url = buildShareUrl(path)
+    if (!shareUrl) return
+    const url = shareUrl
 
     if (capability === 'share') {
       try {
@@ -216,11 +247,13 @@ export function ShareButton({
     // unreachable from it. If a future change did render it, the try/catch in
     // `copyToClipboard` already covers a missing `navigator.clipboard`.
     await copyToClipboard(url)
-  }, [capability, path, copyToClipboard])
+  }, [capability, shareUrl, copyToClipboard])
 
-  // Nothing renders until capability is known, and nothing renders at all when
-  // neither mechanism exists. This is the "never a dead button" guarantee.
+  // The "never a dead button, never the wrong link" guarantee: nothing renders
+  // until capability is known, nothing renders when neither mechanism exists,
+  // and nothing renders when there is no real URL to hand out.
   if (capability === 'unknown' || capability === 'none') return null
+  if (!shareUrl) return null
 
   const label =
     feedback === 'copied'
