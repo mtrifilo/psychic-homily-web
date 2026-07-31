@@ -155,7 +155,8 @@ test.describe('Library page (formerly /collection)', () => {
     // assertion ("Add to My List" is visible) is false for every retry after
     // a failure. `cleanBetweenRetries` clears the worker user's bookmarks
     // between attempts — the same opt-in the release test above uses.
-    async ({ authenticatedPage, cleanBetweenRetries: _cleanup }) => {
+    async ({ authenticatedPage, cleanBetweenRetries }) => {
+      void cleanBetweenRetries
       // PSY-430: pin to a reserved show seeded by setup-db.sh so parallel
       // mutating tests in other files don't race on the same .first() row.
       const reservedShowSlug = 'e2e-collection-saved-show'
