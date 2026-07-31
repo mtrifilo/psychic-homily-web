@@ -8,6 +8,17 @@ vi.mock('@sentry/nextjs', () => ({
   captureException,
 }))
 
+// `cacheLife()` throws "only available with the `cacheComponents` config"
+// outside a Next server context, and vitest does not apply the SWC transform
+// that gives `"use cache"` meaning — so under test the directive is inert and
+// the call is all that is left. Stubbing it keeps these tests on what they
+// actually cover: URL mapping and fail-closed semantics. The cache window it
+// sets is not unit-testable at all; it is verified by `next build` +
+// prerender-manifest, recorded in the module header of app/sitemap.ts.
+vi.mock('next/cache', () => ({
+  cacheLife: vi.fn(),
+}))
+
 // Blog and DJ sets read local MDX off disk. Stubbed with one dated and one
 // undated post so the `lastModified` fallback on that path is actually
 // exercised — this diff changed a missing date from `new Date()` to undefined.

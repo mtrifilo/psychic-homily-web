@@ -17,20 +17,48 @@
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds:
  *
  *   Backend reachable at build time (the normal production path):
- *     ├ ○ /sitemap/[id]                      1h      1y
+ *     ├ ● /sitemap/[__metadata_id__]         1h      1d
  *     prerender-manifest: renderingMode STATIC, initialRevalidateSeconds 3600,
- *     initialExpireSeconds 31536000, and a rendered body on disk. A later
- *     backend outage is SURVIVED — the prerendered document keeps being served
- *     while revalidation fails.
+ *     initialExpireSeconds 86400, and a rendered body on disk. A later backend
+ *     outage is SURVIVED — the prerendered document keeps being served while
+ *     revalidation fails. Verified at runtime: `next start`, then kill the
+ *     backend; `/sitemap/shows.xml` still answers 200 from the prerender.
  *
  *   Backend unreachable at build time (degraded):
- *     ├ ƒ /sitemap/[id]                                  ← no window at all
- *     No prerendered body. The route re-renders per request, so a request while
- *     the backend is down returns 500. `next build` still EXITS 0 — the
- *     degradation is silent, and it persists until the next deploy.
+ *     `next build` FAILS — "Export encountered an error on
+ *     /sitemap/[__metadata_id__]/route: /sitemap/shows.xml, exiting the build",
+ *     exit 1. This is a consequence of the `"use cache"` scope below (PSY-1652):
+ *     a cache scope has no dynamic bail-out, so the throw is fatal rather than
+ *     demoted to a per-request render.
+ *
+ *     Before PSY-1652 this case was SILENT — the shards fell back to
+ *     `ƒ /sitemap/[__metadata_id__]` with no window and no body, `next build`
+ *     exited 0 with not one line about it in the log, and every request 500ed
+ *     until the next deploy. Losing that silence is the trade: a backend outage
+ *     during a build now blocks the deploy instead of shipping broken shards.
+ *
+ * `/sitemap/pages.xml` is the exception in both cases: it fetches nothing (its
+ * content is static pages plus local MDX), so it prerenders unconditionally
+ * with `initialRevalidateSeconds: false` and no expire, and a deploy is the
+ * only thing that changes it.
+ *
+ * WHERE THE WINDOW COMES FROM — both halves come from `cacheLife()` in
+ * `fetchSitemapFamily`, and nothing else does. Measured on this route:
+ *
+ *   cacheLife revalidate 1800, per-fetch hint 3600  →  1800   (30m)
+ *   cacheLife revalidate 7200, per-fetch hint 3600  →  7200   (2h)
+ *
+ * The second line is the decisive one: cacheLife wins even when it is LARGER,
+ * so a per-fetch `next: { revalidate }` inside the cache scope does not bind
+ * the route window at all. That is why the fetch is `cache: 'no-store'` — the
+ * hint would only add a redundant second cache layer.
+ *
+ * Do not tune these very low. Measured: `revalidate: 5, expire: 15` made the
+ * family shards `ƒ` DYNAMIC with no prerendered body even against a HEALTHY
+ * backend. 3600 / 86400 prerenders; anything much smaller needs re-measuring.
  *
  * A route-level `export const revalidate` is NOT inert here — it binds as a
- * MINIMUM. Measured, with the per-fetch hint set to 600:
+ * MINIMUM. Measured before PSY-1652, with the per-fetch hint set to 600:
  *
  *   no export                       → ○  10m  1y   (initialRevalidateSeconds 600)
  *   export const revalidate = 60    → ○   1m  1y   (initialRevalidateSeconds  60)
@@ -43,27 +71,27 @@
  * it could not have shown an effect. If you add one for an unrelated reason, be
  * aware it silently CAPS sitemap freshness.
  *
- * On a build where the fetch succeeded, the revalidate half of the window comes
- * from the per-fetch `next: { revalidate }` below. The one-YEAR expire is NOT
- * from that hint — Next fills `cacheControl.expire` from config `expireTime`
- * (default `CACHE_ONE_YEAR` = 31536000) whenever expire is unset
- * (`next/dist/build/index.js`). Measured: `initialExpireSeconds: 31536000`.
+ * WHY THE EXPIRE IS SET AT ALL. Leave `cacheControl.expire` unset and Next
+ * fills it from config `expireTime`, whose default is `CACHE_ONE_YEAR`
+ * (31536000) — see the `getCacheControl` helper in `next/dist/build/index.js`,
+ * which substitutes `config.expireTime` whenever revalidate is set and expire
+ * is not. Measured before PSY-1652: `initialExpireSeconds: 31536000`. There is
+ * no route-segment `expire` export to reach it with (`AppSegmentConfig` has
+ * `revalidate` and no counterpart), so a `"use cache"` scope is the only
+ * route-local way to bound it; the alternative, config `expireTime`, would move
+ * every ISR route in the app at once.
  *
  * PSY-1644 (measured): that one-year Full Route Cache expire is what held the
  * stale production sitemap. On the healthy STATIC path, a prerendered body
- * keeps being served for up to a year while revalidations fail (the old
+ * keeps being served for up to the expire while revalidations fail (the old
  * `/shows` fetch aborted at 10s every time). One prerender ⇒ every family
  * stale together — including artists that answered in 0.2s. The CDN edge is
  * not the holder (`cache-control: max-age=0`; stage serves `PRERENDER`/`HIT`
  * of the Next document). Hourly revalidate still works when the feed is
- * healthy (stage probe: held inside the 1h window, appeared after ≥1h). Bound
- * expire before relying on revalidate alone when fetches can fail; see the
- * follow-up filed from PSY-1644.
- *
- * NOTE: this file fixes the fail-open half of the incident via the projection
- * feed. The year-expire holder is a separate fix.
+ * healthy (stage probe: held inside the 1h window, appeared after ≥1h).
  */
 import { MetadataRoute } from 'next'
+import { cacheLife } from 'next/cache'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
@@ -77,11 +105,27 @@ import {
 const BASE_URL = 'https://psychichomily.com'
 
 /**
- * How long a fetched entry set stays warm in Next's Data Cache. On a build
- * where the fetch succeeded, this value is also where the route's ISR
- * revalidate window comes from — see the module header.
+ * How long a shard's entry set stays fresh before Next tries to re-render it.
+ * Both halves of the route's ISR window come from the `cacheLife()` call in
+ * `fetchSitemapFamily` — see the module header.
  */
 const ENTRY_REVALIDATE_SECONDS = 3600
+
+/**
+ * How long a prerendered shard may keep being served while every revalidation
+ * fails. Past this, Next stops serving the stale document.
+ *
+ * This is the whole point of PSY-1652: unset, Next fills expire from config
+ * `expireTime`, whose default is one YEAR, and a shard whose revalidations all
+ * fail goes on advertising a dead catalogue for that long. That is what held
+ * the stale production sitemap (PSY-1644).
+ *
+ * The number is a deliberate trade, not a tuning detail: it is how long we
+ * prefer a stale-but-valid document over a loud failure. One day survives an
+ * overnight backend outage without a crawler ever seeing a break, and caps the
+ * damage from a permanently-wedged feed at a day instead of a year.
+ */
+const ENTRY_EXPIRE_SECONDS = 86_400
 
 type SitemapEntries = components['schemas']['SitemapEntries']
 type SitemapEntry = components['schemas']['SitemapEntry']
@@ -142,15 +186,30 @@ const ENTRY_FETCH_TIMEOUT_MS = 30_000
  * null or absent is that same failure wearing a success code, so it is treated
  * as an error rather than coerced to an empty list.
  *
- * Sharded by `?family=` so each generateSitemaps() id gets its own Data Cache
- * entry and its own ~1.5 MB budget (PSY-1622).
+ * Sharded by `?family=` so each generateSitemaps() id gets its own cache entry
+ * and its own ~1.5 MB budget (PSY-1622).
+ *
+ * The `"use cache"` scope is what sets the shard's ISR window — BOTH halves of
+ * it. Measured; see the module header before changing either number, and note
+ * that the fetch below is deliberately `no-store` so this scope is the only
+ * cache layer in play.
  */
 async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
+  'use cache'
+  cacheLife({
+    stale: ENTRY_REVALIDATE_SECONDS,
+    revalidate: ENTRY_REVALIDATE_SECONDS,
+    expire: ENTRY_EXPIRE_SECONDS,
+  })
   try {
     const res = await fetch(
       `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(family)}`,
       {
-        next: { revalidate: ENTRY_REVALIDATE_SECONDS },
+        // Not `next: { revalidate }`. Inside a `"use cache"` scope that hint no
+        // longer binds the route window (measured — see the module header), so
+        // leaving it in would stack a second, independent cache layer whose TTL
+        // could drift from the one above and add its own staleness on top.
+        cache: 'no-store',
         signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
       }
     )
