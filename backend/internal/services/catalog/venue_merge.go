@@ -280,6 +280,14 @@ func lockMergeVenues(tx *gorm.DB, canonicalID, mergeFromID uint) (*catalogm.Venu
 // DISTINCT ON picks one winner deterministically when the canonical venue has
 // more than one show on the same date.
 //
+// The `wsa.show_id <> lsa.show_id` guard is belt-and-braces against the one
+// catastrophic outcome available here: a show mapped as its own duplicate would
+// be DELETED as the loser while also being treated as the survivor. The
+// show_artists primary key (show_id, artist_id) already makes that impossible —
+// one row cannot carry both venue ids — but the reasoning is subtle enough, and
+// the failure destructive enough, that the invariant is stated in the query
+// rather than left to be re-derived.
+//
 // ON COMMIT DROP ties the temp table's lifetime to this transaction, so it
 // cannot leak onto the pooled connection whether the merge commits or a preview
 // rolls back.
@@ -294,6 +302,7 @@ func buildDuplicateShowMap(tx *gorm.DB, canonicalID, mergeFromID uint) error {
 		  ON wsa.artist_id  = lsa.artist_id
 		 AND wsa.event_date = lsa.event_date
 		 AND wsa.venue_id   = ?
+		 AND wsa.show_id   <> lsa.show_id
 		WHERE lsa.venue_id = ?
 		  AND lsa.event_date IS NOT NULL
 		ORDER BY lsa.show_id, wsa.show_id
