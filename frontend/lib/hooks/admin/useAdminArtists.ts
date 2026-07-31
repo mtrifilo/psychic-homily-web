@@ -11,9 +11,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys } from '../../queryClient'
 import type { Artist, ArtistEditRequest, ArtistAliasesResponse, ArtistAlias, MergeArtistResult } from '@/features/artists'
+// The discover-music response types below are aliased from the generated
+// OpenAPI types, not hand-written (PSY-1550/1600). Regenerate with
+// `bun run api:types`; the "API Types Drift" CI gate fails if the committed
+// types drift from the backend. Exported names are kept stable for callers.
+import type { components } from '../../../types/api'
 
 /**
- * Platform types for music discovery
+ * The two streaming platforms music discovery can return a candidate for.
+ * A value domain, not a wire type — the spec types `platform` as a plain
+ * string, so this documents the values rather than constraining the response.
  */
 export type MusicPlatform = 'bandcamp' | 'spotify'
 
@@ -23,41 +30,30 @@ export type MusicPlatform = 'bandcamp' | 'spotify'
  * `review` = region mismatch, non-US, or no PH region to compare — a touring act
  * or namesake the admin should verify before linking. `review` is NEVER a gate:
  * the candidate is still returned and the admin can still accept it.
+ * Same caveat as `MusicPlatform`: the spec types `confidence` as a string.
  */
 export type MusicConfidence = 'high' | 'review'
 
 /**
- * One discovered streaming-link candidate. Mirrors the LOCKED backend wire
- * contract `contracts.MusicLinkCandidate` (PSY-1191). Discovery is review-only:
+ * One discovered streaming-link candidate (PSY-1191). Discovery is review-only:
  * the admin picks a candidate and saves it via the existing bandcamp/spotify
  * paths — nothing here is persisted by the discover call.
  */
-export interface MusicLinkCandidate {
-  platform: MusicPlatform
-  url: string
-  source: string
-  mb_artist_id: string
-  mb_artist_name: string
-  confidence: MusicConfidence
-  region_match: boolean
-  live: boolean
-  /** Optional reviewer note (touring-act / namesake caveat, MB disambiguation). */
-  notes?: string
-}
+export type MusicLinkCandidate = components['schemas']['MusicLinkCandidate']
 
 /**
  * Response from the discover-music endpoint (PSY-1191). Discovery returns
  * CANDIDATES only; the admin reviews and picks before any save happens. The
  * candidates carry their own `platform` field — they are NOT pre-grouped by the
- * backend, so the UI groups them.
+ * backend, so the UI groups them. `candidates` is nullable on the wire.
  */
-export interface DiscoverMusicResponse {
-  artist_id: number
-  candidates: MusicLinkCandidate[]
-}
+export type DiscoverMusicResponse = components['schemas']['DiscoverMusicResult']
 
 /**
- * Response from manual Bandcamp update endpoint
+ * Response from the manual Bandcamp update route. NOT a backend shape: the
+ * Next route handler at app/api/admin/artists/[id]/bandcamp validates + resolves
+ * the URL, forwards a PATCH to the backend, and synthesises this envelope. It
+ * has no OpenAPI schema to alias, so it stays hand-written by design.
  */
 export interface UpdateBandcampResponse {
   success: boolean
@@ -66,7 +62,8 @@ export interface UpdateBandcampResponse {
 }
 
 /**
- * Response from manual Spotify update endpoint
+ * Response from the manual Spotify update route. Same Next-route-owned envelope
+ * as `UpdateBandcampResponse` — not a backend shape.
  */
 export interface UpdateSpotifyResponse {
   success: boolean

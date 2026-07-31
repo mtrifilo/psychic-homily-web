@@ -132,8 +132,8 @@ describe('useAdminArtists', () => {
         })
       )
       expect(result.current.data?.candidates).toHaveLength(2)
-      expect(result.current.data?.candidates[0].platform).toBe('bandcamp')
-      expect(result.current.data?.candidates[1].confidence).toBe('review')
+      expect(result.current.data?.candidates?.[0].platform).toBe('bandcamp')
+      expect(result.current.data?.candidates?.[1].confidence).toBe('review')
     })
 
     it('surfaces the Huma `detail` error string on failure', async () => {

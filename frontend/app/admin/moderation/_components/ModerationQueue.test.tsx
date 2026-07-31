@@ -17,6 +17,7 @@ const mockPendingEdit: PendingEditResponse = {
   submitter_name: 'editor1',
   // PSY-619: covers the unlinked-byline path (account with no username).
   submitter_username: null,
+  reviewer_username: null,
   field_changes: [{ field: 'name', old_value: 'Old', new_value: 'New' }],
   summary: 'Updated name',
   status: 'pending' as const,
@@ -32,26 +33,36 @@ const mockEntityReport: EntityReportResponse = {
   reported_by: 3,
   reporter_name: 'reporter1',
   reporter_username: null,
+  reviewer_username: null,
   report_type: 'wrong_address',
   details: 'Address is outdated',
   status: 'pending',
   created_at: '2026-04-02T00:00:00Z',
 }
 
+// The pending-comment queue returns a plain CommentResponse — the same shape
+// the public comment endpoints return. It carries no `entity_name` and no
+// `trust_tier`; the previous fixture declared both, which is why the dead
+// entity link / trust-tier badge in the card went unnoticed (PSY-1600).
 const mockPendingComment: PendingComment = {
   id: 3,
   entity_type: 'artist',
   entity_id: 10,
-  entity_name: 'Test Artist',
+  kind: 'comment',
   user_id: 4,
   author_name: 'commenter1',
   author_username: null,
   body: 'This is a pending comment body',
   body_html: '<p>This is a pending comment body</p>',
-  parent_id: null,
   depth: 0,
   visibility: 'pending',
-  trust_tier: 'new',
+  reply_permission: 'anyone',
+  ups: 0,
+  downs: 0,
+  score: 0,
+  is_edited: false,
+  edit_count: 0,
+  reply_count: 0,
   created_at: '2026-04-03T00:00:00Z',
   updated_at: '2026-04-03T00:00:00Z',
 }
@@ -64,6 +75,7 @@ const mockCommentReport: EntityReportResponse = {
   reported_by: 5,
   reporter_name: 'reporter2',
   reporter_username: null,
+  reviewer_username: null,
   report_type: 'spam',
   details: 'This is spam content',
   status: 'pending',
@@ -82,6 +94,7 @@ const mockCollectionReport: EntityReportResponse = {
   reported_by: 6,
   reporter_name: 'reporter3',
   reporter_username: null,
+  reviewer_username: null,
   report_type: 'spam',
   details: 'This collection is spam',
   status: 'pending',
@@ -99,6 +112,7 @@ const mockReleaseReport: EntityReportResponse = {
   reported_by: 7,
   reporter_name: 'reporter4',
   reporter_username: null,
+  reviewer_username: null,
   report_type: 'wrong_cover_art',
   details: 'Cover art shows the wrong album',
   status: 'pending',
@@ -116,6 +130,7 @@ const mockLabelReport: EntityReportResponse = {
   reported_by: 8,
   reporter_name: 'reporter5',
   reporter_username: null,
+  reviewer_username: null,
   report_type: 'wrong_image',
   details: 'The label logo is wrong',
   status: 'pending',
@@ -262,6 +277,22 @@ describe('ModerationQueue', () => {
     expect(screen.getByText('Edit')).toBeInTheDocument()
     expect(screen.getByText('Artist')).toBeInTheDocument()
     expect(screen.getByText('Test Artist')).toBeInTheDocument()
+  })
+
+  // PSY-1600: `field_changes` is a nil-able Go slice — the backend leaves it
+  // nil both when the column is NULL and when the stored JSON fails to
+  // unmarshal, so the wire sends `null`. The old hand-written type declared it
+  // non-null and the card read `.length` straight off it, throwing the whole
+  // moderation queue away for one bad row.
+  it('renders a pending edit whose field_changes came back null', () => {
+    setDefaultMocks({ edits: [{ ...mockPendingEdit, field_changes: null }] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByText('Test Artist')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /0 field changes/ })
+    ).toBeInTheDocument()
   })
 
   it('renders entity report card', () => {
@@ -564,16 +595,6 @@ describe('ModerationQueue', () => {
     expect(onesElems.length).toBeGreaterThanOrEqual(2) // Edits + Comments
   })
 
-  it('shows pending comment trust tier badge', () => {
-    setDefaultMocks({
-      comments: [{ ...mockPendingComment, trust_tier: 'trusted' }],
-    })
-
-    render(<ModerationQueue />)
-
-    expect(screen.getByText('trusted')).toBeInTheDocument()
-  })
-
   it('renders approve and reject buttons on pending comment card', () => {
     setDefaultMocks({ comments: [mockPendingComment] })
 
@@ -755,7 +776,9 @@ describe('ModerationQueue', () => {
       payload: { name: 'Orphan Band', city: 'Phoenix' },
       source_detail: null,
       decision_state: 'approved',
-      created_entity_id: null,
+      // Unfulfilled: the backend omits created_entity_id entirely (pointer +
+      // omitempty), it never sends an explicit null.
+      created_entity_id: undefined,
     }
     const orphanShow: AdminEntityRequest = {
       ...mockEntityRequest,
@@ -764,7 +787,9 @@ describe('ModerationQueue', () => {
       payload: { title: 'Deferred Show', event_date: '2026-08-01', city: 'Phoenix', state: 'AZ' },
       source_detail: null,
       decision_state: 'approved',
-      created_entity_id: null,
+      // Unfulfilled: the backend omits created_entity_id entirely (pointer +
+      // omitempty), it never sends an explicit null.
+      created_entity_id: undefined,
     }
 
     it('hides the Needs attention tab when there are no orphans', () => {

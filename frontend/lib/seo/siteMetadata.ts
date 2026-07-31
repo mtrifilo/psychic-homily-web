@@ -14,3 +14,15 @@
  */
 export const SITE_DESCRIPTION =
   'Show lists for your city, real-time freeform radio playlists, and your music knowledge graph for artists, labels, venues, and releases around the world.'
+
+/**
+ * Canonical public origin, with no trailing slash.
+ *
+ * Adoption is PARTIAL and deliberately so: `lib/seo/jsonld.ts` and the
+ * scene-week page build from this, while most of `app/**` still inlines the
+ * literal in its `alternates.canonical` and its `generateBreadcrumbSchema`
+ * calls. Prefer this in new code; sweeping the rest is its own change, not a
+ * side effect of an unrelated one. Do not read the existence of this constant
+ * as proof that no literals remain.
+ */
+export const SITE_URL = 'https://psychichomily.com'

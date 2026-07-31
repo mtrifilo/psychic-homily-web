@@ -817,6 +817,33 @@ type SceneShowSummary struct {
 	// blessed design — without these the client can only guess.
 	IsSoldOut   bool `json:"is_sold_out"`
 	IsCancelled bool `json:"is_cancelled"`
+
+	// StartsAt is the show's absolute start instant, in UTC.
+	//
+	// EventDate above is a scene-local CALENDAR date and cannot be turned back
+	// into an instant: re-parsing "2026-07-27" yields UTC midnight, which is the
+	// previous evening anywhere west of Greenwich. Any consumer that needs a real
+	// timestamp — structured-data `startDate`, a calendar export — must use this
+	// and render it in the venue's own zone.
+	StartsAt time.Time `json:"starts_at"`
+	// Door price when known; absent when the show has none recorded. NO currency
+	// is recorded anywhere in the schema — `shows.price` is a bare numeric — so
+	// a consumer that needs one has to assume, and for a non-US scene that
+	// assumption is wrong. Do not add a currency here without adding the column.
+	Price *float64 `json:"price,omitempty"`
+
+	// The billed venue's own details, from the SAME venue row VenueName names —
+	// enough to describe a place without a second round-trip per show.
+	//
+	// VenueAddress follows the site-wide privacy gate: street addresses are
+	// served for VERIFIED venues only, so a DIY/house venue is never published
+	// before human review. The remaining fields are city-level and always safe.
+	VenueSlug     string `json:"venue_slug,omitempty"`
+	VenueAddress  string `json:"venue_address,omitempty"`
+	VenueCity     string `json:"venue_city,omitempty"`
+	VenueState    string `json:"venue_state,omitempty"`
+	VenueCountry  string `json:"venue_country,omitempty"`
+	VenueTimezone string `json:"venue_timezone,omitempty"`
 }
 
 // SceneWeekDay is one calendar day of a scene's week, in the scene's own

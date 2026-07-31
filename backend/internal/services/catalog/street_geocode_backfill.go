@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -39,6 +40,12 @@ type StreetGeocodeOptions struct {
 }
 
 const defaultStreetGeocodeBackfillTimeout = 30 * time.Second
+
+// minFallbackBudget is how much of the caller's deadline must remain before the
+// raw-address retry is attempted. One Nominatim call can spend >1s waiting on the
+// shared 1 req/s limiter before it even dials, plus retries, so anything under a
+// few seconds is more likely to produce a timeout than an answer.
+const minFallbackBudget = 5 * time.Second
 
 // Street-geocode backfill actions, one per scanned venue that needed anything.
 // Venues that needed nothing (stored key matches, or no address and nothing
@@ -158,7 +165,7 @@ func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.Addres
 		}
 		geocoded++
 
-		res, ok, err := geocodeWithTimeout(ctx, ag, q, timeout)
+		res, ok, err := geocodeWithTimeout(ctx, ag, q, derefString(v.Address), timeout)
 		if err != nil {
 			c := change(v, StreetGeocodeError, key)
 			c.Err = err.Error()
@@ -209,12 +216,88 @@ func BackfillVenueStreetGeocodes(ctx context.Context, db *gorm.DB, ag geo.Addres
 	return report, nil
 }
 
-// geocodeWithTimeout bounds a single venue's lookup (limiter wait + retries
-// included) while inheriting the run ctx, so a canceled run aborts the
-// in-flight lookup immediately rather than riding out the per-venue timeout.
-func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, timeout time.Duration) (geo.AddressResult, bool, error) {
+// geocodeWithTimeout bounds ONE VENUE's geocoding (limiter wait + retries
+// included, and since PSY-1609 up to two sequential lookups — the address as
+// stored, then the abbreviation-expanded form) while inheriting the run ctx, so a canceled run aborts the in-flight lookup immediately rather than
+// riding out the per-venue timeout.
+func geocodeWithTimeout(ctx context.Context, ag geo.AddressGeocoder, q geo.AddressQuery, rawStreet string, timeout time.Duration) (geo.AddressResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	return geocodeExpandingAbbreviations(ctx, ag, q, rawStreet)
+}
+
+// geocodeExpandingAbbreviations looks a venue's address up, trying the address
+// EXACTLY AS STORED first and the abbreviation-expanded form only if that misses.
+//
+// The order is the whole design, and it is deliberately the opposite of the
+// obvious one. Expanding first looks right — the expansion is the fix, after all
+// — but it can DEGRADE a venue that works today: for an address like
+// "3800 MLK Jr Blvd", the expanded "Martin Luther King" form may well resolve,
+// yet resolve to the multi-mile named road rather than the address node. That is
+// still ok=true, so no fallback runs, and the write replaces correct rooftop
+// coordinates with a worse interpolated point — then memoizes it under the new
+// key, making it unrecoverable without manual intervention.
+//
+// Raw-first guarantees the opposite: anything that resolves today resolves to the
+// identical point tomorrow, and the expansion only ever runs where there was no
+// answer at all. It still fixes venue 128 ("75 M.L.K. Jr Dr SW" misses raw, hits
+// expanded), and it changes nothing about Key(), which stays on the expanded form
+// so a future table change still invalidates the miss memos it could affect.
+//
+// Request cost, stated precisely because the 1 req/s Nominatim budget is a ToS
+// obligation rather than a performance concern:
+//
+//   - No abbreviation in the address (the overwhelming majority): ONE request.
+//     The two forms are identical, so the second attempt is skipped outright.
+//   - Abbreviated and OSM stores it abbreviated: ONE request.
+//   - Abbreviated and OSM stores it expanded (venue 128): TWO.
+//   - Unresolvable: TWO, then the caller memoizes the miss so it is not retried.
+//
+// A transport error is NOT a miss and does not trigger the fallback: retrying
+// against a service that is already failing just doubles traffic, and the caller
+// retries the whole venue on its next run.
+//
+// rawStreet is the street exactly as stored. Empty, or equal to the expanded
+// form, means there is nothing else to try and no second request is made.
+func geocodeExpandingAbbreviations(
+	ctx context.Context,
+	ag geo.AddressGeocoder,
+	q geo.AddressQuery,
+	rawStreet string,
+) (geo.AddressResult, bool, error) {
+	raw := strings.TrimSpace(rawStreet)
+	expanded := strings.TrimSpace(q.Street)
+
+	// First attempt: the address as stored. AddressQuery is a value type, so this
+	// copies and leaves the scoping fields intact — a common street name must
+	// still resolve in the right place.
+	first := q
+	if raw != "" {
+		first.Street = raw
+	}
+	res, ok, err := ag.GeocodeAddress(ctx, first)
+	if err != nil || ok {
+		return res, ok, err
+	}
+	if raw == "" || raw == expanded {
+		return res, ok, err
+	}
+	// Too little budget left for the second lookup — report an ERROR, not the
+	// clean miss we are holding.
+	//
+	// This is the subtle half of raw-first ordering. The expanded lookup is now
+	// the one that actually fixes the venue, so skipping it and returning a miss
+	// would have the caller memoize that miss under the EXPANDED key — after
+	// which streetGeocodeAttempted makes the sweep skip the venue permanently,
+	// with no error and no alert. Recovery would need an address edit or manual
+	// SQL. An incomplete attempt is not a miss, and saying so keeps the venue
+	// retryable: errors are deliberately never memoized.
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline && time.Until(deadline) < minFallbackBudget {
+		return geo.AddressResult{}, false, fmt.Errorf(
+			"insufficient budget for the abbreviation-expanded retry (%s left, need %s); not recording a miss",
+			time.Until(deadline).Round(time.Millisecond), minFallbackBudget,
+		)
+	}
 	return ag.GeocodeAddress(ctx, q)
 }
 

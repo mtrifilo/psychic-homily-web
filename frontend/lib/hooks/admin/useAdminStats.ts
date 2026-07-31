@@ -3,7 +3,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys } from '../../queryClient'
-import type { AdminDashboardStats, ActivityEvent } from '../../types/adminStats'
+import type {
+  AdminDashboardStats,
+  ActivityFeedResponse,
+} from '../../types/adminStats'
 
 /**
  * Hook to fetch admin dashboard statistics
@@ -26,8 +29,8 @@ export const useAdminStats = () => {
 export const useAdminActivity = () => {
   return useQuery({
     queryKey: queryKeys.admin.activity,
-    queryFn: async (): Promise<{ events: ActivityEvent[] }> => {
-      return apiRequest<{ events: ActivityEvent[] }>(API_ENDPOINTS.ADMIN.ACTIVITY, {
+    queryFn: async (): Promise<ActivityFeedResponse> => {
+      return apiRequest<ActivityFeedResponse>(API_ENDPOINTS.ADMIN.ACTIVITY, {
         method: 'GET',
       })
     },

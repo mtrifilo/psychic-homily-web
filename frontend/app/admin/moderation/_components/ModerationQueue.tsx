@@ -164,6 +164,11 @@ function PendingEditCard({
 
   const entityLabel = edit.entity_name || `${entityTypeLabel(edit.entity_type)} #${edit.entity_id}`
 
+  // `field_changes` is a nil-able Go slice, so the wire can send `null`: the
+  // backend leaves it nil both when the column is NULL and when the stored
+  // JSON fails to unmarshal. Reading `.length` off that threw (PSY-1600).
+  const fieldChanges = edit.field_changes ?? []
+
   const handleApprove = useCallback(() => {
     approveMutation.mutate(edit.id, {
       // PSY-603: bubble success up to ModerationQueue so the page-level
@@ -239,12 +244,12 @@ function PendingEditCard({
           className="mt-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          {edit.field_changes.length} field change{edit.field_changes.length !== 1 ? 's' : ''}
+          {fieldChanges.length} field change{fieldChanges.length !== 1 ? 's' : ''}
         </button>
 
         {expanded && (
           <div className="mt-2 space-y-1.5 rounded-md border bg-muted/30 p-3 text-sm">
-            {edit.field_changes.map((change, idx) => (
+            {fieldChanges.map((change, idx) => (
               <div key={idx} className="space-y-0.5">
                 <span className="font-medium text-muted-foreground">{change.field}:</span>
                 <div className="flex gap-2 flex-wrap text-xs font-mono">
@@ -311,7 +316,11 @@ function sourceContextLabel(source: string): string {
 const PREVIEW_OMIT_KEYS = new Set(['name', 'title'])
 
 /** Non-header payload fields as [key, displayValue] pairs for the preview box. */
-function payloadPreviewEntries(payload: Record<string, unknown>): Array<[string, string]> {
+// `payload` is a *json.RawMessage server-side, so the wire can send `null`;
+// the `|| {}` below is the guard, and the signature now says so (PSY-1600).
+function payloadPreviewEntries(
+  payload: Record<string, unknown> | null
+): Array<[string, string]> {
   return Object.entries(payload || {})
     .filter(([k, v]) => !PREVIEW_OMIT_KEYS.has(k) && v !== null && v !== undefined && v !== '')
     .map(
@@ -954,7 +963,13 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
     [rejectMutation, comment.id]
   )
 
-  const entityUrl = getEntityUrl(comment.entity_type, comment.entity_id)
+  // The pending-comment card shows only the entity TYPE badge. `entity_name`
+  // and `trust_tier` were declared on the old hand-written PendingComment but
+  // the wire has never carried them (the endpoint returns the same
+  // CommentResponse the public comment endpoints do), so the entity link and
+  // trust-tier badge that read them were permanently invisible. Removed with
+  // the type alias in PSY-1600; restoring either affordance needs the field
+  // added to CommentResponse first.
   const editCount = comment.edit_count ?? 0
   const hasEdits = editCount > 0
 
@@ -968,17 +983,6 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
             <Badge variant="outline" className="shrink-0">
               {entityTypeLabel(comment.entity_type)}
             </Badge>
-            {comment.entity_name && (
-              <a
-                href={entityUrl}
-                className="text-sm font-medium text-foreground hover:underline truncate"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {comment.entity_name}
-                <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
-              </a>
-            )}
           </div>
           <span className="text-xs text-muted-foreground shrink-0">
             {timeAgo(comment.created_at)}
@@ -993,11 +997,6 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
               username={comment.author_username}
             />
           </span>
-          {comment.trust_tier && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-              {comment.trust_tier}
-            </Badge>
-          )}
           {/* PSY-297: edit count badge + click-to-view-history.
               Only rendered when the comment has at least one recorded edit. */}
           {hasEdits && (

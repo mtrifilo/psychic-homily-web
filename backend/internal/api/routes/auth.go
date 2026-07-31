@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 
@@ -50,29 +49,41 @@ func setupAuthRoutes(rc RouteContext) {
 		r.Get("/auth/callback/{provider}", oauthHTTPHandler.OAuthCallbackHTTPHandler)
 	})
 
-	// Rate-limited auth API endpoints using Chi middleware wrapper
-	// We register these directly on the router with rate limiting, then Huma picks them up
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(authRateLimiter)
+	// Rate-limited auth API endpoints.
+	//
+	// PSY-1598: on the MAIN api via a Huma group rather than its own humachi.New —
+	// a separate instance owns a separate OpenAPI document, which is why the entire
+	// authentication surface was missing from the published spec. An external
+	// consumer reading it saw no way to authenticate at all.
+	//
+	// Two properties this conversion must preserve, both easy to break silently:
+	//
+	//  1. authRateLimiter is the SAME closure the OAuth chi group above uses, so
+	//     those raw routes and these operations share ONE counter. Passing the
+	//     variable (rather than building a second limiter here) is what keeps that
+	//     budget shared; a fresh httprate.Limit would quietly double it.
+	//  2. It may be noopRateLimiter() under DISABLE_AUTH_RATE_LIMITS (PSY-475).
+	//     humaFromHTTP has to let that through cleanly, or every E2E shard — all
+	//     sharing 127.0.0.1 — starts failing register/magic-link again.
+	//
+	// No JWT middleware here on purpose: these endpoints are how you GET a token.
+	rateLimitedAuthGroup := huma.NewGroup(rc.API, "")
+	rateLimitedAuthGroup.UseMiddleware(humaFromHTTP(authRateLimiter))
+	rateLimitedAuthGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
-		// Create a sub-API for rate-limited routes
-		rateLimitedAPI := humachi.New(r, subAPIConfig("Psychic Homily Auth"))
-		rateLimitedAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	huma.Post(rateLimitedAuthGroup, "/auth/login", authHandler.LoginHandler)
+	huma.Post(rateLimitedAuthGroup, "/auth/register", authHandler.RegisterHandler)
+	huma.Post(rateLimitedAuthGroup, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
+	huma.Post(rateLimitedAuthGroup, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 
-		huma.Post(rateLimitedAPI, "/auth/login", authHandler.LoginHandler)
-		huma.Post(rateLimitedAPI, "/auth/register", authHandler.RegisterHandler)
-		huma.Post(rateLimitedAPI, "/auth/magic-link/send", authHandler.SendMagicLinkHandler)
-		huma.Post(rateLimitedAPI, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
+	// Sign in with Apple (public, rate-limited)
+	appleAuthHandler := authh.NewAppleAuthHandler(rc.SC.AppleAuth, rc.SC.Discord, rc.Cfg)
+	huma.Post(rateLimitedAuthGroup, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
 
-		// Sign in with Apple (public, rate-limited)
-		appleAuthHandler := authh.NewAppleAuthHandler(rc.SC.AppleAuth, rc.SC.Discord, rc.Cfg)
-		huma.Post(rateLimitedAPI, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
-
-		// Account recovery endpoints (public, rate-limited)
-		huma.Post(rateLimitedAPI, "/auth/recover-account", authHandler.RecoverAccountHandler)
-		huma.Post(rateLimitedAPI, "/auth/recover-account/request", authHandler.RequestAccountRecoveryHandler)
-		huma.Post(rateLimitedAPI, "/auth/recover-account/confirm", authHandler.ConfirmAccountRecoveryHandler)
-	})
+	// Account recovery endpoints (public, rate-limited)
+	huma.Post(rateLimitedAuthGroup, "/auth/recover-account", authHandler.RecoverAccountHandler)
+	huma.Post(rateLimitedAuthGroup, "/auth/recover-account/request", authHandler.RequestAccountRecoveryHandler)
+	huma.Post(rateLimitedAuthGroup, "/auth/recover-account/confirm", authHandler.ConfirmAccountRecoveryHandler)
 
 	// Logout doesn't need strict rate limiting (already requires valid session)
 	huma.Post(rc.API, "/auth/logout", authHandler.LogoutHandler)
@@ -185,21 +196,23 @@ func setupPasskeyRoutes(rc RouteContext) {
 		)
 	}
 
-	// Rate-limited public passkey endpoints
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(passkeyRateLimiter)
+	// Rate-limited public passkey endpoints.
+	//
+	// PSY-1598: same move as the auth group above, same two properties to preserve —
+	// passkeyRateLimiter is passed as the existing closure so its counter is shared
+	// across all four operations exactly as the chi group shared it, and it may be a
+	// no-op under DISABLE_AUTH_RATE_LIMITS.
+	passkeyGroup := huma.NewGroup(rc.API, "")
+	passkeyGroup.UseMiddleware(humaFromHTTP(passkeyRateLimiter))
+	passkeyGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 
-		passkeyAPI := humachi.New(r, subAPIConfig("Psychic Homily Passkey"))
-		passkeyAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	// Public passkey login endpoints (no auth required)
+	huma.Post(passkeyGroup, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
+	huma.Post(passkeyGroup, "/auth/passkey/login/finish", passkeyHandler.FinishLoginHandler)
 
-		// Public passkey login endpoints (no auth required)
-		huma.Post(passkeyAPI, "/auth/passkey/login/begin", passkeyHandler.BeginLoginHandler)
-		huma.Post(passkeyAPI, "/auth/passkey/login/finish", passkeyHandler.FinishLoginHandler)
-
-		// Public passkey signup endpoints (passkey-first registration, no auth required)
-		huma.Post(passkeyAPI, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
-		huma.Post(passkeyAPI, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
-	})
+	// Public passkey signup endpoints (passkey-first registration, no auth required)
+	huma.Post(passkeyGroup, "/auth/passkey/signup/begin", passkeyHandler.BeginSignupHandler)
+	huma.Post(passkeyGroup, "/auth/passkey/signup/finish", passkeyHandler.FinishSignupHandler)
 
 	// Protected passkey registration endpoints (user must be logged in)
 	huma.Post(rc.Protected, "/auth/passkey/register/begin", passkeyHandler.BeginRegisterHandler)

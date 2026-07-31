@@ -1,9 +1,8 @@
 import { Suspense } from 'react'
-import * as Sentry from '@sentry/nextjs'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
-import { createBuildTimeApiSignal } from '@/lib/build-time-api'
+import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 
 export const metadata = {
@@ -27,34 +26,28 @@ interface ShowListItem {
   venues: Array<{ name: string }>
 }
 
-interface UpcomingShowsApiResponse {
-  shows: ShowListItem[]
-}
+/**
+ * Explicit because the implicit value was a surprise. Sending no `limit` let
+ * `GET /shows/upcoming` apply its `default:"50"` — the tightest bound of the
+ * three SEO lists, arrived at by accident and written down nowhere.
+ *
+ * 50 is what this call has always effectively sent, so stating it changes no
+ * output. It is NOT an argued number, and it is measurably short: production
+ * still reports `has_more: true` at the endpoint's `maximum` of 200
+ * (2026-07-29), so even the largest single request would not cover the
+ * catalogue — full coverage needs the cursor. How many entries an SEO
+ * `ItemList` should carry is a product question, and it is deliberately not
+ * being settled here by nudging a number. It is left visible instead of
+ * invisible.
+ */
+export const UPCOMING_SHOWS_LIMIT = 50
 
-async function getUpcomingShows(): Promise<ShowListItem[]> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/shows/upcoming`, {
-      next: { revalidate: 3600 },
-      signal: createBuildTimeApiSignal(),
-    })
-    if (res.ok) {
-      const data: UpcomingShowsApiResponse = await res.json()
-      return data.shows ?? []
-    }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Shows listing: API returned ${res.status}`, {
-        level: 'error',
-        tags: { service: 'shows-listing' },
-        extra: { status: res.status },
-      })
-    }
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'shows-listing' },
-    })
-  }
-  return []
+export function getUpcomingShows(): Promise<ShowListItem[]> {
+  return fetchSeoList<ShowListItem>({
+    url: `${API_BASE_URL}/shows/upcoming?limit=${UPCOMING_SHOWS_LIMIT}`,
+    collection: 'shows',
+    service: 'shows-listing',
+  })
 }
 
 function getShowName(show: ShowListItem): string {

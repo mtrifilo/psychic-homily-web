@@ -18,6 +18,7 @@ const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow => ({
   id: 1,
   title: '',
   event_date: '2026-07-27',
+  starts_at: '2026-07-28T03:00:00Z',
   is_sold_out: false,
   is_cancelled: false,
   ...over,

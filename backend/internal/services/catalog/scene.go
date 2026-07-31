@@ -562,8 +562,9 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 // the Atlas preview panel's "This week" row (PSY-1309). Scoped by the scene's
 // venue predicate so a metro scene includes member-city shows (a Tempe show
 // counts toward Phoenix) — the literal-city upcoming-shows endpoint can't do
-// that. VenueName is the first venue on the bill (MIN by name: deterministic,
-// and multi-venue shows are rare).
+// that. VenueName is the alphabetically-first IN-SCOPE venue on the bill, and
+// every other Venue* field comes from that same row — see the DISTINCT ON pick
+// in GetSceneShowsInRange.
 func (s *SceneService) GetSceneUpcomingShows(city, state string, windowDays, limit int) ([]contracts.SceneShowSummary, error) {
 	now := time.Now().UTC()
 	// time.UTC preserves this method's original date formatting exactly — the
@@ -603,28 +604,65 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 	windowEnd := to
 
 	type showRow struct {
-		ID          uint      `gorm:"column:id"`
-		Slug        string    `gorm:"column:slug"`
-		Title       string    `gorm:"column:title"`
-		EventDate   time.Time `gorm:"column:event_date"`
-		VenueName   string    `gorm:"column:venue_name"`
-		IsSoldOut   bool      `gorm:"column:is_sold_out"`
-		IsCancelled bool      `gorm:"column:is_cancelled"`
+		ID            uint      `gorm:"column:id"`
+		Slug          string    `gorm:"column:slug"`
+		Title         string    `gorm:"column:title"`
+		EventDate     time.Time `gorm:"column:event_date"`
+		Price         *float64  `gorm:"column:price"`
+		IsSoldOut     bool      `gorm:"column:is_sold_out"`
+		IsCancelled   bool      `gorm:"column:is_cancelled"`
+		VenueName     string    `gorm:"column:venue_name"`
+		VenueSlug     string    `gorm:"column:venue_slug"`
+		VenueAddress  string    `gorm:"column:venue_address"`
+		VenueCity     string    `gorm:"column:venue_city"`
+		VenueState    string    `gorm:"column:venue_state"`
+		VenueCountry  string    `gorm:"column:venue_country"`
+		VenueTimezone string    `gorm:"column:venue_timezone"`
 	}
 	// Placeholder order: venue predicate, then status/window bounds.
 	args := append(append([]any{}, vargs...), catalogm.ShowStatusApproved, now, windowEnd, limit)
 	var rows []showRow
+	// Every venue column must come from ONE venue row: the weekly page publishes
+	// them as a postal address, and `MIN(v.name)` + GROUP BY would have paired a
+	// multi-venue show's alphabetically-first NAME with a sibling room's street
+	// address. `DISTINCT ON (s.id)` keeps the whole row of the venue it picks,
+	// and ordering that pick by name reproduces exactly what MIN(name) chose.
+	//
+	// The join stays venue-driven rather than becoming a LATERAL off `shows`,
+	// deliberately: the scene predicate is by far the most selective term, and a
+	// lateral would force `shows` to be the outer relation, leaving a global scan
+	// of the window's approved shows. This is also the Atlas preview row and the
+	// weekly digest's query.
+	//
+	// Distinct from `primaryVenueLateralSQL` (charts_service.go), which picks by
+	// lowest venue_id for venue ATTRIBUTION. This pick is scene-scoped and
+	// name-ordered because it is a display label with an address attached.
+	//
+	// Street address is served for VERIFIED venues only, matching
+	// buildVenueResponse and the show detail payload: a DIY/house venue must not
+	// be published before human review.
 	if err := s.db.Raw(`
-		SELECT s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.is_sold_out, s.is_cancelled, MIN(v.name) AS venue_name
-		FROM shows s
-		JOIN show_venues sv ON sv.show_id = s.id
-		JOIN venues v ON v.id = sv.venue_id
-		WHERE `+vp+`
-		  AND s.status = ?
-		  AND s.event_date >= ?
-		  AND s.event_date < ?
-		GROUP BY s.id, s.slug, s.title, s.event_date, s.is_sold_out, s.is_cancelled -- id is the PK; the rest ride along
-		ORDER BY s.event_date ASC, s.id ASC
+		SELECT * FROM (
+			SELECT DISTINCT ON (s.id)
+			       s.id, COALESCE(s.slug, '') AS slug, s.title, s.event_date, s.price,
+			       s.is_sold_out, s.is_cancelled,
+			       v.name AS venue_name,
+			       COALESCE(v.slug, '') AS venue_slug,
+			       CASE WHEN v.verified THEN COALESCE(v.address, '') ELSE '' END AS venue_address,
+			       v.city AS venue_city,
+			       v.state AS venue_state,
+			       COALESCE(v.country, '') AS venue_country,
+			       COALESCE(v.timezone, '') AS venue_timezone
+			FROM shows s
+			JOIN show_venues sv ON sv.show_id = s.id
+			JOIN venues v ON v.id = sv.venue_id
+			WHERE `+vp+`
+			  AND s.status = ?
+			  AND s.event_date >= ?
+			  AND s.event_date < ?
+			ORDER BY s.id, v.name ASC, v.id ASC -- DISTINCT ON needs s.id to lead
+		) picked
+		ORDER BY picked.event_date ASC, picked.id ASC
 		LIMIT ?
 	`, args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to get scene upcoming shows: %w", err)
@@ -644,14 +682,22 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 	results := make([]contracts.SceneShowSummary, len(rows))
 	for i, r := range rows {
 		results[i] = contracts.SceneShowSummary{
-			ID:          r.ID,
-			Slug:        r.Slug,
-			Title:       r.Title,
-			EventDate:   r.EventDate.In(loc).Format("2006-01-02"),
-			VenueName:   r.VenueName,
-			ArtistNames: artistsByShow[r.ID],
-			IsSoldOut:   r.IsSoldOut,
-			IsCancelled: r.IsCancelled,
+			ID:            r.ID,
+			Slug:          r.Slug,
+			Title:         r.Title,
+			EventDate:     r.EventDate.In(loc).Format("2006-01-02"),
+			StartsAt:      r.EventDate.UTC(),
+			Price:         r.Price,
+			VenueName:     r.VenueName,
+			ArtistNames:   artistsByShow[r.ID],
+			IsSoldOut:     r.IsSoldOut,
+			IsCancelled:   r.IsCancelled,
+			VenueSlug:     r.VenueSlug,
+			VenueAddress:  r.VenueAddress,
+			VenueCity:     r.VenueCity,
+			VenueState:    r.VenueState,
+			VenueCountry:  r.VenueCountry,
+			VenueTimezone: r.VenueTimezone,
 		}
 	}
 	return results, nil

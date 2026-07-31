@@ -2,16 +2,15 @@ import { cache } from 'react'
 import type { Metadata } from 'next'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
-import { generateItemListSchema } from '@/lib/seo/jsonld'
+import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWeekView } from './components/SceneWeekView'
 import {
   ARCHIVED_WEEK_REVALIDATE,
   CURRENT_WEEK_REVALIDATE,
   fetchSceneWeek,
 } from './sceneWeekApi'
-import { countShows, formatWeekRange, showDisplayTitle, type SceneWeekResponse } from './sceneWeek'
-
-const SITE = 'https://psychichomily.com'
+import { countShows, formatWeekRange, type SceneWeekResponse } from './sceneWeek'
+import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
 
 /**
  * Fetch one scene-week for the page.
@@ -58,7 +57,7 @@ export async function buildSceneWeekMetadata(
   // The archived week is the canonical URL even when reached via the rolling
   // /week route: the rolling URL's content changes weekly, so pointing search
   // engines at it would make every indexed snippet go stale.
-  const canonical = `${SITE}/scenes/${data.slug}/${data.iso_week}`
+  const canonical = `${SITE_URL}/scenes/${data.slug}/${data.iso_week}`
 
   // Both routes advertise the ARCHIVED card, and that is deliberate.
   //
@@ -116,18 +115,16 @@ export async function buildSceneWeekMetadata(
  * with the decision in the page body (PSY-906).
  */
 export function SceneWeekContent({ data }: { data: SceneWeekResponse }) {
-  const shows = (data.days ?? []).flatMap(d => d.shows ?? [])
-  const itemList = generateItemListSchema({
-    name: `${data.scene_name} shows, ${formatWeekRange(data.start_date, data.end_date)}`,
-    listItems: shows.map(s => ({
-      url: s.slug ? `${SITE}/shows/${s.slug}` : `${SITE}/shows/${s.id}`,
-      name: showDisplayTitle(s),
-    })),
-  })
+  const { breadcrumb, itemList, events } = buildSceneWeekJsonLd(data)
 
   return (
     <>
-      {shows.length > 0 && <JsonLd data={itemList} />}
+      <JsonLd data={breadcrumb} />
+      {itemList && <JsonLd data={itemList} />}
+      {/* One array-valued script rather than a tag per show: a busy week is 50
+          shows, and 50 extra <script> elements is markup weight for no gain —
+          a top-level JSON-LD array carries the same graph. */}
+      {events.length > 0 && <JsonLd data={events} />}
       <SceneWeekView week={data} />
     </>
   )

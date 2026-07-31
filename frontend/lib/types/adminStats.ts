@@ -1,26 +1,13 @@
-export interface AdminDashboardStats {
-  pending_shows: number
-  pending_venue_edits: number
-  pending_reports: number
-  unverified_venues: number
-  total_shows: number
-  total_venues: number
-  total_artists: number
-  total_users: number
-  shows_submitted_last_7_days: number
-  users_registered_last_7_days: number
-  total_shows_trend: number
-  total_venues_trend: number
-  total_artists_trend: number
-  total_users_trend: number
-}
+// Aliased from the generated OpenAPI types, not hand-written (PSY-1550/1600).
+// Regenerate with `bun run api:types`; the "API Types Drift" CI gate fails if
+// the committed types drift from the backend. Exported names are kept stable
+// for callers.
+//
+// `ActivityFeedResponse.events` is nullable on the wire: guard before
+// iterating (PSY-1600).
 
-export interface ActivityEvent {
-  id: number
-  event_type: string
-  description: string
-  entity_type?: string
-  entity_slug?: string
-  timestamp: string
-  actor_name?: string
-}
+import type { components } from '../../types/api'
+
+export type AdminDashboardStats = components['schemas']['AdminDashboardStats']
+export type ActivityEvent = components['schemas']['ActivityEvent']
+export type ActivityFeedResponse = components['schemas']['ActivityFeedResponse']

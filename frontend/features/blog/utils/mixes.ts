@@ -10,6 +10,11 @@ const MIXES_CONTENT_PATH = path.join(process.cwd(), 'content', 'mixes')
 
 /**
  * Get all mix slugs for static generation
+ *
+ * CLASSIFIED LOAD-BEARING — same disposition and same reasoning as
+ * `getBlogSlugs`: the fail-open below silently empties `/dj-sets` and drops
+ * every DJ-set URL from `sitemap.xml`, and is recorded rather than changed
+ * pending verification of the build and request paths.
  */
 export function getMixSlugs(): string[] {
   try {

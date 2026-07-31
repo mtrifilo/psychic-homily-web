@@ -14,45 +14,46 @@ import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys, createInvalidateQueries } from '../../queryClient'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+//
+// Aliased from the generated OpenAPI types, not hand-written (PSY-1550/1600).
+// Regenerate with `bun run api:types`; the "API Types Drift" CI gate fails if
+// the committed types drift from the backend. Exported names are kept stable
+// for callers.
+
+import type { components } from '../../../types/api'
 
 /**
  * Optional AI-extraction source context attached to a request (PSY-1008).
  * Stored opaquely server-side; both fields optional.
  */
-export interface EntityRequestSourceDetail {
-  url?: string
-  excerpt?: string
-}
+export type EntityRequestSourceDetail =
+  components['schemas']['EntityRequestSourceDetail']
 
 /**
  * Admin-queue view of an entity_requests row. The backend resolves the
  * requester display (the raw model serializes the relation as json:"-") and
- * carries the typed creation payload for the card's key:value preview.
+ * carries the creation payload for the card's key:value preview.
+ *
+ * `payload` and `source_detail` are `*json.RawMessage` server-side, which the
+ * spec can only describe as `unknown`, so they are narrowed here — the ONLY
+ * two fields this module still asserts a shape for. Both are pointers without
+ * a non-null guarantee, so both are declared nullable and every read must
+ * guard (`req.payload || {}`, `request.source_detail?.url`).
  */
-export interface AdminEntityRequest {
-  id: number
-  entity_type: string
-  /** Typed creation payload (shape varies by entity_type); rendered key:value. */
-  payload: Record<string, unknown>
-  source_context: string
+export type AdminEntityRequest = Omit<
+  components['schemas']['AdminEntityRequestView'],
+  'payload' | 'source_detail'
+> & {
+  /** Creation payload (shape varies by entity_type); rendered key:value. */
+  payload: Record<string, unknown> | null
   source_detail?: EntityRequestSourceDetail | null
-  requester_id: number
-  requester_name: string
-  /**
-   * Requester's username when set, null otherwise. Pass to
-   * `<UserAttribution username={...} />` to link the byline to /users/:username.
-   */
-  requester_username: string | null
-  decision_state: 'pending' | 'approved' | 'rejected'
-  decision_note?: string | null
-  /** The catalog entity created when the request was fulfilled (PSY-1008). */
-  created_entity_id?: number | null
-  created_at: string
 }
 
-export interface AdminEntityRequestsListResponse {
-  requests: AdminEntityRequest[]
-  total: number
+export type AdminEntityRequestsListResponse = Omit<
+  components['schemas']['AdminListEntityRequestsResponseBody'],
+  'requests'
+> & {
+  requests: AdminEntityRequest[] | null
 }
 
 // ─── Filters ─────────────────────────────────────────────────────────────────
