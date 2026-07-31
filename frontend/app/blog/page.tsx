@@ -7,13 +7,13 @@ import { getTextExcerpt } from '@/lib/utils/markdownExcerpt'
 
 export const metadata = {
   title: 'Blog',
-  description: 'Music news, reviews, and updates from the Arizona music scene.',
+  description: 'Music news, reviews, and updates.',
   alternates: {
     canonical: 'https://psychichomily.com/blog',
   },
   openGraph: {
     title: 'Blog | Psychic Homily',
-    description: 'Music news, reviews, and updates from the Arizona music scene.',
+    description: 'Music news, reviews, and updates.',
     url: '/blog',
     type: 'website',
   },
@@ -46,7 +46,7 @@ export default function BlogPage() {
       {posts.length > 0 && (
         <JsonLd data={generateItemListSchema({
           name: 'Blog',
-          description: 'Music news, reviews, and updates from the Arizona music scene.',
+          description: 'Music news, reviews, and updates.',
           listItems: posts.map(post => ({
             url: `https://psychichomily.com/blog/${post.slug}`,
             name: post.frontmatter.title,

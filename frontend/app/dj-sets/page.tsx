@@ -6,13 +6,13 @@ import { formatContentDate } from '@/lib/utils/formatters'
 
 export const metadata = {
   title: 'DJ Sets',
-  description: 'Featured DJ mixes from Arizona DJs and beyond.',
+  description: 'Featured DJ mixes.',
   alternates: {
     canonical: 'https://psychichomily.com/dj-sets',
   },
   openGraph: {
     title: 'DJ Sets | Psychic Homily',
-    description: 'Featured DJ mixes from Arizona DJs and beyond.',
+    description: 'Featured DJ mixes.',
     url: '/dj-sets',
     type: 'website',
   },
@@ -26,7 +26,7 @@ export default function DJSetsPage() {
       {mixes.length > 0 && (
         <JsonLd data={generateItemListSchema({
           name: 'DJ Sets',
-          description: 'Featured DJ mixes from Arizona DJs and beyond.',
+          description: 'Featured DJ mixes.',
           listItems: mixes.map(mix => ({
             url: `https://psychichomily.com/dj-sets/${mix.slug}`,
             name: mix.title,
