@@ -70,7 +70,30 @@ export const test = base.extend<
 
       await use()
 
-      await resetTestFixtures(workerUserId)
+      // Retry once before failing. Not a softening of the rule above — a
+      // persistent failure still aborts the run, and there is still no
+      // opt-out. This is about WHERE the throw lands: worker-scoped teardown
+      // runs after `use()`, so Playwright reports it as a top-level runner
+      // error with no test attached, and `retries` does NOT apply to it. One
+      // transient non-2xx — the backend hiccupping while several workers tear
+      // down at once — would therefore turn a shard whose every test passed
+      // into a red build showing zero failures, which is the same
+      // reads-as-something-it-isn't failure this cleanup was made loud to
+      // avoid. `cleanBetweenRetries` below needs no equivalent: it is
+      // test-scoped, so its teardown error is attributed to a test and the
+      // normal retry budget covers a blip.
+      try {
+        await resetTestFixtures(workerUserId)
+      } catch (firstError) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        try {
+          await resetTestFixtures(workerUserId)
+        } catch {
+          // Surface the FIRST error: it is the one contemporaneous with
+          // whatever went wrong, and the retry's message adds nothing.
+          throw firstError
+        }
+      }
     },
     { scope: 'worker', auto: true },
   ],
