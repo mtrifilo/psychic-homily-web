@@ -4,11 +4,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWeekView } from './components/SceneWeekView'
-import {
-  ARCHIVED_WEEK_REVALIDATE,
-  CURRENT_WEEK_REVALIDATE,
-  fetchSceneWeek,
-} from './sceneWeekApi'
+import { fetchSceneWeek } from './sceneWeekApi'
 import { countShows, formatWeekRange, type SceneWeekResponse } from './sceneWeek'
 import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
 
@@ -23,18 +19,7 @@ import { buildSceneWeekJsonLd } from './sceneWeekJsonLd'
  */
 export const getSceneWeek = cache(
   (slug: string, week?: string): Promise<SceneWeekResponse | null> =>
-    // Keeps the window PSY-1577 shipped. It is keyed on the URL shape, which is
-    // imprecise — the canonical archived URL also serves the live week, so that
-    // week's page can lag by up to a day. Left as-is rather than changed here:
-    // the share card (which is what this PR adds) does not use this path, and
-    // switching every archived page to the short window would multiply backend
-    // load on a resource that genuinely never changes. Tracked separately.
-    fetchSceneWeek(
-      slug,
-      week,
-      'scene-week',
-      week ? ARCHIVED_WEEK_REVALIDATE : CURRENT_WEEK_REVALIDATE
-    )
+    fetchSceneWeek(slug, week, 'scene-week')
 )
 
 export async function buildSceneWeekMetadata(

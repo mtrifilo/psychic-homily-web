@@ -12,10 +12,7 @@ import type { SceneWeekResponse } from './sceneWeek'
  *
  * Note what does NOT decide this: the URL shape. `/scenes/{slug}/{iso-week}` is
  * the CANONICAL url for both routes, so it serves the live week as often as an
- * old one — keying the window on "was a week key supplied" would cache the live
- * week for a day. Callers that cannot yet know which kind of week they are
- * fetching must ask for the short window and let the response decide anything
- * longer.
+ * old one. `fetchSceneWeek` picks between these two from the week itself.
  */
 export const CURRENT_WEEK_REVALIDATE = 900
 export const ARCHIVED_WEEK_REVALIDATE = 86400
@@ -43,23 +40,16 @@ function asSceneWeek(body: unknown): SceneWeekResponse | null {
 }
 
 /**
- * Fetch one scene-week.
+ * One request for one week, at one explicitly chosen freshness window.
  *
- * `week` is an ISO week key, or omitted for the scene's CURRENT week. Current
- * is resolved SERVER-side by the backend, in the scene's own timezone — a
- * reader in Berlin and a reader in Chicago must see the same Chicago week, so
- * the client must not compute it.
- *
- * Kept in its own leaf module, importing nothing but the API base and the
- * response type: the share card renders on the edge runtime, and reaching this
- * through the page module would drag the page view and its JSON-LD helpers into
- * that bundle for no reason.
+ * Private: choosing the window is the whole subtlety here, and `fetchSceneWeek`
+ * below is the only thing entitled to do it.
  */
-export async function fetchSceneWeek(
+async function fetchWeekPayload(
   slug: string,
   week: string | undefined,
   service: SceneWeekService,
-  revalidate: number = CURRENT_WEEK_REVALIDATE
+  revalidate: number
 ): Promise<SceneWeekResponse | null> {
   // Both segments are attacker-controlled: Next decodes route params before the
   // handler sees them, so a slug of `chicago-il?x` or `chicago-il#x` would
@@ -94,4 +84,59 @@ export async function fetchSceneWeek(
     })
   }
   return null
+}
+
+/**
+ * Fetch one scene-week, cached for exactly as long as that week is allowed to
+ * be frozen.
+ *
+ * `week` is an ISO week key, or omitted for the scene's CURRENT week. Current
+ * is resolved SERVER-side by the backend, in the scene's own timezone — a
+ * reader in Berlin and a reader in Chicago must see the same Chicago week, so
+ * the client must not compute it. `is_past_week` is the same answer from the
+ * same authority, and it is the only thing that decides the window here.
+ *
+ * Why a key sometimes costs two requests. `next: { revalidate }` has to be
+ * supplied BEFORE the response exists, so the only way to learn which window a
+ * week deserves is to have already asked for it. The long window goes first
+ * deliberately: for a week that has ended — the overwhelming majority of keyed
+ * URLs, and the ones a crawler walks — that single request is the only one ever
+ * made, so an archived week still costs one backend query a day. Only a week
+ * that can still gain shows falls through to the second, short-window ask.
+ *
+ * Both asks address the same URL and therefore share ONE data-cache entry.
+ * Next decides staleness against the window the CALLER passes, not the one the
+ * entry was stored with (verified against Next 16.1.4's incremental cache), so
+ * the short ask re-reads the backend once that shared entry passes 15 minutes
+ * while the long ask goes on hitting it. Net effect: a live week refreshes on
+ * the 15-minute cadence whichever URL it is served from, an ended week on the
+ * daily one.
+ *
+ * A stale probe can only err one way. If it still says "not ended" for a week
+ * that just ended, the fall-through costs one extra refresh and the next
+ * request sees the corrected flag; it can never report a live week as frozen.
+ *
+ * Kept in its own leaf module, importing nothing but the API base and the
+ * response type: the share card renders on the edge runtime, and reaching this
+ * through the page module would drag the page view and its JSON-LD helpers into
+ * that bundle for no reason.
+ */
+export async function fetchSceneWeek(
+  slug: string,
+  week: string | undefined,
+  service: SceneWeekService
+): Promise<SceneWeekResponse | null> {
+  // No key: the caller is asking for whatever week is live, which by definition
+  // can still change. Nothing to probe for. Tested exactly as `fetchWeekPayload`
+  // tests it, so the branch that picks the window and the branch that picks the
+  // URL can never disagree about what counts as "no key".
+  if (!week) return fetchWeekPayload(slug, undefined, service, CURRENT_WEEK_REVALIDATE)
+
+  const archived = await fetchWeekPayload(slug, week, service, ARCHIVED_WEEK_REVALIDATE)
+  if (!archived || archived.is_past_week) return archived
+
+  // `?? archived` because the week demonstrably exists — the ask above returned
+  // it. A blip on this second request must not turn a real page into a 404;
+  // slightly older data is the better failure.
+  return (await fetchWeekPayload(slug, week, service, CURRENT_WEEK_REVALIDATE)) ?? archived
 }
