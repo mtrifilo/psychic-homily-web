@@ -1725,6 +1725,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/venues/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post admin venues merge */
+        post: operations["post-admin-venues-merge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/venues/merge/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post admin venues merge preview */
+        post: operations["post-admin-venues-merge-preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/venues/unverified": {
         parameters: {
             query?: never;
@@ -12895,6 +12929,56 @@ export interface components {
             /** Format: int64 */
             skipped_votes: number;
         };
+        MergeVenueResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/MergeVenueResult.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            canonical_venue_id: number;
+            canonical_venue_name: string;
+            /** Format: int64 */
+            confirmations_moved: number;
+            /** Format: int64 */
+            duplicate_shows: number;
+            /** Format: int64 */
+            entity_refs_moved: number;
+            /** Format: int64 */
+            festival_artists_moved: number;
+            /** Format: int64 */
+            festival_venues_moved: number;
+            /** Format: int64 */
+            filters_updated: number;
+            /** Format: int64 */
+            merged_venue_id: number;
+            merged_venue_name: string;
+            /** Format: int64 */
+            show_artists_moved: number;
+            /** Format: int64 */
+            show_venues_moved: number;
+            /** Format: int64 */
+            support_acts_rescued: number;
+        };
+        MergeVenuesBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/MergeVenuesBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Venue that survives the merge
+             */
+            canonical_venue_id: number;
+            /**
+             * Format: int64
+             * @description Venue that is folded in and deleted
+             */
+            merge_from_venue_id: number;
+        };
         MonthlyCountResponse: {
             /** Format: int64 */
             count: number;
@@ -20630,6 +20714,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenueDetailResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-admin-venues-merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeVenuesBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeVenueResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-admin-venues-merge-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeVenuesBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeVenueResult"];
                 };
             };
             /** @description Error */

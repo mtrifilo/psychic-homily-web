@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -14,18 +15,21 @@ import (
 
 // AdminVenueHandler handles admin venue management
 type AdminVenueHandler struct {
-	venueService    contracts.VenueServiceInterface
-	auditLogService contracts.AuditLogServiceInterface
+	venueService      contracts.VenueServiceInterface
+	venueMergeService contracts.VenueMergeServiceInterface
+	auditLogService   contracts.AuditLogServiceInterface
 }
 
 // NewAdminVenueHandler creates a new admin venue handler
 func NewAdminVenueHandler(
 	venueService contracts.VenueServiceInterface,
+	venueMergeService contracts.VenueMergeServiceInterface,
 	auditLogService contracts.AuditLogServiceInterface,
 ) *AdminVenueHandler {
 	return &AdminVenueHandler{
-		venueService:    venueService,
-		auditLogService: auditLogService,
+		venueService:      venueService,
+		venueMergeService: venueMergeService,
+		auditLogService:   auditLogService,
 	}
 }
 
@@ -51,6 +55,89 @@ type GetUnverifiedVenuesResponse struct {
 		Venues []*contracts.UnverifiedVenueResponse `json:"venues"`
 		Total  int64                                `json:"total"`
 	}
+}
+
+// MergeVenuesBody is the request body shared by the merge and merge-preview
+// endpoints. Both take the same pair of ids so an admin can preview and then
+// commit with an identical payload.
+type MergeVenuesBody struct {
+	CanonicalVenueID uint `json:"canonical_venue_id" doc:"Venue that survives the merge"`
+	MergeFromVenueID uint `json:"merge_from_venue_id" doc:"Venue that is folded in and deleted"`
+}
+
+// MergeVenuesRequest represents the HTTP request for merging two venues.
+type MergeVenuesRequest struct {
+	Body MergeVenuesBody
+}
+
+// MergeVenuesResponse represents the HTTP response for a venue merge or
+// merge preview.
+type MergeVenuesResponse struct {
+	Body *contracts.MergeVenueResult
+}
+
+// PreviewMergeVenuesHandler handles POST /admin/venues/merge/preview.
+//
+// Read-only despite being a POST: it reports what the merge WOULD do and
+// commits nothing. POST rather than GET because it takes the same body as the
+// merge itself, so previewing and committing differ only in the URL.
+func (h *AdminVenueHandler) PreviewMergeVenuesHandler(ctx context.Context, req *MergeVenuesRequest) (*MergeVenuesResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	result, err := h.venueMergeService.PreviewMergeVenues(req.Body.CanonicalVenueID, req.Body.MergeFromVenueID)
+	if err != nil {
+		if mapped := shared.MapVenueError(err); mapped != nil {
+			return nil, mapped
+		}
+		logger.FromContext(ctx).Error("preview_merge_venues_failed",
+			"canonical_id", req.Body.CanonicalVenueID,
+			"merge_from_id", req.Body.MergeFromVenueID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to preview venue merge (request_id: %s)", requestID),
+		)
+	}
+
+	return &MergeVenuesResponse{Body: result}, nil
+}
+
+// MergeVenuesHandler handles POST /admin/venues/merge.
+//
+// Destructive: it deletes duplicate shows and the losing venue. The service
+// writes its own audit-log entry with the full count breakdown.
+func (h *AdminVenueHandler) MergeVenuesHandler(ctx context.Context, req *MergeVenuesRequest) (*MergeVenuesResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+	user := middleware.GetUserFromContext(ctx)
+
+	result, err := h.venueMergeService.MergeVenues(req.Body.CanonicalVenueID, req.Body.MergeFromVenueID, user.ID)
+	if err != nil {
+		if mapped := shared.MapVenueError(err); mapped != nil {
+			return nil, mapped
+		}
+		logger.FromContext(ctx).Error("merge_venues_failed",
+			"canonical_id", req.Body.CanonicalVenueID,
+			"merge_from_id", req.Body.MergeFromVenueID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to merge venues (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("venues_merged",
+		"canonical_id", result.CanonicalVenueID,
+		"merged_id", result.MergedVenueID,
+		"merged_name", result.MergedVenueName,
+		"duplicate_shows", result.DuplicateShows,
+		"support_acts_rescued", result.SupportActsRescued,
+		"admin_id", user.ID,
+		"request_id", requestID,
+	)
+
+	return &MergeVenuesResponse{Body: result}, nil
 }
 
 // VerifyVenueHandler handles POST /admin/venues/{venue_id}/verify

@@ -35,6 +35,7 @@ func (s *AdminHandlerIntegrationSuite) SetupSuite() {
 	)
 	s.venueHandler = NewAdminVenueHandler(
 		s.deps.VenueService,
+		s.deps.VenueService,
 		s.deps.AuditLogService,
 	)
 	s.tokenHandler = NewAdminTokenHandler(

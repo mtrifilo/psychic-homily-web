@@ -6,8 +6,9 @@ import (
 
 // Venue error codes
 const (
-	CodeVenueNotFound = "VENUE_NOT_FOUND"
-	CodeVenueHasShows = "VENUE_HAS_SHOWS"
+	CodeVenueNotFound     = "VENUE_NOT_FOUND"
+	CodeVenueHasShows     = "VENUE_HAS_SHOWS"
+	CodeVenueMergeInvalid = "VENUE_MERGE_INVALID"
 )
 
 // VenueError represents a venue-related error with additional context.
@@ -47,5 +48,14 @@ func ErrVenueHasShows(venueID uint, count int64) *VenueError {
 		Code:    CodeVenueHasShows,
 		Message: fmt.Sprintf("Cannot delete venue: associated with %d shows", count),
 		VenueID: venueID,
+	}
+}
+
+// ErrVenueMergeInvalid creates an error for a venue merge that cannot proceed
+// (missing ids, merge-into-self). Reason is caller-facing.
+func ErrVenueMergeInvalid(reason string) *VenueError {
+	return &VenueError{
+		Code:    CodeVenueMergeInvalid,
+		Message: reason,
 	}
 }

@@ -22,7 +22,7 @@ func testAdminShowHandler() *AdminShowHandler {
 }
 
 func testAdminVenueHandler() *AdminVenueHandler {
-	return NewAdminVenueHandler(nil, nil)
+	return NewAdminVenueHandler(nil, nil, nil)
 }
 
 func testAdminTokenHandler() *AdminTokenHandler {
