@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"psychic-homily-backend/internal/utils/urlguard"
 )
 
 // LivenessChecker reports whether a candidate URL is reachable. It is an
@@ -183,97 +185,9 @@ func ssrfDialControl(_, address string, _ syscall.RawConn) error {
 		// anomalous — fail closed.
 		return fmt.Errorf("ssrf guard: non-IP dial host %q", host)
 	}
-	if !isPublicIP(ip) {
+	if !urlguard.IsPublicIP(ip) {
 		return fmt.Errorf("ssrf guard: refusing to dial non-public address %s", ip)
 	}
 	return nil
 }
 
-// blockedNets enumerates the non-public ranges Go's stdlib IP predicates
-// (IsLoopback/IsPrivate/IsLinkLocal*/IsMulticast/IsUnspecified) DON'T cover but
-// a server-side SSRF guard must still refuse. The stdlib predicates are applied
-// separately in isPublicIP; this list closes their gaps. Every entry is checked
-// against BOTH the original IP and the To4()-normalized form, so an IPv4-mapped
-// IPv6 wrapper (::ffff:a.b.c.d) of any IPv4 range here is also caught.
-var blockedNets = mustCIDRs(
-	// IPv4 ranges stdlib misses:
-	"0.0.0.0/8",       // "this host on this network" (RFC 1122) — 0.x dials localhost on Linux
-	"100.64.0.0/10",   // CGNAT shared address space (RFC 6598)
-	"192.0.0.0/24",    // IETF protocol assignments (incl. 192.0.0.x service hosts)
-	"192.0.2.0/24",    // TEST-NET-1 (RFC 5737 documentation)
-	"198.18.0.0/15",   // benchmarking (RFC 2544)
-	"198.51.100.0/24", // TEST-NET-2
-	"203.0.113.0/24",  // TEST-NET-3
-	"240.0.0.0/4",     // reserved class E (incl. 255.255.255.255 broadcast)
-	// IPv6 ranges that embed/relay to arbitrary (incl. internal) IPv4 targets.
-	// To4() normalizes only the IPv4-MAPPED form (::ffff:a.b.c.d), so these
-	// embedding prefixes must be blocked explicitly on the original IPv6 shape:
-	"::/96",        // IPv4-COMPATIBLE (deprecated) — ::a.b.c.d embeds an IPv4 host (::7f00:1 = 127.0.0.1). Does NOT match ::ffff:a.b.c.d (those normalize via To4).
-	"64:ff9b::/96", // NAT64 well-known prefix — low 32 bits are an IPv4 host
-	"2002::/16",    // 6to4 — bits 16..48 are an embedded IPv4 host (2002:7f00::/24 = 127.0.0.0/8)
-	"2001::/32",    // Teredo — relays to arbitrary IPv4
-)
-
-func mustCIDRs(cidrs ...string) []*net.IPNet {
-	out := make([]*net.IPNet, 0, len(cidrs))
-	for _, c := range cidrs {
-		_, n, err := net.ParseCIDR(c)
-		if err != nil {
-			panic("invalid SSRF CIDR " + c + ": " + err.Error())
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
-// isPublicIP reports whether ip is a globally-routable public address. It is the
-// allowlist-by-exclusion at the heart of the SSRF guard: an address is public
-// ONLY if it survives every block below. The blocked set is the union of (a) the
-// stdlib predicates — loopback, private (RFC1918 / RFC4193 fc00::/7), link-local
-// (incl. 169.254.169.254 cloud metadata), multicast, unspecified — and (b) the
-// blockedNets CIDR list, which closes the ranges those predicates miss
-// (0.0.0.0/8, CGNAT, class-E/broadcast, documentation/benchmark, NAT64, 6to4,
-// Teredo). Each blockedNets entry is checked against both the original form and
-// the IPv4-mapped-normalized form, so a mapped wrapper of any blocked IPv4 range
-// is also refused.
-func isPublicIP(ip net.IP) bool {
-	// Check blockedNets against the ORIGINAL form first, so an IPv6-shaped
-	// embedding prefix (NAT64 / 6to4 / Teredo) is matched before To4() could
-	// rewrite a mapped address into a bare IPv4.
-	if inAnyNet(ip, blockedNets) {
-		return false
-	}
-	// Normalize an IPv4-mapped IPv6 address (::ffff:127.0.0.1) to its IPv4 form
-	// so the stdlib IPv4 predicates and the IPv4 entries in blockedNets apply.
-	if v4 := ip.To4(); v4 != nil {
-		ip = v4
-	}
-	if ip.IsLoopback() ||
-		ip.IsPrivate() ||
-		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() ||
-		ip.IsUnspecified() {
-		return false
-	}
-	// Re-check blockedNets against the normalized IPv4 form (a ::ffff:100.64.x.x
-	// mapped CGNAT address passes the pre-normalization check on its IPv6 shape).
-	if inAnyNet(ip, blockedNets) {
-		return false
-	}
-	// Final floor: only addresses the stdlib considers global-unicast are public.
-	// This catches any remaining non-routable IPv6 shape (e.g. a future reserved
-	// block) without an explicit CIDR. For a normalized IPv4, To4() addresses are
-	// global-unicast unless caught above.
-	return ip.IsGlobalUnicast()
-}
-
-// inAnyNet reports whether ip falls within any of the given networks.
-func inAnyNet(ip net.IP, nets []*net.IPNet) bool {
-	for _, n := range nets {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}

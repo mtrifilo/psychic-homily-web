@@ -150,7 +150,7 @@ func (h *EntityRequestHandler) AdminFulfillEntityRequestHandler(ctx context.Cont
 	// per-type dispatcher). showAssoc supplies the show's venue + artists.
 	// Attribution is inherited from fulfillEntity (entity_request_fulfill.go):
 	// a rescued show credits the original REQUESTER, not the rescuing admin.
-	createdID, ferr := h.fulfillEntity(existing, showAssoc)
+	createdID, ferr := h.fulfillEntity(ctx, existing, showAssoc)
 	if ferr != nil {
 		logger.FromContext(ctx).Error("entity_request_rescue_fulfill_failed",
 			"request_id", requestID,

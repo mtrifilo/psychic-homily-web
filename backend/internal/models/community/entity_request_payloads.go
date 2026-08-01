@@ -317,6 +317,57 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 
 // requireField returns an error when a required string field is empty (after
 // trimming). Keeps ValidateEntityRequestPayload's required-field checks terse.
+// PayloadImageURL returns the payload's image_url, or nil when the type has no
+// such field or the value is absent.
+//
+// It exists so the entity-request write paths can run image_url through the
+// SSRF host guard (PSY-1675) WITHOUT this package growing a dependency on a DNS
+// resolver: the guard resolves hosts, which is I/O, and I/O does not belong in
+// a payload model. The handler extracts the value here and validates it with
+// the same shared.ValidateImageURL the direct show/venue/label endpoints use,
+// so all four surfaces enforce one rule.
+//
+// The switch is exhaustive over the registered types on purpose. An unknown
+// type is an ERROR rather than "no image URL", so adding an entity_type without
+// deciding whether it carries a fetched URL fails closed instead of silently
+// skipping the guard. Callers gate on IsValidEntityRequestType first, so the
+// error is unreachable from the API boundary.
+func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
+	switch entityType {
+	case EntityRequestArtist:
+		p, err := UnmarshalPayload[ArtistRequestPayload](raw)
+		if err != nil {
+			return nil, err
+		}
+		return p.ImageURL, nil
+	case EntityRequestLabel:
+		p, err := UnmarshalPayload[LabelRequestPayload](raw)
+		if err != nil {
+			return nil, err
+		}
+		return p.ImageURL, nil
+	case EntityRequestVenue:
+		p, err := UnmarshalPayload[VenueRequestPayload](raw)
+		if err != nil {
+			return nil, err
+		}
+		return p.ImageURL, nil
+	case EntityRequestShow:
+		p, err := UnmarshalPayload[ShowRequestPayload](raw)
+		if err != nil {
+			return nil, err
+		}
+		return p.ImageURL, nil
+	case EntityRequestRelease, EntityRequestFestival:
+		// release carries cover_art_url and festival carries flyer_url; neither
+		// is fetched server-side today, so neither is host-guarded. Move it here
+		// if that changes.
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown entity type %q", entityType)
+	}
+}
+
 func requireField(entityType, field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s payload: %s is required", entityType, field)

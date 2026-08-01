@@ -1,44 +1,68 @@
 package shared
 
 import (
+	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/utils/urlguard"
 )
+
+var bg = context.Background()
+
+// TestMain pins the SSRF host guard (PSY-1675) to a fixed resolution table, so
+// the fields it now applies to are validated against known addresses rather
+// than whatever the machine's DNS says about example.com — which would make
+// this package fail on a laptop with no network and, worse, pass or fail on a
+// hijacked answer. Package-level state: no test here may call t.Parallel.
+func TestMain(m *testing.M) {
+	restore := urlguard.Default.UseResolver(urlguard.MapResolver{
+		"example.com":          {"93.184.216.34"},
+		"tickets.example.com":  {"93.184.216.34"},
+		"anything.example.org": {"93.184.216.34"},
+		"instagram.com":        {"93.184.216.34"},
+		"artist.bandcamp.com":  {"93.184.216.34"},
+		"open.spotify.com":     {"93.184.216.34"},
+	})
+	code := m.Run()
+	restore()
+	os.Exit(code)
+}
 
 // ============================================================================
 // ValidateImageURL
 // ============================================================================
 
 func TestValidateImageURL_NilPasses(t *testing.T) {
-	if err := ValidateImageURL(nil); err != nil {
+	if err := ValidateImageURL(bg, nil); err != nil {
 		t.Errorf("nil should pass, got: %v", err)
 	}
 }
 
 func TestValidateImageURL_EmptyPasses(t *testing.T) {
-	if err := ValidateImageURL(PtrString("")); err != nil {
+	if err := ValidateImageURL(bg, PtrString("")); err != nil {
 		t.Errorf("empty string should pass, got: %v", err)
 	}
 }
 
 func TestValidateImageURL_ValidHTTPS(t *testing.T) {
-	if err := ValidateImageURL(PtrString("https://example.com/img.jpg")); err != nil {
+	if err := ValidateImageURL(bg, PtrString("https://example.com/img.jpg")); err != nil {
 		t.Errorf("https URL should pass, got: %v", err)
 	}
 }
 
 func TestValidateImageURL_RejectsJavaScriptScheme(t *testing.T) {
-	err := ValidateImageURL(PtrString("javascript:alert(1)"))
+	err := ValidateImageURL(bg, PtrString("javascript:alert(1)"))
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestValidateImageURL_RejectsDataScheme(t *testing.T) {
-	err := ValidateImageURL(PtrString("data:image/png;base64,AAAA"))
+	err := ValidateImageURL(bg, PtrString("data:image/png;base64,AAAA"))
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
@@ -155,12 +179,12 @@ func TestValidateSocialURLs_WebsiteAcceptsAnyHost(t *testing.T) {
 
 func TestValidateFieldChangeValue_HostAnchorsSocialFields(t *testing.T) {
 	// The suggest-edit path host-anchors platform fields too (PSY-1113).
-	if err := ValidateFieldChangeValue("spotify", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"); err != nil {
+	if err := ValidateFieldChangeValue(bg, "spotify", "https://open.spotify.com/artist/0WThQFCFaU1YR5s0bNLvtP"); err != nil {
 		t.Errorf("canonical spotify URL should pass, got: %v", err)
 	}
-	err := ValidateFieldChangeValue("spotify", "https://evil.test/artist/x")
+	err := ValidateFieldChangeValue(bg, "spotify", "https://evil.test/artist/x")
 	testhelpers.AssertHumaError(t, err, 422)
-	if err := ValidateFieldChangeValue("website", "https://anything.example.org"); err != nil {
+	if err := ValidateFieldChangeValue(bg, "website", "https://anything.example.org"); err != nil {
 		t.Errorf("website should accept any host, got: %v", err)
 	}
 }
@@ -184,7 +208,7 @@ func TestValidateFieldChangeValue_UnknownFieldPasses(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.field, func(t *testing.T) {
-			if err := ValidateFieldChangeValue(c.field, c.value); err != nil {
+			if err := ValidateFieldChangeValue(bg, c.field, c.value); err != nil {
 				t.Errorf("non-URL field %q should pass, got: %v", c.field, err)
 			}
 		})
@@ -194,7 +218,7 @@ func TestValidateFieldChangeValue_UnknownFieldPasses(t *testing.T) {
 func TestValidateFieldChangeValue_NilValuePasses(t *testing.T) {
 	for _, field := range []string{"image_url", "instagram", "website", "bandcamp"} {
 		t.Run(field, func(t *testing.T) {
-			if err := ValidateFieldChangeValue(field, nil); err != nil {
+			if err := ValidateFieldChangeValue(bg, field, nil); err != nil {
 				t.Errorf("nil value should pass for %q, got: %v", field, err)
 			}
 		})
@@ -205,7 +229,7 @@ func TestValidateFieldChangeValue_EmptyStringPasses(t *testing.T) {
 	// Empty string means "clear the field" — should pass through.
 	for _, field := range []string{"image_url", "instagram", "website"} {
 		t.Run(field, func(t *testing.T) {
-			if err := ValidateFieldChangeValue(field, ""); err != nil {
+			if err := ValidateFieldChangeValue(bg, field, ""); err != nil {
 				t.Errorf("empty string should pass for %q, got: %v", field, err)
 			}
 		})
@@ -226,7 +250,7 @@ func TestValidateFieldChangeValue_NonStringValueRejected(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := ValidateFieldChangeValue("image_url", c.value)
+			err := ValidateFieldChangeValue(bg, "image_url", c.value)
 			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
@@ -247,7 +271,7 @@ func TestValidateFieldChangeValue_RejectsNonHTTPSchemes(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := ValidateFieldChangeValue("image_url", c.value)
+			err := ValidateFieldChangeValue(bg, "image_url", c.value)
 			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
@@ -266,7 +290,7 @@ func TestValidateFieldChangeValue_AcceptsValidURLs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.field+"="+c.value, func(t *testing.T) {
-			if err := ValidateFieldChangeValue(c.field, c.value); err != nil {
+			if err := ValidateFieldChangeValue(bg, c.field, c.value); err != nil {
 				t.Errorf("valid URL should pass: %v", err)
 			}
 		})
@@ -277,7 +301,7 @@ func TestValidateFieldChangeValue_RejectsLengthExceeded(t *testing.T) {
 	// instagram cap is 255. Build a 256-char URL.
 	base := "https://instagram.com/"
 	long := base + strings.Repeat("a", 256-len(base)+1)
-	err := ValidateFieldChangeValue("instagram", long)
+	err := ValidateFieldChangeValue(bg, "instagram", long)
 	testhelpers.AssertHumaError(t, err, 422)
 	var he *huma.ErrorModel
 	errors.As(err, &he)
@@ -293,7 +317,7 @@ func TestValidateFieldChangeValue_AcceptsAtCap(t *testing.T) {
 	if len(exactly255) != 255 {
 		t.Fatalf("test setup: expected 255 chars, got %d", len(exactly255))
 	}
-	if err := ValidateFieldChangeValue("instagram", exactly255); err != nil {
+	if err := ValidateFieldChangeValue(bg, "instagram", exactly255); err != nil {
 		t.Errorf("exactly-at-cap value should pass, got: %v", err)
 	}
 }
@@ -302,11 +326,11 @@ func TestValidateFieldChangeValue_ImageURLLargerCap(t *testing.T) {
 	// image_url cap is 2048. A 1500-char URL should pass; 2049 should fail.
 	base := "https://example.com/"
 	at1500 := base + strings.Repeat("a", 1500-len(base))
-	if err := ValidateFieldChangeValue("image_url", at1500); err != nil {
+	if err := ValidateFieldChangeValue(bg, "image_url", at1500); err != nil {
 		t.Errorf("1500-char image URL should pass, got: %v", err)
 	}
 	too2049 := base + strings.Repeat("a", 2049-len(base))
-	err := ValidateFieldChangeValue("image_url", too2049)
+	err := ValidateFieldChangeValue(bg, "image_url", too2049)
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
@@ -318,10 +342,10 @@ func TestValidateFieldChangeValue_ImageURLLargerCap(t *testing.T) {
 func TestValidateURLField_NilAndEmptyPass(t *testing.T) {
 	for _, field := range []string{"cover_image_url", "cover_art_url", "ticket_url"} {
 		t.Run(field, func(t *testing.T) {
-			if err := ValidateURLField(field, nil); err != nil {
+			if err := ValidateURLField(bg, field, nil); err != nil {
 				t.Errorf("nil should pass, got: %v", err)
 			}
-			if err := ValidateURLField(field, PtrString("")); err != nil {
+			if err := ValidateURLField(bg, field, PtrString("")); err != nil {
 				t.Errorf("empty string should pass, got: %v", err)
 			}
 		})
@@ -330,7 +354,7 @@ func TestValidateURLField_NilAndEmptyPass(t *testing.T) {
 
 func TestValidateURLField_UnknownFieldPasses(t *testing.T) {
 	// A field name not in urlFieldSpecs degrades to no-op rather than crashing.
-	if err := ValidateURLField("not_a_url_field", PtrString("javascript:alert(1)")); err != nil {
+	if err := ValidateURLField(bg, "not_a_url_field", PtrString("javascript:alert(1)")); err != nil {
 		t.Errorf("unknown field should pass, got: %v", err)
 	}
 }
@@ -344,7 +368,7 @@ func TestValidateURLField_AcceptsValidHTTPAndHTTPS(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.field+"="+c.value, func(t *testing.T) {
-			if err := ValidateURLField(c.field, PtrString(c.value)); err != nil {
+			if err := ValidateURLField(bg, c.field, PtrString(c.value)); err != nil {
 				t.Errorf("valid URL should pass, got: %v", err)
 			}
 		})
@@ -354,7 +378,7 @@ func TestValidateURLField_AcceptsValidHTTPAndHTTPS(t *testing.T) {
 func TestValidateURLField_RejectsJavaScriptScheme(t *testing.T) {
 	for _, field := range []string{"cover_image_url", "cover_art_url", "ticket_url"} {
 		t.Run(field, func(t *testing.T) {
-			err := ValidateURLField(field, PtrString("javascript:alert(1)"))
+			err := ValidateURLField(bg, field, PtrString("javascript:alert(1)"))
 			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
@@ -363,7 +387,7 @@ func TestValidateURLField_RejectsJavaScriptScheme(t *testing.T) {
 func TestValidateURLField_RejectsDataScheme(t *testing.T) {
 	for _, field := range []string{"cover_image_url", "cover_art_url", "ticket_url"} {
 		t.Run(field, func(t *testing.T) {
-			err := ValidateURLField(field, PtrString("data:text/html,<script>alert(1)</script>"))
+			err := ValidateURLField(bg, field, PtrString("data:text/html,<script>alert(1)</script>"))
 			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
@@ -373,7 +397,7 @@ func TestValidateURLField_RejectsLengthExceeded(t *testing.T) {
 	// ticket_url cap is 500; build a 501-char URL.
 	base := "https://tickets.example.com/"
 	long := base + strings.Repeat("a", 501-len(base)+1)
-	err := ValidateURLField("ticket_url", PtrString(long))
+	err := ValidateURLField(bg, "ticket_url", PtrString(long))
 	testhelpers.AssertHumaError(t, err, 422)
 	var he *huma.ErrorModel
 	errors.As(err, &he)
@@ -418,5 +442,94 @@ func TestURLSchemeError_RejectsLengthExceeded(t *testing.T) {
 	err := URLSchemeError("ticket_url", long)
 	if err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500-char cap error, got: %v", err)
+	}
+}
+
+// ============================================================================
+// SSRF host guard — PSY-1675. image_url is fetched server-side by the share-card
+// renderer, so these two entry points must resolve the host, not just check the
+// scheme. The exhaustive address corpus lives in internal/utils/urlguard; what
+// is asserted HERE is that each entry point actually reaches it, and returns a
+// 422 rather than a bare error.
+// ============================================================================
+
+// ssrfBypassCorpus is a representative slice of the forms PSY-1672's edge guard
+// was hardened against, plus the hostname case only a resolver can catch.
+var ssrfBypassCorpus = []struct{ name, value string }{
+	{"cloud metadata literal", "https://169.254.169.254/latest/meta-data/"},
+	{"ipv6-mapped metadata", "https://[::ffff:169.254.169.254]/x.jpg"},
+	{"ipv6-mapped metadata, hex groups", "https://[::ffff:a9fe:a9fe]/x.jpg"},
+	{"decimal loopback", "https://2130706433/x.jpg"},
+	{"octal loopback", "https://0177.0.0.1/x.jpg"},
+	{"hex loopback", "https://0x7f000001/x.jpg"},
+	{"short-form loopback", "https://127.1/x.jpg"},
+	{"userinfo hiding the host", "https://example.com@169.254.169.254/x.jpg"},
+	{"localhost with a trailing dot", "https://localhost./x.jpg"},
+	{"rfc1918", "https://10.0.0.5/x.jpg"},
+	{"name resolving to cloud metadata", "https://rebind.example.test/x.jpg"},
+	{"name that does not resolve", "https://nowhere.example.test/x.jpg"},
+}
+
+// withHostileDNS points rebind.example.test at the metadata address for the
+// duration of one test, leaving the package-wide table otherwise intact.
+func withHostileDNS(t *testing.T) {
+	t.Helper()
+	t.Cleanup(urlguard.Default.UseResolver(urlguard.MapResolver{
+		"example.com":         {"93.184.216.34"},
+		"rebind.example.test": {"169.254.169.254"},
+	}))
+}
+
+func TestValidateImageURL_RejectsSSRFTargets(t *testing.T) {
+	withHostileDNS(t)
+	for _, c := range ssrfBypassCorpus {
+		t.Run(c.name, func(t *testing.T) {
+			err := ValidateImageURL(bg, PtrString(c.value))
+			testhelpers.AssertHumaError(t, err, 422)
+		})
+	}
+	if err := ValidateImageURL(bg, PtrString("https://example.com/flyer.jpg")); err != nil {
+		t.Errorf("a public image host must still pass, got: %v", err)
+	}
+}
+
+func TestValidateFieldChangeValue_RejectsSSRFTargetsOnImageURL(t *testing.T) {
+	withHostileDNS(t)
+	for _, c := range ssrfBypassCorpus {
+		t.Run(c.name, func(t *testing.T) {
+			err := ValidateFieldChangeValue(bg, "image_url", c.value)
+			testhelpers.AssertHumaError(t, err, 422)
+		})
+	}
+	if err := ValidateFieldChangeValue(bg, "image_url", "https://example.com/flyer.jpg"); err != nil {
+		t.Errorf("a public image host must still pass, got: %v", err)
+	}
+}
+
+// TestFetchHostGuard_OnlyAppliesToFetchedFields is the guard on the guard: the
+// host check costs a DNS lookup on the write path, so it must run for the field
+// that is fetched and stay off the ones that are only ever rendered as an href
+// or an <img>. If this fails, an unrelated write path just grew a resolver
+// dependency.
+func TestFetchHostGuard_OnlyAppliesToFetchedFields(t *testing.T) {
+	withHostileDNS(t)
+	unfetched := []struct{ field, value string }{
+		{"cover_image_url", "https://nowhere.example.test/cover.jpg"},
+		{"cover_art_url", "https://nowhere.example.test/art.png"},
+		{"ticket_url", "https://nowhere.example.test/event/1"},
+	}
+	for _, c := range unfetched {
+		t.Run(c.field, func(t *testing.T) {
+			if err := ValidateURLField(bg, c.field, PtrString(c.value)); err != nil {
+				t.Errorf("%s is not fetched server-side and must not be resolved, got: %v", c.field, err)
+			}
+			if err := ValidateFieldChangeValue(bg, c.field, c.value); err != nil {
+				t.Errorf("%s via field-change must not be resolved, got: %v", c.field, err)
+			}
+		})
+	}
+	// The social fields keep their host anchor and gain no resolver either.
+	if err := ValidateFieldChangeValue(bg, "website", "https://nowhere.example.test/page"); err != nil {
+		t.Errorf("website must not be resolved, got: %v", err)
 	}
 }

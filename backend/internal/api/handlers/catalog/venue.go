@@ -422,7 +422,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
 		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
-	if err := shared.ValidateImageURL(req.Body.ImageURL); err != nil {
+	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
 		return nil, err
 	}
 	if err := shared.ValidateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,

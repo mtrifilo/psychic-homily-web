@@ -146,7 +146,7 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 		if !allowed[change.Field] {
 			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Field '%s' is not editable on %s entities", change.Field, entityType))
 		}
-		if err := shared.ValidateFieldChangeValue(change.Field, change.NewValue); err != nil {
+		if err := shared.ValidateFieldChangeValue(ctx, change.Field, change.NewValue); err != nil {
 			return nil, err
 		}
 	}

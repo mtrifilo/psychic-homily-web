@@ -230,7 +230,7 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 
 	// PSY-747: reject non-http/https cover image URLs (e.g. javascript:, data:)
 	// and cap length.
-	if err := shared.ValidateURLField("cover_image_url", req.Body.CoverImageURL); err != nil {
+	if err := shared.ValidateURLField(ctx, "cover_image_url", req.Body.CoverImageURL); err != nil {
 		return nil, err
 	}
 
@@ -301,7 +301,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 
 	// PSY-747: reject non-http/https cover image URLs (e.g. javascript:, data:)
 	// and cap length.
-	if err := shared.ValidateURLField("cover_image_url", req.Body.CoverImageURL); err != nil {
+	if err := shared.ValidateURLField(ctx, "cover_image_url", req.Body.CoverImageURL); err != nil {
 		return nil, err
 	}
 

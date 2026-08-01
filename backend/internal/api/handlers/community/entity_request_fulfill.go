@@ -1,6 +1,8 @@
 package community
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +16,22 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
+
+// validatePayloadImageURL runs an entity-request payload's image_url through the
+// same SSRF host guard the direct catalog endpoints apply (PSY-1675). It is the
+// one place the queue's two write moments — create and fulfill — agree on the
+// rule, so neither can drift.
+//
+// The returned error is a plain error, not a huma status: the create path wraps
+// it in a 422 and the fulfill path wraps it in the request's typed
+// payload-invalid error, and each keeps its own attribution.
+func validatePayloadImageURL(ctx context.Context, entityType string, raw json.RawMessage) error {
+	imageURL, err := communitym.PayloadImageURL(entityType, raw)
+	if err != nil {
+		return err
+	}
+	return shared.ValidateImageURL(ctx, imageURL)
+}
 
 // isFulfillUnsupported reports whether err is the typed "fulfillment
 // unsupported" error fulfillEntity returns when a show request has no
@@ -179,7 +197,7 @@ func parseShowEventDate(value, state string) (time.Time, error) {
 // PSY-1037); the payload alone lacks them. Without associations (the
 // auto-approve create path) the show branch returns a typed
 // FulfillUnsupported error and the request defers gracefully.
-func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest, showAssoc *showAssociations) (uint, error) {
+func (h *EntityRequestHandler) fulfillEntity(ctx context.Context, req *communitym.EntityRequest, showAssoc *showAssociations) (uint, error) {
 	if req.Payload == nil {
 		return 0, apperrors.ErrEntityRequestEmptyPayload(req.EntityType)
 	}
@@ -199,6 +217,12 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest, show
 	// fulfilled, so its stored payload is re-validated like every other type.
 	if req.EntityType != communitym.EntityRequestShow || showAssoc != nil {
 		if verr := communitym.ValidateEntityRequestPayload(req.EntityType, raw); verr != nil {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
+		}
+		// PSY-1675: the SSRF host guard runs at queue-create too, but a row may
+		// predate it (or its host's DNS answer may have moved inward since),
+		// and this is the moment the value becomes a live entity's flyer.
+		if verr := validatePayloadImageURL(ctx, req.EntityType, raw); verr != nil {
 			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
 		}
 	}

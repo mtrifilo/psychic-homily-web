@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/utils"
+	"psychic-homily-backend/internal/utils/urlguard"
 )
 
 // urlFieldSpec defines validation rules for a known URL field across the
@@ -18,6 +20,15 @@ import (
 type urlFieldSpec struct {
 	displayName string
 	maxLength   int
+	// fetched marks a field whose stored value is later FETCHED server-side, so
+	// it must clear the SSRF host guard (urlguard) on top of the scheme check.
+	// Only image_url is fetched today: the show share-card renderer pulls it to
+	// draw the flyer (PSY-1672). The other URL fields here are rendered as an
+	// href or an <img> by the browser, never requested by us, so resolving them
+	// would buy no safety and would put a DNS lookup on unrelated write paths.
+	// Flip this to true for a field the moment something server-side starts
+	// fetching it.
+	fetched bool
 }
 
 // urlFieldSpecs is the canonical list of URL fields validated at the API
@@ -33,7 +44,7 @@ type urlFieldSpec struct {
 // suggest-edit path matches that scope so it doesn't enforce stricter rules
 // than the catalog handler would.
 var urlFieldSpecs = map[string]urlFieldSpec{
-	"image_url":       {displayName: "Image URL", maxLength: 2048},
+	"image_url":       {displayName: "Image URL", maxLength: 2048, fetched: true},
 	"cover_image_url": {displayName: "Cover image URL", maxLength: 2048},
 	"cover_art_url":   {displayName: "Cover art URL", maxLength: 2048},
 	"ticket_url":      {displayName: "Ticket URL", maxLength: 500},
@@ -47,17 +58,41 @@ var urlFieldSpecs = map[string]urlFieldSpec{
 	"website":         {displayName: "Website URL", maxLength: 500},
 }
 
-// ValidateImageURL applies the http/https scheme check to an optional image
-// URL. Empty strings pass through so callers that allow "clear via empty
-// string" semantics keep working.
+// ValidateImageURL applies the http/https scheme check AND the SSRF host guard
+// to an optional image URL. Empty strings pass through so callers that allow
+// "clear via empty string" semantics keep working.
 //
 // Length is enforced separately by the request struct's maxLength tag at
-// JSON decode time; this helper only checks the scheme rule.
-func ValidateImageURL(imageURL *string) error {
+// JSON decode time; this helper checks the scheme rule and where the host
+// actually points.
+//
+// PSY-1675: image_url is writable by any email-verified user and is fetched
+// server-side by the share-card renderer, so the host is resolved here and a
+// value that lands on a private/loopback/link-local/metadata address is
+// refused. The edge renderer keeps its own literal-host guard as the fetch-time
+// backstop (it has no resolver, which is why this layer exists). ctx bounds the
+// lookup: a disconnected client cancels it.
+func ValidateImageURL(ctx context.Context, imageURL *string) error {
 	if imageURL == nil {
 		return nil
 	}
-	return validateScheme(*imageURL, urlFieldSpecs["image_url"].displayName)
+	if err := validateScheme(*imageURL, urlFieldSpecs["image_url"].displayName); err != nil {
+		return err
+	}
+	return validateFetchHost(ctx, "image_url", *imageURL)
+}
+
+// validateFetchHost applies the SSRF host guard to a field marked `fetched`,
+// and is a no-op for every other field. Assumes the scheme check already ran.
+func validateFetchHost(ctx context.Context, field, value string) error {
+	spec, ok := urlFieldSpecs[field]
+	if !ok || !spec.fetched {
+		return nil
+	}
+	if err := urlguard.Default.Validate(ctx, value, spec.displayName); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
+	}
+	return nil
 }
 
 // ValidateURLField applies both the http/https scheme check and the per-field
@@ -71,14 +106,14 @@ func ValidateImageURL(imageURL *string) error {
 // string" semantics keep working. Unknown field names return nil rather than
 // panicking, so a typo degrades to no-op validation rather than a runtime
 // crash; callers pass a literal key matched against urlFieldSpecs.
-func ValidateURLField(fieldName string, value *string) error {
+func ValidateURLField(ctx context.Context, fieldName string, value *string) error {
 	if value == nil {
 		return nil
 	}
 	if err := URLSchemeError(fieldName, *value); err != nil {
 		return huma.Error422UnprocessableEntity(err.Error())
 	}
-	return nil
+	return validateFetchHost(ctx, fieldName, *value)
 }
 
 // socialHostSuffixes anchors each platform social field to its known hosts, so
@@ -187,7 +222,7 @@ func ValidateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundclo
 //
 // Returns a huma.Error422UnprocessableEntity. Empty strings and nil pass
 // through (caller decides whether empty means "clear the field").
-func ValidateFieldChangeValue(fieldName string, value any) error {
+func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) error {
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok {
 		return nil
@@ -212,7 +247,10 @@ func ValidateFieldChangeValue(fieldName string, value any) error {
 	if err := validateScheme(s, spec.displayName); err != nil {
 		return err
 	}
-	return validateSocialHost(fieldName, s)
+	if err := validateSocialHost(fieldName, s); err != nil {
+		return err
+	}
+	return validateFetchHost(ctx, fieldName, s)
 }
 
 // URLSchemeError validates the http/https scheme and per-field length cap for
@@ -222,6 +260,12 @@ func ValidateFieldChangeValue(fieldName string, value any) error {
 // returned error so the rejection keeps its body-field attribution (PSY-747,
 // show ticket_url create path). Returns nil for unknown fields, nil/empty
 // values, or valid URLs.
+//
+// It does NOT apply the SSRF host guard, because huma's Resolve carries a
+// huma.Context rather than a context.Context and the guard resolves DNS. No
+// field it is used for is marked `fetched`; before marking one, move that
+// field's validation off this helper (or thread a real context in), or the
+// guard will silently not run on that path.
 func URLSchemeError(fieldName, value string) error {
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok || value == "" {

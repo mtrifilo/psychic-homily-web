@@ -119,6 +119,15 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
 	}
 
+	// PSY-1675: the payload's image_url rides onto a real entity at fulfillment
+	// and is then fetched server-side by the share-card renderer, so it clears
+	// the same SSRF host guard the direct show/venue/label endpoints apply.
+	// Enforced here at queue-create so a hostile value never reaches the queue;
+	// fulfillEntity re-applies it to rows queued before this existed.
+	if err := validatePayloadImageURL(ctx, entityType, req.Body.Payload); err != nil {
+		return nil, err
+	}
+
 	// Normalize the optional source detail (trim, drop empties) and cap its
 	// fields at the trust boundary. An all-empty detail becomes nil so the row
 	// stores NULL rather than an empty object.
@@ -527,7 +536,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 // two, or a typed fulfillment error degrades to a raw 500. Used by both paths
 // so they record fulfillment identically.
 func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *communitym.EntityRequest, showAssoc *showAssociations) (uint, error) {
-	createdID, err := h.fulfillEntity(req, showAssoc)
+	createdID, err := h.fulfillEntity(ctx, req, showAssoc)
 	if err != nil {
 		return 0, err
 	}

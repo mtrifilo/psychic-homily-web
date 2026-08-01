@@ -364,3 +364,66 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","state":"New South Wales"}`)))
 	})
 }
+
+// TestPayloadImageURL is the extraction half of the PSY-1675 SSRF guard: the
+// handler resolves whatever this returns, so a type whose image_url it fails to
+// surface is a type whose flyer is never host-checked.
+func TestPayloadImageURL(t *testing.T) {
+	cases := []struct {
+		name       string
+		entityType string
+		raw        string
+		want       *string
+	}{
+		{"artist", EntityRequestArtist, `{"name":"Boris","image_url":"https://example.com/a.jpg"}`, strptr("https://example.com/a.jpg")},
+		{"label", EntityRequestLabel, `{"name":"Hydra Head","image_url":"https://example.com/l.jpg"}`, strptr("https://example.com/l.jpg")},
+		{"venue", EntityRequestVenue, `{"name":"Trunk Space","city":"Phoenix","state":"AZ","image_url":"https://example.com/v.jpg"}`, strptr("https://example.com/v.jpg")},
+		{"show", EntityRequestShow, `{"title":"Boris","event_date":"2026-07-04","image_url":"https://example.com/s.jpg"}`, strptr("https://example.com/s.jpg")},
+		{"artist without image_url", EntityRequestArtist, `{"name":"Boris"}`, nil},
+		{"release carries cover_art_url, not image_url", EntityRequestRelease, `{"title":"Pink","cover_art_url":"https://example.com/c.jpg"}`, nil},
+		{"festival carries flyer_url, not image_url", EntityRequestFestival, `{"name":"Fest","edition_year":2026,"start_date":"2026-07-04","end_date":"2026-07-05","flyer_url":"https://example.com/f.jpg"}`, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := PayloadImageURL(c.entityType, json.RawMessage(c.raw))
+			require.NoError(t, err)
+			if c.want == nil {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, *c.want, *got)
+		})
+	}
+}
+
+// TestPayloadImageURL_FailsClosed: a payload that will not decode, and an
+// entity type nobody taught this function about, are errors rather than "no
+// image URL" — otherwise adding an entity_type would silently skip the guard.
+func TestPayloadImageURL_FailsClosed(t *testing.T) {
+	_, err := PayloadImageURL(EntityRequestArtist, json.RawMessage(`{"name":"Boris","sneaky":1}`))
+	assert.Error(t, err)
+
+	_, err = PayloadImageURL("podcast", json.RawMessage(`{"name":"Boris"}`))
+	assert.Error(t, err)
+}
+
+// TestPayloadImageURL_CoversEveryRegisteredType keeps the switch honest: a new
+// entity_type added to the registry without a branch here fails this test
+// rather than quietly returning "unknown entity type" at a write boundary.
+func TestPayloadImageURL_CoversEveryRegisteredType(t *testing.T) {
+	minimal := map[string]string{
+		EntityRequestArtist:   `{"name":"Boris"}`,
+		EntityRequestRelease:  `{"title":"Pink"}`,
+		EntityRequestLabel:    `{"name":"Hydra Head"}`,
+		EntityRequestVenue:    `{"name":"Trunk Space","city":"Phoenix","state":"AZ"}`,
+		EntityRequestShow:     `{"title":"Boris","event_date":"2026-07-04"}`,
+		EntityRequestFestival: `{"name":"Fest","edition_year":2026,"start_date":"2026-07-04","end_date":"2026-07-05"}`,
+	}
+	for entityType := range payloadRegistry {
+		raw, ok := minimal[entityType]
+		require.Truef(t, ok, "entity type %q has no fixture here — add one, and give PayloadImageURL a branch for it", entityType)
+		_, err := PayloadImageURL(entityType, json.RawMessage(raw))
+		assert.NoErrorf(t, err, "PayloadImageURL has no branch for registered entity type %q", entityType)
+	}
+}
