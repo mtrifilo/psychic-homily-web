@@ -142,7 +142,10 @@ describe('ShowHeader bill rendering', () => {
   })
 
   describe('set_type annotations', () => {
-    it('annotates openers', () => {
+    // `opener` is the backend's default for every non-headliner, not a
+    // distinguishing role, so annotating it would mark nearly every support
+    // act. Locked in so it is not "fixed" back the other way by accident.
+    it('leaves openers unannotated', () => {
       const show = makeShow({
         artists: [
           makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
@@ -152,7 +155,8 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      expect(screen.getByText('(opener)')).toBeInTheDocument()
+      expect(screen.queryByText('(opener)')).not.toBeInTheDocument()
+      expect(supportLineText()).toContain('The Opener')
     })
 
     it('annotates special guests', () => {
@@ -200,9 +204,8 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      expect(screen.queryByText('(opener)')).not.toBeInTheDocument()
-      expect(screen.queryByText('(special guest)')).not.toBeInTheDocument()
-      expect(screen.queryByText('(performer)')).not.toBeInTheDocument()
+      expect(supportLineText()).toContain('Just A Band')
+      expect(supportLineText()).not.toMatch(/\(/)
     })
   })
 })

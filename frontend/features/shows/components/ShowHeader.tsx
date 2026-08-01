@@ -26,6 +26,14 @@ function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
 /**
  * Support-line annotations, keyed by `set_type`.
  *
+ * `opener` is deliberately absent. It reads like a distinguishing role but is
+ * really the backend's default for "not the headliner" — `associateArtists`
+ * hardcodes it for every non-headliner, and the discovery fallback does the
+ * same — so annotating it would append "(opener)" to nearly every support act
+ * on nearly every bill. Labelling it only becomes meaningful once `set_type`
+ * carries real semantics; that work is tracked separately. Don't re-add it
+ * here without that.
+ *
  * A `Map` rather than an object literal on purpose: `set_type` is a bare
  * `string` on the wire (see `types/api.d.ts`) over an unconstrained VARCHAR
  * column, and the `SetType` union here is a hand-maintained narrowing that
@@ -34,7 +42,6 @@ function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
  * crash the server render; `Map.get` has no such hole.
  */
 const SUPPORT_SET_TYPE_LABELS = new Map<string, string>([
-  ['opener', 'opener'],
   ['special_guest', 'special guest'],
 ])
 
