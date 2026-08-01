@@ -263,17 +263,6 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           <FieldNotesSection
             showId={show.id}
             showDate={show.event_date}
-            // The VENUE's state first. Both spellings are in play on this page
-            // (`ShowHeader` renders from the nullable `shows.state`, the route's
-            // JSON-LD from `venues[0].state`) and they only diverge for a venue
-            // with no resolved `timezone`, where each falls back to the state
-            // map. In that case `shows.state` can be NULL, and a null state
-            // resolves to America/Phoenix — silently dating a Chicago show in
-            // Arizona. The venue's own state is the right answer for a
-            // venue-local label, so prefer it and keep `shows.state` as the
-            // fallback.
-            venueState={show.venues?.[0]?.state ?? show.state}
-            venueTimezone={show.venues?.[0]?.timezone}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>

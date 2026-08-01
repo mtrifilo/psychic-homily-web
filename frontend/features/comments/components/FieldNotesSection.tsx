@@ -5,7 +5,6 @@ import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { StatusBanner } from '@/components/shared'
 import { hasShowStarted } from '@/lib/utils/showTiming'
-import { formatShowDay, formatShowTime } from '@/lib/utils/formatters'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -23,20 +22,10 @@ interface ShowArtist {
 interface FieldNotesSectionProps {
   showId: number
   showDate: string
-  /** `venues.timezone`, so the gate's date label reads in the venue's own zone. */
-  venueTimezone?: string | null
-  /** US state code, the fallback zone for venues predating the backfill. */
-  venueState?: string | null
   artists?: ShowArtist[]
 }
 
-export function FieldNotesSection({
-  showId,
-  showDate,
-  venueTimezone,
-  venueState,
-  artists = [],
-}: FieldNotesSectionProps) {
+export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotesSectionProps) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
   const createMutation = useCreateFieldNote()
@@ -99,14 +88,18 @@ export function FieldNotesSection({
           className="text-sm text-muted-foreground py-4"
           data-testid="future-show-message"
         >
-          {/* Names the START TIME, not just the day. The gate above opens at
-              the start instant, so a sentence that stopped at the date would
-              tell a reader to come back tomorrow for a form that unlocks
-              tonight. Both halves are venue-local, so this reads as the same
-              moment the page header shows. */}
-          Field notes will be available after the show starts at{' '}
-          {formatShowTime(showDate, venueState, venueTimezone)} on{' '}
-          {formatShowDay(showDate, venueState, venueTimezone)}.
+          {/* No date. The gate opens at the start instant, so any date or time
+              in this sentence is a promise about a boundary this component
+              cannot keep: `hasShowStarted` is evaluated once per render and
+              nothing re-renders when doors open, so a reader sitting on the
+              page at 7:55 for an 8:00 show would watch a stated time pass with
+              the form still shut. The date and start time are already on the
+              page header, in the venue's zone, a section above.
+
+              This also drops a `toLocaleDateString` with no `timeZone`, which
+              formatted against the SERVER's clock during SSR and the reader's
+              on hydration. */}
+          Field notes will be available after the show starts.
         </p>
       ) : (
         <>

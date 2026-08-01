@@ -39,45 +39,6 @@ export interface ShowTimingInput {
 }
 
 /**
- * Day formatters, one per resolved zone, kept for the process's life.
- *
- * Constructing an `Intl.DateTimeFormat` costs one to two orders of magnitude
- * more than formatting with one, and `sceneShowEvents` asks this question once
- * per show over an uncapped list. Measure before quoting a number here: the
- * ratio moves with the ICU build, and `resolveShowTimezone` still constructs a
- * throwaway formatter of its own to validate the zone on every call, so the
- * saving is a fraction of the per-call cost rather than all of it.
- *
- * Capped rather than left to grow. `Intl` matches IANA names
- * case-insensitively and accepts legacy aliases, so one zone has many accepted
- * spellings and the key is whatever spelling reached us. Today every spelling
- * is canonical, because `venues.timezone` is written only by the server-side
- * GeoNames lookup and never from request input, but that is an invariant of
- * another service. The cap makes the bound a property of THIS module, so a
- * future admin override or CSV import cannot turn a memo into a leak.
- */
-const MAX_CACHED_ZONES = 512
-const dayFormatters = new Map<string, Intl.DateTimeFormat>()
-
-function dayFormatter(timeZone: string): Intl.DateTimeFormat {
-  const cached = dayFormatters.get(timeZone)
-  if (cached) return cached
-  const created = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  // IANA has a few hundred zones, so passing the cap means the keys have become
-  // spellings rather than zones and this has stopped working as a cache.
-  // Dropping all of it is the right response: the next calls rebuild what they
-  // actually need, and memory stays flat.
-  if (dayFormatters.size >= MAX_CACHED_ZONES) dayFormatters.clear()
-  dayFormatters.set(timeZone, created)
-  return created
-}
-
-/**
  * The venue-local calendar date of an instant, as a comparable integer
  * (`20260314` for March 14 2026).
  *
@@ -85,9 +46,21 @@ function dayFormatter(timeZone: string): Intl.DateTimeFormat {
  * over calendar days and nothing else: a `Date` reconstructed from local parts
  * would reintroduce a zone, and subtracting instants would reintroduce DST.
  * Ordering holds because each field occupies a fixed decimal width.
+ *
+ * Constructs its formatter per call, deliberately. An earlier revision memoized
+ * them, which is the right shape for a hot loop — but `isShowPast` has one
+ * caller, once per share-card request, so the memo bought nothing and cost a
+ * module-level mutable map plus a cap to bound it. Add the memo back when a
+ * caller arrives that asks this per row; `resolveShowTimezone` builds a
+ * throwaway formatter of its own on the same path, so measure both together.
  */
 function venueLocalDayOrdinal(instant: number, timeZone: string): number {
-  const parts = dayFormatter(timeZone).formatToParts(new Date(instant))
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(instant))
   const part = (type: string) => Number(parts.find(p => p.type === type)?.value)
   return part('year') * 10000 + part('month') * 100 + part('day')
 }

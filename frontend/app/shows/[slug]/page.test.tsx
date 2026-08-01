@@ -66,7 +66,7 @@ function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> {
 }
 
 /**
- * `isShowPast` reads the real clock and the page has no seam to inject one, so
+ * `hasShowStarted` reads the real clock and the page has no seam to inject one, so
  * these sit far enough either side of "now" that the wall clock cannot flip
  * them. (`buildSceneWeekJsonLd` takes an injectable `now`; this page does not.)
  */

@@ -287,72 +287,12 @@ describe('FieldNotesSection', () => {
 
       expect(screen.queryByTestId('field-note-auth-gate')).not.toBeInTheDocument()
     })
-
-    // The gate names the moment the reader is waiting for, so it has to be the
-    // VENUE's clock. 20:00 Dec 31 Phoenix is already Jan 1 in UTC and in every
-    // zone east of it, and a label saying "January 1" under a page heading
-    // saying "December 31" is a contradiction the reader has to resolve.
-    //
-    // It names the TIME as well as the day because the gate opens at the start
-    // instant: a date-only sentence would send a reader away until tomorrow for
-    // a form that unlocks tonight.
-    it('names the start time and date in the venue timezone, not the reader s', () => {
-      mockUseAuthContext.mockReturnValue({
-        isAuthenticated: true,
-        user: { id: '1', email: 'test@test.com' },
-      })
-      mockUseFieldNotes.mockReturnValue({
-        data: { comments: [], total: 0, has_more: false },
-        isLoading: false,
-      })
-
-      render(
-        <FieldNotesSection
-          showId={1}
-          showDate="2100-01-01T03:00:00Z"
-          venueState="AZ"
-          venueTimezone="America/Phoenix"
-          artists={mockArtists}
-        />
-      )
-
-      expect(screen.getByTestId('future-show-message')).toHaveTextContent(
-        'Field notes will be available after the show starts at 8:00 PM on December 31, 2099.'
-      )
-    })
-
-    it('falls back to the state map when the venue has no resolved timezone', () => {
-      mockUseAuthContext.mockReturnValue({
-        isAuthenticated: true,
-        user: { id: '1', email: 'test@test.com' },
-      })
-      mockUseFieldNotes.mockReturnValue({
-        data: { comments: [], total: 0, has_more: false },
-        isLoading: false,
-      })
-
-      render(
-        <FieldNotesSection
-          showId={1}
-          showDate="2100-01-01T03:00:00Z"
-          venueState="NY"
-          venueTimezone={null}
-          artists={mockArtists}
-        />
-      )
-
-      // 22:00 Dec 31 Eastern, still the 31st, and a different clock time than
-      // the Phoenix case above from the very same instant.
-      expect(screen.getByTestId('future-show-message')).toHaveTextContent(
-        'Field notes will be available after the show starts at 10:00 PM on December 31, 2099.'
-      )
-    })
   })
 
   // The gate mirrors the API's own `ErrFieldNoteShowFuture` rejection, which
   // fires on the START INSTANT. It deliberately does NOT use the venue-local
-  // day boundary the show's structured data uses: holding the form shut until
-  // local midnight would hide a form the API would have accepted.
+  // day boundary `isShowPast` draws: holding the form shut until local midnight
+  // would hide a form the API would have accepted.
   describe('boundary (start instant, matching the API gate)', () => {
     const showDate = '2026-03-15T03:00:00Z' // 20:00 Mar 14 Phoenix
 
@@ -375,7 +315,7 @@ describe('FieldNotesSection', () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date('2026-03-15T02:59:00Z'))
 
-      render(<FieldNotesSection showId={1} showDate={showDate} venueState="AZ" />)
+      render(<FieldNotesSection showId={1} showDate={showDate} />)
 
       expect(screen.getByTestId('future-show-message')).toBeInTheDocument()
     })
@@ -384,7 +324,7 @@ describe('FieldNotesSection', () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date('2026-03-15T03:01:00Z')) // 20:01 Mar 14 Phoenix
 
-      render(<FieldNotesSection showId={1} showDate={showDate} venueState="AZ" />)
+      render(<FieldNotesSection showId={1} showDate={showDate} />)
 
       expect(screen.queryByTestId('future-show-message')).not.toBeInTheDocument()
       expect(screen.getByTestId('field-note-form')).toBeInTheDocument()

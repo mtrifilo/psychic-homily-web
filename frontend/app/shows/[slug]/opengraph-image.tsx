@@ -2,7 +2,6 @@ import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { isShowPast } from '@/lib/utils/showTiming'
 import {
   OG_COLORS,
   OG_CONTENT_TYPE,
@@ -12,7 +11,7 @@ import {
 } from '@/lib/og/brand'
 import {
   OG_FALLBACK_CACHE_SECONDS,
-  OG_SETTLED_MARGIN_MS,
+  isShowCardSettled,
   loadBrandFontsOrDefault,
   ogCacheControl,
   ogFallbackCard,
@@ -281,20 +280,14 @@ function renderCard(
   ) : null
 
   // Hoisted out of the `headers` block below only because the card's JSX sits
-  // between here and there.
-  //
-  // Venue-local, via the shared derivation, and then held a further day: asking
-  // "was this already over a day ago" is the same question the old local rule
-  // asked, with the zone skew taken out of it. See `OG_SETTLED_MARGIN_MS` for
-  // why the day is still there.
-  const settled = isShowPast(
-    {
-      eventDate: show.event_date,
-      state: venue?.state,
-      timezone: venue?.timezone,
-    },
-    new Date(Date.now() - OG_SETTLED_MARGIN_MS)
-  )
+  // between here and there. The rule itself lives in `lib/og/response` so it can
+  // be tested: every card rendered under vitest is `degraded` and takes the
+  // short window before this branch is reached.
+  const settled = isShowCardSettled({
+    eventDate: show.event_date,
+    state: venue?.state,
+    timezone: venue?.timezone,
+  })
 
   return new ImageResponse(
     (

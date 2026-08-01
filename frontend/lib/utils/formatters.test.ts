@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   formatShowDate,
-  formatShowDay,
   formatShowWeekday,
   formatShowTime,
   formatPrice,
@@ -116,11 +115,6 @@ describe('venue timezone preference (PSY-986)', () => {
     // Phoenix → Mar 14; New York → Mar 15. The venue tz (Phoenix) must win.
     expect(formatShowDate(boundaryUtc, 'NY', false, 'America/Phoenix')).toContain('14')
     expect(formatShowDate(boundaryUtc, 'NY')).toContain('15')
-  })
-
-  it('formatShowDay prefers the venue timezone over state across a date boundary', () => {
-    expect(formatShowDay(boundaryUtc, 'NY', 'America/Phoenix')).toBe('March 14, 2026')
-    expect(formatShowDay(boundaryUtc, 'NY')).toBe('March 15, 2026')
   })
 
   it('formatShowWeekday returns only the venue-local weekday', () => {

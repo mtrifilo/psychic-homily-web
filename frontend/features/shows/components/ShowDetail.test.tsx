@@ -161,26 +161,8 @@ vi.mock('@/features/comments', () => ({
   CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
     <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>
   ),
-  // Renders the zone inputs so a test can assert the wiring. The gate's date
-  // label is venue-local, and which `state` feeds it is a real choice (the
-  // show's own column is nullable and defaults the zone to Arizona), so it
-  // must not be silently swappable.
-  FieldNotesSection: ({
-    showId,
-    venueState,
-    venueTimezone,
-  }: {
-    showId: number
-    venueState?: string | null
-    venueTimezone?: string | null
-  }) => (
-    <div
-      data-testid="field-notes-section"
-      data-venue-state={venueState ?? ''}
-      data-venue-timezone={venueTimezone ?? ''}
-    >
-      Field Notes for {showId}
-    </div>
+  FieldNotesSection: ({ showId }: { showId: number }) => (
+    <div data-testid="field-notes-section">Field Notes for {showId}</div>
   ),
 }))
 
@@ -313,52 +295,6 @@ describe('ShowDetail', () => {
       render(<ShowDetail showId="1" />)
       expect(screen.getByText('Headliner')).toBeInTheDocument()
       expect(screen.getByText('Opener')).toBeInTheDocument()
-    })
-
-    // The field-notes gate dates itself in the VENUE's zone, so it has to be
-    // handed the venue's own state and timezone. `shows.state` is nullable and
-    // a null state resolves to America/Phoenix, which would silently date a
-    // Chicago show in Arizona.
-    it('hands the field-notes gate the venue zone, preferring the venue over the show', () => {
-      mockUseShow.mockReturnValue({
-        data: makeShow({
-          state: null,
-          venues: [
-            {
-              id: 1,
-              slug: 'the-venue',
-              name: 'The Venue',
-              city: 'Chicago',
-              state: 'IL',
-              verified: true,
-              timezone: 'America/Chicago',
-            },
-          ],
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<ShowDetail showId="1" />)
-
-      const section = screen.getByTestId('field-notes-section')
-      expect(section).toHaveAttribute('data-venue-state', 'IL')
-      expect(section).toHaveAttribute('data-venue-timezone', 'America/Chicago')
-    })
-
-    it('falls back to the show state when the venue has none', () => {
-      mockUseShow.mockReturnValue({
-        data: makeShow({ state: 'AZ', venues: [] }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<ShowDetail showId="1" />)
-
-      expect(screen.getByTestId('field-notes-section')).toHaveAttribute(
-        'data-venue-state',
-        'AZ'
-      )
     })
 
     it('offers a share affordance built from the show slug, not the route param', () => {
