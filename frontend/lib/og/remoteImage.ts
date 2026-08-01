@@ -100,10 +100,8 @@ const MAX_REDIRECTS = 3
  * Hostnames that must never be fetched, whatever a submitter typed.
  *
  * This matters more than a defence-in-depth flourish. `image_url` is writable
- * by ANY email-verified user — a show's submitter can PUT it, and the backend
- * validates only the scheme and a 2048-char cap — so the value reaching this
- * function is straightforwardly attacker-chosen, and this is the only place it
- * is checked before a request goes out.
+ * by ANY email-verified user — a show's submitter can PUT it — so the value
+ * reaching this function is straightforwardly attacker-chosen.
  *
  * Addresses are classified NUMERICALLY, never by string prefix. An earlier
  * version of this guard matched `/^(10|127)\./` and friends and was defeated by
@@ -113,16 +111,25 @@ const MAX_REDIRECTS = 3
  * dual-stack host. Enumerating bad prefixes loses to encoding; deciding what is
  * ALLOWED does not.
  *
- * The one gap left is DNS: a host is checked as a literal, so an attacker-owned
- * name that RESOLVES to a private address still passes. Closing that needs
- * resolve-then-pin, which the edge runtime cannot do — it exposes no resolver.
+ * PSY-1675 added the sibling guard this file used to ask for:
+ * `backend/internal/utils/urlguard` resolves the host at the WRITE boundary and
+ * refuses a name that points inward. Read the two together — neither is
+ * redundant. That one has a resolver and this one does not; this one sees the
+ * redirect chain and rows written before it existed, and that one does not.
+ *
+ * KEEP THE BLOCKED-NAME LISTS BELOW IN SYNC with `blockedHostNames` /
+ * `blockedHostSuffixes` in that package. Nothing enforces it but this comment
+ * and its counterpart there.
+ *
+ * The gap that remains in BOTH layers is DNS rebinding: a host is checked as a
+ * literal here, and the write-time resolve happens once, before the answer can
+ * change. Closing it needs resolve-then-pin (hand the fetcher the vetted IP,
+ * not the name), which the edge runtime cannot do — it exposes no resolver.
  * What bounds the damage is that the useful half of an SSRF is shut: the
  * response is only ever rendered as an image, and anything that is not a
  * parseable PNG, JPEG or GIF is dropped before it reaches the renderer, so
  * nothing read from an internal service can come back out on the card. What
- * remains is BLIND request forgery, with a timing side channel — and the
- * durable fix belongs at the write boundary in the backend, where a resolver
- * exists.
+ * remains is BLIND request forgery, with a timing side channel.
  */
 const BLOCKED_HOST_NAMES = new Set(['localhost', 'metadata.google.internal'])
 const BLOCKED_HOST_SUFFIXES = ['.localhost', '.local', '.internal']

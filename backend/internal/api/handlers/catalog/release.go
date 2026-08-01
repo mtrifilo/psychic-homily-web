@@ -228,7 +228,7 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 
 	// PSY-747: reject non-http/https cover art URLs (e.g. javascript:, data:)
 	// and cap length.
-	if err := shared.ValidateURLField("cover_art_url", req.Body.CoverArtURL); err != nil {
+	if err := shared.ValidateURLField(ctx, "cover_art_url", req.Body.CoverArtURL); err != nil {
 		return nil, err
 	}
 
@@ -323,7 +323,7 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 
 	// PSY-747: reject non-http/https cover art URLs (e.g. javascript:, data:)
 	// and cap length.
-	if err := shared.ValidateURLField("cover_art_url", req.Body.CoverArtURL); err != nil {
+	if err := shared.ValidateURLField(ctx, "cover_art_url", req.Body.CoverArtURL); err != nil {
 		return nil, err
 	}
 

@@ -1,6 +1,8 @@
 package community
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +16,34 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
+
+// validatePayloadImageURL runs an entity-request payload's image_url through the
+// same SSRF host guard the direct catalog endpoints apply (PSY-1675). It is the
+// one place the queue's two decision points — create, and approve — agree on
+// the rule, so neither can drift.
+//
+// It returns a huma 422 in every case, including the extraction failures
+// (unknown entity type, undecodable payload) that PayloadImageURL surfaces as
+// plain errors — those are unreachable from both callers, which run
+// IsValidEntityRequestType and ValidateEntityRequestPayload first, but a plain
+// error escaping to huma would render as a 500 blaming the server for a bad
+// payload, so it is mapped here rather than left to luck.
+//
+// NOT called from fulfillEntity. Fulfillment happens AFTER Decide has
+// atomically claimed the row, so a rejection there would leave an
+// approved-but-unfulfilled row that no decide call can re-process and no
+// endpoint can edit — the request would be strandable by a hostile flyer. The
+// approve path checks pre-claim instead (AdminDecideEntityRequestHandler),
+// which is where the show-associations guard already lives for the same reason.
+func validatePayloadImageURL(ctx context.Context, entityType string, raw json.RawMessage) error {
+	imageURL, err := communitym.PayloadImageURL(entityType, raw)
+	if err != nil {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Invalid payload for %s: %v", entityType, err),
+		)
+	}
+	return shared.ValidateImageURL(ctx, imageURL)
+}
 
 // isFulfillUnsupported reports whether err is the typed "fulfillment
 // unsupported" error fulfillEntity returns when a show request has no
@@ -179,7 +209,7 @@ func parseShowEventDate(value, state string) (time.Time, error) {
 // PSY-1037); the payload alone lacks them. Without associations (the
 // auto-approve create path) the show branch returns a typed
 // FulfillUnsupported error and the request defers gracefully.
-func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest, showAssoc *showAssociations) (uint, error) {
+func (h *EntityRequestHandler) fulfillEntity(ctx context.Context, req *communitym.EntityRequest, showAssoc *showAssociations) (uint, error) {
 	if req.Payload == nil {
 		return 0, apperrors.ErrEntityRequestEmptyPayload(req.EntityType)
 	}

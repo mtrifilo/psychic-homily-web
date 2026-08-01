@@ -417,12 +417,13 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
 	}
 
-	// PSY-525: URL scheme validation (http/https only) for image_url and social URL fields.
+	// PSY-525 scheme check + PSY-1675 SSRF host guard (resolves DNS; see urlguard)
+	// for image_url; scheme + host anchor for the social URL fields.
 	// Length check first (cheaper, reports bytes); URL scheme check second.
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
 		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
-	if err := shared.ValidateImageURL(req.Body.ImageURL); err != nil {
+	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
 		return nil, err
 	}
 	if err := shared.ValidateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,

@@ -891,14 +891,14 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	}
 	// PSY-747: ticket URL is length-capped AND scheme-validated (http/https
 	// only) — previously it accepted javascript:/data: on a public show.
-	if err := shared.ValidateURLField("ticket_url", req.Body.TicketURL); err != nil {
+	if err := shared.ValidateURLField(ctx, "ticket_url", req.Body.TicketURL); err != nil {
 		return nil, err
 	}
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
 		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
-	// PSY-525: URL scheme validation (http/https only) for image_url.
-	if err := shared.ValidateImageURL(req.Body.ImageURL); err != nil {
+	// PSY-525 scheme check + PSY-1675 SSRF host guard (resolves DNS; see urlguard).
+	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
 		return nil, err
 	}
 	// PSY-563: Summary length cap mirrors the artist analog (no schema cap;

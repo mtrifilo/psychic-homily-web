@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils/urlguard"
 )
 
 // AdminDiscoveryHandler handles admin discovery import/check endpoints
@@ -82,6 +83,20 @@ func (h *AdminDiscoveryHandler) DiscoveryImportHandler(ctx context.Context, req 
 	// Convert input events to DiscoveredEvent format
 	events := make([]contracts.DiscoveredEvent, len(req.Body.Events))
 	for i, e := range req.Body.Events {
+		// PSY-1675: imageUrl lands in shows.image_url, the one field the
+		// share-card renderer fetches server-side. The endpoint is admin-gated,
+		// but the VALUES are scraped from third-party pages, not typed by the
+		// admin — so they get the same address classification the user-facing
+		// write paths get. Literal-only (no DNS): this is a 100-event batch, and
+		// 100 sequential lookups on a 2s budget would be a three-minute request.
+		// The literal forms are the ones an attacker actually writes; a scraped
+		// hostname that resolves inward remains the fetch layer's problem.
+		if e.ImageURL != nil {
+			if _, verr := urlguard.CheckLiteralHost(*e.ImageURL, "Image URL"); verr != nil {
+				return nil, huma.Error422UnprocessableEntity(
+					fmt.Sprintf("event %d (%s): %v", i, e.Title, verr))
+			}
+		}
 		events[i] = contracts.DiscoveredEvent{
 			ID:             e.ID,
 			Title:          e.Title,
