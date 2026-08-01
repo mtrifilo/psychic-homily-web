@@ -88,8 +88,11 @@ const seededShows = {
     { id: 1, title: 'Bright Eyes', event_date: '2026-08-01T02:00:00Z', state: 'AZ', venues: [], artists: [] },
     { id: 2, title: 'Cursive', event_date: '2026-08-02T02:00:00Z', state: 'AZ', venues: [], artists: [] },
   ],
-  pagination: { has_more: false, next_cursor: null },
-  total: 2,
+  // `has_more: true` on purpose: production always has more than one page, so
+  // the Load More branch is the one that actually ships, and it is the branch
+  // a `has_more: false` fixture would silently leave untested.
+  pagination: { has_more: true, next_cursor: 'abc123' },
+  total: 65,
 }
 
 const seededCities = {
@@ -151,6 +154,20 @@ describe('ShowList reading a server-seeded first screen', () => {
     expect(container.querySelector('.opacity-60')).toBeNull()
   })
 
+  it('renders Load More live, not a disabled "Loading…"', () => {
+    // Same trap as the dimming, one element over. The seed is stale, so
+    // `isFetching` is true on the first commit — and on the SERVER render too.
+    // Gating the button on raw `isFetching` shipped HTML whose pagination
+    // control was already dead and relabelled, which is both a broken control
+    // for the pre-hydration window and a page that tells a JS-less fetcher it
+    // is still loading.
+    renderSeeded()
+
+    const button = screen.getByRole('button', { name: /load more/i })
+    expect(button).not.toBeDisabled()
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+  })
+
   it('keeps the rows when a background revalidation fails', async () => {
     // `error` becomes truthy while `data` is still the server payload. An
     // unguarded `if (error)` would throw away a fully rendered first screen
@@ -172,5 +189,32 @@ describe('ShowList reading a server-seeded first screen', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(screen.getByTestId('show-card-1')).toBeInTheDocument()
     expect(screen.queryByText(/Failed to load shows/)).not.toBeInTheDocument()
+  })
+
+  it('reports the failure when the rows belong to a DIFFERENT query', async () => {
+    // The other half of that guard. `keepPreviousData` carries `data` across a
+    // key change, so a filter change whose request fails leaves the previous
+    // city's shows on screen. Keeping quiet there would present them as the
+    // new filter's answer — the "confident, wrong answer about the catalogue"
+    // this whole change exists to avoid. Simulated by seeding an entry the
+    // component does NOT ask for, so its own query starts empty and fails.
+    mockApiRequest.mockRejectedValue(new Error('network'))
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 5 * 60 * 1000 } },
+    })
+    queryClient.setQueryData(SHOW_CITIES_FIRST_SCREEN_KEY, seededCities, {
+      updatedAt: 0,
+    })
+
+    render(<ShowList />, {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+
+    await vi.waitFor(() => {
+      expect(screen.getByText(/Failed to load shows/)).toBeInTheDocument()
+    })
   })
 })

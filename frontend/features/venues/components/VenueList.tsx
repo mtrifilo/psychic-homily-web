@@ -167,11 +167,14 @@ export function VenueList() {
     (citiesFetching && citiesArePlaceholder) ||
     isPending
 
-  // `&& !data`: an error only replaces the list when there is no list to show.
+  // Report an error only when nothing on screen answers the CURRENT query.
   // The server-seeded first screen is stale by construction, so every load
-  // forces a revalidation; without this guard one failed background refetch
-  // would swap a fully rendered page for an error message.
-  if (error && !data) {
+  // revalidates it and a plain `if (error)` would discard a rendered page over
+  // a failed background refetch. `isPlaceholderData` covers the opposite
+  // hazard: `keepPreviousData` carries `data` across a key change, so without
+  // it a failed filter request would present the previous city's venues as the
+  // new filter's answer. See the fuller note in `ShowList`.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load venues. Please try again later.</p>
@@ -265,9 +268,9 @@ export function VenueList() {
                       <Button
                         variant="outline"
                         onClick={handleLoadMore}
-                        disabled={isFetching}
+                        disabled={isFetching && isPlaceholderData}
                       >
-                        {isFetching ? 'Loading...' : 'Load More'}
+                        {isFetching && isPlaceholderData ? 'Loading...' : 'Load More'}
                       </Button>
                     </div>
                   )}

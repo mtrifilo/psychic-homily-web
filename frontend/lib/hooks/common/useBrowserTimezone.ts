@@ -34,6 +34,14 @@ function getServerSnapshot(): string | undefined {
  * in where "today" starts, and `keepPreviousData` holds the first screen in
  * place while the corrected one arrives.
  *
+ * It is also VISIBLE, not just costly: the key change makes
+ * `isPlaceholderData` true for one round trip, so the list `ShowList` just
+ * server-rendered dims to 60% right after it hydrates. That is the same
+ * refine-on-hydrate transition the ticket's locked decision accepts and asks to
+ * soften with exactly that opacity treatment — but the decision scoped it to
+ * returning and geo-defaulted visitors, and the timezone makes it universal.
+ * Weigh the follow-up below against that, not only against the request count.
+ *
  * Measured cost, stated plainly because it is not free: on a cold `/shows` the
  * page issues FOUR client requests where it used to issue two. The seeded
  * entries are stale by construction, so the hydration commit revalidates the

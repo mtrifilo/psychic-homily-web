@@ -17,6 +17,17 @@ describe('getUpcomingShows', () => {
     expect(UPCOMING_SHOWS_LIMIT).toBeLessThanOrEqual(200)
   })
 
+  // Since PSY-1624 this number also sizes the server-rendered first screen,
+  // and `UPCOMING_SHOWS_FIRST_SCREEN_KEY` encodes NO `limit` — so the
+  // post-hydration revalidation asks for the endpoint's default. They agree
+  // only while this IS that default (`GET /shows/upcoming`, `default:"50"`).
+  // Raising it without changing what `ShowList` requests would server-render
+  // rows that visibly collapse on hydration; this is the assertion that stops
+  // that being a silent change.
+  it('equals the endpoint default, which the seeded key relies on', () => {
+    expect(UPCOMING_SHOWS_LIMIT).toBe(50)
+  })
+
   it('asks for the shows collection with an explicit limit', async () => {
     const shows = [{ slug: 'a-show', title: 'A Show', artists: [], venues: [] }]
     fetchListPayload.mockResolvedValue({ shows, pagination: {}, total: 1 })
@@ -28,6 +39,10 @@ describe('getUpcomingShows', () => {
       ),
       collection: 'shows',
       service: 'shows-listing',
+      // The BUILD budget, not the helper's request-time default: this one call
+      // also feeds the ItemList, which is rendered in the static-shell
+      // prerender. Giving up at 2.5s there ships a page with no schema block.
+      timeoutMs: 10_000,
     })
   })
 

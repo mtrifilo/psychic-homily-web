@@ -159,6 +159,10 @@ const ALL_SCENE_PAGES = '/scenes/[slug]'
 // alongside the scene pages it links to.
 const SCENE_LIST_PAGE = '/scenes'
 
+// The show BROWSE page, for the same reason: PSY-1624 put entity names into
+// its cached payload, so the rename cascade has to reach it.
+const SHOW_LIST_PAGE = '/shows'
+
 /**
  * Route patterns made stale when an entity of the given segment is renamed,
  * merged, or deleted — the pages that embed the entity's NAME in their own
@@ -177,8 +181,13 @@ const SCENE_LIST_PAGE = '/scenes'
  * cheap.
  */
 const RENAME_CASCADES: Readonly<Record<string, readonly string[]>> = {
-  artists: [ALL_SHOW_PAGES, ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
-  venues: [ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
+  // SHOW_LIST_PAGE, not just the show DETAIL pages: since PSY-1624 the /shows
+  // browse page server-renders each row's artist and venue names, so a rename
+  // leaves the old one in cached HTML until the 1h window turns over. It was
+  // previously safe to omit because those names reached /shows only through a
+  // JSON-LD block.
+  artists: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
+  venues: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
   shows: [ALL_COLLECTION_PAGES],
   releases: [ALL_COLLECTION_PAGES],
   labels: [ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
@@ -323,6 +332,7 @@ const RULES: readonly RevalidationRule[] = [
       '/explore',
       '/artists',
       '/venues',
+      SCENE_LIST_PAGE,
       ALL_SCENE_PAGES,
       ...cascadePages('shows'),
     ],
@@ -352,6 +362,7 @@ const RULES: readonly RevalidationRule[] = [
       '/explore',
       '/artists',
       '/venues',
+      SCENE_LIST_PAGE,
       ALL_SCENE_PAGES,
     ],
   },

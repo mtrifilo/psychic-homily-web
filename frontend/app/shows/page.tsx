@@ -9,6 +9,7 @@ import {
 import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
+import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
@@ -47,6 +48,15 @@ interface ShowListItem {
  * `ItemList` should carry is a product question, and it is deliberately not
  * being settled here by nudging a number. It is left visible instead of
  * invisible.
+ *
+ * SINCE PSY-1624 IT IS ALSO THE SIZE OF THE SERVER-RENDERED FIRST SCREEN, and
+ * that couples it to something this doc did not previously have to care about:
+ * the seeded key (`UPCOMING_SHOWS_FIRST_SCREEN_KEY`) encodes NO `limit`, so the
+ * post-hydration revalidation asks for the endpoint's default. The two agree
+ * only while this number IS that default. Raise it to 200 for the `ItemList`
+ * and the server would paint 200 rows that collapse to 50 on hydration. Change
+ * it together with what `ShowList` requests, or not at all — the assertion in
+ * `page.test.tsx` pins the coupling.
  */
 export const UPCOMING_SHOWS_LIMIT = 50
 
@@ -72,6 +82,14 @@ const getUpcomingShowsPayload = cache(() =>
     url: `${API_BASE_URL}/shows/upcoming?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
+    // The build budget, not this helper's 2.5s request-time default, because
+    // this one call also feeds the `ItemList` below — and that runs in the
+    // static-shell prerender, where giving up early ships a page with no
+    // schema block for a whole revalidate window. `fetchSeoList` argued 10s
+    // for exactly this consumer; merging the two fetches must not quietly
+    // take it away. The visitor-facing risk it reintroduces is the one this
+    // page already carried: the page body has always awaited this fetch.
+    timeoutMs: BUILD_TIME_API_FETCH_TIMEOUT_MS,
   })
 )
 

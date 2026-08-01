@@ -19,14 +19,19 @@ export const FIRST_SCREEN_REVALIDATE_SECONDS = 3600
 /**
  * How long a first-screen fetch may block before the page gives up on it.
  *
- * Deliberately NOT `BUILD_TIME_API_FETCH_TIMEOUT_MS` (10s). That budget was
- * argued for a build step, where the only cost of waiting is a slower deploy.
- * This runs at request time: the Data Cache makes an expiry a
- * stale-while-revalidate refresh nobody waits on, but a genuine MISS — a cold
- * instance, an evicted entry — blocks a real visitor's list. Giving up at 2.5s
- * costs that visitor the server-rendered rows and nothing else; the component
- * fetches for itself either way. Ten seconds of blank page would be the worse
- * trade.
+ * Deliberately shorter than `BUILD_TIME_API_FETCH_TIMEOUT_MS` (10s), which was
+ * argued for a build step where the only cost of waiting is a slower deploy.
+ * The hydration seeds are read at request time instead: the Data Cache makes an
+ * expiry a stale-while-revalidate refresh nobody waits on, but a genuine MISS —
+ * a cold instance, an evicted entry — blocks a real visitor's list. Giving up
+ * at 2.5s costs that visitor the server-rendered rows and nothing else; the
+ * component fetches for itself either way.
+ *
+ * This is the DEFAULT, not a rule about where the helper runs. `/shows` calls
+ * it from the page body, which is part of the static-shell prerender, and its
+ * payload also feeds a JSON-LD `ItemList` — so that one call site overrides
+ * back to the build budget, because giving up early there bakes a schema-less
+ * page into the shell for a whole revalidate window.
  */
 export const FIRST_SCREEN_FETCH_TIMEOUT_MS = 2_500
 
@@ -38,12 +43,15 @@ interface FetchListPayloadOptions {
    *
    * A 200 whose shape has drifted is a contract break, not a short list, and
    * without this check it would be seeded into the query cache as though it
-   * were data. The consequences are not uniform: a venue or scene payload
-   * missing its rows renders as the empty state — the "confident, wrong answer
-   * about the catalogue" this helper's `null` exists to prevent — while a
-   * shows payload missing `pagination` throws during render, because
-   * `ShowList` reads `data?.pagination.has_more` and the optional chain only
-   * guards `data`. Checking here keeps both out of the cache.
+   * were data — a venue or scene payload missing its rows would render as the
+   * empty state, the "confident, wrong answer about the catalogue" this
+   * helper's `null` exists to prevent.
+   *
+   * Only the collection array is checked. Sibling fields are NOT validated, so
+   * a `shows` payload that kept its rows but lost `pagination` still gets
+   * seeded; `ShowList` reads that field with a full optional chain for exactly
+   * that reason. Widening this into a per-collection required-key list is a
+   * reasonable next step — just don't assume from here that it happened.
    */
   collection: 'shows' | 'venues' | 'scenes' | 'cities'
   /** Sentry `service` tag, and the prefix of the reported message. */
@@ -115,7 +123,9 @@ export async function fetchListPayload<T>({
       return null
     }
 
-    if (!Array.isArray((body as Record<string, unknown>)[collection])) {
+    const record = body as Record<string, unknown>
+    const items = record[collection]
+    if (!Array.isArray(items)) {
       Sentry.captureMessage(
         `${service}: response has no "${collection}" array`,
         { level: 'error', tags: { service }, extra: { url } },
@@ -123,7 +133,22 @@ export async function fetchListPayload<T>({
       return null
     }
 
-    return body as T
+    // Drop null/undefined rows. `Array.isArray` admits `[null]`, and the Go
+    // handlers marshal a nil element of a pointer slice (`[]*ShowResponse`) as
+    // exactly that. One null row would otherwise reach `.filter(s => !!s.slug)`
+    // in `app/shows/page.tsx` — OUTSIDE this try block, so it 500s the route
+    // with no Sentry event from here — and reach `ShowCard` through the seeded
+    // cache, crashing the client render too. `lib/seo/fetchSeoList.ts` guards
+    // the same hazard; this helper replaced it on `/shows` and has to keep it.
+    const rows = items.filter(item => item != null)
+    if (rows.length !== items.length) {
+      Sentry.captureMessage(
+        `${service}: "${collection}" contained ${items.length - rows.length} null row(s)`,
+        { level: 'error', tags: { service }, extra: { url } },
+      )
+    }
+
+    return { ...record, [collection]: rows } as T
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',

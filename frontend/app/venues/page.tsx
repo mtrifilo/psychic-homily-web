@@ -53,6 +53,15 @@ interface VenueListItem {
  * maximum or paginate with `offset`, not to leave the cap here. Going from
  * "none" to "the 100 most active" is still strictly better than the 422 this
  * replaces, which is the only reason it ships in this state.
+ *
+ * NOT consolidated with the first-screen fetch below, unlike `/shows`, which
+ * reads one response for both consumers. The two genuinely differ here: the
+ * `ItemList` wants the 100 most active venues, the browse page's first screen
+ * wants the 50 the client hook asks for. So `/venues` does keep two Data Cache
+ * entries with independently expiring windows, and the two lists can disagree
+ * across a window boundary. Harmless — one is schema, one is rows — but it is
+ * a real divergence from the shows page, recorded so the next reader does not
+ * assume the consolidation was applied everywhere.
  */
 export const VENUE_LIST_LIMIT = 100
 

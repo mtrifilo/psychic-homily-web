@@ -290,13 +290,19 @@ export function ShowList() {
     (citiesFetching && citiesArePlaceholder) ||
     isPending
 
-  // `&& !data`: an error only replaces the list when there is no list to show.
-  // Every load now forces a revalidation of the server-seeded entry (stale by
-  // construction — see `seedFirstScreen`), so without this guard a single
-  // failed background refetch would swap a fully rendered first screen for an
-  // error message, having lost nothing the reader was actually looking at.
-  // A first load that genuinely has nothing still reports the failure.
-  if (error && !data) {
+  // Report an error only when nothing on screen answers the CURRENT query.
+  //
+  // Plain `if (error)` was wrong once the first screen came from the server:
+  // that entry is stale by construction (`seedFirstScreen`), so every load
+  // revalidates it, and one failed background refetch would swap a fully
+  // rendered list for an error message having lost nothing the reader was
+  // looking at. But `error && !data` alone is wrong in the other direction —
+  // `keepPreviousData` means `data` survives a key change, so a filter change
+  // whose request fails would leave the PREVIOUS city's shows on screen under
+  // the new filter chip, silently, presented as the answer. `isPlaceholderData`
+  // is exactly "these rows belong to a different query", which is the case that
+  // has to surface.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load shows. Please try again later.</p>
@@ -455,14 +461,14 @@ export function ShowList() {
               ))}
             </div>
 
-            {data?.pagination.has_more && (
+            {data?.pagination?.has_more && (
               <div className="text-center py-6">
                 <Button
                   variant="outline"
                   onClick={handleLoadMore}
-                  disabled={isFetching}
+                  disabled={isFetching && isPlaceholderData}
                 >
-                  {isFetching ? 'Loading...' : 'Load More'}
+                  {isFetching && isPlaceholderData ? 'Loading...' : 'Load More'}
                 </Button>
               </div>
             )}

@@ -101,6 +101,37 @@ describe('fetchListPayload', () => {
     }
   })
 
+  // The Go handlers marshal a nil element of a `[]*Response` slice as `null`,
+  // and `app/shows/page.tsx` dereferences `.slug` OUTSIDE any try block — so
+  // one null row 500s the route with no Sentry event from here, and reaches
+  // `ShowCard` through the seeded cache. `fetchSeoList` guarded this; the
+  // helper that replaced it on /shows has to keep guarding it.
+  it('drops null rows rather than seeding them, and reports that it did', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ venues: [{ slug: 'a' }, null, { slug: 'b' }], total: 3 }),
+      )
+
+    await expect(call(fetchImpl)).resolves.toEqual({
+      venues: [{ slug: 'a' }, { slug: 'b' }],
+      total: 3,
+    })
+    expect(captureMessage).toHaveBeenCalledWith(
+      'venues-first-screen: "venues" contained 1 null row(s)',
+      expect.objectContaining({ level: 'error' }),
+    )
+  })
+
+  it('leaves a clean payload untouched and reports nothing', async () => {
+    const body = { venues: [{ slug: 'a' }], total: 1 }
+
+    await expect(
+      call(vi.fn().mockResolvedValue(jsonResponse(body))),
+    ).resolves.toEqual(body)
+    expect(captureMessage).not.toHaveBeenCalled()
+  })
+
   it('returns null and reports on a 200 whose body is not an object', async () => {
     // A contract break, not an empty list — reporting it keeps a backend
     // shape change from surfacing as a blank page nobody investigates.
