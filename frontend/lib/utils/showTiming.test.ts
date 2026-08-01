@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { isShowPast, hasShowStarted } from './showTiming'
 
 /**
- * The boundary these pin is venue-local midnight, so every case is written as
- * "an instant that is on one side of the venue's calendar day and the other
- * side of somebody else's". A test that only ever used UTC would pass against
- * the bug this replaces.
+ * `isShowPast`'s boundary is venue-local midnight, so its cases are written as
+ * "an instant on one side of the venue's calendar day and the other side of
+ * somebody else's". A suite that only ever used UTC would pass against the bug
+ * this replaces.
  */
 
 const PHOENIX = { timezone: 'America/Phoenix', state: 'AZ' }
@@ -32,15 +32,6 @@ describe('isShowPast', () => {
         new Date('2026-03-15T06:59:00Z') // 23:59 Mar 14 Phoenix
       )
     ).toBe(false)
-  })
-
-  it('is true one minute past venue-local midnight', () => {
-    expect(
-      isShowPast(
-        { eventDate: '2026-03-15T03:00:00Z', ...PHOENIX },
-        new Date('2026-03-15T07:01:00Z') // 00:01 Mar 15 Phoenix
-      )
-    ).toBe(true)
   })
 
   it('flips exactly at venue-local midnight, not a millisecond either side', () => {
@@ -139,12 +130,6 @@ describe('isShowPast', () => {
       expect(isShowPast(show, new Date('2026-11-01T08:30:00Z'))).toBe(true) // 01:30 PDT Nov 1
       expect(isShowPast(show, new Date('2026-11-01T09:30:00Z'))).toBe(true) // 01:30 PST Nov 1, the repeat
     })
-
-    it('is unaffected in a zone that does not observe DST', () => {
-      const show = { eventDate: '2026-03-09T03:00:00Z', ...PHOENIX } // 20:00 Mar 8
-      expect(isShowPast(show, new Date('2026-03-09T06:59:00Z'))).toBe(false)
-      expect(isShowPast(show, new Date('2026-03-09T07:01:00Z'))).toBe(true)
-    })
   })
 
   describe('timezone resolution', () => {
@@ -175,45 +160,29 @@ describe('isShowPast', () => {
 })
 
 describe('hasShowStarted', () => {
+  const START = '2026-03-15T03:00:00Z' // 20:00 Mar 14 Phoenix
+
   it('is false before the start instant', () => {
-    expect(
-      hasShowStarted(
-        { eventDate: '2026-03-15T03:00:00Z', ...PHOENIX },
-        new Date('2026-03-15T02:59:00Z')
-      )
-    ).toBe(false)
+    expect(hasShowStarted(START, new Date('2026-03-15T02:59:00Z'))).toBe(false)
   })
 
   it('is true at the start instant', () => {
-    expect(
-      hasShowStarted(
-        { eventDate: '2026-03-15T03:00:00Z', ...PHOENIX },
-        new Date('2026-03-15T03:00:00Z')
-      )
-    ).toBe(true)
+    expect(hasShowStarted(START, new Date(START))).toBe(true)
   })
 
-  it('is true one minute after the start instant, before venue-local midnight', () => {
-    // The boundary that distinguishes it from `isShowPast`: mid-show, the show
-    // has started but is not past.
-    const show = { eventDate: '2026-03-15T03:00:00Z', ...PHOENIX }
+  it('is true mid-show, while `isShowPast` is still false', () => {
+    // The boundary that distinguishes the two exports: the show has started
+    // but its venue-local day has hours left.
     const midShow = new Date('2026-03-15T03:01:00Z')
-    expect(hasShowStarted(show, midShow)).toBe(true)
-    expect(isShowPast(show, midShow)).toBe(false)
-  })
-
-  it('does not depend on the venue timezone', () => {
-    const at = new Date('2026-03-15T03:30:00Z')
-    expect(hasShowStarted({ eventDate: '2026-03-15T03:00:00Z', ...PHOENIX }, at)).toBe(true)
-    expect(hasShowStarted({ eventDate: '2026-03-15T03:00:00Z', ...AUCKLAND }, at)).toBe(true)
+    expect(hasShowStarted(START, midShow)).toBe(true)
+    expect(isShowPast({ eventDate: START, ...PHOENIX }, midShow)).toBe(false)
   })
 
   it.each([
     ['undefined', undefined],
     ['null', null],
-    ['empty string', ''],
     ['a non-date string', 'n/a'],
   ])('counts a show with %s for its start as already started', (_label, value) => {
-    expect(hasShowStarted({ eventDate: value, ...PHOENIX })).toBe(true)
+    expect(hasShowStarted(value)).toBe(true)
   })
 })

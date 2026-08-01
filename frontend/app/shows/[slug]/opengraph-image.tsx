@@ -279,10 +279,9 @@ function renderCard(
     </div>
   ) : null
 
-  // The venue's own calendar day, shared with the show page's structured data
-  // rather than measured separately here. The previous local rule compared the
-  // start instant in UTC and subtracted a day to absorb the zone skew; deriving
-  // it venue-local removes the skew, so the margin has nothing left to cover.
+  // Hoisted out of the `headers` block below only because the card's JSX sits
+  // between here and there. Venue-local, shared with the show page's structured
+  // data rather than measured separately.
   const settled = isShowPast({
     eventDate: show.event_date,
     state: venue?.state,

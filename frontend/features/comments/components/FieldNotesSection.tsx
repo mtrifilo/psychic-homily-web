@@ -5,8 +5,7 @@ import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { StatusBanner } from '@/components/shared'
 import { hasShowStarted } from '@/lib/utils/showTiming'
-import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { formatInTimezone } from '@/lib/utils/timeUtils'
+import { formatShowDay } from '@/lib/utils/formatters'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -29,26 +28,6 @@ interface FieldNotesSectionProps {
   /** US state code, the fallback zone for venues predating the backfill. */
   venueState?: string | null
   artists?: ShowArtist[]
-}
-
-/**
- * "January 15, 2026" in the VENUE's zone.
- *
- * The date this names is the one the reader has to wait for, so it has to be
- * the venue's date: formatted against the reader's clock, a 9 PM Phoenix show
- * reads as the following day to anyone east of the Mississippi, and the label
- * then contradicts the date the rest of the page shows.
- */
-function formatShowDay(
-  showDate: string,
-  state?: string | null,
-  timezone?: string | null
-): string {
-  return formatInTimezone(showDate, resolveShowTimezone(state, timezone), {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
 }
 
 export function FieldNotesSection({
@@ -77,7 +56,7 @@ export function FieldNotesSection({
   // is still in the future (`ErrFieldNoteShowFuture`), so this gate's job is to
   // agree with that boundary exactly. A stricter one here would hide a form the
   // API would have accepted; a looser one would offer a form it will 400.
-  const isFuture = !hasShowStarted({ eventDate: showDate })
+  const isFuture = !hasShowStarted(showDate)
 
   const hasCanonicalPending =
     pendingNote !== null && fieldNotes.some((c) => c.id === pendingNote.id)

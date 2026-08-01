@@ -59,6 +59,25 @@ export function formatShowWeekday(
 }
 
 /**
+ * Format a show's calendar day in the venue's timezone: "January 15, 2026".
+ * Pass the venue's `timezone` when available; `state` is the fallback.
+ *
+ * The long, weekday-less form used in prose, where `formatShowDate`'s
+ * abbreviations ("Mon Dec 1, 2026") read as a listing rather than a sentence.
+ */
+export function formatShowDay(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
+  return formatInTimezone(dateString, resolveShowTimezone(state, timezone), {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+/**
  * Format a show time in the venue's timezone: "7:30 PM".
  * Pass the venue's `timezone` when available; `state` is the fallback.
  */

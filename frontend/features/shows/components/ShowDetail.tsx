@@ -266,6 +266,12 @@ export function ShowDetail({ showId }: ShowDetailProps) {
             // Same two inputs `ShowHeader` renders the date from, so the gate's
             // "available after <date>" cannot name a different day than the
             // date printed at the top of the page.
+            //
+            // NOTE this is `shows.state`, an independent nullable column, while
+            // the page's JSON-LD resolves from `venues[0].state`. The two can
+            // only diverge for a venue with no resolved `timezone`, where both
+            // fall back to the state map; reconciling them would move rendered
+            // dates for those rows, so it is left alone here.
             venueState={show.state}
             venueTimezone={show.venues?.[0]?.timezone}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
