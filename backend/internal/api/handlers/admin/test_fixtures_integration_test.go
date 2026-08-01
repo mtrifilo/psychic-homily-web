@@ -267,6 +267,45 @@ func (s *TestFixturesSuite) TestReset_PendingShowsScope_PreservesApproved() {
 	s.Equal(int64(1), approvedAfter, "approved show must NOT be deleted")
 }
 
+// PSY-1663: comment_votes is scoped by voter, not by comment. The E2E vote
+// spec has every worker vote on the SAME admin-seeded comment, so a reset for
+// one worker must not clear another worker's vote on that comment.
+func (s *TestFixturesSuite) TestReset_CommentVotesScope_OnlyTargetUsersVotes() {
+	admin := s.createTestLocalUser(true)
+	target := s.createTestLocalUser(false)
+	bystander := s.createTestLocalUser(false)
+
+	comment := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityVenue,
+		EntityID:        1,
+		Kind:            engagementm.CommentKindComment,
+		UserID:          admin.ID,
+		Body:            "vote target",
+		BodyHTML:        "<p>vote target</p>",
+		Visibility:      engagementm.CommentVisibilityVisible,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
+	}
+	s.Require().NoError(s.deps.DB.Create(comment).Error)
+
+	for _, voter := range []uint{target.ID, bystander.ID} {
+		s.Require().NoError(s.deps.DB.Create(&engagementm.CommentVote{
+			CommentID: comment.ID,
+			UserID:    voter,
+			Direction: 1,
+		}).Error)
+	}
+
+	resp, err := s.call(admin, target.ID, []string{"comment_votes"}, "1")
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Deleted["comment_votes"])
+
+	var targetVotes, bystanderVotes int64
+	s.deps.DB.Model(&engagementm.CommentVote{}).Where("user_id = ?", target.ID).Count(&targetVotes)
+	s.deps.DB.Model(&engagementm.CommentVote{}).Where("user_id = ?", bystander.ID).Count(&bystanderVotes)
+	s.Zero(targetVotes, "target's vote should be deleted")
+	s.Equal(int64(1), bystanderVotes, "another worker's vote must NOT be deleted")
+}
+
 // Sanity check that the allowlist can round-trip through the lookup helper.
 func TestTestFixtureScopeByName(t *testing.T) {
 	for _, s := range testFixtureAllowlist {
