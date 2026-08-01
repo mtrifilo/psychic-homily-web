@@ -70,6 +70,55 @@ const NOT_FOUND_REWRITE_PATH = '/_psy-not-found'
 const ISO_WEEK_SEGMENT = /^\d{4}-W\d{2}$/i
 
 /**
+ * Shape of a calendar-date segment (`2026-07-31`) under `/scenes/<slug>/`.
+ *
+ * Shape only, for the same reason as the week: `2026-02-30` is well-formed and
+ * impossible, and the backend — which owns the calendar maths and the scene's
+ * timezone — decides that. This just separates "might be a day" from
+ * "definitely junk" so the latter 404s without a round-trip.
+ */
+const CALENDAR_DATE_SEGMENT = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * The years a scene period may name. MUST stay in lockstep with the feature
+ * module's `looksLikeISOWeek` / `looksLikeCalendarDate`, which apply the same
+ * bound (`proxy.scenes.test.ts` asserts they agree; the proxy keeps its own
+ * copy rather than importing `features/`, matching the charts branch).
+ *
+ * Not decoration. The page 404s a key outside this window, and a `notFound()`
+ * that the proxy waved through commits a 404 BODY at HTTP 200 — the exact
+ * soft-404 this whole branch exists to prevent. The backend would happily serve
+ * `1998-W12`, so without the bound here that URL renders a not-found page and
+ * tells every crawler it succeeded.
+ */
+const FIRST_TRACKED_YEAR = 2015
+
+function periodYearInRange(segment: string): boolean {
+  const year = Number(segment.slice(0, 4))
+  return year >= FIRST_TRACKED_YEAR && year <= new Date().getUTCFullYear() + 1
+}
+
+/**
+ * Whether a date segment names a day that actually exists.
+ *
+ * `2026-02-30` is well-formed and impossible. Deciding that here — rather than
+ * asking the backend — is what lets the dated route use the cheap scene probe:
+ * a Gregorian date's validity needs no database, no timezone and no scene, so
+ * the round-trip below reaches the same verdict the backend's own parse does,
+ * for free. `Date.UTC` normalizes an out-of-range date exactly as Go's parser
+ * does, so comparing the components back is the whole check.
+ */
+function isRealCalendarDate(segment: string): boolean {
+  const [year, month, day] = segment.split('-').map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  )
+}
+
+/**
  * Per-entity existence check. The function returns the backend HEAD probe URL
  * whose 404 response means "slug does not exist". The probe uses direct backend
  * existence queries instead of duplicating each page's full `GET /<type>/<slug>`
@@ -202,31 +251,78 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return notFoundResponse(request)
   }
 
-  // Scenes: the weekly city pages sit one level BELOW the scene detail —
-  // `/scenes/<slug>/week` (rolling) and `/scenes/<slug>/2026-W31` (permalink).
-  // The generic check below only handles the 3-segment detail shape, so without
+  // Scenes: the weekly and nightly city pages sit one level BELOW the scene
+  // detail — `/scenes/<slug>/week` and `/scenes/<slug>/tonight` (rolling), plus
+  // `/scenes/<slug>/2026-W31` and `/scenes/<slug>/2026-07-31` (permalinks). The
+  // generic check below only handles the 3-segment detail shape, so without
   // this these stream a 200 shell before `notFound()` resolves and every bad
-  // week key becomes a soft-404 (PSY-897 arc).
+  // key becomes a soft-404 (PSY-897 arc).
   //
-  // The backend is the authority on whether a week EXISTS: `2025-W53` is
-  // well-formed but unreal (2025 has 52 weeks), and only the backend owns that
-  // calendar maths plus the scene's timezone. Re-deriving it here would drift.
+  // The backend is the authority on whether a period EXISTS: `2025-W53` is
+  // well-formed but unreal (2025 has 52 weeks) and `2026-02-30` is well-formed
+  // and impossible, and only the backend owns that calendar maths plus the
+  // scene's timezone. Re-deriving it here would drift.
+  //
+  // Every backend path below is registered with `huma.Head` as well as
+  // `huma.Get`. Without the HEAD registration the router answers 405, this
+  // check fails OPEN, and a nonexistent key soft-404s all over again.
   if (entityType === 'scenes' && segments.length === 4 && slug) {
     const sub = segments[3]
+    const scene = encodeURIComponent(slug)
     if (sub === 'week') {
+      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`)
+    }
+    // Both DAY routes probe the cheap scene-existence endpoint rather than the
+    // day endpoint itself, because everything else that could make them 404 is
+    // decided right here for free: `/tonight` has no key at all, and a dated
+    // key's validity is pure Gregorian arithmetic needing no database, no
+    // timezone and no scene. Probing `/day` would rebuild the entire night —
+    // venue count, timezone, the shows join, tracked venues, and on a quiet
+    // night a six-week look-ahead — and discard the body, on EVERY request,
+    // uncached, in addition to the page's own fetch.
+    //
+    // Two caveats this buys, both accepted deliberately:
+    //
+    // 1. `sceneExists` shares the >= 2-verified-venues threshold with the day
+    //    endpoint but reaches it by its own slug resolution. That is the same
+    //    bargain every `/scenes/{slug}` page already makes through
+    //    ENTITY_CHECKS, so it is the established shape here rather than a new
+    //    risk — but if the two resolvers ever diverge, these routes soft-404.
+    //    `not-found.spec.ts` asserts the rendered page is the SCENE, not merely
+    //    that something rendered, which is what would catch it.
+    //
+    // 2. DEPLOY THE BACKEND FIRST. Because the probe no longer touches the day
+    //    endpoint, a frontend that goes live ahead of its backend would pass
+    //    these requests through to a page whose own fetch 404s, and that
+    //    `notFound()` arrives after the shell has streamed — a 404 body at
+    //    HTTP 200 for the length of the skew window. The `/week` routes are
+    //    immune only because they probe their own endpoint. This is transient
+    //    and self-healing where the cost it replaces — rebuilding the whole
+    //    night, uncached, on every request over thousands of dated keys per
+    //    scene — was permanent and reachable by anyone.
+    if (sub === 'tonight') {
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+    }
+    if (CALENDAR_DATE_SEGMENT.test(sub)) {
+      if (!periodYearInRange(sub) || !isRealCalendarDate(sub)) {
+        return notFoundResponse(request)
+      }
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+    }
+    // The WEEK key still goes to its own endpoint: `2025-W53` is well-formed
+    // and unreal, and unlike a calendar date that verdict is ISO-8601 week
+    // arithmetic the backend owns and this file deliberately does not copy.
+    if (ISO_WEEK_SEGMENT.test(sub) && periodYearInRange(sub)) {
       return existenceCheck(
         request,
-        `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week`
+        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`
       )
     }
-    if (ISO_WEEK_SEGMENT.test(sub)) {
-      return existenceCheck(
-        request,
-        `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week/${encodeURIComponent(sub)}`
-      )
-    }
-    // Not week-shaped at all (`/scenes/chicago-il/garbage`): no route can serve
-    // it, so 404 without spending a backend round-trip.
+    // Not a servable period (`/scenes/chicago-il/garbage`, `/scenes/chicago-il/
+    // 1998-W12`): no route can serve it, so 404 without spending a backend
+    // round-trip. The out-of-range case matters as much as the junk one — the
+    // backend WOULD serve 1998-W12, and waving it through means the page's
+    // own `notFound()` commits a 404 body at HTTP 200.
     return notFoundResponse(request)
   }
 

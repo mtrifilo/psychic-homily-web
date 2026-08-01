@@ -155,6 +155,24 @@ describe('SceneWeekView', () => {
     )
   })
 
+  // Load-bearing: this chip is currently the ONLY route into the nightly page
+  // from anywhere in the app. A restyle of this three-chip row that drops it
+  // orphans that whole surface silently.
+  it('links out to tonight, the reciprocal of the day view Full week chip', () => {
+    render(<SceneWeekView week={week()} />)
+    expect(screen.getByRole('link', { name: 'Tonight' })).toHaveAttribute(
+      'href',
+      '/scenes/chicago-il/tonight'
+    )
+  })
+
+  // Kept on archived weeks too: a reader who lands on last March still wants
+  // the way back to what is on now.
+  it('keeps the tonight link on an archived week', () => {
+    render(<SceneWeekView week={week({ is_current_week: false, is_past_week: true })} />)
+    expect(screen.getByRole('link', { name: 'Tonight' })).toBeInTheDocument()
+  })
+
   // The generator types these nullable even though the API always emits arrays;
   // a null must not take the page down.
   it('survives null days and tracked_venues', () => {

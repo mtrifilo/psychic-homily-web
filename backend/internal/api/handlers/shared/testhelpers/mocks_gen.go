@@ -3257,6 +3257,7 @@ type MockSceneService struct {
 	GetSceneNewArtistsSinceFn   func(string, string, time.Time, time.Time, int) ([]contracts.SceneNewArtist, int, error)
 	GetSceneShowsInRangeFn      func(string, string, time.Time, time.Time, *time.Location, int) ([]contracts.SceneShowSummary, error)
 	GetSceneWeekFn              func(string, string, string) (*contracts.SceneWeekResponse, error)
+	GetSceneDayFn               func(string, string, string) (*contracts.SceneDayResponse, error)
 }
 
 func (m *MockSceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
@@ -3340,6 +3341,12 @@ func (m *MockSceneService) GetSceneShowsInRange(city string, state string, from 
 func (m *MockSceneService) GetSceneWeek(city string, state string, weekKey string) (*contracts.SceneWeekResponse, error) {
 	if m.GetSceneWeekFn != nil {
 		return m.GetSceneWeekFn(city, state, weekKey)
+	}
+	return nil, nil
+}
+func (m *MockSceneService) GetSceneDay(city string, state string, dateKey string) (*contracts.SceneDayResponse, error) {
+	if m.GetSceneDayFn != nil {
+		return m.GetSceneDayFn(city, state, dateKey)
 	}
 	return nil, nil
 }

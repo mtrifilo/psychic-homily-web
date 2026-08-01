@@ -12,20 +12,13 @@ import {
   type SceneWeekResponse,
   type SceneWeekShow,
 } from '../sceneWeek'
-
-function StatusBadge({ label, tone }: { label: string; tone: 'destructive' | 'muted' }) {
-  const toneClass =
-    tone === 'destructive'
-      ? 'border-destructive text-destructive'
-      : 'border-muted-foreground text-muted-foreground'
-  return (
-    <span
-      className={`shrink-0 rounded-sm border px-1.5 py-px font-mono text-[10px] leading-4 tracking-wide ${toneClass}`}
-    >
-      {label}
-    </span>
-  )
-}
+import {
+  SCENE_NAV_CHIP_CLASS,
+  SceneBreadcrumb,
+  SceneCityHeading,
+  ShowStatusBadge,
+  TrackedRoomsFooter,
+} from './sceneChrome'
 
 /**
  * One show. Bill leads; venue is metadata.
@@ -50,10 +43,8 @@ function ShowRow({ show }: { show: SceneWeekShow }) {
           >
             {showDisplayTitle(show)}
           </span>
-          {show.is_cancelled && <StatusBadge label="CANCELLED" tone="destructive" />}
-          {!show.is_cancelled && show.is_sold_out && (
-            <StatusBadge label="SOLD OUT" tone="destructive" />
-          )}
+          {show.is_cancelled && <ShowStatusBadge label="CANCELLED" />}
+          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="SOLD OUT" />}
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         {show.venue_name && (
@@ -99,41 +90,36 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">
-      <nav aria-label="Breadcrumb" className="font-mono text-[11px] text-muted-foreground">
-        <Link href="/scenes" className="hover:underline">
-          Scenes
-        </Link>
-        {'  /  '}
-        <Link href={`/scenes/${week.slug}`} className="hover:underline">
-          {week.scene_name}
-        </Link>
-      </nav>
+      <SceneBreadcrumb slug={week.slug} sceneName={week.scene_name} />
 
       <header className="mt-2">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          {/* City at display scale, state in mono alongside. The page is built
-              for cold arrivals from a shared link, where "Columbus" or
-              "Portland" are genuinely ambiguous — so the state has to be on the
-              page, not only in the breadcrumb. Setting it at display size would
-              blunt the one element that must survive a skim. */}
-          <h1 className="flex items-baseline gap-3 text-4xl font-bold tracking-tight md:text-5xl">
-            {week.city}
-            <span className="font-mono text-base font-normal tracking-wide text-muted-foreground">
-              {week.state}
-            </span>
-          </h1>
+          <SceneCityHeading city={week.city} state={week.state} />
 
+          {/* Three chips share the row here, so each stretches at mobile widths
+              — the nightly page's two dates and "Full week" do not need to. */}
           <div className="flex gap-2">
             <Link
               href={`/scenes/${week.slug}/${week.prev_week}`}
-              className="flex-1 rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50 sm:flex-none"
+              className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
               rel="prev"
             >
               ← {week.prev_week}
             </Link>
+            {/* The reciprocal of the nightly page's "Full week" chip, and
+                currently the ONLY route into that page from anywhere in the
+                app — do not drop it in a restyle without adding another.
+                Kept on archived weeks too: a reader who lands on last March
+                still wants the way back to what is on now. */}
+            <Link
+              href={`/scenes/${week.slug}/tonight`}
+              className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
+            >
+              Tonight
+            </Link>
             <Link
               href={`/scenes/${week.slug}/${week.next_week}`}
-              className="flex-1 rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50 sm:flex-none"
+              className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}
               rel="next"
             >
               {week.next_week} →
@@ -182,21 +168,7 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
         days.map(day => <DayGroup key={day.date} date={day.date} shows={day.shows ?? []} />)
       )}
 
-      {rooms.length > 0 && (
-        <footer className="mt-12">
-          <div className="border-t-2 border-foreground" />
-          <h2 className="pt-4 font-mono text-[11px] tracking-widest text-muted-foreground">
-            ROOMS WE TRACK IN {week.city.toUpperCase()}
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed">{rooms.join(' · ')}</p>
-          <Link
-            href="/contribute"
-            className="mt-2 inline-block text-sm text-muted-foreground hover:underline"
-          >
-            Missing a room? Suggest a venue →
-          </Link>
-        </footer>
-      )}
+      <TrackedRoomsFooter city={week.city} roomNames={rooms} />
     </div>
   )
 }

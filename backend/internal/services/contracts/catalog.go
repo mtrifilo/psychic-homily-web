@@ -894,6 +894,77 @@ type SceneWeekResponse struct {
 	TrackedVenues []string       `json:"tracked_venues"`
 }
 
+// SceneTrackedVenue is one room a scene draws from, with enough to LINK it.
+//
+// The week payload names its rooms as bare strings, which is all a static
+// footer needs. A quiet night has to do more: it invites the reader to check
+// the rooms themselves, so each room needs either its own site or its page
+// here. Website is served from the venue row's own column — the venue LIST
+// projections omit it, which is why this cannot be assembled client-side from
+// an existing endpoint.
+type SceneTrackedVenue struct {
+	Name    string `json:"name"`
+	Slug    string `json:"slug,omitempty"`    // "" when the venue has no slug; clients then render it unlinked
+	Website string `json:"website,omitempty"` // "" when none is on file
+}
+
+// SceneDayResponse is ONE calendar day of a scene's shows — the payload behind
+// the public "tonight" page and its dated permalink.
+//
+// The day is computed in the scene's own timezone for the same reason the week
+// is: a 21:00 show in Chicago is 02:00 the NEXT day in UTC, so a UTC boundary
+// would file it under the wrong date.
+type SceneDayResponse struct {
+	Slug      string `json:"slug"`
+	SceneName string `json:"scene_name"` // "City, ST"
+	City      string `json:"city"`
+	State     string `json:"state"`
+	Date      string `json:"date"`     // scene-local ISO date (YYYY-MM-DD)
+	Timezone  string `json:"timezone"` // IANA zone the day was computed in
+	// ISOWeek is the week this day belongs to, so a client can link the week
+	// view without redoing ISO calendar maths (which is subtle enough that the
+	// two would eventually disagree at a year boundary).
+	ISOWeek   string `json:"iso_week"`
+	ShowCount int    `json:"show_count"`
+	// PrevDate/NextDate are the adjacent calendar dates, for day-at-a-time
+	// navigation through the dated permalinks. EMPTY at the edges of the
+	// servable window — a client must render the control only when the field
+	// is set, or it advertises a link this same service answers 404 to.
+	PrevDate string `json:"prev_date"`
+	NextDate string `json:"next_date"`
+	// IsTonight says this date is the one a reader standing in the scene right
+	// now would call "tonight" — which is NOT simply today's date. Until 06:00
+	// scene-local the answer is still YESTERDAY's date, because a night is named
+	// by the date it BEGAN on (the same 6am broadcast-day boundary the radio
+	// schedule uses). Answered here because it depends on the SCENE's clock,
+	// not the viewer's. It does not widen the day's window — see Shows.
+	IsTonight bool `json:"is_tonight"`
+	// IsPastDay says the day is over and can no longer gain shows — the only
+	// state in which a client may cache this payload hard.
+	//
+	// Deliberately not the negation of IsTonight, in BOTH directions. A FUTURE
+	// date is neither. And between midnight and 06:00 the scene's clock is past
+	// the date's end while IsTonight still points at it, so the two would
+	// otherwise both be true and a client would freeze the live night for a day
+	// under a heading reading "Tonight". Never both.
+	IsPastDay bool `json:"is_past_day"`
+	// Shows for this day, earliest first. Always non-nil, so a quiet night
+	// marshals as `[]` rather than `null`.
+	Shows         []SceneShowSummary  `json:"shows"`
+	TrackedVenues []SceneTrackedVenue `json:"tracked_venues"`
+	// NextShow is the scene's next show AFTER this day — a quiet night's whole
+	// job is to point somewhere useful, and the alternative is a second
+	// round-trip on exactly the page with the least to say.
+	//
+	// Populated only when the day is empty AND has not already happened.
+	// Absent when the day HAS shows; absent when the scene has nothing upcoming
+	// at all, which is what separates a quiet night from a dead-quiet one; and
+	// absent on any past date, where "next" could only mean a show that is
+	// itself long over, and where IsPastDay invites the client to freeze this
+	// payload for a day it would not stay true for.
+	NextShow *SceneShowSummary `json:"next_show,omitempty"`
+}
+
 // SceneNewArtist is one "new band based here" row for the weekly scene digest
 // (PSY-1342) — just enough to render a linked name.
 type SceneNewArtist struct {
@@ -1436,4 +1507,9 @@ type SceneServiceInterface interface {
 	// computed in the SCENE's timezone. weekKey is an ISO week key
 	// ("2026-W31") or "" for the scene's current week.
 	GetSceneWeek(city, state, weekKey string) (*SceneWeekResponse, error)
+	// GetSceneDay returns ONE calendar day of a scene's shows, computed in the
+	// SCENE's timezone. dateKey is an ISO calendar date ("2026-07-31") or "" for
+	// the scene's current night — which is not the same as its current date, see
+	// SceneDayResponse.IsTonight.
+	GetSceneDay(city, state, dateKey string) (*SceneDayResponse, error)
 }

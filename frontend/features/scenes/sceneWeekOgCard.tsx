@@ -6,11 +6,15 @@ import {
   ogFallbackCard,
 } from '@/lib/og/response'
 import { fitFontSize, fitItemList, monoBaselineLift } from '@/lib/og/textFit'
+import { fetchSceneWeek } from './sceneWeekApi'
+// The windows come from the shared module the FETCH reads them from, not from
+// a week-local alias. The card's cache-control and the data's revalidate have
+// to be the same number — see the header comment at the bottom of this file —
+// and one editable name per window is what keeps them that way.
 import {
-  ARCHIVED_WEEK_REVALIDATE,
-  CURRENT_WEEK_REVALIDATE,
-  fetchSceneWeek,
-} from './sceneWeekApi'
+  ARCHIVED_PERIOD_REVALIDATE,
+  CURRENT_PERIOD_REVALIDATE,
+} from './scenePeriodApi'
 import {
   countShows,
   formatShowCountLine,
@@ -211,8 +215,8 @@ export async function renderSceneWeekOgCard(
           // untrusted payload, and a non-boolean must not pin a live card in
           // the CDN for a day.
           !degraded && data.is_past_week === true
-            ? ARCHIVED_WEEK_REVALIDATE
-            : CURRENT_WEEK_REVALIDATE
+            ? ARCHIVED_PERIOD_REVALIDATE
+            : CURRENT_PERIOD_REVALIDATE
         ),
       },
     }
