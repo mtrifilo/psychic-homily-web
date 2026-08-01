@@ -5,7 +5,31 @@ import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import type { ShowResponse } from '../types'
+import type { ArtistResponse, SetType, ShowResponse } from '../types'
+
+/**
+ * Bill order is carried by `show_artists.position` (ascending), not by the
+ * order artists happen to arrive in. The backend's `buildShowResponse` does
+ * `ORDER BY position ASC` today, so this is a defensive re-assertion: the
+ * rendered bill must not silently misorder if a caller, cache layer, or a
+ * future query hands us the array in a different order.
+ *
+ * `Array.prototype.sort` is stable, so artists sharing a position — common on
+ * legacy rows where every position is 0 — keep the order the API sent them in.
+ */
+function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
+  return a.position - b.position
+}
+
+/**
+ * Support-line annotations for the bill positions that carry meaning beyond
+ * "not the headliner". `performer` is deliberately unannotated — it is the
+ * default, and labelling it would add noise to every bill.
+ */
+const SUPPORT_SET_TYPE_LABELS: Partial<Record<SetType, string>> = {
+  opener: 'opener',
+  special_guest: 'special guest',
+}
 
 interface ShowHeaderProps {
   show: ShowResponse
@@ -30,7 +54,9 @@ interface ShowHeaderProps {
  */
 export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const venue = show.venues[0]
-  const artists = show.artists
+  // Sort the whole bill first so every downstream slice — including the
+  // `artists[0]` / `artists.slice(1)` fallback below — is position-ordered.
+  const artists = [...show.artists].sort(byBillPosition)
 
   // Trimmed once here: the API can hand back a whitespace-only address, which
   // would otherwise pass the truthiness check and render a blank indented line.
@@ -105,10 +131,10 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                 ) : (
                   <span>{artist.name}</span>
                 )}
-                {artist.set_type === 'special_guest' && (
+                {SUPPORT_SET_TYPE_LABELS[artist.set_type] && (
                   <span className="text-sm text-muted-foreground/70 italic">
                     {' '}
-                    (special guest)
+                    ({SUPPORT_SET_TYPE_LABELS[artist.set_type]})
                   </span>
                 )}
               </span>
