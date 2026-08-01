@@ -261,9 +261,29 @@ jobs:
           fi
           echo "OK: frontend/types/api.d.ts matches the backend spec"
 
-  frontend-unit-tests:
-    name: Frontend Unit Tests
+  # PSY-1679: split the unit suite across 4 parallel shards. It was a single
+  # ~10.5min job and the long pole in CI.
+  #
+  # Sharding works here because the cost is PER FILE, not per test: 667 files /
+  # 8254 tests, and vitest's own accounting was `environment 522s · setup 349s ·
+  # tests 517s`. Every file builds a fresh jsdom and re-runs test/setup.ts (MSW
+  # listen, the Sentry mock, the matchMedia / IntersectionObserver /
+  # ResizeObserver stubs). That overhead parallelises almost linearly.
+  #
+  # Typecheck deliberately does NOT live here any more — it moved to
+  # frontend-lint so it runs once instead of four times. It had to land on
+  # another REQUIRED check, not a new job, or a type error would silently stop
+  # blocking merges.
+  frontend-unit-shards:
+    name: Frontend Unit Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
     runs-on: ubuntu-latest
+    strategy:
+      # One shard's failure must not cancel the others: a green sibling is how
+      # you tell "this shard's tests broke" from "the whole suite is broken".
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
     steps:
       - uses: actions/checkout@v4
 
@@ -273,18 +293,17 @@ jobs:
         working-directory: ./frontend
         run: bun install --frozen-lockfile
 
-      - name: Typecheck (tsc --noEmit)
+      - name: Run unit tests with coverage (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
         working-directory: ./frontend
-        run: bun run typecheck
-
-      - name: Run unit tests with coverage
-        working-directory: ./frontend
-        run: bun run test:coverage
+        run: bun run test:coverage -- --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
 
       - name: Upload frontend coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: coverage/lcov.info
+          # Every shard uploads its PARTIAL lcov under the same flag; Codecov
+          # merges uploads sharing a flag on one commit. Splitting the flag per
+          # shard would instead report four separate partial coverages.
           flags: frontend
           disable_search: true
           # PSY-976: see backend upload above — a flaky Codecov upload
@@ -293,6 +312,30 @@ jobs:
           fail_ci_if_error: false
           working-directory: ./frontend
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # PSY-1679: the required-check shim. `Frontend Unit Tests` is a REQUIRED status
+  # check on main, and required contexts are matched BY NAME. Sharding alone would
+  # have renamed it to "Frontend Unit Shard 1/4" etc., the required context would
+  # never report again, and every PR would silently become unmergeable.
+  #
+  # So this job keeps the name verbatim and just reports the matrix's verdict.
+  # `needs` on a matrix job aggregates: `success` only if every shard succeeded.
+  # `always()` is required or a failed shard would SKIP this job, and a skipped
+  # required check never reports either — the same breakage by another route.
+  frontend-unit-tests:
+    name: Frontend Unit Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-unit-shards]
+    if: ${{ always() }}
+    steps:
+      - name: Report shard results
+        run: |
+          echo "shard matrix result: ${{ needs.frontend-unit-shards.result }}"
+          if [ "${{ needs.frontend-unit-shards.result }}" != "success" ]; then
+            echo "::error::One or more frontend unit-test shards failed — see the 'Frontend Unit Shard N/4' jobs."
+            exit 1
+          fi
+          echo "All 4 frontend unit-test shards passed."
 
   # PSY-955: frontend ESLint gate. Runs the bare `bun run lint` (= `eslint`),
   # which exits non-zero on ERRORS only — it does NOT fail on warnings. There
@@ -311,6 +354,18 @@ jobs:
       - name: Install dependencies
         working-directory: ./frontend
         run: bun install --frozen-lockfile
+
+      # PSY-1679: typecheck moved here from frontend-unit-tests when that job was
+      # sharded 4x — running it in the matrix would have run it four times for
+      # one answer. It landed HERE specifically because `Frontend Lint` is also a
+      # REQUIRED check: parking it in a new non-required job would have run it
+      # while quietly no longer blocking a merge on a type error.
+      #
+      # It runs BEFORE lint because tsc is the stricter gate and the faster
+      # signal (~33s), so a type error fails the job without waiting on eslint.
+      - name: Typecheck (tsc --noEmit)
+        working-directory: ./frontend
+        run: bun run typecheck
 
       - name: Lint (eslint)
         working-directory: ./frontend
