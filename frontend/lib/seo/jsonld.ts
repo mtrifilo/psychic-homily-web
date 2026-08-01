@@ -74,7 +74,14 @@ export interface MusicEventSchema {
     price?: number
     priceCurrency?: string
     availability?: string
-    url?: string
+    /**
+     * Who sells the ticket, when we can name them. Deliberately no `url` — see
+     * the offers block in `generateMusicEventSchema`.
+     */
+    seller?: {
+      '@type': 'Organization'
+      name: string
+    }
   }
   image?: string[]
   url?: string
@@ -195,6 +202,50 @@ export function generateBreadcrumbSchema(
 }
 
 /**
+ * Ticket vendors we are willing to name in structured data, keyed by
+ * registrable domain.
+ *
+ * An explicit map rather than a prettified hostname: `seller.name` is a claim
+ * about a real company, and deriving "Tix" from `tix.some-venue.example` would
+ * invent one. An unrecognized host simply gets no seller.
+ */
+const TICKET_VENDORS_BY_DOMAIN: Record<string, string> = {
+  'dice.fm': 'DICE',
+  'eventbrite.com': 'Eventbrite',
+  'ticketmaster.com': 'Ticketmaster',
+  'ticketweb.com': 'TicketWeb',
+  'seetickets.us': 'See Tickets',
+  'etix.com': 'Etix',
+}
+
+/**
+ * Name the ticket vendor behind a show's `ticket_url`, or `undefined` when it
+ * is not one we recognize.
+ *
+ * Host-anchored (`host === domain || host.endsWith('.' + domain)`) so
+ * `evil-dice.fm` and `dice.fm.evil.test` do not borrow a real vendor's name.
+ * The URL itself is never emitted — only the vendor's name — so this reads a
+ * user-supplied field purely to look up a constant.
+ */
+function ticketVendorName(ticketUrl: string | undefined): string | undefined {
+  const raw = ticketUrl?.trim()
+  if (!raw) return undefined
+
+  const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, '')}`
+  let host: string
+  try {
+    host = new URL(candidate).hostname.toLowerCase()
+  } catch {
+    return undefined
+  }
+
+  const domain = Object.keys(TICKET_VENDORS_BY_DOMAIN).find(
+    d => host === d || host.endsWith(`.${d}`)
+  )
+  return domain ? TICKET_VENDORS_BY_DOMAIN[domain] : undefined
+}
+
+/**
  * Generate MusicEvent schema for a show
  */
 export function generateMusicEventSchema(show: {
@@ -229,6 +280,11 @@ export function generateMusicEventSchema(show: {
     socials?: Record<string, string | null | undefined>
   }>
   price?: number
+  /**
+   * Read ONLY to name the vendor in `offers.seller`. The URL itself is never
+   * emitted — see the offers block below.
+   */
+  ticket_url?: string
   slug?: string
 }): MusicEventSchema {
   const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
@@ -320,20 +376,28 @@ export function generateMusicEventSchema(show: {
   // stay optional inside the offer — Google marks both Recommended, not
   // required, so a price-less Offer still validates.
   //
-  // `url` deliberately points at OUR show page, not the show's `ticket_url`.
-  // Google would rather it landed where the ticket is actually sold, but this
-  // site has no affiliate or referral arrangement with any vendor, so handing
-  // the click straight to them gives away the traffic this page earned for
-  // nothing. Revisit if a deal ever exists.
+  // There is deliberately NO `offers.url`. Google documents it as Recommended,
+  // not required, and the only thing omitting it costs is the "ticket purchase
+  // option" placement — price display and sold-out badging both survive
+  // without it. Neither available value is honest: the vendor's own URL hands
+  // the sale to a company this site has no referral arrangement with, and a
+  // self-referencing URL fails Google's own bar for the field, a "landing page
+  // that clearly and predominantly provides the opportunity to buy". So the
+  // offer says only what it can back up — the price, whether it is sold out,
+  // and who sells it.
+  //
+  // The gate is price-or-sold-out for the same reason: with no url, an offer
+  // carrying neither conveys nothing at all.
   const hasPrice = show.price !== undefined && show.price !== null
   if (!show.is_cancelled && !show.is_past && (hasPrice || show.is_sold_out)) {
+    const seller = ticketVendorName(show.ticket_url)
     schema.offers = {
       '@type': 'Offer',
       ...(hasPrice ? { price: show.price, priceCurrency: 'USD' } : {}),
       availability: show.is_sold_out
         ? 'https://schema.org/SoldOut'
         : 'https://schema.org/InStock',
-      url: show.slug ? `${SITE_URL}/shows/${show.slug}` : undefined,
+      ...(seller ? { seller: { '@type': 'Organization' as const, name: seller } } : {}),
     }
   }
 

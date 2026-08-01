@@ -267,31 +267,42 @@ describe('ShowPage MusicEvent offers', () => {
 
     expect(schema.offers).toMatchObject({
       '@type': 'Offer',
+      price: 20,
       availability: 'https://schema.org/InStock',
-      url: 'https://psychichomily.com/shows/test-show',
     })
   })
 
-  // The offer keeps pointing at our own page even when the show records a
-  // vendor link. There is no affiliate arrangement behind that link, so
-  // sending the click straight out gives away traffic this page earned.
-  it('does NOT hand the offer URL to the show ticket vendor', async () => {
+  /**
+   * The show page must not publish a purchase URL — neither the vendor's nor
+   * its own. See PSY-1669's Linear thread for the full decision trail: the
+   * original acceptance criteria asked for the vendor's `ticket_url`, that was
+   * reversed because this site has no referral arrangement and would be giving
+   * away sales for free, and the self-referencing URL that replaced it was
+   * dropped too because our show page is not the "landing page that clearly
+   * and predominantly provides the opportunity to buy" that Google's field
+   * expects. `offers.url` is Recommended, not required; omitting it costs only
+   * the "ticket purchase option" placement, while price and sold-out status
+   * still surface. This test exists so neither URL is reintroduced by a future
+   * agent reading the original ticket.
+   */
+  it('publishes no purchase URL, even for a show with a vendor ticket link', async () => {
     fetchMock.mockResolvedValueOnce(
       okResponse(
         buildShow({
           event_date: FUTURE_DATE,
           price: 20,
-          ticket_url: 'https://tix.example.com/e/123',
+          ticket_url: 'https://dice.fm/event/abc',
         })
       )
     )
 
     const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
-    const schema = musicEventSchemaFrom(result)
+    const offers = musicEventSchemaFrom(result).offers as Record<string, unknown>
 
-    expect((schema.offers as { url?: string }).url).toBe(
-      'https://psychichomily.com/shows/test-show'
-    )
+    expect('url' in offers).toBe(false)
+    expect(JSON.stringify(offers)).not.toContain('dice.fm')
+    // The vendor is named, not linked.
+    expect(offers.seller).toEqual({ '@type': 'Organization', name: 'DICE' })
   })
 })
 

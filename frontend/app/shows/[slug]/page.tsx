@@ -190,6 +190,9 @@ export default async function ShowPage({ params }: ShowPageProps) {
         // happened. Deliberately NOT derived inside the builder: that would
         // make its output depend on the wall clock.
         is_past: isShowPast(showData.event_date),
+        // Names the vendor in `offers.seller`. The builder never emits this
+        // URL — no free referrals into structured data.
+        ticket_url: showData.ticket_url ?? undefined,
         slug: showData.slug,
       })} />
       <JsonLd data={generateBreadcrumbSchema([
