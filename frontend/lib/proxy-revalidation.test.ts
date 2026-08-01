@@ -104,6 +104,9 @@ describe('show rules', () => {
     '/explore',
     '/artists',
     '/venues',
+    // The scene BROWSE page as well as the per-scene pages: since PSY-1624 it
+    // server-renders each city's show counts, which a show mutation moves.
+    '/scenes',
     '/scenes/[slug]',
     '/artists/bright-eyes',
     '/artists/cursive',
@@ -191,6 +194,7 @@ describe('show rules', () => {
       '/explore',
       '/artists',
       '/venues',
+      '/scenes',
       '/scenes/[slug]',
     ])
   })
@@ -415,7 +419,8 @@ describe('venue rules', () => {
       path: '/admin/venues',
       responseText: JSON.stringify({ id: 3, slug: 'new-venue' }),
     })
-    expect(revalidated()).toEqual(['/venues/new-venue', '/venues'])
+    // '/scenes' rides along: the scene cards carry a per-city venue_count.
+    expect(revalidated()).toEqual(['/venues/new-venue', '/venues', '/scenes'])
   })
 
   // Venue renames/deletes change the venue name embedded in show and
@@ -437,7 +442,7 @@ describe('venue rules', () => {
 
   it('delete revalidates the list + rename cascade', async () => {
     await run({ method: 'DELETE', path: '/venues/3' })
-    expect(revalidated()).toEqual(['/venues', ...venueCascade])
+    expect(revalidated()).toEqual(['/venues', '/scenes', ...venueCascade])
   })
 
   it('verify revalidates the venue + list with NO cascade (name unchanged)', async () => {
