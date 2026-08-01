@@ -437,6 +437,9 @@ describe('venue rules', () => {
       '/venues/the-rebel-lounge',
       '/venues',
       ...venueCascade,
+      // An edit can move the venue to another city, shifting venue_count
+      // between two scene cards on the server-rendered /scenes list.
+      '/scenes',
     ])
   })
 

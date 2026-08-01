@@ -30,10 +30,20 @@ function getServerSnapshot(): string | undefined {
  *
  * The two-phase shape is the point, not a limitation. It gives the server and
  * the client's first render one agreed answer to key a request on, and hands
- * the viewer's actual zone to every render after. The refinement costs one
- * refetch: for an upcoming-shows query, the two answers differ only in where
- * "today" starts, and `keepPreviousData` holds the first screen on screen
- * while the corrected one arrives.
+ * the viewer's actual zone to every render after. The two answers differ only
+ * in where "today" starts, and `keepPreviousData` holds the first screen in
+ * place while the corrected one arrives.
+ *
+ * Measured cost, stated plainly because it is not free: on a cold `/shows` the
+ * page issues FOUR client requests where it used to issue two. The seeded
+ * entries are stale by construction, so the hydration commit revalidates the
+ * zone-less `/shows/upcoming` and `/shows/cities` pair, and the commit after
+ * it — once this hook reports the real zone — fetches the zone-keyed pair.
+ * The first pair's results are discarded. `/venues` and `/scenes` do not pay
+ * this; nothing there keys on a timezone. Reducing it means giving the server
+ * a zone to key on (an `x-vercel-ip-timezone` read, or a cookie written on
+ * first visit), which trades a Data Cache entry per zone for the saved pair —
+ * a worthwhile follow-up, not a silent default.
  *
  * `useSyncExternalStore`, not an effect: React uses `getServerSnapshot` for
  * BOTH the server render and the hydration render, which is exactly the

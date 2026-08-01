@@ -83,10 +83,11 @@ export const showQueryKeys = {
  * mismatched.
  *
  * URL and key are declared together because they only work as a pair, and the
- * pairing is unenforceable at the type level — `useShows.test.tsx` asserts the
- * hooks really do register these keys against these URLs, because a drifted
- * pair produces no error anywhere, just a page that quietly stops being
- * server-rendered.
+ * pairing is unenforceable at the type level. `useShowsFirstScreen.test.tsx`
+ * asserts the hooks really do register these keys against these URLs; the
+ * sibling `useShows.test.tsx` cannot, because it `vi.mock`s this module and so
+ * never sees the real constants. A drifted pair produces no error anywhere,
+ * just a page that quietly stops being server-rendered.
  */
 export const UPCOMING_SHOWS_FIRST_SCREEN_URL = showEndpoints.UPCOMING
 

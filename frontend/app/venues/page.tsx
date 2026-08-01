@@ -88,10 +88,12 @@ async function HydratedVenueList() {
   const [venues, cities] = await Promise.all([
     fetchListPayload<VenuesListResponse>({
       url: VENUE_LIST_FIRST_SCREEN_URL,
+      collection: 'venues',
       service: 'venues-first-screen',
     }),
     fetchListPayload<VenueCitiesResponse>({
       url: venueEndpoints.CITIES,
+      collection: 'cities',
       service: 'venue-cities-first-screen',
     }),
   ])

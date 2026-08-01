@@ -94,6 +94,7 @@ export function ShowList() {
     data: citiesData,
     isLoading: citiesLoading,
     isFetching: citiesFetching,
+    isPlaceholderData: citiesArePlaceholder,
   } = useShowCities({
     timezone,
   })
@@ -143,7 +144,14 @@ export function ShowList() {
     return appliedGeoDefault ? [appliedGeoDefault] : []
   }, [citiesState, legacyCity, legacyState, favoriteCities, appliedGeoDefault])
 
-  const { data, isLoading, isFetching, error, refetch } = useUpcomingShows({
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isPlaceholderData,
+    error,
+    refetch,
+  } = useUpcomingShows({
     timezone,
     cursor,
     cities: selectedCities.length > 0 ? selectedCities : undefined,
@@ -268,9 +276,27 @@ export function ShowList() {
   }
 
   // Track if we're updating (fetching but already have data)
-  const isUpdating = isFetching || citiesFetching || isPending
+  // Dim only while the rows on screen belong to a DIFFERENT query than the one
+  // being awaited — a filter change, or the post-hydration timezone refinement,
+  // where `keepPreviousData` is holding the old page in place.
+  // `isPlaceholderData` says exactly that; raw `isFetching` does not, and using
+  // it would dim a same-key background revalidation. That distinction became
+  // visible in PSY-1624: the server-seeded first screen arrives stale by
+  // construction (`seedFirstScreen` stamps `dataUpdatedAt: 0`), so `isFetching`
+  // is true on the very first client commit and the freshly server-rendered
+  // list would fade to 60% the instant it hydrated — the opposite of the point.
+  const isUpdating =
+    (isFetching && isPlaceholderData) ||
+    (citiesFetching && citiesArePlaceholder) ||
+    isPending
 
-  if (error) {
+  // `&& !data`: an error only replaces the list when there is no list to show.
+  // Every load now forces a revalidation of the server-seeded entry (stale by
+  // construction — see `seedFirstScreen`), so without this guard a single
+  // failed background refetch would swap a fully rendered first screen for an
+  // error message, having lost nothing the reader was actually looking at.
+  // A first load that genuinely has nothing still reports the failure.
+  if (error && !data) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load shows. Please try again later.</p>

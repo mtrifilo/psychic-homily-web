@@ -1,6 +1,5 @@
 import * as Sentry from '@sentry/nextjs'
 import {
-  BUILD_TIME_API_FETCH_TIMEOUT_MS,
   createBuildTimeApiSignal,
 } from '@/lib/build-time-api'
 
@@ -10,15 +9,43 @@ import {
  * Matches every other list/entity fetch in `app/` (see `app/artists/[slug]`,
  * `app/venues/[slug]`, `lib/seo/fetchSeoList.ts`). An hour of drift is not the
  * exposure it looks like: `lib/proxy-revalidation.ts` calls `revalidatePath`
- * on `/shows`, `/venues` and the scene pages after every mutation that changes
- * them, so the window is a ceiling for changes made OUTSIDE the app, not the
- * latency of a submission made through it.
+ * on `/shows`, `/venues` and `/scenes` after every mutation that changes them
+ * — `/scenes` was added there for exactly this reason — so the window bounds
+ * changes made OUTSIDE the app, not the latency of a submission made through
+ * it. Verify that list rather than trusting this sentence if you change it.
  */
 export const FIRST_SCREEN_REVALIDATE_SECONDS = 3600
+
+/**
+ * How long a first-screen fetch may block before the page gives up on it.
+ *
+ * Deliberately NOT `BUILD_TIME_API_FETCH_TIMEOUT_MS` (10s). That budget was
+ * argued for a build step, where the only cost of waiting is a slower deploy.
+ * This runs at request time: the Data Cache makes an expiry a
+ * stale-while-revalidate refresh nobody waits on, but a genuine MISS — a cold
+ * instance, an evicted entry — blocks a real visitor's list. Giving up at 2.5s
+ * costs that visitor the server-rendered rows and nothing else; the component
+ * fetches for itself either way. Ten seconds of blank page would be the worse
+ * trade.
+ */
+export const FIRST_SCREEN_FETCH_TIMEOUT_MS = 2_500
 
 interface FetchListPayloadOptions {
   /** Absolute API URL, already carrying any query parameters. */
   url: string
+  /**
+   * The response key that must hold an array for the body to be usable.
+   *
+   * A 200 whose shape has drifted is a contract break, not a short list, and
+   * without this check it would be seeded into the query cache as though it
+   * were data. The consequences are not uniform: a venue or scene payload
+   * missing its rows renders as the empty state — the "confident, wrong answer
+   * about the catalogue" this helper's `null` exists to prevent — while a
+   * shows payload missing `pagination` throws during render, because
+   * `ShowList` reads `data?.pagination.has_more` and the optional chain only
+   * guards `data`. Checking here keeps both out of the cache.
+   */
+  collection: 'shows' | 'venues' | 'scenes' | 'cities'
   /** Sentry `service` tag, and the prefix of the reported message. */
   service: string
   /** Override only with the reason written down at the call site. */
@@ -54,8 +81,9 @@ interface FetchListPayloadOptions {
  */
 export async function fetchListPayload<T>({
   url,
+  collection,
   service,
-  timeoutMs = BUILD_TIME_API_FETCH_TIMEOUT_MS,
+  timeoutMs = FIRST_SCREEN_FETCH_TIMEOUT_MS,
   fetchImpl = fetch,
 }: FetchListPayloadOptions): Promise<T | null> {
   try {
@@ -84,6 +112,14 @@ export async function fetchListPayload<T>({
         tags: { service },
         extra: { url },
       })
+      return null
+    }
+
+    if (!Array.isArray((body as Record<string, unknown>)[collection])) {
+      Sentry.captureMessage(
+        `${service}: response has no "${collection}" array`,
+        { level: 'error', tags: { service }, extra: { url } },
+      )
       return null
     }
 

@@ -21,6 +21,7 @@ const jsonResponse = (body: unknown, status = 200) =>
 const call = (fetchImpl: typeof fetch) =>
   fetchListPayload<{ venues: unknown[]; total: number }>({
     url: 'https://api.example.test/venues?limit=50',
+    collection: 'venues',
     service: 'venues-first-screen',
     fetchImpl,
   })
@@ -81,6 +82,23 @@ describe('fetchListPayload', () => {
 
     await expect(call(fetchImpl)).resolves.toBeNull()
     expect(captureException).toHaveBeenCalled()
+  })
+
+  // A shape-drifted 200 must not reach the query cache. For venues and scenes
+  // it would render as the empty state; for shows it is worse, because
+  // `ShowList` reads `data?.pagination.has_more` and a seeded object without
+  // `pagination` throws during render.
+  it('returns null and reports when the collection key is missing or not an array', async () => {
+    for (const body of [{ total: 0 }, { venues: 'nope', total: 0 }]) {
+      captureMessage.mockClear()
+      await expect(
+        call(vi.fn().mockResolvedValue(jsonResponse(body))),
+      ).resolves.toBeNull()
+      expect(captureMessage).toHaveBeenCalledWith(
+        'venues-first-screen: response has no "venues" array',
+        expect.objectContaining({ level: 'error' }),
+      )
+    }
   })
 
   it('returns null and reports on a 200 whose body is not an object', async () => {

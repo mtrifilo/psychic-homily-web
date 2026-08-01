@@ -64,8 +64,20 @@ export function VenueList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useVenueCities()
-  const { data, isLoading, isFetching, error, refetch } = useVenues({
+  const {
+    data: citiesData,
+    isLoading: citiesLoading,
+    isFetching: citiesFetching,
+    isPlaceholderData: citiesArePlaceholder,
+  } = useVenueCities()
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isPlaceholderData,
+    error,
+    refetch,
+  } = useVenues({
     cities: selectedCities.length > 0 ? selectedCities : undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     tagMatch,
@@ -144,9 +156,22 @@ export function VenueList() {
   }
 
   // Track if we're updating (fetching but already have data)
-  const isUpdating = isFetching || citiesFetching || isPending
+  // Dim only while the rows on screen belong to a DIFFERENT query than the one
+  // being awaited — `keepPreviousData` holding the old page through a filter
+  // change. A same-key background revalidation must not dim: the server-seeded
+  // first screen (PSY-1624) arrives stale by construction, so `isFetching` is
+  // true on the first client commit and raw `isFetching` would fade the list to
+  // 60% the instant it hydrated.
+  const isUpdating =
+    (isFetching && isPlaceholderData) ||
+    (citiesFetching && citiesArePlaceholder) ||
+    isPending
 
-  if (error) {
+  // `&& !data`: an error only replaces the list when there is no list to show.
+  // The server-seeded first screen is stale by construction, so every load
+  // forces a revalidation; without this guard one failed background refetch
+  // would swap a fully rendered page for an error message.
+  if (error && !data) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load venues. Please try again later.</p>

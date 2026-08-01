@@ -45,6 +45,7 @@ function SceneListLoading() {
 async function HydratedSceneList() {
   const scenes = await fetchListPayload<SceneListResponse>({
     url: API_ENDPOINTS.SCENES.LIST,
+    collection: 'scenes',
     service: 'scenes-listing',
   })
 

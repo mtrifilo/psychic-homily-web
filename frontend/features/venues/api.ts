@@ -116,8 +116,10 @@ export const VENUE_LIST_PAGE_LIMIT = 50
  * for and the page silently reverts to its pre-SSR behaviour — the hook misses
  * the cache and renders its spinner on BOTH the server and the hydration pass,
  * so nothing looks broken and nothing is server-rendered either. That failure
- * is invisible by construction, which is why `useVenues.test.tsx` asserts the
- * hook actually registers this key and requests this URL.
+ * is invisible by construction, which is why `useVenuesFirstScreen.test.tsx`
+ * asserts the hook actually registers this key and requests this URL. The
+ * sibling `useVenues.test.tsx` cannot: it `vi.mock`s this module, so it never
+ * sees the real constants.
  *
  * A filtered `/venues?cities=…` deep link is deliberately NOT covered: the
  * hook keys on the filter, misses this entry, and both render passes agree on

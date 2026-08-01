@@ -98,5 +98,9 @@ export function formatShowCountLabel(loaded: number, total?: number | null): str
   if (total == null || total <= loaded) {
     return `${loaded} ${noun}`
   }
-  return `${loaded.toLocaleString()} of ${total.toLocaleString()} ${noun}`
+  // Pinned to en-US, like every date in this list (`formatInTimezone`): the
+  // label is server-rendered since PSY-1624, and a bare `toLocaleString()`
+  // yields "1,234" from Node and "1.234" in a de-DE browser — a hydration
+  // mismatch that only appears once a filter's total passes 999.
+  return `${loaded.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} ${noun}`
 }

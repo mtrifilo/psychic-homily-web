@@ -1,17 +1,15 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { HydrationBoundary } from '@tanstack/react-query'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
   UPCOMING_SHOWS_FIRST_SCREEN_KEY,
-  UPCOMING_SHOWS_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
 import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { seedFirstScreen } from '@/lib/query-hydration'
-import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
@@ -52,12 +50,35 @@ interface ShowListItem {
  */
 export const UPCOMING_SHOWS_LIMIT = 50
 
-export function getUpcomingShows(): Promise<ShowListItem[]> {
-  return fetchSeoList<ShowListItem>({
+/**
+ * The one read of `/shows/upcoming` this page makes.
+ *
+ * It feeds two consumers with different needs — the JSON-LD `ItemList` wants
+ * names and slugs, the hydration seed wants the whole response including
+ * `pagination` and `total` — and `React.cache` is what lets the page body and
+ * the Suspense child below share a single fetch rather than each starting one.
+ *
+ * They were briefly two fetches, on the theory that the seed had to reproduce
+ * the client hook's request byte-for-byte. It does not: what the hook reads is
+ * decided by the query KEY, which `seedFirstScreen` is handed separately, so
+ * the URL only has to yield an equivalent payload. `?limit=50` and no `limit`
+ * return the same 50 rows (the endpoint's own default — see
+ * `UPCOMING_SHOWS_LIMIT`), so the second fetch bought nothing but a second
+ * Data Cache entry and a way for the `ItemList` and the visible list to
+ * disagree across cache windows.
+ */
+const getUpcomingShowsPayload = cache(() =>
+  fetchListPayload<UpcomingShowsResponse>({
     url: `${API_BASE_URL}/shows/upcoming?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
   })
+)
+
+/** The `ItemList` rows. `null` (a failed fetch) yields no block, as before. */
+export async function getUpcomingShows(): Promise<ShowListItem[]> {
+  const payload = await getUpcomingShowsPayload()
+  return (payload?.shows as ShowListItem[] | undefined) ?? []
 }
 
 function getShowName(show: ShowListItem): string {
@@ -75,14 +96,9 @@ function getShowName(show: ShowListItem): string {
  * BOTH are required: `ShowList` returns its skeleton while EITHER query is
  * still loading, so seeding the rows alone server-renders the skeleton.
  *
- * This is a second read of `/shows/upcoming` on this page, alongside
- * `getUpcomingShows` above, and the two are deliberately not merged. They are
- * bounded by different things: the `ItemList` sends an explicit `limit=50`
- * argued at `UPCOMING_SHOWS_LIMIT`, while this one must reproduce the client
- * hook's request exactly — which sends no `limit` at all — or the seeded entry
- * is not the entry the hook reads. Collapsing them would mean one of the two
- * silently answering to the other's constraint. Both land in Next's Data Cache
- * for an hour and are invalidated together by `lib/proxy-revalidation.ts`.
+ * The rows come from `getUpcomingShowsPayload`, the same `React.cache`'d fetch
+ * the `ItemList` above reads, so the crawler's list and the reader's list are
+ * one response rather than two that can disagree.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
  * component fetches for itself and owns the error state (see
@@ -90,12 +106,10 @@ function getShowName(show: ShowListItem): string {
  */
 async function HydratedShowList() {
   const [shows, cities] = await Promise.all([
-    fetchListPayload<UpcomingShowsResponse>({
-      url: UPCOMING_SHOWS_FIRST_SCREEN_URL,
-      service: 'shows-first-screen',
-    }),
+    getUpcomingShowsPayload(),
     fetchListPayload<ShowCitiesResponse>({
       url: SHOW_CITIES_FIRST_SCREEN_URL,
+      collection: 'cities',
       service: 'show-cities-first-screen',
     }),
   ])

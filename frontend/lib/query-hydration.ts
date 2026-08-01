@@ -72,17 +72,36 @@ export interface QuerySeed {
  * cached shell goes on lying as the shell ages. Seeding at 0 says "paint this,
  * then go check", which is what a server-rendered first screen actually is.
  *
+ * The forced revalidation it buys is not only a freshness nicety. The server
+ * fetch forwards no cookies, so the seed is always the ANONYMOUS payload — an
+ * admin, whose `/shows/upcoming` normally includes unapproved shows, would
+ * otherwise sit on a first screen that silently omits them. Landing stale is
+ * what lets the client correct that on its own. Two consequences to keep in
+ * mind at the call site: the seeded query reports `isFetching` on its very
+ * first commit (do not wire that to a "dimming" affordance — see `ShowList`),
+ * and a failed revalidation leaves `error` set while `data` is still the
+ * server payload (gate error states on `!data`).
+ *
  * **`await connection()` is load-bearing, not defensive.** `dehydrate()` reads
  * the clock too — it stamps its own `dehydratedAt` — and that one is TanStack's
  * to spend, not ours to zero out, so the seed can only be produced where
- * reading the clock is legitimate: a request-time render. This marks the
- * CALLING BOUNDARY dynamic, which under `cacheComponents` means a PPR hole
- * streamed into the prerendered shell, not a whole-route opt-out — the page
- * chrome still comes from the static shell, and the payload underneath is
- * still Data-Cached, so a request-time render is not a request-time fetch. It
- * lives in here rather than at each call site because a caller that forgot it
- * would fail at BUILD, on a message that names neither this function nor the
- * reason.
+ * reading the clock is legitimate: a request-time render. Without it these
+ * three pages fail the `cacheComponents` prerender guard ("used `Date.now()`
+ * before accessing either uncached data or Request data") — observed, not
+ * theorised. `prefetchEntity` above needs no such call only because its
+ * callers are `[slug]` routes that have already `await`ed `params`, which is
+ * Request data and satisfies the same guard; a route with no dynamic input of
+ * its own has nothing to satisfy it with.
+ *
+ * What this costs is close to nothing here: `AuthHydrator` in the root layout
+ * already reads `cookies()` inside a `<Suspense>`, so every route in this app
+ * already streams its content subtree. This adds a second hole to a request
+ * that had one, not a first — and the payload underneath is still Data-Cached,
+ * so a request-time render is not a request-time fetch.
+ *
+ * It lives in here rather than at each call site because a caller that forgot
+ * it would fail at BUILD, on a message that names neither this function nor
+ * the reason.
  */
 export async function seedFirstScreen(
   seeds: readonly QuerySeed[],

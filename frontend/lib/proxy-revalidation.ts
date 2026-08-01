@@ -212,6 +212,21 @@ function bodySlugPages(segment: string): RevalidationRule['paths'] {
  * where the mutation may have changed the entity's name (which other pages
  * embed in their ISR payloads).
  */
+/**
+ * A resolver plus fixed extra paths.
+ *
+ * Exists so "this rule also stales page X" is a wrapper rather than a
+ * hand-inlined copy of the resolver it extends — the venue rules needed
+ * '/scenes' added to three different base resolvers, and copying each one out
+ * would have been three places to keep in step.
+ */
+function withExtraPaths(
+  base: RevalidationRule['paths'],
+  ...extra: string[]
+): RevalidationRule['paths'] {
+  return async ctx => [...(await base(ctx)), ...extra]
+}
+
 function bodySlugPagesWithCascade(
   segment: string
 ): RevalidationRule['paths'] {
@@ -418,16 +433,15 @@ const RULES: readonly RevalidationRule[] = [
     pattern: /^\/admin\/venues$/,
     // Plus the scene browse page: its cards carry a per-city venue_count that
     // a create moves (PSY-1624 made that count server-rendered).
-    paths: ({ body }) => [
-      ...entityPages('venues', slugOf(body)),
-      SCENE_LIST_PAGE,
-    ],
+    paths: withExtraPaths(bodySlugPages('venues'), SCENE_LIST_PAGE),
   },
   {
     name: 'venue-update',
     methods: ['PUT'],
     pattern: /^\/venues\/\d+$/,
-    paths: bodySlugPagesWithCascade('venues'),
+    // Plus '/scenes': an edit can move the venue to a different city, which
+    // shifts venue_count between two scene cards.
+    paths: withExtraPaths(bodySlugPagesWithCascade('venues'), SCENE_LIST_PAGE),
   },
   {
     name: 'venue-delete',
