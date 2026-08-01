@@ -26,6 +26,9 @@ import (
 // values that carry an explicit TZID parameter instead of a trailing Z.
 const icalLocalTimeFormat = "20060102T150405"
 
+// Mirrored by the frontend's SHOW_DURATION_MS (ShowAddToCalendar.tsx) for the
+// Google Calendar link — the two export paths must agree on when a show ends.
+//
 // defaultShowDuration is the assumed length of a show when building calendar
 // events (the source data has no end time).
 const defaultShowDuration = 3 * time.Hour
@@ -339,17 +342,7 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 
 // formatVenueLocation builds a LOCATION-friendly venue string including address.
 func formatVenueLocation(venue contracts.VenueResponse) string {
-	parts := []string{venue.Name}
-	if venue.Address != nil && strings.TrimSpace(*venue.Address) != "" {
-		parts = append(parts, strings.TrimSpace(*venue.Address))
-	}
-	if venue.City != "" {
-		parts = append(parts, venue.City)
-	}
-	if venue.State != "" {
-		parts = append(parts, venue.State)
-	}
-	return strings.Join(parts, ", ")
+	return formatEventLocation(venue.Name, venue.Address, venue.City, venue.State)
 }
 
 // setVenueLocalEventTimes writes DTSTART/DTEND anchored to the venue's local

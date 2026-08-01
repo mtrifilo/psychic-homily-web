@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
+import { ShowAddToCalendar } from './ShowAddToCalendar'
 import type { ShowResponse } from '../types'
 
 interface ShowHeaderProps {
@@ -143,11 +144,13 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           </div>
         )}
 
-        {/* Show Details */}
+        {/* Show Details. The calendar affordance sits here with the when-info
+            (event-page convention), not in the social action cluster. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-3">
           <span>{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}</span>
           {show.price != null && <span>{formatPrice(show.price)}</span>}
           {show.age_requirement && <span>{show.age_requirement}</span>}
+          <ShowAddToCalendar show={show} />
         </div>
 
         {/* Ticket URL */}

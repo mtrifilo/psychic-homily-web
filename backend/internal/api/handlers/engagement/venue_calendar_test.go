@@ -56,8 +56,8 @@ func TestGetVenueCalendarFeedHandler_Success(t *testing.T) {
 	}
 	// A public feed must be cacheable by SHARED caches — every caller gets the
 	// same bytes, and absorbing poll traffic upstream is the whole point.
-	if cc := w.Header().Get("Cache-Control"); cc != venueFeedCacheControl {
-		t.Errorf("Cache-Control = %q, want %q", cc, venueFeedCacheControl)
+	if cc := w.Header().Get("Cache-Control"); cc != publicCalendarCacheControl {
+		t.Errorf("Cache-Control = %q, want %q", cc, publicCalendarCacheControl)
 	}
 	if strings.Contains(w.Header().Get("Cache-Control"), "private") {
 		t.Error("public venue feed must not be marked private")
@@ -167,7 +167,7 @@ func TestGetVenueCalendarFeedHandler_RejectsBadIdentifiers(t *testing.T) {
 	}
 	h := NewVenueCalendarHandler(mock, testCalendarConfig())
 
-	for _, id := range []string{"", "   ", strings.Repeat("a", maxVenueIdentifierLength+1)} {
+	for _, id := range []string{"", "   ", strings.Repeat("a", maxCalendarIdentifierLength+1)} {
 		w := httptest.NewRecorder()
 		h.GetVenueCalendarFeedHandler(w, venueFeedRequest(http.MethodGet, id))
 		if w.Code != http.StatusBadRequest {

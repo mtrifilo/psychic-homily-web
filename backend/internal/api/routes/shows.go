@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/httprate"
 
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
+	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
 	"psychic-homily-backend/internal/api/middleware"
 )
 
@@ -26,6 +27,15 @@ func setupShowRoutes(rc RouteContext) {
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/shows/{show_id}", showHandler.GetShowHandler)
+
+	// Public one-shot "Add to calendar" export for a single show — a chi route
+	// for the same reasons as the venue feed (see routes/venues.go), with the
+	// same two constraints: the parameter MUST stay named `show_id` to match
+	// its Huma siblings (pinned by show_calendar_routing_test.go), and the
+	// path stays on the ordinary public-read rate-limit budget.
+	showCalendarHandler := engagementh.NewShowCalendarHandler(rc.SC.ShowCalendar, rc.Cfg)
+	rc.Router.Get("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
+	rc.Router.Head("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
 
 	// Export endpoint - only register in development environment
 	if os.Getenv("ENVIRONMENT") == "development" {

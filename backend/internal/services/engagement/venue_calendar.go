@@ -246,7 +246,7 @@ func (s *VenueCalendarService) buildCalendar(
 	frontendURL string,
 ) []byte {
 	venueName := sanitizeICSText(venue.Name)
-	location := sanitizeICSText(formatVenueDetailLocation(venue))
+	location := sanitizeICSText(formatEventLocation(venue.Name, venue.Address, venue.City, venue.State))
 	calendarName := venueName + " — Shows"
 
 	cal := ics.NewCalendar()
@@ -279,32 +279,19 @@ func (s *VenueCalendarService) buildCalendar(
 		// this room by construction, so there is no per-show venue to consult.
 		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, venue.Timezone, venue.State)
 
-		summary := sanitizeICSText(show.Title)
-		if summary == "" {
-			summary = "Show at " + venueName
-		}
-		if show.IsCancelled {
-			// STATUS:CANCELLED is the machine-readable signal, but several
-			// mobile clients render a cancelled event indistinguishably from a
-			// live one. The prefix is what a human actually sees.
-			summary = "CANCELLED: " + summary
-		} else if show.IsSoldOut {
-			summary += " [SOLD OUT]"
-		}
-		event.SetSummary(summary)
-
-		if show.IsCancelled {
-			event.SetStatus(ics.ObjectStatusCancelled)
-		} else {
-			event.SetStatus(ics.ObjectStatusConfirmed)
-		}
+		applyEventSummaryAndStatus(event, show.Title, artistsByShow[show.ID], venue.Name, show.IsCancelled, show.IsSoldOut)
 
 		if location != "" {
 			event.SetLocation(location)
 		}
 
-		showURL := showPageURL(frontendURL, show)
-		event.SetDescription(buildEventDescription(location, artistsByShow[show.ID], show, showURL))
+		slug := ""
+		if show.Slug != nil {
+			slug = *show.Slug
+		}
+		showURL := showPageURL(frontendURL, slug, show.ID)
+		event.SetDescription(buildEventDescription(
+			location, artistsByShow[show.ID], show.Price, show.AgeRequirement, show.IsCancelled, showURL))
 		if showURL != "" {
 			event.SetURL(showURL)
 		}
@@ -319,7 +306,11 @@ func (s *VenueCalendarService) buildCalendar(
 // buildEventDescription assembles the human-readable body. Lines are joined with
 // "\n" deliberately: golang-ical escapes those into the literal `\n` that RFC
 // 5545 uses for a line break inside a TEXT value.
-func buildEventDescription(location string, artistNames []string, show *catalogm.Show, showURL string) string {
+//
+// Takes primitives rather than a show struct so both calendar surfaces — the
+// venue feed (model-shaped shows) and the per-show download (response-shaped
+// shows) — describe an event identically.
+func buildEventDescription(location string, artistNames []string, price *float64, ageRequirement *string, isCancelled bool, showURL string) string {
 	var parts []string
 
 	if location != "" {
@@ -336,15 +327,15 @@ func buildEventDescription(location string, artistNames []string, show *catalogm
 			parts = append(parts, "Artists: "+strings.Join(clean, ", "))
 		}
 	}
-	if show.Price != nil {
-		parts = append(parts, fmt.Sprintf("Price: $%.0f", *show.Price))
+	if price != nil {
+		parts = append(parts, fmt.Sprintf("Price: $%.0f", *price))
 	}
-	if show.AgeRequirement != nil {
-		if ages := sanitizeICSText(*show.AgeRequirement); ages != "" {
+	if ageRequirement != nil {
+		if ages := sanitizeICSText(*ageRequirement); ages != "" {
 			parts = append(parts, "Ages: "+ages)
 		}
 	}
-	if show.IsCancelled {
+	if isCancelled {
 		parts = append(parts, "This show has been cancelled.")
 	}
 	if showURL != "" {
@@ -352,6 +343,46 @@ func buildEventDescription(location string, artistNames []string, show *catalogm
 	}
 
 	return strings.Join(parts, "\n")
+}
+
+// applyEventSummaryAndStatus names the event and sets its STATUS, identically
+// for every calendar surface. Both surfaces emit the same UID for a show, so
+// they MUST agree on its name or an attendee importing from both watches the
+// event's title flip: the show's title, else the bill (matching the frontend
+// display-title convention), else "Show at {venue}".
+//
+// STATUS:CANCELLED is the machine-readable cancellation signal, but several
+// mobile clients render a cancelled event indistinguishably from a live one —
+// the CANCELLED: prefix is what a human actually sees.
+func applyEventSummaryAndStatus(event *ics.VEvent, title string, artistNames []string, venueName string, isCancelled, isSoldOut bool) {
+	summary := sanitizeICSText(title)
+	if summary == "" {
+		names := make([]string, 0, len(artistNames))
+		for _, name := range artistNames {
+			if clean := sanitizeICSText(name); clean != "" {
+				names = append(names, clean)
+			}
+		}
+		summary = strings.Join(names, ", ")
+	}
+	if summary == "" {
+		if clean := sanitizeICSText(venueName); clean != "" {
+			summary = "Show at " + clean
+		} else {
+			summary = "Show"
+		}
+	}
+
+	if isCancelled {
+		summary = "CANCELLED: " + summary
+		event.SetStatus(ics.ObjectStatusCancelled)
+	} else {
+		if isSoldOut {
+			summary += " [SOLD OUT]"
+		}
+		event.SetStatus(ics.ObjectStatusConfirmed)
+	}
+	event.SetSummary(summary)
 }
 
 // showEventUID derives the event identity.
@@ -379,16 +410,17 @@ func showSequence(createdAt, updatedAt time.Time) int {
 }
 
 // showPageURL builds the link back to the show page, preferring the slug and
-// falling back to the numeric ID for shows that predate slugs.
-func showPageURL(frontendURL string, show *catalogm.Show) string {
+// falling back to the numeric ID for shows that predate slugs. Takes
+// primitives so both show shapes (model and response) share it.
+func showPageURL(frontendURL, slug string, showID uint) string {
 	base := strings.TrimRight(frontendURL, "/")
 	if base == "" {
 		return ""
 	}
-	if show.Slug != nil && *show.Slug != "" {
-		return base + "/shows/" + *show.Slug
+	if slug != "" {
+		return base + "/shows/" + slug
 	}
-	return fmt.Sprintf("%s/shows/%d", base, show.ID)
+	return fmt.Sprintf("%s/shows/%d", base, showID)
 }
 
 // venueLocation resolves the venue's IANA zone via the shared convention
@@ -397,20 +429,19 @@ func venueLocation(venue *contracts.VenueDetailResponse) *time.Location {
 	return utils.EventLocation(venue.Timezone, venue.State)
 }
 
-// formatVenueDetailLocation builds the LOCATION string. It mirrors
-// formatVenueLocation but reads VenueDetailResponse, which is the shape the
-// venue service returns (and the shape whose address is already redacted for
-// unverified venues).
-func formatVenueDetailLocation(venue *contracts.VenueDetailResponse) string {
-	parts := []string{venue.Name}
-	if venue.Address != nil && strings.TrimSpace(*venue.Address) != "" {
-		parts = append(parts, strings.TrimSpace(*venue.Address))
+// formatEventLocation builds the LOCATION string. Takes primitives so every
+// venue shape (model, response, detail response) shares one copy — the shapes
+// whose addresses are already redacted for unverified venues upstream.
+func formatEventLocation(name string, address *string, city, state string) string {
+	parts := []string{name}
+	if address != nil && strings.TrimSpace(*address) != "" {
+		parts = append(parts, strings.TrimSpace(*address))
 	}
-	if venue.City != "" {
-		parts = append(parts, venue.City)
+	if city != "" {
+		parts = append(parts, city)
 	}
-	if venue.State != "" {
-		parts = append(parts, venue.State)
+	if state != "" {
+		parts = append(parts, state)
 	}
 	return strings.Join(parts, ", ")
 }

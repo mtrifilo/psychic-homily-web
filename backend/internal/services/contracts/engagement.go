@@ -232,6 +232,28 @@ type VenueCalendarServiceInterface interface {
 	GenerateVenueFeed(idOrSlug string, frontendURL string) (*VenueCalendarFeed, error)
 }
 
+// ShowCalendarEvent is a rendered single-VEVENT iCalendar document for one
+// show, plus the metadata the HTTP layer needs to serve it as a download.
+type ShowCalendarEvent struct {
+	ShowSlug string
+	ICS      []byte
+	ETag     string
+}
+
+// ShowCalendarServiceInterface defines the contract for the PUBLIC,
+// unauthenticated per-show iCalendar download — the one-shot "Add to calendar"
+// export, as opposed to VenueCalendarServiceInterface's live-updating feed.
+// Like that interface, it takes no identity and must never grow one: anything
+// a non-approved-show viewer could learn through this endpoint would bypass
+// the show handler's access control.
+type ShowCalendarServiceInterface interface {
+	// GenerateShowEvent renders the show identified by idOrSlug. Returns an
+	// error wrapping apperrors.CodeShowNotFound when the show does not exist
+	// OR is not approved — an anonymous caller must not be able to tell those
+	// apart.
+	GenerateShowEvent(idOrSlug string, frontendURL string) (*ShowCalendarEvent, error)
+}
+
 // CalendarServiceInterface defines the contract for personal feed-token
 // operations (saved-shows iCal + followed-artist Atom activity).
 type CalendarServiceInterface interface {

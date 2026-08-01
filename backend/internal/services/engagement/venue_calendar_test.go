@@ -254,6 +254,22 @@ func TestVenueFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T) {
 	assert.NotEqual(t, "19700101T000000Z", dtstarts[0].Value)
 }
 
+func TestVenueFeed_UntitledShowNamedAfterBill(t *testing.T) {
+	// Both calendar surfaces emit the same UID per show, so they must agree on
+	// its name — an untitled show is named after its bill, exactly as the
+	// per-show download names it, and only a bill-less show falls back to the
+	// venue.
+	out := renderFeed(testVenue(nil), []catalogm.Show{testShow(1, func(s *catalogm.Show) {
+		s.Title = ""
+	})}, map[uint][]string{1: {"Headliner Band", "Support Act"}})
+	assert.Contains(t, unfold(out), "SUMMARY:Headliner Band\\, Support Act")
+
+	bare := renderFeed(testVenue(nil), []catalogm.Show{testShow(1, func(s *catalogm.Show) {
+		s.Title = ""
+	})}, nil)
+	assert.Contains(t, unfold(bare), "SUMMARY:Show at The Rebel Lounge")
+}
+
 func TestSanitizeICSText(t *testing.T) {
 	assert.Equal(t, "cleanSUMMARY:x", sanitizeICSText("clean\r\nSUMMARY:x"))
 	assert.Equal(t, "tab separated", sanitizeICSText("tab\tseparated"))
