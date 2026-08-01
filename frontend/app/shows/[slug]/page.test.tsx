@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Children, isValidElement, type ReactElement } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
+import { JsonLd } from '@/components/seo/JsonLd'
 
 // `notFound()` in Next.js throws a control-flow error to halt rendering. We
 // mirror that here so tests can assert BOTH that it was called and that
@@ -40,6 +42,29 @@ function buildShow(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
+
+/**
+ * Pull the MusicEvent block out of the page's rendered `<JsonLd>` children.
+ *
+ * The page emits two JSON-LD scripts (MusicEvent + BreadcrumbList) as direct
+ * children of a fragment, so matching on the component type and `@type` is
+ * enough — no renderer needed for what is a pure data assertion.
+ */
+function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> | undefined {
+  const children = Children.toArray(
+    (result.props as { children?: React.ReactNode }).children
+  )
+  for (const child of children) {
+    if (!isValidElement(child) || child.type !== JsonLd) continue
+    const { data } = child.props as { data?: Record<string, unknown> }
+    if (data?.['@type'] === 'MusicEvent') return data
+  }
+  return undefined
+}
+
+/** Comfortably before / after "now" so these never depend on the wall clock. */
+const PAST_DATE = '2020-03-15T20:00:00Z'
+const FUTURE_DATE = '2099-03-15T20:00:00Z'
 
 const fetchMock = vi.fn()
 
@@ -126,6 +151,29 @@ describe('generateMetadata', () => {
     expect(meta.alternates?.canonical).toBe('https://psychichomily.com/shows/test-show')
     expect(meta.openGraph?.url).toBe('/shows/test-show')
   })
+
+  // Without an explicit card type, X renders the wide opengraph-image as a
+  // small square thumbnail.
+  it('requests a large-image Twitter card mirroring the OG title/description', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.twitter).toMatchObject({
+      card: 'summary_large_image',
+      title: 'Headliner Band at The Rebel Lounge',
+    })
+    expect(meta.twitter?.description).toBe(meta.openGraph?.description)
+    expect(meta.twitter?.title).toBe(meta.openGraph?.title)
+  })
+
+  it('omits the Twitter card on the not-found fallback shape', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(404))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'missing' }) })
+
+    expect(meta.twitter).toBeUndefined()
+  })
 })
 
 describe('ShowPage', () => {
@@ -157,6 +205,66 @@ describe('ShowPage', () => {
 
     expect(notFoundMock).not.toHaveBeenCalled()
     expect(result).toBeTruthy()
+  })
+})
+
+// The generator already guards these; these tests cover the wiring, which is
+// what was missing — the page never told it whether the show had happened.
+describe('ShowPage MusicEvent offers', () => {
+  it('emits no offers for a show that already happened', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: PAST_DATE, price: 20 }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema).toBeDefined()
+    expect(schema!.offers).toBeUndefined()
+  })
+
+  it('emits offers for an upcoming show', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: FUTURE_DATE, price: 20 }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema!.offers).toMatchObject({
+      '@type': 'Offer',
+      availability: 'https://schema.org/InStock',
+    })
+  })
+
+  it('points the offer at the ticket URL when the show has one', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          event_date: FUTURE_DATE,
+          price: 20,
+          ticket_url: 'https://tix.example.com/e/123',
+        })
+      )
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect((schema!.offers as { url?: string }).url).toBe('https://tix.example.com/e/123')
+  })
+
+  it('falls back to the show page when there is no ticket URL', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: FUTURE_DATE, price: 20, ticket_url: null }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect((schema!.offers as { url?: string }).url).toBe(
+      'https://psychichomily.com/shows/test-show'
+    )
   })
 })
 

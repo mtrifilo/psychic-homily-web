@@ -195,6 +195,47 @@ export function generateBreadcrumbSchema(
 }
 
 /**
+ * Pick the URL an `Offer` should point at: the show's ticket link when it has
+ * one, the show's own page otherwise.
+ *
+ * `ticket_url` is free text — the submit form and the ingest CLI both accept a
+ * bare host — so it is normalized before being trusted. A value that does not
+ * resolve to an absolute http(s) URL falls back to the canonical page instead
+ * of being emitted: a malformed offer URL is worse for a crawler than one that
+ * merely points at the wrong kind of page, and the same field also carries
+ * `mailto:`/`tel:` values that no crawler can buy a ticket through.
+ *
+ * The parsed URL is used only to validate; the candidate string is what gets
+ * emitted, so a caller's ticket link is never silently rewritten.
+ */
+function resolveOfferUrl(
+  ticketUrl: string | undefined,
+  slug: string | undefined
+): string | undefined {
+  const canonical = slug ? `${SITE_URL}/shows/${slug}` : undefined
+  const raw = ticketUrl?.trim()
+  if (!raw) {
+    return canonical
+  }
+
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw)
+  // Strip protocol-relative leading slashes so `//host/path` does not become
+  // `https:////host/path`.
+  const candidate = hasScheme ? raw : `https://${raw.replace(/^\/+/, '')}`
+
+  try {
+    const parsed = new URL(candidate)
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return candidate
+    }
+  } catch {
+    // Not a parseable URL — fall through to the canonical page.
+  }
+
+  return canonical
+}
+
+/**
  * Generate MusicEvent schema for a show
  */
 export function generateMusicEventSchema(show: {
@@ -229,6 +270,15 @@ export function generateMusicEventSchema(show: {
     socials?: Record<string, string | null | undefined>
   }>
   price?: number
+  /**
+   * Where a reader can actually buy a ticket, when the show records one.
+   *
+   * Google requires `offers.url` to land on a page that predominantly sells the
+   * ticket, so the show's own page is only the fallback for shows with no
+   * ticket link. Free text on the submit form, so it may arrive scheme-less
+   * (`tix.example.com/e/1`) — see `resolveOfferUrl`.
+   */
+  ticket_url?: string
   slug?: string
 }): MusicEventSchema {
   const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
@@ -327,9 +377,7 @@ export function generateMusicEventSchema(show: {
       availability: show.is_sold_out
         ? 'https://schema.org/SoldOut'
         : 'https://schema.org/InStock',
-      url: show.slug
-        ? `${SITE_URL}/shows/${show.slug}`
-        : undefined,
+      url: resolveOfferUrl(show.ticket_url, show.slug),
     }
   }
 

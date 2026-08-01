@@ -64,6 +64,17 @@ function formatShowDate(
   })
 }
 
+/**
+ * Whether the show has already started, and so has nothing left to sell.
+ *
+ * The clock read lives here rather than at the call site because React
+ * Compiler forbids calling an impure function during render — the same reason
+ * `buildSceneWeekJsonLd` takes its `now` internally.
+ */
+function isShowPast(eventDate: string): boolean {
+  return Date.parse(eventDate) <= Date.now()
+}
+
 export async function generateMetadata({ params }: ShowPageProps): Promise<Metadata> {
   const { slug } = await params
   const show = await getShow(slug)
@@ -89,6 +100,15 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
         description,
         type: 'website',
         url: `/shows/${slug}`,
+      },
+      // Twitter/X ignores most OG tags and falls back to a small card without
+      // an explicit `card` type, so the show's opengraph-image renders as a
+      // thumbnail instead of the wide hero it is drawn for. Title and
+      // description mirror OG deliberately — the same show, said the same way.
+      twitter: {
+        card: 'summary_large_image',
+        title,
+        description,
       },
     }
   }
@@ -154,6 +174,12 @@ export default async function ShowPage({ params }: ShowPageProps) {
           socials: { ...a.socials },
         })),
         price: showData.price ?? undefined,
+        // An offer is a claim about what a reader can still buy. Without this
+        // every show in the archive would keep advertising tickets as InStock
+        // long after the doors closed. The window in which this can be stale is
+        // bounded by the route's revalidate, same as every other field here.
+        is_past: isShowPast(showData.event_date),
+        ticket_url: showData.ticket_url ?? undefined,
         slug: showData.slug,
       })} />
       <JsonLd data={generateBreadcrumbSchema([

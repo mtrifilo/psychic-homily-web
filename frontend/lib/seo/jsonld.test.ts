@@ -263,6 +263,91 @@ describe('generateMusicEventSchema', () => {
     expect(schema.offers!.url).toBe('https://psychichomily.com/shows/test-show')
   })
 
+  // Google wants the offer URL to land where the ticket is actually sold.
+  it('prefers the ticket URL over the show page for the offer URL', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: 'https://tix.example.com/e/123',
+    })
+    expect(schema.offers!.url).toBe('https://tix.example.com/e/123')
+  })
+
+  it('promotes a scheme-less ticket URL to https', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: 'tix.example.com/e/123',
+    })
+    expect(schema.offers!.url).toBe('https://tix.example.com/e/123')
+  })
+
+  it('trims surrounding whitespace from the ticket URL', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: '  https://tix.example.com/e/123  ',
+    })
+    expect(schema.offers!.url).toBe('https://tix.example.com/e/123')
+  })
+
+  it('keeps http ticket URLs as-is rather than upgrading the scheme', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: 'http://tix.example.com/e/123',
+    })
+    expect(schema.offers!.url).toBe('http://tix.example.com/e/123')
+  })
+
+  // A malformed offer URL is worse than one pointing at the wrong kind of page.
+  it.each([
+    ['a non-http scheme', 'mailto:tickets@example.com'],
+    ['a javascript: URL', 'javascript:alert(1)'],
+    ['an unparseable value', 'not a url'],
+    ['whitespace only', '   '],
+  ])('falls back to the show page for %s', (_label, ticketUrl) => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: ticketUrl,
+    })
+    expect(schema.offers!.url).toBe('https://psychichomily.com/shows/test-show')
+  })
+
+  it('normalizes a protocol-relative ticket URL', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: '//tix.example.com/e/123',
+    })
+    expect(schema.offers!.url).toBe('https://tix.example.com/e/123')
+  })
+
+  // No slug and no usable ticket link leaves nothing honest to point at.
+  it('omits the offer URL when there is neither a ticket URL nor a slug', () => {
+    const schema = generateMusicEventSchema({ ...baseShow, price: 25, ticket_url: 'mailto:x@y.com' })
+    expect(schema.offers!.url).toBeUndefined()
+  })
+
+  // The ticket link must not resurrect an offer the guards above dropped.
+  it('still omits offers for a past show that has a ticket URL', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      is_past: true,
+      ticket_url: 'https://tix.example.com/e/123',
+    })
+    expect(schema.offers).toBeUndefined()
+  })
+
   it('omits offers when no price', () => {
     const schema = generateMusicEventSchema(baseShow)
     expect(schema.offers).toBeUndefined()
