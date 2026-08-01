@@ -346,14 +346,16 @@ describe('ShowDetail', () => {
         error: null,
       })
       render(<ShowDetail showId="1" />)
-      expect(screen.getByText('308 N 2nd Ave')).toBeInTheDocument()
+      expect(screen.getByTestId('venue-address')).toHaveTextContent(
+        '308 N 2nd Ave'
+      )
     })
 
     it('omits the address line when the venue has no address', () => {
       // The default fixture venue carries no `address`.
       render(<ShowDetail showId="1" />)
       expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
-      expect(screen.queryByText('308 N 2nd Ave')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('venue-address')).not.toBeInTheDocument()
     })
 
     // The API can hand back a whitespace-only address; rendering it would leave
@@ -376,10 +378,8 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      const { container } = render(<ShowDetail showId="1" />)
-      expect(
-        container.querySelector('.pl-5.text-sm.text-muted-foreground')
-      ).not.toBeInTheDocument()
+      render(<ShowDetail showId="1" />)
+      expect(screen.queryByTestId('venue-address')).not.toBeInTheDocument()
     })
 
     it('renders price', () => {

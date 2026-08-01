@@ -32,6 +32,10 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const venue = show.venues[0]
   const artists = show.artists
 
+  // Trimmed once here: the API can hand back a whitespace-only address, which
+  // would otherwise pass the truthiness check and render a blank indented line.
+  const venueAddress = venue?.address?.trim()
+
   const headliners = artists.filter(
     a => a.set_type === 'headliner' || a.is_headliner === true
   )
@@ -135,11 +139,13 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
             </div>
             {/* Street address — plain text, no maps link. `pl-5` (icon w-4 +
                 gap-1) hangs it under the city/state text so the two read as one
-                location group. Trimmed because the API can hand back a
-                whitespace-only address, which would render an empty line. */}
-            {venue.address?.trim() && (
-              <div className="pl-5 text-sm text-muted-foreground">
-                {venue.address.trim()}
+                location group. */}
+            {venueAddress && (
+              <div
+                data-testid="venue-address"
+                className="pl-5 text-sm text-muted-foreground"
+              >
+                {venueAddress}
               </div>
             )}
             {venue.slug && (
