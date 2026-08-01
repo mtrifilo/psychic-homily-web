@@ -35,6 +35,29 @@ const _assertNoMissingFamily: AssertNoMissingFamily = true
 void _assertNoMissingFamily
 
 /**
+ * Every shard `generateSitemaps()` emits, in route-table order.
+ *
+ * Named here rather than composed inline at each site: four modules need the
+ * same list — the generator, the index route, the freshness monitor, and the
+ * post-build prerender gate — and an inline `[PAGES_SHARD_ID, ...FAMILY_SHARD_IDS]`
+ * in each is a fork waiting to happen the day a non-family shard is added.
+ */
+export const ALL_SHARD_IDS = [PAGES_SHARD_ID, ...FAMILY_SHARD_IDS] as const
+
+/**
+ * The path Next serves shard `id` at — and, on a prerendered build, its key in
+ * `.next/prerender-manifest.json`.
+ *
+ * Owned here for the same reason as FAMILY_URL_PREFIXES below: the compile-time
+ * guards catch a shard being ADDED, but only a shared table catches the served
+ * path SHAPE being changed. The index route builds these URLs, the monitor
+ * parses them back apart, and the build gate looks them up in the manifest.
+ */
+export function shardRoutePath(id: string): string {
+  return `/sitemap/${id}.xml`
+}
+
+/**
  * The URL path prefix each family's entries live under.
  *
  * Owned here, next to the family ids, because two independent consumers need

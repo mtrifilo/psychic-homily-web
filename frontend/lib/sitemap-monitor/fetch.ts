@@ -5,7 +5,12 @@
  * verdict is evaluate.ts's job.
  */
 
-import { FAMILY_SHARD_IDS, PAGES_SHARD_ID, type Family } from '@/app/sitemap-shards'
+import {
+  ALL_SHARD_IDS,
+  FAMILY_SHARD_IDS,
+  PAGES_SHARD_ID,
+  type Family,
+} from '@/app/sitemap-shards'
 import type { MonitorConfig } from './config'
 import {
   classifyLoc,
@@ -313,7 +318,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   const shardUrls = parseSitemapIndex(entryXml).map(loc => rebaseOnTarget(loc, config.target))
   observation.shardCount = shardUrls.length
 
-  const known = new Set<string>([PAGES_SHARD_ID, ...FAMILY_SHARD_IDS])
+  const known = new Set<string>(ALL_SHARD_IDS)
   const listed = new Set<string>()
 
   for (const shardUrl of shardUrls) {

@@ -8,21 +8,18 @@
  *
  * Keep the id list in lockstep with generateSitemaps() via sitemap-shards.ts.
  */
-import { FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '../sitemap-shards'
+import { ALL_SHARD_IDS, shardRoutePath } from '../sitemap-shards'
 
 const BASE_URL = 'https://psychichomily.com'
 
 export async function GET() {
-  const ids = [PAGES_SHARD_ID, ...FAMILY_SHARD_IDS]
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${ids
-  .map(
-    id => `  <sitemap>
-    <loc>${BASE_URL}/sitemap/${id}.xml</loc>
+${ALL_SHARD_IDS.map(
+  id => `  <sitemap>
+    <loc>${BASE_URL}${shardRoutePath(id)}</loc>
   </sitemap>`
-  )
-  .join('\n')}
+).join('\n')}
 </sitemapindex>
 `
 
