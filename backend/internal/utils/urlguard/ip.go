@@ -21,14 +21,19 @@ var blockedNets = mustCIDRs(
 	"198.18.0.0/15",   // benchmarking (RFC 2544)
 	"198.51.100.0/24", // TEST-NET-2
 	"203.0.113.0/24",  // TEST-NET-3
+	"192.88.99.0/24",  // 6to4 relay anycast (RFC 7526) — reaches an arbitrary 6to4 relay
 	"240.0.0.0/4",     // reserved class E (incl. 255.255.255.255 broadcast)
-	// IPv6 ranges that embed/relay to arbitrary (incl. internal) IPv4 targets.
-	// To4() normalizes only the IPv4-MAPPED form (::ffff:a.b.c.d), so these
-	// embedding prefixes must be blocked explicitly on the original IPv6 shape:
-	"::/96",        // IPv4-COMPATIBLE (deprecated) — ::a.b.c.d embeds an IPv4 host (::7f00:1 = 127.0.0.1). Does NOT match ::ffff:a.b.c.d (those normalize via To4).
-	"64:ff9b::/96", // NAT64 well-known prefix — low 32 bits are an IPv4 host
-	"2002::/16",    // 6to4 — bits 16..48 are an embedded IPv4 host (2002:7f00::/24 = 127.0.0.0/8)
-	"2001::/32",    // Teredo — relays to arbitrary IPv4
+	// IPv6 prefixes that sit INSIDE global unicast (2000::/3) and so survive the
+	// positive rule in IsPublicIP. Everything outside 2000::/3 — IPv4-compatible
+	// ::/96, IPv4-translated ::ffff:0:0/96, both NAT64 prefixes, fec0::/10
+	// site-local, 100::/64 discard, 5f00::/16 — is refused by that rule without
+	// needing an entry here.
+	"2002::/16",     // 6to4 — bits 16..48 are an embedded IPv4 host (2002:7f00::/24 = 127.0.0.0/8)
+	"2001::/32",     // Teredo — relays to arbitrary IPv4
+	"2001:db8::/32", // documentation (RFC 3849) — the IPv6 analogue of TEST-NET
+	"2001:10::/28",  // ORCHID (RFC 4843, deprecated)
+	"2001:20::/28",  // ORCHIDv2 (RFC 7343)
+	"3fff::/20",     // documentation (RFC 9637)
 )
 
 func mustCIDRs(cidrs ...string) []*net.IPNet {
@@ -60,14 +65,17 @@ func IsPublicIP(ip net.IP) bool {
 	if ip == nil || (len(ip) != net.IPv4len && len(ip) != net.IPv6len) {
 		return false
 	}
-	// Check blockedNets against the ORIGINAL form first, so an IPv6-shaped
-	// embedding prefix (NAT64 / 6to4 / Teredo) is matched before To4() could
-	// rewrite a mapped address into a bare IPv4.
+	// One blockedNets pass covers both shapes: net.IPNet.Contains normalizes an
+	// IPv4-mapped address (::ffff:a.b.c.d) to its 4-byte form before comparing,
+	// so a mapped wrapper of any IPv4 entry here matches the IPv4 entry, while a
+	// genuine IPv6 address matches only the IPv6 entries. (An earlier version
+	// checked twice, before and after To4(), on the theory that the mapped form
+	// slipped the first pass. It does not — the second pass was dead code.)
 	if inAnyNet(ip, blockedNets) {
 		return false
 	}
 	// Normalize an IPv4-mapped IPv6 address (::ffff:127.0.0.1) to its IPv4 form
-	// so the stdlib IPv4 predicates and the IPv4 entries in blockedNets apply.
+	// so the stdlib IPv4 predicates apply — those do NOT normalize.
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
 	}
@@ -79,15 +87,22 @@ func IsPublicIP(ip net.IP) bool {
 		ip.IsUnspecified() {
 		return false
 	}
-	// Re-check blockedNets against the normalized IPv4 form (a ::ffff:100.64.x.x
-	// mapped CGNAT address passes the pre-normalization check on its IPv6 shape).
-	if inAnyNet(ip, blockedNets) {
-		return false
+	// For IPv6, state the rule POSITIVELY: an address is public only if it is in
+	// global unicast 2000::/3. Enumerating bad IPv6 prefixes loses — the list
+	// above started as an enumeration and was still missing IPv4-translated
+	// ::ffff:0:0/96, NAT64 local-use, fec0::/10 site-local, 100::/64 discard and
+	// several documentation blocks, every one of which net.IP.IsGlobalUnicast
+	// happily calls public (it only excludes loopback/multicast/link-local/
+	// unspecified). One positive rule refuses all of them and every future
+	// reserved block without naming any of them. This mirrors the edge guard's
+	// isAllowedIPv6, and the blockedNets entries above then subtract the
+	// embedding and documentation prefixes that live INSIDE 2000::/3, which the
+	// edge's rule alone does not catch.
+	if ip.To4() == nil {
+		return len(ip) == net.IPv6len && ip[0]&0xe0 == 0x20
 	}
-	// Final floor: only addresses the stdlib considers global-unicast are public.
-	// This catches any remaining non-routable IPv6 shape (e.g. a future reserved
-	// block) without an explicit CIDR. For a normalized IPv4, To4() addresses are
-	// global-unicast unless caught above.
+	// For a normalized IPv4, To4() addresses are global-unicast unless caught
+	// above.
 	return ip.IsGlobalUnicast()
 }
 
@@ -107,12 +122,17 @@ func inAnyNet(ip net.IP, nets []*net.IPNet) bool {
 //
 // It exists because net.ParseIP alone is not a sufficient literal test at a
 // write boundary. net.ParseIP accepts only the canonical dotted quad, but the
-// value stored here is later handed to OTHER fetchers: glibc's getaddrinfo (and
-// therefore Node/undici on the OG edge route) runs inet_aton, which also accepts
-// the decimal (2130706433), octal (0177.0.0.1), hex (0x7f000001) and
-// short-form (127.1) spellings of the SAME address. Classifying only the
-// canonical spelling would store a value that our own guard called "a hostname"
-// and the fetcher resolved to loopback.
+// stored value is later parsed by the WHATWG URL parser in the edge renderer,
+// whose host parser implements inet_aton's grammar: it CANONICALISES the
+// decimal (2130706433), octal (0177.0.0.1), hex (0x7f000001) and short-form
+// (127.1) spellings to 127.0.0.1 before the fetch. Those spellings therefore
+// reach loopback whatever this side calls them.
+//
+// What this buys is determinism and a truthful error, not the bare difference
+// between stored and refused: without it those hosts fall through to the DNS
+// path, where a cgo resolver answers 127.0.0.1 (rejected by address) and the
+// pure-Go resolver fails to look them up. Classifying them here means the
+// verdict does not depend on which resolver the binary was built with.
 //
 // The IPv6 branch drops a zone id (fe80::1%eth0) before parsing, since a zone
 // never changes which range an address belongs to.

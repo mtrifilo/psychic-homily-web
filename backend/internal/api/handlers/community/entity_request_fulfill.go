@@ -19,16 +19,28 @@ import (
 
 // validatePayloadImageURL runs an entity-request payload's image_url through the
 // same SSRF host guard the direct catalog endpoints apply (PSY-1675). It is the
-// one place the queue's two write moments — create and fulfill — agree on the
-// rule, so neither can drift.
+// one place the queue's two decision points — create, and approve — agree on
+// the rule, so neither can drift.
 //
-// The returned error is a plain error, not a huma status: the create path wraps
-// it in a 422 and the fulfill path wraps it in the request's typed
-// payload-invalid error, and each keeps its own attribution.
+// It returns a huma 422 in every case, including the extraction failures
+// (unknown entity type, undecodable payload) that PayloadImageURL surfaces as
+// plain errors — those are unreachable from both callers, which run
+// IsValidEntityRequestType and ValidateEntityRequestPayload first, but a plain
+// error escaping to huma would render as a 500 blaming the server for a bad
+// payload, so it is mapped here rather than left to luck.
+//
+// NOT called from fulfillEntity. Fulfillment happens AFTER Decide has
+// atomically claimed the row, so a rejection there would leave an
+// approved-but-unfulfilled row that no decide call can re-process and no
+// endpoint can edit — the request would be strandable by a hostile flyer. The
+// approve path checks pre-claim instead (AdminDecideEntityRequestHandler),
+// which is where the show-associations guard already lives for the same reason.
 func validatePayloadImageURL(ctx context.Context, entityType string, raw json.RawMessage) error {
 	imageURL, err := communitym.PayloadImageURL(entityType, raw)
 	if err != nil {
-		return err
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Invalid payload for %s: %v", entityType, err),
+		)
 	}
 	return shared.ValidateImageURL(ctx, imageURL)
 }
@@ -217,12 +229,6 @@ func (h *EntityRequestHandler) fulfillEntity(ctx context.Context, req *community
 	// fulfilled, so its stored payload is re-validated like every other type.
 	if req.EntityType != communitym.EntityRequestShow || showAssoc != nil {
 		if verr := communitym.ValidateEntityRequestPayload(req.EntityType, raw); verr != nil {
-			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
-		}
-		// PSY-1675: the SSRF host guard runs at queue-create too, but a row may
-		// predate it (or its host's DNS answer may have moved inward since),
-		// and this is the moment the value becomes a live entity's flyer.
-		if verr := validatePayloadImageURL(ctx, req.EntityType, raw); verr != nil {
 			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
 		}
 	}

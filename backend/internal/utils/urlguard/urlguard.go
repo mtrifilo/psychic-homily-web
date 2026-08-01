@@ -12,10 +12,21 @@
 // The two layers are complementary, not redundant:
 //
 //	write time (here)  — resolve the host, refuse a name that points inward.
-//	fetch time (edge)  — re-check the literal on every hop of every fetch,
-//	                     which is what still covers rows written before this
-//	                     guard existed and a DNS answer that changes after the
-//	                     write (rebinding).
+//	fetch time (edge)  — re-check the IP LITERAL on every hop of every fetch,
+//	                     which is what covers rows written before this guard
+//	                     existed, and what covers a redirect chain this layer
+//	                     never sees.
+//
+// What NEITHER layer covers, stated plainly so nobody has to rediscover it:
+// DNS rebinding. An attacker who controls a zone can answer with a public
+// address while this guard resolves, then flip to 169.254.169.254 before the
+// card renders. The edge cannot catch it either — for a hostname it checks the
+// NAME, not the address it will connect to, because it has no resolver. What
+// bounds the damage is the far end of the pipe: only a parseable PNG, JPEG or
+// GIF is ever drawn, so nothing read from an internal service comes back out
+// on the card. What remains is blind request forgery. Closing it needs
+// resolve-then-PIN (hand the fetcher the vetted IP, not the name), which is a
+// change to the fetch layer, not to this one.
 //
 // Nothing here fetches. It parses, classifies, and resolves.
 package urlguard
@@ -26,7 +37,10 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"testing"
 	"time"
+
+	"golang.org/x/net/idna"
 )
 
 // Resolver is the DNS surface the guard needs. *net.Resolver satisfies it; a
@@ -91,64 +105,138 @@ var blockedHostSuffixes = []string{".localhost", ".local", ".internal"}
 // URL points somewhere public. Empty input passes so callers keep their
 // "clear the field with an empty string" semantics.
 //
-// It fails CLOSED on anything it cannot classify — an unparseable URL, a host
-// that will not resolve, a resolver error. That is deliberate: a value this
-// layer cannot vouch for is a value the fetcher may still reach, and a name
-// that does not resolve produces no image anyway, so rejecting it costs a
-// submitter nothing but a corrected URL. It also covers the case Go's stricter
-// URL parser creates: a host spelling Go refuses but the WHATWG parser at the
-// edge would accept is rejected here rather than waved through.
+// It fails CLOSED on anything it can inspect and does not like: an unparseable
+// URL, a non-http scheme, a missing host, a host that IS a non-public address,
+// a name that is internal on its face, a name that resolves to a non-public
+// address. Rejecting an unparseable URL also covers the divergence Go's
+// stricter parser creates: a host spelling Go refuses but the WHATWG parser at
+// the edge would accept never reaches the column.
+//
+// It deliberately does NOT reject a name that fails to RESOLVE. That looks like
+// a hole and is not worth what closing it costs:
+//
+//   - It closes nothing. The attack it appears to stop is an attacker whose
+//     nameserver answers our resolver differently from the fetcher's. Such an
+//     attacker does not need it — plain DNS rebinding (answer public now, flip
+//     to 169.254.169.254 before the card renders) reaches the same place, is
+//     strictly easier, and no write-time check can see it.
+//   - It breaks ordinary editing, certainly and repeatedly. A flyer host that
+//     later expires would otherwise make the whole show uneditable: the edit
+//     form re-sends the stored image_url with every submit, so a dead flyer
+//     host would 422 a title fix. A resolver blip would do the same to every
+//     show that has a flyer.
+//
+// So an unresolvable host is treated as what it is — a URL that will render no
+// image — and is left to the fetch layer.
 //
 // fieldName is the user-facing label interpolated into the message. The message
 // names the HOST, never the addresses it resolved to: a submitter needs to know
 // which host was refused, and echoing internal addresses back would hand over
 // exactly the information an SSRF probe is looking for.
 func (g *Guard) Validate(ctx context.Context, rawURL, fieldName string) error {
-	trimmed := strings.TrimSpace(rawURL)
-	if trimmed == "" {
-		return nil
-	}
-	u, err := url.Parse(trimmed)
+	host, err := CheckLiteralHost(rawURL, fieldName)
 	if err != nil {
-		return fmt.Errorf("%s must be a valid URL", fieldName)
+		return err
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("%s must use http or https scheme", fieldName)
-	}
-
-	// A trailing dot is a valid absolute FQDN that resolvers honour, so it must
-	// come off BEFORE any name comparison — "localhost." would otherwise match
-	// nothing below.
-	host := strings.ToLower(strings.TrimRight(u.Hostname(), "."))
 	if host == "" {
-		return fmt.Errorf("%s must include a host", fieldName)
-	}
-
-	if ip := ParseHostIP(host); ip != nil {
-		if !IsPublicIP(ip) {
-			return blockedHostError(fieldName, host)
-		}
-		// A literal that IS public needs no resolution: it is already the
-		// address anything will connect to.
+		// Empty value, or a literal that already cleared the address check.
 		return nil
-	}
-
-	if isBlockedHostName(host) {
-		return blockedHostError(fieldName, host)
 	}
 	return g.hostResolvesPublic(ctx, fieldName, host)
 }
 
-// hostResolvesPublic rejects a name unless EVERY address it resolves to is
-// public. Every, not any: a name with one public and one loopback answer hands
-// the fetcher a choice we do not control.
+// CheckLiteralHost applies every classification that needs no resolver: parse,
+// scheme, IDNA normalization, IP-literal address check, and the internal-name
+// list. It returns the normalized host still awaiting DNS, or "" when there is
+// nothing left to resolve (an empty value, or a public IP literal, which is
+// already the address anything will connect to).
+//
+// It is separate from Validate so a caller that cannot afford a lookup per
+// value — the discovery importer takes up to 100 events per request — can still
+// refuse the literal forms, which are the ones an attacker actually writes.
+func CheckLiteralHost(rawURL, fieldName string) (host string, err error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return "", nil
+	}
+	u, parseErr := url.Parse(trimmed)
+	if parseErr != nil {
+		return "", fmt.Errorf("%s must be a valid URL", fieldName)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("%s must use http or https scheme", fieldName)
+	}
+
+	// A trailing dot is a valid absolute FQDN that resolvers honour, so it must
+	// come off BEFORE any name comparison — "localhost." would otherwise match
+	// nothing below. TrimRight, not TrimSuffix: "localhost.." is equally valid.
+	host = strings.ToLower(strings.TrimRight(u.Hostname(), "."))
+	if host == "" {
+		return "", fmt.Errorf("%s must include a host", fieldName)
+	}
+
+	// Address literals are classified on the spelling as written. IDNA below
+	// must not touch them: an IPv6 literal is not a domain name and folding one
+	// fails, and a numeric IPv4 spelling is already ASCII.
+	if ip := ParseHostIP(host); ip != nil {
+		if !IsPublicIP(ip) {
+			return "", blockedHostError(fieldName, host)
+		}
+		// A public literal needs no resolution.
+		return "", nil
+	}
+
+	// Fold the remaining host to its ASCII (punycode) form before anything
+	// compares it. Go's url.Parse does no IDNA, but the WHATWG parser the edge
+	// uses does, so without this the two layers can look up DIFFERENT names:
+	// "ⓁⓄⒸⒶⓁⒽⓄⓈⓉ" is an unrecognised name to Go and "localhost" to the edge.
+	// Today the production binary is saved from that only by CGO_ENABLED=0 (the
+	// pure Go resolver refuses non-ASCII names outright), which makes a
+	// Dockerfile flag load-bearing for a security property. This makes it
+	// explicit instead. A name that cannot be folded is refused: nothing can
+	// look it up.
+	ascii, idnaErr := idna.Lookup.ToASCII(host)
+	if idnaErr != nil {
+		return "", fmt.Errorf("%s host %q is not a valid hostname", fieldName, host)
+	}
+	host = ascii
+
+	// Folding can TURN a name into a literal — fullwidth digits map to ASCII
+	// ones, so "１２７.0.0.1" only becomes 127.0.0.1 here. Re-classify.
+	if ip := ParseHostIP(host); ip != nil {
+		if !IsPublicIP(ip) {
+			return "", blockedHostError(fieldName, host)
+		}
+		return "", nil
+	}
+	if isBlockedHostName(host) {
+		return "", blockedHostError(fieldName, host)
+	}
+	return host, nil
+}
+
+// hostResolvesPublic rejects a name when ANY address it resolves to is
+// non-public. Any, not all: a name answering with one public and one loopback
+// address hands the fetcher a choice we do not control.
+//
+// A lookup that fails is NOT a rejection — see Validate for why.
 func (g *Guard) hostResolvesPublic(ctx context.Context, fieldName, host string) error {
+	// A test binary that reaches a live resolver is a test that depends on the
+	// network and on whatever DNS answers that day — and, worse, one whose SSRF
+	// assertions can pass for the wrong reason. Packages that exercise a guarded
+	// handler install a stub in TestMain (urlguard.Default.UseResolver); this
+	// turns "forgot to" from a silent flake into a failure that names the fix.
+	if testing.Testing() && g.resolver == net.DefaultResolver {
+		panic("urlguard: a test reached the real resolver — install a stub in TestMain, e.g. " +
+			`defer urlguard.Default.UseResolver(urlguard.MapResolver{"example.com": {"93.184.216.34"}})()`)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
 
 	addrs, err := g.resolver.LookupIPAddr(ctx, host)
-	if err != nil || len(addrs) == 0 {
-		return fmt.Errorf("%s host %q could not be resolved", fieldName, host)
+	if err != nil {
+		return nil
 	}
 	for _, addr := range addrs {
 		if !IsPublicIP(addr.IP) {

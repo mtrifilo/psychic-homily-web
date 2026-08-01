@@ -105,24 +105,32 @@ func TestCreateEntityRequest_AcceptsPublicImageURL(t *testing.T) {
 	}
 }
 
-// TestAdminDecide_RejectsSSRFImageURLAtFulfill covers the row that predates the
-// create-time guard (or whose host's DNS answer moved inward afterwards): the
-// admin's approve is the moment the value becomes a live entity's flyer, so it
-// is re-checked there and the catalog create never happens.
-func TestAdminDecide_RejectsSSRFImageURLAtFulfill(t *testing.T) {
+// TestAdminDecide_RejectsSSRFImageURLBeforeClaiming covers the row that predates
+// the create-time guard (or whose host's DNS answer moved inward afterwards).
+//
+// The assertion that matters is not just "the approve failed" but WHERE: the
+// check runs BEFORE Decide claims the row. A post-claim rejection would leave
+// the request approved-but-unfulfilled, and since Decide only acts on pending
+// rows and no endpoint can edit a queued payload, the only way out would be to
+// void the request and discard the contributor's attribution. So this asserts a
+// 422 and that Decide was never called.
+func TestAdminDecide_RejectsSSRFImageURLBeforeClaiming(t *testing.T) {
 	for _, c := range ssrfImageURLs {
 		t.Run(c.name, func(t *testing.T) {
 			// Bypass the create-time guard the way a legacy row does: build the
 			// payload directly rather than through the handler.
 			payload := json.RawMessage(`{"name":"Evil","image_url":"` + c.value + `"}`)
-			decided := pendingRequest(41, "artist")
-			decided.Payload = &payload
-			decided.DecisionState = communitym.EntityRequestStateApproved
+			queued := pendingRequest(41, "artist")
+			queued.Payload = &payload
 
 			h := NewEntityRequestHandler(
 				&testhelpers.MockEntityRequestService{
+					GetRequestFn: func(uint) (*communitym.EntityRequest, error) {
+						return queued, nil
+					},
 					DecideFn: func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error) {
-						return decided, nil
+						t.Fatal("the row must NOT be claimed when its stored flyer is hostile")
+						return nil, nil
 					},
 				},
 				&testhelpers.MockEntityRequestFulfiller{
@@ -136,9 +144,46 @@ func TestAdminDecide_RejectsSSRFImageURLAtFulfill(t *testing.T) {
 
 			req := &AdminDecideEntityRequestRequest{ID: "41"}
 			req.Body.Decision = "approved"
-			if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err == nil {
-				t.Fatal("expected the approve to fail on the hostile flyer")
-			}
+			_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+			testhelpers.AssertHumaError(t, err, 422)
 		})
+	}
+}
+
+// TestAdminDecide_ApprovesPublicImageURL is the positive half, and it is here
+// because nothing else asserts it directly: the pre-claim check must let an
+// ordinary flyer through to the claim and the create.
+func TestAdminDecide_ApprovesPublicImageURL(t *testing.T) {
+	payload := json.RawMessage(`{"name":"Boris","image_url":"https://example.com/boris.jpg"}`)
+	queued := pendingRequest(42, "artist")
+	queued.Payload = &payload
+	decided := pendingRequest(42, "artist")
+	decided.Payload = &payload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	created := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			GetRequestFn: func(uint) (*communitym.EntityRequest, error) { return queued, nil },
+			DecideFn: func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(*contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				created = true
+				return &contracts.ArtistDetailResponse{ID: 88}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "42"}
+	req.Body.Decision = "approved"
+	if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err != nil {
+		t.Fatalf("a public flyer must still approve, got: %v", err)
+	}
+	if !created {
+		t.Error("expected the approve to reach the fulfiller")
 	}
 }

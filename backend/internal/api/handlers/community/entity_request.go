@@ -436,7 +436,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	// re-process. Costs one PK read, only on the no-associations approve path.
 	// Scoped to PENDING rows so an already-decided row still gets Decide's
 	// 409 (invalid state), not a misleading missing-associations 422.
-	if newState == communitym.EntityRequestStateApproved && showAssoc == nil {
+	//
+	// PSY-1675 rides on the same pre-claim read for the same reason: a stored
+	// image_url pointing at an internal address must not be fulfilled, and a
+	// post-claim rejection would strand the row (no endpoint can edit a queued
+	// payload, and the rescue path re-enters the same fulfiller), leaving void
+	// — which discards the contributor's request and their attribution — as the
+	// only way out. Checked here, a hostile flyer is a clean 422 on a row that
+	// is still pending.
+	if newState == communitym.EntityRequestStateApproved {
 		existing, gerr := h.entityRequestService.GetRequest(uint(requestID))
 		if gerr != nil {
 			if mapped := shared.MapEntityRequestError(gerr); mapped != nil {
@@ -448,10 +456,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			)
 			return nil, huma.Error500InternalServerError("Failed to load request")
 		}
-		if existing != nil &&
-			existing.EntityType == communitym.EntityRequestShow &&
-			existing.DecisionState == communitym.EntityRequestStatePending {
-			return nil, huma.Error422UnprocessableEntity("Approving a show requires show_venue and show_artists")
+		if existing != nil && existing.DecisionState == communitym.EntityRequestStatePending {
+			if showAssoc == nil && existing.EntityType == communitym.EntityRequestShow {
+				return nil, huma.Error422UnprocessableEntity("Approving a show requires show_venue and show_artists")
+			}
+			if existing.Payload != nil {
+				if verr := validatePayloadImageURL(ctx, existing.EntityType, *existing.Payload); verr != nil {
+					return nil, verr
+				}
+			}
 		}
 	}
 

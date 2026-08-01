@@ -42,6 +42,20 @@ func TestIsPublicIP(t *testing.T) {
 		{"198.51.100.10", false},     // TEST-NET-2
 		{"203.0.113.10", false},      // TEST-NET-3
 		{"198.18.0.10", false},       // benchmarking range
+		{"192.88.99.1", false},       // 6to4 relay anycast
+		// IPv6 shapes the old enumerate-the-bad-prefixes approach called public
+		// and the positive 2000::/3 rule refuses without naming them.
+		{"::ffff:0:7f00:1", false},   // IPv4-TRANSLATED (SIIT) embedding 127.0.0.1
+		{"64:ff9b:1::7f00:1", false}, // NAT64 local-use prefix (RFC 8215)
+		{"fec0::1", false},           // deprecated site-local (RFC 3879)
+		{"100::1", false},            // discard-only (RFC 6666)
+		{"5f00::1", false},           // RFC 9602
+		// ...and the ones that DO sit inside 2000::/3, so the positive rule
+		// alone would admit them and the CIDR list must subtract them.
+		{"2001:db8::1", false}, // documentation (RFC 3849)
+		{"2001:10::1", false},  // ORCHID
+		{"2001:20::1", false},  // ORCHIDv2
+		{"3fff::1", false},     // documentation (RFC 9637)
 		// Allowed — real public hosts.
 		{"1.1.1.1", true},
 		{"8.8.8.8", true},

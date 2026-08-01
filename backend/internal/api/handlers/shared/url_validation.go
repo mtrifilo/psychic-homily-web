@@ -22,12 +22,22 @@ type urlFieldSpec struct {
 	maxLength   int
 	// fetched marks a field whose stored value is later FETCHED server-side, so
 	// it must clear the SSRF host guard (urlguard) on top of the scheme check.
-	// Only image_url is fetched today: the show share-card renderer pulls it to
-	// draw the flyer (PSY-1672). The other URL fields here are rendered as an
-	// href or an <img> by the browser, never requested by us, so resolving them
-	// would buy no safety and would put a DNS lookup on unrelated write paths.
-	// Flip this to true for a field the moment something server-side starts
-	// fetching it.
+	// The other URL fields here are rendered as an href or an <img> by the
+	// browser, never requested by us, so resolving them would buy no safety and
+	// would put a DNS lookup on unrelated write paths.
+	//
+	// The flag is keyed on the FIELD NAME, not on the entity, so marking
+	// image_url covers show, venue, label and artist alike. Only the show's is
+	// actually fetched (the share-card renderer draws the flyer — PSY-1672);
+	// the rest is defense-in-depth on a field that is one feature away from
+	// being fetched too, and is cheap because these writes are rare.
+	//
+	// BEFORE FLIPPING THIS ON ANOTHER FIELD: URLSchemeError does NOT honour it
+	// (it has no context.Context to resolve with), and POST /shows validates
+	// ticket_url through exactly that path — see the note on URLSchemeError.
+	// Flip the flag there and the create path silently stays unguarded while
+	// the update path is guarded. TestFetchedFieldsAvoidURLSchemeError is the
+	// tripwire; if it fails, thread a context rather than deleting the case.
 	fetched bool
 }
 

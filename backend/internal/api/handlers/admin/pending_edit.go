@@ -66,11 +66,18 @@ func canEditDirectly(user *authm.User) bool {
 
 // --- Suggest Edit ---
 
+// maxPendingEditChanges caps how many field changes one suggestion may carry.
+// No entity has anywhere near this many editable fields (the largest
+// allowedEditFields set is well under it), so this is a DoS bound rather than a
+// product limit: since PSY-1675 each URL-valued change can cost a DNS lookup,
+// and the route has no rate limiter.
+const maxPendingEditChanges = 50
+
 // SuggestEntityEditRequest is the Huma request for PUT /{entity_type}/{entity_id}/suggest-edit
 type SuggestEntityEditRequest struct {
 	EntityID string `path:"entity_id" doc:"Entity ID"`
 	Body     struct {
-		Changes []adminm.FieldChange `json:"changes" doc:"Field changes to propose"`
+		Changes []adminm.FieldChange `json:"changes" maxItems:"50" doc:"Field changes to propose"`
 		Summary string               `json:"summary" doc:"Why you are making this change"`
 	}
 }
@@ -141,11 +148,29 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 	// strings in the pending queue. Without this gate, the field-name
 	// allowlist controls *which* fields can be edited but not *what values*
 	// they take — and ApprovePendingEdit applies values blindly.
+	// PSY-1675: bound the loop before it runs. ValidateFieldChangeValue now
+	// resolves DNS for image_url, so an unbounded, un-deduplicated Changes array
+	// is an outbound-request amplifier: the body cap alone allows thousands of
+	// entries, each costing a lookup against an attacker-chosen name with its
+	// own 2s budget, on a route with no rate limiter and a server with no write
+	// timeout. The cap mirrors the array caps the show-create path already sets
+	// (maxShowArtists); rejecting a repeated field is a correctness rule in its
+	// own right (two changes to one field is incoherent, and only the last would
+	// win) that also pins the lookups at one per distinct URL field.
+	if len(req.Body.Changes) > maxPendingEditChanges {
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("A suggestion may change at most %d fields", maxPendingEditChanges))
+	}
 	allowed := allowedEditFields(entityType)
+	seen := make(map[string]bool, len(req.Body.Changes))
 	for _, change := range req.Body.Changes {
 		if !allowed[change.Field] {
 			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Field '%s' is not editable on %s entities", change.Field, entityType))
 		}
+		if seen[change.Field] {
+			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Field '%s' is listed more than once", change.Field))
+		}
+		seen[change.Field] = true
 		if err := shared.ValidateFieldChangeValue(ctx, change.Field, change.NewValue); err != nil {
 			return nil, err
 		}

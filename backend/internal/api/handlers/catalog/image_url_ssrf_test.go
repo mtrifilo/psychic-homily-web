@@ -48,7 +48,6 @@ var ssrfImageURLs = []struct{ name, value string }{
 	{"cgnat", "https://100.64.0.1/x.jpg"},
 	{"oracle metadata", "https://192.0.0.192/x.jpg"},
 	{"name resolving to cloud metadata", "https://rebind.example.test/x.jpg"},
-	{"name that does not resolve", "https://nowhere.example.test/x.jpg"},
 }
 
 // TestUpdateShowHandler_RejectsSSRFImageURL: PUT /shows/{id} is the path any

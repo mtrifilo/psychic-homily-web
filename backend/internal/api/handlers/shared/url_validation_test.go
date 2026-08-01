@@ -16,18 +16,21 @@ import (
 var bg = context.Background()
 
 // TestMain pins the SSRF host guard (PSY-1675) to a fixed resolution table, so
-// the fields it now applies to are validated against known addresses rather
-// than whatever the machine's DNS says about example.com — which would make
-// this package fail on a laptop with no network and, worse, pass or fail on a
-// hijacked answer. Package-level state: no test here may call t.Parallel.
+// image_url is validated against a known address rather than whatever the
+// machine's DNS says about example.com — which would make this package
+// network-dependent and, worse, pass or fail on a hijacked answer. The guard
+// panics if a test reaches the real resolver, so a new test package that
+// exercises a guarded handler fails loudly instead of quietly going online.
+//
+// Package-level state: no test here may call t.Parallel.
+//
+// Only image_url is `fetched`, so only image_url hosts are ever looked up —
+// this table needs an entry for every host used in an image_url that a test
+// expects to PASS, and nothing else. A test using a host that is not here gets
+// "could not be resolved", which is not an error: unresolvable hosts pass.
 func TestMain(m *testing.M) {
 	restore := urlguard.Default.UseResolver(urlguard.MapResolver{
-		"example.com":          {"93.184.216.34"},
-		"tickets.example.com":  {"93.184.216.34"},
-		"anything.example.org": {"93.184.216.34"},
-		"instagram.com":        {"93.184.216.34"},
-		"artist.bandcamp.com":  {"93.184.216.34"},
-		"open.spotify.com":     {"93.184.216.34"},
+		"example.com": {"93.184.216.34"},
 	})
 	code := m.Run()
 	restore()
@@ -467,7 +470,6 @@ var ssrfBypassCorpus = []struct{ name, value string }{
 	{"localhost with a trailing dot", "https://localhost./x.jpg"},
 	{"rfc1918", "https://10.0.0.5/x.jpg"},
 	{"name resolving to cloud metadata", "https://rebind.example.test/x.jpg"},
-	{"name that does not resolve", "https://nowhere.example.test/x.jpg"},
 }
 
 // withHostileDNS points rebind.example.test at the metadata address for the
@@ -503,6 +505,37 @@ func TestValidateFieldChangeValue_RejectsSSRFTargetsOnImageURL(t *testing.T) {
 	}
 	if err := ValidateFieldChangeValue(bg, "image_url", "https://example.com/flyer.jpg"); err != nil {
 		t.Errorf("a public image host must still pass, got: %v", err)
+	}
+}
+
+// urlSchemeErrorFields is every field name passed to URLSchemeError anywhere in
+// the codebase. URLSchemeError cannot run the host guard (huma's Resolve gives
+// it a huma.Context, not a context.Context), so a field validated through it is
+// a field the `fetched` flag silently does not reach.
+//
+// Keep this in sync with the call sites: today the only one is
+// catalog/show.go's CreateShowRequestBody.Resolve, with "ticket_url".
+var urlSchemeErrorFields = []string{"ticket_url"}
+
+// TestFetchedFieldsAvoidURLSchemeError is the tripwire the `fetched` comment
+// points at. Marking a field fetched guards ValidateImageURL / ValidateURLField
+// / ValidateFieldChangeValue but NOT URLSchemeError, so flipping the flag on
+// ticket_url would guard PUT /shows/{id} and leave POST /shows unguarded, with
+// nothing failing to say so. This fails instead.
+//
+// If it fires: thread a real context into that field's create path rather than
+// deleting the case.
+func TestFetchedFieldsAvoidURLSchemeError(t *testing.T) {
+	for _, field := range urlSchemeErrorFields {
+		spec, ok := urlFieldSpecs[field]
+		if !ok {
+			t.Errorf("%q is passed to URLSchemeError but is not a known URL field", field)
+			continue
+		}
+		if spec.fetched {
+			t.Errorf("%q is marked fetched but is validated via URLSchemeError, which cannot run "+
+				"the host guard — its create path would silently skip SSRF validation", field)
+		}
 	}
 }
 

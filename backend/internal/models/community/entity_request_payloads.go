@@ -315,8 +315,6 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 	}
 }
 
-// requireField returns an error when a required string field is empty (after
-// trimming). Keeps ValidateEntityRequestPayload's required-field checks terse.
 // PayloadImageURL returns the payload's image_url, or nil when the type has no
 // such field or the value is absent.
 //
@@ -368,6 +366,8 @@ func PayloadImageURL(entityType string, raw json.RawMessage) (*string, error) {
 	}
 }
 
+// requireField returns an error when a required string field is empty (after
+// trimming). Keeps ValidateEntityRequestPayload's required-field checks terse.
 func requireField(entityType, field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s payload: %s is required", entityType, field)

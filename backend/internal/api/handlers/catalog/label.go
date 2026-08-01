@@ -295,7 +295,8 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
 		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
-	// PSY-525: URL scheme validation (http/https only) for image_url + social URL fields.
+	// PSY-525 scheme check + PSY-1675 SSRF host guard (resolves DNS; see urlguard)
+	// for image_url; scheme + host anchor for the social URL fields.
 	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
 		return nil, err
 	}

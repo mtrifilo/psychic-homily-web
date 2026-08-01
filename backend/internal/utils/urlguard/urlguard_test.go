@@ -78,6 +78,33 @@ func TestValidate_RejectsLiteralAddresses(t *testing.T) {
 	}
 }
 
+// TestValidate_FoldsIDNBeforeClassifying: Go's url.Parse does no IDNA and the
+// WHATWG parser at the edge does, so a Unicode host is a name the two layers
+// would otherwise look up DIFFERENTLY. Folding first means a host that spells
+// an internal name (or an address) in Unicode is classified as that name.
+func TestValidate_FoldsIDNBeforeClassifying(t *testing.T) {
+	g := testGuard()
+	blocked := []struct{ name, url string }{
+		{"fullwidth localhost", "https://ｌｏｃａｌｈｏｓｔ/x.jpg"},
+		{"fullwidth digits spelling loopback", "https://１２７.0.0.1/x.jpg"},
+		{"unicode .internal suffix", "https://vault.ｉｎｔｅｒｎａｌ/x.jpg"},
+	}
+	for _, c := range blocked {
+		t.Run(c.name, func(t *testing.T) {
+			if err := g.Validate(context.Background(), c.url, "Image URL"); err == nil {
+				t.Fatalf("Validate(%q) = nil, want a rejection", c.url)
+			}
+		})
+	}
+
+	// An ordinary IDN that folds to a punycode name is a NAME, not a rejection:
+	// it goes to the resolver like any other. Unknown here, so it passes on the
+	// lookup-failure rule rather than on its spelling.
+	if err := g.Validate(context.Background(), "https://bücher.example/x.jpg", "Image URL"); err != nil {
+		t.Errorf("an ordinary IDN host must not be refused on its spelling, got %v", err)
+	}
+}
+
 // TestValidate_RejectsUnparseableAndNonHTTP confirms the guard fails closed on
 // input it cannot classify, rather than waving it through to a fetcher whose
 // URL parser is more permissive than Go's.
@@ -120,7 +147,10 @@ func TestValidate_ResolvesHostnames(t *testing.T) {
 		{"name answering with loopback", "https://loopback.example.com/flyer.jpg", true},
 		{"name answering with one public and one private address", "https://mixed.example.com/flyer.jpg", true},
 		{"name answering with unique-local ipv6", "https://ula.example.com/flyer.jpg", true},
-		{"name that does not resolve", "https://nope.example.com/flyer.jpg", true},
+		// Deliberately NOT a rejection: refusing unresolvable hosts closes
+		// nothing an attacker cannot reach by rebinding instead, and it would
+		// make a show uneditable once its flyer host expired. See Validate.
+		{"name that does not resolve", "https://nope.example.com/flyer.jpg", false},
 	}
 	g := testGuard()
 	for _, c := range cases {
@@ -174,24 +204,31 @@ func TestValidate_DoesNotLeakResolvedAddresses(t *testing.T) {
 // TestValidate_ResolverErrorsRejectAndCancelledContextRejects: a lookup that
 // cannot complete is a value the guard cannot vouch for, so it is refused
 // rather than admitted.
-func TestValidate_ResolverErrorsReject(t *testing.T) {
-	g := New(errorResolver{})
-	if err := g.Validate(context.Background(), "https://images.example.com/x.jpg", "Image URL"); err == nil {
-		t.Error("a resolver error must reject, not pass")
+// TestValidate_LookupFailuresDoNotReject pins the deliberate asymmetry: an
+// address the guard can SEE and dislikes is refused, but a lookup that cannot
+// complete is not. Refusing the latter would not stop an attacker (rebinding
+// reaches the same place and no write-time check sees it) and would make every
+// show with a dead flyer host uneditable and every resolver blip a 422 storm.
+func TestValidate_LookupFailuresDoNotReject(t *testing.T) {
+	for name, r := range map[string]Resolver{
+		"resolver error": errorResolver{},
+		"empty answer":   emptyResolver{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := New(r).Validate(context.Background(), "https://images.example.com/x.jpg", "Image URL"); err != nil {
+				t.Errorf("a lookup that cannot complete must not reject, got %v", err)
+			}
+		})
 	}
 
-	g = New(emptyResolver{})
-	if err := g.Validate(context.Background(), "https://images.example.com/x.jpg", "Image URL"); err == nil {
-		t.Error("an empty answer must reject, not pass")
-	}
-
-	// A caller whose request was cancelled must not end up with a value that
-	// was never classified. MapResolver ignores ctx, so this asserts through a
-	// resolver that honours it the way *net.Resolver does.
+	// Same for a caller whose request was already cancelled: the write is about
+	// to be abandoned anyway, and a cancellation is not evidence about the host.
+	// MapResolver ignores ctx, so this asserts through a resolver that honours
+	// it the way *net.Resolver does.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := New(ctxResolver{}).Validate(ctx, "https://images.example.com/x.jpg", "Image URL"); err == nil {
-		t.Error("a cancelled context must reject, not pass")
+	if err := New(ctxResolver{}).Validate(ctx, "https://images.example.com/x.jpg", "Image URL"); err != nil {
+		t.Errorf("a cancelled context must not reject, got %v", err)
 	}
 }
 
