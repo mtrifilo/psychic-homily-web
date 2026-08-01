@@ -290,7 +290,9 @@ func (s *ShowService) GetShow(showID uint) (*contracts.ShowResponse, error) {
 		return nil, fmt.Errorf("failed to get show: %w", err)
 	}
 
-	return s.buildShowResponse(&show), nil
+	resp := s.buildShowResponse(&show)
+	s.attachBillLabels(resp)
+	return resp, nil
 }
 
 // GetShowBySlug retrieves a show by slug with all associations
@@ -308,7 +310,9 @@ func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error
 		return nil, fmt.Errorf("failed to get show: %w", err)
 	}
 
-	return s.buildShowResponse(&show), nil
+	resp := s.buildShowResponse(&show)
+	s.attachBillLabels(resp)
+	return resp, nil
 }
 
 // GetShows retrieves shows with optional filtering
@@ -792,6 +796,7 @@ func (s *ShowService) loadShowArtistResponses(tx *gorm.DB, showID uint) ([]contr
 				Name:             artist.Name,
 				State:            artist.State,
 				City:             artist.City,
+				Country:          artist.Country,
 				IsHeadliner:      &isHeadliner,
 				SetType:          sa.SetType,
 				Position:         sa.Position,
@@ -1817,6 +1822,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 			Name:             artist.Name,
 			State:            artist.State,
 			City:             artist.City,
+			Country:          artist.Country,
 			IsHeadliner:      &isHeadliner,
 			SetType:          setType,
 			Position:         position,
@@ -1827,6 +1833,122 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 	}
 
 	return artists, nil
+}
+
+// fetchLabelsForArtists batch-loads the labels for a set of artists, keyed by
+// artist ID and ordered by label name ASC to match GetLabelsForArtist. Two
+// queries regardless of how many artists are asked for. Artists with no labels
+// are absent from the returned map, so callers decide what absence means on
+// their wire format.
+//
+// Returns an error rather than an empty map when a query fails, so callers can
+// tell "this artist has no labels" apart from "the lookup broke" and avoid
+// publishing the second as the first.
+//
+// A free function, not a ShowService method: nothing here is show-shaped.
+//
+// Uses the junction model plus an ID lookup rather than a GORM many2many
+// preload: Artist declares no Labels association (it lives on Label), and the
+// manual pair keeps the query count fixed and inspectable.
+//
+// Deliberately does NOT filter labels.status: an inactive or defunct label is
+// still a true fact about who put the band's records out, and GetLabelsForArtist
+// does not filter either, so the show bill and the artist page agree. Status is
+// descriptive metadata here, not a visibility gate.
+func fetchLabelsForArtists(db *gorm.DB, artistIDs []uint) (map[uint][]contracts.ShowArtistLabel, error) {
+	if len(artistIDs) == 0 {
+		return nil, nil
+	}
+
+	var artistLabels []catalogm.ArtistLabel
+	if err := db.Where("artist_id IN ?", artistIDs).Find(&artistLabels).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch artist_labels: %w", err)
+	}
+	if len(artistLabels) == 0 {
+		return nil, nil
+	}
+
+	labelIDs := make([]uint, 0, len(artistLabels))
+	seen := make(map[uint]struct{}, len(artistLabels))
+	for _, al := range artistLabels {
+		if _, dup := seen[al.LabelID]; dup {
+			continue
+		}
+		seen[al.LabelID] = struct{}{}
+		labelIDs = append(labelIDs, al.LabelID)
+	}
+
+	var labels []catalogm.Label
+	if err := db.Where("id IN ?", labelIDs).Order("name ASC, id ASC").Find(&labels).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch labels: %w", err)
+	}
+
+	// Keep the name-ASC ordering by walking the sorted label list on the outside
+	// and fanning each label out to the artists joined to it.
+	artistsByLabel := make(map[uint][]uint, len(labelIDs))
+	for _, al := range artistLabels {
+		artistsByLabel[al.LabelID] = append(artistsByLabel[al.LabelID], al.ArtistID)
+	}
+
+	byArtist := make(map[uint][]contracts.ShowArtistLabel, len(artistIDs))
+	for _, label := range labels {
+		slug := ""
+		if label.Slug != nil {
+			slug = *label.Slug
+		}
+		entry := contracts.ShowArtistLabel{ID: label.ID, Name: label.Name, Slug: slug}
+		for _, artistID := range artistsByLabel[label.ID] {
+			byArtist[artistID] = append(byArtist[artistID], entry)
+		}
+	}
+
+	return byArtist, nil
+}
+
+// attachBillLabels fills in Labels on an already-built show response, in two
+// queries for the whole bill.
+//
+// Deliberately NOT folded into buildShowResponse: that runs once per show
+// inside the list endpoints (GetUpcomingShows serves up to 200 shows per
+// request), so doing the join there would add two queries per show to the
+// hottest public path for a field only the show-detail bill renders. Only the
+// detail reads call this; everyone else leaves Labels nil, so omitempty drops
+// the key rather than claiming the bill is unsigned.
+//
+// The cost this does NOT dodge: the non-bill callers that resolve a show
+// through GetShow (the per-show .ics feed, the update/delete ownership
+// pre-checks, the admin batch-approve notification loop) each pay the two
+// queries for a field they never read. Bounded at two queries per single-show
+// request, versus the 400 per request that folding this into buildShowResponse
+// would have cost the list path, so it is left alone.
+func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
+	if resp == nil || len(resp.Artists) == 0 {
+		return
+	}
+
+	artistIDs := make([]uint, len(resp.Artists))
+	for i, artist := range resp.Artists {
+		artistIDs[i] = artist.ID
+	}
+
+	labelsByArtist, err := fetchLabelsForArtists(s.db, artistIDs)
+	if err != nil {
+		// Leave Labels nil so the key is omitted. Degrading to [] would tell the
+		// client every artist on the bill is unsigned, which is a lie the page
+		// would render as fact; an absent key just means "not looked up".
+		log.Printf("WARN attachBillLabels: show_id=%d: %v", resp.ID, err)
+		return
+	}
+
+	for i := range resp.Artists {
+		// Every artist gets a non-nil slice: this response HAS looked labels up,
+		// so an unsigned artist must read as [] rather than as "not fetched".
+		labels := labelsByArtist[resp.Artists[i].ID]
+		if labels == nil {
+			labels = []contracts.ShowArtistLabel{}
+		}
+		resp.Artists[i].Labels = &labels
+	}
 }
 
 // buildShowResponse converts a Show model to contracts.ShowResponse
@@ -1913,6 +2035,7 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 				Name:             artist.Name,
 				State:            artist.State,
 				City:             artist.City,
+				Country:          artist.Country,
 				IsHeadliner:      &isHeadliner,
 				SetType:          sa.SetType,
 				Position:         sa.Position,

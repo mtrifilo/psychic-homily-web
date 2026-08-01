@@ -133,19 +133,46 @@ type ShowArtistSocials struct {
 	Website    *string `json:"website"`
 }
 
-// ArtistResponse represents artist data in show responses
+// ShowArtistLabel is the minimal label reference rendered next to an artist on
+// the show bill. Deliberately narrower than ArtistLabelResponse: the bill only
+// needs a display name and a link target.
+type ShowArtistLabel struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// ArtistResponse represents artist data in show responses.
+//
+// Labels is populated by responses built through the full detail reads,
+// ShowService.GetShow / GetShowBySlug. Both back the single route
+// GET /shows/{show_id} (it takes an ID or a slug, see GetShowHandler), which is
+// what renders the bill as "Artist [Label] City, ST". Responses assembled
+// directly from buildShowResponse instead - the list endpoints, create,
+// approve/reject/publish, and the venue and saved-show projections - leave it
+// nil so omitempty drops the key, rather than paying two extra queries per show
+// for a field their cards never render. The rule is "did this response come
+// from a detail read", not "is this a read": the mutations that return
+// s.GetShow(id) (sold-out, cancelled, update) do carry labels.
+//
+// Mirrors ArtistDetailResponse.Stats: absent means "not looked up",
+// present-but-empty means "looked up, artist is unsigned". Keep that
+// distinction honest. A producer that forgets the field omits it rather than
+// lying with [], and a failed lookup must omit it too.
 type ArtistResponse struct {
-	ID               uint              `json:"id"`
-	Slug             string            `json:"slug"`
-	Name             string            `json:"name"`
-	State            *string           `json:"state"`
-	City             *string           `json:"city"`
-	IsHeadliner      *bool             `json:"is_headliner"`
-	SetType          string            `json:"set_type"`
-	Position         int               `json:"position"`
-	IsNewArtist      *bool             `json:"is_new_artist"`
-	BandcampEmbedURL *string           `json:"bandcamp_embed_url"`
-	Socials          ShowArtistSocials `json:"socials"`
+	ID               uint               `json:"id"`
+	Slug             string             `json:"slug"`
+	Name             string             `json:"name"`
+	State            *string            `json:"state"`
+	City             *string            `json:"city"`
+	Country          *string            `json:"country"`
+	IsHeadliner      *bool              `json:"is_headliner"`
+	SetType          string             `json:"set_type"`
+	Position         int                `json:"position"`
+	Labels           *[]ShowArtistLabel `json:"labels,omitempty"`
+	IsNewArtist      *bool              `json:"is_new_artist"`
+	BandcampEmbedURL *string            `json:"bandcamp_embed_url"`
+	Socials          ShowArtistSocials  `json:"socials"`
 }
 
 // BatchShowResult contains the outcome of a batch approve/reject operation.

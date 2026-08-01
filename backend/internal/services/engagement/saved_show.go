@@ -278,6 +278,7 @@ func (s *SavedShowService) hydrateSavedShows(refs []savedShowRef, total int64) (
 			Name:             artist.Name,
 			State:            artist.State,
 			City:             artist.City,
+			Country:          artist.Country,
 			IsHeadliner:      &isHeadliner,
 			SetType:          sa.SetType,
 			Position:         sa.Position,

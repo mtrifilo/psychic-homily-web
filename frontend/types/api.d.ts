@@ -7894,10 +7894,12 @@ export interface components {
         ArtistResponse: {
             bandcamp_embed_url: string | null;
             city: string | null;
+            country: string | null;
             /** Format: int64 */
             id: number;
             is_headliner: boolean | null;
             is_new_artist: boolean | null;
+            labels?: components["schemas"]["ShowArtistLabel"][];
             name: string;
             /** Format: int64 */
             position: number;
@@ -15344,6 +15346,12 @@ export interface components {
             is_headliner?: boolean;
             /** @description Artist name (required) */
             name: string;
+        };
+        ShowArtistLabel: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            slug: string;
         };
         ShowArtistSocials: {
             bandcamp: string | null;
