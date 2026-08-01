@@ -190,7 +190,6 @@ export default async function ShowPage({ params }: ShowPageProps) {
         // happened. Deliberately NOT derived inside the builder: that would
         // make its output depend on the wall clock.
         is_past: isShowPast(showData.event_date),
-        ticket_url: showData.ticket_url ?? undefined,
         slug: showData.slug,
       })} />
       <JsonLd data={generateBreadcrumbSchema([

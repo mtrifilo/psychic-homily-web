@@ -257,9 +257,7 @@ describe('ShowPage MusicEvent offers', () => {
     expect(schema.offers).toBeUndefined()
   })
 
-  // Doubles as the no-ticket-URL case: `buildShow()` omits `ticket_url`, so the
-  // offer falls back to the canonical page.
-  it('emits an offer pointing at the show page when there is no ticket URL', async () => {
+  it('emits an offer for an upcoming show', async () => {
     fetchMock.mockResolvedValueOnce(
       okResponse(buildShow({ event_date: FUTURE_DATE, price: 20 }))
     )
@@ -274,7 +272,10 @@ describe('ShowPage MusicEvent offers', () => {
     })
   })
 
-  it('points the offer at the ticket URL when the show has one', async () => {
+  // The offer keeps pointing at our own page even when the show records a
+  // vendor link. There is no affiliate arrangement behind that link, so
+  // sending the click straight out gives away traffic this page earned.
+  it('does NOT hand the offer URL to the show ticket vendor', async () => {
     fetchMock.mockResolvedValueOnce(
       okResponse(
         buildShow({
@@ -288,7 +289,9 @@ describe('ShowPage MusicEvent offers', () => {
     const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
     const schema = musicEventSchemaFrom(result)
 
-    expect((schema.offers as { url?: string }).url).toBe('https://tix.example.com/e/123')
+    expect((schema.offers as { url?: string }).url).toBe(
+      'https://psychichomily.com/shows/test-show'
+    )
   })
 })
 
