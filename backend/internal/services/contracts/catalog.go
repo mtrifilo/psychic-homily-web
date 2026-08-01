@@ -999,24 +999,35 @@ type SceneDayResponse struct {
 // part of the answer. The mock reads "ALSO / TONIGHT · CHICAGO", and neither
 // half of that is derivable from the show payload the page already has: the
 // metro's display name is not the venue's city (a Mesa show belongs to the
-// Phoenix scene), and the date is a VENUE-LOCAL calendar date that a client
+// Phoenix scene), and the date is a SCENE-LOCAL calendar date that a client
 // re-deriving it from the show's UTC instant would get wrong for any late set.
 // Serving both here also keeps the rail to one request.
 type ShowAlsoTonightResponse struct {
-	// SceneSlug/SceneName/City/State are the scene's DISPLAY identity — the
-	// metro's principal city, so the "see all" link lands on the canonical
-	// /scenes/{slug} rather than a member-city slug. EMPTY when the show has no
-	// venue to scope by, in which case Shows is empty too.
-	SceneSlug string `json:"scene_slug,omitempty"`
+	// SceneName/City/State are the scene's DISPLAY identity: the metro's
+	// principal city, so the heading reads "Chicago" for an Evanston room. EMPTY
+	// when the show has no venue to scope by, in which case Shows is empty too.
 	SceneName string `json:"scene_name,omitempty"` // "City, ST"
 	City      string `json:"city,omitempty"`
 	State     string `json:"state,omitempty"`
-	// Date is the show's own venue-local calendar date (YYYY-MM-DD) — the date
-	// the rail is about, and the date key /scenes/{slug}/day/{date} takes.
+	// SceneSlug is the "see all" LINK target, to be combined with Date as
+	// /scenes/{slug}/day/{date}.
+	//
+	// Present only when that URL will actually resolve, which is why it is
+	// separate from the display identity above: the scene-day surface serves a
+	// bounded window of dates (2015 through next year), so an archive show has a
+	// real scene and a real date but no page to point at. Same contract as
+	// SceneDayResponse.PrevDate/NextDate: render the control only when the field
+	// is set, or you advertise a link this same service answers 404 to.
+	SceneSlug string `json:"scene_slug,omitempty"`
+	// Date is the show's own scene-local calendar date (YYYY-MM-DD): the date the
+	// rail is about, and the day key SceneSlug pairs with.
 	//
 	// The show's OWN date, never the viewer's "tonight": a reader in Berlin
 	// opening a Chicago show page is asking what else is on that night in
-	// Chicago.
+	// Chicago. Computed in the SCENE's zone rather than the individual room's, so
+	// that a metro straddling a timezone boundary buckets its night exactly the
+	// way /scenes/{slug}/day does. Only a show with no scene at all falls back to
+	// its own venue's zone.
 	Date string `json:"date"`
 	// Timezone is the IANA zone the date and its window were computed in.
 	Timezone string `json:"timezone"`

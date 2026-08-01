@@ -329,6 +329,12 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		// literal city/state geocoded the SAME way as GetShowCities (PSY-985/981),
 		// so a scene plots at the same point here and on the shows-by-city map. A
 		// geocoder miss leaves coords nil: the scene still lists, just unplaceable.
+		//
+		// Inlined rather than delegated to metroDisplayIdentity because this is the
+		// one caller that also needs the principal's COORDINATES, and splitting the
+		// lookup in two would resolve the same CBSA twice. The city/state half must
+		// stay identical to that function: it is the definition every scene slug is
+		// built from.
 		city, state := g.City, g.State
 		var lat, lng *float64
 		if g.Metro != "" {

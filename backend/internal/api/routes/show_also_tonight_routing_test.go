@@ -7,24 +7,31 @@ import (
 )
 
 // The "also tonight" rail is a /shows/{show_id}/… sub-route registered from a
-// DIFFERENT handler than its siblings (the scene handler answers it), which is
-// exactly the setup that produces a chi shape collision: chi keys its tree on
-// pattern shape, not on parameter name, so a registration naming the segment
-// anything but `show_id` would not add a route — it would silently rename the
-// parameter on whichever registration lost, and no handler-level test could see
-// it. These tests speak to the BUILT ROUTER.
+// DIFFERENT handler than its siblings (the scene handler answers it), and from a
+// different route file, so nothing local to either file would notice a second
+// claimant on the same path. chi resolves a shape+method collision by silently
+// keeping the LAST registration rather than erroring, which is the failure that
+// left the artist report handler unreachable (see reports_routing_test.go).
+//
+// Parameter naming is a readability convention rather than a correctness one:
+// chi stores parameter names per endpoint pattern, so /shows/{entity_id}/…
+// coexists fine. The name is still asserted, because the group's shared-name
+// test is only meaningful while every member keeps it.
+//
+// These tests speak to the BUILT ROUTER, which is the only place either
+// property is observable.
 
 func TestShowAlsoTonightRouteIsRegisteredOnce(t *testing.T) {
 	routes := chiRoutes(t, newTestRouter(t))
 
 	got := matching(routes, http.MethodGet, "/shows/{}/also-tonight")
 	if len(got) != 1 {
-		t.Fatalf("GET /shows/{}/also-tonight: %d registered routes %v, want exactly 1", len(got), got)
+		t.Fatalf("GET /shows/{}/also-tonight: %d registered routes %v, want exactly 1 — chi keeps "+
+			"only the LAST registration of a shape, so a second one would silently win", len(got), got)
 	}
 	if got[0] != "/shows/{show_id}/also-tonight" {
-		t.Errorf("also-tonight route resolved to %q, want %q — the parameter must match its "+
-			"/shows/{show_id}/… siblings or chi silently renames one of them",
-			got[0], "/shows/{show_id}/also-tonight")
+		t.Errorf("also-tonight route resolved to %q, want %q — every /shows/{show_id}/… route "+
+			"uses the same parameter name", got[0], "/shows/{show_id}/also-tonight")
 	}
 }
 

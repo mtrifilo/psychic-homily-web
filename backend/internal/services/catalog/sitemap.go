@@ -232,13 +232,6 @@ func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneGroup
 	return groups, nil
 }
 
-// sceneDisplayIdentity resolves a group's display city/state the same way
-// ListScenes does: metro scenes use the principal city; fallbacks keep the
-// literal city/state from the group row.
-func sceneDisplayIdentity(g sceneGroupRow) (city, state string) {
-	return metroDisplayIdentity(g.Metro, g.City, g.State)
-}
-
 // sceneEntries projects one SitemapEntry per qualifying scene. Scenes are
 // computed aggregations (no scenes.updated_at), so lastmod is MAX(show.updated_at)
 // among approved shows at the scene's venues — the closest durable signal to
@@ -272,7 +265,7 @@ func (s *SitemapService) sceneEntries(ctx context.Context) ([]contracts.SitemapE
 	entries := make([]contracts.SitemapEntry, 0, len(rows))
 	bySlug := map[string]time.Time{}
 	for _, r := range rows {
-		city, state := sceneDisplayIdentity(sceneGroupRow{Metro: r.Metro, City: r.City, State: r.State})
+		city, state := metroDisplayIdentity(r.Metro, r.City, r.State)
 		slug := buildSceneSlug(city, state)
 		if prev, ok := bySlug[slug]; !ok || r.UpdatedAt.After(prev) {
 			bySlug[slug] = r.UpdatedAt
@@ -311,7 +304,7 @@ func (s *SitemapService) sceneWeekEntries(ctx context.Context) ([]contracts.Site
 	unique := make([]sceneIdent, 0, len(groups))
 	seenSlug := map[string]bool{}
 	for _, g := range groups {
-		city, state := sceneDisplayIdentity(g)
+		city, state := metroDisplayIdentity(g.Metro, g.City, g.State)
 		slug := buildSceneSlug(city, state)
 		if seenSlug[slug] {
 			continue

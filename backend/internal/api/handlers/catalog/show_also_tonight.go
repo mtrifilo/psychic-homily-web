@@ -15,9 +15,10 @@ import (
 
 // GetShowAlsoTonightRequest addresses a show by numeric id or slug.
 //
-// The parameter MUST stay named `show_id`: every /shows/{show_id}/… route shares
-// one chi position, and a single registration naming it differently silently
-// renames the whole group (pinned by show_calendar_routing_test.go).
+// The parameter is named `show_id` for uniformity across the /shows sub-routes,
+// which is what keeps TestShowSubRoutesShareOneParameterName meaningful. It is
+// not a correctness requirement on its own: chi keys parameter names per
+// endpoint pattern, so a different name on a different shape is harmless.
 type GetShowAlsoTonightRequest struct {
 	ShowID string `path:"show_id" doc:"Show ID or slug" example:"desert-doom-night"`
 }

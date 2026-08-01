@@ -45,9 +45,18 @@ func setupShowRoutes(rc RouteContext) {
 	// Anonymous and public: no optional-auth group, because a non-approved show is
 	// answered exactly like an unknown one here.
 	//
-	// No HEAD sibling. The frontend proxy existence-checks paths that can
-	// soft-404, and this one cannot — a show with nothing around it is a 200 with
-	// an empty rail, and an unknown show already 404s on /shows/{show_id} itself.
+	// No HEAD sibling. The huma.Head registrations on /scenes/{slug}/day exist
+	// because frontend/proxy.ts HEAD-probes those paths to decide whether a page
+	// is real; it existence-checks shows through /entities/shows/{slug}/exists
+	// instead, and this path cannot soft-404 anyway — a show with nothing around
+	// it is a 200 with an empty rail.
+	//
+	// The parameter is named show_id to match the rest of the group. chi stores
+	// parameter names per endpoint PATTERN, so a differently named parameter on a
+	// different shape is harmless (/shows/{entity_id}/entity-report already
+	// coexists in reports.go). The hazard chi actually has is two registrations
+	// of the SAME shape and method, where the later one silently replaces the
+	// earlier: that is what show_also_tonight_routing_test.go pins.
 	alsoTonightHandler := catalogh.NewSceneHandler(rc.SC.Scene)
 	huma.Get(rc.API, "/shows/{show_id}/also-tonight", alsoTonightHandler.GetShowAlsoTonightHandler)
 

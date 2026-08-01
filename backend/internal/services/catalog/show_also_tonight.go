@@ -24,10 +24,14 @@ const showAlsoTonightCap = 20
 // Three decisions worth stating, because each has a plausible-looking wrong
 // version:
 //
-//   - The date is the SHOW's, resolved in the VENUE's zone — never the viewer's
+//   - The date is the SHOW's, resolved in the SCENE's zone — never the viewer's
 //     "tonight" and never UTC. A reader in Berlin opening a Chicago show page is
 //     asking what else is on that night in Chicago, and a 21:00 Chicago set is
-//     already the next UTC day.
+//     already the next UTC day. The scene's clock rather than the room's own
+//     because `Date` is a scene-day key: a metro straddling a zone boundary must
+//     bucket its night the way /scenes/{slug}/day does, or the two disagree.
+//     Only the no-scene branch, which has no scene clock to consult, falls back
+//     to the venue's own zone.
 //   - The window is a strict calendar day, [start, end), taken from the same
 //     calendarDate arithmetic the scene-day page uses — not the 6am night
 //     boundary. `Date` is emitted as the key for /scenes/{slug}/day/{date}, so
@@ -52,12 +56,11 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		return nil, err
 	}
 
-	// No venue, or a venue with no usable place: nothing to scope by. The date
-	// still has to be answered, so it is resolved against whatever zone the
-	// venue's state implies, exactly as the calendar export does for a
-	// venue-less show.
+	// No venue, or a venue with no usable place: nothing to scope by, so there is
+	// no scene clock to date the show on and the room's own zone answers instead
+	// (see venueLocation).
 	if subject.VenueCity == "" || subject.VenueState == "" {
-		return emptyAlsoTonight(subject, utils.EventLocation(nil, subject.VenueState)), nil
+		return emptyAlsoTonight(subject, subject.venueLocation()), nil
 	}
 
 	scope := s.scopeFor(subject.VenueCity, subject.VenueState)
@@ -85,7 +88,11 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		// otherwise perfectly serveable.
 		var sceneErr *apperrors.SceneError
 		if errors.As(err, &sceneErr) && sceneErr.Code == apperrors.CodeSceneNotFound {
-			return emptyAlsoTonight(subject, loc), nil
+			// The venue's OWN zone, not the modal scene clock resolved above: the
+			// scene clock earns its place only while there IS a scene page for Date
+			// to agree with. sceneLocation also reads VERIFIED venues only, so the
+			// rooms that land here are exactly the ones it answers worst for.
+			return emptyAlsoTonight(subject, subject.venueLocation()), nil
 		}
 		return nil, err
 	}
@@ -101,8 +108,19 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		shows = append(shows, row)
 	}
 
+	// The slug is a LINK, so it is served only when the link resolves. The
+	// scene-day surface refuses dates outside its tracked window, and an archive
+	// show has a real scene and a real date but no page to point at; emitting the
+	// slug anyway would advertise a URL this same service answers 404 to. Display
+	// identity below is unconditional, because naming the metro is true either
+	// way. Same split as SceneDayResponse.PrevDate/NextDate.
+	sceneSlug := ""
+	if dateIsServable(date, time.Now().In(loc)) {
+		sceneSlug = buildSceneSlug(city, state)
+	}
+
 	return &contracts.ShowAlsoTonightResponse{
-		SceneSlug: buildSceneSlug(city, state),
+		SceneSlug: sceneSlug,
 		SceneName: fmt.Sprintf("%s, %s", city, state),
 		City:      city,
 		State:     state,
@@ -116,10 +134,26 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 // alsoTonightSubject is the subject show reduced to what the rail needs: its
 // identity, its instant, and the place that instant belongs to.
 type alsoTonightSubject struct {
-	ShowID     uint      `gorm:"column:show_id"`
-	EventDate  time.Time `gorm:"column:event_date"`
-	VenueCity  string    `gorm:"column:venue_city"`
-	VenueState string    `gorm:"column:venue_state"`
+	ShowID        uint      `gorm:"column:show_id"`
+	EventDate     time.Time `gorm:"column:event_date"`
+	VenueCity     string    `gorm:"column:venue_city"`
+	VenueState    string    `gorm:"column:venue_state"`
+	VenueTimezone string    `gorm:"column:venue_timezone"`
+}
+
+// venueLocation is the room's own zone, for the branches with no scene clock to
+// use. Precedence matches utils.EventLocation everywhere else: the venue's
+// explicit IANA zone, then the US state map, then its Arizona default.
+//
+// The column has to be read rather than deriving everything from the state,
+// because GetTimezoneForState answers America/Phoenix for every unknown or blank
+// state. Without it a 01:00 Berlin set would be published under the previous
+// date by the one field whose entire job is to name the right one.
+func (a *alsoTonightSubject) venueLocation() *time.Location {
+	if a.VenueTimezone == "" {
+		return utils.EventLocation(nil, a.VenueState)
+	}
+	return utils.EventLocation(&a.VenueTimezone, a.VenueState)
 }
 
 // resolveAlsoTonightSubject loads the subject show by numeric id or slug.
@@ -130,10 +164,21 @@ type alsoTonightSubject struct {
 // would confirm that an unpublished show id is real.
 //
 // The venue join is LEFT so a bill with no venue still resolves (an empty rail,
-// not a 404), and the pick is `v.name ASC, v.id ASC` — the SAME pick
-// GetSceneShowsInRange's DISTINCT ON makes. A multi-room show must be scoped by
-// the same room both queries would name, or the rail could be computed for one
-// venue's metro while every other surface attributes the show to another.
+// not a 404).
+//
+// The pick is name-ASC to match GetSceneShowsInRange's `DISTINCT ON (s.id) …
+// ORDER BY s.id, v.name ASC, v.id ASC`, so a multi-room show is scoped by the
+// same room the scene query would name — otherwise the rail could be computed
+// for one venue's metro while every other surface attributes the show to
+// another.
+//
+// It is name-ASC *among placeable rooms*, though, and that qualifier is
+// load-bearing: the scene query applies its venue predicate in the WHERE, so its
+// DISTINCT ON only ever ranks rooms already IN the scope, while this query ranks
+// every billed room. venues.city/state are nullable, so an unplaceable room
+// ("A Secret Location", no city) would otherwise win the alphabetical pick and
+// hand a perfectly scopeable show an empty rail. Demoting those rows restores
+// the agreement without giving up determinism.
 func (s *SceneService) resolveAlsoTonightSubject(idOrSlug string) (*alsoTonightSubject, error) {
 	// The only interpolated fragment is one of two COMPILE-TIME literals below;
 	// the caller's value is always a bind arg. Split this way rather than as a
@@ -145,14 +190,16 @@ func (s *SceneService) resolveAlsoTonightSubject(idOrSlug string) (*alsoTonightS
 		SELECT s.id AS show_id,
 		       s.event_date,
 		       COALESCE(v.city, '') AS venue_city,
-		       COALESCE(v.state, '') AS venue_state
+		       COALESCE(v.state, '') AS venue_state,
+		       COALESCE(v.timezone, '') AS venue_timezone
 		FROM shows s
 		LEFT JOIN show_venues sv ON sv.show_id = s.id
 		LEFT JOIN venues v ON v.id = sv.venue_id
 		WHERE `
 		andApproved = `
 		  AND s.status = ?
-		ORDER BY v.name ASC, v.id ASC
+		ORDER BY (v.city IS NULL OR TRIM(v.city) = '' OR v.state IS NULL OR TRIM(v.state) = '') ASC,
+		         v.name ASC, v.id ASC
 		LIMIT 1
 	`
 		byID   = "s.id = ?"
