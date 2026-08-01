@@ -92,6 +92,15 @@ describe('formatPointerDay', () => {
     expect(formatPointerDay('2020-01-15', '2020-01-17', false)).toBe('Fri, Jan 17')
     expect(formatPointerDay('2026-07-30', '2026-07-31', false)).toBe('Fri, Jul 31')
   })
+
+  // And a bare month/day is just as relative as a bare weekday: "Sat, Aug 8" on
+  // a page headed January 2020 reads as August 2020. This is the shape a future
+  // dated permalink actually produces, so it is the shape that must be pinned.
+  it('carries the year whenever it differs from the page it sits on', () => {
+    expect(formatPointerDay('2020-01-15', '2026-08-08', false)).toBe('Sat, Aug 8, 2026')
+    expect(formatPointerDay('2026-12-30', '2027-01-02', true)).toBe('Saturday')
+    expect(formatPointerDay('2026-12-30', '2027-03-05', false)).toBe('Fri, Mar 5, 2027')
+  })
 })
 
 describe('formatShowStartTime', () => {

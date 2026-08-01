@@ -35,9 +35,14 @@ describe('proxy — scene period routes', () => {
     vi.restoreAllMocks()
   })
 
+  // `/tonight` probes the cheap SCENE-existence endpoint, not the day one: the
+  // route has no key that can be wrong, so rebuilding the whole night just to
+  // discard the body would be pure waste on the hottest path this feature adds.
+  // The keyed routes must probe their own endpoint — only the backend can say
+  // whether 2026-02-30 or 2025-W53 is real.
   it.each([
     ['/scenes/phoenix-az/week', 'http://localhost:8080/scenes/phoenix-az/week'],
-    ['/scenes/phoenix-az/tonight', 'http://localhost:8080/scenes/phoenix-az/day'],
+    ['/scenes/phoenix-az/tonight', 'http://localhost:8080/entities/scenes/phoenix-az/exists'],
     ['/scenes/phoenix-az/2026-W31', 'http://localhost:8080/scenes/phoenix-az/week/2026-W31'],
     ['/scenes/phoenix-az/2026-07-31', 'http://localhost:8080/scenes/phoenix-az/day/2026-07-31'],
   ])('existence-checks %s against %s', async (path, expected) => {
@@ -129,10 +134,10 @@ describe('proxy — scene period routes', () => {
   it('encodes the scene slug into the probe URL', async () => {
     const fetchMock = mockBackend(200)
 
-    await proxy(requestFor('/scenes/phoenix-az&x/tonight'))
+    await proxy(requestFor('/scenes/phoenix-az&x/2026-07-31'))
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8080/scenes/phoenix-az%26x/day',
+      'http://localhost:8080/scenes/phoenix-az%26x/day/2026-07-31',
       { method: 'HEAD', redirect: 'manual' }
     )
   })

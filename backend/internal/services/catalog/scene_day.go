@@ -15,15 +15,19 @@ const sceneDayShowCap = 100
 
 // nightStartHour is the scene-local hour at which a new night begins.
 //
-// Until 06:00 the current night is still the PREVIOUS calendar date: a 01:00
-// show is colloquially part of the night before, and it is the show a reader
-// checking their phone at the venue is standing at. The same boundary the radio
-// broadcast day uses, for the same reason.
+// Until 06:00 the current night is still the PREVIOUS calendar date, because a
+// night is named by the date it BEGAN on: at 01:00 on Saturday, "tonight" is
+// still Friday night, and Friday's listing is the one a reader who went out
+// that evening is looking for. The same boundary the radio broadcast day uses,
+// for the same reason.
 //
-// This decides only which date "tonight" POINTS AT. A dated page's contents are
-// always a strict calendar day, matching the week view's day buckets and the
-// dated permalinks — a day that meant 06:00→06:00 would list a show under a
-// date the show's own permalink disagrees with.
+// This decides only which date "tonight" POINTS AT — it does NOT widen the
+// window. A dated page's contents are always a strict calendar day, matching
+// the week view's day buckets and the dated permalinks, so a set starting after
+// midnight belongs to the following date's page. That is the deliberate
+// trade-off: a 06:00→06:00 window would list such a show under a date its own
+// permalink disagrees with. Do not "fix" this by widening the window without
+// revisiting that decision.
 const nightStartHour = 6
 
 // sceneDayNextShowWindowDays bounds the look-ahead behind a quiet night's
@@ -40,6 +44,23 @@ const sceneDayNextShowWindowDays = 42
 // surface — the same `YYYY-MM-DD` the day payload emits, so a client can feed
 // a response field straight back as a request key.
 const calendarDateLayout = "2006-01-02"
+
+// sceneFirstTrackedYear is the earliest year worth serving a day for. The site
+// has no shows before it.
+//
+// Bounded HERE and not only at the edge. This endpoint is public and directly
+// reachable, so the frontend's copy of the window protects the frontend and
+// nothing else: 1970..9999 is nearly three million distinct valid keys per
+// scene, every one of them an empty day, and an empty day is the MOST expensive
+// response this endpoint has — it is the one that pays for the six-week
+// look-ahead on top of everything else. A key space that large with a
+// guaranteed cache miss is a load generator with a public URL.
+const sceneFirstTrackedYear = 2015
+
+// sceneDayFutureYears is how far ahead a day may be addressed. One year, which
+// is past any real listing and keeps the adjacent-day chain finite — a crawler
+// following "next day →" has to stop somewhere.
+const sceneDayFutureYears = 1
 
 // calendarDate is a date with NO zone attached: the thing a URL segment names,
 // the thing a page is about, and the thing a reader means by "Friday".
@@ -67,22 +88,73 @@ func (c calendarDate) String() string {
 // addDays walks the CALENDAR, in UTC, where every day is exactly 24 hours and
 // no transition can shift the result onto a neighbouring date.
 func (c calendarDate) addDays(n int) calendarDate {
-	t := time.Date(c.year, c.month, c.day, 12, 0, 0, 0, time.UTC).AddDate(0, 0, n)
+	t := c.noon().AddDate(0, 0, n)
 	return calendarDate{t.Year(), t.Month(), t.Day()}
 }
 
-// start is the first instant of this date in loc.
-//
-// Midnight, except where a DST jump means this date has no midnight — then the
-// first instant that does exist. The check is on the DATE that came back, not
-// on the clock: normalization moves the instant onto the previous date, which
-// is precisely the confusion being ruled out.
-func (c calendarDate) start(loc *time.Location) time.Time {
-	t := time.Date(c.year, c.month, c.day, 0, 0, 0, 0, loc)
-	if y, m, d := t.Date(); y != c.year || m != c.month || d != c.day {
-		t = time.Date(c.year, c.month, c.day, 1, 0, 0, 0, loc)
+// notBefore reports whether this date is on or after other.
+func (c calendarDate) notBefore(other calendarDate) bool {
+	if c.year != other.year {
+		return c.year > other.year
 	}
-	return t
+	if c.month != other.month {
+		return c.month > other.month
+	}
+	return c.day >= other.day
+}
+
+// start is the instant this date BEGINS at in loc: the EARLIEST instant whose
+// local date is this one or later.
+//
+// Defined that way rather than as "local midnight" because local midnight is
+// not always a moment. Three cases, and the definition is the only thing that
+// gets all three right at once:
+//
+//   - An ordinary date: local midnight, as expected.
+//   - A date whose midnight is skipped by a forward jump (America/Havana
+//     2026-03-08 begins at 01:00): the transition instant.
+//   - A date that never happened at all — a date-line move can delete a whole
+//     day, and Pacific/Apia has no 2011-12-30 — where this equals the NEXT
+//     date's start, so the day's window is empty. That is exactly true: no
+//     time passed on that date, so no show can have happened on it.
+//
+// The definition is monotonic in the date, which is what makes end(D) equal
+// start(D+1) for every D in every zone — no overlap, no gap, no case analysis
+// at the call site.
+//
+// `time.Date` alone will NOT do. It normalizes a nonexistent wall-clock in an
+// unspecified direction: for Havana it lands forward on the transition (right),
+// but for Apia's deleted day it lands BACK on the previous date, which collapses
+// the previous day's window to nothing and hands the deleted date a 48-hour one.
+// This was tried; the zone sweep in scene_day_test.go is what caught it.
+//
+// The search is over a ±48h bracket at second granularity — ~17 iterations, and
+// zone transitions land on whole seconds — anchored on a UTC noon whose local
+// date is always this date or the next, so the predicate is guaranteed true at
+// the top of the bracket and false at the bottom.
+func (c calendarDate) start(loc *time.Location) time.Time {
+	noon := c.noon()
+	// Invariant: the predicate is false at lo and true at hi. Both stay on
+	// whole seconds, so the answer lands exactly on the transition rather than
+	// a fraction of a second past it.
+	lo, hi := noon.Add(-48*time.Hour), noon
+	for hi.Sub(lo) > time.Second {
+		mid := lo.Add((hi.Sub(lo) / 2).Truncate(time.Second))
+		if dateOf(mid.In(loc)).notBefore(c) {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return hi.In(loc)
+}
+
+// noon is a zone-free instant guaranteed to fall on this date, for the calendar
+// questions that must not be asked of a boundary — the ISO week this date
+// belongs to, above all. Asking `start` would get the previous date's week
+// whenever local midnight was skipped.
+func (c calendarDate) noon() time.Time {
+	return time.Date(c.year, c.month, c.day, 12, 0, 0, 0, time.UTC)
 }
 
 // dateOf reads the calendar date an instant falls on.
@@ -103,8 +175,9 @@ func dateOf(t time.Time) calendarDate {
 // keeps one calendar day addressable by exactly one key. Without it every
 // impossible date would be a second, indexable URL for a real day's content.
 //
-// The year bound mirrors ParseISOWeekKey's. The endpoint is public, and every
-// out-of-range date is an empty day that still pays for a look-ahead query.
+// The year bound here mirrors ParseISOWeekKey's and only rules out nonsense;
+// the SERVABLE window (sceneFirstTrackedYear..now+1) is narrower and is applied
+// by GetSceneDay, which has the scene's clock to apply it against.
 func ParseCalendarDateKey(key string) (calendarDate, error) {
 	parsed, err := time.Parse(calendarDateLayout, key)
 	if err != nil {
@@ -130,6 +203,18 @@ func tonightDate(nowLocal time.Time) calendarDate {
 		date = date.addDays(-1)
 	}
 	return date
+}
+
+// dateIsServable reports whether a date falls inside the window this surface
+// will answer for, judged against the SCENE's clock rather than the process's —
+// the same authority that decides every other date here.
+//
+// Applied at the service and not only at the edge. The endpoint is public and
+// directly reachable, so a bound that lives only in the frontend protects the
+// frontend and nothing else.
+func dateIsServable(date calendarDate, nowLocal time.Time) bool {
+	return date.year >= sceneFirstTrackedYear &&
+		date.year <= nowLocal.Year()+sceneDayFutureYears
 }
 
 // dayHasEnded reports whether a scene's day is entirely behind it — the only
@@ -220,6 +305,9 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 		if err != nil {
 			return nil, apperrors.ErrSceneNotFound(err.Error())
 		}
+		if !dateIsServable(parsed, nowLocal) {
+			return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("date %q is outside the tracked window", dateKey))
+		}
 		date = parsed
 	}
 	// Half-open [start, end). Both ends are derived from the CALENDAR, so
@@ -245,24 +333,22 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 		venues = []contracts.SceneTrackedVenue{}
 	}
 
+	isPastDay := dayHasEnded(nowLocal, end, date, tonight)
+
 	// Only a quiet night needs somewhere to point, so only a quiet night pays
-	// for the look-ahead query.
+	// for the look-ahead query — and only a night that has NOT already happened.
+	//
+	// "Next on our calendar" is a claim about what is still to come. A page
+	// about a night in 2019 cannot make it: anchored on that night it would
+	// name a show six years in the past, and anchored on now it would be a
+	// live value inside a payload the client is told it may freeze for a day
+	// (see IsPastDay). An archived night has the week and the rooms to offer
+	// and needs no pointer; a page that is still ahead of the reader gets one.
 	var nextShow *contracts.SceneShowSummary
-	if len(shows) == 0 {
-		// Anchored at NOW when the day is already behind us. "Next on our
-		// calendar" is a claim about what is still to come, so an archived
-		// permalink must not answer it with a show from the week after the
-		// night it describes — which for a 2019 page is six years in the past.
-		// It is also what makes the dead-quiet copy's "or in the next few
-		// weeks" true: that sentence is about now, so the window it rests on
-		// has to be too.
-		from := end
-		if from.Before(nowLocal) {
-			from = nowLocal
-		}
+	if len(shows) == 0 && !isPastDay {
 		upcoming, err := s.GetSceneShowsInRange(
 			city, state,
-			from.UTC(), from.AddDate(0, 0, sceneDayNextShowWindowDays).UTC(),
+			end.UTC(), end.AddDate(0, 0, sceneDayNextShowWindowDays).UTC(),
 			loc, 1,
 		)
 		if err != nil {
@@ -283,7 +369,10 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 		State:     state,
 		Date:      date.String(),
 		Timezone:  loc.String(),
-		ISOWeek:   ISOWeekKey(start),
+		// From the DATE, not from `start`: a start that is a jump boundary can
+		// render as the PREVIOUS date, and at a week edge that is the previous
+		// week — a "Full week" chip pointing at the wrong seven days.
+		ISOWeek: ISOWeekKey(date.noon()),
 		// The rows are the count, and the rows are what the page renders. Note
 		// this reports the CAP when a night somehow exceeds it, exactly as the
 		// week payload does.

@@ -33,10 +33,11 @@ func setupSceneRoutes(rc RouteContext) {
 	// The day family, same split and same reason as the week family above. The
 	// bare form is what the reader-facing /scenes/{slug}/tonight page asks for:
 	// "tonight" depends on the SCENE's timezone and on its 6am night boundary
-	// (before 06:00 the current night is still the previous date), so only the
-	// server can resolve it. A day is NOT derivable from the week payload —
-	// tonight can fall in the previous ISO week, which would cost a second
-	// request the client cannot know it needs.
+	// (a night is named by the date it began on, so before 06:00 the current
+	// night is still the previous date), so only the server can resolve it. A
+	// day is NOT derivable from the week payload — tonight can fall in the
+	// previous ISO week, which would cost a second request the client cannot
+	// know it needs.
 	huma.Get(rc.API, "/scenes/{slug}/day", sceneHandler.GetSceneCurrentDayHandler)
 	huma.Get(rc.API, "/scenes/{slug}/day/{date}", sceneHandler.GetSceneDayHandler)
 	huma.Head(rc.API, "/scenes/{slug}/day", sceneHandler.GetSceneCurrentDayHandler)

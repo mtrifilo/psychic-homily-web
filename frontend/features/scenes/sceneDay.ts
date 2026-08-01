@@ -101,6 +101,11 @@ export function formatPointerDay(
     weekday: 'short',
     month: 'short',
     day: 'numeric',
+    // The YEAR whenever it differs from the page's own. A page headed
+    // "January 15, 2020" saying "Next on our calendar: Sat, Aug 8" reads as
+    // August 2020 to every reader — dropping the weekday shorthand is not
+    // enough on its own, because a bare month and day is just as relative.
+    ...(target.getFullYear() !== from.getFullYear() ? { year: 'numeric' as const } : {}),
   })
 }
 

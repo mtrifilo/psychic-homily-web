@@ -38,8 +38,10 @@ function dayDescription(day: SceneDayResponse): string {
   const date = formatDayFull(day.date)
   const when = day.is_tonight ? `tonight, ${date}` : date
   if (total === 0) {
-    // Never "no shows in {city}" — we know our own calendar, not the city's.
-    return `Nothing on our calendar for the ${day.city} rooms we track ${when}.`
+    // Names the count and the city, like the populated form — but never "no
+    // shows in {city}". We know our own calendar, not the city's, and "listed"
+    // is what keeps the difference visible in a snippet read out of context.
+    return `0 shows listed for the ${day.city} rooms we track ${when}. A room may have a show we haven't listed.`
   }
   return `${total} ${total === 1 ? 'show' : 'shows'} at the ${day.city} rooms we track ${when}.`
 }

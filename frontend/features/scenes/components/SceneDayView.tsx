@@ -128,10 +128,20 @@ function RoomList({ venues }: { venues: SceneTrackedVenue[] }) {
  */
 function quietNightCopy(day: SceneDayResponse, hasUpcoming: boolean): string {
   const when = day.is_tonight ? 'tonight' : `on ${formatDayFull(day.date)}`
-  if (hasUpcoming) {
-    return `Nothing on our calendar for the ${day.city} rooms we track ${when}. A room may have a show we haven't listed.`
+  const base = `Nothing on our calendar for the ${day.city} rooms we track ${when}`
+
+  // "or in the next few weeks" is a claim about NOW, and only a night that has
+  // not already happened has the standing to make it — the backend looks ahead
+  // from the day being viewed, so on an archived page that window closed years
+  // ago and was never re-checked. A past night says only what its own date
+  // supports.
+  if (day.is_past_day) {
+    return `${base}. A room may have had a show we haven't listed.`
   }
-  return `Nothing on our calendar for the ${day.city} rooms we track ${when}, or in the next few weeks. A room may have shows we haven't listed.`
+  if (hasUpcoming) {
+    return `${base}. A room may have a show we haven't listed.`
+  }
+  return `${base}, or in the next few weeks. A room may have shows we haven't listed.`
 }
 
 function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string }) {
@@ -172,15 +182,20 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
             CHECK THE ROOMS DIRECTLY
           </h2>
           <RoomList venues={rooms} />
-          {!nextShow && (
-            <Link
-              href="/contribute"
-              className="mt-3 inline-block text-sm text-muted-foreground hover:underline"
-            >
-              Missing a room? Suggest a venue →
-            </Link>
-          )}
         </section>
+      )}
+
+      {/* A sibling of the rooms block, not a child of it. A scene with nothing
+          ahead of it is the one most likely to be missing a room — and a scene
+          whose room list came back empty is likelier still, which is exactly
+          when nesting this would have hidden it. */}
+      {!nextShow && (
+        <Link
+          href="/contribute"
+          className="mt-3 inline-block text-sm text-muted-foreground hover:underline"
+        >
+          Missing a room? Suggest a venue →
+        </Link>
       )}
     </div>
   )

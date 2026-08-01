@@ -283,4 +283,43 @@ describe('SceneDayView — a dead-quiet scene', () => {
       '/contribute'
     )
   })
+
+  // A scene whose room list came back empty is likelier still to be missing
+  // one, which is exactly when nesting the ask inside the rooms block hid it.
+  it('still asks when there are no rooms to list', () => {
+    render(<SceneDayView day={day({ ...dead, tracked_venues: [] })} />)
+    expect(screen.queryByText(/CHECK THE ROOMS DIRECTLY/)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Suggest a venue/ })).toBeInTheDocument()
+  })
+})
+
+describe('SceneDayView — a night that has already happened', () => {
+  const past = day({
+    date: '2020-01-15',
+    is_tonight: false,
+    is_past_day: true,
+    show_count: 0,
+    shows: [],
+    next_show: undefined,
+  })
+
+  // "or in the next few weeks" is a claim about NOW. The look-ahead behind it
+  // starts at the day being viewed, so on a 2020 page that window closed six
+  // years ago and was never re-checked — the page must not assert it.
+  it('does not claim anything about the weeks ahead', () => {
+    render(<SceneDayView day={past} />)
+    expect(screen.queryByText(/in the next few weeks/)).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Nothing on our calendar for the Phoenix rooms we track on Wednesday, January 15, 2020\./
+      )
+    ).toBeInTheDocument()
+  })
+
+  // The pointer is a live-night affordance. On an archived page "next" could
+  // only name a show that is itself long over.
+  it('offers no next-show pointer', () => {
+    render(<SceneDayView day={past} />)
+    expect(screen.queryByText(/Next on our calendar/)).not.toBeInTheDocument()
+  })
 })

@@ -46,16 +46,35 @@ func TestParseCalendarDateKey(t *testing.T) {
 		if got.String() != "2026-03-08" {
 			t.Errorf("got %s, want 2026-03-08", got)
 		}
-		if s := got.start(havana); s.Format("2006-01-02") != "2026-03-08" {
-			t.Errorf("start landed on %s, want a 2026-03-08 instant", s.Format("2006-01-02 15:04:05 -0700"))
+		// The window must still hold the day: 01:00 is the first local time
+		// that exists on it, and noon is squarely inside.
+		start, end := got.start(havana), got.addDays(1).start(havana)
+		for _, hour := range []int{1, 12, 23} {
+			at := time.Date(2026, time.March, 8, hour, 0, 0, 0, havana)
+			if at.Before(start) || !at.Before(end) {
+				t.Errorf("2026-03-08 %02d:00 falls outside its own window [%s, %s)", hour, start, end)
+			}
 		}
 	})
 
-	t.Run("rejects a year outside the range", func(t *testing.T) {
+	t.Run("rejects a year outside the representable range", func(t *testing.T) {
 		for _, key := range []string{"1969-12-31", "0001-01-01"} {
 			if _, err := ParseCalendarDateKey(key); err == nil {
 				t.Errorf("ParseCalendarDateKey(%q) accepted an out-of-range year", key)
 			}
+		}
+	})
+
+	// The SERVABLE window is narrower and belongs to GetSceneDay, which has the
+	// scene's clock. Parsing stays purely structural so the two concerns cannot
+	// be confused — but the constant must still be the one the edge copies.
+	t.Run("parsing does not apply the servable window", func(t *testing.T) {
+		if _, err := ParseCalendarDateKey("1999-01-01"); err != nil {
+			t.Errorf("1999-01-01 is structurally valid; rejecting it here hides the window check: %v", err)
+		}
+		if sceneFirstTrackedYear != 2015 {
+			t.Errorf("sceneFirstTrackedYear = %d; frontend/proxy.ts and sceneDay.ts hardcode 2015 and must be updated in lockstep",
+				sceneFirstTrackedYear)
 		}
 	})
 
@@ -83,17 +102,52 @@ func TestParseCalendarDateKey(t *testing.T) {
 	}
 }
 
+// The servable window is what keeps a public endpoint from being a load
+// generator: outside it every answer is an empty day, and an empty day is the
+// most expensive response this surface has.
+func TestDateIsServable(t *testing.T) {
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("failed to load location: %v", err)
+	}
+	now := time.Date(2026, time.July, 31, 21, 0, 0, 0, phoenix)
+
+	tests := []struct {
+		date calendarDate
+		want bool
+	}{
+		{calendarDate{2026, time.July, 31}, true},                    // today
+		{calendarDate{sceneFirstTrackedYear, time.January, 1}, true}, // the floor
+		{calendarDate{sceneFirstTrackedYear - 1, time.December, 31}, false},
+		{calendarDate{2027, time.December, 31}, true}, // the ceiling, now + 1
+		{calendarDate{2028, time.January, 1}, false},
+		{calendarDate{1970, time.January, 1}, false}, // structurally valid, not servable
+		{calendarDate{9999, time.December, 31}, false},
+	}
+	for _, tc := range tests {
+		if got := dateIsServable(tc.date, now); got != tc.want {
+			t.Errorf("dateIsServable(%s, now=%s) = %v, want %v",
+				tc.date, now.Format("2006-01-02"), got, tc.want)
+		}
+	}
+}
+
 // Adjacent days must MEET — end(D) exactly equals start(D+1). An overlap lists
 // a show on two dates, each of which its own permalink disagrees with; a gap
 // hides it from both. Instant arithmetic gets this wrong in any zone whose DST
 // transition lands at or near local midnight.
 func TestCalendarDate_AdjacentWindowsMeetExactly(t *testing.T) {
 	zones := []string{
-		"America/Phoenix",  // no DST at all
-		"America/Chicago",  // transition at 02:00
-		"America/Havana",   // spring-forward AT midnight: 00:00 does not exist
-		"America/Santiago", // southern hemisphere, transition at midnight
-		"Asia/Beirut",      // transition at midnight, both directions
+		"America/Phoenix",           // no DST at all
+		"America/Chicago",           // transition at 02:00
+		"America/Havana",            // spring-forward AT midnight: 00:00 does not exist
+		"America/Santiago",          // southern hemisphere, transition at midnight
+		"Asia/Beirut",               // transition at midnight, both directions
+		"Pacific/Apia",              // 2011-12-30 skipped entirely (date-line move)
+		"America/Argentina/Cordoba", // a historical jump wider than one hour
+		"Pacific/Kiritimati",        // 1994-12-31 skipped entirely
+		"Australia/Lord_Howe",       // half-hour DST offset
+		"Asia/Kathmandu",            // +05:45, a non-hour base offset
 	}
 	for _, name := range zones {
 		loc, err := time.LoadLocation(name)
@@ -101,21 +155,40 @@ func TestCalendarDate_AdjacentWindowsMeetExactly(t *testing.T) {
 			t.Skipf("%s unavailable: %v", name, err)
 		}
 		t.Run(name, func(t *testing.T) {
-			// A full year, so every transition in the zone is crossed.
-			date := calendarDate{2026, time.January, 1}
-			for i := 0; i < 365; i++ {
+			// Every day from 1970 to 2036, so the historical skipped-day cases
+			// above are actually crossed rather than merely named.
+			date := calendarDate{1970, time.January, 1}
+			for i := 0; i < 24_106; i++ {
 				next := date.addDays(1)
-				end := next.start(loc)
-				if got := date.start(loc); !got.Before(end) {
-					t.Fatalf("%s: window is empty or inverted ([%s, %s))", date, got, end)
+				start, end := date.start(loc), next.start(loc)
+
+				// Never inverted. Equal IS allowed and IS correct: a date-line
+				// move can skip a whole date, and zero elapsed time on a date
+				// that did not happen is the truth, not a bug.
+				if end.Before(start) {
+					t.Fatalf("%s: inverted window ([%s, %s))", date, start, end)
 				}
-				// The next day's window opens exactly where this one closed.
+				// Adjacent windows meet exactly — no overlap (one show on two
+				// dates) and no gap (a show on neither).
 				if !next.start(loc).Equal(end) {
 					t.Fatalf("%s -> %s: windows do not meet", date, next)
 				}
-				// And the instant we call the day's start really is on that day.
-				if s := date.start(loc); s.Format("2006-01-02") != date.String() {
-					t.Fatalf("%s: start landed on %s", date, s.Format("2006-01-02"))
+				// The property the whole feature rests on: an instant that
+				// RENDERS as this date in this zone falls in this date's
+				// window. Local noon exists in every real zone on every date
+				// that happened at all, and it is what the show query's
+				// `event_date.In(loc).Format` is effectively compared against.
+				//
+				// Note this is asserted on the INSTANT, not on how `start`
+				// itself renders — at a midnight jump the boundary is a local
+				// time that never existed, and Go displays it in the pre-jump
+				// offset. The moment is right; its rendering is a gap artifact.
+				if start.Before(end) {
+					noon := time.Date(date.year, date.month, date.day, 12, 0, 0, 0, loc)
+					if noon.Before(start) || !noon.Before(end) {
+						t.Fatalf("%s: local noon (%s) falls outside its own window [%s, %s)",
+							date, noon, start, end)
+					}
 				}
 				date = next
 			}

@@ -316,12 +316,7 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       // would keep passing while quietly testing nothing, since any valid date
       // 200s. This way the assertion follows the real declared relationship.
       await page.goto('/scenes/phoenix-az/tonight')
-      const canonical = await page
-        .locator('link[rel="canonical"]')
-        .getAttribute('content')
-        .catch(() => null)
-      const href =
-        canonical ?? (await page.locator('link[rel="canonical"]').getAttribute('href'))
+      const href = await page.locator('link[rel="canonical"]').getAttribute('href')
 
       expect(href, '/tonight must declare a canonical').toBeTruthy()
       expect(
@@ -329,10 +324,14 @@ test.describe('Not-found pages — HTTP 404 status', () => {
         'the canonical must be the DATED permalink, never the rolling URL'
       ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
 
-      const response = await page.goto(href!)
+      // The PATH, against the server under test. The canonical is absolute and
+      // points at the production origin, so navigating to it verbatim would
+      // leave the branch entirely and assert a fact about the live site.
+      const { pathname } = new URL(href!)
+      const response = await page.goto(pathname)
       expect(
         response?.status(),
-        `${href} must return 200 — it is what /tonight points every crawler at`
+        `${pathname} must return 200 — it is what /tonight points every crawler at`
       ).toBe(200)
     })
 

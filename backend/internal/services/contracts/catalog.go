@@ -932,10 +932,10 @@ type SceneDayResponse struct {
 	NextDate string `json:"next_date"`
 	// IsTonight says this date is the one a reader standing in the scene right
 	// now would call "tonight" — which is NOT simply today's date. Until 06:00
-	// scene-local the answer is still YESTERDAY's date, because a 01:00 show is
-	// colloquially part of the previous night and is the show the reader is
-	// standing at (the same 6am broadcast-day boundary the radio schedule uses).
-	// Answered here because it depends on the SCENE's clock, not the viewer's.
+	// scene-local the answer is still YESTERDAY's date, because a night is named
+	// by the date it BEGAN on (the same 6am broadcast-day boundary the radio
+	// schedule uses). Answered here because it depends on the SCENE's clock,
+	// not the viewer's. It does not widen the day's window — see Shows.
 	IsTonight bool `json:"is_tonight"`
 	// IsPastDay says the day is over and can no longer gain shows — the only
 	// state in which a client may cache this payload hard.
@@ -950,12 +950,16 @@ type SceneDayResponse struct {
 	// marshals as `[]` rather than `null`.
 	Shows         []SceneShowSummary  `json:"shows"`
 	TrackedVenues []SceneTrackedVenue `json:"tracked_venues"`
-	// NextShow is the scene's next show AFTER this day, and is populated only
-	// when this day is empty — a quiet night's whole job is to point somewhere
-	// useful, and the alternative is a second round-trip on exactly the page
-	// with the least to say. Absent when the day HAS shows, and absent when the
-	// scene has nothing upcoming at all, which is what separates a quiet night
-	// from a dead-quiet one.
+	// NextShow is the scene's next show AFTER this day — a quiet night's whole
+	// job is to point somewhere useful, and the alternative is a second
+	// round-trip on exactly the page with the least to say.
+	//
+	// Populated only when the day is empty AND has not already happened.
+	// Absent when the day HAS shows; absent when the scene has nothing upcoming
+	// at all, which is what separates a quiet night from a dead-quiet one; and
+	// absent on any past date, where "next" could only mean a show that is
+	// itself long over, and where IsPastDay invites the client to freeze this
+	// payload for a day it would not stay true for.
 	NextShow *SceneShowSummary `json:"next_show,omitempty"`
 }
 

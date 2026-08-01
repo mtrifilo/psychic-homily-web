@@ -253,7 +253,15 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`)
     }
     if (sub === 'tonight') {
-      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/day`)
+      // The SCENE probe, not the day one. This route has no key that can be
+      // wrong — every scene has a tonight — so the only question is whether the
+      // scene resolves, and `sceneExists` answers it with one COUNT against the
+      // same >= 2-verified-venues rule the day endpoint gates on. Probing
+      // `/day` instead would rebuild the entire night (venue count, timezone,
+      // the shows join, tracked venues, and on a quiet night a six-week
+      // look-ahead) and throw the body away — on every request, uncached,
+      // on the hottest path this feature adds.
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
     }
     if (ISO_WEEK_SEGMENT.test(sub) && periodYearInRange(sub)) {
       return existenceCheck(
