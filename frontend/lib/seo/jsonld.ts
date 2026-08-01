@@ -195,44 +195,68 @@ export function generateBreadcrumbSchema(
 }
 
 /**
- * Pick the URL an `Offer` should point at: the show's ticket link when it has
- * one, the show's own page otherwise.
- *
- * `ticket_url` is free text — the submit form and the ingest CLI both accept a
- * bare host — so it is normalized before being trusted. A value that does not
- * resolve to an absolute http(s) URL falls back to the canonical page instead
- * of being emitted: a malformed offer URL is worse for a crawler than one that
- * merely points at the wrong kind of page, and the same field also carries
- * `mailto:`/`tel:` values that no crawler can buy a ticket through.
- *
- * The parsed URL is used only to validate; the candidate string is what gets
- * emitted, so a caller's ticket link is never silently rewritten.
+ * Two or more DNS labels. `hostname.includes('.')` is not enough — the
+ * scheme-less branch turns `../evil` into a URL whose host is literally `..`.
+ * Punycode (`xn--…`) matches, which is what `new URL` produces for unicode.
  */
-function resolveOfferUrl(
-  ticketUrl: string | undefined,
-  slug: string | undefined
-): string | undefined {
-  const canonical = slug ? `${SITE_URL}/shows/${slug}` : undefined
+const PUBLIC_DOMAIN_HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i
+
+/**
+ * Normalize a show's free-text `ticket_url` into a public absolute http(s) URL,
+ * or `undefined` when it is not one.
+ *
+ * Today's write paths run this field through `utils.ValidateHTTPURL`, which
+ * already demands a scheme and a host — but rows predating that validation are
+ * still in the table, so it is treated as free text here. Anything that does
+ * not resolve is rejected rather than emitted: a malformed offer URL is worse
+ * for a crawler than none, and legacy rows carry `mailto:`/`tel:` and
+ * placeholder values that no crawler can buy a ticket through.
+ *
+ * The NORMALIZED url is returned, not the caller's raw string. Validating one
+ * string and publishing a different one is how allowlist bypasses happen:
+ * `https:/\host/` and a unicode-homograph host both parse to something other
+ * than they read as, and `offers.url` exists to be republished off-site.
+ *
+ * Rejected beyond the scheme: embedded credentials (`https://vendor.com@evil`
+ * reads as the vendor but resolves to the attacker) and anything whose host is
+ * not a real multi-label domain — which is what stops the scheme-less branch
+ * from turning legacy junk (`TBA`, `../evil`, `localhost`) into an emitted
+ * absolute URL.
+ *
+ * NOTE: `ShowHeader` normalizes this same field independently for the visible
+ * "Buy Tickets" link and is more permissive, so the two can disagree on
+ * hostile input. Aligning them changes what the button renders, so it is a
+ * follow-up rather than part of this SEO fix.
+ */
+function normalizeTicketUrl(ticketUrl: string | undefined): string | undefined {
   const raw = ticketUrl?.trim()
   if (!raw) {
-    return canonical
+    return undefined
   }
 
-  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw)
+  // Anchored on http(s) rather than the generic scheme grammar: a bare
+  // `host:port` is a valid-looking scheme to that grammar, and treating it as
+  // one threw away perfectly good ticket links.
+  const hasScheme = /^https?:\/\//i.test(raw)
   // Strip protocol-relative leading slashes so `//host/path` does not become
   // `https:////host/path`.
   const candidate = hasScheme ? raw : `https://${raw.replace(/^\/+/, '')}`
 
   try {
     const parsed = new URL(candidate)
-    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-      return candidate
+    const isPublicHttp =
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      !parsed.username &&
+      !parsed.password &&
+      PUBLIC_DOMAIN_HOST.test(parsed.hostname)
+    if (isPublicHttp) {
+      return parsed.href
     }
   } catch {
-    // Not a parseable URL — fall through to the canonical page.
+    // Not a parseable URL — fall through.
   }
 
-  return canonical
+  return undefined
 }
 
 /**
@@ -270,7 +294,11 @@ export function generateMusicEventSchema(show: {
     socials?: Record<string, string | null | undefined>
   }>
   price?: number
-  /** Where a ticket can actually be bought; normalized by `resolveOfferUrl`. */
+  /**
+   * Where a ticket can actually be bought; normalized by `normalizeTicketUrl`.
+   * The scene-week caller cannot supply this — `SceneShowSummary` carries no
+   * `ticket_url` — so that surface still points its offers at the show page.
+   */
   ticket_url?: string
   slug?: string
 }): MusicEventSchema {
@@ -362,15 +390,27 @@ export function generateMusicEventSchema(show: {
   // the page renders with no machine-readable counterpart. Price and currency
   // stay optional inside the offer — Google marks both Recommended, not
   // required, so a price-less Offer still validates.
+  // A usable ticket link is its own reason to emit an offer, for the same
+  // reason sold-out is: a show can have a place to buy tickets and no recorded
+  // price, and gating on price would drop the purchase link for exactly the
+  // shows a reader most needs it for.
   const hasPrice = show.price !== undefined && show.price !== null
-  if (!show.is_cancelled && !show.is_past && (hasPrice || show.is_sold_out)) {
+  const ticketLink = normalizeTicketUrl(show.ticket_url)
+  const showPageUrl = show.slug ? `${SITE_URL}/shows/${show.slug}` : undefined
+  if (
+    !show.is_cancelled &&
+    !show.is_past &&
+    (hasPrice || show.is_sold_out || ticketLink !== undefined)
+  ) {
     schema.offers = {
       '@type': 'Offer',
       ...(hasPrice ? { price: show.price, priceCurrency: 'USD' } : {}),
       availability: show.is_sold_out
         ? 'https://schema.org/SoldOut'
         : 'https://schema.org/InStock',
-      url: resolveOfferUrl(show.ticket_url, show.slug),
+      // Google wants this to land where the ticket is actually sold; the show's
+      // own page is the fallback when there is no usable ticket link.
+      url: ticketLink ?? showPageUrl,
     }
   }
 

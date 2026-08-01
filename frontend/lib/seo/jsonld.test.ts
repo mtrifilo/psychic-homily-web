@@ -310,6 +310,15 @@ describe('generateMusicEventSchema', () => {
     ['a javascript: URL', 'javascript:alert(1)'],
     ['an unparseable value', 'not a url'],
     ['whitespace only', '   '],
+    // Reads as the vendor, resolves to the attacker.
+    ['embedded credentials', 'https://ticketmaster.com@evil.test/pwn'],
+    // WHATWG collapses `/\` to `//`; RFC 3986 parsers do not, so the validated
+    // host and the emitted string would disagree.
+    ['a backslash authority', 'https:/\\evil.test/'],
+    ['a non-public host', 'http://localhost:3000/tickets'],
+    ['a placeholder left in a legacy row', 'TBA'],
+    ['a relative path', '../evil'],
+    ['a bare email address', 'tickets@example.com'],
   ])('falls back to the show page for %s', (_label, ticketUrl) => {
     const schema = generateMusicEventSchema({
       ...baseShow,
@@ -334,6 +343,67 @@ describe('generateMusicEventSchema', () => {
   it('omits the offer URL when there is neither a ticket URL nor a slug', () => {
     const schema = generateMusicEventSchema({ ...baseShow, price: 25, ticket_url: 'mailto:x@y.com' })
     expect(schema.offers!.url).toBeUndefined()
+  })
+
+  // The emitted URL is the normalized one, so what was validated is what ships.
+  it('percent-encodes a space rather than emitting a raw one', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: 'https://tix.example.com/e/general admission',
+    })
+    expect(schema.offers!.url).toBe('https://tix.example.com/e/general%20admission')
+  })
+
+  it('emits a homograph host as punycode', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      // Cyrillic "е" in "ticketmaster".
+      ticket_url: 'https://tickеtmaster.com/e/1',
+    })
+    expect(schema.offers!.url).toBe('https://xn--ticktmaster-rkj.com/e/1')
+  })
+
+  // A bare host:port is a syntactically valid URI scheme, so a generic
+  // scheme regex would discard this real ticket link.
+  it('keeps a host:port ticket URL', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: 'tix.example.com:8080/e/123',
+    })
+    expect(schema.offers!.url).toBe('https://tix.example.com:8080/e/123')
+  })
+
+  // A ticket link is its own reason to have an offer: plenty of shows record
+  // where to buy without recording a price.
+  it('emits an offer for a ticketed show with no price', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      slug: 'test-show',
+      ticket_url: 'https://tix.example.com/e/123',
+    })
+    expect(schema.offers).toMatchObject({
+      '@type': 'Offer',
+      availability: 'https://schema.org/InStock',
+      url: 'https://tix.example.com/e/123',
+    })
+    expect(schema.offers!.price).toBeUndefined()
+  })
+
+  // Without a price, sold-out flag, or usable ticket link there is nothing to
+  // say — an unpriced show with a junk ticket URL must not gain a bare offer.
+  it('omits offers when an unpriced show has an unusable ticket URL', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      slug: 'test-show',
+      ticket_url: 'mailto:tickets@example.com',
+    })
+    expect(schema.offers).toBeUndefined()
   })
 
   // The ticket link must not resurrect an offer the guards above dropped.

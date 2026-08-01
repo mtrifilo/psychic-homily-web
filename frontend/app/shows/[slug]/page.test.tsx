@@ -65,7 +65,11 @@ function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> {
   throw new Error('No MusicEvent JSON-LD found among the page\'s direct children')
 }
 
-/** Comfortably before / after "now" so these never depend on the wall clock. */
+/**
+ * `isShowPast` reads the real clock and the page has no seam to inject one, so
+ * these sit far enough either side of "now" that the wall clock cannot flip
+ * them. (`buildSceneWeekJsonLd` takes an injectable `now`; this page does not.)
+ */
 const PAST_DATE = '2020-03-15T20:00:00Z'
 const FUTURE_DATE = '2099-03-15T20:00:00Z'
 
@@ -168,11 +172,9 @@ describe('generateMetadata', () => {
     expect(meta.twitter?.title).toBe(meta.openGraph?.title)
   })
 
-  // The load-bearing part. This route-level object REPLACES the root layout's
-  // `twitter`, including its generic `images: ['/og-image.jpg']`. Leaving
-  // `images` unset is what makes Next fall back to the openGraph descriptor —
-  // i.e. this show's own opengraph-image. Setting it here would pin every show
-  // back to the generic site card, which is the bug this block exists to fix.
+  // Leaving `images` unset is what lets the per-show opengraph-image through —
+  // see page.tsx. A proxy for a Next-internal merge, so it would not catch the
+  // resolver changing shape on an upgrade (verified against Next 16.1.4).
   it('leaves twitter.images unset so the per-show OG image is used', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 
@@ -229,6 +231,24 @@ describe('ShowPage MusicEvent offers', () => {
   it('emits no offers for a show that already happened', async () => {
     fetchMock.mockResolvedValueOnce(
       okResponse(buildShow({ event_date: PAST_DATE, price: 20 }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.offers).toBeUndefined()
+  })
+
+  // A show whose date the backend never gave us must not advertise tickets
+  // forever — the failure directions here are not symmetric.
+  //
+  // Venue-less on purpose: with a venue, the builder formats the start time in
+  // the venue's zone and an unparseable date throws out of `toZonedISOString`
+  // before any of this is reached. That crash is pre-existing and out of scope
+  // here, so this pins the branch on the path that survives to the offer.
+  it('emits no offers when the event date is unparseable', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: 'not-a-date', price: 20, venues: [] }))
     )
 
     const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })

@@ -67,12 +67,19 @@ function formatShowDate(
 /**
  * Whether the show has already started, and so has nothing left to sell.
  *
- * Named rather than inlined at the call site because the react-compiler lint
- * rule rejects a bare `Date.now()` in a component body ("Cannot call impure
- * function during render").
+ * An undateable show counts as past. A `string` type is not a runtime
+ * guarantee — the frontend and backend deploy separately, and the data cache
+ * can serve a body fetched before a schema change — and the failure directions
+ * are not symmetric: guessing "upcoming" republishes `InStock` forever, which
+ * is the bug this exists to remove. `sceneWeekJsonLd` guards the same way.
+ *
+ * Named rather than inlined at the call site because the `react-hooks/purity`
+ * lint rule rejects a bare `Date.now()` in a component body ("Cannot call
+ * impure function during render").
  */
 function isShowPast(eventDate: string): boolean {
-  return Date.parse(eventDate) <= Date.now()
+  const startedAt = Date.parse(eventDate)
+  return !Number.isFinite(startedAt) || startedAt <= Date.now()
 }
 
 export async function generateMetadata({ params }: ShowPageProps): Promise<Metadata> {
@@ -179,9 +186,9 @@ export default async function ShowPage({ params }: ShowPageProps) {
           socials: { ...a.socials },
         })),
         price: showData.price ?? undefined,
-        // Staleness here is bounded by the route's revalidate, same as every
-        // other field on this page — see the builder for why an offer is
-        // dropped once the show has happened.
+        // See the builder for why an offer is dropped once the show has
+        // happened. Deliberately NOT derived inside the builder: that would
+        // make its output depend on the wall clock.
         is_past: isShowPast(showData.event_date),
         ticket_url: showData.ticket_url ?? undefined,
         slug: showData.slug,
