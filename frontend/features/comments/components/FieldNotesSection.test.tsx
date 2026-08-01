@@ -288,11 +288,15 @@ describe('FieldNotesSection', () => {
       expect(screen.queryByTestId('field-note-auth-gate')).not.toBeInTheDocument()
     })
 
-    // The gate names the date the reader is waiting for, so it has to be the
-    // VENUE's date. 20:00 Dec 31 Phoenix is already Jan 1 in UTC and in every
+    // The gate names the moment the reader is waiting for, so it has to be the
+    // VENUE's clock. 20:00 Dec 31 Phoenix is already Jan 1 in UTC and in every
     // zone east of it, and a label saying "January 1" under a page heading
     // saying "December 31" is a contradiction the reader has to resolve.
-    it('names the date in the venue timezone, not the reader s', () => {
+    //
+    // It names the TIME as well as the day because the gate opens at the start
+    // instant: a date-only sentence would send a reader away until tomorrow for
+    // a form that unlocks tonight.
+    it('names the start time and date in the venue timezone, not the reader s', () => {
       mockUseAuthContext.mockReturnValue({
         isAuthenticated: true,
         user: { id: '1', email: 'test@test.com' },
@@ -312,9 +316,9 @@ describe('FieldNotesSection', () => {
         />
       )
 
-      expect(
-        screen.getByText(/Field notes will be available after December 31, 2099\./)
-      ).toBeInTheDocument()
+      expect(screen.getByTestId('future-show-message')).toHaveTextContent(
+        'Field notes will be available after the show starts at 8:00 PM on December 31, 2099.'
+      )
     })
 
     it('falls back to the state map when the venue has no resolved timezone', () => {
@@ -337,10 +341,11 @@ describe('FieldNotesSection', () => {
         />
       )
 
-      // 22:00 Dec 31 Eastern, still the 31st.
-      expect(
-        screen.getByText(/Field notes will be available after December 31, 2099\./)
-      ).toBeInTheDocument()
+      // 22:00 Dec 31 Eastern, still the 31st, and a different clock time than
+      // the Phoenix case above from the very same instant.
+      expect(screen.getByTestId('future-show-message')).toHaveTextContent(
+        'Field notes will be available after the show starts at 10:00 PM on December 31, 2099.'
+      )
     })
   })
 

@@ -211,25 +211,26 @@ describe('buildSceneWeekJsonLd — offers and status', () => {
     expect(priced.events[0].startDate).toBe('2026-07-27T20:00:00-07:00')
   })
 
-  // The boundary is the VENUE's midnight, not the start instant and not UTC's
-  // midnight. The fixture show starts 20:00 Phoenix on Jul 27, which is already
-  // Jul 28 in UTC — so a UTC-day or start-instant rule would drop the offer
-  // while doors are still open.
-  it('keeps offering a show that has started but whose venue-local day has not ended', () => {
-    const midSet = new Date('2026-07-28T04:30:00Z') // 21:30 Jul 27 Phoenix
-    const [event] = buildSceneWeekJsonLd(week([show({ price: 20 })]), midSet).events
-    expect(event.offers?.availability).toBe('https://schema.org/InStock')
-  })
-
-  it('drops the offer at venue-local midnight, not at UTC midnight', () => {
-    const stillTonight = new Date('2026-07-28T06:59:00Z') // 23:59 Jul 27 Phoenix
+  // An `Offer` is a claim that a reader can still BUY a ticket, so the boundary
+  // is the start instant — not the venue-local calendar day the share card is
+  // cached against. Stretching it to local midnight would advertise tickets for
+  // a show already in progress, and for nearly a full day on an after-midnight
+  // one. The fixture starts 20:00 Phoenix on Jul 27.
+  it('drops the offer the moment doors open, not at venue-local midnight', () => {
+    const oneMinuteBefore = new Date('2026-07-28T02:59:00Z') // 19:59 Jul 27 Phoenix
     expect(
-      buildSceneWeekJsonLd(week([show({ price: 20 })]), stillTonight).events[0].offers
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), oneMinuteBefore).events[0].offers
     ).toBeDefined()
 
-    const nextDay = new Date('2026-07-28T07:01:00Z') // 00:01 Jul 28 Phoenix
+    const doorsOpen = new Date('2026-07-28T03:00:00Z') // 20:00 Jul 27 Phoenix
     expect(
-      buildSceneWeekJsonLd(week([show({ price: 20 })]), nextDay).events[0].offers
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), doorsOpen).events[0].offers
+    ).toBeUndefined()
+
+    // Still the venue's Jul 27, so a venue-local-day rule would keep offering.
+    const midSet = new Date('2026-07-28T04:30:00Z') // 21:30 Jul 27 Phoenix
+    expect(
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), midSet).events[0].offers
     ).toBeUndefined()
   })
 })

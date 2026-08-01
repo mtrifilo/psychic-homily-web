@@ -5,7 +5,7 @@ import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { StatusBanner } from '@/components/shared'
 import { hasShowStarted } from '@/lib/utils/showTiming'
-import { formatShowDay } from '@/lib/utils/formatters'
+import { formatShowDay, formatShowTime } from '@/lib/utils/formatters'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -99,7 +99,13 @@ export function FieldNotesSection({
           className="text-sm text-muted-foreground py-4"
           data-testid="future-show-message"
         >
-          Field notes will be available after{' '}
+          {/* Names the START TIME, not just the day. The gate above opens at
+              the start instant, so a sentence that stopped at the date would
+              tell a reader to come back tomorrow for a form that unlocks
+              tonight. Both halves are venue-local, so this reads as the same
+              moment the page header shows. */}
+          Field notes will be available after the show starts at{' '}
+          {formatShowTime(showDate, venueState, venueTimezone)} on{' '}
           {formatShowDay(showDate, venueState, venueTimezone)}.
         </p>
       ) : (

@@ -147,6 +147,38 @@ describe('isShowPast', () => {
     })
   })
 
+  describe('zones the fallback chain cannot resolve', () => {
+    // Documenting a known-wrong case rather than pretending it does not exist.
+    // `resolveShowTimezone` ends at `getTimezoneForState(state || 'AZ')`, whose
+    // map is US-only and whose default is Phoenix, so a non-US venue with no
+    // backfilled `timezone` is judged on Arizona's calendar. This predates the
+    // module (every show date on the site already renders through that chain);
+    // what is new is that the LISTING boundary now depends on it too.
+    it('falls back to America/Phoenix for a non-US venue with no resolved timezone', () => {
+      const auckland = { eventDate: '2026-03-14T07:00:00Z', timezone: null, state: 'Auckland' }
+      // 20:00 Mar 14 Auckland. Its own midnight passed at 11:00 UTC; Phoenix's
+      // does not until 07:00 UTC on the 15th, so the listing reads live longer.
+      expect(isShowPast(auckland, new Date('2026-03-14T12:00:00Z'))).toBe(false)
+      expect(isShowPast(auckland, new Date('2026-03-15T07:01:00Z'))).toBe(true)
+    })
+
+    it('falls back to America/Phoenix when neither state nor timezone is known', () => {
+      const unknown = { eventDate: '2026-03-15T03:00:00Z', timezone: null, state: null }
+      expect(isShowPast(unknown, new Date('2026-03-15T06:59:00Z'))).toBe(false)
+      expect(isShowPast(unknown, new Date('2026-03-15T07:01:00Z'))).toBe(true)
+    })
+  })
+
+  describe('unreadable inputs', () => {
+    it('treats an unreadable `now` as not-past rather than throwing', () => {
+      // `Intl.formatToParts` throws RangeError on an invalid Date, and this runs
+      // inside server components where that is a 500 for the whole page.
+      const show = { eventDate: '2026-03-15T03:00:00Z', ...PHOENIX }
+      expect(() => isShowPast(show, new Date('nonsense'))).not.toThrow()
+      expect(isShowPast(show, new Date('nonsense'))).toBe(false)
+    })
+  })
+
   describe('undateable shows', () => {
     it.each([
       ['undefined', undefined],
@@ -181,6 +213,7 @@ describe('hasShowStarted', () => {
   it.each([
     ['undefined', undefined],
     ['null', null],
+    ['empty string', ''],
     ['a non-date string', 'n/a'],
   ])('counts a show with %s for its start as already started', (_label, value) => {
     expect(hasShowStarted(value)).toBe(true)

@@ -9,7 +9,7 @@ import type { ShowResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { isShowPast } from '@/lib/utils/showTiming'
+import { hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -172,11 +172,12 @@ export default async function ShowPage({ params }: ShowPageProps) {
         // See the builder for why an offer is dropped once the show has
         // happened. Deliberately NOT derived inside the builder: that would
         // make its output depend on the wall clock.
-        is_past: isShowPast({
-          eventDate: showData.event_date,
-          state: showData.venues?.[0]?.state,
-          timezone: showData.venues?.[0]?.timezone,
-        }),
+        //
+        // The START INSTANT, not the venue-local day the share card is cached
+        // against. This gates an `Offer`, which is a claim that a reader can
+        // still buy a ticket, and doors close at a moment: stretching it to
+        // local midnight would advertise one for a show already in progress.
+        is_past: hasShowStarted(showData.event_date),
         // Names the vendor in `offers.seller`. The builder never emits this
         // URL — no free referrals into structured data.
         ticket_url: showData.ticket_url ?? undefined,

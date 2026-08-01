@@ -12,6 +12,7 @@ import {
 } from '@/lib/og/brand'
 import {
   OG_FALLBACK_CACHE_SECONDS,
+  OG_SETTLED_MARGIN_MS,
   loadBrandFontsOrDefault,
   ogCacheControl,
   ogFallbackCard,
@@ -280,13 +281,20 @@ function renderCard(
   ) : null
 
   // Hoisted out of the `headers` block below only because the card's JSX sits
-  // between here and there. Venue-local, shared with the show page's structured
-  // data rather than measured separately.
-  const settled = isShowPast({
-    eventDate: show.event_date,
-    state: venue?.state,
-    timezone: venue?.timezone,
-  })
+  // between here and there.
+  //
+  // Venue-local, via the shared derivation, and then held a further day: asking
+  // "was this already over a day ago" is the same question the old local rule
+  // asked, with the zone skew taken out of it. See `OG_SETTLED_MARGIN_MS` for
+  // why the day is still there.
+  const settled = isShowPast(
+    {
+      eventDate: show.event_date,
+      state: venue?.state,
+      timezone: venue?.timezone,
+    },
+    new Date(Date.now() - OG_SETTLED_MARGIN_MS)
+  )
 
   return new ImageResponse(
     (

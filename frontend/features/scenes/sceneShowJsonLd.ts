@@ -1,5 +1,5 @@
 import { generateMusicEventSchema, type MusicEventSchema } from '@/lib/seo/jsonld'
-import { isShowPast } from '@/lib/utils/showTiming'
+import { hasShowStarted } from '@/lib/utils/showTiming'
 import type { SceneWeekShow } from './sceneWeek'
 
 /**
@@ -60,10 +60,12 @@ export function isDescribableEvent(show: SceneWeekShow): boolean {
  * structured data starts lying. A show with no bill gets no `performer` for the
  * same reason (Google marks it recommended, not required).
  *
- * `sceneTimezone` is the fallback zone, NOT the state map: the backend bucketed
- * this show into its day using the scene's modal venue zone, and a venue whose
- * own zone is missing must not be rendered against a different one — that is
- * how the JSON-LD date ends up disagreeing with the date heading above it.
+ * `sceneTimezone` is preferred over the state map as the fallback zone: the
+ * backend bucketed this show into its day using the scene's modal venue zone,
+ * and a venue whose own zone is missing must not be rendered against a
+ * different one — that is how the JSON-LD date ends up disagreeing with the
+ * date heading above it. The state map is still the LAST resort underneath
+ * both, inside `resolveShowTimezone`, shared with `generateMusicEventSchema`.
  */
 function toMusicEventInput(
   show: SceneWeekShow,
@@ -89,13 +91,13 @@ function toMusicEventInput(
     is_sold_out: show.is_sold_out,
     // The archive goes back years, and an offer is a claim about what a reader
     // can still buy. Without this every archived page would advertise tickets
-    // on sale for shows that are long over. Derived against the SAME zone the
-    // venue block above carries, so a show cannot be described as past on a
-    // date the page still renders as tonight.
-    is_past: isShowPast(
-      { eventDate: startsAt, state: venue.state, timezone: venue.timezone },
-      now
-    ),
+    // on sale for shows that are long over.
+    //
+    // The START INSTANT, deliberately, not the venue-local day: doors close at
+    // a moment, and the shared module's `isShowPast` answers a different
+    // question (how long the listing stays live) that would keep this offer
+    // standing through the show itself.
+    is_past: hasShowStarted(startsAt, now),
     venue,
     artists:
       show.artist_names && show.artist_names.length > 0

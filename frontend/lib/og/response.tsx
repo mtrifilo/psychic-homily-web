@@ -101,6 +101,24 @@ export function ogCacheControl(seconds: number): string {
 export const OG_FALLBACK_CACHE_SECONDS = 60
 
 /**
+ * A day of margin between "the show is over" and "this card will never change
+ * again".
+ *
+ * NOT a timezone allowance — deriving the boundary in the venue's own zone
+ * removed the need for that. It is a CACHE-INVALIDATION one. `ogCacheControl`
+ * sets stale-while-revalidate equal to s-maxage, so committing a card to the
+ * long window commits the CDN to it for up to twice that: an admin who cancels
+ * a show, fixes its date, or finally attaches a flyer the morning after would
+ * not reach an iMessage or Discord unfurl for two days. Shows are edited most
+ * right after they happen, so the margin covers exactly that window.
+ *
+ * Carried over from the rule this replaced, which subtracted the same day for
+ * a different stated reason. Changing the number is a product call about how
+ * stale a share preview may be, not a refactor.
+ */
+export const OG_SETTLED_MARGIN_MS = 24 * 60 * 60 * 1000
+
+/**
  * The branded card shown when the data behind a share card cannot be had.
  *
  * Shared by the whole card family so a failure looks deliberate rather than

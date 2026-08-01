@@ -263,16 +263,16 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           <FieldNotesSection
             showId={show.id}
             showDate={show.event_date}
-            // Same two inputs `ShowHeader` renders the date from, so the gate's
-            // "available after <date>" cannot name a different day than the
-            // date printed at the top of the page.
-            //
-            // NOTE this is `shows.state`, an independent nullable column, while
-            // the page's JSON-LD resolves from `venues[0].state`. The two can
-            // only diverge for a venue with no resolved `timezone`, where both
-            // fall back to the state map; reconciling them would move rendered
-            // dates for those rows, so it is left alone here.
-            venueState={show.state}
+            // The VENUE's state first. Both spellings are in play on this page
+            // (`ShowHeader` renders from the nullable `shows.state`, the route's
+            // JSON-LD from `venues[0].state`) and they only diverge for a venue
+            // with no resolved `timezone`, where each falls back to the state
+            // map. In that case `shows.state` can be NULL, and a null state
+            // resolves to America/Phoenix — silently dating a Chicago show in
+            // Arizona. The venue's own state is the right answer for a
+            // venue-local label, so prefer it and keep `shows.state` as the
+            // fallback.
+            venueState={show.venues?.[0]?.state ?? show.state}
             venueTimezone={show.venues?.[0]?.timezone}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
