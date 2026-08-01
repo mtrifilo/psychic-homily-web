@@ -335,6 +335,86 @@ describe('generateMusicEventSchema', () => {
     expect(schema.image).toBeUndefined()
   })
 
+  describe('the flyer in the image array', () => {
+    // Generated card FIRST: Google reads the array as ranked preference, and
+    // the card is the one we control the dimensions and content of.
+    it('lists the flyer after the generated card', () => {
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        slug: 'test-show',
+        image_url: 'https://cdn.example.com/flyer.jpg',
+      })
+      expect(schema.image).toEqual([
+        'https://psychichomily.com/shows/test-show/opengraph-image',
+        'https://cdn.example.com/flyer.jpg',
+      ])
+    })
+
+    it('leaves the array at just the card when there is no flyer', () => {
+      for (const image_url of [undefined, null, '']) {
+        const schema = generateMusicEventSchema({ ...baseShow, slug: 'test-show', image_url })
+        expect(schema.image, String(image_url)).toEqual([
+          'https://psychichomily.com/shows/test-show/opengraph-image',
+        ])
+      }
+    })
+
+    // The two are independent claims: whatever made the OG route fall back to a
+    // text card has no bearing on a consumer fetching the flyer directly.
+    it('emits the flyer even with no slug to build a card URL from', () => {
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        image_url: 'https://cdn.example.com/flyer.jpg',
+      })
+      expect(schema.image).toEqual(['https://cdn.example.com/flyer.jpg'])
+    })
+
+    // `image_url` is writable by any email-verified user and the backend
+    // validates only the scheme and a length cap, so junk reaches this builder.
+    // A broken URL in machine-readable output is worse than silence.
+    it('drops a value that is not an absolute http(s) URL', () => {
+      const junk = [
+        '/uploads/flyer.jpg',
+        'flyer.jpg',
+        'javascript:alert(1)',
+        'data:image/png;base64,AAAA',
+        'not a url at all',
+      ]
+      for (const image_url of junk) {
+        const schema = generateMusicEventSchema({ ...baseShow, slug: 'test-show', image_url })
+        expect(schema.image, image_url).toEqual([
+          'https://psychichomily.com/shows/test-show/opengraph-image',
+        ])
+      }
+    })
+
+    // Parsing is far more lenient than the value it yields, and the backend
+    // stores `image_url` untrimmed — so the padded form really does arrive
+    // here. Emitting the raw string would put whitespace and control characters
+    // inside a machine-readable claim.
+    it('emits the normalised URL, not the raw stored string', () => {
+      for (const [raw, expected] of [
+        ['  https://cdn.example.com/f.jpg ', 'https://cdn.example.com/f.jpg'],
+        ['https://cdn.example.com/f\njpg', 'https://cdn.example.com/fjpg'],
+        ['https:evil', 'https://evil/'],
+      ] as const) {
+        const schema = generateMusicEventSchema({ ...baseShow, image_url: raw })
+        expect(schema.image, raw).toEqual([expected])
+      }
+    })
+
+    // The backend accepts plain http, so the field genuinely carries it. It is
+    // a real, resolvable claim, unlike the cases above.
+    it('keeps a plain http flyer URL', () => {
+      const schema = generateMusicEventSchema({
+        ...baseShow,
+        slug: 'test-show',
+        image_url: 'http://cdn.example.com/flyer.jpg',
+      })
+      expect(schema.image).toContain('http://cdn.example.com/flyer.jpg')
+    })
+  })
+
   it('always includes organizer', () => {
     const schema = generateMusicEventSchema(baseShow)
     expect(schema.organizer).toEqual({

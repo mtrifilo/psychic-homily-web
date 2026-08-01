@@ -154,6 +154,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
           socials: { ...a.socials },
         })),
         price: showData.price ?? undefined,
+        image_url: showData.image_url,
         slug: showData.slug,
       })} />
       <JsonLd data={generateBreadcrumbSchema([
