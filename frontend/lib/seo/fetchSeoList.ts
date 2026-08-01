@@ -9,32 +9,50 @@ import {
  * a JSON-LD block that crawlers read, not anything a human waits on, so an hour
  * of staleness costs nothing.
  *
- * This hint is the ONLY source of the `1h`/`1y` window on `/artists`, `/shows`
- * and `/venues`. It binds unconditionally: builds with the backend reachable
- * AND blackholed both emit `initialRevalidateSeconds: 3600` for all three
- * routes, and both exit 0. Unlike `app/sitemap.ts`, whose route mode flips to
- * `ƒ` when the build-time fetch fails, these pages keep their window either way
- * — `fetchSeoList` fails open, so the render always succeeds and the fetch
- * always registers its hint.
+ * This hint is the only source of the `1h` half of the `1h`/`1y` window on
+ * `/artists`, `/shows` and `/venues`. (The `1y` is not from here — Next fills
+ * expire from config `expireTime`; see `app/sitemap.ts`.) Unlike that sitemap,
+ * whose backend-dependent shards drop to `ƒ` when the build-time fetch fails,
+ * these three keep their window in EITHER build condition — measured on
+ * 50000af1, backend reachable and backend blackholed: both exit 0, both emit
+ * `◐ … 1h 1y` and `initialRevalidateSeconds: 3600` for all three. `fetchSeoList`
+ * fails open, so the render always succeeds and the fetch always registers its
+ * hint.
  *
- * A LARGE `Age` ON THESE ROUTES IS NOT A STUCK REVALIDATION. Vercel ISR
- * regenerates on request, not on a timer: nothing runs during a quiet period,
- * so `Age` grows without bound and the first request after the quiet period
- * necessarily sees `x-vercel-cache: STALE` at whatever that gap was. It serves
- * the stale body and triggers the re-render, and the NEXT request is a fresh
- * `HIT`. Measured on PRODUCTION `/venues`, 2026-08-01, 45 s polling:
+ * A LARGE `Age` ON THESE ROUTES IS NOT EVIDENCE OF A STUCK REVALIDATION.
+ * Regeneration is driven by an incoming REQUEST, not by a timer, so a route
+ * nobody asks for is never regenerated at all: `Age` grows past the window
+ * unbounded, and the first request after a quiet stretch sees `STALE` at the
+ * length of that stretch, serves the stale body, and triggers the re-render.
+ * Measured on PRODUCTION `/venues`, 2026-08-01 — the second block reproduces
+ * the reported symptom on demand, on a route the first block proves healthy:
  *
- *   age 3576  HIT    entry Date 04:15:18   ← no proactive regen at the window
- *   age 3622  STALE  entry Date 04:15:18   ← first sample past 3600
- *   age   46  HIT    entry Date 05:15:42   ← rendered 1 s after the STALE hit
+ *   45 s polling across the window:
+ *     age 3576  HIT    Date 04:15:18   not regenerated as the window nears
+ *     age 3622  STALE  Date 04:15:18   first sample past 3600
+ *     age   46  HIT    Date 05:15:42   re-rendered 1 s after that request
+ *   then 30 min of deliberate silence, 26 min of it past expiry:
+ *     age 5141  STALE  Date 05:30:48   1.4x the window, Date FROZEN
+ *     age   99  HIT    Date 06:56:31   stamped 2 s after the STALE request
  *
- * `/artists` did the same thing in the same second. Read the entry `Date`
- * (`now - Age` on a HIT), never `Age` alone: `Date` advances only on a
- * SUCCESSFUL render, so a genuinely failing revalidation shows a FROZEN `Date`
- * with a climbing `Age` (PSY-1644's held sitemap). PSY-1641 recorded `/venues`
- * as "stuck STALE" from ONE sample at Age ~16 h and no follow-up; a second
- * probe 45 s later would have refuted it. One cache-header sample cannot
- * distinguish a quiet route from a broken one — take two.
+ * `/artists` crossed the window one second after `/venues` with the same shape.
+ *
+ * DIAGNOSING ONE OF THESE FOR REAL. `Age` alone tells you nothing, and neither
+ * does a frozen `Date` under a climbing `Age` — the healthy quiet case above
+ * shows exactly that (5141 s, `Date` stuck at 05:30:48). Two things separate a
+ * quiet route from a broken one, and both need the entry `Date` (`now - Age` on
+ * a HIT), which advances only on a SUCCESSFUL render:
+ *
+ *   1. Sample again AFTER the one that returned `STALE`. Healthy: the `Date`
+ *      has moved, because that request triggered the re-render. Broken: it is
+ *      still frozen across repeated requests — PSY-1652 measured that on a
+ *      route rigged to fail, and PSY-1644 on the sitemap held by a slow feed.
+ *   2. Compare the `Date` against the last deploy. A `Date` later than the
+ *      build cannot be a build artifact, so the route has revalidated at least
+ *      once since — this is what settled `/venues` (13 h 19 m after its build).
+ *
+ * PSY-1641 read `/venues` as "stuck STALE" from ONE sample at Age ~16 h. Either
+ * check above would have refuted it. Take two samples.
  */
 export const SEO_LIST_REVALIDATE_SECONDS = 3600
 
