@@ -345,7 +345,7 @@ type UpdateShowRequest struct {
 		Title     *string    `json:"title,omitempty" doc:"Show title"`
 		EventDate *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
 		// Omitting doors_at / music_at leaves the stored value unchanged;
-		// there is no clear-back-to-null signal yet (PSY-1681).
+		// there is no clear-back-to-null signal yet.
 		DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
 		MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
 		City           *string    `json:"city,omitempty" doc:"City where the show takes place"`

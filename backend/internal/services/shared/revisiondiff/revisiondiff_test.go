@@ -61,6 +61,69 @@ func TestCompare_ShowAllFields(t *testing.T) {
 	}
 }
 
+// TestCompare_ShowOptionalTimes covers the *time.Time field kind: unset reads
+// as the empty string rather than a zero-date, and each of the three
+// transitions a nullable timestamp can make is reported exactly once.
+func TestCompare_ShowOptionalTimes(t *testing.T) {
+	doors := time.Date(2026, 5, 1, 19, 0, 0, 0, time.UTC)
+	laterDoors := time.Date(2026, 5, 1, 19, 30, 0, 0, time.UTC)
+	music := time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC)
+
+	timePtr := func(tv time.Time) *time.Time { return &tv }
+
+	tests := []struct {
+		name         string
+		old, updated *contracts.ShowResponse
+		want         []adminm.FieldChange
+	}{
+		{
+			name:    "unset to set",
+			old:     &contracts.ShowResponse{},
+			updated: &contracts.ShowResponse{DoorsAt: timePtr(doors)},
+			want: []adminm.FieldChange{
+				{Field: "doors_at", OldValue: "", NewValue: doors.Format(time.RFC3339)},
+			},
+		},
+		{
+			name:    "set to unset",
+			old:     &contracts.ShowResponse{MusicAt: timePtr(music)},
+			updated: &contracts.ShowResponse{},
+			want: []adminm.FieldChange{
+				{Field: "music_at", OldValue: music.Format(time.RFC3339), NewValue: ""},
+			},
+		},
+		{
+			name:    "moved",
+			old:     &contracts.ShowResponse{DoorsAt: timePtr(doors)},
+			updated: &contracts.ShowResponse{DoorsAt: timePtr(laterDoors)},
+			want: []adminm.FieldChange{
+				{Field: "doors_at", OldValue: doors.Format(time.RFC3339), NewValue: laterDoors.Format(time.RFC3339)},
+			},
+		},
+		{
+			name:    "unchanged emits nothing",
+			old:     &contracts.ShowResponse{DoorsAt: timePtr(doors), MusicAt: timePtr(music)},
+			updated: &contracts.ShowResponse{DoorsAt: timePtr(doors), MusicAt: timePtr(music)},
+			want:    nil,
+		},
+		{
+			name:    "both unset emits nothing",
+			old:     &contracts.ShowResponse{},
+			updated: &contracts.ShowResponse{},
+			want:    nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Compare(tc.old, tc.updated, ShowFields)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("diff mismatch:\n got=%#v\nwant=%#v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestCompare_ArtistNestedSocials covers the nested Social.* path resolution
 // and confirms only the changed nested fields are emitted, with flat output
 // names matching the old computeArtistChanges.

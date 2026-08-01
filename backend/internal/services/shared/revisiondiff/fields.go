@@ -24,6 +24,8 @@ var (
 	ShowFields = []Field{
 		{Name: "title", Path: "Title"},
 		{Name: "event_date", Path: "EventDate"},
+		{Name: "doors_at", Path: "DoorsAt"},
+		{Name: "music_at", Path: "MusicAt"},
 		{Name: "city", Path: "City"},
 		{Name: "state", Path: "State"},
 		{Name: "price", Path: "Price"},
@@ -183,6 +185,9 @@ func supportedType(ft reflect.Type) bool {
 	case reflect.String, reflect.Int:
 		return true
 	case reflect.Ptr:
+		if ft.Elem() == timeType {
+			return true
+		}
 		switch ft.Elem().Kind() {
 		case reflect.String, reflect.Float64, reflect.Int:
 			return true

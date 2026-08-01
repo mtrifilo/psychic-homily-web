@@ -38,7 +38,7 @@ func fnvHash(s string) int64 {
 // utcOrNil normalizes an optional instant to UTC, preserving nil. Show times
 // are stored UTC-normalized for the same reason event_date is: every read path
 // renders them back through the venue's timezone, so a request-supplied offset
-// must not survive into the column (PSY-1681).
+// must not survive into the column.
 func utcOrNil(t *time.Time) *time.Time {
 	if t == nil {
 		return nil
@@ -443,10 +443,10 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 		updates["event_date"] = req.EventDate.UTC()
 	}
 	if req.DoorsAt != nil {
-		updates["doors_at"] = req.DoorsAt.UTC()
+		updates["doors_at"] = utcOrNil(req.DoorsAt)
 	}
 	if req.MusicAt != nil {
-		updates["music_at"] = req.MusicAt.UTC()
+		updates["music_at"] = utcOrNil(req.MusicAt)
 	}
 	if req.City != nil {
 		updates["city"] = *req.City

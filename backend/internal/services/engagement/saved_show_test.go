@@ -12,6 +12,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -314,6 +315,46 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Success
 	suite.Equal(show2.ID, resp[0].ID)
 	suite.Equal(show1.ID, resp[1].ID)
 	suite.NotZero(resp[0].SavedAt)
+}
+
+// TestGetUserSavedShows_CarriesShowTimes guards this package's own
+// Show-to-ShowResponse mapper, which is maintained separately from the catalog
+// service's. The response contract emits doors_at/music_at unconditionally, so
+// a mapper that forgets them reports "not set" for a show that has times
+// instead of failing loudly.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_CarriesShowTimes() {
+	user := suite.createTestUser()
+	withTimes, _, _ := suite.createShowWithVenueAndArtist("Show With Times", user.ID)
+	withoutTimes, _, _ := suite.createShowWithVenueAndArtist("Show Without Times", user.ID)
+
+	doors := withTimes.EventDate.Add(-time.Hour).UTC()
+	music := withTimes.EventDate.UTC()
+	suite.Require().NoError(suite.db.Model(withTimes).
+		Updates(map[string]interface{}{"doors_at": doors, "music_at": music}).Error)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, withTimes.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, withoutTimes.ID))
+
+	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+
+	byID := map[uint]*contracts.SavedShowResponse{}
+	for _, r := range resp {
+		byID[r.ID] = r
+	}
+
+	got := byID[withTimes.ID]
+	suite.Require().NotNil(got)
+	suite.Require().NotNil(got.DoorsAt, "saved-shows must carry doors_at, not drop it")
+	suite.Require().NotNil(got.MusicAt, "saved-shows must carry music_at, not drop it")
+	suite.Equal(doors.Unix(), got.DoorsAt.Unix())
+	suite.Equal(music.Unix(), got.MusicAt.Unix())
+
+	unset := byID[withoutTimes.ID]
+	suite.Require().NotNil(unset)
+	suite.Nil(unset.DoorsAt)
+	suite.Nil(unset.MusicAt)
 }
 
 func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Empty() {

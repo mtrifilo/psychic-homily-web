@@ -58,6 +58,9 @@ export interface ShowResponse {
   slug: string
   title: string
   event_date: string // ISO date string
+  // Optional display times. null when unannounced, which is the common case.
+  doors_at?: string | null
+  music_at?: string | null
   city?: string | null
   state?: string | null
   price?: number | null

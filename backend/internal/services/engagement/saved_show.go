@@ -336,6 +336,8 @@ func (s *SavedShowService) buildShowResponse(show *catalogm.Show, artistsByShow 
 		Slug:              showSlug,
 		Title:             show.Title,
 		EventDate:         show.EventDate,
+		DoorsAt:           show.DoorsAt,
+		MusicAt:           show.MusicAt,
 		City:              show.City,
 		State:             show.State,
 		Price:             show.Price,

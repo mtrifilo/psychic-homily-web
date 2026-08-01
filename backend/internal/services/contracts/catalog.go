@@ -38,8 +38,8 @@ type CreateShowArtist struct {
 type CreateShowRequest struct {
 	Title     string    `json:"title" validate:"required"`
 	EventDate time.Time `json:"event_date" validate:"required"`
-	// DoorsAt / MusicAt are optional display times (PSY-1681). Nil means
-	// unknown; they never substitute for EventDate.
+	// DoorsAt / MusicAt are optional display times. Nil means unknown; they
+	// never substitute for EventDate.
 	DoorsAt        *time.Time `json:"doors_at"`
 	MusicAt        *time.Time `json:"music_at"`
 	City           string     `json:"city"`
@@ -71,7 +71,7 @@ type UpdateShowRequest struct {
 	// DoorsAt / MusicAt follow the same nil-means-unchanged rule as every
 	// other field here, so there is no way to clear a previously set time
 	// through this struct. Clearing needs an explicit tri-state signal and no
-	// caller asks for it yet (PSY-1681).
+	// caller asks for it yet.
 	DoorsAt        *time.Time `json:"doors_at"`
 	MusicAt        *time.Time `json:"music_at"`
 	City           *string    `json:"city"`
@@ -89,9 +89,9 @@ type ShowResponse struct {
 	Slug      string    `json:"slug"`
 	Title     string    `json:"title"`
 	EventDate time.Time `json:"event_date"`
-	// DoorsAt / MusicAt are null when unknown (PSY-1681). Emitted
-	// unconditionally rather than with omitempty so a client can tell "not
-	// set" from "this response shape predates the field".
+	// DoorsAt / MusicAt are null when unknown. Emitted unconditionally rather
+	// than with omitempty so a client can tell "not set" from "this response
+	// shape predates the field".
 	DoorsAt           *time.Time       `json:"doors_at"`
 	MusicAt           *time.Time       `json:"music_at"`
 	City              *string          `json:"city"`

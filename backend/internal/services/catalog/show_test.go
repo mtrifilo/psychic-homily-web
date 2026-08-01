@@ -62,6 +62,54 @@ func TestShowServiceIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, new(ShowServiceIntegrationTestSuite))
 }
 
+// TestShowUpdatesToMap_NormalizesShowTimesToUTC pins the normalization at the
+// only place it can be asserted deterministically: the map handed to GORM.
+// Reading the columns back instead would assert the driver's session timezone,
+// not the write path, because TIMESTAMPTZ round-trips an instant.
+func TestShowUpdatesToMap_NormalizesShowTimesToUTC(t *testing.T) {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, eastern)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
+
+	updates := showUpdatesToMap(&contracts.UpdateShowRequest{DoorsAt: &doors, MusicAt: &music})
+
+	for _, tc := range []struct {
+		column string
+		want   time.Time
+	}{
+		{"doors_at", doors},
+		{"music_at", music},
+	} {
+		got, ok := updates[tc.column].(*time.Time)
+		if !ok {
+			t.Fatalf("%s: expected *time.Time in updates map, got %T", tc.column, updates[tc.column])
+		}
+		if got.Location() != time.UTC {
+			t.Errorf("%s: expected UTC, got %s", tc.column, got.Location())
+		}
+		if !got.Equal(tc.want) {
+			t.Errorf("%s: instant changed: got %s, want %s", tc.column, got, tc.want)
+		}
+	}
+}
+
+// TestShowUpdatesToMap_OmitsUnsetShowTimes guards the partial-update contract:
+// an omitted time must not appear in the map at all, since a present key would
+// write NULL and silently clear a stored value.
+func TestShowUpdatesToMap_OmitsUnsetShowTimes(t *testing.T) {
+	updates := showUpdatesToMap(&contracts.UpdateShowRequest{Title: stringPtr("x")})
+
+	if _, ok := updates["doors_at"]; ok {
+		t.Error("doors_at must be absent when not supplied")
+	}
+	if _, ok := updates["music_at"]; ok {
+		t.Error("music_at must be absent when not supplied")
+	}
+}
+
 // =============================================================================
 // HELPERS
 // =============================================================================
@@ -836,7 +884,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_EventDate_UTC() {
 
 // TestCreateShow_ShowTimesDefaultToNull pins the common case: most shows have
 // no announced doors/music time, and the response must say "unknown" rather
-// than fall back to event_date (PSY-1681).
+// than fall back to event_date.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ShowTimesDefaultToNull() {
 	created := suite.createTestShow()
 
@@ -850,8 +898,11 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ShowTimesDefaultToN
 }
 
 // TestCreateShow_PersistsShowTimes covers the create path end to end: supplied
-// in a non-UTC zone, stored UTC-normalized like event_date, and readable back
-// through GetShow (not just the create response, which is built in-transaction).
+// in a non-UTC zone, normalized to UTC like event_date, and readable back
+// through GetShow (not just the create response, which is built
+// in-transaction). The Location assertions cover the normalization step; the
+// read-back compares instants, since TIMESTAMPTZ stores an instant and the
+// offset a driver hands back depends on the session timezone.
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PersistsShowTimes() {
 	eastern, err := time.LoadLocation("America/New_York")
 	suite.Require().NoError(err)
@@ -882,8 +933,12 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PersistsShowTimes()
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ShowTimes() {
 	created := suite.createTestShow()
 
-	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
-	music := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
+	// Non-UTC inputs, so dropping the update path's UTC normalization fails
+	// here rather than passing on instant-only assertions.
+	eastern, err := time.LoadLocation("America/New_York")
+	suite.Require().NoError(err)
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, eastern)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
 
 	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
 		DoorsAt: &doors,

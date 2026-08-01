@@ -138,7 +138,18 @@ func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed
 // *string (deref or ""), *float64 (deref or 0), *int (deref or 0). A nil
 // pointer is treated as the zero value, matching ptrToStr / shared.Deref /
 // intPtrVal so a nil↔value transition is a change and nil↔nil is not.
+//
+// *time.Time follows the same nil-as-zero rule and emits the RFC3339 string
+// the non-pointer time.Time case emits, so an optional timestamp reads
+// identically in field_changes to a required one. Unset renders as the empty
+// string rather than a zero-date, which would otherwise claim the year 1.
 func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal interface{}, changed bool) {
+	if elem == timeType {
+		b, bok := derefTime(before)
+		a, aok := derefTime(after)
+		return formatOptionalTime(b, bok), formatOptionalTime(a, aok), bok != aok || (bok && !b.Equal(a))
+	}
+
 	switch elem.Kind() {
 	case reflect.String:
 		b := derefString(before)
@@ -158,6 +169,23 @@ func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal int
 	default:
 		panic(fmt.Sprintf("revisiondiff: unsupported pointer element kind %s", elem.Kind()))
 	}
+}
+
+// derefTime reports the pointed-to instant and whether the pointer was set.
+// The bool is what lets a set-to-unset transition register as a change without
+// conflating "unset" with any particular instant.
+func derefTime(p reflect.Value) (time.Time, bool) {
+	if p.IsNil() {
+		return time.Time{}, false
+	}
+	return p.Elem().Interface().(time.Time), true
+}
+
+func formatOptionalTime(t time.Time, set bool) string {
+	if !set {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 func derefString(p reflect.Value) string {
