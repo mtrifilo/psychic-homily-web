@@ -22,6 +22,11 @@ type requiredColumn struct {
 var requiredSchemaColumns = []requiredColumn{
 	{Table: "user_bookmarks", Column: "scene_digest_sent_at"},
 	{Table: "user_preferences", Column: "notify_on_scene_digest"},
+	// GORM's Create builds an explicit column list from the model, so these
+	// two appear in every show INSERT. Absent DDL breaks show submission at
+	// request time rather than at boot, which is exactly what this list is for.
+	{Table: "shows", Column: "doors_at"},
+	{Table: "shows", Column: "music_at"},
 }
 
 type columnChecker interface {

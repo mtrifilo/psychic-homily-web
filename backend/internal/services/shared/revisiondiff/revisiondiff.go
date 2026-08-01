@@ -16,6 +16,14 @@
 //   - int               → compare with ==, emit int
 //   - *int              → deref or 0, emit int (both-nil counts as equal)
 //   - time.Time         → compare with Equal, emit RFC3339 string
+//   - *time.Time        → compare with Equal, emit RFC3339 string or nil
+//
+// The unset sentinel differs by type on purpose. The pre-existing pointer
+// kinds emit a zero value ("" / 0) because that is what their hand-written
+// predecessors did and their columns accept it. *time.Time emits nil instead:
+// Rollback feeds these values straight back into a GORM update map, and ""
+// is not a valid TIMESTAMPTZ, so a zero-value sentinel would make any
+// revision touching a nullable timestamp permanently unrollbackable.
 //
 // The per-entity field lists — not the contributor allowlist — are the source
 // of truth for which fields appear in revision history. They intentionally
@@ -139,15 +147,16 @@ func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed
 // pointer is treated as the zero value, matching ptrToStr / shared.Deref /
 // intPtrVal so a nil↔value transition is a change and nil↔nil is not.
 //
-// *time.Time follows the same nil-as-zero rule and emits the RFC3339 string
-// the non-pointer time.Time case emits, so an optional timestamp reads
-// identically in field_changes to a required one. Unset renders as the empty
-// string rather than a zero-date, which would otherwise claim the year 1.
+// *time.Time is the exception to the nil-as-zero rule: a set value emits the
+// same RFC3339 string the non-pointer time.Time case emits, but unset emits
+// nil, not "". Rollback writes these values back into the column verbatim, and
+// "" is not a valid TIMESTAMPTZ; nil restores SQL NULL, which is the state the
+// field actually had.
 func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal interface{}, changed bool) {
 	if elem == timeType {
 		b, bok := derefTime(before)
 		a, aok := derefTime(after)
-		return formatOptionalTime(b, bok), formatOptionalTime(a, aok), bok != aok || (bok && !b.Equal(a))
+		return optionalTimeValue(b, bok), optionalTimeValue(a, aok), bok != aok || (bok && !b.Equal(a))
 	}
 
 	switch elem.Kind() {
@@ -181,9 +190,13 @@ func derefTime(p reflect.Value) (time.Time, bool) {
 	return p.Elem().Interface().(time.Time), true
 }
 
-func formatOptionalTime(t time.Time, set bool) string {
+// optionalTimeValue returns nil for unset so Rollback restores SQL NULL rather
+// than trying to write a string into a TIMESTAMPTZ column. The interface{}
+// return type is load-bearing: returning "" here is what made a doors_at
+// revision unrollbackable.
+func optionalTimeValue(t time.Time, set bool) interface{} {
 	if !set {
-		return ""
+		return nil
 	}
 	return t.Format(time.RFC3339)
 }

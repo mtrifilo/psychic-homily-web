@@ -83,9 +83,16 @@ func TestShowUpdatesToMap_NormalizesShowTimesToUTC(t *testing.T) {
 		{"doors_at", doors},
 		{"music_at", music},
 	} {
-		got, ok := updates[tc.column].(*time.Time)
-		if !ok {
-			t.Fatalf("%s: expected *time.Time in updates map, got %T", tc.column, updates[tc.column])
+		// Accept either a time.Time or a *time.Time: which one the map holds
+		// is an implementation detail, the UTC normalization is the behavior.
+		var got time.Time
+		switch v := updates[tc.column].(type) {
+		case time.Time:
+			got = v
+		case *time.Time:
+			got = *v
+		default:
+			t.Fatalf("%s: expected a time in updates map, got %T", tc.column, updates[tc.column])
 		}
 		if got.Location() != time.UTC {
 			t.Errorf("%s: expected UTC, got %s", tc.column, got.Location())
@@ -960,6 +967,34 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ShowTimes() {
 	suite.Require().NotNil(resp.MusicAt)
 	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
 	suite.Equal(music.Unix(), resp.MusicAt.Unix())
+}
+
+// TestUpdateShowWithRelations_SetsShowTimes covers the path the PUT handler
+// actually calls. UpdateShow above has no non-test callers, so without this the
+// production edit path's write-through and response rebuild are unpinned.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_SetsShowTimes() {
+	created := suite.createTestShow()
+
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
+
+	resp, _, err := suite.showService.UpdateShowWithRelations(created.ID,
+		&contracts.UpdateShowRequest{DoorsAt: &doors, MusicAt: &music}, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Require().NotNil(resp.MusicAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Equal(music.Unix(), resp.MusicAt.Unix())
+
+	// Re-read, so the assertion covers what was written, not just what the
+	// in-transaction builder echoed back.
+	fetched, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.DoorsAt)
+	suite.Require().NotNil(fetched.MusicAt)
+	suite.Equal(doors.Unix(), fetched.DoorsAt.Unix())
+	suite.Equal(music.Unix(), fetched.MusicAt.Unix())
 }
 
 // TestUpdateShowWithRelations_PreservesShowTimes guards the relations path,

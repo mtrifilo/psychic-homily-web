@@ -18,9 +18,11 @@ import (
 // contributors cannot edit, and show has no allowlist entry at all. See the
 // package doc for why Compare is not driven off the allowlist.
 var (
-	// ShowFields tracks the scalar show fields the EntityEditDrawer surfaces.
-	// Venue and artist association changes are intentionally excluded — relation
-	// diffs would need their own schema.
+	// ShowFields tracks the scalar show fields revision history records. Not
+	// every one is surfaced by an editor UI; doors_at/music_at are writable
+	// through the API before any control renders them. Venue and artist
+	// association changes are intentionally excluded — relation diffs would
+	// need their own schema.
 	ShowFields = []Field{
 		{Name: "title", Path: "Title"},
 		{Name: "event_date", Path: "EventDate"},

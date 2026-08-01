@@ -241,7 +241,37 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 		}
 	}
 
+	if err := validateShowTimeOrder(r.DoorsAt, r.MusicAt); err != nil {
+		errors = append(errors, err)
+	}
+
 	return errors
+}
+
+// validateShowTimeOrder rejects music starting before doors open. This is the
+// only relationship between the two that is true by definition rather than by
+// policy, so it is the only one enforced here: any tolerance window against
+// event_date would be an invented threshold, and rejecting a real submission on
+// a guess is worse than the display oddity it would prevent. Returns nil unless
+// both times are present.
+func validateShowTimeOrder(doorsAt, musicAt *time.Time) *huma.ErrorDetail {
+	if doorsAt == nil || musicAt == nil || !musicAt.Before(*doorsAt) {
+		return nil
+	}
+	return &huma.ErrorDetail{
+		Location: "body.music_at",
+		Message:  "music_at cannot be before doors_at",
+		Value:    musicAt.Format(time.RFC3339),
+	}
+}
+
+// firstNonNilTime resolves a partial update's effective value: the incoming
+// field when supplied, otherwise what is already stored.
+func firstNonNilTime(incoming, stored *time.Time) *time.Time {
+	if incoming != nil {
+		return incoming
+	}
+	return stored
 }
 
 // CreateShowRequest represents the HTTP request for creating a show
@@ -916,6 +946,15 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	// row simply renders without a reason line.
 	if req.Body.Summary != nil && len(*req.Body.Summary) > 5000 {
 		return nil, huma.Error422UnprocessableEntity("Summary must be 5000 characters or fewer")
+	}
+	// Order is checked against the values the show will END UP with, not just
+	// the ones in the body: supplying only music_at must still be rejected when
+	// it lands before an already-stored doors_at.
+	if err := validateShowTimeOrder(
+		firstNonNilTime(req.Body.DoorsAt, existingShow.DoorsAt),
+		firstNonNilTime(req.Body.MusicAt, existingShow.MusicAt),
+	); err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Message)
 	}
 
 	// Build typed update request for basic show fields. The service writes

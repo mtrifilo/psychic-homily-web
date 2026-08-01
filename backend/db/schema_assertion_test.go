@@ -19,6 +19,16 @@ func (m *mockColumnChecker) HasColumn(table interface{}, column string) bool {
 	return m.present[tableName+"."+column]
 }
 
+// allRequiredColumnKeys renders the production checklist in the "table.column"
+// form the mock checker keys on.
+func allRequiredColumnKeys() []string {
+	keys := make([]string, 0, len(requiredSchemaColumns))
+	for _, col := range requiredSchemaColumns {
+		keys = append(keys, col.Table+"."+col.Column)
+	}
+	return keys
+}
+
 func TestAssertRequiredSchema(t *testing.T) {
 	t.Parallel()
 
@@ -28,11 +38,18 @@ func TestAssertRequiredSchema(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "all required columns present",
+			// Derived from the production list rather than restated, so adding
+			// a required column cannot silently break only this case.
+			name:    "all required columns present",
+			present: allRequiredColumnKeys(),
+		},
+		{
+			name: "missing show time columns",
 			present: []string{
 				"user_bookmarks.scene_digest_sent_at",
 				"user_preferences.notify_on_scene_digest",
 			},
+			wantErr: "shows.doors_at, shows.music_at",
 		},
 		{
 			name: "missing scene digest bookmark column",

@@ -81,7 +81,7 @@ func TestCompare_ShowOptionalTimes(t *testing.T) {
 			old:     &contracts.ShowResponse{},
 			updated: &contracts.ShowResponse{DoorsAt: timePtr(doors)},
 			want: []adminm.FieldChange{
-				{Field: "doors_at", OldValue: "", NewValue: doors.Format(time.RFC3339)},
+				{Field: "doors_at", OldValue: nil, NewValue: doors.Format(time.RFC3339)},
 			},
 		},
 		{
@@ -89,7 +89,7 @@ func TestCompare_ShowOptionalTimes(t *testing.T) {
 			old:     &contracts.ShowResponse{MusicAt: timePtr(music)},
 			updated: &contracts.ShowResponse{},
 			want: []adminm.FieldChange{
-				{Field: "music_at", OldValue: music.Format(time.RFC3339), NewValue: ""},
+				{Field: "music_at", OldValue: music.Format(time.RFC3339), NewValue: nil},
 			},
 		},
 		{

@@ -257,6 +257,114 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_OwnerSuccess() {
 	s.Equal("Updated Title", resp.Body.Title)
 }
 
+// TestCreateShow_CarriesShowTimes covers the handler-level wiring of
+// doors_at/music_at from the request body into the service request. Without
+// this, both lines can be deleted and the whole suite still passes: the API
+// would accept the fields, return 200, and silently discard them.
+func (s *ShowHandlerIntegrationSuite) TestCreateShow_CarriesShowTimes() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+
+	eventDate := time.Now().UTC().AddDate(0, 0, 14)
+	doors := eventDate.Add(-time.Hour)
+	music := eventDate
+
+	ctx := testhelpers.CtxWithUser(user)
+	title := "Show With Times"
+	req := &CreateShowRequest{}
+	req.Body.Title = &title
+	req.Body.EventDate = eventDate
+	req.Body.DoorsAt = &doors
+	req.Body.MusicAt = &music
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+	req.Body.Venues = []Venue{{ID: &venue.ID}}
+	req.Body.Artists = []Artist{{Name: testhelpers.StringPtr("Test Artist")}}
+
+	resp, err := s.handler.CreateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.DoorsAt, "doors_at must reach the service, not be dropped")
+	s.Require().NotNil(resp.Body.MusicAt, "music_at must reach the service, not be dropped")
+	s.Equal(doors.Unix(), resp.Body.DoorsAt.Unix())
+	s.Equal(music.Unix(), resp.Body.MusicAt.Unix())
+}
+
+// TestCreateShow_RejectsMusicBeforeDoors pins the one ordering rule that is
+// true by definition. Any window against event_date is deliberately not
+// enforced.
+func (s *ShowHandlerIntegrationSuite) TestCreateShow_RejectsMusicBeforeDoors() {
+	eventDate := time.Now().UTC().AddDate(0, 0, 14)
+	doors := eventDate
+	music := eventDate.Add(-time.Hour)
+
+	body := &CreateShowRequestBody{
+		EventDate: eventDate,
+		DoorsAt:   &doors,
+		MusicAt:   &music,
+	}
+	errs := body.Resolve(nil)
+
+	s.Require().NotEmpty(errs, "music before doors must be rejected")
+	found := false
+	for _, e := range errs {
+		if detail, ok := e.(*huma.ErrorDetail); ok && detail.Location == "body.music_at" {
+			found = true
+		}
+	}
+	s.True(found, "expected a body.music_at validation error, got %v", errs)
+}
+
+// TestUpdateShow_CarriesShowTimes is the update-path analog, and additionally
+// pins that an omitted time is left alone rather than cleared.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_CarriesShowTimes() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Timed Show")
+
+	doors := show.EventDate.Add(-time.Hour)
+	music := show.EventDate
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.DoorsAt = &doors
+	req.Body.MusicAt = &music
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.DoorsAt, "doors_at must reach the service, not be dropped")
+	s.Require().NotNil(resp.Body.MusicAt, "music_at must reach the service, not be dropped")
+	s.Equal(doors.Unix(), resp.Body.DoorsAt.Unix())
+	s.Equal(music.Unix(), resp.Body.MusicAt.Unix())
+
+	newTitle := "Retitled Only"
+	titleOnly := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	titleOnly.Body.Title = &newTitle
+	resp, err = s.handler.UpdateShowHandler(ctx, titleOnly)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.DoorsAt)
+	s.Equal(doors.Unix(), resp.Body.DoorsAt.Unix(), "omitted doors_at must survive an unrelated edit")
+}
+
+// TestUpdateShow_RejectsMusicBeforeStoredDoors covers the partial-update case:
+// the body carries only music_at, and it must be judged against the doors_at
+// already on the row.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsMusicBeforeStoredDoors() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Timed Show")
+
+	doors := show.EventDate
+	ctx := testhelpers.CtxWithUser(user)
+	setDoors := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	setDoors.Body.DoorsAt = &doors
+	_, err := s.handler.UpdateShowHandler(ctx, setDoors)
+	s.Require().NoError(err)
+
+	earlierMusic := doors.Add(-time.Hour)
+	bad := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	bad.Body.MusicAt = &earlierMusic
+	_, err = s.handler.UpdateShowHandler(ctx, bad)
+	s.Require().Error(err, "music before the stored doors_at must be rejected")
+}
+
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_AdminSuccess() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	admin := testhelpers.CreateAdminUser(s.deps.DB)

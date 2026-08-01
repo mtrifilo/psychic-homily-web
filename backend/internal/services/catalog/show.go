@@ -35,10 +35,13 @@ func fnvHash(s string) int64 {
 	return int64(h.Sum64())
 }
 
-// utcOrNil normalizes an optional instant to UTC, preserving nil. Show times
-// are stored UTC-normalized for the same reason event_date is: every read path
-// renders them back through the venue's timezone, so a request-supplied offset
-// must not survive into the column.
+// utcOrNil normalizes an optional instant to UTC, preserving nil.
+//
+// This does not affect what lands in the column: TIMESTAMPTZ stores an instant
+// and no offset, so the write is identical either way. What it buys is that
+// the in-memory response CreateShow builds inside the transaction renders in
+// the same zone as a later read, instead of echoing back whatever offset the
+// request happened to use.
 func utcOrNil(t *time.Time) *time.Time {
 	if t == nil {
 		return nil
@@ -443,10 +446,10 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 		updates["event_date"] = req.EventDate.UTC()
 	}
 	if req.DoorsAt != nil {
-		updates["doors_at"] = utcOrNil(req.DoorsAt)
+		updates["doors_at"] = req.DoorsAt.UTC()
 	}
 	if req.MusicAt != nil {
-		updates["music_at"] = utcOrNil(req.MusicAt)
+		updates["music_at"] = req.MusicAt.UTC()
 	}
 	if req.City != nil {
 		updates["city"] = *req.City

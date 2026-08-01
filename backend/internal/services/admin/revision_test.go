@@ -12,6 +12,8 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -413,6 +415,52 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_Success() {
 	s.Equal("name", rollbackChanges[0].Field)
 	s.Equal("Changed Name", rollbackChanges[0].OldValue)
 	s.Equal("Original Name", rollbackChanges[0].NewValue)
+}
+
+// TestRollback_NullableTimestampBackToNull covers rolling back the first time a
+// nullable timestamp column is populated, which is the only transition the show
+// API can currently produce for doors_at/music_at.
+//
+// The regression this guards: revisiondiff used to encode "was unset" as "",
+// and Rollback feeds recorded old values straight into a GORM update map, so
+// the rollback died on `invalid input syntax for type timestamp with time zone:
+// ""` and took every other field in the same revision down with it.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_NullableTimestampBackToNull() {
+	user := s.createTestUser()
+	adminUser := s.createTestUser()
+
+	show := &catalogm.Show{
+		Title:     "Rollback Times",
+		EventDate: time.Now().UTC().AddDate(0, 0, 14),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	s.Require().NoError(s.db.Create(show).Error)
+
+	doors := show.EventDate.Add(-time.Hour)
+	// Derive the changes through revisiondiff rather than hand-writing them, so
+	// this test fails if the encoding of an unset timestamp regresses, not just
+	// if Rollback mishandles a nil it was handed.
+	changes := revisiondiff.Compare(
+		&contracts.ShowResponse{Title: "Rollback Times"},
+		&contracts.ShowResponse{Title: "Retitled", DoorsAt: &doors},
+		revisiondiff.ShowFields,
+	)
+	s.Require().Len(changes, 2, "expected title + doors_at changes, got %v", changes)
+	s.Require().NoError(s.svc.RecordRevision("show", show.ID, user.ID, changes, "set doors"))
+	s.Require().NoError(s.db.Table("shows").Where("id = ?", show.ID).
+		Updates(map[string]interface{}{"title": "Retitled", "doors_at": doors}).Error)
+
+	var revision adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "show", show.ID).
+		First(&revision).Error)
+
+	s.Require().NoError(s.svc.Rollback(revision.ID, adminUser.ID),
+		"rolling back a revision that first set a nullable timestamp must succeed")
+
+	var restored catalogm.Show
+	s.Require().NoError(s.db.First(&restored, show.ID).Error)
+	s.Nil(restored.DoorsAt, "doors_at should be back to NULL")
+	s.Equal("Rollback Times", restored.Title, "the bundled field must roll back too")
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_RevisionNotFound() {

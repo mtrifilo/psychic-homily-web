@@ -1,6 +1,7 @@
 -- Add the two show-time columns the show page will render alongside the date:
 -- doors_at (when the room opens) and music_at (when the first set starts).
--- Storage only for now; no read surface consumes them yet.
+-- They are readable and writable on the show create/update/read API from this
+-- change onward; no UI renders them yet.
 --
 -- Both are nullable and independent of event_date. event_date stays the
 -- canonical "when is this show" instant that every query, slug, dedup index,

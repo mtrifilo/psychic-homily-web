@@ -317,7 +317,15 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			scrapedAt = time.Now().UTC()
 		}
 
-		// Build description from available info
+		// Build description from available info.
+		//
+		// KNOWN GAP: DoorsTime/ShowTime are stringified into the description
+		// here and NOT written to shows.doors_at / shows.music_at, so imported
+		// shows leave those columns NULL even though the scraped data is right
+		// there. Wiring it up needs the free-text time ("6:30 pm") parsed
+		// against the venue's timezone, which is a separate change from adding
+		// the columns. Until then this string is the only record of the times,
+		// so do not delete it assuming the columns cover it.
 		var descParts []string
 		if event.DoorsTime != nil && *event.DoorsTime != "" {
 			descParts = append(descParts, fmt.Sprintf("Doors: %s", *event.DoorsTime))
