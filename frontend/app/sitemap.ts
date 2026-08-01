@@ -14,20 +14,48 @@
  * there). `/sitemap.xml` 308s to the index — do not add `app/sitemap.xml/route.ts`
  * (collides with the metadata `[__metadata_id__]` route).
  *
- * The route mode is CONDITIONAL on whether the build-time fetch succeeds:
+ * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
+ * the build's fetch Data Cache is a second input. All four rows measured by
+ * build → `next start` → kill the backend → curl:
  *
  *   Backend reachable at build time (the normal production path):
- *     ├ ● /sitemap/[id]                      1h      1y
+ *     ├ ● /sitemap/[__metadata_id__]         1h      1y
  *     prerender-manifest: renderingMode STATIC, initialRevalidateSeconds 3600,
- *     initialExpireSeconds 31536000, and a rendered body on disk. A later
- *     backend outage is SURVIVED — the prerendered document keeps being served
- *     while revalidation fails.
+ *     initialExpireSeconds 31536000, and a rendered body on disk for all ten
+ *     shards. A later backend outage is SURVIVED — every shard served 200 with
+ *     the previous document. It survives a COLD Data Cache too: deleting
+ *     `.next/cache/fetch-cache` before starting still served 200 from the
+ *     prerender. The prerendered body IS the stale-serving fallback, it ships
+ *     inside the deployment, and it does not depend on the Data Cache.
  *
- *   Backend unreachable at build time (degraded):
- *     ├ ƒ /sitemap/[id]                                  ← no window at all
- *     No prerendered body. The route re-renders per request, so a request while
- *     the backend is down returns 500. `next build` still EXITS 0 — the
- *     degradation is silent, and it persists until the next deploy.
+ *   Backend unreachable at build time, clean build cache (degraded):
+ *     ├ ƒ /sitemap/[__metadata_id__]                     ← no window at all
+ *     ├ ● /sitemap/[__metadata_id__] └ /sitemap/pages.xml
+ *     Only the pages shard prerenders — it makes no network call. All nine
+ *     entity families lose their body, re-render per request, and return 500
+ *     while the backend is down. `/sitemap-index` still 200s, advertising nine
+ *     shards that all 500. `next build` alone EXITS 0, so this used to ship
+ *     silently and persist until some later deploy.
+ *
+ *   Backend unreachable at build time, WARM build cache:
+ *     All ten shards prerender anyway, from in-window Data Cache entries —
+ *     verified by the stamp in the served body. Treat this row as the weakest
+ *     of the four: it was measured against a two-slug stub, so it assumes the
+ *     family's response fits a Data Cache entry (~2 MB cap), and it assumes
+ *     Vercel restores `.next/cache` between builds, which is documented
+ *     platform behaviour rather than something probed here. It says the
+ *     degraded row should be RARE — needing a cache miss and an outage at the
+ *     same moment — not that a warm cache will rescue a build.
+ *
+ * Rows 1 to 3 do not depend on payload size: they are about which artifacts a
+ * build produces and what the server does with them.
+ *
+ * The degraded row is now unshippable rather than survivable: the `build` npm
+ * script chains lib/sitemap-prerender/cli.ts, which exits 1 when any shard has
+ * no prerendered body. That is also Vercel's buildCommand, so the deploy fails
+ * and the PREVIOUS deployment keeps serving its own prerendered sitemap — which
+ * is what "stale beats a 500" resolves to in practice. See
+ * lib/sitemap-prerender/check.ts for the full matrix and the reasoning.
  *
  * A route-level `export const revalidate` is NOT inert here — it binds as a
  * MINIMUM. Measured, with the per-fetch hint set to 600:
@@ -78,10 +106,19 @@
  *           identical build artifacts, but that is inference, not measurement.
  *
  * Consequence: there is NO upper bound on how long a stale sitemap serves while
- * revalidation keeps failing. PSY-1629's freshness monitor is not a
- * compensating control — it is the only one. A real bound would have to be
- * something this route owns: an age check against a feed timestamp, or
- * on-demand revalidation driven by a health signal.
+ * revalidation keeps failing. That is a deliberate, ACCEPTED posture rather
+ * than an open defect — stale wins over a 500, because repeated 5xx is what
+ * makes Search Console mark a sitemap "Couldn't fetch" whereas a stale
+ * document keeps the known URLs discoverable. PSY-1629's
+ * freshness monitor is not a compensating control — it is the only one. If a
+ * bound is ever wanted it has to be something this route owns: an age check
+ * against a feed timestamp, or on-demand revalidation driven by a health
+ * signal. Not a cache-layer knob; that was tried and disproven above.
+ *
+ * Fail-closed is unchanged and orthogonal: `fetchSitemapFamily` still throws on
+ * a bad answer, so a WRONG document is never published. Fail-closed governs
+ * what gets written; stale-wins governs what gets served when nothing new can
+ * be written.
  *
  * Two traps if you tune these numbers anyway: `cacheLife` beats the per-fetch
  * hint even when LARGER (7200 vs 3600 → 7200; not a `min()`), and an expire
@@ -89,7 +126,7 @@
  * measured `ƒ` with no body against a healthy backend.
  *
  * NOTE: this file fixes the fail-open half of the incident via the projection
- * feed. The year-expire holder has no fix; see above.
+ * feed. The year-expire holder has no fix, and no longer wants one; see above.
  */
 import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
@@ -97,6 +134,7 @@ import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import type { components } from '@/types/api'
 import {
+  ALL_SHARD_IDS,
   FAMILY_SHARD_IDS,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
@@ -288,7 +326,7 @@ function pagesShard(): MetadataRoute.Sitemap {
  * `/sitemap/{id}.xml` under the `/sitemap.xml` index Next emits.
  */
 export async function generateSitemaps() {
-  return [{ id: PAGES_SHARD_ID }, ...FAMILY_SHARD_IDS.map(id => ({ id }))]
+  return ALL_SHARD_IDS.map(id => ({ id }))
 }
 
 export default async function sitemap(props: {
