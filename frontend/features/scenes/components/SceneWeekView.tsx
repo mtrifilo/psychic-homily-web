@@ -131,6 +131,15 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
             >
               ← {week.prev_week}
             </Link>
+            {/* The reciprocal of the nightly page's "Full week" chip. Kept on
+                archived weeks too: a reader who lands on last March still wants
+                the way back to what is on now. */}
+            <Link
+              href={`/scenes/${week.slug}/tonight`}
+              className="flex-1 rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50 sm:flex-none"
+            >
+              Tonight
+            </Link>
             <Link
               href={`/scenes/${week.slug}/${week.next_week}`}
               className="flex-1 rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50 sm:flex-none"

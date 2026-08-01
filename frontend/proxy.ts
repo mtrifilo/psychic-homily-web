@@ -70,6 +70,16 @@ const NOT_FOUND_REWRITE_PATH = '/_psy-not-found'
 const ISO_WEEK_SEGMENT = /^\d{4}-W\d{2}$/i
 
 /**
+ * Shape of a calendar-date segment (`2026-07-31`) under `/scenes/<slug>/`.
+ *
+ * Shape only, for the same reason as the week: `2026-02-30` is well-formed and
+ * impossible, and the backend — which owns the calendar maths and the scene's
+ * timezone — decides that. This just separates "might be a day" from
+ * "definitely junk" so the latter 404s without a round-trip.
+ */
+const CALENDAR_DATE_SEGMENT = /^\d{4}-\d{2}-\d{2}$/
+
+/**
  * Per-entity existence check. The function returns the backend HEAD probe URL
  * whose 404 response means "slug does not exist". The probe uses direct backend
  * existence queries instead of duplicating each page's full `GET /<type>/<slug>`
@@ -202,31 +212,44 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return notFoundResponse(request)
   }
 
-  // Scenes: the weekly city pages sit one level BELOW the scene detail —
-  // `/scenes/<slug>/week` (rolling) and `/scenes/<slug>/2026-W31` (permalink).
-  // The generic check below only handles the 3-segment detail shape, so without
+  // Scenes: the weekly and nightly city pages sit one level BELOW the scene
+  // detail — `/scenes/<slug>/week` and `/scenes/<slug>/tonight` (rolling), plus
+  // `/scenes/<slug>/2026-W31` and `/scenes/<slug>/2026-07-31` (permalinks). The
+  // generic check below only handles the 3-segment detail shape, so without
   // this these stream a 200 shell before `notFound()` resolves and every bad
-  // week key becomes a soft-404 (PSY-897 arc).
+  // key becomes a soft-404 (PSY-897 arc).
   //
-  // The backend is the authority on whether a week EXISTS: `2025-W53` is
-  // well-formed but unreal (2025 has 52 weeks), and only the backend owns that
-  // calendar maths plus the scene's timezone. Re-deriving it here would drift.
+  // The backend is the authority on whether a period EXISTS: `2025-W53` is
+  // well-formed but unreal (2025 has 52 weeks) and `2026-02-30` is well-formed
+  // and impossible, and only the backend owns that calendar maths plus the
+  // scene's timezone. Re-deriving it here would drift.
+  //
+  // Every backend path below is registered with `huma.Head` as well as
+  // `huma.Get`. Without the HEAD registration the router answers 405, this
+  // check fails OPEN, and a nonexistent key soft-404s all over again.
   if (entityType === 'scenes' && segments.length === 4 && slug) {
     const sub = segments[3]
+    const scene = encodeURIComponent(slug)
     if (sub === 'week') {
-      return existenceCheck(
-        request,
-        `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week`
-      )
+      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`)
+    }
+    if (sub === 'tonight') {
+      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/day`)
     }
     if (ISO_WEEK_SEGMENT.test(sub)) {
       return existenceCheck(
         request,
-        `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}/week/${encodeURIComponent(sub)}`
+        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`
       )
     }
-    // Not week-shaped at all (`/scenes/chicago-il/garbage`): no route can serve
-    // it, so 404 without spending a backend round-trip.
+    if (CALENDAR_DATE_SEGMENT.test(sub)) {
+      return existenceCheck(
+        request,
+        `${API_BASE_URL}/scenes/${scene}/day/${encodeURIComponent(sub)}`
+      )
+    }
+    // Not week- or date-shaped at all (`/scenes/chicago-il/garbage`): no route
+    // can serve it, so 404 without spending a backend round-trip.
     return notFoundResponse(request)
   }
 

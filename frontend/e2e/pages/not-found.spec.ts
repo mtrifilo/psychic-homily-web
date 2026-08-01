@@ -286,4 +286,58 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       ).toBe(404)
     })
   })
+
+  /**
+   * Scene-day routes (PSY-1627) — the same third-segment branch, for the
+   * nightly pages.
+   *
+   * Same failure mode as the week routes above and the same reason it can only
+   * be caught here: the proxy is the only thing that can produce a real 404 for
+   * these paths, and nothing short of reading the HTTP status can tell a 404
+   * from a 404 body served at 200.
+   */
+  test.describe('Scene day routes (PSY-1627)', () => {
+    test('rolling /scenes/<slug>/tonight returns HTTP 200 (proxy does not over-404)', async ({
+      page,
+    }) => {
+      const response = await page.goto('/scenes/phoenix-az/tonight')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/tonight must return 200 — proxy.ts must not over-404 the rolling day route'
+      ).toBe(200)
+      await expect(
+        page.getByRole('main').getByRole('heading', { level: 1 })
+      ).toBeVisible({ timeout: 10_000 })
+    })
+
+    test('the dated permalink /tonight is canonical to returns HTTP 200', async ({ page }) => {
+      // A canonical that 404s is worse than no canonical at all, so the target
+      // has to be reachable in its own right — including for a quiet night,
+      // which is still a real day of a real scene.
+      const response = await page.goto('/scenes/phoenix-az/2026-07-31')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/2026-07-31 must return 200 — the canonical target of /tonight'
+      ).toBe(200)
+    })
+
+    test('a date that does not exist returns HTTP 404', async ({ page }) => {
+      // February never has 30 days. Go's date parser NORMALIZES this to March
+      // 2nd rather than rejecting it, so only the backend's round-trip check
+      // stands between an impossible date and a duplicate URL for a real day.
+      const response = await page.goto('/scenes/phoenix-az/2026-02-30')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/2026-02-30 must return 404 — an impossible date must not soft-404'
+      ).toBe(404)
+    })
+
+    test('tonight under an unresolvable scene returns HTTP 404', async ({ page }) => {
+      const response = await page.goto('/scenes/nowhere-zz/tonight')
+      expect(
+        response?.status(),
+        '/scenes/nowhere-zz/tonight must return 404 — the scene itself does not resolve'
+      ).toBe(404)
+    })
+  })
 })
