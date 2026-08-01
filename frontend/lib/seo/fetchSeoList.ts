@@ -8,6 +8,33 @@ import {
  * How long a fetched SEO list stays warm in Next's Data Cache. These lists feed
  * a JSON-LD block that crawlers read, not anything a human waits on, so an hour
  * of staleness costs nothing.
+ *
+ * This hint is the ONLY source of the `1h`/`1y` window on `/artists`, `/shows`
+ * and `/venues`. It binds unconditionally: builds with the backend reachable
+ * AND blackholed both emit `initialRevalidateSeconds: 3600` for all three
+ * routes, and both exit 0. Unlike `app/sitemap.ts`, whose route mode flips to
+ * `ƒ` when the build-time fetch fails, these pages keep their window either way
+ * — `fetchSeoList` fails open, so the render always succeeds and the fetch
+ * always registers its hint.
+ *
+ * A LARGE `Age` ON THESE ROUTES IS NOT A STUCK REVALIDATION. Vercel ISR
+ * regenerates on request, not on a timer: nothing runs during a quiet period,
+ * so `Age` grows without bound and the first request after the quiet period
+ * necessarily sees `x-vercel-cache: STALE` at whatever that gap was. It serves
+ * the stale body and triggers the re-render, and the NEXT request is a fresh
+ * `HIT`. Measured on PRODUCTION `/venues`, 2026-08-01, 45 s polling:
+ *
+ *   age 3576  HIT    entry Date 04:15:18   ← no proactive regen at the window
+ *   age 3622  STALE  entry Date 04:15:18   ← first sample past 3600
+ *   age   46  HIT    entry Date 05:15:42   ← rendered 1 s after the STALE hit
+ *
+ * `/artists` did the same thing in the same second. Read the entry `Date`
+ * (`now - Age` on a HIT), never `Age` alone: `Date` advances only on a
+ * SUCCESSFUL render, so a genuinely failing revalidation shows a FROZEN `Date`
+ * with a climbing `Age` (PSY-1644's held sitemap). PSY-1641 recorded `/venues`
+ * as "stuck STALE" from ONE sample at Age ~16 h and no follow-up; a second
+ * probe 45 s later would have refuted it. One cache-header sample cannot
+ * distinguish a quiet route from a broken one — take two.
  */
 export const SEO_LIST_REVALIDATE_SECONDS = 3600
 
