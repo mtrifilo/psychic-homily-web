@@ -14,6 +14,13 @@
  * safe direction: it can cost a headline a size step it did not need, whereas
  * under-estimating clips text off a canvas that has no reflow.
  *
+ * Note that "measurable here" and "renders without an outbound request" are two
+ * different questions, and widening the font coverage moved them apart: the
+ * fallback face in `brand.ts` draws Greek and Cyrillic correctly and offline,
+ * but this module still charges them `UNKNOWN_ADVANCE`. Read the `brand.ts`
+ * header for which scripts are covered; read `UNKNOWN_ADVANCE` for why covered
+ * still does not mean measured.
+ *
  * The tables are the real advance widths of the shipping `.ttf` files, per 1000
  * units of em, read straight out of each font's `hmtx` table. Regenerate them
  * together with the fonts (see `brand.ts`); `textFit.fonts.test.ts` fails if the
@@ -89,11 +96,27 @@ const LAST_CODE = 0x7e
  * Width charged to a glyph this module has no table entry for.
  *
  * Set to the widest advance in the shipped subsets (1211) so unknown text is
- * always OVER-measured. This matters more than it looks: the subsets are Latin
- * only, the scene table is worldwide, and Satori resolves a glyph it cannot
- * find by fetching a face from Google Fonts mid-render — so an unknown-script
- * city name both renders in another face AND, if under-measured, runs off a
- * canvas with no clipping. Over-measuring merely costs it a size step.
+ * always OVER-measured. Under-measuring runs text off a canvas that has no
+ * clipping; over-measuring merely costs it a size step.
+ *
+ * The tables above cover the BRAND faces (Satoshi, Space Mono), which are Latin
+ * only. Greek, Cyrillic and the rest of the widened coverage are drawn from the
+ * separate fallback face registered in `brand.ts`, and they stay on this
+ * conservative path ON PURPOSE — carrying real advance tables for ~1,000 more
+ * glyphs across three weights would be a large, hand-maintained table to buy
+ * back one size step on a card that renders correctly either way.
+ *
+ * So there are now two distinct reasons a glyph lands here, and they have
+ * different consequences:
+ *
+ *   - Covered by the fallback (Greek, Cyrillic, Vietnamese, symbols): renders
+ *     correctly, no outbound request, merely measured generously.
+ *   - Covered by nothing (CJK, emoji, and the scripts listed in `brand.ts`):
+ *     also triggers a Google Fonts / jsDelivr fetch mid-render, and the face
+ *     that comes back is one this module cannot measure at all.
+ *
+ * Widening the fallback shrinks the second class but not the first, so this
+ * constant stays whatever the widest shipped advance is.
  */
 const UNKNOWN_ADVANCE = 1211
 
@@ -168,6 +191,13 @@ export function measureMono(text: string, fontSize: number, letterSpacing = 0): 
  * beside a 40px mono, which these descent ratios predict as 17px. So the card
  * aligns the boxes explicitly with `flex-end` and lifts the smaller run by the
  * difference in descender depth, which is exactly what that drift is.
+ *
+ * `DESCENT_RATIO.sans` is Satoshi's. A headline drawn from the fallback face
+ * instead — a Cyrillic or Greek city — sits on a deeper descender (0.293 vs
+ * 0.24), so the state pill beside it lands roughly `citySize * 0.05` too high,
+ * about 7px at the largest headline size. Left uncorrected on purpose: fixing it
+ * means threading the resolved face through the fit path, and Satori resolves it
+ * per grapheme, so a mixed-script name has no single answer to thread.
  */
 export function monoBaselineLift(sansSize: number, monoSize: number): number {
   return sansSize * DESCENT_RATIO.sans - monoSize * DESCENT_RATIO.mono
