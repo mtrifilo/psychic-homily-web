@@ -22,6 +22,9 @@
 
 - **Release re-runs are NOT idempotent until PSY-1184 is deployed** — confirm PR #1210 is live before re-running release batches on large datasets.
 
+- **SeeTickets calendars** (e.g. Walter Studios) — list page 1 is SSR; later pages come from `admin-ajax.php?action=get_seetickets_events` with the page-local `seetickets_ajax_obj.nonce`. Don't expect a useful `/wp-json/seetickets` events API. Re-read nonce each run (it rotates).
+
+
 ## Radio playlist linking
 
 - **Orange ● on a playlist row** means `radio_plays.artist_id` is set — not merely that `/artists/{slug}` exists. Matching runs at import time; artists added later stay unlinked until rematch.
