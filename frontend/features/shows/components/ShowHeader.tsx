@@ -5,7 +5,54 @@ import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import type { ShowResponse } from '../types'
+import type { ArtistResponse, SetType, ShowResponse } from '../types'
+
+/**
+ * Bill order lives in `show_artists.position`. Every backend read path already
+ * sorts by it (`buildShowResponse`, `loadShowArtistResponses`), so this is a
+ * defensive re-assertion against a caller, cache layer, or future query handing
+ * us a different order.
+ *
+ * Ties are possible: `idx_show_artists_position` is a plain index, so nothing
+ * enforces one position per show, and rows written outside the create path
+ * (backfills, seeds) can share position 0. The backend's `ORDER BY position
+ * ASC` has no tiebreaker, so Postgres may order tied rows differently between
+ * requests. Break the tie on `id` so the rendered bill is at least
+ * deterministic client-side.
+ */
+function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
+  return a.position - b.position || a.id - b.id
+}
+
+/**
+ * Support-line annotations, keyed by `set_type`.
+ *
+ * `opener` is deliberately absent. It reads like a distinguishing role but is
+ * really the backend's default for "not the headliner" — `associateArtists`
+ * hardcodes it for every non-headliner, and the discovery fallback does the
+ * same — so annotating it would append "(opener)" to nearly every support act
+ * on nearly every bill. Labelling it only becomes meaningful once `set_type`
+ * carries real semantics — a richer vocabulary plus a backfill. Don't re-add
+ * it here before that lands.
+ *
+ * A `Map` rather than an object literal on purpose: `set_type` is a bare
+ * `string` on the wire (see `types/api.d.ts`) over an unconstrained VARCHAR
+ * column, and the `SetType` union here is a hand-maintained narrowing that
+ * nothing validates at runtime. An object lookup would walk the prototype
+ * chain, so a stored `__proto__` would resolve to `Object.prototype` and
+ * crash the server render; `Map.get` has no such hole.
+ */
+const SUPPORT_SET_TYPE_LABELS = new Map<string, string>([
+  ['special_guest', 'special guest'],
+])
+
+function SupportSetTypeLabel({ setType }: { setType: SetType }) {
+  const label = SUPPORT_SET_TYPE_LABELS.get(setType)
+  if (!label) return null
+  return (
+    <span className="text-sm text-muted-foreground/70 italic"> ({label})</span>
+  )
+}
 
 interface ShowHeaderProps {
   show: ShowResponse
@@ -30,7 +77,9 @@ interface ShowHeaderProps {
  */
 export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const venue = show.venues[0]
-  const artists = show.artists
+  // Sort the whole bill first so every downstream slice — including the
+  // `artists[0]` / `artists.slice(1)` fallback below — is position-ordered.
+  const artists = [...show.artists].sort(byBillPosition)
 
   // Trimmed once here: the API can hand back a whitespace-only address, which
   // would otherwise pass the truthiness check and render a blank indented line.
@@ -105,12 +154,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                 ) : (
                   <span>{artist.name}</span>
                 )}
-                {artist.set_type === 'special_guest' && (
-                  <span className="text-sm text-muted-foreground/70 italic">
-                    {' '}
-                    (special guest)
-                  </span>
-                )}
+                <SupportSetTypeLabel setType={artist.set_type} />
               </span>
             ))}
           </div>
