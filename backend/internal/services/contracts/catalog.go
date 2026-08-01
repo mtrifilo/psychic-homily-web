@@ -1302,6 +1302,52 @@ type VenueConfirmServiceInterface interface {
 	ConfirmVenue(venueID uint, userID uint) (*VenueConfirmationResponse, error)
 }
 
+// MergeVenueResult reports what a venue merge changes. The SAME shape is
+// returned by PreviewMergeVenues (what WOULD change) and MergeVenues (what DID
+// change), so an admin can diff the two and see whether anything moved between
+// looking and committing.
+//
+// DuplicateShows and SupportActsRescued are the two counts worth reading
+// closely before confirming: the first is shows this merge DELETES, the second
+// is bill entries rescued off those shows onto the surviving show.
+type MergeVenueResult struct {
+	CanonicalVenueID   uint   `json:"canonical_venue_id"`
+	CanonicalVenueName string `json:"canonical_venue_name"`
+	MergedVenueID      uint   `json:"merged_venue_id"`
+	MergedVenueName    string `json:"merged_venue_name"`
+
+	// DuplicateShows counts shows on the losing venue that duplicate a show on
+	// the canonical venue and are therefore deleted. Destructive — surface it.
+	DuplicateShows int64 `json:"duplicate_shows"`
+	// SupportActsRescued counts bill entries moved off a deleted duplicate show
+	// onto the surviving show because the survivor's bill lacked that artist.
+	SupportActsRescued int64 `json:"support_acts_rescued"`
+
+	ShowVenuesMoved      int64 `json:"show_venues_moved"`
+	ShowArtistsMoved     int64 `json:"show_artists_moved"`
+	FestivalVenuesMoved  int64 `json:"festival_venues_moved"`
+	FestivalArtistsMoved int64 `json:"festival_artists_moved"`
+	ConfirmationsMoved   int64 `json:"confirmations_moved"`
+	FiltersUpdated       int64 `json:"filters_updated"`
+	// EntityRefsMoved totals the polymorphic (entity_type='venue', entity_id)
+	// rows re-pointed across every table in venueEntityRefs.
+	EntityRefsMoved int64 `json:"entity_refs_moved"`
+}
+
+// VenueMergeServiceInterface is the admin venue-merge surface.
+//
+// Deliberately its own narrow interface rather than two more methods on
+// VenueServiceInterface, for the same reason VenueConfirmServiceInterface is
+// separate: a destructive admin-only operation should not widen the surface
+// that every venue READ handler already depends on and mocks.
+type VenueMergeServiceInterface interface {
+	// PreviewMergeVenues reports what MergeVenues would do, without committing.
+	PreviewMergeVenues(canonicalID, mergeFromID uint) (*MergeVenueResult, error)
+	// MergeVenues folds mergeFromID into canonicalID and deletes the former.
+	// actorUserID is recorded in the audit log.
+	MergeVenues(canonicalID, mergeFromID, actorUserID uint) (*MergeVenueResult, error)
+}
+
 // ──────────────────────────────────────────────
 // Artist Service Interface
 // ──────────────────────────────────────────────

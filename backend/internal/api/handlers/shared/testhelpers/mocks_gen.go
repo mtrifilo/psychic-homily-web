@@ -4201,6 +4201,28 @@ func (m *MockVenueConfirmService) ConfirmVenue(venueID uint, userID uint) (*cont
 }
 
 // ============================================================================
+// Mock: VenueMergeServiceInterface
+// ============================================================================
+
+type MockVenueMergeService struct {
+	PreviewMergeVenuesFn func(uint, uint) (*contracts.MergeVenueResult, error)
+	MergeVenuesFn        func(uint, uint, uint) (*contracts.MergeVenueResult, error)
+}
+
+func (m *MockVenueMergeService) PreviewMergeVenues(canonicalID uint, mergeFromID uint) (*contracts.MergeVenueResult, error) {
+	if m.PreviewMergeVenuesFn != nil {
+		return m.PreviewMergeVenuesFn(canonicalID, mergeFromID)
+	}
+	return nil, nil
+}
+func (m *MockVenueMergeService) MergeVenues(canonicalID uint, mergeFromID uint, actorUserID uint) (*contracts.MergeVenueResult, error) {
+	if m.MergeVenuesFn != nil {
+		return m.MergeVenuesFn(canonicalID, mergeFromID, actorUserID)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: VenueServiceInterface
 // ============================================================================
 
@@ -4528,5 +4550,6 @@ var _ contracts.StreamingWorklistServiceInterface = (*MockStreamingWorklistServi
 var _ contracts.TagServiceInterface = (*MockTagService)(nil)
 var _ contracts.UserServiceInterface = (*MockUserService)(nil)
 var _ contracts.VenueConfirmServiceInterface = (*MockVenueConfirmService)(nil)
+var _ contracts.VenueMergeServiceInterface = (*MockVenueMergeService)(nil)
 var _ contracts.VenueServiceInterface = (*MockVenueService)(nil)
 var _ contracts.WebAuthnServiceInterface = (*MockWebAuthnService)(nil)

@@ -19,7 +19,7 @@ func setupAdminRoutes(rc RouteContext) {
 	showHandler := adminh.NewAdminShowHandler(
 		rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.Discord, rc.SC.AuditLog, rc.SC.NotificationFilter,
 	)
-	venueHandler := adminh.NewAdminVenueHandler(rc.SC.Venue, rc.SC.AuditLog)
+	venueHandler := adminh.NewAdminVenueHandler(rc.SC.Venue, rc.SC.Venue, rc.SC.AuditLog)
 	userHandler := adminh.NewAdminUserHandler(rc.SC.User)
 	tokenHandler := adminh.NewAdminTokenHandler(rc.SC.APIToken)
 	dataHandler := adminh.NewAdminDataHandler(rc.SC.DataSync)
@@ -55,8 +55,17 @@ func setupAdminRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/admin/shows/import/bulk/preview", showHandler.BulkImportPreviewHandler)
 	huma.Post(rc.Admin, "/admin/shows/import/bulk/confirm", showHandler.BulkImportConfirmHandler)
 
-	// Admin venue management endpoints
+	// Admin venue management endpoints.
+	//
+	// The merge paths use a STATIC "merge" segment rather than a
+	// /admin/venues/{loser_id}/merge shape on purpose: chi keys its routing
+	// tree on path shape, not parameter name, so a {loser_id} variant would
+	// occupy the same shape as {venue_id}/verify's sibling registrations and
+	// any future collision would be silently last-wins. See
+	// TestAdminVenueMergeRoutesAreRegisteredOnce.
 	huma.Get(rc.Admin, "/admin/venues/unverified", venueHandler.GetUnverifiedVenuesHandler)
+	huma.Post(rc.Admin, "/admin/venues/merge/preview", venueHandler.PreviewMergeVenuesHandler)
+	huma.Post(rc.Admin, "/admin/venues/merge", venueHandler.MergeVenuesHandler)
 	huma.Post(rc.Admin, "/admin/venues/{venue_id}/verify", venueHandler.VerifyVenueHandler)
 
 	// Admin artist management endpoints — UpdateArtistBandcamp/Spotify accept

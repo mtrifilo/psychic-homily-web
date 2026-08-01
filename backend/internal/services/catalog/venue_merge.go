@@ -1,0 +1,573 @@
+package catalog
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	apperrors "psychic-homily-backend/internal/errors"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
+)
+
+// AuditActionMergeVenues is the action name recorded when an admin merges venues.
+const AuditActionMergeVenues = "merge_venues"
+
+// errPreviewRollback aborts the merge transaction after the work is done but
+// before it commits. It never escapes mergeVenues.
+//
+// Preview and commit run the SAME code and differ only in whether this error is
+// returned at the end. That is the point: the alternative — a second set of
+// COUNT queries mirroring each mutation — is two implementations of one rule
+// that drift apart the moment either side is edited, and the count that matters
+// most here (which shows collide on shows_artist_venue_eventdate_uniq) is
+// exactly the one whose definition must not drift from the mutation it guards.
+var errPreviewRollback = errors.New("venue merge preview rollback")
+
+// entityRef describes one polymorphic (entity_type, entity_id) reference table.
+//
+// The venue merge re-points every row where entity_type='venue' and
+// entity_id=<loser>. These tables carry NO foreign key to venues, so a row left
+// behind does not fail loudly — it silently points at a venue id that no longer
+// exists. This list is therefore the difference between a clean merge and a
+// slow leak of dangling references.
+type entityRef struct {
+	// table is the SQL table name. Interpolated into SQL, so it MUST stay a
+	// hardcoded literal in venueEntityRefs — never caller input.
+	table string
+	// idCol holds the entity id. Almost always "entity_id"; `requests` and
+	// `entity_requests` name theirs differently.
+	idCol string
+	// dedupe is true when a unique index could reject the re-point, so the
+	// losing rows that would collide are deleted first. False means the table
+	// is append-only / has no relevant unique key and can take a bare UPDATE.
+	dedupe bool
+	// key lists the OTHER columns in that unique index besides entity_type and
+	// idCol. Empty with dedupe=true means the index is on (entity_type, idCol)
+	// alone.
+	key []string
+}
+
+// venueEntityRefs is every table in the schema whose polymorphic entity
+// reference can point at a venue, with the unique key that constrains it.
+//
+// Verified against the live schema rather than copied forward: the equivalent
+// list in the PSY-1581 one-off migration is missing `requests` and
+// `entity_requests` (both of which name their id column something other than
+// entity_id) and marks `notification_log` as having no unique key when it in
+// fact has one on (user_id, filter_id, entity_type, entity_id, channel).
+//
+// TestVenueEntityRefsCoverSchema fails if a migration adds an entity_type
+// table that is not listed here, so this cannot silently fall behind.
+var venueEntityRefs = []entityRef{
+	// Unique on (entity_type, entity_id) plus the listed columns.
+	{table: "collection_items", idCol: "entity_id", dedupe: true, key: []string{"collection_id"}},
+	{table: "comment_last_read", idCol: "entity_id", dedupe: true, key: []string{"user_id"}},
+	{table: "comment_subscriptions", idCol: "entity_id", dedupe: true, key: []string{"user_id"}},
+	{table: "entity_tags", idCol: "entity_id", dedupe: true, key: []string{"tag_id"}},
+	{table: "notification_log", idCol: "entity_id", dedupe: true, key: []string{"user_id", "filter_id", "channel"}},
+	{table: "pending_entity_edits", idCol: "entity_id", dedupe: true, key: []string{"submitted_by"}},
+	{table: "tag_votes", idCol: "entity_id", dedupe: true, key: []string{"tag_id", "user_id"}},
+	{table: "user_bookmarks", idCol: "entity_id", dedupe: true, key: []string{"user_id", "action"}},
+
+	// Unique on (entity_type, entity_id) alone. image_enrich_queue's and
+	// pending_entity_edits' indexes are partial (status-scoped); deleting the
+	// losing row whenever ANY winning row exists is stricter than the index
+	// needs, which is the safe direction.
+	{table: "image_enrich_queue", idCol: "entity_id", dedupe: true},
+	{table: "source_configs", idCol: "entity_id", dedupe: true},
+
+	// No unique key on the entity reference: re-point in place.
+	{table: "audit_logs", idCol: "entity_id"},
+	{table: "comments", idCol: "entity_id"},
+	{table: "entity_edit_audit_logs", idCol: "entity_id"},
+	{table: "entity_reports", idCol: "entity_id"},
+	{table: "revisions", idCol: "entity_id"},
+	{table: "requests", idCol: "requested_entity_id"},
+	{table: "entity_requests", idCol: "created_entity_id"},
+}
+
+// venueFKTables is every table holding a real foreign key to venues.id. Each
+// one is re-pointed explicitly by the steps below.
+//
+// Keeping this list is not redundant with the database's own constraints: four
+// of the five cascade on delete, so a table that this merge does NOT handle
+// would not fail loudly when the losing venue is deleted — its rows would
+// silently disappear. venue_confirmations is exactly that case, and the
+// PSY-1581 one-off migration predates it.
+//
+// TestVenueForeignKeysAreAllHandled fails if a migration adds another.
+var venueFKTables = []string{
+	"festival_artists",
+	"festival_venues",
+	"show_artists",
+	"show_venues",
+	"venue_confirmations",
+}
+
+// PreviewMergeVenues reports what MergeVenues(canonicalID, mergeFromID) would
+// change, without committing any of it.
+func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contracts.MergeVenueResult, error) {
+	return s.mergeVenues(canonicalID, mergeFromID, true)
+}
+
+// MergeVenues folds mergeFromID into canonicalID: every reference to the losing
+// venue is re-pointed at the canonical one, shows that would collide are
+// deduplicated first, and the losing venue row is deleted.
+//
+// The whole merge is one transaction — a failure at any step leaves the
+// database exactly as it was, never half-merged.
+//
+// Field data is NOT combined: the canonical venue keeps its own name, address
+// and links untouched. Choosing which record's details survive is a judgment
+// call, so it stays with the admin, who picks the canonical id.
+func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
+	result, err := s.mergeVenues(canonicalID, mergeFromID, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fire-and-forget audit log after the transaction commits, matching
+	// MergeTags. Errors are logged, never surfaced to the caller.
+	shared.GoSafe(context.Background(), "venue_merge_audit_log", func() {
+		s.writeMergeAuditLog(actorUserID, result)
+	})
+
+	return result, nil
+}
+
+// mergeVenues is the single implementation behind both the preview and the
+// commit. When preview is true the transaction is rolled back after every
+// mutation has run and every count has been taken.
+//
+// A preview therefore costs the same work as a real merge and holds the same
+// row locks for its duration. That is a deliberate trade: this is an admin-only
+// path used a handful of times, and paying it buys a preview that cannot
+// disagree with the merge it previews.
+//
+// NOTE: result is accumulated in place inside the closure (EntityRefsMoved sums
+// across tables). The closure is therefore NOT safe to retry — wrapping this in
+// a retry loop would double the counts. GORM's Transaction does not retry.
+func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) (*contracts.MergeVenueResult, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if canonicalID == 0 || mergeFromID == 0 {
+		return nil, apperrors.ErrVenueMergeInvalid("canonical_venue_id and merge_from_venue_id are required")
+	}
+	if canonicalID == mergeFromID {
+		return nil, apperrors.ErrVenueMergeInvalid("cannot merge a venue into itself")
+	}
+
+	result := &contracts.MergeVenueResult{
+		CanonicalVenueID: canonicalID,
+		MergedVenueID:    mergeFromID,
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		canonical, mergeFrom, err := lockMergeVenues(tx, canonicalID, mergeFromID)
+		if err != nil {
+			return err
+		}
+		result.CanonicalVenueName = canonical.Name
+		result.MergedVenueName = mergeFrom.Name
+
+		if err := buildDuplicateShowMap(tx, canonicalID, mergeFromID); err != nil {
+			return err
+		}
+		if err := tx.Raw("SELECT COUNT(*) FROM venue_merge_dup").Scan(&result.DuplicateShows).Error; err != nil {
+			return fmt.Errorf("failed to count duplicate shows: %w", err)
+		}
+
+		if err := rescueSupportActs(tx, canonicalID, result); err != nil {
+			return err
+		}
+		if err := deleteDuplicateShows(tx); err != nil {
+			return err
+		}
+		if err := reassignShows(tx, canonicalID, mergeFromID, result); err != nil {
+			return err
+		}
+		if err := reassignFestivals(tx, canonicalID, mergeFromID, result); err != nil {
+			return err
+		}
+		if err := reassignConfirmations(tx, canonicalID, mergeFromID, result); err != nil {
+			return err
+		}
+		if err := reassignNotificationFilters(tx, canonicalID, mergeFromID, result); err != nil {
+			return err
+		}
+		if err := reassignEntityRefs(tx, canonicalID, mergeFromID, result); err != nil {
+			return err
+		}
+
+		if err := tx.Delete(&catalogm.Venue{}, mergeFromID).Error; err != nil {
+			return fmt.Errorf("failed to delete merged venue: %w", err)
+		}
+
+		if preview {
+			return errPreviewRollback
+		}
+		return nil
+	})
+
+	// A preview rolled back on purpose; everything it measured is still valid.
+	if errors.Is(err, errPreviewRollback) {
+		return result, nil
+	}
+	if err != nil {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("venue merge failed: %w", err)
+	}
+
+	return result, nil
+}
+
+// lockMergeVenues loads both venues under a row lock so two concurrent merges
+// touching the same venue serialize instead of interleaving.
+//
+// The rows are locked in ascending id order regardless of which one is the
+// canonical venue: two admins merging the same pair in OPPOSITE directions
+// (A→B and B→A) would otherwise grab them in opposite orders and deadlock.
+//
+// Two explicit statements rather than one `ORDER BY id FOR UPDATE`, because
+// that would leave the ordering guarantee up to the query planner — it happens
+// to put LockRows above Sort today, but nothing in the contract says it must.
+// Here the order is in the code, where it can be read and relied on.
+func lockMergeVenues(tx *gorm.DB, canonicalID, mergeFromID uint) (*catalogm.Venue, *catalogm.Venue, error) {
+	first, second := canonicalID, mergeFromID
+	if second < first {
+		first, second = second, first
+	}
+
+	loaded := make(map[uint]*catalogm.Venue, 2)
+	for _, id := range []uint{first, second} {
+		var v catalogm.Venue
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&v, id).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, apperrors.ErrVenueNotFound(id)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to lock venue %d: %w", id, err)
+		}
+		loaded[id] = &v
+	}
+
+	return loaded[canonicalID], loaded[mergeFromID], nil
+}
+
+// buildDuplicateShowMap materializes, for each show on the losing venue, the
+// show on the canonical venue that it duplicates.
+//
+// "Duplicate" is defined to match shows_artist_venue_eventdate_uniq exactly — a
+// losing show collides if any of its (artist_id, event_date) pairs already
+// exists on the canonical venue. That is precisely the condition that would
+// make the venue_id reassignment below violate the index, so the mapping and
+// the constraint cannot drift apart.
+//
+// DISTINCT ON picks one winner deterministically when the canonical venue has
+// more than one show on the same date.
+//
+// The `wsa.show_id <> lsa.show_id` guard is belt-and-braces against the one
+// catastrophic outcome available here: a show mapped as its own duplicate would
+// be DELETED as the loser while also being treated as the survivor. The
+// show_artists primary key (show_id, artist_id) already makes that impossible —
+// one row cannot carry both venue ids — but the reasoning is subtle enough, and
+// the failure destructive enough, that the invariant is stated in the query
+// rather than left to be re-derived.
+//
+// ON COMMIT DROP ties the temp table's lifetime to this transaction, so it
+// cannot leak onto the pooled connection whether the merge commits or a preview
+// rolls back.
+func buildDuplicateShowMap(tx *gorm.DB, canonicalID, mergeFromID uint) error {
+	err := tx.Exec(`
+		CREATE TEMP TABLE venue_merge_dup ON COMMIT DROP AS
+		SELECT DISTINCT ON (lsa.show_id)
+		       lsa.show_id AS loser_show,
+		       wsa.show_id AS winner_show
+		FROM show_artists lsa
+		JOIN show_artists wsa
+		  ON wsa.artist_id  = lsa.artist_id
+		 AND wsa.event_date = lsa.event_date
+		 AND wsa.venue_id   = ?
+		 AND wsa.show_id   <> lsa.show_id
+		WHERE lsa.venue_id = ?
+		  AND lsa.event_date IS NOT NULL
+		ORDER BY lsa.show_id, wsa.show_id
+	`, canonicalID, mergeFromID).Error
+	if err != nil {
+		return fmt.Errorf("failed to build duplicate show map: %w", err)
+	}
+	return nil
+}
+
+// rescueSupportActs moves bill entries off each doomed duplicate show onto the
+// show that survives it, BEFORE the duplicate is deleted.
+//
+// A duplicate pair is not always a clean copy — some duplicates list an artist
+// the surviving show does not. Deleting the losing show outright would drop
+// those associations silently (show_artists cascades on show_id), so any
+// non-colliding artist moves across first.
+//
+// Both guards are load-bearing: the first keeps the move from violating
+// shows_artist_venue_eventdate_uniq, the second from violating the
+// (show_id, artist_id) primary key. Position is offset rather than reused so
+// rescued acts append after the surviving bill instead of competing with it for
+// ordering.
+func rescueSupportActs(tx *gorm.DB, canonicalID uint, result *contracts.MergeVenueResult) error {
+	r := tx.Exec(`
+		UPDATE show_artists sa
+		SET show_id  = d.winner_show,
+		    venue_id = ?,
+		    position = 100 + sa.position
+		FROM venue_merge_dup d
+		WHERE sa.show_id = d.loser_show
+		  AND NOT EXISTS (
+		        SELECT 1 FROM show_artists w
+		        WHERE w.artist_id  = sa.artist_id
+		          AND w.venue_id   = ?
+		          AND w.event_date = sa.event_date
+		      )
+		  AND NOT EXISTS (
+		        SELECT 1 FROM show_artists w2
+		        WHERE w2.show_id   = d.winner_show
+		          AND w2.artist_id = sa.artist_id
+		      )
+	`, canonicalID, canonicalID)
+	if r.Error != nil {
+		return fmt.Errorf("failed to rescue support acts: %w", r.Error)
+	}
+	result.SupportActsRescued = r.RowsAffected
+	return nil
+}
+
+// deleteDuplicateShows removes the losing shows the map identified.
+// show_artists and show_venues both cascade on show_id, so their rows go too —
+// which is exactly why rescueSupportActs has to run first.
+func deleteDuplicateShows(tx *gorm.DB) error {
+	if err := tx.Exec(`
+		DELETE FROM shows s
+		USING venue_merge_dup d
+		WHERE s.id = d.loser_show
+	`).Error; err != nil {
+		return fmt.Errorf("failed to delete duplicate shows: %w", err)
+	}
+	return nil
+}
+
+// reassignShows re-points the surviving (non-duplicate) shows at the canonical
+// venue. The show_venues delete covers the case where one show was somehow
+// attached to BOTH venue records, which would collide on the
+// (show_id, venue_id) primary key.
+func reassignShows(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
+	if err := tx.Exec(`
+		DELETE FROM show_venues sv
+		WHERE sv.venue_id = ?
+		  AND EXISTS (
+		        SELECT 1 FROM show_venues w
+		        WHERE w.show_id = sv.show_id AND w.venue_id = ?
+		      )
+	`, mergeFromID, canonicalID).Error; err != nil {
+		return fmt.Errorf("failed to drop conflicting show_venues: %w", err)
+	}
+
+	r := tx.Exec("UPDATE show_venues SET venue_id = ? WHERE venue_id = ?", canonicalID, mergeFromID)
+	if r.Error != nil {
+		return fmt.Errorf("failed to move show_venues: %w", r.Error)
+	}
+	result.ShowVenuesMoved = r.RowsAffected
+
+	r = tx.Exec("UPDATE show_artists SET venue_id = ? WHERE venue_id = ?", canonicalID, mergeFromID)
+	if r.Error != nil {
+		return fmt.Errorf("failed to move show_artists: %w", r.Error)
+	}
+	result.ShowArtistsMoved = r.RowsAffected
+	return nil
+}
+
+// reassignFestivals moves festival references. festival_venues is unique on
+// (festival_id, venue_id); festival_artists.venue_id is a plain nullable FK
+// with no uniqueness, so it just takes the update.
+func reassignFestivals(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
+	if err := tx.Exec(`
+		DELETE FROM festival_venues fv
+		WHERE fv.venue_id = ?
+		  AND EXISTS (
+		        SELECT 1 FROM festival_venues w
+		        WHERE w.festival_id = fv.festival_id AND w.venue_id = ?
+		      )
+	`, mergeFromID, canonicalID).Error; err != nil {
+		return fmt.Errorf("failed to drop conflicting festival_venues: %w", err)
+	}
+
+	r := tx.Exec("UPDATE festival_venues SET venue_id = ? WHERE venue_id = ?", canonicalID, mergeFromID)
+	if r.Error != nil {
+		return fmt.Errorf("failed to move festival_venues: %w", r.Error)
+	}
+	result.FestivalVenuesMoved = r.RowsAffected
+
+	r = tx.Exec("UPDATE festival_artists SET venue_id = ? WHERE venue_id = ?", canonicalID, mergeFromID)
+	if r.Error != nil {
+		return fmt.Errorf("failed to move festival_artists: %w", r.Error)
+	}
+	result.FestivalArtistsMoved = r.RowsAffected
+	return nil
+}
+
+// reassignConfirmations moves venue_confirmations, which is keyed
+// (user_id, venue_id) — a user who vouched for BOTH records keeps one row.
+//
+// This table has ON DELETE CASCADE, so skipping it would not orphan anything:
+// it would silently DESTROY the losing venue's confirmations when the venue row
+// goes. Those are user contributions, so they move.
+func reassignConfirmations(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
+	if err := tx.Exec(`
+		DELETE FROM venue_confirmations l
+		WHERE l.venue_id = ?
+		  AND EXISTS (
+		        SELECT 1 FROM venue_confirmations w
+		        WHERE w.venue_id = ? AND w.user_id = l.user_id
+		      )
+	`, mergeFromID, canonicalID).Error; err != nil {
+		return fmt.Errorf("failed to drop conflicting venue_confirmations: %w", err)
+	}
+
+	r := tx.Exec("UPDATE venue_confirmations SET venue_id = ? WHERE venue_id = ?", canonicalID, mergeFromID)
+	if r.Error != nil {
+		return fmt.Errorf("failed to move venue_confirmations: %w", r.Error)
+	}
+	result.ConfirmationsMoved = r.RowsAffected
+	return nil
+}
+
+// reassignNotificationFilters rewrites notification_filters.venue_ids, a
+// bigint[] with no foreign key — a stale id there would linger silently.
+// Replace, then de-duplicate in case the filter already tracked the canonical
+// venue.
+func reassignNotificationFilters(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
+	r := tx.Exec(`
+		UPDATE notification_filters nf
+		SET venue_ids = ARRAY(
+		      SELECT DISTINCT x
+		      FROM unnest(array_replace(nf.venue_ids, ?::bigint, ?::bigint)) AS x
+		      ORDER BY x
+		    ),
+		    updated_at = NOW()
+		WHERE nf.venue_ids @> ARRAY[?::bigint]
+	`, mergeFromID, canonicalID, mergeFromID)
+	if r.Error != nil {
+		return fmt.Errorf("failed to update notification filters: %w", r.Error)
+	}
+	result.FiltersUpdated = r.RowsAffected
+	return nil
+}
+
+// reassignEntityRefs walks venueEntityRefs, dropping rows that would collide on
+// a unique key before re-pointing the rest at the canonical venue.
+func reassignEntityRefs(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
+	for _, ref := range venueEntityRefs {
+		if ref.dedupe {
+			joinPred := ""
+			for _, col := range ref.key {
+				joinPred += fmt.Sprintf(" AND w.%s = l.%s", col, col)
+			}
+			// #nosec G201 -- table/column names come from the hardcoded
+			// venueEntityRefs list, never from caller input; the venue ids are
+			// bound parameters.
+			del := fmt.Sprintf(`
+				DELETE FROM %[1]s l
+				WHERE l.entity_type = 'venue'
+				  AND l.%[2]s = ?
+				  AND EXISTS (
+				        SELECT 1 FROM %[1]s w
+				        WHERE w.entity_type = 'venue'
+				          AND w.%[2]s = ?%[3]s
+				      )
+			`, ref.table, ref.idCol, joinPred)
+			if err := tx.Exec(del, mergeFromID, canonicalID).Error; err != nil {
+				return fmt.Errorf("failed to drop conflicting %s rows: %w", ref.table, err)
+			}
+		}
+
+		// #nosec G201 -- see above.
+		upd := fmt.Sprintf(
+			"UPDATE %[1]s SET %[2]s = ? WHERE entity_type = 'venue' AND %[2]s = ?",
+			ref.table, ref.idCol,
+		)
+		r := tx.Exec(upd, canonicalID, mergeFromID)
+		if r.Error != nil {
+			return fmt.Errorf("failed to move %s rows: %w", ref.table, r.Error)
+		}
+		result.EntityRefsMoved += r.RowsAffected
+	}
+	return nil
+}
+
+// writeMergeAuditLog records a venue merge in the audit log.
+// Fire-and-forget — errors are logged but never fail the parent operation.
+func (s *VenueService) writeMergeAuditLog(actorID uint, result *contracts.MergeVenueResult) {
+	if s.db == nil {
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"merged_venue_id":        result.MergedVenueID,
+		"merged_venue_name":      result.MergedVenueName,
+		"canonical_venue_name":   result.CanonicalVenueName,
+		"duplicate_shows":        result.DuplicateShows,
+		"support_acts_rescued":   result.SupportActsRescued,
+		"show_venues_moved":      result.ShowVenuesMoved,
+		"show_artists_moved":     result.ShowArtistsMoved,
+		"festival_venues_moved":  result.FestivalVenuesMoved,
+		"festival_artists_moved": result.FestivalArtistsMoved,
+		"confirmations_moved":    result.ConfirmationsMoved,
+		"filters_updated":        result.FiltersUpdated,
+		"entity_refs_moved":      result.EntityRefsMoved,
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		slog.Default().Error("failed to marshal venue merge audit metadata", "error", err)
+		return
+	}
+
+	raw := json.RawMessage(metadataJSON)
+	var actor *uint
+	if actorID > 0 {
+		actor = &actorID
+	}
+
+	auditLog := adminm.AuditLog{
+		ActorID:    actor,
+		Action:     AuditActionMergeVenues,
+		EntityType: "venue",
+		EntityID:   result.CanonicalVenueID,
+		Metadata:   &raw,
+		CreatedAt:  time.Now().UTC(),
+	}
+
+	if err := s.db.Create(&auditLog).Error; err != nil {
+		slog.Default().Error("failed to write venue merge audit log", "error", err)
+	}
+}
+
+// venueEntityRefTables is the table set venueEntityRefs covers, for the
+// schema-drift test.
+func venueEntityRefTables() map[string]bool {
+	out := make(map[string]bool, len(venueEntityRefs))
+	for _, ref := range venueEntityRefs {
+		out[strings.ToLower(ref.table)] = true
+	}
+	return out
+}

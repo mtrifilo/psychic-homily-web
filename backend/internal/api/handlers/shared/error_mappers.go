@@ -183,6 +183,8 @@ func MapVenueError(err error) error {
 			return huma.Error404NotFound(venueErr.Message)
 		case apperrors.CodeVenueHasShows:
 			return huma.Error422UnprocessableEntity(venueErr.Message)
+		case apperrors.CodeVenueMergeInvalid:
+			return huma.Error422UnprocessableEntity(venueErr.Message)
 		}
 	}
 	return nil
