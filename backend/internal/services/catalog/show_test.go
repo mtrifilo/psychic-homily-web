@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -501,9 +502,9 @@ func (suite *ShowServiceIntegrationTestSuite) createTestLabel(name, slug string)
 	return label
 }
 
-// signArtistToLabels writes artist_labels rows and stamps the artist's country.
-// Test helper.
-func (suite *ShowServiceIntegrationTestSuite) signArtistToLabels(artistID uint, country string, labels ...*catalogm.Label) {
+// setArtistCountryAndLabels stamps the artist's country and writes its
+// artist_labels rows. Test helper.
+func (suite *ShowServiceIntegrationTestSuite) setArtistCountryAndLabels(artistID uint, country string, labels ...*catalogm.Label) {
 	suite.Require().NoError(
 		suite.db.Model(&catalogm.Artist{}).Where("id = ?", artistID).Update("country", country).Error,
 	)
@@ -556,9 +557,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillCarriesLabelsAndCo
 	suite.Require().NotNil(one)
 	suite.Require().NotNil(none)
 
-	suite.signArtistToLabels(two.ID, "US", jealousButcher, deadOceans)
-	suite.signArtistToLabels(one.ID, "AU", epic)
-	suite.signArtistToLabels(none.ID, "GB")
+	suite.setArtistCountryAndLabels(two.ID, "US", jealousButcher, deadOceans)
+	suite.setArtistCountryAndLabels(one.ID, "AU", epic)
+	suite.setArtistCountryAndLabels(none.ID, "GB")
 
 	resp, err := suite.showService.GetShow(created.ID)
 	suite.Require().NoError(err)
@@ -595,16 +596,95 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillCarriesLabelsAndCo
 	encoded, err := json.Marshal(gotNone)
 	suite.Require().NoError(err)
 	suite.Contains(string(encoded), `"labels":[]`)
+
+	// The show page fetches by SLUG, so the slug lookup must carry labels too.
+	// GetShow and GetShowBySlug are separate bodies and can drift apart.
+	bySlug, err := suite.showService.GetShowBySlug(created.Slug)
+	suite.Require().NoError(err)
+	slugTwo := artistInBill(bySlug.Artists, "Two Label Band")
+	suite.Require().NotNil(slugTwo)
+	slugLabels := suite.billLabels(slugTwo)
+	suite.Require().Len(slugLabels, 2)
+	suite.Equal("Dead Oceans", slugLabels[0].Name)
+	suite.Equal("Jealous Butcher", slugLabels[1].Name)
 }
 
-// The list endpoints deliberately skip the label join, so they must omit the
-// key entirely rather than claim every artist is unsigned.
+// labels.name has no unique constraint, so two labels can share a name. Without
+// a tiebreaker Postgres gives no ordering guarantee between them.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillLabelOrderIsDeterministicForDuplicateNames() {
+	created := suite.createTestShow()
+	lower := suite.createTestLabel("Epic", "epic-major")
+	higher := suite.createTestLabel("Epic", "epic-indie")
+	suite.Require().Less(lower.ID, higher.ID)
+
+	// Rewrite the lower-ID row so its live tuple lands at the end of the heap.
+	// A seq scan now yields higher-then-lower, so ORDER BY name alone would
+	// return them in ID-descending order and this test would catch the missing
+	// tiebreaker rather than passing on Postgres's incidental ordering.
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Label{}).Where("id = ?", lower.ID).
+			Update("city", "Santa Monica").Error,
+	)
+	suite.setArtistCountryAndLabels(created.Artists[0].ID, "US", lower, higher)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	labels := suite.billLabels(&resp.Artists[0])
+	suite.Require().Len(labels, 2)
+	suite.Equal(lower.ID, labels[0].ID, "equal names must break the tie on id ASC")
+	suite.Equal(higher.ID, labels[1].ID)
+}
+
+// A failed label lookup must omit the key. Degrading to [] would publish
+// "nobody on this bill is signed" as fact, and the show page caches for an hour.
+func (suite *ShowServiceIntegrationTestSuite) TestAttachBillLabels_OmitsKeyWhenLookupFails() {
+	created := suite.createTestShow()
+	label := suite.createTestLabel("Real Records", "real-records")
+	suite.setArtistCountryAndLabels(created.Artists[0].ID, "US", label)
+
+	// A cancelled context fails the query without disturbing the shared pool.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	brokenService := NewShowService(suite.db.WithContext(ctx))
+
+	resp, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Artists, 1)
+	suite.Require().NotNil(resp.Artists[0].Labels, "precondition: healthy lookup populates")
+
+	// Re-run the attach against the broken handle.
+	resp.Artists[0].Labels = nil
+	brokenService.attachBillLabels(resp)
+
+	suite.Nil(resp.Artists[0].Labels, "a failed lookup must omit the key, not claim []")
+	encoded, err := json.Marshal(resp.Artists[0])
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), `"labels"`)
+}
+
+// The failure must be distinguishable from "this artist has no labels".
+func (suite *ShowServiceIntegrationTestSuite) TestFetchLabelsForArtists_ReturnsErrorRatherThanEmptyMap() {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	byArtist, err := fetchLabelsForArtists(suite.db.WithContext(ctx), []uint{1, 2, 3})
+
+	suite.Require().Error(err)
+	suite.Nil(byArtist)
+}
+
+// Guards the N+1: the list endpoints must not run a per-show label join, and
+// while they skip it they must omit the key rather than claim every artist is
+// unsigned. This pins the per-show join, NOT the wire shape. If someone later
+// batches labels across the whole page in two queries total, populating labels
+// here is an improvement and this test should be updated deliberately.
 func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_OmitsBillLabels() {
 	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
 		req.EventDate = time.Now().AddDate(0, 0, 14)
 	})
 	label := suite.createTestLabel("Omitted Records", "omitted-records")
-	suite.signArtistToLabels(created.Artists[0].ID, "US", label)
+	suite.setArtistCountryAndLabels(created.Artists[0].ID, "US", label)
 
 	shows, _, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, true, nil)
 
@@ -651,8 +731,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillSharedLabelFansOut
 	suite.Require().Len(created.Artists, 2)
 
 	shared := suite.createTestLabel("Shared Records", "shared-records")
-	suite.signArtistToLabels(created.Artists[0].ID, "US", shared)
-	suite.signArtistToLabels(created.Artists[1].ID, "US", shared)
+	suite.setArtistCountryAndLabels(created.Artists[0].ID, "US", shared)
+	suite.setArtistCountryAndLabels(created.Artists[1].ID, "US", shared)
 
 	resp, err := suite.showService.GetShow(created.ID)
 

@@ -144,14 +144,21 @@ type ShowArtistLabel struct {
 
 // ArtistResponse represents artist data in show responses.
 //
-// Labels is populated only by the show-detail lookups (GetShow /
-// GetShowBySlug), which back GET /shows/{show_id} and GET /shows/slug/{slug}
-// where the bill renders "Artist [Label] City, ST". Every other producer (list
-// endpoints, create/update, venue and saved-show projections) leaves it nil so
-// omitempty drops the key, rather than paying two extra queries per show for a
-// field their cards never render. Mirrors ArtistDetailResponse.Stats: absent
-// means "not looked up", present-but-empty means "looked up, no labels". A
-// producer that forgets the field therefore omits it rather than lying with [].
+// Labels is populated by responses built through the full detail reads,
+// ShowService.GetShow / GetShowBySlug. Both back the single route
+// GET /shows/{show_id} (it takes an ID or a slug, see GetShowHandler), which is
+// what renders the bill as "Artist [Label] City, ST". Responses assembled
+// directly from buildShowResponse instead - the list endpoints, create,
+// approve/reject/publish, and the venue and saved-show projections - leave it
+// nil so omitempty drops the key, rather than paying two extra queries per show
+// for a field their cards never render. The rule is "did this response come
+// from a detail read", not "is this a read": the mutations that return
+// s.GetShow(id) (sold-out, cancelled, update) do carry labels.
+//
+// Mirrors ArtistDetailResponse.Stats: absent means "not looked up",
+// present-but-empty means "looked up, artist is unsigned". Keep that
+// distinction honest. A producer that forgets the field omits it rather than
+// lying with [], and a failed lookup must omit it too.
 type ArtistResponse struct {
 	ID               uint               `json:"id"`
 	Slug             string             `json:"slug"`
