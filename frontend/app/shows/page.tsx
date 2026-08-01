@@ -5,10 +5,12 @@ import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
   UPCOMING_SHOWS_FIRST_SCREEN_KEY,
+  UPCOMING_SHOWS_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
 import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
+import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
@@ -49,46 +51,46 @@ interface ShowListItem {
  * being settled here by nudging a number. It is left visible instead of
  * invisible.
  *
- * SINCE PSY-1624 IT IS ALSO THE SIZE OF THE SERVER-RENDERED FIRST SCREEN, and
- * that couples it to something this doc did not previously have to care about:
- * the seeded key (`UPCOMING_SHOWS_FIRST_SCREEN_KEY`) encodes NO `limit`, so the
- * post-hydration revalidation asks for the endpoint's default. The two agree
- * only while this number IS that default. Raise it to 200 for the `ItemList`
- * and the server would paint 200 rows that collapse to 50 on hydration. Change
- * it together with what `ShowList` requests, or not at all — the assertion in
- * `page.test.tsx` pins the coupling.
+ * It bounds the `ItemList` ONLY. The server-rendered first screen is sized by
+ * what `ShowList` itself requests, which is the endpoint's own default, and it
+ * is fetched separately (see `HydratedShowList`) precisely so the two are not
+ * coupled. Raising this changes how many entries a crawler is offered and
+ * nothing about what a reader sees.
  */
 export const UPCOMING_SHOWS_LIMIT = 50
 
 /**
- * The one read of `/shows/upcoming` this page makes.
+ * The `ItemList` read of `/shows/upcoming`.
  *
- * It feeds two consumers with different needs — the JSON-LD `ItemList` wants
- * names and slugs, the hydration seed wants the whole response including
- * `pagination` and `total` — and `React.cache` is what lets the page body and
- * the Suspense child below share a single fetch rather than each starting one.
+ * Separate from the first-screen seed below, and the split is deliberate after
+ * getting it wrong in both directions.
  *
- * They were briefly two fetches, on the theory that the seed had to reproduce
- * the client hook's request byte-for-byte. It does not: what the hook reads is
- * decided by the query KEY, which `seedFirstScreen` is handed separately, so
- * the URL only has to yield an equivalent payload. `?limit=50` and no `limit`
- * return the same 50 rows (the endpoint's own default — see
- * `UPCOMING_SHOWS_LIMIT`), so the second fetch bought nothing but a second
- * Data Cache entry and a way for the `ItemList` and the visible list to
- * disagree across cache windows.
+ * They cannot share one call, because they need different abort budgets. This
+ * one runs in the PRERENDERED SHELL, where the only cost of waiting is a slower
+ * build and giving up early bakes a schema-less page in for a whole revalidate
+ * window. The seed runs at REQUEST time behind `await connection()`, where the
+ * same ten seconds is a visitor watching a skeleton. `React.cache` does not
+ * bridge them either: under `cacheComponents` the shell and the postponed
+ * resume are different render passes, so a `cache()` entry made in one is not
+ * visible in the other. What actually dedupes a repeated URL is Next's Data
+ * Cache, and only when the URLs match.
+ *
+ * They also carry different bounds, which is why the URLs deliberately do NOT
+ * match. This one sends the explicit `limit` argued at `UPCOMING_SHOWS_LIMIT`.
+ * The seed sends exactly what the client hook sends, so that what it caches is
+ * what the hook will later ask for. Two Data Cache entries, invalidated
+ * together by `lib/proxy-revalidation.ts`.
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    url: `${API_BASE_URL}/shows/upcoming?limit=${UPCOMING_SHOWS_LIMIT}`,
+    // The canonical zone matters even here: it decides where start-of-today
+    // falls, so omitting it would advertise last night's shows to a crawler.
+    url: `${API_BASE_URL}/shows/upcoming?${new URLSearchParams({
+      limit: String(UPCOMING_SHOWS_LIMIT),
+      timezone: CANONICAL_FIRST_SCREEN_TIMEZONE,
+    })}`,
     collection: 'shows',
     service: 'shows-listing',
-    // The build budget, not this helper's 2.5s request-time default, because
-    // this one call also feeds the `ItemList` below — and that runs in the
-    // static-shell prerender, where giving up early ships a page with no
-    // schema block for a whole revalidate window. `fetchSeoList` argued 10s
-    // for exactly this consumer; merging the two fetches must not quietly
-    // take it away. The visitor-facing risk it reintroduces is the one this
-    // page already carried: the page body has always awaited this fetch.
     timeoutMs: BUILD_TIME_API_FETCH_TIMEOUT_MS,
   })
 )
@@ -124,7 +126,11 @@ function getShowName(show: ShowListItem): string {
  */
 async function HydratedShowList() {
   const [shows, cities] = await Promise.all([
-    getUpcomingShowsPayload(),
+    fetchListPayload<UpcomingShowsResponse>({
+      url: UPCOMING_SHOWS_FIRST_SCREEN_URL,
+      collection: 'shows',
+      service: 'shows-first-screen',
+    }),
     fetchListPayload<ShowCitiesResponse>({
       url: SHOW_CITIES_FIRST_SCREEN_URL,
       collection: 'cities',

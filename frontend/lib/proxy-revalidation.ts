@@ -217,17 +217,11 @@ function bodySlugPages(segment: string): RevalidationRule['paths'] {
 }
 
 /**
- * bodySlugPages + the segment's rename cascade — for update-class rules
- * where the mutation may have changed the entity's name (which other pages
- * embed in their ISR payloads).
- */
-/**
  * A resolver plus fixed extra paths.
  *
  * Exists so "this rule also stales page X" is a wrapper rather than a
- * hand-inlined copy of the resolver it extends — the venue rules needed
- * '/scenes' added to three different base resolvers, and copying each one out
- * would have been three places to keep in step.
+ * hand-inlined copy of the resolver it extends. The venue rules needed
+ * '/scenes' added on top of two different base resolvers.
  */
 function withExtraPaths(
   base: RevalidationRule['paths'],
@@ -236,6 +230,11 @@ function withExtraPaths(
   return async ctx => [...(await base(ctx)), ...extra]
 }
 
+/**
+ * bodySlugPages + the segment's rename cascade, for update-class rules where
+ * the mutation may have changed the entity's name (which other pages embed in
+ * their cached payloads).
+ */
 function bodySlugPagesWithCascade(
   segment: string
 ): RevalidationRule['paths'] {

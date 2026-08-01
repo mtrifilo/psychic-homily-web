@@ -12,6 +12,7 @@ import { CityFilters, type CityWithCount, type CityState } from '@/components/fi
 import { citiesParser, ALL_CITIES } from '@/components/filters/cityParams'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
   TagFacetPanel,
   TagFacetSheet,
@@ -266,11 +267,16 @@ export function VenueList() {
                   {data && allVenues.length < data.total && (
                     <div className="text-center py-6">
                       <Button
+                        // Inert as this stands, and kept for the same reason as
+                        // the ShowList button: `disabled` covers the whole
+                        // pre-hydration window, so there is no click to buffer
+                        // until that gate changes.
+                        {...replayOnHydrate}
                         variant="outline"
                         onClick={handleLoadMore}
-                        disabled={isFetching && isPlaceholderData}
+                        disabled={isFetching}
                       >
-                        {isFetching && isPlaceholderData ? 'Loading...' : 'Load More'}
+                        {isFetching ? 'Loading...' : 'Load More'}
                       </Button>
                     </div>
                   )}

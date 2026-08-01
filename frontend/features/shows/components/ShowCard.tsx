@@ -18,6 +18,7 @@ import {
 } from '@/lib/utils/formatters'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { ShowForm } from './ShowForm'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
@@ -355,6 +356,9 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                   {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
                     hasArtistMusic && (
                       <Button
+                        // In server HTML since PSY-1624: rows now paint before
+                        // hydration, so this is clickable while dead.
+                        {...replayOnHydrate}
                         variant="ghost"
                         size="sm"
                         onClick={() => setIsExpanded(!isExpanded)}
@@ -591,6 +595,9 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                 {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
                   hasArtistMusic && (
                     <Button
+                      // In server HTML since PSY-1624: rows now paint before
+                      // hydration, so this is clickable while dead.
+                      {...replayOnHydrate}
                       variant="ghost"
                       size="sm"
                       onClick={() => setIsExpanded(!isExpanded)}

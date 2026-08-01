@@ -49,9 +49,12 @@ interface FetchListPayloadOptions {
    *
    * Only the collection array is checked. Sibling fields are NOT validated, so
    * a `shows` payload that kept its rows but lost `pagination` still gets
-   * seeded; `ShowList` reads that field with a full optional chain for exactly
-   * that reason. Widening this into a per-collection required-key list is a
-   * reasonable next step — just don't assume from here that it happened.
+   * seeded. `ShowList` survives that because every read of `pagination` is
+   * fully optional-chained AND the Load More control is gated on one of those
+   * reads, so nothing dereferences it unguarded. That is a property of the
+   * consumer, not a guarantee from here. Widening this into a per-collection
+   * required-key list is a reasonable next step; do not assume from reading
+   * this that it already happened.
    */
   collection: 'shows' | 'venues' | 'scenes' | 'cities'
   /** Sentry `service` tag, and the prefix of the reported message. */
@@ -140,6 +143,10 @@ export async function fetchListPayload<T>({
     // with no Sentry event from here — and reach `ShowCard` through the seeded
     // cache, crashing the client render too. `lib/seo/fetchSeoList.ts` guards
     // the same hazard; this helper replaced it on `/shows` and has to keep it.
+    // `total` is deliberately left as the server reported it. It counts rows in
+    // the CATALOGUE, not rows in this page, so a dropped null makes the count
+    // label read "50 of 65" over 49 cards until the client revalidation lands.
+    // Adjusting it would be the wrong correction to the wrong number.
     const rows = items.filter(item => item != null)
     if (rows.length !== items.length) {
       Sentry.captureMessage(

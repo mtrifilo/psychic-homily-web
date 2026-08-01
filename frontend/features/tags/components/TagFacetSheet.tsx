@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Filter } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
   Sheet,
   SheetContent,
@@ -43,6 +44,11 @@ export function TagFacetSheet({
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button
+          // Server-rendered since PSY-1624 on /shows and /venues, so it is
+          // painted and clickable before React attaches Radix's handler. This
+          // is the primary filter affordance on mobile, so a dropped click here
+          // is the whole feature missing (PSY-1610).
+          {...replayOnHydrate}
           type="button"
           variant="outline"
           size="sm"

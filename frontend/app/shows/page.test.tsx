@@ -17,16 +17,11 @@ describe('getUpcomingShows', () => {
     expect(UPCOMING_SHOWS_LIMIT).toBeLessThanOrEqual(200)
   })
 
-  // Since PSY-1624 this number also sizes the server-rendered first screen,
-  // and `UPCOMING_SHOWS_FIRST_SCREEN_KEY` encodes NO `limit` — so the
-  // post-hydration revalidation asks for the endpoint's default. They agree
-  // only while this IS that default (`GET /shows/upcoming`, `default:"50"`).
-  // Raising it without changing what `ShowList` requests would server-render
-  // rows that visibly collapse on hydration; this is the assertion that stops
-  // that being a silent change.
-  it('equals the endpoint default, which the seeded key relies on', () => {
-    expect(UPCOMING_SHOWS_LIMIT).toBe(50)
-  })
+  // Deliberately NOT asserted equal to the endpoint default. The first screen
+  // is fetched separately from this ItemList (see `HydratedShowList`), so this
+  // number is free to move without dragging the server-rendered list with it.
+  // That independence is the point of the split; pinning it to 50 here would
+  // quietly recreate the coupling it removed.
 
   it('asks for the shows collection with an explicit limit', async () => {
     const shows = [{ slug: 'a-show', title: 'A Show', artists: [], venues: [] }]
@@ -35,7 +30,9 @@ describe('getUpcomingShows', () => {
     await expect(getUpcomingShows()).resolves.toEqual(shows)
     expect(fetchListPayload).toHaveBeenCalledWith({
       url: expect.stringMatching(
-        new RegExp(`/shows/upcoming\\?limit=${UPCOMING_SHOWS_LIMIT}$`)
+        new RegExp(
+          `/shows/upcoming\\?limit=${UPCOMING_SHOWS_LIMIT}&timezone=America%2FLos_Angeles$`
+        )
       ),
       collection: 'shows',
       service: 'shows-listing',

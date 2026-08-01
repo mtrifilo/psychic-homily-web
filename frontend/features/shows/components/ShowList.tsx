@@ -12,6 +12,7 @@ import type { ShowResponse } from '../types'
 import type { CityState } from '@/components/filters'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { DensityToggle } from '@/components/shared'
 import { useBrowserTimezone } from '@/lib/hooks/common/useBrowserTimezone'
 import { useDensity } from '@/lib/hooks/common/useDensity'
@@ -45,6 +46,15 @@ export function ShowList() {
   const isAdmin = user?.is_admin ?? false
   const [isPending, startTransition] = useTransition()
   const { data: profileData } = useProfile()
+  // NOTE (PSY-1624): `useDensity` reads localStorage through a server snapshot,
+  // so the server HTML and the hydration render are ALWAYS 'comfortable'. A
+  // viewer who chose compact or expanded now gets one whole-list re-layout on
+  // the commit after hydration, where before this ticket the cards first
+  // mounted post-hydration already holding the right value. Accepted rather
+  // than unnoticed: the alternative is either not server-rendering the rows
+  // (the thing this ticket exists to do) or persisting density somewhere the
+  // server can read, which is per-visitor state on a cacheable route. Bounding
+  // the shift by reserving row height across densities is the cheap follow-up.
   const { density, setDensity } = useDensity('shows')
 
   // Read favorites from profile — the per-user default city.
@@ -74,13 +84,14 @@ export function ShowList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  // `undefined` until the hydration render has committed, then the viewer's
-  // zone. Reading `Intl` directly here would key the server render on the
-  // SERVER's zone and the client's on the viewer's, so the server-seeded first
-  // screen (PSY-1624) could never be the entry this hook reads. Both requests
-  // below omit `timezone` on that first pass, and the API falls back to its
-  // documented UTC default; the viewer's zone arrives one render later and
-  // `keepPreviousData` holds the rows on screen while it refetches.
+  // The shared canonical zone until the hydration render has committed, then
+  // the viewer's own. Reading `Intl` directly here would key the server render
+  // on the SERVER's zone and the client's on the viewer's, so the server-seeded
+  // first screen (PSY-1624) could never be the entry this hook reads. Both
+  // requests below therefore send `CANONICAL_FIRST_SCREEN_TIMEZONE` on that
+  // first pass, which is where the seed is keyed; the viewer's zone arrives one
+  // render later and `keepPreviousData` holds the rows on screen while it
+  // refetches. PSY-1678 removes the parameter and this two-phase read with it.
   const timezone = useBrowserTimezone()
 
   // Any explicit selection (?cities=<pick>, ?cities=all, or legacy single-city)
@@ -172,11 +183,11 @@ export function ShowList() {
   )
 
   const handleLoadMore = useCallback(() => {
-    if (data?.pagination.next_cursor) {
+    if (data?.pagination?.next_cursor) {
       // Accumulate current shows before loading next page
       const currentShows = data.shows || []
       setAccumulatedShows(prev => [...prev, ...currentShows])
-      setCursor(data.pagination.next_cursor!)
+      setCursor(data.pagination!.next_cursor!)
     }
   }, [data])
 
@@ -464,11 +475,23 @@ export function ShowList() {
             {data?.pagination?.has_more && (
               <div className="text-center py-6">
                 <Button
+                  // The replay root is INERT as this stands, and kept on
+                  // purpose. `disabled` below is true through the whole
+                  // pre-hydration window (the seed is stale by construction, so
+                  // `isFetching` is set from the server render onward), and a
+                  // disabled button emits no click to buffer. Making it live
+                  // instead is what a reviewer asked for, and it regresses:
+                  // `e2e/pages/shows.spec.ts` "pagination loads more shows"
+                  // then clicks a painted-but-not-yet-wired button and times out
+                  // waiting for rows nothing requested, and this root does not
+                  // rescue it (bisected). Keep both together so re-enabling the
+                  // gate does not silently reinstate the swallowed click.
+                  {...replayOnHydrate}
                   variant="outline"
                   onClick={handleLoadMore}
-                  disabled={isFetching && isPlaceholderData}
+                  disabled={isFetching}
                 >
-                  {isFetching && isPlaceholderData ? 'Loading...' : 'Load More'}
+                  {isFetching ? 'Loading...' : 'Load More'}
                 </Button>
               </div>
             )}

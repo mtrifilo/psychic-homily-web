@@ -50,14 +50,18 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: () => ({ density: 'comfortable', setDensity: vi.fn() }),
 }))
 
-// `undefined` is what `useBrowserTimezone` returns on the SERVER render and
-// the hydration render — the commit this file is about. A plain `render()` is
-// neither, so the real hook would report the jsdom zone here and key the query
-// away from the seed. That the real hook resolves to `undefined` server-side is
-// pinned separately, by `useBrowserTimezone.test.tsx` via `renderToString`.
-vi.mock('@/lib/hooks/common/useBrowserTimezone', () => ({
-  useBrowserTimezone: () => undefined,
-}))
+// The canonical zone is what `useBrowserTimezone` reports on the SERVER render
+// and the hydration render, which is the commit this file is about. A plain
+// `render()` is neither, so the real hook would report the jsdom zone here and
+// key the query away from the seed. That the real hook resolves to this value
+// server-side is pinned separately, by `useBrowserTimezone.test.tsx` via
+// `renderToString`.
+vi.mock('@/lib/hooks/common/useBrowserTimezone', async () => {
+  const { CANONICAL_FIRST_SCREEN_TIMEZONE } = await import(
+    '@/lib/canonicalTimezone'
+  )
+  return { useBrowserTimezone: () => CANONICAL_FIRST_SCREEN_TIMEZONE }
+})
 
 vi.mock('@/components/filters/useGeoDefaultCity', () => ({
   useGeoDefaultCity: () => ({
@@ -154,18 +158,33 @@ describe('ShowList reading a server-seeded first screen', () => {
     expect(container.querySelector('.opacity-60')).toBeNull()
   })
 
-  it('renders Load More live, not a disabled "Loading…"', () => {
-    // Same trap as the dimming, one element over. The seed is stale, so
-    // `isFetching` is true on the first commit — and on the SERVER render too.
-    // Gating the button on raw `isFetching` shipped HTML whose pagination
-    // control was already dead and relabelled, which is both a broken control
-    // for the pre-hydration window and a page that tells a JS-less fetcher it
-    // is still loading.
+  it('holds Load More disabled while the seeded entry revalidates', () => {
+    // Deliberate, and the opposite of what it looks like. The seed is stale by
+    // construction, so `isFetching` is true on the first commit and in the
+    // server render, which means this control ships disabled and labelled
+    // "Loading...". An adversarial reviewer flagged that as a dead control in
+    // server HTML, and gating it on `isPlaceholderData` instead does make it
+    // live. It also makes it CLICKABLE BEFORE REACT ATTACHES, and that click is
+    // dropped: `e2e/pages/shows.spec.ts` "pagination loads more shows" fails
+    // exactly then, clicking a painted button and timing out waiting for rows
+    // that were never requested. The `replayOnHydrate` root below does not
+    // rescue it, which is measured rather than assumed (bisected: reverting
+    // only this gate turns that spec green again).
+    //
+    // So the honest state is "not ready yet" rather than a live control that
+    // eats the interaction. The cost is a JS-less fetcher seeing a disabled
+    // pagination button, which costs it nothing: every row it can reach without
+    // paginating is already in the HTML. Revisit alongside the replay
+    // primitive, not on its own.
     renderSeeded()
 
-    const button = screen.getByRole('button', { name: /load more/i })
-    expect(button).not.toBeDisabled()
-    expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+    // Queried by the "Loading..." label rather than "Load More", because that
+    // relabelling is part of the state being pinned here.
+    const button = screen.getByRole('button', { name: /loading/i })
+    expect(button).toBeDisabled()
+    // Kept regardless: the moment the gate above changes, this is what stops
+    // the pre-hydration click being silently swallowed.
+    expect(button).toHaveAttribute('data-replay-on-hydrate')
   })
 
   it('keeps the rows when a background revalidation fails', async () => {

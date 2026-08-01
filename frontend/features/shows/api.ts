@@ -7,6 +7,7 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
+import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 
 // ============================================================================
 // Endpoints
@@ -69,30 +70,45 @@ export const showQueryKeys = {
  * after the browser has downloaded, parsed and run the bundle.
  *
  * "First render" is doing real work in that sentence. `ShowList` derives its
- * city filter during render from three per-visitor sources — the `?cities=`
- * param, the signed-in viewer's `favorite_cities`, and the IP-geo default —
- * and asks for the viewer's timezone. None of that is knowable by a server
+ * city filter during render from three per-visitor sources (the `?cities=`
+ * param, the signed-in viewer's `favorite_cities`, and the IP-geo default) and
+ * asks for the viewer's timezone. None of that is knowable by a server
  * rendering one cacheable answer for everyone, so the seeded pair is the
- * CANONICAL one: no filter, no timezone. Two of the three resolve to exactly
- * that on a first render anyway (geo arrives from a later client fetch; a bare
- * URL contributes no filter), and the timezone is held to `undefined` through
- * hydration by `useBrowserTimezone`. The signed-in-with-favorites case and the
- * filtered deep link both miss this entry — the hook and the seed disagree, so
- * both render passes agree on the skeleton and the page behaves exactly as it
- * did before this existed. That is the failure mode by design: degraded, never
- * mismatched.
+ * CANONICAL one: no filter, and `CANONICAL_FIRST_SCREEN_TIMEZONE` in place of
+ * the viewer's zone. Two of the three filter sources resolve to exactly that on
+ * a first render anyway, since geo arrives from a later client fetch and a bare
+ * URL contributes no filter, and `useBrowserTimezone` reports the same
+ * canonical zone through hydration.
  *
- * URL and key are declared together because they only work as a pair, and the
- * pairing is unenforceable at the type level. `useShowsFirstScreen.test.tsx`
- * asserts the hooks really do register these keys against these URLs; the
- * sibling `useShows.test.tsx` cannot, because it `vi.mock`s this module and so
- * never sees the real constants. A drifted pair produces no error anywhere,
- * just a page that quietly stops being server-rendered.
+ * A filtered deep link, and a signed-in viewer whose `favorite_cities` apply,
+ * both MISS this entry. The hook and the seed disagree, so both render passes
+ * agree on the skeleton and those pages behave exactly as they did before this
+ * existed. That is the failure mode by design: degraded, never mismatched. The
+ * favourites case is an accepted limitation of this ticket rather than an
+ * oversight; giving it a server-rendered first screen means resolving
+ * per-visitor state on a cacheable route, which is a separate decision.
+ *
+ * The timezone is part of both the URL and the key, so the two must be built
+ * from one value. They are declared together for the same reason the pairing
+ * exists at all, and it is unenforceable at the type level:
+ * `useShowsFirstScreen.test.tsx` asserts the hooks really do register these
+ * keys against these URLs. The sibling `useShows.test.tsx` cannot, because it
+ * `vi.mock`s this module and so never sees the real constants. A drifted pair
+ * produces no error anywhere, just a page that quietly stops being
+ * server-rendered.
  */
-export const UPCOMING_SHOWS_FIRST_SCREEN_URL = showEndpoints.UPCOMING
+// Built with URLSearchParams rather than string concatenation so the encoding
+// matches the hooks byte for byte; they build their query strings the same way,
+// and `America/Los_Angeles` contains a slash that has to arrive as %2F on both
+// sides or the contract test is comparing two different URLs.
+const FIRST_SCREEN_TIMEZONE_PARAM = new URLSearchParams({
+  timezone: CANONICAL_FIRST_SCREEN_TIMEZONE,
+}).toString()
+
+export const UPCOMING_SHOWS_FIRST_SCREEN_URL = `${showEndpoints.UPCOMING}?${FIRST_SCREEN_TIMEZONE_PARAM}`
 
 export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
-  timezone: undefined,
+  timezone: CANONICAL_FIRST_SCREEN_TIMEZONE,
   cursor: undefined,
   limit: undefined,
   city: undefined,
@@ -102,6 +118,8 @@ export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
   tagMatch: undefined,
 })
 
-export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
+export const SHOW_CITIES_FIRST_SCREEN_URL = `${showEndpoints.CITIES}?${FIRST_SCREEN_TIMEZONE_PARAM}`
 
-export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities(undefined)
+export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities(
+  CANONICAL_FIRST_SCREEN_TIMEZONE
+)

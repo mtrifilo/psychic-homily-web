@@ -32,12 +32,16 @@ interface SeoListOptions {
  * Fetch a list that feeds only SEO enrichment, never user-visible content.
  *
  * THIS FAILS OPEN ON PURPOSE, and this is the one place that decision is made.
- * On `/shows`, `/venues` and `/artists` the list a human reads is client-
- * rendered inside `<Suspense>`; the server fetch here feeds a JSON-LD
- * `ItemList` and nothing else. Throwing would turn a backend blip into a 500 on
- * a page that works fine for humans, in order to protect a crawler enrichment.
- * Reporting to Sentry and rendering without the block keeps the failure visible
- * without making it the reader's problem.
+ * What it feeds is a JSON-LD `ItemList` and nothing else, so throwing would
+ * turn a backend blip into a 500 on a page that works fine for humans, in order
+ * to protect a crawler enrichment. Reporting to Sentry and rendering without
+ * the block keeps the failure visible without making it the reader's problem.
+ *
+ * Read the "and nothing else" literally, because PSY-1624 narrowed it. The
+ * human-visible list is now server-rendered on `/shows` and `/venues`, but from
+ * `lib/ssr/fetchListPayload.ts`, not from here: `/venues` still calls this for
+ * its `ItemList` alongside that, and `/shows` no longer calls it at all.
+ * `/artists` is the last page where the list a human reads is client-only.
  *
  * The opposite call is right whenever the fetch IS the artifact — see
  * `app/sitemap.ts`, where an empty document is a false success, so the fetch

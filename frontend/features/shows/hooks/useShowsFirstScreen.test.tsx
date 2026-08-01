@@ -19,6 +19,7 @@ import {
   UPCOMING_SHOWS_FIRST_SCREEN_KEY,
   UPCOMING_SHOWS_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
+import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 import { useShowCities, useUpcomingShows } from './useShows'
 
 /**
@@ -31,8 +32,10 @@ import { useShowCities, useUpcomingShows } from './useShows'
  * with no error anywhere. These tests are the only thing standing between that
  * regression and production.
  *
- * "Bare `/shows`" means no filters and — because `useBrowserTimezone` holds it
- * to `undefined` through hydration — no timezone.
+ * "Bare `/shows`" means no filters, and the canonical timezone rather than the
+ * viewer's, because that is what `useBrowserTimezone` reports through the
+ * hydration render. Passing it explicitly here is the point: these hooks must
+ * land on the seeded entry when handed exactly what that render hands them.
  */
 describe('shows first-screen prefetch contract', () => {
   beforeEach(() => {
@@ -44,9 +47,10 @@ describe('shows first-screen prefetch contract', () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], pagination: {}, total: 0 })
     const queryClient = createTestQueryClient()
 
-    const { result } = renderHook(() => useUpcomingShows({}), {
-      wrapper: createWrapperWithClient(queryClient),
-    })
+    const { result } = renderHook(
+      () => useUpcomingShows({ timezone: CANONICAL_FIRST_SCREEN_TIMEZONE }),
+      { wrapper: createWrapperWithClient(queryClient) },
+    )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
@@ -66,9 +70,10 @@ describe('shows first-screen prefetch contract', () => {
     mockApiRequest.mockResolvedValueOnce({ cities: [] })
     const queryClient = createTestQueryClient()
 
-    const { result } = renderHook(() => useShowCities({}), {
-      wrapper: createWrapperWithClient(queryClient),
-    })
+    const { result } = renderHook(
+      () => useShowCities({ timezone: CANONICAL_FIRST_SCREEN_TIMEZONE }),
+      { wrapper: createWrapperWithClient(queryClient) },
+    )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
@@ -81,21 +86,23 @@ describe('shows first-screen prefetch contract', () => {
     expect(cached[0].queryHash).toBe(hashKey(SHOW_CITIES_FIRST_SCREEN_KEY))
   })
 
-  it('a timezone moves the request off the first-screen entry', async () => {
+  it('a DIFFERENT timezone moves the request off the first-screen entry', async () => {
     mockApiRequest.mockResolvedValue({ shows: [], pagination: {}, total: 0 })
     const queryClient = createTestQueryClient()
 
     const { result } = renderHook(
-      () => useUpcomingShows({ timezone: 'America/Phoenix' }),
+      () => useUpcomingShows({ timezone: 'America/New_York' }),
       { wrapper: createWrapperWithClient(queryClient) },
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    // The counterpart of the two tests above: this is what the page would get
-    // if the server rendered with its OWN zone, or if ShowList read `Intl`
-    // during render again. Server HTML and hydration would then disagree —
-    // hence `useBrowserTimezone`.
+    // The counterpart of the two tests above, and the reason the canonical zone
+    // has to be a shared constant rather than a value each side picks. This is
+    // the post-hydration refinement: a real viewer zone keys elsewhere, which
+    // is correct. It would also be what the SERVER produced if it read `Intl`
+    // directly, and then the server HTML and the hydration render would
+    // disagree.
     expect(queryClient.getQueryCache().getAll()[0].queryHash).not.toBe(
       hashKey(UPCOMING_SHOWS_FIRST_SCREEN_KEY),
     )
