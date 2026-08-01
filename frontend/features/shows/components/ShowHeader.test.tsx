@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { ArtistResponse, ShowResponse } from '../types'
+import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({ isAuthenticated: false, user: undefined }),
@@ -111,12 +111,15 @@ describe('ShowHeader bill rendering', () => {
       expect(supportLineText()).toContain('Later Act')
     })
 
-    it('keeps API order for artists sharing a position (legacy all-zero rows)', () => {
+    // Ties are produced by show merges, which re-point a loser show's
+    // show_artists rows onto the winner carrying their own positions. The
+    // backend's ORDER BY has no tiebreaker, so the client must impose one.
+    it('breaks position ties on id so tied artists render deterministically', () => {
       const show = makeShow({
         artists: [
           makeArtist({ id: 1, name: 'Alpha', slug: 'alpha', set_type: 'headliner', position: 0 }),
-          makeArtist({ id: 2, name: 'Bravo', slug: 'bravo', position: 0 }),
           makeArtist({ id: 3, name: 'Charlie', slug: 'charlie', position: 0 }),
+          makeArtist({ id: 2, name: 'Bravo', slug: 'bravo', position: 0 }),
         ],
       })
 
@@ -163,6 +166,28 @@ describe('ShowHeader bill rendering', () => {
       render(<ShowHeader show={show} />)
 
       expect(screen.getByText('(special guest)')).toBeInTheDocument()
+    })
+
+    // `set_type` is a bare string on the wire over an unconstrained VARCHAR
+    // column, so a hostile/corrupt value must not resolve through the
+    // prototype chain and crash the render.
+    it('renders no annotation for a set_type that is not in the label map', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
+          makeArtist({
+            id: 2,
+            name: 'Odd One',
+            slug: 'odd',
+            set_type: '__proto__' as SetType,
+            position: 1,
+          }),
+        ],
+      })
+
+      expect(() => render(<ShowHeader show={show} />)).not.toThrow()
+      expect(supportLineText()).toContain('Odd One')
+      expect(supportLineText()).not.toMatch(/\(/)
     })
 
     it('leaves generic performers unannotated', () => {

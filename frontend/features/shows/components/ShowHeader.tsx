@@ -8,27 +8,38 @@ import { ShowAddToCalendar } from './ShowAddToCalendar'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 /**
- * Bill order lives in `show_artists.position`. The API sorts by it today, so
- * this is a defensive re-assertion against a caller, cache layer, or future
- * query handing us a different order. `sort` is stable, so legacy rows that
- * all share position 0 keep the order the API sent.
+ * Bill order lives in `show_artists.position`. Every backend read path already
+ * sorts by it (`buildShowResponse`, `loadShowArtistResponses`), so this is a
+ * defensive re-assertion against a caller, cache layer, or future query handing
+ * us a different order.
+ *
+ * Ties are real — a show merge re-points the loser's `show_artists` rows onto
+ * the winner carrying their own 0..n positions — and the backend's
+ * `ORDER BY position ASC` has no tiebreaker, so Postgres may order tied rows
+ * differently between requests. Break the tie on `id` here so the rendered
+ * bill is at least deterministic client-side.
  */
 function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
-  return a.position - b.position
+  return a.position - b.position || a.id - b.id
 }
 
 /**
- * Support-line annotations for the set types that carry meaning beyond "not
- * the headliner". `performer` is deliberately unannotated — it is the
- * default, and labelling it would add noise to every bill.
+ * Support-line annotations, keyed by `set_type`.
+ *
+ * A `Map` rather than an object literal on purpose: `set_type` is a bare
+ * `string` on the wire (see `types/api.d.ts`) over an unconstrained VARCHAR
+ * column, and the `SetType` union here is a hand-maintained narrowing that
+ * nothing validates at runtime. An object lookup would walk the prototype
+ * chain, so a stored `__proto__` would resolve to `Object.prototype` and
+ * crash the server render; `Map.get` has no such hole.
  */
-const SUPPORT_SET_TYPE_LABELS: Partial<Record<SetType, string>> = {
-  opener: 'opener',
-  special_guest: 'special guest',
-}
+const SUPPORT_SET_TYPE_LABELS = new Map<string, string>([
+  ['opener', 'opener'],
+  ['special_guest', 'special guest'],
+])
 
 function SupportSetTypeLabel({ setType }: { setType: SetType }) {
-  const label = SUPPORT_SET_TYPE_LABELS[setType]
+  const label = SUPPORT_SET_TYPE_LABELS.get(setType)
   if (!label) return null
   return (
     <span className="text-sm text-muted-foreground/70 italic"> ({label})</span>
