@@ -834,6 +834,98 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_EventDate_UTC() {
 		"event_date should represent the same instant after UTC conversion")
 }
 
+// TestCreateShow_ShowTimesDefaultToNull pins the common case: most shows have
+// no announced doors/music time, and the response must say "unknown" rather
+// than fall back to event_date (PSY-1681).
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ShowTimesDefaultToNull() {
+	created := suite.createTestShow()
+
+	suite.Nil(created.DoorsAt, "doors_at should be null when not supplied")
+	suite.Nil(created.MusicAt, "music_at should be null when not supplied")
+
+	fetched, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Nil(fetched.DoorsAt)
+	suite.Nil(fetched.MusicAt)
+}
+
+// TestCreateShow_PersistsShowTimes covers the create path end to end: supplied
+// in a non-UTC zone, stored UTC-normalized like event_date, and readable back
+// through GetShow (not just the create response, which is built in-transaction).
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PersistsShowTimes() {
+	eastern, err := time.LoadLocation("America/New_York")
+	suite.Require().NoError(err)
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, eastern)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
+
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.DoorsAt = &doors
+		req.MusicAt = &music
+	})
+
+	suite.Require().NotNil(created.DoorsAt)
+	suite.Require().NotNil(created.MusicAt)
+	suite.Equal(time.UTC, created.DoorsAt.Location(), "doors_at should be stored UTC-normalized")
+	suite.Equal(time.UTC, created.MusicAt.Location(), "music_at should be stored UTC-normalized")
+
+	fetched, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.DoorsAt)
+	suite.Require().NotNil(fetched.MusicAt)
+	suite.Equal(doors.Unix(), fetched.DoorsAt.Unix())
+	suite.Equal(music.Unix(), fetched.MusicAt.Unix())
+}
+
+// TestUpdateShow_ShowTimes covers the edit path, including the partial-update
+// contract: an omitted field must leave the stored value alone rather than
+// clearing it.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ShowTimes() {
+	created := suite.createTestShow()
+
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
+
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		DoorsAt: &doors,
+		MusicAt: &music,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Require().NotNil(resp.MusicAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Equal(music.Unix(), resp.MusicAt.Unix())
+
+	// Editing an unrelated field must not disturb the times.
+	resp, err = suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Title: stringPtr("Retitled"),
+	})
+	suite.Require().NoError(err)
+	suite.Equal("Retitled", resp.Title)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Require().NotNil(resp.MusicAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Equal(music.Unix(), resp.MusicAt.Unix())
+}
+
+// TestUpdateShowWithRelations_PreservesShowTimes guards the relations path,
+// which rebuilds the response from a separate builder than UpdateShow's.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_PreservesShowTimes() {
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.DoorsAt = &doors
+	})
+
+	newArtists := []contracts.CreateShowArtist{
+		{Name: "Replacement Headliner", IsHeadliner: boolPtr(true)},
+	}
+	resp, _, err := suite.showService.UpdateShowWithRelations(created.ID, nil, nil, newArtists, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Nil(resp.MusicAt)
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_ReplaceArtists() {
 	created := suite.createTestShow()
 

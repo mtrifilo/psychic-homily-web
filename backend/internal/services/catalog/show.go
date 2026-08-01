@@ -35,6 +35,18 @@ func fnvHash(s string) int64 {
 	return int64(h.Sum64())
 }
 
+// utcOrNil normalizes an optional instant to UTC, preserving nil. Show times
+// are stored UTC-normalized for the same reason event_date is: every read path
+// renders them back through the venue's timezone, so a request-supplied offset
+// must not survive into the column (PSY-1681).
+func utcOrNil(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	utc := t.UTC()
+	return &utc
+}
+
 // ShowService handles show-related business logic
 type ShowService struct {
 	db *gorm.DB
@@ -81,6 +93,8 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		show := &catalogm.Show{
 			Title:          req.Title,
 			EventDate:      req.EventDate.UTC(), // Ensure UTC storage
+			DoorsAt:        utcOrNil(req.DoorsAt),
+			MusicAt:        utcOrNil(req.MusicAt),
 			City:           &req.City,
 			State:          &req.State,
 			Price:          req.Price,
@@ -156,6 +170,8 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			Slug:            slug,
 			Title:           show.Title,
 			EventDate:       show.EventDate,
+			DoorsAt:         show.DoorsAt,
+			MusicAt:         show.MusicAt,
 			City:            show.City,
 			State:           show.State,
 			Price:           show.Price,
@@ -426,6 +442,12 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 	if req.EventDate != nil {
 		updates["event_date"] = req.EventDate.UTC()
 	}
+	if req.DoorsAt != nil {
+		updates["doors_at"] = req.DoorsAt.UTC()
+	}
+	if req.MusicAt != nil {
+		updates["music_at"] = req.MusicAt.UTC()
+	}
 	if req.City != nil {
 		updates["city"] = *req.City
 	}
@@ -690,6 +712,8 @@ func (s *ShowService) buildUpdatedShowResponse(
 		ID:              show.ID,
 		Title:           show.Title,
 		EventDate:       show.EventDate,
+		DoorsAt:         show.DoorsAt,
+		MusicAt:         show.MusicAt,
 		City:            show.City,
 		State:           show.State,
 		Price:           show.Price,
@@ -2055,6 +2079,8 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 		Slug:              showSlug,
 		Title:             show.Title,
 		EventDate:         show.EventDate,
+		DoorsAt:           show.DoorsAt,
+		MusicAt:           show.MusicAt,
 		City:              show.City,
 		State:             show.State,
 		Price:             show.Price,

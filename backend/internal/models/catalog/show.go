@@ -69,6 +69,15 @@ type Show struct {
 	// Duplicate detection (for discovery imports flagged as potential duplicates)
 	DuplicateOfShowID *uint `gorm:"column:duplicate_of_show_id"`
 
+	// Doors and first-set times (optional, PSY-1681). Display detail for the
+	// show page's "DOORS 7PM · MUSIC 8PM" line, not a second source of truth
+	// for when the show is: EventDate remains the canonical instant that
+	// sorting, dedup, slugs, and structured data all read. Nil means unknown,
+	// which is the common case, so the UI omits the segment rather than
+	// guessing. Pointers keep the GORM zero-value trap out of the picture.
+	DoorsAt *time.Time `json:"doors_at,omitempty" gorm:"column:doors_at"`
+	MusicAt *time.Time `json:"music_at,omitempty" gorm:"column:music_at"`
+
 	// Ticket URL (optional)
 	TicketURL *string `json:"ticket_url,omitempty" gorm:"type:varchar(500)"`
 

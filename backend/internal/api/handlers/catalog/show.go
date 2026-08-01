@@ -89,14 +89,18 @@ func initializeArtist(a *Artist) {
 
 // CreateShowRequestBody represents the request body with preprocessing
 type CreateShowRequestBody struct {
-	Title          *string   `json:"title,omitempty" doc:"Show title (optional)"`
-	EventDate      time.Time `json:"event_date" validate:"required" doc:"Event date and time"`
-	City           string    `json:"city" doc:"City where the show takes place"`
-	State          string    `json:"state" doc:"State where the show takes place"`
-	Price          *float64  `json:"price,omitempty" doc:"Ticket price"`
-	AgeRequirement *string   `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
-	Description    *string   `json:"description,omitempty" doc:"Show description" required:"false"`
-	TicketURL      *string   `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
+	Title     *string   `json:"title,omitempty" doc:"Show title (optional)"`
+	EventDate time.Time `json:"event_date" validate:"required" doc:"Event date and time"`
+	// DoorsAt / MusicAt are optional display times. They do not replace
+	// EventDate, which stays the show's canonical instant.
+	DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
+	MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
+	City           string     `json:"city" doc:"City where the show takes place"`
+	State          string     `json:"state" doc:"State where the show takes place"`
+	Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
+	AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
+	Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
+	TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
 	// NOTE: `validate:"..."` tags are NOT enforced here — huma reads its own schema
 	// tags (minItems/maxItems/...), not go-playground `validate`, and this repo wires
 	// no validator. The real per-field validation is the Resolve method below, where
@@ -338,8 +342,12 @@ type GetUpcomingShowsResponse struct {
 type UpdateShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
 	Body   struct {
-		Title          *string    `json:"title,omitempty" doc:"Show title"`
-		EventDate      *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
+		Title     *string    `json:"title,omitempty" doc:"Show title"`
+		EventDate *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
+		// Omitting doors_at / music_at leaves the stored value unchanged;
+		// there is no clear-back-to-null signal yet (PSY-1681).
+		DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
+		MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
 		City           *string    `json:"city,omitempty" doc:"City where the show takes place"`
 		State          *string    `json:"state,omitempty" doc:"State where the show takes place"`
 		Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
@@ -450,6 +458,8 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	serviceReq := &contracts.CreateShowRequest{
 		Title:             title,
 		EventDate:         req.Body.EventDate,
+		DoorsAt:           req.Body.DoorsAt,
+		MusicAt:           req.Body.MusicAt,
 		City:              req.Body.City,
 		State:             req.Body.State,
 		Price:             req.Body.Price,
@@ -914,6 +924,8 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	serviceUpdates := &contracts.UpdateShowRequest{
 		Title:          req.Body.Title,
 		EventDate:      req.Body.EventDate,
+		DoorsAt:        req.Body.DoorsAt,
+		MusicAt:        req.Body.MusicAt,
 		City:           req.Body.City,
 		State:          req.Body.State,
 		Price:          req.Body.Price,
