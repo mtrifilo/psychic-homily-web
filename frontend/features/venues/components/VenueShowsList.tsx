@@ -14,7 +14,6 @@ import { NotifyMeButton } from '@/features/notifications'
 import { dedupVenueShows, ShowForm } from '@/features/shows'
 import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
 import { useVenueShows } from '../hooks/useVenues'
-import { VenueAddToCalendar } from './VenueAddToCalendar'
 import {
   VENUE_SHOWS_PAGE_LIMIT,
   VENUE_SHOWS_VIEWER_TIMEZONE,
@@ -183,22 +182,7 @@ export function VenueShowsList({
   return (
     <div className={className}>
       <section>
-        {/* The ICS feed syndicates this list, so its affordance lives on this
-            header — not with the entity action row's relationship verbs, which
-            "Subscribe" read as a synonym of. */}
-        <SectionHeader
-          title="Upcoming shows"
-          as="h2"
-          size="md"
-          action={
-            venueSlug ? (
-              <VenueAddToCalendar
-                venueSlug={venueSlug}
-                venueName={venueName}
-              />
-            ) : undefined
-          }
-        />
+        <SectionHeader title="Upcoming shows" as="h2" size="md" />
         {upcoming.isLoading ? (
           <ShowsLoader />
         ) : upcoming.error ? (

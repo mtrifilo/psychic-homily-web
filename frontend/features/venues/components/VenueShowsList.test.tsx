@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { VenueShow } from '../types'
@@ -175,16 +175,6 @@ describe('VenueShowsList — upcoming section', () => {
   it('renders the Upcoming shows section header always', () => {
     renderList()
     expect(screen.getByTestId('section-header-Upcoming shows')).toBeInTheDocument()
-  })
-
-  // Placement is the design decision: the feed affordance belongs to the
-  // show list it syndicates, not the entity action row.
-  it('renders the [Add to calendar] affordance inside the Upcoming shows header', () => {
-    renderList({ venueSlug: 'the-rebel-lounge' })
-    const header = screen.getByTestId('section-header-Upcoming shows')
-    expect(
-      within(header).getByRole('button', { name: 'Add to calendar' })
-    ).toBeInTheDocument()
   })
 
   it('shows a loader while upcoming shows are loading', () => {
