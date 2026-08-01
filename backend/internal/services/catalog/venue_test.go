@@ -197,6 +197,69 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SetsCapacity() {
 	suite.Equal(800, *updated.Capacity)
 }
 
+// PSY-1682: the venue's house-default age policy round-trips through create.
+func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_CarriesAgePolicy() {
+	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name:      "All Ages Room",
+		City:      "Phoenix",
+		State:     "AZ",
+		AgePolicy: stringPtr("all ages"),
+	}, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.AgePolicy)
+	suite.Equal("all ages", *resp.AgePolicy)
+}
+
+// PSY-1682: an explicitly-empty age policy means "no house default", which must
+// land as SQL NULL — otherwise a blank policy reads downstream as a known one.
+func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_EmptyAgePolicyStoresNull() {
+	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name:      "Blank Policy Room",
+		City:      "Phoenix",
+		State:     "AZ",
+		AgePolicy: stringPtr(""),
+	}, true)
+
+	suite.Require().NoError(err)
+	suite.Nil(resp.AgePolicy, "empty age policy must persist as NULL, not an empty string")
+
+	var stored catalogm.Venue
+	suite.Require().NoError(suite.db.First(&stored, resp.ID).Error)
+	suite.Nil(stored.AgePolicy)
+}
+
+// PSY-1682: age policy is settable and clearable through update — the community
+// edit flow's clear gesture arrives as an empty string.
+func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SetsAndClearsAgePolicy() {
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name: "Policy Churn", City: "Tempe", State: "AZ",
+	}, true)
+	suite.Require().NoError(err)
+	suite.Require().Nil(created.AgePolicy)
+
+	updated, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		AgePolicy: stringPtr("21+"),
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(updated.AgePolicy)
+	suite.Equal("21+", *updated.AgePolicy)
+
+	// A nil AgePolicy means "leave unchanged", not "clear".
+	untouched, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		Name: stringPtr("Policy Churn"),
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(untouched.AgePolicy)
+	suite.Equal("21+", *untouched.AgePolicy)
+
+	cleared, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		AgePolicy: stringPtr(""),
+	})
+	suite.Require().NoError(err)
+	suite.Nil(cleared.AgePolicy, "empty string must clear the policy to NULL")
+}
+
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_AdminAutoVerified() {
 	req := &contracts.CreateVenueRequest{
 		Name:  "Admin Venue",
@@ -909,9 +972,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_Unverified
 		Name:     "Hidden Address",
 		City:     "Phoenix",
 		State:    "AZ",
-		Address:  stringPtr("Secret St"),
-		Zipcode:  stringPtr("85001"),
-		Capacity: intPtr(300),
+		Address:   stringPtr("Secret St"),
+		Zipcode:   stringPtr("85001"),
+		Capacity:  intPtr(300),
+		AgePolicy: stringPtr("all ages"),
 	}, false) // non-admin = unverified
 
 	suite.Require().NoError(err)
@@ -922,6 +986,10 @@ func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_Unverified
 	// always compares capacity).
 	suite.Require().NotNil(resp.Capacity, "capacity should NOT be hidden for unverified venues")
 	suite.Equal(300, *resp.Capacity)
+	// PSY-1682: an age policy is a public-facing door rule, not a location
+	// detail — it follows capacity, not address.
+	suite.Require().NotNil(resp.AgePolicy, "age policy should NOT be hidden for unverified venues")
+	suite.Equal("all ages", *resp.AgePolicy)
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_VerifiedShowsAddress() {

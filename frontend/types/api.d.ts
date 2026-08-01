@@ -7077,6 +7077,8 @@ export interface components {
             readonly $schema?: string;
             /** @description Street address */
             address?: string | null;
+            /** @description House-default age policy, e.g. all ages, 17+, 21+ */
+            age_policy?: string | null;
             /** @description Bandcamp URL */
             bandcamp?: string | null;
             /**
@@ -16526,6 +16528,8 @@ export interface components {
             readonly $schema?: string;
             /** @description Venue address */
             address?: string;
+            /** @description House-default age policy, e.g. all ages, 17+, 21+ (max 100) */
+            age_policy?: string;
             /** @description Bandcamp URL */
             bandcamp?: string;
             /**
@@ -16811,6 +16815,7 @@ export interface components {
              */
             readonly $schema?: string;
             address: string | null;
+            age_policy: string | null;
             /** Format: int64 */
             capacity: number | null;
             city: string;
@@ -16883,6 +16888,9 @@ export interface components {
         };
         VenueResponse: {
             address: string | null;
+            age_policy: string | null;
+            /** Format: int64 */
+            capacity: number | null;
             city: string;
             /** Format: int64 */
             id: number;
@@ -16908,6 +16916,7 @@ export interface components {
         };
         VenueWithShowCountResponse: {
             address: string | null;
+            age_policy: string | null;
             /** Format: int64 */
             capacity: number | null;
             city: string;

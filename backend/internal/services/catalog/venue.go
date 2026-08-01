@@ -216,6 +216,14 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		return count > 0
 	})
 
+	// PSY-1682: an explicitly-empty age policy means "no house default", which
+	// is SQL NULL — storing '' would make a blank policy read as a present one.
+	// Same normalization the update path applies via utils.NilIfEmpty.
+	agePolicy := req.AgePolicy
+	if agePolicy != nil {
+		agePolicy = utils.NilIfEmpty(*agePolicy)
+	}
+
 	// Create the venue - verified if created by admin, unverified otherwise
 	venue := &catalogm.Venue{
 		Name:        req.Name,
@@ -226,6 +234,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		Country:     req.Country,
 		Zipcode:     req.Zipcode,
 		Capacity:    req.Capacity,
+		AgePolicy:   agePolicy,
 		Description: req.Description,
 		ImageURL:    req.ImageURL,
 		Verified:    isAdmin, // Admins create verified venues, non-admins require approval
@@ -426,6 +435,11 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	}
 	if req.Capacity != nil {
 		updates["capacity"] = *req.Capacity
+	}
+	// PSY-1682: nullable free text — an empty string is the CLEAR gesture and
+	// must land as SQL NULL, matching Description/ImageURL below.
+	if req.AgePolicy != nil {
+		updates["age_policy"] = utils.NilIfEmpty(*req.AgePolicy)
 	}
 	if req.Instagram != nil {
 		updates["instagram"] = *req.Instagram
@@ -800,7 +814,8 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 		GeocodePrecision: geocodePrecision,
 		Timezone:         venue.Timezone,
 		Zipcode:          zipcode,
-		Capacity:         venue.Capacity, // not redacted — capacity is not sensitive
+		Capacity:         venue.Capacity,  // not redacted — capacity is not sensitive
+		AgePolicy:        venue.AgePolicy, // not redacted — a house age policy is public-facing
 		Description:      venue.Description,
 		ImageURL:         venue.ImageURL,
 		Verified:         venue.Verified,

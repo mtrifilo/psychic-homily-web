@@ -19,6 +19,17 @@ func TestAllowedEditFields_KnownTypes(t *testing.T) {
 	}
 }
 
+// TestAllowedEditFields_VenueAgePolicyEditable pins PSY-1682's contribution
+// surface: the venue's house-default age policy is community-curated (like
+// capacity was NOT — capacity is admin-only because it is an int the
+// string-valued pending-edit pipeline cannot carry). Dropping it from the
+// allowlist would silently auto-reject every submitted age-policy edit.
+func TestAllowedEditFields_VenueAgePolicyEditable(t *testing.T) {
+	fields, ok := AllowedEditFields(PendingEditEntityVenue)
+	assert.True(t, ok)
+	assert.Truef(t, fields["age_policy"], "age_policy must stay on the venue allowlist and in sync with frontend EDITABLE_FIELDS.venue")
+}
+
 func TestAllowedEditFields_UnknownTypeReturnsFalse(t *testing.T) {
 	fields, ok := AllowedEditFields("show")
 	assert.False(t, ok)

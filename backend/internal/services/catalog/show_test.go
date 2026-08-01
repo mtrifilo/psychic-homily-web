@@ -460,6 +460,56 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_Success() {
 	suite.Len(resp.Artists, 1)
 }
 
+// PSY-1682: the show page's venue module renders capacity and the venue's
+// house-default age policy inline, so show detail must carry both on its
+// embedded venue rather than forcing a second fetch of the venue endpoint.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_EmbeddedVenueCarriesCapacityAndAgePolicy() {
+	created := suite.createTestShow()
+	suite.Require().Len(created.Venues, 1)
+
+	// The drawer/admin write path is exercised elsewhere; here we only need the
+	// columns populated so the read path has something to surface.
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", created.Venues[0].ID).
+		Updates(map[string]interface{}{"capacity": 3600, "age_policy": "all ages"}).Error)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Require().NotNil(resp.Venues[0].Capacity)
+	suite.Equal(3600, *resp.Venues[0].Capacity)
+	suite.Require().NotNil(resp.Venues[0].AgePolicy)
+	suite.Equal("all ages", *resp.Venues[0].AgePolicy)
+}
+
+// PSY-1682: neither field is sensitive, so unlike Address they are served for
+// unverified venues too. Asserting this explicitly stops a future redaction
+// sweep from quietly folding them into the address gate.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_UnverifiedVenueStillCarriesCapacityAndAgePolicy() {
+	created := suite.createTestShow()
+	suite.Require().Len(created.Venues, 1)
+
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", created.Venues[0].ID).
+		Updates(map[string]interface{}{
+			"verified":   false,
+			"address":    "123 Secret St",
+			"capacity":   250,
+			"age_policy": "21+",
+		}).Error)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Nil(resp.Venues[0].Address, "address stays redacted for unverified venues")
+	suite.Require().NotNil(resp.Venues[0].Capacity)
+	suite.Equal(250, *resp.Venues[0].Capacity)
+	suite.Require().NotNil(resp.Venues[0].AgePolicy)
+	suite.Equal("21+", *resp.Venues[0].AgePolicy)
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestGetShow_NotFound() {
 	resp, err := suite.showService.GetShow(99999)
 

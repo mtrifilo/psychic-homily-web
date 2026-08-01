@@ -161,3 +161,81 @@ describe('EntityEditDrawer URL validation (PSY-599)', () => {
     expect(screen.queryByTestId('edit-instagram-error')).not.toBeInTheDocument()
   })
 })
+
+// PSY-1682: the venue's HOUSE DEFAULT age policy is curated through the same
+// suggest-edit drawer as every other venue text field. The per-event override
+// lives on the show's `age_requirement` and is edited on the show, not here.
+describe('EntityEditDrawer venue age policy (PSY-1682)', () => {
+  const venueProps = {
+    open: true,
+    onOpenChange: vi.fn(),
+    entityType: 'venue' as const,
+    entityId: 7,
+    entityName: 'Crescent Ballroom',
+    entity: { name: 'Crescent Ballroom', age_policy: '' } as Record<string, unknown>,
+    canEditDirectly: false,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function fillSummary(text = 'Confirmed the house age policy with the venue') {
+    fireEvent.change(screen.getByLabelText(/Why are you making this change/), {
+      target: { value: text },
+    })
+  }
+
+  it('exposes an Age Policy input on the venue drawer', () => {
+    renderWithProviders(<EntityEditDrawer {...venueProps} />)
+
+    expect(screen.getByTestId('edit-age_policy-input')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Age Policy$/)).toBeInTheDocument()
+  })
+
+  it('submits a newly set age policy as a field change', () => {
+    renderWithProviders(<EntityEditDrawer {...venueProps} />)
+
+    fireEvent.change(screen.getByTestId('edit-age_policy-input'), {
+      target: { value: 'all ages' },
+    })
+    fillSummary()
+
+    const submit = screen.getByRole('button', { name: /Submit for Review/i })
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    const payload = mockMutate.mock.calls[0][0]
+    expect(payload.entityType).toBe('venue')
+    expect(payload.entityId).toBe(7)
+    expect(payload.changes).toEqual([
+      { field: 'age_policy', old_value: null, new_value: 'all ages' },
+    ])
+  })
+
+  it('sends new_value null when an existing age policy is cleared', () => {
+    // Clearing is the gesture that says "this room has no standing rule".
+    // It must reach the server as null so the column goes back to NULL rather
+    // than persisting an empty string that reads as a known blank policy.
+    renderWithProviders(
+      <EntityEditDrawer
+        {...venueProps}
+        entity={{ name: 'Crescent Ballroom', age_policy: '21+' }}
+      />
+    )
+
+    const input = screen.getByTestId('edit-age_policy-input') as HTMLInputElement
+    expect(input.value).toBe('21+')
+
+    fireEvent.change(input, { target: { value: '' } })
+    fillSummary('Venue dropped its 21+ policy')
+
+    fireEvent.click(screen.getByRole('button', { name: /Submit for Review/i }))
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(mockMutate.mock.calls[0][0].changes).toEqual([
+      { field: 'age_policy', old_value: '21+', new_value: null },
+    ])
+  })
+})

@@ -56,6 +56,7 @@ var (
 		{Name: "state", Path: "State"},
 		{Name: "zipcode", Path: "Zipcode"},
 		{Name: "capacity", Path: "Capacity"},
+		{Name: "age_policy", Path: "AgePolicy"},
 		{Name: "instagram", Path: "Social.Instagram"},
 		{Name: "facebook", Path: "Social.Facebook"},
 		{Name: "twitter", Path: "Social.Twitter"},

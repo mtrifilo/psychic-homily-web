@@ -110,13 +110,24 @@ type ShowResponse struct {
 
 // VenueResponse represents venue data in show responses
 type VenueResponse struct {
-	ID         uint    `json:"id"`
-	Slug       string  `json:"slug"`
-	Name       string  `json:"name"`
-	Address    *string `json:"address"`
-	City       string  `json:"city"`
-	State      string  `json:"state"`
-	Timezone   *string `json:"timezone"`     // IANA zone for rendering this show's time in venue-local time (PSY-985)
+	ID       uint    `json:"id"`
+	Slug     string  `json:"slug"`
+	Name     string  `json:"name"`
+	Address  *string `json:"address"`
+	City     string  `json:"city"`
+	State    string  `json:"state"`
+	Timezone *string `json:"timezone"` // IANA zone for rendering this show's time in venue-local time (PSY-985)
+	// Capacity and AgePolicy (PSY-1682) are the venue facts the show page's
+	// venue module renders inline, so show detail carries them rather than
+	// forcing a second round trip to the venue endpoint. Both are nullable and
+	// neither is sensitive, so — like on VenueDetailResponse — they are served
+	// for unverified venues too (unlike Address, redacted above).
+	//
+	// AgePolicy is the venue's HOUSE DEFAULT. The show's own age_requirement is
+	// the per-event override; consumers render the override and may cite this as
+	// the default it departs from.
+	Capacity   *int    `json:"capacity"`
+	AgePolicy  *string `json:"age_policy"`
 	Verified   bool    `json:"verified"`     // Admin-verified as legitimate venue
 	IsNewVenue *bool   `json:"is_new_venue"` // True if venue was created during this show submission
 }
@@ -372,6 +383,7 @@ type CreateVenueRequest struct {
 	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
 	Capacity    *int    `json:"capacity"`
+	AgePolicy   *string `json:"age_policy"` // House-default age rule, free text (PSY-1682)
 	Instagram   *string `json:"instagram"`
 	Facebook    *string `json:"facebook"`
 	Twitter     *string `json:"twitter"`
@@ -390,9 +402,10 @@ type CreateVenueRequest struct {
 //
 // Name/City/State map to NOT NULL columns and are written as-is (the handler
 // rejects empty values up front). The remaining optional string columns are
-// nullable, so Description and ImageURL normalize an empty string to SQL NULL
-// in the service (utils.NilIfEmpty). Address/Country/Zipcode and the social
-// fields preserve the prior behavior of writing the value through verbatim.
+// nullable, so Description, ImageURL and AgePolicy normalize an empty string to
+// SQL NULL in the service (utils.NilIfEmpty) — that is how a caller CLEARS them.
+// Address/Country/Zipcode and the social fields preserve the prior behavior of
+// writing the value through verbatim.
 type UpdateVenueRequest struct {
 	Name        *string `json:"name"`
 	Address     *string `json:"address"`
@@ -401,6 +414,7 @@ type UpdateVenueRequest struct {
 	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
 	Capacity    *int    `json:"capacity"`
+	AgePolicy   *string `json:"age_policy"` // House-default age rule, free text (PSY-1682)
 	Description *string `json:"description"`
 	ImageURL    *string `json:"image_url"`
 	Instagram   *string `json:"instagram"`
@@ -433,7 +447,8 @@ type VenueDetailResponse struct {
 	GeocodePrecision *string        `json:"geocode_precision,omitempty"` // rooftop|interpolated|city
 	Timezone         *string        `json:"timezone"`                    // IANA zone resolved from location (PSY-985)
 	Zipcode          *string        `json:"zipcode"`
-	Capacity         *int           `json:"capacity"` // Venue capacity (PSY-1179); not redacted for unverified venues
+	Capacity         *int           `json:"capacity"`   // Venue capacity (PSY-1179); not redacted for unverified venues
+	AgePolicy        *string        `json:"age_policy"` // House-default age rule (PSY-1682); free text, not redacted
 	Description      *string        `json:"description,omitempty"`
 	ImageURL         *string        `json:"image_url"`    // Optional venue photo (PSY-521)
 	Verified         bool           `json:"verified"`     // Admin-verified as legitimate venue

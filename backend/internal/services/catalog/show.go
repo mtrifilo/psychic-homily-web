@@ -739,13 +739,15 @@ func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contra
 				addr = venue.Address
 			}
 			venueResponses = append(venueResponses, contracts.VenueResponse{
-				ID:       venue.ID,
-				Name:     venue.Name,
-				Address:  addr,
-				City:     venue.City,
-				State:    venue.State,
-				Timezone: venue.Timezone,
-				Verified: venue.Verified,
+				ID:        venue.ID,
+				Name:      venue.Name,
+				Address:   addr,
+				City:      venue.City,
+				State:     venue.State,
+				Timezone:  venue.Timezone,
+				Capacity:  venue.Capacity,  // PSY-1682
+				AgePolicy: venue.AgePolicy, // PSY-1682
+				Verified:  venue.Verified,
 			})
 		}
 	}
@@ -1721,6 +1723,8 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			City:       venue.City,
 			State:      venue.State,
 			Timezone:   venue.Timezone,
+			Capacity:   venue.Capacity,  // PSY-1682
+			AgePolicy:  venue.AgePolicy, // PSY-1682
 			Verified:   venue.Verified,
 			IsNewVenue: &isNewVenue,
 		})
@@ -1973,7 +1977,13 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 			City:     venue.City,
 			State:    venue.State,
 			Timezone: venue.Timezone,
-			Verified: venue.Verified,
+			// PSY-1682: the show page's venue module renders capacity and the
+			// house age policy inline, so they ride along with show detail
+			// instead of costing a second fetch. Neither is sensitive, so unlike
+			// Address they are served for unverified venues too.
+			Capacity:  venue.Capacity,
+			AgePolicy: venue.AgePolicy,
+			Verified:  venue.Verified,
 		}
 	}
 
