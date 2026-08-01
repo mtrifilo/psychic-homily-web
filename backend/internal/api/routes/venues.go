@@ -4,6 +4,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
+	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
 )
 
 func setupVenueRoutes(rc RouteContext) {
@@ -18,6 +19,27 @@ func setupVenueRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/bill-network", venueHandler.GetVenueBillNetworkHandler)
+
+	// PSY-1584: public iCalendar feed of upcoming shows at this room.
+	//
+	// Registered on the chi router, not Huma, because the response is a raw
+	// text/calendar document — same reason the personal /feeds/… ICS route is a
+	// chi handler. It therefore does NOT appear in the OpenAPI spec.
+	//
+	// The parameter MUST stay named `venue_id` to match its Huma siblings above.
+	// chi keys its routing tree on path SHAPE, not on parameter name, so a
+	// sibling registered as `{slug}` would not create a second route — it would
+	// silently rename the parameter for whichever registration lost, and no
+	// handler-level test could see it. venue_calendar_routing_test.go walks the
+	// built tree to hold that line.
+	//
+	// This path is intentionally NOT added to the personal-feed rate-limit
+	// exemption in public_read_rate_limit.go: unlike /feeds/{token}/…, it is
+	// anonymous and unauthenticated, so it belongs on the ordinary public-read
+	// budget rather than being handed an unmetered lane.
+	venueCalendarHandler := engagementh.NewVenueCalendarHandler(rc.SC.VenueCalendar, rc.Cfg)
+	rc.Router.Get("/venues/{venue_id}/calendar.ics", venueCalendarHandler.GetVenueCalendarFeedHandler)
+	rc.Router.Head("/venues/{venue_id}/calendar.ics", venueCalendarHandler.GetVenueCalendarFeedHandler)
 
 	// PSY-1542: community freshness. Any authenticated user at any trust tier
 	// can confirm a venue's info is current — it is the cheapest contribution

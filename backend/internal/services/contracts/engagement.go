@@ -208,6 +208,30 @@ type FollowServiceInterface interface {
 // Calendar Service Interface
 // ──────────────────────────────────────────────
 
+// VenueCalendarFeed is a rendered public iCalendar feed for one venue, plus the
+// metadata the HTTP layer needs to serve it: the venue's display name and slug
+// (filename), and a content ETag so an aggressively-polling calendar client can
+// be answered with a 304 instead of the whole payload.
+type VenueCalendarFeed struct {
+	VenueName string
+	VenueSlug string
+	ICS       []byte
+	ETag      string
+}
+
+// VenueCalendarServiceInterface defines the contract for the PUBLIC, unauthenticated
+// per-venue iCalendar feed. It is deliberately separate from
+// CalendarServiceInterface: that one is entirely user/token-scoped (a personal
+// feed authenticated by an unguessable URL token), while this one takes no
+// identity at all and must never grow one. Keeping them apart means a change to
+// personal-feed auth cannot silently alter what an anonymous caller can read.
+type VenueCalendarServiceInterface interface {
+	// GenerateVenueFeed renders upcoming shows at the venue identified by
+	// idOrSlug. Returns an error wrapping apperrors.CodeVenueNotFound when the
+	// venue does not exist, so the handler can 404 rather than 500.
+	GenerateVenueFeed(idOrSlug string, frontendURL string) (*VenueCalendarFeed, error)
+}
+
 // CalendarServiceInterface defines the contract for personal feed-token
 // operations (saved-shows iCal + followed-artist Atom activity).
 type CalendarServiceInterface interface {
