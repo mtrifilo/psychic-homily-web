@@ -500,8 +500,8 @@ func TestGetShowCitiesHandler_ServiceError(t *testing.T) {
 func TestGetUpcomingShowsHandler_Success(t *testing.T) {
 	nextCursor := "abc123"
 	mock := &testhelpers.MockShowService{
-		GetUpcomingShowsFn: func(timezone, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
-			return []*contracts.ShowResponse{{ID: 1}}, &nextCursor, nil
+		GetUpcomingShowsFn: func(timezone, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error) {
+			return []*contracts.ShowResponse{{ID: 1}}, &nextCursor, 1, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
@@ -516,12 +516,15 @@ func TestGetUpcomingShowsHandler_Success(t *testing.T) {
 	if !resp.Body.Pagination.HasMore {
 		t.Error("expected has_more=true")
 	}
+	if resp.Body.Total != 1 {
+		t.Errorf("expected total=1, got %d", resp.Body.Total)
+	}
 }
 
 func TestGetUpcomingShowsHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockShowService{
-		GetUpcomingShowsFn: func(_, _ string, _ int, _ bool, _ *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
-			return nil, nil, fmt.Errorf("db error")
+		GetUpcomingShowsFn: func(_, _ string, _ int, _ bool, _ *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error) {
+			return nil, nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)

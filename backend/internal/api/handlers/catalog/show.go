@@ -328,6 +328,7 @@ type GetUpcomingShowsResponse struct {
 	Body struct {
 		Shows      []*contracts.ShowResponse `json:"shows"`
 		Timezone   string                    `json:"timezone" doc:"The timezone used for filtering"`
+		Total      int64                     `json:"total" doc:"Total upcoming shows matching the current filters (not just this page)"`
 		Pagination CursorPaginationMeta      `json:"pagination"`
 	}
 }
@@ -758,7 +759,7 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	)
 
 	// Get upcoming shows using service (admins see all, others see only approved)
-	shows, nextCursor, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit, includeNonApproved, filters)
+	shows, nextCursor, total, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit, includeNonApproved, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("shows_upcoming_failed",
 			"error", err.Error(),
@@ -772,6 +773,7 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 
 	logger.FromContext(ctx).Debug("shows_upcoming_success",
 		"count", len(shows),
+		"total", total,
 		"has_more", nextCursor != nil,
 	)
 
@@ -779,10 +781,12 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 		Body: struct {
 			Shows      []*contracts.ShowResponse `json:"shows"`
 			Timezone   string                    `json:"timezone" doc:"The timezone used for filtering"`
+			Total      int64                     `json:"total" doc:"Total upcoming shows matching the current filters (not just this page)"`
 			Pagination CursorPaginationMeta      `json:"pagination"`
 		}{
 			Shows:    shows,
 			Timezone: timezone,
+			Total:    total,
 			Pagination: CursorPaginationMeta{
 				NextCursor: nextCursor,
 				HasMore:    nextCursor != nil,

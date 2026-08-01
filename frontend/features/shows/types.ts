@@ -100,6 +100,8 @@ export interface CursorPaginationMeta {
 export interface UpcomingShowsResponse {
   shows: ShowResponse[]
   timezone: string
+  /** Full matching-set size under the current filters (not just this page). */
+  total: number
   pagination: CursorPaginationMeta
 }
 

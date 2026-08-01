@@ -477,6 +477,38 @@ describe('ShowList', () => {
       render(<ShowList />)
       expect(screen.getByText('Loading...')).toBeInTheDocument()
     })
+
+    it('shows loaded of total when more shows exist beyond the loaded page', () => {
+      mockUseUpcomingShows.mockReturnValue({
+        data: {
+          shows: [makeShow(), makeShow({ id: 2 })],
+          total: 1088,
+          pagination: { has_more: true, next_cursor: 'abc123', limit: 20 },
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<ShowList />)
+      expect(screen.getByTestId('show-count')).toHaveTextContent('2 of 1,088 shows')
+    })
+
+    it('shows a simple count when the full matching set is loaded', () => {
+      mockUseUpcomingShows.mockReturnValue({
+        data: {
+          shows: [makeShow()],
+          total: 1,
+          pagination: { has_more: false, next_cursor: null, limit: 20 },
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<ShowList />)
+      expect(screen.getByTestId('show-count')).toHaveTextContent('1 show')
+    })
   })
 
   describe('city filters', () => {

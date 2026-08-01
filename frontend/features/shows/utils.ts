@@ -87,3 +87,16 @@ export function dedupArtistShows<T extends ShowWithVenueAndArtists>(shows: T[]):
 export function dedupVenueShows<T extends ShowWithArtists>(shows: T[]): T[] {
   return pickWinners(shows, show => `${headlinerArtistId(show) ?? 0}|${show.event_date}`)
 }
+
+/**
+ * Upcoming Shows list count label.
+ * When the loaded page(s) are a subset of the filter-aware total, show
+ * "N of T shows" so users know the catalog is larger than what's on screen.
+ */
+export function formatShowCountLabel(loaded: number, total?: number | null): string {
+  const noun = loaded === 1 ? 'show' : 'shows'
+  if (total == null || total <= loaded) {
+    return `${loaded} ${noun}`
+  }
+  return `${loaded.toLocaleString()} of ${total.toLocaleString()} ${noun}`
+}

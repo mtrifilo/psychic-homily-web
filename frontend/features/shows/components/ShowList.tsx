@@ -35,6 +35,7 @@ import {
   buildTagsParam,
 } from '@/features/tags'
 import { suggestAlternativeCities } from '../suggestCities'
+import { formatShowCountLabel } from '../utils'
 
 export function ShowList() {
   const router = useRouter()
@@ -334,7 +335,7 @@ export function ShowList() {
 
       <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
         <p className="mb-3 text-sm text-muted-foreground" data-testid="show-count">
-          {allShows.length} {allShows.length === 1 ? 'show' : 'shows'}
+          {formatShowCountLabel(allShows.length, data?.total)}
           {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
         </p>
         {allShows.length === 0 ? (

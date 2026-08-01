@@ -879,10 +879,11 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 // If includeNonApproved is false, only approved shows are returned (public view).
 // If includeNonApproved is true, all shows are returned including pending/rejected (admin view).
 // Optional filters can be provided to filter by city and state.
-// Returns shows, next cursor (nil if no more), and error.
-func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error) {
+// Returns shows, next cursor (nil if no more), the filter-aware total size of
+// the full matching set (independent of the page cursor), and error.
+func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error) {
 	if s.db == nil {
-		return nil, nil, fmt.Errorf("database not initialized")
+		return nil, nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	// Load timezone, default to UTC
@@ -897,69 +898,77 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	startOfTodayUTC := startOfToday.UTC()
 
-	// Build query
-	query := s.db.Preload("Venues").Preload("Artists")
+	applyUpcomingFilters := func(query *gorm.DB) *gorm.DB {
+		// Filter by status for non-admin users (public view shows only approved)
+		if !includeNonApproved {
+			query = query.Where("status = ?", catalogm.ShowStatusApproved)
+		} else {
+			// For admin view, still exclude private shows (those are personal to the submitter)
+			query = query.Where("status != ?", catalogm.ShowStatusPrivate)
+		}
 
-	// Filter by status for non-admin users (public view shows only approved)
-	if !includeNonApproved {
-		query = query.Where("status = ?", catalogm.ShowStatusApproved)
-	} else {
-		// For admin view, still exclude private shows (those are personal to the submitter)
-		query = query.Where("status != ?", catalogm.ShowStatusPrivate)
-	}
-
-	// Apply city/state filters if provided
-	if filters != nil {
-		if len(filters.Cities) > 0 {
-			// Multi-city filter: (city = ? AND state = ?) OR ...
-			conditions := s.db
-			for i, cs := range filters.Cities {
-				if i == 0 {
-					conditions = conditions.Where("(city = ? AND state = ?)", cs.City, cs.State)
-				} else {
-					conditions = conditions.Or("(city = ? AND state = ?)", cs.City, cs.State)
+		// Apply city/state filters if provided
+		if filters != nil {
+			if len(filters.Cities) > 0 {
+				// Multi-city filter: (city = ? AND state = ?) OR ...
+				conditions := s.db
+				for i, cs := range filters.Cities {
+					if i == 0 {
+						conditions = conditions.Where("(city = ? AND state = ?)", cs.City, cs.State)
+					} else {
+						conditions = conditions.Or("(city = ? AND state = ?)", cs.City, cs.State)
+					}
+				}
+				query = query.Where(conditions)
+			} else {
+				// Legacy single-city filter
+				if filters.City != "" {
+					query = query.Where("city = ?", filters.City)
+				}
+				if filters.State != "" {
+					query = query.Where("state = ?", filters.State)
 				}
 			}
-			query = query.Where(conditions)
-		} else {
-			// Legacy single-city filter
-			if filters.City != "" {
-				query = query.Where("city = ?", filters.City)
-			}
-			if filters.State != "" {
-				query = query.Where("state = ?", filters.State)
+			if len(filters.TagSlugs) > 0 {
+				// PSY-499: Transitive artist-based tag filtering — shows match when
+				// any billed artist has the tag. Direct `entity_type='show'` tags
+				// are ignored because shows are not directly tagged with genres.
+				query = ApplyTransitiveArtistTagFilter(
+					query, s.db,
+					"show_artists", "show_id", "artist_id",
+					"shows.id",
+					TagFilter{
+						TagSlugs: filters.TagSlugs,
+						MatchAny: filters.TagMatchAny,
+					},
+				)
 			}
 		}
-		if len(filters.TagSlugs) > 0 {
-			// PSY-499: Transitive artist-based tag filtering — shows match when
-			// any billed artist has the tag. Direct `entity_type='show'` tags
-			// are ignored because shows are not directly tagged with genres.
-			query = ApplyTransitiveArtistTagFilter(
-				query, s.db,
-				"show_artists", "show_id", "artist_id",
-				"shows.id",
-				TagFilter{
-					TagSlugs: filters.TagSlugs,
-					MatchAny: filters.TagMatchAny,
-				},
-			)
-		}
+
+		return query.Where("event_date >= ?", startOfTodayUTC)
 	}
 
-	// Apply cursor filter if provided
+	// Filter-aware total for the full matching set (ignores the page cursor).
+	var total int64
+	countQuery := applyUpcomingFilters(s.db.Model(&catalogm.Show{}))
+	if err := countQuery.Count(&total).Error; err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to count upcoming shows: %w", err)
+	}
+
+	// Build page query
+	query := applyUpcomingFilters(s.db.Preload("Venues").Preload("Artists"))
+
+	// Apply cursor filter if provided (narrows the page, not the total)
 	if cursor != "" {
 		cursorDate, cursorID, err := decodeCursor(cursor)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid cursor: %w", err)
+			return nil, nil, 0, fmt.Errorf("invalid cursor: %w", err)
 		}
 		// Get shows after the cursor position (same date but higher ID, or later date)
 		query = query.Where(
 			"(event_date = ? AND id > ?) OR (event_date > ?)",
 			cursorDate, cursorID, cursorDate,
 		)
-	} else {
-		// No cursor, start from today
-		query = query.Where("event_date >= ?", startOfTodayUTC)
 	}
 
 	// Order by event_date ASC, then by ID ASC for stable ordering
@@ -968,7 +977,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 
 	var shows []catalogm.Show
 	if err := query.Find(&shows).Error; err != nil {
-		return nil, nil, fmt.Errorf("failed to get upcoming shows: %w", err)
+		return nil, nil, 0, fmt.Errorf("failed to get upcoming shows: %w", err)
 	}
 
 	// Check if there are more results
@@ -987,7 +996,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 		responses[i] = s.buildShowResponse(&show)
 	}
 
-	return responses, nextCursor, nil
+	return responses, nextCursor, total, nil
 }
 
 // GetShowCities retrieves cities that have upcoming approved shows, with counts.

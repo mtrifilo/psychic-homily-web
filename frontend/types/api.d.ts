@@ -11934,6 +11934,11 @@ export interface components {
             shows: components["schemas"]["ShowResponse"][] | null;
             /** @description The timezone used for filtering */
             timezone: string;
+            /**
+             * Format: int64
+             * @description Total upcoming shows matching the current filters (not just this page)
+             */
+            total: number;
         };
         GetUserCollectionsContainingHandlerResponseBody: {
             /**

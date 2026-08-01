@@ -1545,16 +1545,18 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_Pagination() 
 	}
 
 	// Page 1: get 3
-	page1, cursor1, err := suite.showService.GetUpcomingShows("UTC", "", 3, false, nil)
+	page1, cursor1, total1, err := suite.showService.GetUpcomingShows("UTC", "", 3, false, nil)
 	suite.Require().NoError(err)
 	suite.Require().Len(page1, 3)
 	suite.Require().NotNil(cursor1, "should have a next cursor when more results exist")
+	suite.Equal(int64(5), total1, "total is the full matching set, not the page length")
 
 	// Page 2: use cursor, expect remaining 2
-	page2, cursor2, err := suite.showService.GetUpcomingShows("UTC", *cursor1, 3, false, nil)
+	page2, cursor2, total2, err := suite.showService.GetUpcomingShows("UTC", *cursor1, 3, false, nil)
 	suite.Require().NoError(err)
 	suite.Require().Len(page2, 2, "page 2 should have exactly the remaining 2 shows")
 	suite.Nil(cursor2, "should be no more pages after page 2")
+	suite.Equal(int64(5), total2, "total must not shrink as the cursor advances")
 
 	// Verify no overlap: page 2 IDs must not appear in page 1
 	page1IDs := map[uint]bool{}
@@ -2947,17 +2949,61 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_LimitOne() {
 		suite.Require().NoError(err)
 	}
 
-	shows, cursor, err := suite.showService.GetUpcomingShows("UTC", "", 1, false, nil)
+	shows, cursor, _, err := suite.showService.GetUpcomingShows("UTC", "", 1, false, nil)
 	suite.Require().NoError(err)
 	suite.Len(shows, 1, "limit=1 should return exactly 1 show")
 	suite.NotNil(cursor, "should have cursor when more results exist")
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_EmptyResult() {
-	shows, cursor, err := suite.showService.GetUpcomingShows("UTC", "", 10, false, nil)
+	shows, cursor, total, err := suite.showService.GetUpcomingShows("UTC", "", 10, false, nil)
 	suite.Require().NoError(err)
 	suite.Empty(shows)
 	suite.Nil(cursor, "no cursor when no results")
+	suite.Equal(int64(0), total)
+}
+
+// The count must carry the same filter predicates as the page query, otherwise
+// the UI reports the whole catalog as the size of a filtered view.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_TotalIsCityFiltered() {
+	user := suite.createTestUser()
+	baseDate := time.Date(2027, 8, 1, 20, 0, 0, 0, time.UTC)
+
+	create := func(label, city, state string, offset int) {
+		req := &contracts.CreateShowRequest{
+			Title:             fmt.Sprintf("UpCity %s %d", label, offset),
+			EventDate:         baseDate.AddDate(0, 0, offset),
+			City:              city,
+			State:             state,
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("UC Venue %s %d", label, offset), City: city, State: state}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("UC Artist %s %d", label, offset), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		_, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+	}
+
+	for i := 0; i < 4; i++ {
+		create("chi", "Chicago", "IL", i)
+	}
+	for i := 0; i < 2; i++ {
+		create("phx", "Phoenix", "AZ", i)
+	}
+
+	// Unfiltered: the whole upcoming set.
+	_, _, allTotal, err := suite.showService.GetUpcomingShows("UTC", "", 50, false, nil)
+	suite.Require().NoError(err)
+	suite.Equal(int64(6), allTotal)
+
+	// City-filtered, page smaller than the matching set.
+	shows, cursor, cityTotal, err := suite.showService.GetUpcomingShows("UTC", "", 2, false, &contracts.UpcomingShowsFilter{
+		Cities: []contracts.CityStateFilter{{City: "Chicago", State: "IL"}},
+	})
+	suite.Require().NoError(err)
+	suite.Len(shows, 2, "page respects the limit")
+	suite.NotNil(cursor, "more Chicago shows remain")
+	suite.Equal(int64(4), cityTotal, "total counts only the filtered city, not the full catalog")
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactMidnight() {
@@ -2978,7 +3024,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactMi
 	_, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
 
-	shows, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, false, nil)
+	shows, _, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, false, nil)
 	suite.Require().NoError(err)
 
 	found := false
@@ -3009,7 +3055,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactBo
 	_, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
 
-	shows, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, false, nil)
+	shows, _, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, false, nil)
 	suite.Require().NoError(err)
 
 	for _, s := range shows {
