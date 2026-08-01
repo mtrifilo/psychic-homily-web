@@ -388,6 +388,21 @@ describe('generateMusicEventSchema', () => {
       }
     })
 
+    // Parsing is far more lenient than the value it yields, and the backend
+    // stores `image_url` untrimmed — so the padded form really does arrive
+    // here. Emitting the raw string would put whitespace and control characters
+    // inside a machine-readable claim.
+    it('emits the normalised URL, not the raw stored string', () => {
+      for (const [raw, expected] of [
+        ['  https://cdn.example.com/f.jpg ', 'https://cdn.example.com/f.jpg'],
+        ['https://cdn.example.com/f\njpg', 'https://cdn.example.com/fjpg'],
+        ['https:evil', 'https://evil/'],
+      ] as const) {
+        const schema = generateMusicEventSchema({ ...baseShow, image_url: raw })
+        expect(schema.image, raw).toEqual([expected])
+      }
+    })
+
     // The backend accepts plain http, so the field genuinely carries it. It is
     // a real, resolvable claim, unlike the cases above.
     it('keeps a plain http flyer URL', () => {

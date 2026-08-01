@@ -11,7 +11,8 @@ import { readImageHeader } from './imageSize'
  *
  * Satori cannot be handed a URL here. `next/og` would fetch it itself, on its
  * own terms — unbounded, un-sniffed, and with no timeout — so the bytes are
- * pulled in first and passed on as a data URI.
+ * pulled in first and passed on raw. See `RemoteImage.data` for why raw bytes
+ * and not a `data:` URI.
  */
 
 /**
@@ -43,23 +44,28 @@ const MAX_BYTES = 3 * 1024 * 1024
 /**
  * Decoded-pixel cap — the limit the byte cap cannot express.
  *
- * Rasterising costs roughly 4 bytes per pixel however well the file compressed,
- * so a small JPEG declaring a 12000×12000 canvas would ask for ~576MB in a
- * runtime with a small fraction of that.
+ * MEASURED, not estimated. The arithmetic answer — 4 bytes per pixel, so 12MP
+ * is ~48MB against the edge runtime's 128MB — is wrong by about 5×, because it
+ * counts only the RGBA decode and ignores what `@vercel/og` allocates around
+ * it: the base64 string it builds internally, the `atob` copy, and resvg's
+ * resample intermediate. Rendering real PNGs through this exact bundle and
+ * watching peak RSS gives the delta over a 1×1 baseline:
  *
- * 12MP is where the runtime runs out, not where flyers do: at 4 bytes a pixel
- * this already admits a ~48MB decode, and the edge runtime has 128MB for that
- * plus the resvg wasm, the fonts and the 1200×630 output.
+ *     1080×1350  (1.46MP)  →  +66MB
+ *     2550×3300  (8.41MP)  →  +236MB
+ *     3464×3464  (12.0MP)  →  +272MB
  *
- * Be precise about what that excludes, because it is close to the line: a
- * hosted flyer (a 1080×1350 Instagram export, the measured 960×1387 poster) is
- * far under it, but a full-resolution phone photo at 4032×3024 is 12.19MP —
- * just OVER, and it falls back to the text-only card. That is the right way to
- * be wrong: image hosts downscale, so URLs pointing at untouched 12MP
- * originals are rare, and the alternative is an OOM that takes the route down
- * rather than degrading it.
+ * So a 12MP cap admits an attacker-chosen ~2MB file that asks for nearly twice
+ * the entire function budget, and an OOM is a platform kill — it goes past
+ * every `catch` and every fail-open path this module is built around.
+ *
+ * 4MP is the largest cap with headroom, and it still clears what the feature is
+ * for: the measured 960×1387 Commons poster (1.33MP) and the 1080×1350
+ * Instagram export (1.46MP). Print-resolution scans and untouched phone photos
+ * are above it and degrade to the text-only card, which is the correct
+ * direction to be wrong — the plate only ever shows 380×510 of them anyway.
  */
-const MAX_PIXELS = 12_000_000
+const MAX_PIXELS = 4_000_000
 
 export interface RemoteImage {
   /**
@@ -99,21 +105,99 @@ const MAX_REDIRECTS = 3
  * function is straightforwardly attacker-chosen, and this is the only place it
  * is checked before a request goes out.
  *
+ * Addresses are classified NUMERICALLY, never by string prefix. An earlier
+ * version of this guard matched `/^(10|127)\./` and friends and was defeated by
+ * one URL: `https://[::ffff:169.254.169.254]/`, which the WHATWG parser
+ * canonicalises to `[::ffff:a9fe:a9fe]` — no dotted quad left for any of those
+ * regexes to see, and a working route to the cloud metadata service on any
+ * dual-stack host. Enumerating bad prefixes loses to encoding; deciding what is
+ * ALLOWED does not.
+ *
  * The one gap left is DNS: a host is checked as a literal, so an attacker-owned
  * name that RESOLVES to a private address still passes. Closing that needs
  * resolve-then-pin, which the edge runtime cannot do — it exposes no resolver.
- * What bounds the damage is that the useful half of an SSRF is already shut:
- * the response is only ever rendered as an image, and anything that is not a
- * parseable JPEG, PNG, WebP or GIF is dropped before it reaches the renderer,
- * so nothing read from an internal service can come back out on the card.
- * Blind request forgery against a resolvable-to-private name remains possible,
- * and the durable fix for it belongs at the write boundary in the backend.
+ * What bounds the damage is that the useful half of an SSRF is shut: the
+ * response is only ever rendered as an image, and anything that is not a
+ * parseable PNG, JPEG or GIF is dropped before it reaches the renderer, so
+ * nothing read from an internal service can come back out on the card. What
+ * remains is BLIND request forgery, with a timing side channel — and the
+ * durable fix belongs at the write boundary in the backend, where a resolver
+ * exists.
  */
-const BLOCKED_HOSTS = /^(localhost|(\[::1\])|0\.0\.0\.0|metadata\.google\.internal)$/i
+const BLOCKED_HOST_NAMES = new Set(['localhost', 'metadata.google.internal'])
 const BLOCKED_HOST_SUFFIXES = ['.localhost', '.local', '.internal']
 
 /**
- * `https` only, and not pointed at ourselves.
+ * Reject an IPv4 literal unless it is ordinary public unicast.
+ *
+ * Classified against the IANA special-purpose registry rather than the handful
+ * of ranges people remember: `100.64/10` (CGNAT, routinely a container mesh),
+ * `192.0.0/24` (which is where Oracle Cloud's metadata endpoint lives) and
+ * `198.18/15` are all easy to omit and all reachable.
+ */
+function isBlockedIPv4(octets: number[]): boolean {
+  const [a, b] = octets
+  if (a === 0 || a === 10 || a === 127) return true
+  if (a === 169 && b === 254) return true // link-local, incl. 169.254.169.254
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 192 && b === 0 && octets[2] === 0) return true // 192.0.0/24
+  if (a === 100 && b >= 64 && b <= 127) return true // CGNAT 100.64/10
+  if (a === 198 && (b === 18 || b === 19)) return true // benchmarking
+  if (a >= 224) return true // multicast + reserved 240/4, and 255.255.255.255
+  return false
+}
+
+/** Dotted-quad only. Anything else is a name, and names are checked separately. */
+function parseIPv4(host: string): number[] | null {
+  const parts = host.split('.')
+  if (parts.length !== 4) return null
+  const octets = parts.map(p => (/^\d{1,3}$/.test(p) ? Number(p) : NaN))
+  if (octets.some(o => Number.isNaN(o) || o > 255)) return null
+  return octets
+}
+
+/**
+ * Allow an IPv6 literal ONLY if it is global unicast (`2000::/3`).
+ *
+ * Stated as one positive rule because the negative list is unbounded: this
+ * single check refuses `::1`, `::`, every `::ffff:0:0/96` IPv4-mapped address,
+ * `fc00::/7` unique-local, `fe80::/10` link-local and `64:ff9b::/96` NAT64
+ * without naming any of them.
+ */
+function isAllowedIPv6(bracketed: string): boolean {
+  const groups = expandIPv6(bracketed.slice(1, -1))
+  if (!groups) return false
+  return (groups[0] & 0xe000) === 0x2000
+}
+
+/** Expand an IPv6 literal — including a trailing embedded IPv4 — to 8 groups. */
+function expandIPv6(text: string): number[] | null {
+  let body = text.split('%')[0] // drop any zone id
+  const embedded = body.match(/(\d{1,3}(?:\.\d{1,3}){3})$/)
+  if (embedded) {
+    const quad = parseIPv4(embedded[1])
+    if (!quad) return null
+    const hi = ((quad[0] << 8) | quad[1]).toString(16)
+    const lo = ((quad[2] << 8) | quad[3]).toString(16)
+    body = `${body.slice(0, embedded.index)}${hi}:${lo}`
+  }
+
+  const halves = body.split('::')
+  if (halves.length > 2) return null
+  const head = halves[0] ? halves[0].split(':') : []
+  const tail = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : []
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0
+  if (fill < 0) return null
+  const parts = [...head, ...Array<string>(fill).fill('0'), ...tail]
+  if (parts.length !== 8) return null
+
+  const groups = parts.map(p => (/^[0-9a-f]{1,4}$/i.test(p) ? parseInt(p, 16) : NaN))
+  return groups.some(Number.isNaN) ? null : groups
+}
+
+/**
+ * `https` only, and not pointed anywhere private.
  *
  * The scheme check is doing more than it looks: it is what excludes `file:`,
  * `data:` and the assorted schemes a fetch implementation may still honour, and
@@ -128,54 +212,95 @@ function isFetchableImageUrl(raw: string): URL | null {
     return null
   }
   if (url.protocol !== 'https:') return null
-  const host = url.hostname.toLowerCase()
-  if (BLOCKED_HOSTS.test(host)) return null
+
+  // The trailing dot is stripped BEFORE any name match. It is a valid absolute
+  // FQDN that resolvers honour, and `https://localhost./` slipped every
+  // name-based check below by adding one character.
+  const host = url.hostname.toLowerCase().replace(/\.$/, '')
+  if (!host) return null
+
+  if (host.startsWith('[')) return isAllowedIPv6(host) ? url : null
+
+  const ipv4 = parseIPv4(host)
+  if (ipv4) return isBlockedIPv4(ipv4) ? null : url
+
+  if (BLOCKED_HOST_NAMES.has(host)) return null
   if (BLOCKED_HOST_SUFFIXES.some(suffix => host.endsWith(suffix))) return null
-  // Literal private/link-local IPv4, plus the IPv6 unique-local and link-local
-  // ranges. Hosts that merely resolve into these are not covered — see above.
-  if (/^(10|127)\./.test(host)) return null
-  if (/^192\.168\./.test(host)) return null
-  if (/^169\.254\./.test(host)) return null
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return null
-  if (/^\[(f[cd][0-9a-f]{2}|fe80):/i.test(url.host)) return null
   return url
 }
 
-export async function loadRemoteImage(raw: string | null | undefined): Promise<RemoteImage | null> {
-  if (!raw) return null
+/**
+ * Why a flyer did not make it onto the card.
+ *
+ * The distinction is a CACHING one, and it matters more than it looks. A card
+ * without its flyer is held for `OG_FALLBACK_CACHE_SECONDS` so a momentary blip
+ * is not baked in for a day — but `rejected` outcomes are not blips. An `http:`
+ * URL (which the backend accepts and this module does not), a WebP flyer, a
+ * 5MP scan: those are permanent facts about the row. Treating them as transient
+ * would re-render that show's card every 60 seconds forever, booting the edge
+ * function and re-instantiating the resvg wasm each time — exactly the cost
+ * `ogCacheControl` exists to avoid.
+ */
+export type FlyerOutcome =
+  | { status: 'none' }
+  /** Fetched, sniffed and sized. */
+  | { status: 'ok'; image: RemoteImage }
+  /** Permanently unusable as submitted — will not become usable on retry. */
+  | { status: 'rejected' }
+  /** Transient: timeout, connection failure, 5xx. Worth retrying soon. */
+  | { status: 'unavailable' }
+
+export async function loadRemoteImage(raw: string | null | undefined): Promise<FlyerOutcome> {
+  if (!raw) return { status: 'none' }
   const url = isFetchableImageUrl(raw)
-  if (!url) return null
+  if (!url) return { status: 'rejected' }
 
   try {
     // One deadline for the whole chase, not one per hop: three sequential
     // two-second hops would be a six-second card.
     const deadline = AbortSignal.timeout(FETCH_TIMEOUT_MS)
     const res = await fetchFollowingValidatedRedirects(url, deadline)
-    if (!res?.ok || !res.body) return null
+    if (!res) return { status: 'rejected' } // refused a hop, or ran out of them
+    if (!res.ok || !res.body) {
+      await discard(res)
+      // 5xx and 429 are the server having a bad moment; a 404 or a 403 is the
+      // link being wrong, which no amount of retrying fixes.
+      return { status: res.status >= 500 || res.status === 429 ? 'unavailable' : 'rejected' }
+    }
 
     // A latency optimisation, NOT the safety guard: it saves pulling a huge
     // body from an honest server, but the header is a claim and a chunked
     // response makes none, so `readCapped` below is what actually bounds this.
     const declared = Number(res.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > MAX_BYTES) return null
+    if (Number.isFinite(declared) && declared > MAX_BYTES) {
+      await discard(res)
+      return { status: 'rejected' }
+    }
 
     const bytes = await readCapped(res.body, MAX_BYTES)
-    if (!bytes) return null
+    if (!bytes) return { status: 'rejected' }
 
     const header = readImageHeader(bytes)
-    if (!header) return null
-    if (header.width < 1 || header.height < 1) return null
-    if (header.width * header.height > MAX_PIXELS) return null
+    if (!header) return { status: 'rejected' }
+    if (header.width < 1 || header.height < 1) return { status: 'rejected' }
+    if (header.width * header.height > MAX_PIXELS) return { status: 'rejected' }
 
-    return { data: bytes.buffer as ArrayBuffer, width: header.width, height: header.height }
+    return {
+      status: 'ok',
+      image: { data: bytes.buffer as ArrayBuffer, width: header.width, height: header.height },
+    }
   } catch {
-    // Timeout, DNS failure, TLS failure, connection reset — all the same
-    // outcome for the caller, and none of them worth a Sentry event: a broken
-    // third-party image URL is a data-quality fact about one show, not an
-    // incident, and reporting it would turn every stale flyer link into
-    // recurring noise on every unfurl.
-    return null
+    // Timeout, DNS failure, TLS failure, connection reset — none of them worth
+    // a Sentry event: a broken third-party image URL is a data-quality fact
+    // about one show, not an incident, and reporting it would turn every stale
+    // flyer link into recurring noise on every unfurl.
+    return { status: 'unavailable' }
   }
+}
+
+/** Release a body we have decided not to read, rather than leaving it in flight. */
+async function discard(res: Response): Promise<void> {
+  await res.body?.cancel().catch(() => {})
 }
 
 /**
@@ -208,7 +333,10 @@ async function fetchFollowingValidatedRedirects(
       // widen what a submitted URL can reach.
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
-      headers: { accept: 'image/*' },
+      // Narrower than `image/*` on purpose: a content-negotiating CDN offered
+      // the wildcard will happily return WebP for a URL that would otherwise
+      // have served JPEG, and WebP is a format this path must then drop.
+      headers: { accept: 'image/png,image/jpeg,image/gif' },
     })
 
     if (!isRedirect(res.status)) return res

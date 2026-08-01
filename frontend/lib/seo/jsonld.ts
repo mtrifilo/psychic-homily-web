@@ -351,11 +351,10 @@ export function generateMusicEventSchema(show: {
   // The flyer is emitted even when the OG route could not render it: the two
   // are independent claims, and a consumer fetching the URL directly is not
   // affected by whatever made the card fall back to text.
+  const flyer = absoluteHttpUrl(show.image_url)
   const images = [
     ...(show.slug ? [`${SITE_URL}/shows/${show.slug}/opengraph-image`] : []),
-    // Only absolute http(s) — a relative or malformed value in this field would
-    // be a broken claim in machine-readable output, which is worse than silence.
-    ...(isAbsoluteHttpUrl(show.image_url) ? [show.image_url] : []),
+    ...(flyer ? [flyer] : []),
   ]
   if (images.length > 0) {
     schema.image = images
@@ -364,13 +363,24 @@ export function generateMusicEventSchema(show: {
   return schema
 }
 
-function isAbsoluteHttpUrl(value: string | null | undefined): value is string {
-  if (!value) return false
+/**
+ * The NORMALISED absolute http(s) URL, or null.
+ *
+ * Returns `href` rather than the input because URL parsing is far more lenient
+ * than the value it produces: `"  https://x/a "` and `"https://x/a\nb"` both
+ * parse, and the backend stores `image_url` untrimmed, so the padded form
+ * genuinely reaches this builder. Emitting the raw string would put whitespace
+ * and control characters inside a machine-readable image claim — the broken
+ * output this check exists to prevent, just in a subtler form than a relative
+ * path.
+ */
+function absoluteHttpUrl(value: string | null | undefined): string | null {
+  if (!value) return null
   try {
-    const { protocol } = new URL(value)
-    return protocol === 'http:' || protocol === 'https:'
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null
   } catch {
-    return false
+    return null
   }
 }
 

@@ -114,7 +114,9 @@ export interface SceneWeekJsonLd {
  * SHAPE an event — though their inputs are picked separately, so a multi-venue
  * show can still name a different room on each (this page takes the
  * alphabetically-first in-scope venue; the detail page takes whichever its
- * unordered preload returns first).
+ * unordered preload returns first). `image` is a second such input difference:
+ * `SceneShowSummary` carries no `image_url`, so this page's array is the
+ * generated card alone where the detail page also lists the flyer.
  *
  * `now` is injected so the past-show rule is testable without a fake clock.
  *

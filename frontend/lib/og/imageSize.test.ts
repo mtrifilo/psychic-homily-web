@@ -43,13 +43,13 @@ function webpVp8x(width: number, height: number): Uint8Array {
  * covers the segment WALK and not just a fixed offset — the walk is the part
  * that can loop or run off the end.
  */
-function jpeg(width: number, height: number, segmentsBefore = 0): Uint8Array {
+function jpeg(width: number, height: number, segmentsBefore = 1, sof = 0xc0): Uint8Array {
   const bytes: number[] = [0xff, 0xd8]
   for (let i = 0; i < segmentsBefore; i++) {
     bytes.push(0xff, 0xe0, 0x00, 0x10) // APP0, length 16
     for (let j = 0; j < 14; j++) bytes.push(0x00)
   }
-  bytes.push(0xff, 0xc0, 0x00, 0x11, 0x08)
+  bytes.push(0xff, sof, 0x00, 0x11, 0x08)
   bytes.push((height >> 8) & 0xff, height & 0xff)
   bytes.push((width >> 8) & 0xff, width & 0xff)
   for (let j = 0; j < 10; j++) bytes.push(0x00)
@@ -70,14 +70,6 @@ describe('readImageHeader', () => {
       width: 500,
       height: 750,
       mime: 'image/gif',
-    })
-  })
-
-  it('reads a JPEG whose SOF is the first segment', () => {
-    expect(readImageHeader(jpeg(1440, 1800))).toEqual({
-      width: 1440,
-      height: 1800,
-      mime: 'image/jpeg',
     })
   })
 
@@ -116,6 +108,32 @@ describe('readImageHeader rejections', () => {
   it('rejects a truncated header of a supported format', () => {
     expect(readImageHeader(png(100, 100).subarray(0, 16))).toBeNull()
     expect(readImageHeader(gif(100, 100).subarray(0, 6))).toBeNull()
+  })
+
+  // Satori's walk never inspects the marker of the FIRST segment, so a JPEG
+  // whose SOF comes first is sizeable here and invisible to it — and it throws
+  // rather than degrading. Rejecting keeps our accepted set a strict subset.
+  it('rejects a JPEG whose SOF is the first segment, as Satori would', () => {
+    expect(readImageHeader(jpeg(1440, 1800, 0))).toBeNull()
+  })
+
+  // Lossless (SOF3) and arithmetic-coded frames are valid JPEG that Satori
+  // cannot size; it accepts only SOF0/1/2.
+  it('rejects frame markers outside SOF0/1/2', () => {
+    for (const marker of [0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]) {
+      expect(readImageHeader(jpeg(1000, 1200, 1, marker)), marker.toString(16)).toBeNull()
+    }
+  })
+
+  // A 21-byte response — SOI plus a well-formed SOF and no scan data at all —
+  // sized cleanly under the old walk and then trapped the rasteriser with an
+  // out-of-bounds read, after the route had already returned 200.
+  it('rejects a frame header with nothing behind it', () => {
+    const b = new Uint8Array([
+      0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0xf4, 0x01, 0x90, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ])
+    expect(readImageHeader(b)).toBeNull()
   })
 
   // The accepted set is deliberately EXACTLY what Satori can rasterise

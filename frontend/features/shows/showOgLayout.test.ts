@@ -14,6 +14,7 @@ import {
   VENUE_MAX_WIDTH,
   VENUE_SIZE,
   buildVenueLine,
+  dateRowWidth,
   fitPlate,
   fitTitleSize,
   fitVenueSize,
@@ -196,6 +197,23 @@ describe('fitPlate', () => {
       expect(fitted.height).toBeGreaterThanOrEqual(1)
     }
   })
+
+  // `0 * Infinity` is NaN, and Satori draws a NaN-sized element as nothing.
+  it('stays bounded for zero and nonsense dimensions', () => {
+    for (const [w, h] of [
+      [0, 0],
+      [0, 500],
+      [500, 0],
+      [-10, 20],
+      [Number.NaN, 100],
+    ] as const) {
+      const fitted = fitPlate(w, h)
+      expect(Number.isFinite(fitted.width), `${w}×${h}`).toBe(true)
+      expect(Number.isFinite(fitted.height), `${w}×${h}`).toBe(true)
+      expect(fitted.width).toBeGreaterThanOrEqual(1)
+      expect(fitted.height).toBeGreaterThanOrEqual(1)
+    }
+  })
 })
 
 describe('the text column beside a plate', () => {
@@ -210,7 +228,7 @@ describe('the text column beside a plate', () => {
   })
 
   // The footer STACKS beside a plate. Kept inline it would leave the venue
-  // 274px of a 640px column — so the ordinary case, not some pathological
+  // ~267px of a 640px column — so the ordinary case, not some pathological
   // venue name, would clip on every single flyer card.
   it('cannot fit the venue beside the wordmark in the narrow column', () => {
     const inlineBudget = TEXT_WIDTH_WITH_PLATE - (CONTENT_WIDTH - VENUE_MAX_WIDTH)
@@ -225,6 +243,29 @@ describe('the text column beside a plate', () => {
     expect(venueOverflows(line, TEXT_WIDTH_WITH_PLATE)).toBe(false)
     // And at full display size, not shrunk to squeeze in.
     expect(fitVenueSize(line, TEXT_WIDTH_WITH_PLATE)).toBe(VENUE_SIZE)
+  })
+
+  // The date row has no fit function, so nothing shrinks it — over budget Yoga
+  // WRAPS, breaking the date mid-phrase and stacking the pill to "SOLD / OUT".
+  // The long form does not fit beside a plate, which is exactly why the plate
+  // card abbreviates; both halves are asserted so the reason cannot be lost.
+  it('cannot fit the long date form beside a plate when sold out', () => {
+    expect(dateRowWidth('Wednesday, September 30, 2026', true)).toBeGreaterThan(
+      TEXT_WIDTH_WITH_PLATE
+    )
+  })
+
+  it('fits the abbreviated date and the sold-out pill on one line', () => {
+    // Longest abbreviated en-US forms: every weekday/month abbreviates to three
+    // characters, so a two-digit day and a four-digit year is the widest case.
+    for (const date of ['Wed, Sep 30, 2026', 'Sat, Nov 28, 2026', 'Sun, Aug 2, 2026']) {
+      expect(dateRowWidth(date, true), date).toBeLessThanOrEqual(TEXT_WIDTH_WITH_PLATE)
+    }
+  })
+
+  // The full-width card keeps the long form, and must keep fitting it.
+  it('still fits the long date form on the full-width card', () => {
+    expect(dateRowWidth('Wednesday, September 30, 2026', true)).toBeLessThanOrEqual(CONTENT_WIDTH)
   })
 
   // Every element is still consumed at a 4× downscale, plate or no plate.

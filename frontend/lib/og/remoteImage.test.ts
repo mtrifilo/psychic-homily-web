@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { loadRemoteImage } from './remoteImage'
 
+/** The image when the load succeeded, else null — most assertions only care. */
+async function loaded(url: string | null | undefined) {
+  const outcome = await loadRemoteImage(url)
+  return outcome.status === 'ok' ? outcome.image : null
+}
+
+/** The outcome tag, which is what decides how long a card may be cached. */
+async function outcomeOf(url: string | null | undefined) {
+  return (await loadRemoteImage(url)).status
+}
+
 /**
  * These are the guards on an attacker-controlled fetch.
  *
@@ -47,7 +58,7 @@ afterEach(() => {
 describe('loadRemoteImage', () => {
   it('returns the raw bytes and the intrinsic size for a real image', async () => {
     mockFetch(() => imageResponse(pngBytes(800, 1000)))
-    const result = await loadRemoteImage('https://cdn.example.com/flyer.png')
+    const result = await loaded('https://cdn.example.com/flyer.png')
     expect(result?.width).toBe(800)
     expect(result?.height).toBe(1000)
     // An ArrayBuffer, not a view and not a data URI: Satori sizes it with
@@ -66,12 +77,12 @@ describe('loadRemoteImage', () => {
     webp.set([...'WEBP'].map(c => c.charCodeAt(0)), 8)
     webp.set([...'VP8X'].map(c => c.charCodeAt(0)), 12)
     mockFetch(() => imageResponse(webp))
-    expect(await loadRemoteImage('https://cdn.example.com/flyer.webp')).toBeNull()
+    expect(await loaded('https://cdn.example.com/flyer.webp')).toBeNull()
   })
 
   it('requests on guarded terms: no ambient auth, manual redirects, a deadline', async () => {
     const spy = mockFetch(() => imageResponse(pngBytes()))
-    await loadRemoteImage('https://cdn.example.com/flyer.png')
+    await loaded('https://cdn.example.com/flyer.png')
     expect(spy.mock.calls[0][1]).toMatchObject({
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
@@ -99,21 +110,49 @@ describe('URLs that must never be fetched at all', () => {
     ['a data URL', 'data:image/png;base64,AAAA'],
     ['a javascript URL', 'javascript:alert(1)'],
     ['unparseable junk', 'not a url'],
+
+    // IPv4-mapped IPv6. These defeated a prefix-matching guard completely: the
+    // URL parser canonicalises `[::ffff:169.254.169.254]` to `[::ffff:a9fe:a9fe]`,
+    // so no dotted-quad check can see it, and on a dual-stack host it connects
+    // to the IPv4 address. Every literal-IP defence was expressible this way.
+    ['IPv4-mapped metadata endpoint', 'https://[::ffff:169.254.169.254]/latest/meta-data/'],
+    ['IPv4-mapped metadata, hex form', 'https://[::ffff:a9fe:a9fe]/latest/meta-data/'],
+    ['IPv4-mapped loopback', 'https://[::ffff:127.0.0.1]/admin'],
+    ['IPv4-mapped RFC1918', 'https://[::ffff:10.0.0.1]/'],
+    ['fully expanded IPv4-mapped', 'https://[0:0:0:0:0:ffff:a9fe:a9fe]/'],
+    ['the unspecified address', 'https://[::]/admin'],
+    ['IPv6 unique-local', 'https://[fd00::1]/'],
+    ['IPv6 link-local', 'https://[fe80::1]/'],
+    ['NAT64', 'https://[64:ff9b::a9fe:a9fe]/'],
+
+    // A trailing dot is a valid absolute FQDN that resolvers honour, and it
+    // slipped every name-based check by adding one character.
+    ['loopback with a trailing dot', 'https://localhost./flyer.png'],
+    ['metadata with a trailing dot', 'https://metadata.google.internal./v1/'],
+    ['internal suffix with a trailing dot', 'https://backend.railway.internal./health'],
+
+    // Ranges a five-entry denylist misses.
+    ['CGNAT 100.64/10', 'https://100.64.1.1/flyer.png'],
+    ['Alibaba metadata', 'https://100.100.100.200/latest/meta-data/'],
+    ['Oracle metadata 192.0.0/24', 'https://192.0.0.192/opc/v1/instance/'],
+    ['this-network 0/8', 'https://0.0.0.0/flyer.png'],
+    ['multicast', 'https://224.0.0.1/flyer.png'],
+    ['benchmarking 198.18/15', 'https://198.18.0.1/flyer.png'],
   ] as const
 
   for (const [label, url] of blocked) {
     it(`makes no request for ${label}`, async () => {
       const spy = mockFetch(() => imageResponse(pngBytes()))
-      expect(await loadRemoteImage(url)).toBeNull()
+      expect(await loaded(url)).toBeNull()
       expect(spy).not.toHaveBeenCalled()
     })
   }
 
   it('makes no request for an absent flyer', async () => {
     const spy = mockFetch(() => imageResponse(pngBytes()))
-    expect(await loadRemoteImage(null)).toBeNull()
-    expect(await loadRemoteImage(undefined)).toBeNull()
-    expect(await loadRemoteImage('')).toBeNull()
+    expect(await loaded(null)).toBeNull()
+    expect(await loaded(undefined)).toBeNull()
+    expect(await loaded('')).toBeNull()
     expect(spy).not.toHaveBeenCalled()
   })
 
@@ -121,9 +160,58 @@ describe('URLs that must never be fetched at all', () => {
   // over-broad regex here would silently break real hosts.
   it('does not over-block addresses just outside RFC1918', async () => {
     mockFetch(() => imageResponse(pngBytes()))
-    expect(await loadRemoteImage('https://172.15.0.1/flyer.png')).not.toBeNull()
-    expect(await loadRemoteImage('https://172.32.0.1/flyer.png')).not.toBeNull()
-    expect(await loadRemoteImage('https://11.0.0.1/flyer.png')).not.toBeNull()
+    expect(await loaded('https://172.15.0.1/flyer.png')).not.toBeNull()
+    expect(await loaded('https://172.32.0.1/flyer.png')).not.toBeNull()
+    expect(await loaded('https://11.0.0.1/flyer.png')).not.toBeNull()
+    expect(await loaded('https://100.63.0.1/flyer.png')).not.toBeNull() // just below CGNAT
+    expect(await loaded('https://100.128.0.1/flyer.png')).not.toBeNull() // just above
+  })
+
+  // A real CDN on IPv6 has to keep working — the rule is "global unicast only",
+  // not "no IPv6".
+  it('allows a global-unicast IPv6 host', async () => {
+    mockFetch(() => imageResponse(pngBytes()))
+    expect(await loaded('https://[2606:4700::6810:85e5]/flyer.png')).not.toBeNull()
+  })
+
+  it('allows an ordinary hostname that merely contains a blocked word', async () => {
+    mockFetch(() => imageResponse(pngBytes()))
+    expect(await loaded('https://localhost.example.com/flyer.png')).not.toBeNull()
+    expect(await loaded('https://internal.example.com/flyer.png')).not.toBeNull()
+  })
+})
+
+describe('the outcome tag that decides caching', () => {
+  // A rejected flyer is a permanent fact about the row — an `http:` URL the
+  // backend accepts but this does not, a WebP, an oversized scan. Caching those
+  // cards for 60s would re-render them forever.
+  it('reports a permanent rejection as `rejected`', async () => {
+    mockFetch(() => imageResponse(pngBytes()))
+    expect(await outcomeOf('http://cdn.example.com/flyer.png')).toBe('rejected')
+    expect(await outcomeOf('https://169.254.169.254/x')).toBe('rejected')
+
+    mockFetch(() => imageResponse(pngBytes(4000, 4000)))
+    expect(await outcomeOf('https://cdn.example.com/huge.png')).toBe('rejected')
+
+    mockFetch(() => new Response('nope', { status: 404 }))
+    expect(await outcomeOf('https://cdn.example.com/gone.png')).toBe('rejected')
+  })
+
+  // A 5xx or a timeout could succeed on the next unfurl, so those DO earn the
+  // short cache window.
+  it('reports a transient failure as `unavailable`', async () => {
+    mockFetch(() => new Response('oops', { status: 503 }))
+    expect(await outcomeOf('https://cdn.example.com/flyer.png')).toBe('unavailable')
+
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new DOMException('The operation was aborted', 'TimeoutError')
+    }))
+    expect(await outcomeOf('https://cdn.example.com/slow.png')).toBe('unavailable')
+  })
+
+  it('reports no flyer at all as `none`', async () => {
+    expect(await outcomeOf(null)).toBe('none')
+    expect(await outcomeOf('')).toBe('none')
   })
 })
 
@@ -144,7 +232,7 @@ describe('the redirect chain', () => {
       return imageResponse(pngBytes())
     })
 
-    expect(await loadRemoteImage('https://cdn.example.com/flyer.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/flyer.png')).toBeNull()
     expect(seen).toEqual(['https://cdn.example.com/flyer.png'])
   })
 
@@ -155,7 +243,7 @@ describe('the redirect chain', () => {
         headers: { location: 'http://cdn.example.com/flyer.png' },
       })
     )
-    expect(await loadRemoteImage('https://cdn.example.com/flyer.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/flyer.png')).toBeNull()
   })
 
   it('follows a redirect to another allowed host', async () => {
@@ -167,7 +255,7 @@ describe('the redirect chain', () => {
           })
         : imageResponse(pngBytes(640, 800))
     )
-    const result = await loadRemoteImage('https://cdn.example.com/flyer.png')
+    const result = await loaded('https://cdn.example.com/flyer.png')
     expect(result?.width).toBe(640)
   })
 
@@ -180,7 +268,7 @@ describe('the redirect chain', () => {
       }
       return imageResponse(pngBytes())
     })
-    expect(await loadRemoteImage('https://cdn.example.com/flyer.png')).not.toBeNull()
+    expect(await loaded('https://cdn.example.com/flyer.png')).not.toBeNull()
     expect(seen[1]).toBe('https://cdn.example.com/real/flyer.png')
   })
 
@@ -188,26 +276,26 @@ describe('the redirect chain', () => {
     const spy = mockFetch(url =>
       new Response(null, { status: 302, headers: { location: `${url.href}?again` } })
     )
-    expect(await loadRemoteImage('https://cdn.example.com/flyer.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/flyer.png')).toBeNull()
     expect(spy.mock.calls.length).toBeLessThanOrEqual(4)
   })
 
   it('refuses a redirect with no readable Location', async () => {
     mockFetch(() => new Response(null, { status: 302 }))
-    expect(await loadRemoteImage('https://cdn.example.com/flyer.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/flyer.png')).toBeNull()
   })
 })
 
 describe('responses that must not reach the renderer', () => {
   it('drops a non-image body', async () => {
     mockFetch(() => imageResponse(new TextEncoder().encode('<html>internal admin</html>')))
-    expect(await loadRemoteImage('https://cdn.example.com/flyer.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/flyer.png')).toBeNull()
   })
 
   it('drops an error status', async () => {
     for (const status of [401, 403, 404, 500]) {
       mockFetch(() => new Response('nope', { status }))
-      expect(await loadRemoteImage('https://cdn.example.com/flyer.png'), String(status)).toBeNull()
+      expect(await loaded('https://cdn.example.com/flyer.png'), String(status)).toBeNull()
     }
   })
 
@@ -216,34 +304,41 @@ describe('responses that must not reach the renderer', () => {
   // of memory.
   it('drops an image whose declared canvas exceeds the pixel budget', async () => {
     mockFetch(() => imageResponse(pngBytes(12000, 12000)))
-    expect(await loadRemoteImage('https://cdn.example.com/huge.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/huge.png')).toBeNull()
   })
 
-  // The caps are safety ceilings, not targets. Sized to the 380×510 plate they
-  // would reject the artwork the feature exists for: a measured 960px Commons
-  // poster is 1.88MB, which an earlier 1.5MB cap threw away.
-  it('admits the flyers the feature is actually for', async () => {
+  // The byte cap is a ceiling, not a target: sized to the 380×510 plate it
+  // threw away a real 1.88MB Commons poster at 1.5MB.
+  it('admits the hosted flyers the feature is actually for', async () => {
     for (const [w, h] of [
-      [960, 1387], // the measured Commons poster
-      [1080, 1350], // Instagram portrait export
-      [2550, 3300], // 8.5×11 at 300dpi
+      [960, 1387], // the measured Commons poster, 1.33MP
+      [1080, 1350], // Instagram portrait export, 1.46MP
+      [1600, 2400], // a generous hosted flyer, 3.84MP
     ] as const) {
       mockFetch(() => imageResponse(pngBytes(w, h)))
-      expect(await loadRemoteImage('https://cdn.example.com/flyer.png'), `${w}×${h}`).not.toBeNull()
+      expect(await loaded('https://cdn.example.com/flyer.png'), `${w}×${h}`).not.toBeNull()
     }
   })
 
-  // Documented boundary, not an accident: 4032×3024 is 12.19MP, just over the
-  // cap, so an untouched phone photo degrades to the text card rather than
-  // risking a ~49MB decode in a 128MB runtime.
-  it('drops a full-resolution phone photo, just above the budget', async () => {
-    mockFetch(() => imageResponse(pngBytes(4032, 3024)))
-    expect(await loadRemoteImage('https://cdn.example.com/photo.png')).toBeNull()
+  // Print-resolution and camera-original sources are ABOVE the cap by design,
+  // and this is the measured reason rather than a guess: rendering an 8.41MP
+  // PNG through this bundle costs ~236MB of peak RSS over baseline, against a
+  // 128MB edge budget. An OOM is a platform kill that goes past every
+  // fail-open path, so these degrade to the text card instead.
+  it('drops sources whose decode would not fit the runtime', async () => {
+    for (const [w, h] of [
+      [2550, 3300], // 8.5×11 at 300dpi — 8.41MP, measured at ~+236MB
+      [4032, 3024], // untouched phone photo — 12.19MP
+      [12000, 12000], // the decompression bomb the cap exists for
+    ] as const) {
+      mockFetch(() => imageResponse(pngBytes(w, h)))
+      expect(await loaded('https://cdn.example.com/big.png'), `${w}×${h}`).toBeNull()
+    }
   })
 
   it('drops a zero-dimension image', async () => {
     mockFetch(() => imageResponse(pngBytes(0, 0)))
-    expect(await loadRemoteImage('https://cdn.example.com/empty.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/empty.png')).toBeNull()
   })
 
   it('drops a response that declares itself over the byte cap', async () => {
@@ -253,7 +348,7 @@ describe('responses that must not reach the renderer', () => {
         headers: { 'content-length': String(50 * 1024 * 1024) },
       })
     )
-    expect(await loadRemoteImage('https://cdn.example.com/big.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/big.png')).toBeNull()
   })
 
   // The cap that matters: a chunked response declares no length at all, so it
@@ -270,7 +365,7 @@ describe('responses that must not reach the renderer', () => {
           { status: 200 }
         )
     )
-    expect(await loadRemoteImage('https://cdn.example.com/endless.png')).toBeNull()
+    expect(await loaded('https://cdn.example.com/endless.png')).toBeNull()
   })
 
   // Every failure is the caller's cue to render its text-only card, so none of
@@ -279,13 +374,13 @@ describe('responses that must not reach the renderer', () => {
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new Error('network unreachable')
     }))
-    await expect(loadRemoteImage('https://cdn.example.com/flyer.png')).resolves.toBeNull()
+    await expect(loaded('https://cdn.example.com/flyer.png')).resolves.toBeNull()
   })
 
   it('returns null rather than throwing when the fetch times out', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new DOMException('The operation was aborted', 'TimeoutError')
     }))
-    await expect(loadRemoteImage('https://cdn.example.com/slow.png')).resolves.toBeNull()
+    await expect(loaded('https://cdn.example.com/slow.png')).resolves.toBeNull()
   })
 })

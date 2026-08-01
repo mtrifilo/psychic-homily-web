@@ -9,10 +9,11 @@
  *    pure function the layout tests can assert against, instead of a behaviour
  *    of Satori's image resolver.
  * 2. **A sniff that the bytes are actually an image, and how big it decodes.**
- *    A byte cap does not bound decoded size — JPEG compresses ~100:1, so a
- *    400KB download can be a 12000×12000 canvas that costs ~576MB to
- *    rasterise. Reading the header first makes the pixel budget cheap to
- *    enforce, and a response that parses as no known format is rejected
+ *    A byte cap does not bound decoded size. A flat-colour PNG of a 12000×12000
+ *    canvas compresses to tens of KB and still asks for ~576MB of RGBA to
+ *    rasterise, so a download small enough to pass any byte cap can still
+ *    exhaust the runtime. Reading the header first makes the pixel budget cheap
+ *    to enforce, and a response that parses as no known format is rejected
  *    without ever being handed to the renderer.
  *
  * The MIME type comes from the magic bytes rather than the server's
@@ -39,9 +40,16 @@ export interface ImageHeader {
  * strictly worse than one it rejects: rejecting yields the text-only card,
  * accepting yields a broken share preview.
  *
- * That rules out WebP and AVIF specifically. WebP is common on the web, so a
- * WebP flyer silently getting the text card is a real (if minor) product gap —
- * the fix is to transcode at the write boundary, not to widen this.
+ * That rules out WebP and AVIF, which the rasteriser genuinely cannot draw.
+ * WebP is common on the web, so a WebP flyer silently getting the text card is
+ * a real (if minor) product gap — the fix is to transcode at the write
+ * boundary, not to widen this.
+ *
+ * SVG is excluded too, and for a different reason: the rasteriser DOES draw it,
+ * but the bytes here come from a URL any email-verified user can set, and an
+ * SVG is a document — a script-and-external-reference-bearing format handed to
+ * a renderer. That is a materially larger attack surface than a raster header,
+ * for a format essentially no gig flyer uses. Do not "fix" this by adding it.
  *
  * Kept dependency-free: this is imported into an edge bundle, where OG failures
  * surface at DEPLOY time rather than at build, so an image-parsing library is
@@ -92,41 +100,53 @@ function readGif(b: Uint8Array): ImageHeader | null {
  * JPEG stores its size in a Start-Of-Frame marker whose offset depends on
  * everything before it, so the segment chain has to be walked.
  *
- * The walk is bounded by the buffer length, and every segment advance is at
- * least two bytes, so a malformed file terminates rather than spinning.
+ * This walk is deliberately a STRICT SUBSET of the rasteriser's, not a correct
+ * reading of T.81, because the two disagreeing is what breaks the route. Satori
+ * begins its own walk at offset 4 and returns only for SOF0/SOF1/SOF2; handed
+ * anything else it throws, from inside the response stream where nothing can
+ * catch it. Accepting a JPEG it will reject is therefore worse than rejecting a
+ * valid one — the first is a broken share preview, the second is the text card.
+ *
+ * Concretely that means three narrowings against the spec:
+ *
+ * - The segment at offset 2 is never a candidate. Satori's loop starts at the
+ *   first LENGTH field and reads the marker of the segment after it, so a file
+ *   whose SOF comes first is sizeable here and invisible to Satori — which then
+ *   throws. Real encoders emit APP0/APP1 first, so this costs nothing.
+ * - SOF0/1/2 only (baseline, extended, progressive). Lossless and arithmetic
+ *   frames are real JPEG and Satori cannot size them.
+ * - Every segment must carry a length, and a byte that is not `0xFF` where a
+ *   marker belongs ENDS the walk. Satori has no concept of standalone markers,
+ *   and resyncing past a bad byte accepts arbitrary junk with a plausible SOF
+ *   buried in it.
+ *
+ * The walk is bounded by the buffer length and every advance is at least two
+ * bytes, so a malformed file terminates rather than spinning.
  */
 function readJpeg(b: Uint8Array): ImageHeader | null {
   if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null
 
+  // `at` is the offset of the CURRENT segment's marker. Satori's loop counter
+  // is its length field (`at + 2`), and it only ever inspects the marker of the
+  // segment AFTER the one it is standing on — which is why the segment at
+  // offset 2 can never be the SOF as far as it is concerned.
   let at = 2
   while (at + 9 < b.length) {
-    if (b[at] !== 0xff) {
-      // Fill bytes are legal between segments; anything else means the chain
-      // is broken and further offsets would be nonsense.
-      at++
-      continue
-    }
-    const marker = b[at + 1]
-    // Standalone markers carry no length field.
-    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      at += 2
-      continue
-    }
-    if (marker === 0xd9 || marker === 0xda) return null // end of image / scan data
+    if (b[at] !== 0xff) return null
     const length = u16be(b, at + 2)
     if (length < 2) return null
-    // SOF0..SOF15, minus the four that are not frame headers (DHT, JPGA, DAC,
-    // and the restart-interval-adjacent 0xCC).
-    const isSof =
-      marker >= 0xc0 &&
-      marker <= 0xcf &&
-      marker !== 0xc4 &&
-      marker !== 0xc8 &&
-      marker !== 0xcc
-    if (isSof) {
-      return { width: u16be(b, at + 7), height: u16be(b, at + 5), mime: 'image/jpeg' }
+
+    const next = at + 2 + length
+    // Every segment must carry a length for this walk to stay in step, and the
+    // next marker must land inside the buffer with room for a frame header.
+    if (next + 9 > b.length) return null
+    if (b[next] !== 0xff) return null
+
+    const marker = b[next + 1]
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      return { width: u16be(b, next + 7), height: u16be(b, next + 5), mime: 'image/jpeg' }
     }
-    at += 2 + length
+    at = next
   }
   return null
 }
