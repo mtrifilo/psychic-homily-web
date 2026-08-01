@@ -229,6 +229,8 @@ export function generateMusicEventSchema(show: {
     socials?: Record<string, string | null | undefined>
   }>
   price?: number
+  /** The flyer, when the show has one. Emitted alongside the generated card. */
+  image_url?: string | null
   slug?: string
 }): MusicEventSchema {
   const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
@@ -335,10 +337,41 @@ export function generateMusicEventSchema(show: {
 
   if (show.slug) {
     schema.url = `${SITE_URL}/shows/${show.slug}`
-    schema.image = [`${SITE_URL}/shows/${show.slug}/opengraph-image`]
+  }
+
+  // Both images, generated card FIRST.
+  //
+  // Google treats the array as ranked preference, and the card is the one we
+  // control: it is always 1200×630, always contains the date, venue and bill as
+  // text, and always exists. The flyer is the richer artefact but an unknown
+  // quantity — arbitrary aspect ratio, possibly a dead link, and cropped to
+  // whatever ratio a given surface wants. Listing it second offers it without
+  // betting the result on it.
+  //
+  // The flyer is emitted even when the OG route could not render it: the two
+  // are independent claims, and a consumer fetching the URL directly is not
+  // affected by whatever made the card fall back to text.
+  const images = [
+    ...(show.slug ? [`${SITE_URL}/shows/${show.slug}/opengraph-image`] : []),
+    // Only absolute http(s) — a relative or malformed value in this field would
+    // be a broken claim in machine-readable output, which is worse than silence.
+    ...(isAbsoluteHttpUrl(show.image_url) ? [show.image_url] : []),
+  ]
+  if (images.length > 0) {
+    schema.image = images
   }
 
   return schema
+}
+
+function isAbsoluteHttpUrl(value: string | null | undefined): value is string {
+  if (!value) return false
+  try {
+    const { protocol } = new URL(value)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 /**

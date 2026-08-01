@@ -4,13 +4,19 @@ import {
   CONTENT_WIDTH,
   DATE_SIZE,
   DOMAIN_SIZE,
+  PLATE_BOX_HEIGHT,
+  PLATE_BOX_WIDTH,
+  PLATE_GAP,
   SOLD_OUT_SIZE,
   SUPPORT_SIZE,
+  TEXT_WIDTH_WITH_PLATE,
   TITLE_SIZE_MAX,
   TITLE_SIZE_MIN,
   VENUE_MAX_WIDTH,
+  VENUE_MAX_WIDTH_WITH_PLATE,
   VENUE_SIZE,
   buildVenueLine,
+  fitPlate,
   fitTitleSize,
   fitVenueSize,
   venueOverflows,
@@ -126,5 +132,124 @@ describe('buildVenueLine', () => {
     )
     expect(buildVenueLine('Crescent Ballroom', '', '')).toBe('Crescent Ballroom')
     expect(buildVenueLine('Crescent Ballroom', null, null)).toBe('Crescent Ballroom')
+  })
+})
+
+describe('fitPlate', () => {
+  // The decision this ticket encodes: a gig poster is a designed object, so it
+  // is letterboxed whole rather than cropped to fill a slot. Cropping cuts the
+  // headline off the poster, which is the one thing on it worth sharing.
+  it('never crops — the fitted box always has the source ratio', () => {
+    const sources: Array<[number, number]> = [
+      [1080, 1350], // Instagram portrait, the common flyer
+      [1000, 1000], // square
+      [2000, 1000], // landscape
+      [1275, 1650], // 8.5×11 scan
+      [612, 792],
+    ]
+    for (const [w, h] of sources) {
+      const fitted = fitPlate(w, h)
+      expect(fitted.width / fitted.height, `${w}×${h}`).toBeCloseTo(w / h, 1)
+    }
+  })
+
+  it('never exceeds the plate box on either axis', () => {
+    const sources: Array<[number, number]> = [
+      [4000, 3000],
+      [1080, 1350],
+      [1, 4000], // a sliver
+      [4000, 1],
+      [300, 300],
+    ]
+    for (const [w, h] of sources) {
+      const fitted = fitPlate(w, h)
+      expect(fitted.width, `${w}×${h} width`).toBeLessThanOrEqual(PLATE_BOX_WIDTH)
+      expect(fitted.height, `${w}×${h} height`).toBeLessThanOrEqual(PLATE_BOX_HEIGHT)
+    }
+  })
+
+  // The box is portrait because posters are: a 2:3 poster should be using the
+  // full height rather than floating in the middle of it.
+  it('fills the height for a 2:3 poster', () => {
+    expect(fitPlate(1000, 1500).height).toBe(PLATE_BOX_HEIGHT)
+  })
+
+  // The 4:5 Instagram crop is squarer than the box, so it is the WIDTH that
+  // binds — it letterboxes vertically rather than being cropped to fill.
+  it('binds on width for a 4:5 Instagram flyer', () => {
+    const fitted = fitPlate(1080, 1350)
+    expect(fitted.width).toBe(PLATE_BOX_WIDTH)
+    expect(fitted.height).toBeLessThan(PLATE_BOX_HEIGHT)
+  })
+
+  it('fills the width for a landscape flyer', () => {
+    expect(fitPlate(2000, 1000).width).toBe(PLATE_BOX_WIDTH)
+  })
+
+  // An extreme ratio rounds toward zero on its short axis, and Satori draws a
+  // zero-height element as nothing at all — a silently blank plate.
+  it('keeps a degenerate ratio at least one pixel on both axes', () => {
+    for (const [w, h] of [
+      [4000, 1],
+      [1, 4000],
+    ] as const) {
+      const fitted = fitPlate(w, h)
+      expect(fitted.width).toBeGreaterThanOrEqual(1)
+      expect(fitted.height).toBeGreaterThanOrEqual(1)
+    }
+  })
+})
+
+describe('the text column beside a plate', () => {
+  it('reserves exactly the plate band plus the gap', () => {
+    expect(TEXT_WIDTH_WITH_PLATE).toBe(CONTENT_WIDTH - PLATE_BOX_WIDTH - PLATE_GAP)
+  })
+
+  // The whole reason the fit functions take a width: measured against the FULL
+  // content width, a title that fits the wide card would overrun the narrow one
+  // and be clipped mid-word.
+  it('steps the title down further than it would on the full-width card', () => {
+    const title = 'Militarie Gun, MSPAINT and Pool Kids at Sleeping Village'
+    expect(fitTitleSize(title, TEXT_WIDTH_WITH_PLATE)).toBeLessThan(
+      fitTitleSize(title, CONTENT_WIDTH)
+    )
+  })
+
+  // The footer STACKS beside a plate. Kept inline it would leave the venue
+  // 274px of a 640px column — so the ordinary case, not some pathological
+  // venue name, would clip on every single flyer card.
+  it('cannot fit the venue beside the wordmark in the narrow column', () => {
+    const inlineBudget = TEXT_WIDTH_WITH_PLATE - (CONTENT_WIDTH - VENUE_MAX_WIDTH)
+    expect(venueOverflows(buildVenueLine('Sleeping Village', 'Chicago', 'IL'), inlineBudget))
+      .toBe(true)
+  })
+
+  it('fits an ordinary venue line once the footer stacks', () => {
+    const line = buildVenueLine('Sleeping Village', 'Chicago', 'IL')
+    expect(venueOverflows(line, VENUE_MAX_WIDTH_WITH_PLATE)).toBe(false)
+    // And at full display size, not shrunk to squeeze in.
+    expect(fitVenueSize(line, VENUE_MAX_WIDTH_WITH_PLATE)).toBe(VENUE_SIZE)
+  })
+
+  // Stacking buys the venue MORE room than the full-width card gives it.
+  it('gives the stacked venue line a wider budget than the inline one', () => {
+    expect(VENUE_MAX_WIDTH_WITH_PLATE).toBeGreaterThan(VENUE_MAX_WIDTH * 0.9)
+  })
+
+  // Every element is still consumed at a 4× downscale, plate or no plate.
+  it('holds the narrow column to the same legibility floor', () => {
+    expect(
+      fitTitleSize('A'.repeat(500), TEXT_WIDTH_WITH_PLATE) * SHARE_SCALE
+    ).toBeGreaterThanOrEqual(LEGIBILITY_FLOOR)
+  })
+
+  // A flyer-less show must render exactly the card it rendered before.
+  it('defaults to the full content width when no plate is present', () => {
+    const title = 'Pearly Drops at Sleeping Village'
+    expect(fitTitleSize(title)).toBe(fitTitleSize(title, CONTENT_WIDTH))
+    const line = buildVenueLine('Sleeping Village', 'Chicago', 'IL')
+    expect(fitVenueSize(line)).toBe(fitVenueSize(line, VENUE_MAX_WIDTH))
+    expect(venueOverflows(line)).toBe(venueOverflows(line, VENUE_MAX_WIDTH))
+    expect(VENUE_MAX_WIDTH).toBeGreaterThan(0)
   })
 })

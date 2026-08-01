@@ -8,18 +8,27 @@ import {
   ogCacheControl,
   ogFallbackCard,
 } from '@/lib/og/response'
+import { loadRemoteImage } from '@/lib/og/remoteImage'
 import {
+  CONTENT_WIDTH,
   DATE_SIZE,
   DOMAIN_SIZE,
   HEADLINE_GAP,
   PAD_X,
   PAD_Y,
+  PLATE_BOX_HEIGHT,
+  PLATE_BOX_WIDTH,
+  PLATE_GAP,
   SOLD_OUT_SIZE,
   SUPPORT_SIZE,
+  TEXT_WIDTH_WITH_PLATE,
   TITLE_LINE_HEIGHT,
   TITLE_SIZE_MAX,
+  VENUE_MAX_WIDTH,
+  VENUE_MAX_WIDTH_WITH_PLATE,
   WORDMARK,
   buildVenueLine,
+  fitPlate,
   fitTitleSize,
   fitVenueSize,
   venueOverflows,
@@ -50,6 +59,7 @@ interface ShowData {
   event_date: string
   is_sold_out: boolean
   is_cancelled: boolean
+  image_url?: string | null
   venues: Array<{ name: string; city: string; state: string; timezone?: string | null }>
   artists: Array<{ name: string; is_headliner?: boolean | null }>
 }
@@ -79,6 +89,15 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
   if (!show) return ogFallbackCard(fonts)
 
+  // Sequential rather than parallel with the show fetch, because the URL to
+  // fetch comes out of it. Bounded by `loadRemoteImage`'s own deadline, and any
+  // failure returns null, which is simply the text-only card.
+  const flyer = await loadRemoteImage(show.image_url)
+  const plate = flyer ? fitPlate(flyer.width, flyer.height) : null
+  // The text column narrows only when there is actually a plate beside it, so a
+  // flyer-less show renders exactly the card it rendered before.
+  const textWidth = plate ? TEXT_WIDTH_WITH_PLATE : CONTENT_WIDTH
+
   const headliner =
     show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
   const venue = show.venues?.[0]
@@ -91,12 +110,16 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   // separate city line was 5.5px, i.e. decoration that was carrying meaning.
   const venueLine = buildVenueLine(venueName, venue?.city, venue?.state)
 
-  const titleSize = fitTitleSize(displayTitle)
-  const venueSize = fitVenueSize(venueLine)
+  const titleSize = fitTitleSize(displayTitle, textWidth)
+  // Beside a plate the footer stacks, so the venue line gets the whole column
+  // instead of sharing a row with the wordmark. See VENUE_MAX_WIDTH_WITH_PLATE:
+  // kept inline, an ordinary venue name would clip on every flyer card.
+  const venueBudget = plate ? VENUE_MAX_WIDTH_WITH_PLATE : VENUE_MAX_WIDTH
+  const venueSize = fitVenueSize(venueLine, venueBudget)
   // Past the minimum size the line still overruns. It must CLIP rather than
   // run under the wordmark and push it off the canvas — the two elements this
   // retune exists to make legible are the two that would be destroyed.
-  const venueClips = venueOverflows(venueLine)
+  const venueClips = venueOverflows(venueLine, venueBudget)
 
   return new ImageResponse(
     (
@@ -105,42 +128,52 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           width: '100%',
           height: '100%',
           display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
+          flexDirection: 'row',
+          alignItems: 'stretch',
+          gap: plate ? PLATE_GAP : 0,
           backgroundColor: OG_COLORS.background,
           padding: `${PAD_Y}px ${PAD_X}px`,
           position: 'relative',
         }}
       >
-        {show.is_cancelled && (
+        {/* The plate: a fixed band, with the artwork letterboxed inside it at
+            its own ratio. Fixed rather than shrink-to-fit so the text column's
+            width — and therefore every fit budget above — is the same number
+            for a portrait poster and a landscape one. */}
+        {plate && flyer && (
           <div
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
               display: 'flex',
+              width: PLATE_BOX_WIDTH,
+              height: PLATE_BOX_HEIGHT,
+              flexShrink: 0,
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <div
-              style={{
-                color: OG_COLORS.destructive,
-                fontFamily: OG_FONT_FAMILY.sans,
-                fontSize: 96,
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                opacity: 0.3,
-                transform: 'rotate(-15deg)',
-              }}
-            >
-              CANCELLED
-            </div>
+            {/* A bare <img> on purpose: Satori renders this, not the browser,
+                so next/image has no meaning inside an OG card. */}
+            <img
+              src={flyer.dataUri}
+              alt=""
+              width={plate.width}
+              height={plate.height}
+              style={{ borderRadius: 8 }}
+            />
           </div>
         )}
 
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            flex: 1,
+            // Without this the column takes its intrinsic content width and
+            // pushes the plate off the canvas instead of wrapping its own text.
+            minWidth: 0,
+          }}
+        >
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <div
             style={{
@@ -218,11 +251,15 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           )}
         </div>
 
+        {/* Stacks beside a plate, inline otherwise. The wordmark costs ~326px
+            in mono, which the 640px column cannot spare next to a venue line. */}
         <div
           style={{
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
+            flexDirection: plate ? 'column' : 'row',
+            justifyContent: plate ? 'flex-end' : 'space-between',
+            alignItems: plate ? 'flex-start' : 'flex-end',
+            gap: plate ? 8 : 0,
             overflow: 'hidden',
           }}
         >
@@ -255,6 +292,41 @@ export default async function Image({ params }: { params: Promise<{ slug: string
             {WORDMARK}
           </div>
         </div>
+        </div>
+
+        {/* LAST on purpose. Satori paints in document order, so an overlay
+            declared before the plate would be painted UNDER an opaque flyer and
+            vanish over the left half of the card — losing the single most
+            load-bearing fact on it. Over the text it reads the same as before,
+            at 0.3 opacity. */}
+        {show.is_cancelled && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <div
+              style={{
+                color: OG_COLORS.destructive,
+                fontFamily: OG_FONT_FAMILY.sans,
+                fontSize: 96,
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                opacity: 0.3,
+                transform: 'rotate(-15deg)',
+              }}
+            >
+              CANCELLED
+            </div>
+          </div>
+        )}
       </div>
     ),
     {
