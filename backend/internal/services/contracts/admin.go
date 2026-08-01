@@ -164,6 +164,8 @@ type ExportedShowArtist struct {
 type ExportedShow struct {
 	Title          string               `json:"title"`
 	EventDate      string               `json:"eventDate"` // ISO format
+	DoorsAt        *string              `json:"doorsAt,omitempty"`
+	MusicAt        *string              `json:"musicAt,omitempty"`
 	City           *string              `json:"city,omitempty"`
 	State          *string              `json:"state,omitempty"`
 	Price          *float64             `json:"price,omitempty"`

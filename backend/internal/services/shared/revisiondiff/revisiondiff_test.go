@@ -62,8 +62,10 @@ func TestCompare_ShowAllFields(t *testing.T) {
 }
 
 // TestCompare_ShowOptionalTimes covers the *time.Time field kind: unset reads
-// as the empty string rather than a zero-date, and each of the three
-// transitions a nullable timestamp can make is reported exactly once.
+// as nil (SQL NULL), never "" and never a zero-date. See optionalTimeValue —
+// "" is not a valid TIMESTAMPTZ, and emitting it makes Rollback fail on any
+// revision that first populates one of these columns. Each transition a
+// nullable timestamp can make is reported exactly once.
 func TestCompare_ShowOptionalTimes(t *testing.T) {
 	doors := time.Date(2026, 5, 1, 19, 0, 0, 0, time.UTC)
 	laterDoors := time.Date(2026, 5, 1, 19, 30, 0, 0, time.UTC)

@@ -81,6 +81,20 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		return nil, fmt.Errorf("database not initialized")
 	}
 
+	// Re-check the show-time order at the storage chokepoint, mirroring how
+	// instagram_handle is handled: the handler's Resolve gives the common path
+	// a field-located 422, and this covers the callers that never see it
+	// (ConfirmShowImport, the entity-request fulfiller, and any future importer).
+	//
+	// Deliberately NOT mirrored on the update path. There, the equivalent guard
+	// runs in the handler and only when the request touches a time, because a
+	// row can hold a disordered pair legitimately: revision Rollback restores
+	// whatever state was recorded, and a restore must never be refused. Blocking
+	// writes on stored disorder would make such a row uneditable.
+	if req.DoorsAt != nil && req.MusicAt != nil && req.MusicAt.Before(*req.DoorsAt) {
+		return nil, apperrors.ErrShowValidationFailed("music_at cannot be before doors_at")
+	}
+
 	// Use transaction for data consistency
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {

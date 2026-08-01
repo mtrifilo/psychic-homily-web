@@ -89,8 +89,12 @@ func (LabelRequestPayload) entityRequestType() string { return EntityRequestLabe
 
 // ShowRequestPayload carries the user-supplied fields to create a show.
 type ShowRequestPayload struct {
-	Title          string   `json:"title"`
-	EventDate      string   `json:"event_date"` // RFC3339 / YYYY-MM-DD; parsed at fulfillment
+	Title     string `json:"title"`
+	EventDate string `json:"event_date"` // RFC3339 / YYYY-MM-DD; parsed at fulfillment
+	// DoorsAt / MusicAt are optional and, unlike EventDate, must be RFC3339:
+	// a bare date carries no time of day, which is the only thing these mean.
+	DoorsAt        *string  `json:"doors_at,omitempty"`
+	MusicAt        *string  `json:"music_at,omitempty"`
 	City           *string  `json:"city,omitempty"`
 	State          *string  `json:"state,omitempty"`
 	Price          *float64 `json:"price,omitempty"`

@@ -10365,9 +10365,11 @@ export interface components {
             artists: components["schemas"]["ExportedShowArtist"][] | null;
             city?: string;
             description?: string;
+            doorsAt?: string;
             eventDate: string;
             isCancelled: boolean;
             isSoldOut: boolean;
+            musicAt?: string;
             /** Format: double */
             price?: number;
             state?: string;

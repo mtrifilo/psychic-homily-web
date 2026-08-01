@@ -365,6 +365,42 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_RejectsMusicBeforeStoredDoo
 	s.Require().Error(err, "music before the stored doors_at must be rejected")
 }
 
+// TestUpdateShow_StoredDisorderDoesNotBlockUnrelatedEdits pins that the
+// ordering rule only applies to requests that touch a show time.
+//
+// A row can reach an out-of-order state without passing through validation: an
+// admin revision rollback, a data import, or two concurrent PUTs each checking
+// against its own pre-write snapshot. If the check ran on every update, such a
+// row would reject every later edit, including title-only ones, citing a field
+// the caller never sent. No UI writes these times yet, so there would be no
+// in-product way to repair it.
+func (s *ShowHandlerIntegrationSuite) TestUpdateShow_StoredDisorderDoesNotBlockUnrelatedEdits() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Disordered Show")
+
+	// Write an out-of-order pair straight to the row, bypassing the handler.
+	doors := show.EventDate
+	music := show.EventDate.Add(-2 * time.Hour)
+	s.Require().NoError(s.deps.DB.Model(&catalogm.Show{}).Where("id = ?", show.ID).
+		Updates(map[string]interface{}{"doors_at": doors, "music_at": music}).Error)
+
+	ctx := testhelpers.CtxWithUser(user)
+	newTitle := "Retitled Despite Disorder"
+	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	req.Body.Title = &newTitle
+
+	resp, err := s.handler.UpdateShowHandler(ctx, req)
+	s.Require().NoError(err, "a title-only edit must not be blocked by pre-existing stored time disorder")
+	s.Equal("Retitled Despite Disorder", resp.Body.Title)
+
+	// Touching a time on the same row is still validated.
+	worse := doors.Add(-3 * time.Hour)
+	bad := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
+	bad.Body.MusicAt = &worse
+	_, err = s.handler.UpdateShowHandler(ctx, bad)
+	s.Require().Error(err, "a request that does touch a show time is still checked")
+}
+
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_AdminSuccess() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	admin := testhelpers.CreateAdminUser(s.deps.DB)

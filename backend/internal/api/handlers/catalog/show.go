@@ -265,9 +265,10 @@ func validateShowTimeOrder(doorsAt, musicAt *time.Time) *huma.ErrorDetail {
 	}
 }
 
-// firstNonNilTime resolves a partial update's effective value: the incoming
-// field when supplied, otherwise what is already stored.
-func firstNonNilTime(incoming, stored *time.Time) *time.Time {
+// effectiveTime resolves what a partial update leaves in a column: the incoming
+// value when the request supplied one, otherwise the stored value it leaves
+// untouched.
+func effectiveTime(incoming, stored *time.Time) *time.Time {
 	if incoming != nil {
 		return incoming
 	}
@@ -947,14 +948,22 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.Summary != nil && len(*req.Body.Summary) > 5000 {
 		return nil, huma.Error422UnprocessableEntity("Summary must be 5000 characters or fewer")
 	}
-	// Order is checked against the values the show will END UP with, not just
-	// the ones in the body: supplying only music_at must still be rejected when
-	// it lands before an already-stored doors_at.
-	if err := validateShowTimeOrder(
-		firstNonNilTime(req.Body.DoorsAt, existingShow.DoorsAt),
-		firstNonNilTime(req.Body.MusicAt, existingShow.MusicAt),
-	); err != nil {
-		return nil, huma.Error422UnprocessableEntity(err.Message)
+	// Only run the order check when this request actually touches a show time,
+	// but judge it against the values the row will END UP with, so supplying
+	// only music_at is still rejected when it lands before a stored doors_at.
+	//
+	// The guard is load-bearing, not an optimization: without it a row that is
+	// already out of order (a rollback, an import, or two concurrent PUTs each
+	// validating against its own pre-write snapshot) would fail EVERY later
+	// edit, including title-only ones, naming a field the caller never sent.
+	// No UI writes these times yet, so there would be no in-product way out.
+	if req.Body.DoorsAt != nil || req.Body.MusicAt != nil {
+		if err := validateShowTimeOrder(
+			effectiveTime(req.Body.DoorsAt, existingShow.DoorsAt),
+			effectiveTime(req.Body.MusicAt, existingShow.MusicAt),
+		); err != nil {
+			return nil, huma.Error422UnprocessableEntity("validation failed", err)
+		}
 	}
 
 	// Build typed update request for basic show fields. The service writes

@@ -32,6 +32,31 @@ func NewDataSyncService(database *gorm.DB) *DataSyncService {
 	}
 }
 
+// formatOptionalRFC3339 renders a nullable instant for the export payload,
+// preserving "unset" as an absent key rather than a zero date.
+func formatOptionalRFC3339(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.Format(time.RFC3339)
+	return &s
+}
+
+// parseOptionalRFC3339 is its inverse. An absent key stays nil; a malformed one
+// is an error rather than a silent drop, so a bad payload fails the import
+// instead of quietly landing a show with no doors time.
+func parseOptionalRFC3339(s *string) (*time.Time, error) {
+	if s == nil || *s == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, *s)
+	if err != nil {
+		return nil, err
+	}
+	utc := parsed.UTC()
+	return &utc, nil
+}
+
 // ExportShows exports shows with their artists and venues
 func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 	if s.db == nil {
@@ -118,6 +143,8 @@ func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*cont
 		exported[i] = contracts.ExportedShow{
 			Title:          show.Title,
 			EventDate:      show.EventDate.Format(time.RFC3339),
+			DoorsAt:        formatOptionalRFC3339(show.DoorsAt),
+			MusicAt:        formatOptionalRFC3339(show.MusicAt),
 			City:           show.City,
 			State:          show.State,
 			Price:          show.Price,
@@ -502,6 +529,18 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		return fmt.Sprintf("ERROR: Invalid event date '%s': %v", show.EventDate, err), "error"
 	}
 
+	// Show times are optional; a malformed one is an error rather than a silent
+	// drop, so a bad payload is counted and reported instead of landing a show
+	// that quietly lost its doors time.
+	doorsAt, err := parseOptionalRFC3339(show.DoorsAt)
+	if err != nil {
+		return fmt.Sprintf("ERROR: Invalid doorsAt '%s': %v", *show.DoorsAt, err), "error"
+	}
+	musicAt, err := parseOptionalRFC3339(show.MusicAt)
+	if err != nil {
+		return fmt.Sprintf("ERROR: Invalid musicAt '%s': %v", *show.MusicAt, err), "error"
+	}
+
 	// Get venue name for deduplication
 	venueName := ""
 	if len(show.Venues) > 0 {
@@ -572,11 +611,12 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			return count > 0
 		})
 
-		// Create show
 		newShow := catalogm.Show{
 			Title:          show.Title,
 			Slug:           &showSlug,
 			EventDate:      eventDate.UTC(),
+			DoorsAt:        doorsAt,
+			MusicAt:        musicAt,
 			City:           show.City,
 			State:          show.State,
 			Price:          show.Price,

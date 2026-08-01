@@ -1555,6 +1555,98 @@ func TestAdminFulfill_Show_WithAssociations_CreatesShow(t *testing.T) {
 	}
 }
 
+// Fulfillment is the second production show-create path, so it must carry
+// doors_at/music_at like every other payload field. Nil stays nil, and a
+// malformed value fails the fulfillment rather than landing a show that
+// silently lost its show times.
+func TestAdminFulfill_Show_CarriesShowTimes(t *testing.T) {
+	newHandler := func(t *testing.T, payloadFields communitym.ShowRequestPayload, got **contracts.CreateShowRequest) *EntityRequestHandler {
+		t.Helper()
+		payload, err := communitym.MarshalPayload(payloadFields)
+		if err != nil {
+			t.Fatalf("marshal show payload: %v", err)
+		}
+		orphan := approvedUnfulfilledRequest(11, "show")
+		orphan.Payload = &payload
+		return NewEntityRequestHandler(
+			&testhelpers.MockEntityRequestService{
+				GetRequestFn: func(requestID uint) (*communitym.EntityRequest, error) { return orphan, nil },
+				ClaimRescueFulfillmentFn: func(requestID, createdEntityID uint) (bool, error) {
+					return true, nil
+				},
+			},
+			&testhelpers.MockEntityRequestFulfiller{
+				CreateShowFn: func(req *contracts.CreateShowRequest) (*contracts.ShowResponse, error) {
+					*got = req
+					return &contracts.ShowResponse{ID: 200}, nil
+				},
+			},
+			&testhelpers.MockAuditLogService{},
+		)
+	}
+	fulfillReq := func() *AdminFulfillEntityRequestRequest {
+		req := &AdminFulfillEntityRequestRequest{ID: "11"}
+		req.Body.ShowVenue = &ShowVenueInput{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+		req.Body.ShowArtists = []ShowArtistInput{{Name: "Boris"}}
+		return req
+	}
+
+	t.Run("carries supplied times", func(t *testing.T) {
+		doors := "2026-08-01T20:00:00-07:00"
+		music := "2026-08-01T21:00:00-07:00"
+		var got *contracts.CreateShowRequest
+		h := newHandler(t, communitym.ShowRequestPayload{
+			Title:     "Deferred Show",
+			EventDate: "2026-08-01T21:00:00-07:00",
+			DoorsAt:   &doors,
+			MusicAt:   &music,
+		}, &got)
+
+		if _, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), fulfillReq()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got == nil || got.DoorsAt == nil || got.MusicAt == nil {
+			t.Fatalf("expected doors/music to reach CreateShow, got %+v", got)
+		}
+		wantDoors, _ := time.Parse(time.RFC3339, doors)
+		if !got.DoorsAt.Equal(wantDoors) {
+			t.Errorf("doors_at: got %s, want %s", got.DoorsAt, wantDoors)
+		}
+	})
+
+	t.Run("absent times stay nil", func(t *testing.T) {
+		var got *contracts.CreateShowRequest
+		h := newHandler(t, communitym.ShowRequestPayload{
+			Title:     "Deferred Show",
+			EventDate: "2026-08-01T21:00:00-07:00",
+		}, &got)
+
+		if _, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), fulfillReq()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got == nil || got.DoorsAt != nil || got.MusicAt != nil {
+			t.Fatalf("expected nil doors/music, got %+v", got)
+		}
+	})
+
+	t.Run("malformed time fails fulfillment", func(t *testing.T) {
+		bad := "tonight-ish"
+		var got *contracts.CreateShowRequest
+		h := newHandler(t, communitym.ShowRequestPayload{
+			Title:     "Deferred Show",
+			EventDate: "2026-08-01T21:00:00-07:00",
+			DoorsAt:   &bad,
+		}, &got)
+
+		if _, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), fulfillReq()); err == nil {
+			t.Fatal("expected a malformed doors_at to fail fulfillment")
+		}
+		if got != nil {
+			t.Error("CreateShow must not be called with an unparseable doors_at")
+		}
+	})
+}
+
 // Fulfilling a SHOW WITHOUT associations is a clean 422 (the payload alone can't
 // be fulfilled), and no catalog create or claim is attempted.
 func TestAdminFulfill_Show_MissingAssociations_422(t *testing.T) {

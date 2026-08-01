@@ -969,6 +969,34 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ShowTimes() {
 	suite.Equal(music.Unix(), resp.MusicAt.Unix())
 }
 
+// TestCreateShow_RejectsMusicBeforeDoors covers the storage chokepoint, which
+// is what protects the create callers that never run the handler's Resolve.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_RejectsMusicBeforeDoors() {
+	user := suite.createTestUser()
+	doors := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
+	music := doors.Add(-time.Hour)
+
+	resp, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Bad Order",
+		EventDate: doors,
+		DoorsAt:   &doors,
+		MusicAt:   &music,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []contracts.CreateShowVenue{
+			{Name: "The Venue", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Test Artist", IsHeadliner: boolPtr(true)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+
+	suite.Require().Error(err, "the service must reject music before doors, not only the handler")
+	suite.Nil(resp)
+}
+
 // TestUpdateShowWithRelations_SetsShowTimes covers the path the PUT handler
 // actually calls. UpdateShow above has no non-test callers, so without this the
 // production edit path's write-through and response rebuild are unpinned.
