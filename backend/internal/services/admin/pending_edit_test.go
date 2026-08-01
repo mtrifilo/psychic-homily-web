@@ -506,6 +506,43 @@ func (s *PendingEditServiceIntegrationTestSuite) TestGetPendingEditsForEntity_Ex
 	s.Len(edits, 0)
 }
 
+// The contribution flow bypasses VenueService, so the empty-to-NULL and
+// trimming normalization that path applies to age_policy has to be repeated in
+// ApprovePendingEdit. This is the flow the edit drawer uses, so it produces most
+// values: without the repeat, "  " lands a present-but-blank policy and " 21+ "
+// becomes a second bucket beside "21+".
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAgePolicyTrimsAndBlanksToNull() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Age Policy Venue")
+
+	padded, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "age_policy", NewValue: "  21+  "}},
+		Summary: "record the door rule",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(padded.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	var updated catalogm.Venue
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Require().NotNil(updated.AgePolicy)
+	s.Equal("21+", *updated.AgePolicy, "contributor value must be trimmed")
+
+	blank, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "age_policy", NewValue: "   "}},
+		Summary: "venue dropped the rule",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(blank.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Nil(updated.AgePolicy, "whitespace-only contributor value must clear to NULL")
+}
+
 // TestApprovePendingEdit_VenueLocationReGeocodes verifies PSY-985: approving a
 // venue location edit through the contribution flow re-geocodes the venue (this
 // path bypasses VenueService), populating timezone/coordinates for the new city.

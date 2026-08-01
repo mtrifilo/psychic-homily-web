@@ -216,12 +216,15 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		return count > 0
 	})
 
-	// An explicitly-empty age policy means "no house default", which is SQL
-	// NULL: storing '' would make a blank policy read as a present one. Note
-	// Description and ImageURL below are still written through raw on create
-	// (they normalize only on update), so this is deliberately NOT symmetric
-	// with its neighbours; changing theirs is a behavior change for another PR.
-	agePolicy := utils.NilIfEmptyPtr(req.AgePolicy)
+	// A blank age policy means "no house default", which is SQL NULL: storing
+	// '' would make a blank policy read as a present one. Trimmed first so a
+	// whitespace-only value collapses too, and so "21+" and " 21+ " do not
+	// become two buckets once a controlled vocabulary is derived from the
+	// observed values. Note Description and ImageURL below are still written
+	// through raw on create (they normalize only on update), so this is
+	// deliberately NOT symmetric with its neighbours; changing theirs is a
+	// behavior change for another PR.
+	agePolicy := utils.NilIfBlankPtr(req.AgePolicy)
 
 	// Create the venue - verified if created by admin, unverified otherwise
 	venue := &catalogm.Venue{
@@ -435,10 +438,11 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	if req.Capacity != nil {
 		updates["capacity"] = *req.Capacity
 	}
-	// Nullable free text: an empty string is the CLEAR gesture and must land as
-	// SQL NULL, matching Description/ImageURL below.
+	// Nullable free text: a blank string is the CLEAR gesture and must land as
+	// SQL NULL, matching Description/ImageURL below. Trimmed, so whitespace-only
+	// clears too and stored values do not carry incidental padding.
 	if req.AgePolicy != nil {
-		updates["age_policy"] = utils.NilIfEmpty(*req.AgePolicy)
+		updates["age_policy"] = utils.NilIfBlank(*req.AgePolicy)
 	}
 	if req.Instagram != nil {
 		updates["instagram"] = *req.Instagram
@@ -798,6 +802,13 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 		geocodePrecision = venue.GeocodePrecision
 	}
 
+	// On AgePolicy being served ungated below while Address is redacted: it
+	// matches Description, the other contributor-writable free-text venue field,
+	// which is already public here. That is a POSTURE, not a safety proof. A
+	// trusted-tier contributor could type an address into either field on an
+	// unverified venue, which is exactly what the Address gate exists to
+	// prevent. The write boundary bounds and type-checks the value; only a
+	// controlled vocabulary would close the channel properly.
 	return &contracts.VenueDetailResponse{
 		ID:               venue.ID,
 		Slug:             slug,
@@ -814,7 +825,7 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 		Timezone:         venue.Timezone,
 		Zipcode:          zipcode,
 		Capacity:         venue.Capacity,  // not redacted: capacity is not sensitive
-		AgePolicy:        venue.AgePolicy, // not redacted: a house age policy is public-facing
+		AgePolicy:        venue.AgePolicy, // not redacted: see the note above
 		Description:      venue.Description,
 		ImageURL:         venue.ImageURL,
 		Verified:         venue.Verified,

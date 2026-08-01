@@ -184,11 +184,13 @@ export function VenueRail({
             </span>
           </span>
 
-          {/* Disabled placeholders, exactly as the mock draws them. "All ages"
-              has no data model yet (venues carry no all-ages field, and
-              whether it becomes a tag or a column is an open decision);
-              "Record stores" is a later chapter of the travel-mode project. */}
-          <FilterChip disabled title="Age policy isn’t recorded yet">
+          {/* Disabled placeholders, exactly as the mock draws them. The
+              tag-vs-column question for "All ages" is settled: it is the
+              free-text `venues.age_policy` column. The chip stays disabled
+              because the rail has no filter wired to it yet, not because the
+              data is missing. "Record stores" is a later chapter of the
+              travel-mode project. */}
+          <FilterChip disabled title="Age filter isn’t available yet">
             All ages
           </FilterChip>
           <FilterChip disabled title="Record stores aren’t on the Atlas yet">

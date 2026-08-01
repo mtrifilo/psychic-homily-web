@@ -260,6 +260,32 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SetsAndClearsAgeP
 	suite.Nil(cleared.AgePolicy, "empty string must clear the policy to NULL")
 }
 
+// A whitespace-only policy is blank, not a value. Storing "  " would produce a
+// third state beside NULL and "", all three meaning "no policy" but only one
+// of them reading that way to a consumer checking for null.
+func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_BlankAgePolicyClearsAndTrims() {
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name: "Blank Policy Churn", City: "Tempe", State: "AZ",
+		AgePolicy: stringPtr("  21+  "),
+	}, true)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(created.AgePolicy)
+	suite.Equal("21+", *created.AgePolicy, "create must strip incidental padding")
+
+	blanked, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		AgePolicy: stringPtr("   "),
+	})
+	suite.Require().NoError(err)
+	suite.Nil(blanked.AgePolicy, "whitespace-only policy must clear to NULL")
+
+	padded, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		AgePolicy: stringPtr(" all ages "),
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(padded.AgePolicy)
+	suite.Equal("all ages", *padded.AgePolicy, "update must strip incidental padding")
+}
+
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_AdminAutoVerified() {
 	req := &contracts.CreateVenueRequest{
 		Name:  "Admin Venue",

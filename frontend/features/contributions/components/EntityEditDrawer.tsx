@@ -346,6 +346,7 @@ export function EntityEditDrawer({
                             }
                           }}
                           placeholder={field.placeholder}
+                          maxLength={field.maxLength}
                           className={
                             showUrlError
                               ? 'border-red-800'

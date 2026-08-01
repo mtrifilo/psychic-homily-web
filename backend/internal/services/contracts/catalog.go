@@ -119,8 +119,10 @@ type VenueResponse struct {
 	Timezone *string `json:"timezone"` // IANA zone for rendering this show's time in venue-local time (PSY-985)
 	// Capacity and AgePolicy are venue facts a show consumer needs alongside the
 	// show itself, so they ride here rather than costing a second round trip to
-	// the venue endpoint. NOTE: no frontend renders either field yet; the show
-	// page's venue module is a later ticket. This carries the data for it.
+	// the venue endpoint. NOTE: no SHOW-page surface consumes them yet; that
+	// venue module is a later ticket and this carries the data for it. Capacity
+	// is already rendered elsewhere, from the venue endpoint, by the Atlas venue
+	// panel (see venuePanelIdentityLine), so neither field is dead weight.
 	//
 	// Both are nullable and neither is sensitive, so (as on VenueDetailResponse)
 	// they are served for unverified venues too, unlike Address above.
@@ -375,6 +377,22 @@ type ExportFrontmatter struct {
 // ──────────────────────────────────────────────
 // Venue types
 // ──────────────────────────────────────────────
+
+// MaxVenueAgePolicyLength is the maximum length, in CHARACTERS, accepted for a
+// venue's house-default age policy. It is the single source of truth for the
+// bound: the venues.age_policy column is VARCHAR(100), and every write path
+// (admin create, admin update, and the contributor suggest-edit queue) must
+// reject at this length rather than let Postgres raise 22001 mid-write.
+//
+// Characters, not bytes, is load-bearing. Postgres VARCHAR(n) counts
+// characters and huma's maxLength tag counts runes, so a byte-based check
+// would disagree with both: a 40-character CJK door rule is 120 bytes and
+// would be rejected by a byte check while the column accepts it happily.
+// Compare with utf8.RuneCountInString, never len().
+//
+// A door rule is a handful of words ("all ages", "18+ w/ guardian"), so this is
+// deliberately tighter than shows.age_requirement's VARCHAR(255).
+const MaxVenueAgePolicyLength = 100
 
 // CreateVenueRequest represents the data needed to create a new venue
 type CreateVenueRequest struct {

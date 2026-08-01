@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
@@ -421,11 +422,15 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
 		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
 	}
-	// Bound the free-text age policy. Mirrors the Description check
-	// rather than the create body's schema tag, matching this handler's
-	// existing convention of validating body lengths inline.
-	if req.Body.AgePolicy != nil && len(*req.Body.AgePolicy) > 100 {
-		return nil, huma.Error422UnprocessableEntity("Age policy must be 100 characters or fewer")
+	// Bound the free-text age policy. Mirrors the Description check rather than
+	// the create body's schema tag, matching this handler's existing convention
+	// of validating body lengths inline. Counts RUNES so this agrees with both
+	// the column (VARCHAR counts characters) and the create body's maxLength
+	// tag (huma counts runes); len() would reject a legal CJK policy here that
+	// create accepts.
+	if req.Body.AgePolicy != nil && utf8.RuneCountInString(*req.Body.AgePolicy) > contracts.MaxVenueAgePolicyLength {
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Age policy must be %d characters or fewer", contracts.MaxVenueAgePolicyLength))
 	}
 
 	// PSY-525 scheme check + PSY-1675 SSRF host guard (resolves DNS; see urlguard)

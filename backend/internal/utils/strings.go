@@ -1,5 +1,7 @@
 package utils
 
+import "strings"
+
 // NilIfEmpty returns nil when s is the empty string, otherwise returns
 // a pointer to s. It is intended for normalizing optional string fields
 // before writing them to GORM update maps so that an empty input lands
@@ -17,15 +19,27 @@ func NilIfEmpty(s string) *string {
 	return &s
 }
 
-// NilIfEmptyPtr is the pointer-in form of NilIfEmpty, for the create-path
+// NilIfBlank is NilIfEmpty with surrounding whitespace stripped first, and it
+// returns the TRIMMED value. Use it for curated free-text columns where a
+// whitespace-only entry means the same thing as an empty one, and where stored
+// values should not differ by incidental padding ("21+" vs " 21+ ") because
+// something downstream will group on them.
+func NilIfBlank(s string) *string {
+	return NilIfEmpty(strings.TrimSpace(s))
+}
+
+// NilIfBlankPtr is the pointer-in form of NilIfBlank, for the create-path
 // builders that assign an optional *string straight into a model field rather
-// than into an update map. It preserves the three-state distinction those
-// callers care about: a nil input stays nil ("not supplied"), a pointer to ""
-// collapses to nil ("supplied, but empty, so store NULL"), and anything else
-// passes through untouched.
-func NilIfEmptyPtr(s *string) *string {
+// than into an update map.
+//
+// It collapses BOTH nil and blank to nil. That is only correct where "not
+// supplied" and "supplied blank" mean the same thing, which is true on a create
+// path (both mean: store NULL). Do NOT reach for it on an update path before a
+// nil check: there, nil means "leave unchanged" and blank means "clear", and
+// collapsing them would silently swallow the clear gesture.
+func NilIfBlankPtr(s *string) *string {
 	if s == nil {
 		return nil
 	}
-	return NilIfEmpty(*s)
+	return NilIfBlank(*s)
 }

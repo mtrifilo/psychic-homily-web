@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 	"psychic-homily-backend/internal/utils/urlguard"
 )
@@ -66,6 +68,27 @@ var urlFieldSpecs = map[string]urlFieldSpec{
 	"soundcloud":      {displayName: "SoundCloud URL", maxLength: 500},
 	"bandcamp":        {displayName: "Bandcamp URL", maxLength: 500},
 	"website":         {displayName: "Website URL", maxLength: 500},
+}
+
+// boundedTextFieldSpecs caps NON-URL free-text fields that are reachable
+// through the contributor suggest-edit queue and are backed by a length-bounded
+// column. urlFieldSpecs above cannot serve them: it also imposes the
+// http/https scheme rule, which is nonsense for prose. Nothing here is ever
+// `fetched`, so no member of this map reaches the SSRF host guard.
+//
+// Why this exists: the suggest-edit validator's contract is that a contributor
+// cannot land an oversize value in the pending queue, because
+// ApprovePendingEdit applies values blindly with an untyped Updates(). Without
+// a cap here an over-length value is accepted, then fails at the column with
+// Postgres 22001 at APPROVE time, which surfaces as an opaque 500 on a pending
+// row no admin can ever clear. Rejecting at submission keeps the failure where
+// the user can act on it.
+//
+// Only fields whose column is genuinely bounded belong here. Unbounded TEXT
+// columns (description) are deliberately absent: adding them would be a new
+// behavioral limit, not the enforcement of an existing one.
+var boundedTextFieldSpecs = map[string]urlFieldSpec{
+	"age_policy": {displayName: "Age policy", maxLength: contracts.MaxVenueAgePolicyLength},
 }
 
 // ValidateImageURL applies the http/https scheme check AND the SSRF host guard
@@ -233,6 +256,12 @@ func ValidateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundclo
 // Returns a huma.Error422UnprocessableEntity. Empty strings and nil pass
 // through (caller decides whether empty means "clear the field").
 func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) error {
+	// Bounded non-URL text is checked first and returns early: these fields are
+	// never `fetched`, so they must not fall through to the URL branch's scheme
+	// rule or host guard.
+	if spec, ok := boundedTextFieldSpecs[fieldName]; ok {
+		return validateBoundedText(spec, value)
+	}
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok {
 		return nil
@@ -261,6 +290,36 @@ func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) 
 		return err
 	}
 	return validateFetchHost(ctx, fieldName, s)
+}
+
+// validateBoundedText enforces the type and length contract for a non-URL
+// bounded text field arriving through the suggest-edit queue.
+//
+// The type check is the load-bearing half: FieldChange.NewValue is `any`
+// decoded from JSONB, so a caller can put a number, bool, object or array where
+// prose belongs. ApprovePendingEdit assigns it straight into an untyped
+// Updates() map, so a non-string would fail at the driver during an ADMIN's
+// approve request rather than the contributor's submit request.
+//
+// nil passes: it is the clear-the-field gesture, and the column is nullable.
+func validateBoundedText(spec urlFieldSpec, value any) error {
+	if value == nil {
+		return nil
+	}
+	s, ok := value.(string)
+	if !ok {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s must be a string", spec.displayName),
+		)
+	}
+	// Runes, not bytes: the backing columns are VARCHAR(n), which counts
+	// characters. A byte check would reject a legal multibyte value.
+	if utf8.RuneCountInString(s) > spec.maxLength {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s must be %d characters or fewer", spec.displayName, spec.maxLength),
+		)
+	}
+	return nil
 }
 
 // URLSchemeError validates the http/https scheme and per-field length cap for

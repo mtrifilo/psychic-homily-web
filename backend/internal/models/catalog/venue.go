@@ -20,12 +20,20 @@ type Venue struct {
 	// redacted for unverified venues.
 	Capacity *int `gorm:"column:capacity"`
 	// AgePolicy (PSY-1682) is the venue's HOUSE DEFAULT age rule, free text
-	// mirroring the vocabulary of shows.age_requirement ("all ages", "17+",
+	// borrowing the vocabulary of shows.age_requirement ("all ages", "17+",
 	// "21+"). A show's own age_requirement is the per-event OVERRIDE and always
 	// wins where both are present; this field is what makes such an override
 	// legible as one, and what a show with no override falls back to.
-	// Nullable: unknown for most rows, curated through the community edit flow
-	// like Capacity. Not sensitive, so not redacted for unverified venues.
+	//
+	// Nullable and unknown for most rows. UNLIKE Capacity (admin/ingest only),
+	// this IS on the contributor allowlist, so the value is attacker-influenced
+	// free text: see VenueAllowedEditFields and the length/type gate in
+	// handlers/shared.boundedTextFieldSpecs.
+	//
+	// Served unredacted for unverified venues, matching Description (the other
+	// ungated contributor-writable free-text venue field) rather than Address.
+	// That posture is a deliberate choice, not an assertion that prose is
+	// inherently safe: see buildVenueResponse.
 	AgePolicy *string `gorm:"column:age_policy;size:100"`
 	// Geocoding (PSY-985): resolved offline from city/state/country at create/update.
 	// Timezone is the IANA zone used to anchor show times to the venue's locale.

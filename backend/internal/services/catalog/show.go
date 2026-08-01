@@ -738,8 +738,17 @@ func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contra
 			if venue.Verified {
 				addr = venue.Address
 			}
+			// Slug was omitted here while both peer builders resolve it, so an
+			// update response carried venues[].slug == "" against a contract
+			// that declares it non-nullable, degrading venue links to plain
+			// text for consumers of that response.
+			venueSlug := ""
+			if venue.Slug != nil {
+				venueSlug = *venue.Slug
+			}
 			venueResponses = append(venueResponses, contracts.VenueResponse{
 				ID:        venue.ID,
+				Slug:      venueSlug,
 				Name:      venue.Name,
 				Address:   addr,
 				City:      venue.City,
