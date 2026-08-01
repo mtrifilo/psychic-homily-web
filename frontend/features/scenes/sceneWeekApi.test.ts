@@ -12,11 +12,11 @@ vi.mock('@sentry/nextjs', () => ({
 
 import { API_BASE_URL } from '@/lib/api-base'
 import type { SceneWeekResponse } from './sceneWeek'
+import { fetchSceneWeek } from './sceneWeekApi'
 import {
-  ARCHIVED_WEEK_REVALIDATE,
-  CURRENT_WEEK_REVALIDATE,
-  fetchSceneWeek,
-} from './sceneWeekApi'
+  ARCHIVED_PERIOD_REVALIDATE,
+  CURRENT_PERIOD_REVALIDATE,
+} from './scenePeriodApi'
 
 const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
   ({
@@ -78,8 +78,8 @@ describe('fetchSceneWeek', () => {
     })
 
     expect(windowsRequested(fetchMock)).toEqual([
-      ARCHIVED_WEEK_REVALIDATE,
-      CURRENT_WEEK_REVALIDATE,
+      ARCHIVED_PERIOD_REVALIDATE,
+      CURRENT_PERIOD_REVALIDATE,
     ])
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([KEYED_URL, KEYED_URL])
   })
@@ -94,7 +94,7 @@ describe('fetchSceneWeek', () => {
       is_past_week: true,
     })
 
-    expect(windowsRequested(fetchMock)).toEqual([ARCHIVED_WEEK_REVALIDATE])
+    expect(windowsRequested(fetchMock)).toEqual([ARCHIVED_PERIOD_REVALIDATE])
   })
 
   // A future week is neither current nor past. It is the one that must never be
@@ -106,8 +106,8 @@ describe('fetchSceneWeek', () => {
     await fetchSceneWeek('chicago-il', '2026-W35', 'scene-week')
 
     expect(windowsRequested(fetchMock)).toEqual([
-      ARCHIVED_WEEK_REVALIDATE,
-      CURRENT_WEEK_REVALIDATE,
+      ARCHIVED_PERIOD_REVALIDATE,
+      CURRENT_PERIOD_REVALIDATE,
     ])
   })
 
@@ -118,7 +118,7 @@ describe('fetchSceneWeek', () => {
 
     await fetchSceneWeek('chicago-il', undefined, 'scene-week')
 
-    expect(windowsRequested(fetchMock)).toEqual([CURRENT_WEEK_REVALIDATE])
+    expect(windowsRequested(fetchMock)).toEqual([CURRENT_PERIOD_REVALIDATE])
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([ROLLING_URL])
   })
 
@@ -156,8 +156,8 @@ describe('fetchSceneWeek', () => {
     await fetchSceneWeek('chicago-il', '2026-W31', 'scene-week')
 
     expect(windowsRequested(fetchMock)).toEqual([
-      ARCHIVED_WEEK_REVALIDATE,
-      CURRENT_WEEK_REVALIDATE,
+      ARCHIVED_PERIOD_REVALIDATE,
+      CURRENT_PERIOD_REVALIDATE,
     ])
   })
 
@@ -169,8 +169,8 @@ describe('fetchSceneWeek', () => {
     await fetchSceneWeek('chicago-il', '2026-W31', 'scene-week')
 
     expect(windowsRequested(fetchMock)).toEqual([
-      ARCHIVED_WEEK_REVALIDATE,
-      CURRENT_WEEK_REVALIDATE,
+      ARCHIVED_PERIOD_REVALIDATE,
+      CURRENT_PERIOD_REVALIDATE,
     ])
   })
 

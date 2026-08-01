@@ -131,14 +131,12 @@ function quietNightCopy(day: SceneDayResponse, hasUpcoming: boolean): string {
   const base = `Nothing on our calendar for the ${day.city} rooms we track ${when}`
 
   // "or in the next few weeks" is a claim about NOW, and only a night that has
-  // not already happened has the standing to make it — the backend looks ahead
-  // from the day being viewed, so on an archived page that window closed years
-  // ago and was never re-checked. A past night says only what its own date
-  // supports.
-  if (day.is_past_day) {
-    return `${base}. A room may have had a show we haven't listed.`
-  }
-  if (hasUpcoming) {
+  // not already happened has the standing to make it — the look-ahead behind it
+  // starts at the day being viewed, so on an archived page that window closed
+  // years ago and was never re-checked. A past night falls back to the plain
+  // sentence rather than growing a variant of its own: the copy here is locked,
+  // and substituting the date is the one liberty it grants.
+  if (day.is_past_day || hasUpcoming) {
     return `${base}. A room may have a show we haven't listed.`
   }
   return `${base}, or in the next few weeks. A room may have shows we haven't listed.`
@@ -185,11 +183,16 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
         </section>
       )}
 
-      {/* A sibling of the rooms block, not a child of it. A scene with nothing
-          ahead of it is the one most likely to be missing a room — and a scene
-          whose room list came back empty is likelier still, which is exactly
-          when nesting this would have hidden it. */}
-      {!nextShow && (
+      {/* The dead-quiet ask, and ONLY that: a scene with nothing ahead of it is
+          the one most likely to be missing a room. An archived empty Tuesday
+          says nothing about the scene's current calendar, so it must not
+          solicit on that basis — `!nextShow` alone would, since the server
+          never sends a pointer for a past date.
+
+          A sibling of the rooms block, not a child of it: a scene whose room
+          list came back empty is likelier still to be missing one, which is
+          exactly when nesting this would have hidden it. */}
+      {!nextShow && !day.is_past_day && (
         <Link
           href="/contribute"
           className="mt-3 inline-block text-sm text-muted-foreground hover:underline"
@@ -221,24 +224,32 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <SceneCityHeading city={day.city} state={day.state} />
 
+          {/* The adjacent-day chips render only when the server offered a
+              date. At the edges of the servable window there is no next day to
+              go to, and a chip pointing at a URL this site 404s is a worse
+              answer than no chip. */}
           <div className="flex gap-2">
-            <Link
-              href={`/scenes/${day.slug}/${day.prev_date}`}
-              className={SCENE_NAV_CHIP_CLASS}
-              rel="prev"
-            >
-              ← {formatDayChip(day.prev_date)}
-            </Link>
+            {day.prev_date && (
+              <Link
+                href={`/scenes/${day.slug}/${day.prev_date}`}
+                className={SCENE_NAV_CHIP_CLASS}
+                rel="prev"
+              >
+                ← {formatDayChip(day.prev_date)}
+              </Link>
+            )}
             <Link href={weekHref} className={SCENE_NAV_CHIP_CLASS}>
               Full week
             </Link>
-            <Link
-              href={`/scenes/${day.slug}/${day.next_date}`}
-              className={SCENE_NAV_CHIP_CLASS}
-              rel="next"
-            >
-              {formatDayChip(day.next_date)} →
-            </Link>
+            {day.next_date && (
+              <Link
+                href={`/scenes/${day.slug}/${day.next_date}`}
+                className={SCENE_NAV_CHIP_CLASS}
+                rel="next"
+              >
+                {formatDayChip(day.next_date)} →
+              </Link>
+            )}
           </div>
         </div>
 

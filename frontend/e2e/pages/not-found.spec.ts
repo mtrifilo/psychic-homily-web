@@ -305,9 +305,28 @@ test.describe('Not-found pages — HTTP 404 status', () => {
         response?.status(),
         '/scenes/phoenix-az/tonight must return 200 — proxy.ts must not over-404 the rolling day route'
       ).toBe(200)
+      // The SCENE, not merely "an h1 rendered". `app/not-found.tsx` puts its
+      // own <h1>404</h1> inside the same <main>, so a presence check passes on
+      // a soft-404 — which is the one failure this whole block exists to
+      // catch, and the one the cheap scene probe could reintroduce.
       await expect(
         page.getByRole('main').getByRole('heading', { level: 1 })
-      ).toBeVisible({ timeout: 10_000 })
+      ).toContainText('Phoenix', { timeout: 10_000 })
+    })
+
+    // The `[period]` segment now dispatches BOTH shapes from one route. Nothing
+    // else asserts the week branch still resolves to the week view: the week
+    // block above is decided entirely by proxy.ts before the page component
+    // runs, so a branch-order regression there would ship green.
+    test('the shared period route still renders the WEEK view for a week key', async ({
+      page,
+    }) => {
+      const response = await page.goto('/scenes/phoenix-az/2026-W31')
+      expect(response?.status()).toBe(200)
+      // A marker only the week view emits — the day view has no week range.
+      await expect(page.getByRole('main')).toContainText(/Mon,.*–.*Sun,/, {
+        timeout: 10_000,
+      })
     })
 
     test('the permalink /tonight declares canonical returns HTTP 200', async ({ page }) => {

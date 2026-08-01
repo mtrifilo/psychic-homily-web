@@ -217,6 +217,16 @@ func dateIsServable(date calendarDate, nowLocal time.Time) bool {
 		date.year <= nowLocal.Year()+sceneDayFutureYears
 }
 
+// servableDateKey renders a date as a request key, or "" when this service
+// would refuse it — so a client can tell "here is the adjacent day" from
+// "there is no adjacent day to offer".
+func servableDateKey(date calendarDate, nowLocal time.Time) string {
+	if !dateIsServable(date, nowLocal) {
+		return ""
+	}
+	return date.String()
+}
+
 // dayHasEnded reports whether a scene's day is entirely behind it — the only
 // state in which a client may freeze the payload.
 //
@@ -346,9 +356,21 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 	// and needs no pointer; a page that is still ahead of the reader gets one.
 	var nextShow *contracts.SceneShowSummary
 	if len(shows) == 0 && !isPastDay {
+		// The lower bound is the day's end OR now, whichever is later. On the
+		// live night between midnight and 06:00 those differ: "tonight" still
+		// points at yesterday, so `end` is already behind us, and an unclamped
+		// search would offer a late set that started an hour ago as what is
+		// coming NEXT — to the reader most likely to be standing in the room.
+		//
+		// The upper bound stays anchored on `end`, so "or in the next few
+		// weeks" keeps measuring the same six weeks all night.
+		from := end
+		if nowLocal.After(from) {
+			from = nowLocal
+		}
 		upcoming, err := s.GetSceneShowsInRange(
 			city, state,
-			end.UTC(), end.AddDate(0, 0, sceneDayNextShowWindowDays).UTC(),
+			from.UTC(), end.AddDate(0, 0, sceneDayNextShowWindowDays).UTC(),
 			loc, 1,
 		)
 		if err != nil {
@@ -376,11 +398,19 @@ func (s *SceneService) GetSceneDay(city, state, dateKey string) (*contracts.Scen
 		// The rows are the count, and the rows are what the page renders. Note
 		// this reports the CAP when a night somehow exceeds it, exactly as the
 		// week payload does.
-		ShowCount:     len(shows),
-		PrevDate:      date.addDays(-1).String(),
-		NextDate:      date.addDays(1).String(),
-		IsTonight:     date == tonight,
-		IsPastDay:     dayHasEnded(nowLocal, end, date, tonight),
+		ShowCount: len(shows),
+		// Empty at the edges of the servable window rather than pointing at a
+		// date this same service would 404. A page that renders a link it knows
+		// is dead is worse than one that renders no link.
+		PrevDate:  servableDateKey(date.addDays(-1), nowLocal),
+		NextDate:  servableDateKey(date.addDays(1), nowLocal),
+		IsTonight: date == tonight,
+		// The SAME value the look-ahead was gated on above, not a second call.
+		// These are two halves of one decision — whether this night can still
+		// change — and a client that reads a "freezable" flag from a payload
+		// assembled under the opposite answer gets exactly the two failures the
+		// comments above name.
+		IsPastDay:     isPastDay,
 		Shows:         shows,
 		TrackedVenues: venues,
 		NextShow:      nextShow,

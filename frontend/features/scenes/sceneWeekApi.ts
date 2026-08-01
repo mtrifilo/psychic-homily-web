@@ -8,19 +8,7 @@
  */
 import { API_BASE_URL } from '@/lib/api-base'
 import { fetchScenePeriod, type ScenePeriodService } from './scenePeriodApi'
-import {
-  ARCHIVED_PERIOD_REVALIDATE,
-  CURRENT_PERIOD_REVALIDATE,
-} from './scenePeriodApi'
 import type { SceneWeekResponse } from './sceneWeek'
-
-/**
- * The freshness windows, under the names this surface has always used. One
- * decision, shared with the day surface — see `scenePeriodApi` for why a week
- * that can still gain shows may not be frozen.
- */
-export const CURRENT_WEEK_REVALIDATE = CURRENT_PERIOD_REVALIDATE
-export const ARCHIVED_WEEK_REVALIDATE = ARCHIVED_PERIOD_REVALIDATE
 
 /** Which surface a failure came from, so Sentry triage can tell them apart. */
 type SceneWeekService = Extract<ScenePeriodService, 'scene-week' | 'og-image'>

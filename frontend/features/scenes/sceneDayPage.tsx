@@ -77,11 +77,14 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
       description,
       url: canonical,
       type: 'website',
-      // Set explicitly to suppress the file-convention image the sibling
-      // `[key]` route contributes: that route's `opengraph-image` renders the
-      // WEEK card and answers 404 for a date key, so inheriting it would
-      // advertise a card that does not exist. The site-wide card is a plain
-      // truth about the site rather than a wrong claim about this night.
+      // Set explicitly to suppress the `opengraph-image` in the `[period]`
+      // segment — the segment the DATED permalink renders under, so its
+      // convention image would be injected here. That route renders the WEEK
+      // card and answers 404 for a date key, so inheriting it would advertise
+      // a card that does not exist. The site-wide card is a plain truth about
+      // the site rather than a wrong claim about this night. Do not delete
+      // this because it looks redundant from /tonight, where the convention
+      // is not inherited: the dated permalink is the one that needs it.
       images: [{ url: '/og-image.jpg', width: 1200, height: 630, alt: 'Psychic Homily' }],
     },
     // `images` is deliberately absent: Next copies the openGraph descriptor

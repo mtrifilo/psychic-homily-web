@@ -927,7 +927,9 @@ type SceneDayResponse struct {
 	ISOWeek   string `json:"iso_week"`
 	ShowCount int    `json:"show_count"`
 	// PrevDate/NextDate are the adjacent calendar dates, for day-at-a-time
-	// navigation through the dated permalinks.
+	// navigation through the dated permalinks. EMPTY at the edges of the
+	// servable window — a client must render the control only when the field
+	// is set, or it advertises a link this same service answers 404 to.
 	PrevDate string `json:"prev_date"`
 	NextDate string `json:"next_date"`
 	// IsTonight says this date is the one a reader standing in the scene right

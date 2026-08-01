@@ -35,16 +35,17 @@ describe('proxy — scene period routes', () => {
     vi.restoreAllMocks()
   })
 
-  // `/tonight` probes the cheap SCENE-existence endpoint, not the day one: the
-  // route has no key that can be wrong, so rebuilding the whole night just to
-  // discard the body would be pure waste on the hottest path this feature adds.
-  // The keyed routes must probe their own endpoint — only the backend can say
-  // whether 2026-02-30 or 2025-W53 is real.
+  // Both DAY routes probe the cheap scene-existence endpoint: `/tonight` has no
+  // key, and a calendar date's validity is settled locally, so rebuilding the
+  // whole night just to discard the body would be pure waste — and the dated
+  // route is the one with thousands of keys per scene. The WEEK key still goes
+  // to its own endpoint, because only the backend owns the ISO-8601 arithmetic
+  // that decides `2025-W53` is unreal.
   it.each([
     ['/scenes/phoenix-az/week', 'http://localhost:8080/scenes/phoenix-az/week'],
     ['/scenes/phoenix-az/tonight', 'http://localhost:8080/entities/scenes/phoenix-az/exists'],
     ['/scenes/phoenix-az/2026-W31', 'http://localhost:8080/scenes/phoenix-az/week/2026-W31'],
-    ['/scenes/phoenix-az/2026-07-31', 'http://localhost:8080/scenes/phoenix-az/day/2026-07-31'],
+    ['/scenes/phoenix-az/2026-07-31', 'http://localhost:8080/entities/scenes/phoenix-az/exists'],
   ])('existence-checks %s against %s', async (path, expected) => {
     const fetchMock = mockBackend(200)
 
@@ -57,17 +58,53 @@ describe('proxy — scene period routes', () => {
     expect(response.status).toBe(200)
   })
 
-  // The backend owns the calendar maths and the scene's timezone: `2026-02-30`
-  // is well-formed and impossible, exactly as `2025-W53` is. Re-deriving that
-  // here would drift from the authority that answers the page's own fetch.
-  it.each(['/scenes/phoenix-az/2026-02-30', '/scenes/phoenix-az/2025-W53'])(
-    'turns a backend 404 for %s into a real 404',
-    async path => {
-      mockBackend(404)
-      const response = await proxy(requestFor(path))
-      expect(response.status).toBe(404)
-    }
-  )
+  // `2025-W53` is well-formed and unreal, and only the backend owns the ISO
+  // week arithmetic that says so.
+  it('turns a backend 404 for a nonexistent week into a real 404', async () => {
+    mockBackend(404)
+    const response = await proxy(requestFor('/scenes/phoenix-az/2025-W53'))
+    expect(response.status).toBe(404)
+  })
+
+  // An impossible DATE is settled here, without a round-trip. February never
+  // has 30 days in any timezone, so this needs no backend — and refusing it
+  // locally is what lets the dated route use the cheap scene probe at all.
+  it.each([
+    '2026-02-30', // February never has 30 days
+    '2027-02-29', // 2027 is not a leap year
+    '2026-13-01', // month out of range
+    '2026-07-32', // day out of range
+    '2026-00-10', // month zero
+    '2026-07-00', // day zero
+  ])('404s the impossible date %s without a backend round-trip', async segment => {
+    const fetchMock = mockBackend(200)
+
+    const response = await proxy(requestFor(`/scenes/phoenix-az/${segment}`))
+
+    expect(response.status).toBe(404)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  // A leap day inside the window — the check must reject impossible dates
+  // without rejecting the unusual real ones. 2024 stays in range for as long
+  // as this code will plausibly live, since the window's floor is fixed.
+  it('still serves a real leap day', async () => {
+    const fetchMock = mockBackend(200)
+
+    const response = await proxy(requestFor('/scenes/phoenix-az/2024-02-29'))
+
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalled()
+  })
+
+  // The scene can still be missing, and that answer still comes from the
+  // backend — the local date check replaces the day-payload probe, not the
+  // existence check.
+  it('turns a backend 404 for the scene into a real 404 on a dated permalink', async () => {
+    mockBackend(404)
+    const response = await proxy(requestFor('/scenes/nowhere-zz/2026-07-31'))
+    expect(response.status).toBe(404)
+  })
 
   it('404s a junk period segment without a backend round-trip', async () => {
     const fetchMock = mockBackend(200)
@@ -134,10 +171,10 @@ describe('proxy — scene period routes', () => {
   it('encodes the scene slug into the probe URL', async () => {
     const fetchMock = mockBackend(200)
 
-    await proxy(requestFor('/scenes/phoenix-az&x/2026-07-31'))
+    await proxy(requestFor('/scenes/phoenix-az&x/2026-W31'))
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8080/scenes/phoenix-az%26x/day/2026-07-31',
+      'http://localhost:8080/scenes/phoenix-az%26x/week/2026-W31',
       { method: 'HEAD', redirect: 'manual' }
     )
   })

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { looksLikeISOWeek } from './sceneWeek'
 import {
   dayShows,
   formatDayChip,
@@ -57,6 +58,36 @@ describe('looksLikeCalendarDate', () => {
   // 30th that reaches it comes back 404.
   it('does not judge whether the date exists', () => {
     expect(looksLikeCalendarDate('2026-02-30')).toBe(true)
+  })
+
+  /**
+   * `/scenes/{slug}/{period}` dispatches on these two predicates alone: Next
+   * allows one dynamic segment per level, so the week view and the day view
+   * share a route and this is what tells them apart. If both ever matched the
+   * same key, whichever branch is written first would silently swallow the
+   * other's URLs — a week key rendering the day view, or vice versa, with the
+   * typecheck and every other test still green.
+   */
+  it('can never both match — the shared route dispatches on this', () => {
+    const keys = [
+      '2026-W31',
+      '2026-W01',
+      '2026-07-31',
+      '2026-02-30',
+      '2015-01-01',
+      'garbage',
+      'tonight',
+      'week',
+    ]
+    for (const key of keys) {
+      expect(
+        looksLikeISOWeek(key) && looksLikeCalendarDate(key),
+        `${key} matched BOTH period shapes`
+      ).toBe(false)
+    }
+    // And each shape claims the keys it should.
+    expect(looksLikeISOWeek('2026-W31')).toBe(true)
+    expect(looksLikeCalendarDate('2026-07-31')).toBe(true)
   })
 })
 

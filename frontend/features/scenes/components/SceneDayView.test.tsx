@@ -50,14 +50,22 @@ describe('SceneDayView — a night with shows', () => {
     expect(h1).toHaveTextContent('AZ')
   })
 
-  it('states the night and counts the rows it actually renders', () => {
+  // The WHOLE line, exactly. Three separate substring assertions all resolve to
+  // this same <p>, so they would pass with the segments reordered, the em dash
+  // swapped for a comma, or the separator changed — and this string is locked.
+  it('states the night as one locked line, counting the rows it renders', () => {
     const shows = [show({ id: 1 }), show({ id: 2 }), show({ id: 3 }), show({ id: 4 })]
     // `show_count` deliberately disagrees: the header counts what is on the
     // page, so it can never advertise a show the reader cannot find.
     render(<SceneDayView day={day({ shows, show_count: 99 })} />)
-    expect(screen.getByText(/Tonight/)).toBeInTheDocument()
-    expect(screen.getByText(/Friday, July 31, 2026/)).toBeInTheDocument()
-    expect(screen.getByText(/4 shows/)).toBeInTheDocument()
+    expect(
+      screen.getByText('Tonight — Friday, July 31, 2026 · 4 shows')
+    ).toBeInTheDocument()
+  })
+
+  it('drops only the Tonight prefix on a dated permalink', () => {
+    render(<SceneDayView day={day({ is_tonight: false })} />)
+    expect(screen.getByText('Friday, July 31, 2026 · 1 show')).toBeInTheDocument()
   })
 
   it('singularises a one-show night', () => {
@@ -321,5 +329,41 @@ describe('SceneDayView — a night that has already happened', () => {
   it('offers no next-show pointer', () => {
     render(<SceneDayView day={past} />)
     expect(screen.queryByText(/Next on our calendar/)).not.toBeInTheDocument()
+  })
+
+  // The ask belongs to the DEAD-QUIET state — a scene with nothing ahead of it.
+  // An archived empty Tuesday says nothing about the scene's current calendar,
+  // and the server never sends a pointer for a past date, so keying the ask on
+  // the pointer's absence alone would solicit on every archived day.
+  it('does not solicit venues on the strength of an empty archived day', () => {
+    render(<SceneDayView day={past} />)
+    expect(screen.queryByRole('link', { name: /Suggest a venue/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('SceneDayView — the edges of the servable window', () => {
+  // The server sends an empty adjacent date when there is no servable day that
+  // way. Rendering the chip anyway would advertise a link the site 404s.
+  it('renders no chip for an adjacent day the server did not offer', () => {
+    const { container } = render(<SceneDayView day={day({ prev_date: '', next_date: '' })} />)
+
+    const datedLinks = [...container.querySelectorAll('a[href]')].filter(a =>
+      /^\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/.test(a.getAttribute('href') ?? '')
+    )
+    expect(datedLinks).toHaveLength(0)
+    // The way out is still there.
+    expect(screen.getByRole('link', { name: 'Full week' })).toBeInTheDocument()
+  })
+
+  it('renders both chips when the server offers both dates', () => {
+    const { container } = render(<SceneDayView day={day()} />)
+
+    const datedLinks = [...container.querySelectorAll('a[href]')]
+      .map(a => a.getAttribute('href'))
+      .filter(href => /^\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/.test(href ?? ''))
+    expect(datedLinks).toEqual([
+      '/scenes/phoenix-az/2026-07-30',
+      '/scenes/phoenix-az/2026-08-01',
+    ])
   })
 })

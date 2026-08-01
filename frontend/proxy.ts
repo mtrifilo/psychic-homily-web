@@ -99,6 +99,26 @@ function periodYearInRange(segment: string): boolean {
 }
 
 /**
+ * Whether a date segment names a day that actually exists.
+ *
+ * `2026-02-30` is well-formed and impossible. Deciding that here — rather than
+ * asking the backend — is what lets the dated route use the cheap scene probe:
+ * a Gregorian date's validity needs no database, no timezone and no scene, so
+ * the round-trip below reaches the same verdict the backend's own parse does,
+ * for free. `Date.UTC` normalizes an out-of-range date exactly as Go's parser
+ * does, so comparing the components back is the whole check.
+ */
+function isRealCalendarDate(segment: string): boolean {
+  const [year, month, day] = segment.split('-').map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  )
+}
+
+/**
  * Per-entity existence check. The function returns the backend HEAD probe URL
  * whose 404 response means "slug does not exist". The probe uses direct backend
  * existence queries instead of duplicating each page's full `GET /<type>/<slug>`
@@ -252,27 +272,50 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (sub === 'week') {
       return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`)
     }
+    // Both DAY routes probe the cheap scene-existence endpoint rather than the
+    // day endpoint itself, because everything else that could make them 404 is
+    // decided right here for free: `/tonight` has no key at all, and a dated
+    // key's validity is pure Gregorian arithmetic needing no database, no
+    // timezone and no scene. Probing `/day` would rebuild the entire night —
+    // venue count, timezone, the shows join, tracked venues, and on a quiet
+    // night a six-week look-ahead — and discard the body, on EVERY request,
+    // uncached, in addition to the page's own fetch.
+    //
+    // Two caveats this buys, both accepted deliberately:
+    //
+    // 1. `sceneExists` shares the >= 2-verified-venues threshold with the day
+    //    endpoint but reaches it by its own slug resolution. That is the same
+    //    bargain every `/scenes/{slug}` page already makes through
+    //    ENTITY_CHECKS, so it is the established shape here rather than a new
+    //    risk — but if the two resolvers ever diverge, these routes soft-404.
+    //    `not-found.spec.ts` asserts the rendered page is the SCENE, not merely
+    //    that something rendered, which is what would catch it.
+    //
+    // 2. DEPLOY THE BACKEND FIRST. Because the probe no longer touches the day
+    //    endpoint, a frontend that goes live ahead of its backend would pass
+    //    these requests through to a page whose own fetch 404s, and that
+    //    `notFound()` arrives after the shell has streamed — a 404 body at
+    //    HTTP 200 for the length of the skew window. The `/week` routes are
+    //    immune only because they probe their own endpoint. This is transient
+    //    and self-healing where the cost it replaces — rebuilding the whole
+    //    night, uncached, on every request over thousands of dated keys per
+    //    scene — was permanent and reachable by anyone.
     if (sub === 'tonight') {
-      // The SCENE probe, not the day one. This route has no key that can be
-      // wrong — every scene has a tonight — so the only question is whether the
-      // scene resolves, and `sceneExists` answers it with one COUNT against the
-      // same >= 2-verified-venues rule the day endpoint gates on. Probing
-      // `/day` instead would rebuild the entire night (venue count, timezone,
-      // the shows join, tracked venues, and on a quiet night a six-week
-      // look-ahead) and throw the body away — on every request, uncached,
-      // on the hottest path this feature adds.
       return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
     }
+    if (CALENDAR_DATE_SEGMENT.test(sub)) {
+      if (!periodYearInRange(sub) || !isRealCalendarDate(sub)) {
+        return notFoundResponse(request)
+      }
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+    }
+    // The WEEK key still goes to its own endpoint: `2025-W53` is well-formed
+    // and unreal, and unlike a calendar date that verdict is ISO-8601 week
+    // arithmetic the backend owns and this file deliberately does not copy.
     if (ISO_WEEK_SEGMENT.test(sub) && periodYearInRange(sub)) {
       return existenceCheck(
         request,
         `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`
-      )
-    }
-    if (CALENDAR_DATE_SEGMENT.test(sub) && periodYearInRange(sub)) {
-      return existenceCheck(
-        request,
-        `${API_BASE_URL}/scenes/${scene}/day/${encodeURIComponent(sub)}`
       )
     }
     // Not a servable period (`/scenes/chicago-il/garbage`, `/scenes/chicago-il/
