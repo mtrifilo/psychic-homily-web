@@ -310,14 +310,29 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       ).toBeVisible({ timeout: 10_000 })
     })
 
-    test('the dated permalink /tonight is canonical to returns HTTP 200', async ({ page }) => {
-      // A canonical that 404s is worse than no canonical at all, so the target
-      // has to be reachable in its own right — including for a quiet night,
-      // which is still a real day of a real scene.
-      const response = await page.goto('/scenes/phoenix-az/2026-07-31')
+    test('the permalink /tonight declares canonical returns HTTP 200', async ({ page }) => {
+      // A canonical that 404s is worse than no canonical at all. Read the
+      // target OFF the page rather than hardcoding today's date: a fixed date
+      // would keep passing while quietly testing nothing, since any valid date
+      // 200s. This way the assertion follows the real declared relationship.
+      await page.goto('/scenes/phoenix-az/tonight')
+      const canonical = await page
+        .locator('link[rel="canonical"]')
+        .getAttribute('content')
+        .catch(() => null)
+      const href =
+        canonical ?? (await page.locator('link[rel="canonical"]').getAttribute('href'))
+
+      expect(href, '/tonight must declare a canonical').toBeTruthy()
+      expect(
+        href,
+        'the canonical must be the DATED permalink, never the rolling URL'
+      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
+
+      const response = await page.goto(href!)
       expect(
         response?.status(),
-        '/scenes/phoenix-az/2026-07-31 must return 200 — the canonical target of /tonight'
+        `${href} must return 200 — it is what /tonight points every crawler at`
       ).toBe(200)
     })
 

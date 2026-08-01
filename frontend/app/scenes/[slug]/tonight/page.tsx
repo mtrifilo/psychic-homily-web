@@ -35,7 +35,11 @@ export default async function SceneTonightPage({ params }: PageProps) {
   const { slug } = await params
   // notFound() must be called HERE, in the page component. Calling it from a
   // helper module rendered the not-found body but left the status at HTTP 200.
-  const data = await getSceneDay(slug)
+  //
+  // `undefined` passed EXPLICITLY: React.cache keys on `arguments.length`, so
+  // a one-argument call here and the two-argument one inside generateMetadata
+  // land on different cache entries and the request pays for two fetches.
+  const data = await getSceneDay(slug, undefined)
   if (!data) notFound()
   return <SceneDayContent data={data} />
 }

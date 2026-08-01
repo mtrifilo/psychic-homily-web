@@ -19,7 +19,7 @@ interface PageProps {
  * indexing it would leave permanently stale snippets.
  *
  * Next.js resolves static segments before dynamic siblings, so this route wins
- * over `[iso-week]` for the literal path `/scenes/{slug}/week`.
+ * over `[period]` for the literal path `/scenes/{slug}/week`.
  */
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params

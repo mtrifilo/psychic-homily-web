@@ -150,7 +150,8 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
             href={showHref(nextShow)}
             className="text-primary underline underline-offset-4"
           >
-            Next on our calendar: {formatPointerDay(day.date, nextShow.event_date)},{' '}
+            Next on our calendar:{' '}
+            {formatPointerDay(day.date, nextShow.event_date, day.is_tonight)},{' '}
             {showDisplayTitle(nextShow)}
             {nextShow.venue_name ? ` at ${nextShow.venue_name}` : ''} →
           </Link>

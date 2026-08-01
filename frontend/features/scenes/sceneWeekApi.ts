@@ -28,6 +28,7 @@ type SceneWeekService = Extract<ScenePeriodService, 'scene-week' | 'og-image'>
 function weekSpec(slug: string, service: SceneWeekService) {
   return {
     label: 'Scene week',
+    slug,
     // Both segments are attacker-controlled: Next decodes route params before
     // the handler sees them, so a slug of `chicago-il?x` or `chicago-il#x`
     // would truncate this path at the query/fragment and silently send the

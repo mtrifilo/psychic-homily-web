@@ -74,18 +74,27 @@ export function formatDayChip(iso: string): string {
 const WEEKDAY_ONLY_HORIZON_DAYS = 6
 
 /**
- * The day label in a quiet night's "next on our calendar" pointer, relative to
- * the day being viewed.
+ * The day label in a quiet night's "next on our calendar" pointer.
  *
- * Near dates read as a bare weekday, which is how anyone would say it out loud.
- * A show five weeks out cannot: "Friday" would name a Friday the reader has no
- * way to identify, so the date joins it.
+ * A bare weekday is how anyone would say a near date out loud, and it is only
+ * legible from the night you are actually standing in — "Friday" means *this*
+ * Friday to a reader, whatever date the page is about. So the shorthand is
+ * reserved for the live night; a dated permalink always spells the date out,
+ * or a visitor arriving from search at a page about January 2020 would read
+ * "Friday" as this week.
+ *
+ * Even on the live night the shorthand runs out: a show five weeks ahead names
+ * a Friday the reader has no way to identify, so the date joins it.
  */
-export function formatPointerDay(fromISO: string, targetISO: string): string {
+export function formatPointerDay(
+  fromISO: string,
+  targetISO: string,
+  isLiveNight: boolean
+): string {
   const from = parseCalendarDate(fromISO)
   const target = parseCalendarDate(targetISO)
   const days = Math.round((target.getTime() - from.getTime()) / 86_400_000)
-  if (days > 0 && days <= WEEKDAY_ONLY_HORIZON_DAYS) {
+  if (isLiveNight && days > 0 && days <= WEEKDAY_ONLY_HORIZON_DAYS) {
     return target.toLocaleDateString('en-US', { weekday: 'long' })
   }
   return target.toLocaleDateString('en-US', {

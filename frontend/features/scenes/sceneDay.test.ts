@@ -75,14 +75,22 @@ describe('date formatting', () => {
 
 describe('formatPointerDay', () => {
   it('names a nearby night by weekday alone, the way anyone would say it', () => {
-    expect(formatPointerDay('2026-07-30', '2026-07-31')).toBe('Friday')
-    expect(formatPointerDay('2026-07-30', '2026-08-05')).toBe('Wednesday')
+    expect(formatPointerDay('2026-07-30', '2026-07-31', true)).toBe('Friday')
+    expect(formatPointerDay('2026-07-30', '2026-08-05', true)).toBe('Wednesday')
   })
 
   // Past a week, a bare weekday names a day the reader cannot identify.
   it('adds the date once a weekday would be ambiguous', () => {
-    expect(formatPointerDay('2026-07-30', '2026-08-06')).toBe('Thu, Aug 6')
-    expect(formatPointerDay('2026-07-30', '2026-09-04')).toBe('Fri, Sep 4')
+    expect(formatPointerDay('2026-07-30', '2026-08-06', true)).toBe('Thu, Aug 6')
+    expect(formatPointerDay('2026-07-30', '2026-09-04', true)).toBe('Fri, Sep 4')
+  })
+
+  // "Friday" means THIS Friday to a reader, whatever date the page is about. A
+  // visitor landing on a 2020 permalink from search must not be told the next
+  // show is "Friday".
+  it('always spells out the date away from the live night', () => {
+    expect(formatPointerDay('2020-01-15', '2020-01-17', false)).toBe('Fri, Jan 17')
+    expect(formatPointerDay('2026-07-30', '2026-07-31', false)).toBe('Fri, Jul 31')
   })
 })
 

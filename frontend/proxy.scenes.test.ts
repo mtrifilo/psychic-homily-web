@@ -16,6 +16,15 @@ function mockBackend(status: number) {
 }
 
 /**
+ * The year window both copies of the period-shape rule apply. Restated here
+ * rather than imported, so the assertions below are pinned to the INTENT and
+ * would fail if BOTH copies drifted together — importing the constant would
+ * make the test agree with whatever the code happens to say.
+ */
+const FIRST_TRACKED_YEAR = 2015
+const LAST_SERVABLE_YEAR = new Date().getUTCFullYear() + 1
+
+/**
  * The scene period routes sit one level BELOW the entity-detail shape the
  * generic check handles, so each needs its own branch here or it soft-404s —
  * a 404 BODY committed at HTTP 200, because the shell has already streamed
@@ -79,12 +88,19 @@ describe('proxy — scene period routes', () => {
    * not-found page at HTTP 200.
    */
   it.each([
+    // The BOUNDARIES, computed rather than written down — a fixture list of
+    // 1998 and 2400 would still pass if one copy drifted to 2010 or to +5,
+    // which is exactly the drift this test exists to catch.
+    [`${FIRST_TRACKED_YEAR}-01-01`, true],
+    [`${FIRST_TRACKED_YEAR - 1}-12-31`, false],
+    [`${LAST_SERVABLE_YEAR}-12-31`, true],
+    [`${LAST_SERVABLE_YEAR + 1}-01-01`, false],
+    [`${FIRST_TRACKED_YEAR}-W01`, true],
+    [`${FIRST_TRACKED_YEAR - 1}-W52`, false],
+    [`${LAST_SERVABLE_YEAR}-W52`, true],
+    [`${LAST_SERVABLE_YEAR + 1}-W01`, false],
     ['2026-W31', true],
     ['2026-07-31', true],
-    ['1998-W12', false],
-    ['1998-07-31', false],
-    ['2400-W12', false],
-    ['2400-07-31', false],
     ['garbage', false],
     ['2026-7-31', false],
   ])('agrees with the page about %s', async (segment, servable) => {

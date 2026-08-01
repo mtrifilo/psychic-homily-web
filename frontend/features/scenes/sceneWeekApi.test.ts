@@ -132,9 +132,15 @@ describe('fetchSceneWeek', () => {
     await expect(fetchSceneWeek('chicago-il', '2026-W31', 'scene-week')).resolves.toMatchObject({
       show_count: 9,
     })
+    // The slug is the first thing triage needs and the one thing the week key
+    // cannot say. It lives inside the URL builder's closure, so it has to be
+    // carried explicitly or it silently vanishes from every report.
     expect(captureMessage).toHaveBeenCalledWith(
       'Scene week: API returned 503',
-      expect.objectContaining({ tags: { service: 'scene-week' } })
+      expect.objectContaining({
+        tags: { service: 'scene-week' },
+        extra: expect.objectContaining({ slug: 'chicago-il', status: 503 }),
+      })
     )
   })
 

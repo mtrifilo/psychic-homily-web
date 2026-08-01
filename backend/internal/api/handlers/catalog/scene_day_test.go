@@ -70,14 +70,30 @@ func TestGetSceneDayHandler_PassesDateKeyThrough(t *testing.T) {
 	}
 }
 
+// The STATUS is what matters, not merely that an error came back: the proxy's
+// HEAD existence check reads it, and anything other than a 404 makes it fail
+// open — turning an unknown scene into a 404 body served at HTTP 200.
 func TestSceneDayHandlers_UnknownSlugIs404(t *testing.T) {
 	h := NewSceneHandler(dayMock(nil))
 
-	if _, err := h.GetSceneCurrentDayHandler(context.Background(), &GetSceneCurrentDayRequest{Slug: "nowhere-zz"}); err == nil {
-		t.Error("current-day handler accepted an unknown slug, want 404")
+	_, currentErr := h.GetSceneCurrentDayHandler(context.Background(), &GetSceneCurrentDayRequest{Slug: "nowhere-zz"})
+	assertHTTPStatus(t, currentErr, 404, "current-day handler")
+
+	_, keyedErr := h.GetSceneDayHandler(context.Background(), &GetSceneDayRequest{Slug: "nowhere-zz", Date: "2026-07-31"})
+	assertHTTPStatus(t, keyedErr, 404, "keyed handler")
+}
+
+func assertHTTPStatus(t *testing.T, err error, want int, who string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("%s returned no error, want HTTP %d", who, want)
 	}
-	if _, err := h.GetSceneDayHandler(context.Background(), &GetSceneDayRequest{Slug: "nowhere-zz", Date: "2026-07-31"}); err == nil {
-		t.Error("keyed handler accepted an unknown slug, want 404")
+	se, ok := err.(interface{ GetStatus() int })
+	if !ok {
+		t.Fatalf("%s error does not carry an HTTP status: %T", who, err)
+	}
+	if se.GetStatus() != want {
+		t.Errorf("%s returned HTTP %d, want %d", who, se.GetStatus(), want)
 	}
 }
 
@@ -93,14 +109,5 @@ func TestSceneDayHandlers_SceneNotFoundMapsTo404(t *testing.T) {
 	h := NewSceneHandler(mock)
 
 	_, err := h.GetSceneDayHandler(context.Background(), &GetSceneDayRequest{Slug: "phoenix-az", Date: "2026-02-30"})
-	if err == nil {
-		t.Fatal("expected an error for an impossible date, got nil")
-	}
-	if se, ok := err.(interface{ GetStatus() int }); ok {
-		if se.GetStatus() != 404 {
-			t.Errorf("expected HTTP 404, got %d", se.GetStatus())
-		}
-	} else {
-		t.Errorf("error does not carry an HTTP status: %T", err)
-	}
+	assertHTTPStatus(t, err, 404, "keyed handler on an impossible date")
 }

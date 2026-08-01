@@ -37,6 +37,12 @@ export type ScenePeriodService = 'scene-week' | 'scene-day' | 'og-image'
 interface ScenePeriodSpec<T> {
   /** Human label for the Sentry message, e.g. `Scene week`. */
   label: string
+  /**
+   * WHICH scene this is about — the first thing triage needs, and the one thing
+   * the period key alone cannot say. Carried explicitly because the slug is
+   * otherwise closed over inside `buildUrl` and would vanish from every report.
+   */
+  slug: string
   /** The API URL for this period key, or for the CURRENT period when omitted. */
   buildUrl: (key: string | undefined) => string
   /**
@@ -92,14 +98,14 @@ async function fetchPayload<T>(
       Sentry.captureMessage(`${spec.label}: API returned ${res.status}`, {
         level: 'error',
         tags: { service: spec.service },
-        extra: { key, status: res.status },
+        extra: { slug: spec.slug, key, status: res.status },
       })
     }
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
       tags: { service: spec.service },
-      extra: { key },
+      extra: { slug: spec.slug, key },
     })
   }
   return null

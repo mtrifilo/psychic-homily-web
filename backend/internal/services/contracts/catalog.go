@@ -938,8 +938,13 @@ type SceneDayResponse struct {
 	// Answered here because it depends on the SCENE's clock, not the viewer's.
 	IsTonight bool `json:"is_tonight"`
 	// IsPastDay says the day is over and can no longer gain shows — the only
-	// state in which a client may cache this payload hard. Deliberately not the
-	// negation of IsTonight: a FUTURE date is neither.
+	// state in which a client may cache this payload hard.
+	//
+	// Deliberately not the negation of IsTonight, in BOTH directions. A FUTURE
+	// date is neither. And between midnight and 06:00 the scene's clock is past
+	// the date's end while IsTonight still points at it, so the two would
+	// otherwise both be true and a client would freeze the live night for a day
+	// under a heading reading "Tonight". Never both.
 	IsPastDay bool `json:"is_past_day"`
 	// Shows for this day, earliest first. Always non-nil, so a quiet night
 	// marshals as `[]` rather than `null`.
