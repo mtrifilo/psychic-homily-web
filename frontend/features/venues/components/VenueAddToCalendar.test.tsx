@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
-  VenueCalendarSubscribe,
+  VenueAddToCalendar,
   venueCalendarFeedUrl,
-} from './VenueCalendarSubscribe'
+} from './VenueAddToCalendar'
 
 // vitest.config.mts pins NEXT_PUBLIC_API_URL to http://localhost:8080, so
 // API_BASE_URL is deterministic here.
@@ -34,7 +34,23 @@ function mockClipboard(writeText: ReturnType<typeof vi.fn>) {
   })
 }
 
-describe('VenueCalendarSubscribe', () => {
+function renderAddToCalendar() {
+  return render(
+    <VenueAddToCalendar
+      venueSlug="the-rebel-lounge"
+      venueName="The Rebel Lounge"
+    />
+  )
+}
+
+async function openPopover() {
+  const user = userEvent.setup()
+  renderAddToCalendar()
+  await user.click(screen.getByRole('button', { name: /add to calendar/i }))
+  return user
+}
+
+describe('VenueAddToCalendar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -44,28 +60,15 @@ describe('VenueCalendarSubscribe', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders a subscribe trigger', () => {
-    render(
-      <VenueCalendarSubscribe
-        venueSlug="the-rebel-lounge"
-        venueName="The Rebel Lounge"
-      />
-    )
-    expect(screen.getByRole('button', { name: /subscribe/i })).toBeInTheDocument()
+  it('renders an add-to-calendar trigger', () => {
+    renderAddToCalendar()
+    expect(screen.getByRole('button', { name: /add to calendar/i })).toBeInTheDocument()
   })
 
   // The whole point of the feed is that a venue can link to it and anyone can
   // subscribe, so nothing here may be gated on being signed in.
   it('shows the feed URL and calendar links once opened', async () => {
-    const user = userEvent.setup()
-    render(
-      <VenueCalendarSubscribe
-        venueSlug="the-rebel-lounge"
-        venueName="The Rebel Lounge"
-      />
-    )
-
-    await user.click(screen.getByRole('button', { name: /subscribe/i }))
+    await openPopover()
 
     const input = await screen.findByLabelText(
       'Calendar feed URL for The Rebel Lounge'
@@ -86,16 +89,8 @@ describe('VenueCalendarSubscribe', () => {
 
   it('copies the feed URL to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
-    const user = userEvent.setup()
+    const user = await openPopover()
     mockClipboard(writeText)
-    render(
-      <VenueCalendarSubscribe
-        venueSlug="the-rebel-lounge"
-        venueName="The Rebel Lounge"
-      />
-    )
-
-    await user.click(screen.getByRole('button', { name: /subscribe/i }))
     await user.click(await screen.findByRole('button', { name: /copy feed url/i }))
 
     expect(writeText).toHaveBeenCalledWith(FEED_URL)
@@ -104,16 +99,8 @@ describe('VenueCalendarSubscribe', () => {
 
   it('survives a rejected clipboard write', async () => {
     const writeText = vi.fn().mockRejectedValue(new Error('denied'))
-    const user = userEvent.setup()
+    const user = await openPopover()
     mockClipboard(writeText)
-    render(
-      <VenueCalendarSubscribe
-        venueSlug="the-rebel-lounge"
-        venueName="The Rebel Lounge"
-      />
-    )
-
-    await user.click(screen.getByRole('button', { name: /subscribe/i }))
     await user.click(await screen.findByRole('button', { name: /copy feed url/i }))
 
     // Still shows the un-copied state, and the URL is still readable.
@@ -124,7 +111,7 @@ describe('VenueCalendarSubscribe', () => {
 
   it('renders nothing without a slug, since there is no feed to point at', () => {
     const { container } = render(
-      <VenueCalendarSubscribe venueSlug="" venueName="Unnamed" />
+      <VenueAddToCalendar venueSlug="" venueName="Unnamed" />
     )
     expect(container).toBeEmptyDOMElement()
   })

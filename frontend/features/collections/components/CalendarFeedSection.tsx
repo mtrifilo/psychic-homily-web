@@ -19,6 +19,10 @@ import {
   useCreateCalendarToken,
   useDeleteCalendarToken,
 } from '@/features/auth'
+import {
+  webcalUrl,
+  googleCalendarSubscribeUrl,
+} from '@/lib/utils/calendarFeedUrls'
 import type { CalendarTokenCreateResponse } from '@/features/shows'
 import { PERSONAL_FEED_TOKEN_ROTATED_EVENT, PERSONAL_FEED_TOKEN_REVOKED_EVENT } from './personalFeedTokenEvents'
 
@@ -27,15 +31,6 @@ export type CalendarFeedVariant = 'settings' | 'library'
 interface CalendarFeedSectionProps {
   /** settings owns regenerate/disable; library is subscribe/copy + link to settings */
   variant?: CalendarFeedVariant
-}
-
-function googleCalendarSubscribeURL(feedURL: string): string {
-  const webcalUrl = feedURL.replace(/^https?:\/\//, 'webcal://')
-  return `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcalUrl)}`
-}
-
-function webcalURL(feedURL: string): string {
-  return feedURL.replace(/^https?:\/\//, 'webcal://')
 }
 
 export function CalendarFeedSection({
@@ -120,8 +115,8 @@ export function CalendarFeedSection({
 
   // Just created / regenerated — show the feed URL (only moment plaintext is available)
   if (createdToken) {
-    const googleCalUrl = googleCalendarSubscribeURL(createdToken.feed_url)
-    const appleCalUrl = webcalURL(createdToken.feed_url)
+    const googleCalUrl = googleCalendarSubscribeUrl(createdToken.feed_url)
+    const appleCalUrl = webcalUrl(createdToken.feed_url)
 
     return (
       <div className="rounded-md border border-border bg-card p-4">

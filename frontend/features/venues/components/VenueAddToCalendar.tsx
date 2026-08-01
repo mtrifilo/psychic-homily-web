@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { CalendarPlus, Copy, Check, ExternalLink } from 'lucide-react'
+import { Copy, Check, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -9,10 +9,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { BracketLink } from '@/components/shared/BracketLink'
+import { useAutoDismissBanner } from '@/lib/hooks/common/useAutoDismissBanner'
+import {
+  webcalUrl,
+  googleCalendarSubscribeUrl,
+} from '@/lib/utils/calendarFeedUrls'
 import { API_BASE_URL } from '@/lib/api-base'
 
 /**
- * Builds the absolute URL of a venue's public ICS feed (PSY-1584).
+ * Builds the absolute URL of a venue's public ICS feed.
  *
  * It has to be absolute: `webcal://` and Google Calendar's `cid=` parameter
  * both need a full origin, and a subscription URL gets copied out of the browser
@@ -38,36 +44,28 @@ export function venueCalendarFeedUrl(venueSlug: string): string {
   return `${origin}${API_BASE_URL.replace(/\/$/, '')}${path}`
 }
 
-/** Google Calendar subscribes by URL, but only accepts the webcal scheme here. */
-function googleCalendarSubscribeUrl(feedUrl: string): string {
-  return `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(
-    feedUrl.replace(/^https?:\/\//, 'webcal://')
-  )}`
-}
-
-/** webcal:// is what hands the feed to the OS-registered calendar app. */
-function webcalUrl(feedUrl: string): string {
-  return feedUrl.replace(/^https?:\/\//, 'webcal://')
-}
-
-interface VenueCalendarSubscribeProps {
+interface VenueAddToCalendarProps {
   venueSlug: string
   venueName: string
 }
 
 /**
- * "Subscribe" affordance for a venue's upcoming shows.
+ * "[Add to calendar]" popover for a venue's public ICS feed: the feed URL with
+ * a copy button, plus direct Google/Apple subscribe links.
  *
- * A popover rather than an inline panel so it does not change the height of the
- * entity header's action row, and so the feed URL is only computed once the
- * popover opens — which keeps window access out of the server render.
+ * Deliberately available to anonymous visitors — a venue linking back to its
+ * own calendar is the point of the feed, and a login wall would defeat it.
+ *
+ * A popover rather than an inline panel so it does not change the height of
+ * the host row, and so the feed URL is only computed once the popover opens —
+ * which keeps window access out of the server render.
  */
-export function VenueCalendarSubscribe({
+export function VenueAddToCalendar({
   venueSlug,
   venueName,
-}: VenueCalendarSubscribeProps) {
+}: VenueAddToCalendarProps) {
   const [open, setOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const { value: copied, show: showCopied } = useAutoDismissBanner<boolean>(2000)
 
   if (!venueSlug) return null
 
@@ -76,8 +74,7 @@ export function VenueCalendarSubscribe({
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(feedUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      showCopied(true)
     } catch {
       // Clipboard can be unavailable (insecure origin, denied permission). The
       // URL stays selectable in the input, which is the fallback.
@@ -87,14 +84,11 @@ export function VenueCalendarSubscribe({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
-          <CalendarPlus className="h-4 w-4 mr-2" />
-          Subscribe
-        </Button>
+        <BracketLink label="Add to calendar" active={open} />
       </PopoverTrigger>
-      <PopoverContent className="w-80">
+      <PopoverContent className="w-80" align="end">
         <p className="text-sm font-medium mb-1">
-          Subscribe to shows at {venueName}
+          Add shows at {venueName} to your calendar
         </p>
         <p className="text-xs text-muted-foreground mb-3">
           Upcoming shows appear in your calendar automatically, at the
