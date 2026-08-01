@@ -270,14 +270,7 @@ export function generateMusicEventSchema(show: {
     socials?: Record<string, string | null | undefined>
   }>
   price?: number
-  /**
-   * Where a reader can actually buy a ticket, when the show records one.
-   *
-   * Google requires `offers.url` to land on a page that predominantly sells the
-   * ticket, so the show's own page is only the fallback for shows with no
-   * ticket link. Free text on the submit form, so it may arrive scheme-less
-   * (`tix.example.com/e/1`) — see `resolveOfferUrl`.
-   */
+  /** Where a ticket can actually be bought; normalized by `resolveOfferUrl`. */
   ticket_url?: string
   slug?: string
 }): MusicEventSchema {

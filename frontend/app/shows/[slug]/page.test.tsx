@@ -50,7 +50,7 @@ function buildShow(overrides: Record<string, unknown> = {}) {
  * children of a fragment, so matching on the component type and `@type` is
  * enough — no renderer needed for what is a pure data assertion.
  */
-function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> | undefined {
+function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> {
   const children = Children.toArray(
     (result.props as { children?: React.ReactNode }).children
   )
@@ -59,7 +59,10 @@ function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> | u
     const { data } = child.props as { data?: Record<string, unknown> }
     if (data?.['@type'] === 'MusicEvent') return data
   }
-  return undefined
+  // Throw rather than return undefined: if the page ever wraps its JSON-LD in
+  // another element, the assertions below would otherwise fail with a confusing
+  // message about `offers` instead of naming the real cause.
+  throw new Error('No MusicEvent JSON-LD found among the page\'s direct children')
 }
 
 /** Comfortably before / after "now" so these never depend on the wall clock. */
@@ -152,9 +155,7 @@ describe('generateMetadata', () => {
     expect(meta.openGraph?.url).toBe('/shows/test-show')
   })
 
-  // Without an explicit card type, X renders the wide opengraph-image as a
-  // small square thumbnail.
-  it('requests a large-image Twitter card mirroring the OG title/description', async () => {
+  it('declares a large-image Twitter card mirroring the OG title/description', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
 
     const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
@@ -165,6 +166,20 @@ describe('generateMetadata', () => {
     })
     expect(meta.twitter?.description).toBe(meta.openGraph?.description)
     expect(meta.twitter?.title).toBe(meta.openGraph?.title)
+  })
+
+  // The load-bearing part. This route-level object REPLACES the root layout's
+  // `twitter`, including its generic `images: ['/og-image.jpg']`. Leaving
+  // `images` unset is what makes Next fall back to the openGraph descriptor —
+  // i.e. this show's own opengraph-image. Setting it here would pin every show
+  // back to the generic site card, which is the bug this block exists to fix.
+  it('leaves twitter.images unset so the per-show OG image is used', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.twitter).toBeDefined()
+    expect(meta.twitter && 'images' in meta.twitter).toBe(false)
   })
 
   it('omits the Twitter card on the not-found fallback shape', async () => {
@@ -219,11 +234,12 @@ describe('ShowPage MusicEvent offers', () => {
     const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
     const schema = musicEventSchemaFrom(result)
 
-    expect(schema).toBeDefined()
-    expect(schema!.offers).toBeUndefined()
+    expect(schema.offers).toBeUndefined()
   })
 
-  it('emits offers for an upcoming show', async () => {
+  // Doubles as the no-ticket-URL case: `buildShow()` omits `ticket_url`, so the
+  // offer falls back to the canonical page.
+  it('emits an offer pointing at the show page when there is no ticket URL', async () => {
     fetchMock.mockResolvedValueOnce(
       okResponse(buildShow({ event_date: FUTURE_DATE, price: 20 }))
     )
@@ -231,9 +247,10 @@ describe('ShowPage MusicEvent offers', () => {
     const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
     const schema = musicEventSchemaFrom(result)
 
-    expect(schema!.offers).toMatchObject({
+    expect(schema.offers).toMatchObject({
       '@type': 'Offer',
       availability: 'https://schema.org/InStock',
+      url: 'https://psychichomily.com/shows/test-show',
     })
   })
 
@@ -251,20 +268,7 @@ describe('ShowPage MusicEvent offers', () => {
     const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
     const schema = musicEventSchemaFrom(result)
 
-    expect((schema!.offers as { url?: string }).url).toBe('https://tix.example.com/e/123')
-  })
-
-  it('falls back to the show page when there is no ticket URL', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okResponse(buildShow({ event_date: FUTURE_DATE, price: 20, ticket_url: null }))
-    )
-
-    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
-    const schema = musicEventSchemaFrom(result)
-
-    expect((schema!.offers as { url?: string }).url).toBe(
-      'https://psychichomily.com/shows/test-show'
-    )
+    expect((schema.offers as { url?: string }).url).toBe('https://tix.example.com/e/123')
   })
 })
 

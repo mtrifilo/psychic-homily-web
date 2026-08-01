@@ -67,9 +67,9 @@ function formatShowDate(
 /**
  * Whether the show has already started, and so has nothing left to sell.
  *
- * The clock read lives here rather than at the call site because React
- * Compiler forbids calling an impure function during render — the same reason
- * `buildSceneWeekJsonLd` takes its `now` internally.
+ * Named rather than inlined at the call site because the react-compiler lint
+ * rule rejects a bare `Date.now()` in a component body ("Cannot call impure
+ * function during render").
  */
 function isShowPast(eventDate: string): boolean {
   return Date.parse(eventDate) <= Date.now()
@@ -105,6 +105,15 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
       // an explicit `card` type, so the show's opengraph-image renders as a
       // thumbnail instead of the wide hero it is drawn for. Title and
       // description mirror OG deliberately — the same show, said the same way.
+      // The root layout already sets `twitter.card`, so the card type is not
+      // what this fixes. It sets `twitter.images: ['/og-image.jpg']` too, and
+      // that shadowed the per-show card: every show unfurled on X with the
+      // generic site image. Declaring a route-level `twitter` object replaces
+      // the root's wholesale, and because this one omits `images`, Next copies
+      // the openGraph descriptor — this route's `opengraph-image` — across
+      // instead. Verified by diffing the rendered tags with and without this
+      // block. `images` must stay absent; setting a bare URL here would drop
+      // the alt text and dimensions that come with the descriptor.
       twitter: {
         card: 'summary_large_image',
         title,
@@ -174,10 +183,9 @@ export default async function ShowPage({ params }: ShowPageProps) {
           socials: { ...a.socials },
         })),
         price: showData.price ?? undefined,
-        // An offer is a claim about what a reader can still buy. Without this
-        // every show in the archive would keep advertising tickets as InStock
-        // long after the doors closed. The window in which this can be stale is
-        // bounded by the route's revalidate, same as every other field here.
+        // Staleness here is bounded by the route's revalidate, same as every
+        // other field on this page — see the builder for why an offer is
+        // dropped once the show has happened.
         is_past: isShowPast(showData.event_date),
         ticket_url: showData.ticket_url ?? undefined,
         slug: showData.slug,
