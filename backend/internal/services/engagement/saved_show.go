@@ -282,7 +282,6 @@ func (s *SavedShowService) hydrateSavedShows(refs []savedShowRef, total int64) (
 			IsHeadliner:      &isHeadliner,
 			SetType:          sa.SetType,
 			Position:         sa.Position,
-			Labels:           []contracts.ShowArtistLabel{},
 			IsNewArtist:      &isNewArtist,
 			BandcampEmbedURL: artist.BandcampEmbedURL,
 			Socials:          socials,

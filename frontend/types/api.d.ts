@@ -7899,7 +7899,7 @@ export interface components {
             id: number;
             is_headliner: boolean | null;
             is_new_artist: boolean | null;
-            labels: components["schemas"]["ShowArtistLabel"][] | null;
+            labels?: components["schemas"]["ShowArtistLabel"][];
             name: string;
             /** Format: int64 */
             position: number;

@@ -514,6 +514,13 @@ func (suite *ShowServiceIntegrationTestSuite) signArtistToLabels(artistID uint, 
 	}
 }
 
+// billLabels asserts the artist's labels were actually looked up (non-nil
+// pointer) and returns them. Test helper.
+func (suite *ShowServiceIntegrationTestSuite) billLabels(artist *contracts.ArtistResponse) []contracts.ShowArtistLabel {
+	suite.Require().NotNil(artist.Labels, "labels must be looked up, not omitted, on a detail response")
+	return *artist.Labels
+}
+
 // artistInBill returns the bill entry with the given name. Test helper.
 func artistInBill(artists []contracts.ArtistResponse, name string) *contracts.ArtistResponse {
 	for i := range artists {
@@ -559,33 +566,65 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillCarriesLabelsAndCo
 
 	gotTwo := artistInBill(resp.Artists, "Two Label Band")
 	suite.Require().NotNil(gotTwo)
-	suite.Require().Len(gotTwo.Labels, 2)
-	suite.Equal("Dead Oceans", gotTwo.Labels[0].Name)
-	suite.Equal("dead-oceans", gotTwo.Labels[0].Slug)
-	suite.Equal(deadOceans.ID, gotTwo.Labels[0].ID)
-	suite.Equal("Jealous Butcher", gotTwo.Labels[1].Name)
+	twoLabels := suite.billLabels(gotTwo)
+	suite.Require().Len(twoLabels, 2)
+	suite.Equal("Dead Oceans", twoLabels[0].Name)
+	suite.Equal("dead-oceans", twoLabels[0].Slug)
+	suite.Equal(deadOceans.ID, twoLabels[0].ID)
+	suite.Equal("Jealous Butcher", twoLabels[1].Name)
 	suite.Require().NotNil(gotTwo.Country)
 	suite.Equal("US", *gotTwo.Country)
 
 	gotOne := artistInBill(resp.Artists, "One Label Band")
 	suite.Require().NotNil(gotOne)
-	suite.Require().Len(gotOne.Labels, 1)
-	suite.Equal("Epic", gotOne.Labels[0].Name)
-	suite.Equal(epic.ID, gotOne.Labels[0].ID)
+	oneLabels := suite.billLabels(gotOne)
+	suite.Require().Len(oneLabels, 1)
+	suite.Equal("Epic", oneLabels[0].Name)
+	suite.Equal(epic.ID, oneLabels[0].ID)
 	suite.Require().NotNil(gotOne.Country)
 	suite.Equal("AU", *gotOne.Country)
 
 	gotNone := artistInBill(resp.Artists, "No Label Band")
 	suite.Require().NotNil(gotNone)
-	suite.NotNil(gotNone.Labels, "labels must serialize as [] rather than null")
-	suite.Empty(gotNone.Labels)
+	suite.Empty(suite.billLabels(gotNone))
 	suite.Require().NotNil(gotNone.Country)
 	suite.Equal("GB", *gotNone.Country)
 
-	// Prove the empty case reaches the wire as [] and not null.
+	// A looked-up artist with no labels must reach the wire as [], never null
+	// and never an absent key: absent is reserved for "not looked up".
 	encoded, err := json.Marshal(gotNone)
 	suite.Require().NoError(err)
 	suite.Contains(string(encoded), `"labels":[]`)
+}
+
+// The list endpoints deliberately skip the label join, so they must omit the
+// key entirely rather than claim every artist is unsigned.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_OmitsBillLabels() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.EventDate = time.Now().AddDate(0, 0, 14)
+	})
+	label := suite.createTestLabel("Omitted Records", "omitted-records")
+	suite.signArtistToLabels(created.Artists[0].ID, "US", label)
+
+	shows, _, _, err := suite.showService.GetUpcomingShows("UTC", "", 50, true, nil)
+
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(shows)
+	listed := shows[0]
+	suite.Require().NotEmpty(listed.Artists)
+	suite.Nil(listed.Artists[0].Labels, "list responses must not fetch labels")
+	// Country is free (it rides the artist row already loaded), so lists keep it.
+	suite.Require().NotNil(listed.Artists[0].Country)
+	suite.Equal("US", *listed.Artists[0].Country)
+
+	encoded, err := json.Marshal(listed.Artists[0])
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), `"labels"`)
+
+	// Same artist, same data, via the detail lookup: the labels ARE there.
+	detail, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(suite.billLabels(&detail.Artists[0]), 1)
 }
 
 // An artist with no labels and no country still yields a well-formed bill entry.
@@ -596,8 +635,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillLabelsEmptyWhenNoL
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp.Artists, 1)
-	suite.NotNil(resp.Artists[0].Labels, "labels must serialize as [] rather than null")
-	suite.Empty(resp.Artists[0].Labels)
+	suite.Empty(suite.billLabels(&resp.Artists[0]))
 	suite.Nil(resp.Artists[0].Country)
 }
 
@@ -620,9 +658,10 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillSharedLabelFansOut
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp.Artists, 2)
-	for _, artist := range resp.Artists {
-		suite.Require().Len(artist.Labels, 1, "artist %s", artist.Name)
-		suite.Equal("Shared Records", artist.Labels[0].Name)
+	for i := range resp.Artists {
+		labels := suite.billLabels(&resp.Artists[i])
+		suite.Require().Len(labels, 1, "artist %s", resp.Artists[i].Name)
+		suite.Equal("Shared Records", labels[0].Name)
 	}
 }
 
