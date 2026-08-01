@@ -1,6 +1,6 @@
 ---
 name: psy-solo
-description: Work a single Psychic Homily Linear ticket end-to-end serially in the main worktree. Use when the user provides a single PSY-XXX ticket and wants the full ship workflow (read → plan with AskUserQuestion on spikes → implement → typecheck + scoped tests → /code-review → optional screenshots → file follow-ups → PR) without parallel-worktree overhead. Includes the UI-screenshot pattern (dev stack + agent-browser + gh draft-release upload) for tickets with user-facing changes.
+description: Work a single Psychic Homily Linear ticket end-to-end serially in the main worktree. Use when the user provides a single PSY-XXX ticket and wants the full ship workflow (read → plan with AskUserQuestion on spikes → implement → typecheck + scoped tests → /code-review → optional screenshots → file follow-ups → PR) without parallel-worktree overhead. Includes the UI-screenshot pattern (dev stack + agent-browser + gh published-release upload) for tickets with user-facing changes.
 argument-hint: "PSY-XXX [+ context like 'next' or 'merged, next']"
 ---
 
@@ -24,7 +24,7 @@ Do NOT use for:
 
 ```bash
 linear --version                  # 1.11.x verified
-gh --version                      # PR creation + draft-release asset hosting
+gh --version                      # PR creation + published-release asset hosting
 git rev-parse --show-toplevel     # should resolve to the main worktree, not a `.claude/worktrees/*` path
 test -f .linear.toml && echo ok   # team_id=PSY pinned
 which agent-browser               # if any UI screenshots are planned
@@ -249,23 +249,24 @@ Caught: May 16 post-shipped-UI audit — `offsetParent` false-negative made the 
 
 Login URL: `http://localhost:3000/auth/login`. Use `agent-browser fill` for the form and `agent-browser click` for the submit; the JWT lands in cookies + AuthContext picks it up after a navigation. To promote a tier for trusted-tier screenshots: log in as admin first, hit the user management surface (or run a direct SQL update against the local dev DB — see `backend/db/migrations/` for the user-tier column).
 
-**6f. Upload via `gh release create --draft` for image hosting.** GitHub markdown can't embed local files or base64 PNGs, and `gh` has no direct image-upload API for PRs. The reliable path: create a DRAFT release with the PNGs as assets and embed the asset download URLs.
+**6f. Upload via a PUBLISHED `gh release create` for image hosting — NEVER `--draft`.** GitHub markdown can't embed local files or base64 PNGs, and `gh` has no direct image-upload API for PRs. The reliable path: create a PUBLISHED release with the PNGs as assets and embed the `releases/download/<tag>/<file>` URLs.
 
 ```bash
 gh release create psy-{N}-screenshots \
-  --draft \
-  --notes "Screenshot assets for PSY-{N} PR. Draft — not visible on Releases page." \
+  --title "PSY-{N} screenshots" \
+  --notes "Screenshot assets for PSY-{N} PR." \
   /tmp/psy-{N}-*.png
 
-# Get the URLs for the PR body:
-gh release view psy-{N}-screenshots --json assets --jq '.assets[].url'
+# Embed THIS URL form in the PR body, one per file:
+#   https://github.com/<owner>/<repo>/releases/download/psy-{N}-screenshots/<file>.png
+# Verify each resolves before opening the PR:
+curl -sI "https://github.com/<owner>/<repo>/releases/download/psy-{N}-screenshots/<file>.png"  # expect 302
 ```
 
-Draft releases:
-- Do NOT appear on the public Releases page (only repo admins see them, in a "Drafts" section).
-- Their assets get auto-generated `untagged-<hash>` URLs like `https://github.com/owner/repo/releases/download/untagged-cdfc460b25382f07bab3/file.png`. Ugly but functional.
-- Asset URLs render embedded in PR markdown for any user authed to the repo. Private repos: only authed viewers see the images.
-- The draft stays around forever unless deleted; that's fine for retroactive PR review.
+Why never `--draft` (2026-07-16 incident — 138 drafts, 134 PRs with broken embeds repaired):
+- Draft assets get `untagged-<hash>` URLs that **404 when embedded in PR markdown** — the images are broken for every reviewer.
+- Do NOT use `gh release view --json assets --jq '.assets[].url'` either — that's the API URL, which also doesn't render. Use the `releases/download/<tag>/<file>` form only.
+- The published release stays around forever; do not delete it after merge — the PR embeds depend on it.
 
 **6g. Tear down dev servers when screenshots are done** (Phase 9). Leaving them running blocks the next `psy-solo` invocation that needs :8080 / :3000.
 
@@ -390,8 +391,8 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 - **Skipping `AskUserQuestion` because "the audit doc says X"**. Audit / research docs are point-in-time; re-verify against current code before relying. PSY-657 caught a real bug here: the audit suggested `[Notify me]` for empty festival lineups, but `NotifyEntityType` doesn't include `festival` — surfaced as a spike question rather than as silent scope expansion.
 - **Pushing past failing local tests.** Same rule + same incident catalog as `psy-dispatch` rule 3. Do not push and hope GitHub CI sorts it.
 - **Using chrome-devtools MCP without verifying Chrome's `DevToolsActivePort` file is at the default profile path.** The MCP looks at `~/Library/Application Support/Google/Chrome Beta/DevToolsActivePort` (or the equivalent for vanilla Chrome). Launching Chrome with `--user-data-dir=/tmp/...` puts the file in a custom location the MCP can't see. `agent-browser` sidesteps the whole issue; prefer it for one-off screenshot capture.
-- **Embedding `file:///tmp/...` paths in the PR body.** GitHub markdown doesn't fetch local file URIs. Use `gh release create --draft` to host the PNG and embed the asset URL.
-- **Asking the user to drag-drop screenshots into the PR after opening.** Works once, but breaks the "PR is review-ready when opened" contract. The draft-release upload is automatable and reliable; prefer it.
+- **Embedding `file:///tmp/...` paths in the PR body.** GitHub markdown doesn't fetch local file URIs. Use a PUBLISHED `gh release create` (never `--draft` — untagged draft URLs 404 in PR embeds) and embed the `releases/download/<tag>/<file>` URL.
+- **Asking the user to drag-drop screenshots into the PR after opening.** Works once, but breaks the "PR is review-ready when opened" contract. The published-release upload is automatable and reliable; prefer it.
 - **Committing untracked files via `git add .`.** Always stage specific paths. The single-ticket flow operates in the main worktree, which usually has stray untracked files from session-scope work (skill drafts, ad-hoc notes, screenshots in `/tmp` accidentally moved). `git add -A` or `.` will sweep them in.
 - **Forgetting to tear down dev servers.** Next session's `psy-solo` for the same ticket queue will hit `bind: address already in use`. Always run phase 9.
 - **Drafting the PR body without a `## Deferred` section when scope was actually deferred.** The reviewer needs to see WHY the obvious-next-bracket / obvious-next-section / obvious-next-handler isn't included. Hiding it sets a precedent for follow-up tickets to be forgotten.

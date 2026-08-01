@@ -264,6 +264,29 @@ Always `--force-with-lease`, never `--force` — bails out if the remote moved (
 
 The orchestrator owns the user-level memory file; agents do not edit it from inside their worktrees. Skipping this checklist means the next dispatch operates on stale memory.
 
+### 8. Post-merge worktree removal (disk hygiene)
+
+Worktrees do NOT clean themselves up after their PR merges, and each carries ~1.3 GB (`node_modules` + `.next` + Go test binaries). Left alone they accumulate to disk-full: **2026-07-31 the machine hit ENOSPC mid-session with 321 GB of dispatch worktrees + a 65 GB `go-build` cache** (full post-mortem: `pattern_worktree_disk_accumulation.md` in user-level memory).
+
+When the user reports the batch's PRs merged (or at the start of the next dispatch's pre-flight), sweep the batch's worktrees:
+
+```bash
+git fetch origin main
+# For each worktree in the batch:
+#   merged?  git merge-base --is-ancestor <worktree-HEAD-sha> origin/main
+#   clean?   git -C <worktree> status --porcelain   # empty output required
+# Both true → remove (plain, NEVER --force):
+git worktree remove <path>
+git worktree prune
+```
+
+Rules:
+- **Never `--force`.** Ignored files (`node_modules`, `.next`) don't block a plain remove; anything that does block is by definition worth a human look. Skip and report it.
+- **Check lock pids before unlocking.** A worktree lock names its owning pid — `ps -p <pid>` first; it may be a LIVE claude session, not a stale lock.
+- **Squash-merge caveat:** the ancestor check only works because this repo merges with merge commits. If the merge strategy ever changes, merged branches will look unmerged — re-verify before trusting the check.
+- Removing a worktree never deletes the branch or its commits — only the checkout. Recovery is `git worktree add`.
+- If the batch was large, follow with `go clean -cache` — the Go build cache grows with every worktree compiled.
+
 ## Per-worktree dev stack
 
 Manual repro (rule 10) requires the agent to actually exercise the change end-to-end. For tickets that touch backend code or migrations, "exercise end-to-end" requires an isolated stack — multiple agents cannot share one backend if any of them is changing backend behaviour, and migration races corrupt shared DBs. The skill ships three helper scripts to manage this:

@@ -126,7 +126,7 @@ Re-running backfill over the same window is idempotent (episode dedup by `show_i
 
 ## Open questions / known gaps
 
-- **Stage UI dogfood blocked** by Vercel SSO login wall (2026-07-04) — API/backfill path works; browser QA needs auth bypass or local stack.
+- **Stage UI dogfood** — Vercel SSO used to block agents (2026-07-04); as of 2026-07-18 use `VERCEL_PROTECTION_BYPASS` header via agent-browser (see `pattern_stage_frontend_vercel_sso.md`). API/backfill path still needs no bypass.
 - **Show `description` null** on stage despite rich WFMU schedule blurb — may need discover/scrape enrichment.
 - **Top-artists sidebar** mostly dead-ends (`artist_slug: null`) until play→artist matching improves.
 - Pre-2009 legacy playlist HTML format skipped by parser (not relevant for SCA).
