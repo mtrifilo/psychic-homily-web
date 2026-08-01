@@ -37,6 +37,29 @@ func setupShowRoutes(rc RouteContext) {
 	rc.Router.Get("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
 	rc.Router.Head("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
 
+	// The "also tonight" rail: other shows in this show's metro on this show's
+	// own date. Served by the SCENE handler because "what else is on in
+	// this metro tonight" is a scene question that merely takes a show as its
+	// address — one definition of a metro's night, shared with /scenes/{slug}/day.
+	//
+	// Anonymous and public: no optional-auth group, because a non-approved show is
+	// answered exactly like an unknown one here.
+	//
+	// No HEAD sibling. The huma.Head registrations on /scenes/{slug}/day exist
+	// because frontend/proxy.ts HEAD-probes those paths to decide whether a page
+	// is real; it existence-checks shows through /entities/shows/{slug}/exists
+	// instead, and this path cannot soft-404 anyway — a show with nothing around
+	// it is a 200 with an empty rail.
+	//
+	// The parameter is named show_id to match the rest of the group. chi stores
+	// parameter names per endpoint PATTERN, so a differently named parameter on a
+	// different shape is harmless (/shows/{entity_id}/entity-report already
+	// coexists in reports.go). The hazard chi actually has is two registrations
+	// of the SAME shape and method, where the later one silently replaces the
+	// earlier: that is what show_also_tonight_routing_test.go pins.
+	alsoTonightHandler := catalogh.NewSceneHandler(rc.SC.Scene)
+	huma.Get(rc.API, "/shows/{show_id}/also-tonight", alsoTonightHandler.GetShowAlsoTonightHandler)
+
 	// Export endpoint - only register in development environment
 	if os.Getenv("ENVIRONMENT") == "development" {
 		huma.Get(rc.API, "/shows/{show_id}/export", showHandler.ExportShowHandler)

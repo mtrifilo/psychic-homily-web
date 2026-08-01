@@ -256,8 +256,10 @@ func MapFestivalError(err error) error {
 // handler's contract (a duplicate headliner at the same venue/date surfaces
 // as SHOW_CREATE_FAILED → 422 there too); not-found maps to 404. The other
 // show codes (update/delete/unauthorized/invalid-id) are intentionally
-// unmapped — this mapper serves the entity_request fulfillment path, which
-// only creates.
+// unmapped, because neither caller can raise them: the entity_request
+// fulfillment path only creates, and the show "also tonight" rail only reads
+// (its single failure mode is SHOW_NOT_FOUND → 404). Adding a caller that can
+// update or delete means revisiting this switch, not just calling it.
 func MapShowError(err error) error {
 	var showErr *apperrors.ShowError
 	if errors.As(err, &showErr) {
