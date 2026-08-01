@@ -117,15 +117,17 @@ type VenueResponse struct {
 	City     string  `json:"city"`
 	State    string  `json:"state"`
 	Timezone *string `json:"timezone"` // IANA zone for rendering this show's time in venue-local time (PSY-985)
-	// Capacity and AgePolicy (PSY-1682) are the venue facts the show page's
-	// venue module renders inline, so show detail carries them rather than
-	// forcing a second round trip to the venue endpoint. Both are nullable and
-	// neither is sensitive, so — like on VenueDetailResponse — they are served
-	// for unverified venues too (unlike Address, redacted above).
+	// Capacity and AgePolicy are venue facts a show consumer needs alongside the
+	// show itself, so they ride here rather than costing a second round trip to
+	// the venue endpoint. NOTE: no frontend renders either field yet; the show
+	// page's venue module is a later ticket. This carries the data for it.
+	//
+	// Both are nullable and neither is sensitive, so (as on VenueDetailResponse)
+	// they are served for unverified venues too, unlike Address above.
 	//
 	// AgePolicy is the venue's HOUSE DEFAULT. The show's own age_requirement is
-	// the per-event override; consumers render the override and may cite this as
-	// the default it departs from.
+	// the per-event override and wins wherever both are set; this is the default
+	// it departs from. Null means unknown, NOT "all ages".
 	Capacity   *int    `json:"capacity"`
 	AgePolicy  *string `json:"age_policy"`
 	Verified   bool    `json:"verified"`     // Admin-verified as legitimate venue
@@ -403,7 +405,7 @@ type CreateVenueRequest struct {
 // Name/City/State map to NOT NULL columns and are written as-is (the handler
 // rejects empty values up front). The remaining optional string columns are
 // nullable, so Description, ImageURL and AgePolicy normalize an empty string to
-// SQL NULL in the service (utils.NilIfEmpty) — that is how a caller CLEARS them.
+// SQL NULL in the service (utils.NilIfEmpty): that is how a caller CLEARS them.
 // Address/Country/Zipcode and the social fields preserve the prior behavior of
 // writing the value through verbatim.
 type UpdateVenueRequest struct {

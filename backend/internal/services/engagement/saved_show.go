@@ -321,8 +321,8 @@ func (s *SavedShowService) buildShowResponse(show *catalogm.Show, artistsByShow 
 			City:      venue.City,
 			State:     venue.State,
 			Timezone:  venue.Timezone,
-			Capacity:  venue.Capacity,  // PSY-1682
-			AgePolicy: venue.AgePolicy, // PSY-1682
+			Capacity:  venue.Capacity,
+			AgePolicy: venue.AgePolicy,
 			Verified:  venue.Verified,
 		}
 	}

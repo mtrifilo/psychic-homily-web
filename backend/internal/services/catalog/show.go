@@ -745,8 +745,8 @@ func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contra
 				City:      venue.City,
 				State:     venue.State,
 				Timezone:  venue.Timezone,
-				Capacity:  venue.Capacity,  // PSY-1682
-				AgePolicy: venue.AgePolicy, // PSY-1682
+				Capacity:  venue.Capacity,
+				AgePolicy: venue.AgePolicy,
 				Verified:  venue.Verified,
 			})
 		}
@@ -1723,8 +1723,8 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			City:       venue.City,
 			State:      venue.State,
 			Timezone:   venue.Timezone,
-			Capacity:   venue.Capacity,  // PSY-1682
-			AgePolicy:  venue.AgePolicy, // PSY-1682
+			Capacity:   venue.Capacity,
+			AgePolicy:  venue.AgePolicy,
 			Verified:   venue.Verified,
 			IsNewVenue: &isNewVenue,
 		})
@@ -1977,10 +1977,11 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 			City:     venue.City,
 			State:    venue.State,
 			Timezone: venue.Timezone,
-			// PSY-1682: the show page's venue module renders capacity and the
-			// house age policy inline, so they ride along with show detail
-			// instead of costing a second fetch. Neither is sensitive, so unlike
-			// Address they are served for unverified venues too.
+			// Carried so a show consumer does not need a second fetch of the
+			// venue endpoint for two scalars. Neither is sensitive, so unlike
+			// Address they are served for unverified venues too. See the
+			// VenueResponse contract for the house-default vs per-event
+			// distinction that governs AgePolicy.
 			Capacity:  venue.Capacity,
 			AgePolicy: venue.AgePolicy,
 			Verified:  venue.Verified,

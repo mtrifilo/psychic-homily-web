@@ -16,3 +16,16 @@ func NilIfEmpty(s string) *string {
 	}
 	return &s
 }
+
+// NilIfEmptyPtr is the pointer-in form of NilIfEmpty, for the create-path
+// builders that assign an optional *string straight into a model field rather
+// than into an update map. It preserves the three-state distinction those
+// callers care about: a nil input stays nil ("not supplied"), a pointer to ""
+// collapses to nil ("supplied, but empty, so store NULL"), and anything else
+// passes through untouched.
+func NilIfEmptyPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	return NilIfEmpty(*s)
+}

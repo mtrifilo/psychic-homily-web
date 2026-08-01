@@ -24,9 +24,9 @@ type Venue struct {
 	// "21+"). A show's own age_requirement is the per-event OVERRIDE and always
 	// wins where both are present; this field is what makes such an override
 	// legible as one, and what a show with no override falls back to.
-	// Nullable — unknown for most rows, curated through the community edit flow
+	// Nullable: unknown for most rows, curated through the community edit flow
 	// like Capacity. Not sensitive, so not redacted for unverified venues.
-	AgePolicy *string `gorm:"column:age_policy"`
+	AgePolicy *string `gorm:"column:age_policy;size:100"`
 	// Geocoding (PSY-985): resolved offline from city/state/country at create/update.
 	// Timezone is the IANA zone used to anchor show times to the venue's locale.
 	// Nullable — a geocode miss falls back to the legacy state->tz map.

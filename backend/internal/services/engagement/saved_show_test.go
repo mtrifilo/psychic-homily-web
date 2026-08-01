@@ -342,6 +342,31 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Include
 	suite.Equal(artist.ID, resp[0].Artists[0].ID)
 }
 
+// The embedded VenueResponse is built by a hand-maintained struct literal in
+// each service that returns shows, so a field added to the contract can be
+// populated in one builder and silently left nil in another. This pins the
+// saved-shows builder, which is the copy furthest from the show service.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_VenueCarriesCapacityAndAgePolicy() {
+	user := suite.createTestUser()
+	show, venue, _ := suite.createShowWithVenueAndArtist("Venue Facts Show", user.ID)
+
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"capacity": 450, "age_policy": "18+"}).Error)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
+
+	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().Len(resp[0].Venues, 1)
+	suite.Require().NotNil(resp[0].Venues[0].Capacity)
+	suite.Equal(450, *resp[0].Venues[0].Capacity)
+	suite.Require().NotNil(resp[0].Venues[0].AgePolicy)
+	suite.Equal("18+", *resp[0].Venues[0].AgePolicy)
+}
+
 func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Pagination() {
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {

@@ -5,14 +5,22 @@
 -- standing policy, which is what a reader needs when a show carries no
 -- override, and what makes the override legible as an override.
 --
--- Free text, mirroring shows.age_requirement, because the real-world vocabulary
--- is open ("all ages", "17+", "21+", "18+ w/ guardian") and an enum would force
--- lossy coercion at ingest time on data we collect from humans. If a controlled
--- vocabulary is wanted later it can be layered on top of the observed values.
+-- Free text, borrowing the shows.age_requirement VOCABULARY, because the
+-- real-world phrasing is open ("all ages", "17+", "21+", "18+ w/ guardian") and
+-- an enum would force lossy coercion at ingest time on data we collect from
+-- humans. If a controlled vocabulary is wanted later it can be layered on top of
+-- the observed values.
+--
+-- VARCHAR(100) rather than TEXT: the community suggest-edit flow is the sole
+-- population path, and that path applies no per-field length cap (it only
+-- validates known URL fields), so the column itself has to be the backstop
+-- against an unbounded contributor write. 100 is deliberately tighter than
+-- shows.age_requirement's VARCHAR(255): a door rule is a handful of words, and
+-- the two columns share a vocabulary, not a schema.
 --
 -- Nullable with no default and no backfill: unknown for every existing row.
 -- Population happens through the community edit flow (the venue suggest-edit
 -- allowlist), the same way capacity is curated. Adding a nullable column with
 -- no default is metadata-only in Postgres 11+, so no table rewrite.
 ALTER TABLE venues
-    ADD COLUMN age_policy TEXT;
+    ADD COLUMN age_policy VARCHAR(100);

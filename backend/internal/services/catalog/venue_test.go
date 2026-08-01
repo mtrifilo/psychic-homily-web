@@ -212,7 +212,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_CarriesAgePolicy(
 }
 
 // PSY-1682: an explicitly-empty age policy means "no house default", which must
-// land as SQL NULL — otherwise a blank policy reads downstream as a known one.
+// land as SQL NULL, otherwise a blank policy reads downstream as a known one.
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_EmptyAgePolicyStoresNull() {
 	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name:      "Blank Policy Room",
@@ -229,8 +229,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_EmptyAgePolicySto
 	suite.Nil(stored.AgePolicy)
 }
 
-// PSY-1682: age policy is settable and clearable through update — the community
-// edit flow's clear gesture arrives as an empty string.
+// Age policy is settable and clearable through update: the admin edit flow's
+// clear gesture arrives as a pointer to the empty string.
 func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SetsAndClearsAgePolicy() {
 	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
 		Name: "Policy Churn", City: "Tempe", State: "AZ",
@@ -969,9 +969,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueCities_OnlyVerified()
 
 func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_UnverifiedHidesAddress() {
 	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
-		Name:     "Hidden Address",
-		City:     "Phoenix",
-		State:    "AZ",
+		Name:      "Hidden Address",
+		City:      "Phoenix",
+		State:     "AZ",
 		Address:   stringPtr("Secret St"),
 		Zipcode:   stringPtr("85001"),
 		Capacity:  intPtr(300),
@@ -986,8 +986,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestBuildVenueResponse_Unverified
 	// always compares capacity).
 	suite.Require().NotNil(resp.Capacity, "capacity should NOT be hidden for unverified venues")
 	suite.Equal(300, *resp.Capacity)
-	// PSY-1682: an age policy is a public-facing door rule, not a location
-	// detail — it follows capacity, not address.
+	// An age policy is a public-facing door rule, not a location detail, so it
+	// follows capacity rather than address.
 	suite.Require().NotNil(resp.AgePolicy, "age policy should NOT be hidden for unverified venues")
 	suite.Equal("all ages", *resp.AgePolicy)
 }
