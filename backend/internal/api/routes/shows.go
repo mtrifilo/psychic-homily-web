@@ -37,6 +37,20 @@ func setupShowRoutes(rc RouteContext) {
 	rc.Router.Get("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
 	rc.Router.Head("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
 
+	// The "also tonight" rail: other shows in this show's metro on this show's own
+	// venue-local date. Served by the SCENE handler because "what else is on in
+	// this metro tonight" is a scene question that merely takes a show as its
+	// address — one definition of a metro's night, shared with /scenes/{slug}/day.
+	//
+	// Anonymous and public: no optional-auth group, because a non-approved show is
+	// answered exactly like an unknown one here.
+	//
+	// No HEAD sibling. The frontend proxy existence-checks paths that can
+	// soft-404, and this one cannot — a show with nothing around it is a 200 with
+	// an empty rail, and an unknown show already 404s on /shows/{show_id} itself.
+	alsoTonightHandler := catalogh.NewSceneHandler(rc.SC.Scene)
+	huma.Get(rc.API, "/shows/{show_id}/also-tonight", alsoTonightHandler.GetShowAlsoTonightHandler)
+
 	// Export endpoint - only register in development environment
 	if os.Getenv("ENVIRONMENT") == "development" {
 		huma.Get(rc.API, "/shows/{show_id}/export", showHandler.ExportShowHandler)

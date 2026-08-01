@@ -991,6 +991,23 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 	return result.City, result.State, nil
 }
 
+// metroDisplayIdentity resolves a scene's DISPLAY (city, state): the metro's
+// principal city when the scene keys on a CBSA, the literal place otherwise.
+//
+// The same resolution ParseSceneSlug performs, which is what makes a slug built
+// from this answer round-trip back to the scene it names. Takes the three fields
+// rather than a scope so the sitemap's grouped rows and the query scopes can
+// share one definition — two of them would eventually disagree about which city
+// a metro is displayed under, and the slug would stop resolving.
+func metroDisplayIdentity(metro, city, state string) (string, string) {
+	if metro != "" {
+		if mp, ok := geo.MetroPrincipalByCBSA(metro); ok {
+			return mp.City, mp.State
+		}
+	}
+	return city, state
+}
+
 // buildSceneSlug generates a URL-safe slug from city and state.
 // Example: "Phoenix", "AZ" → "phoenix-az"
 func buildSceneSlug(city, state string) string {

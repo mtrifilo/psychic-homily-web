@@ -36,6 +36,7 @@ func TestShowSubRoutesShareOneParameterName(t *testing.T) {
 	for _, shape := range []string{
 		"/shows/{}",
 		"/shows/{}/calendar.ics",
+		"/shows/{}/also-tonight",
 	} {
 		for _, pattern := range matching(routes, http.MethodGet, shape) {
 			if pattern != "/shows/{show_id}"+shape[len("/shows/{}"):] {

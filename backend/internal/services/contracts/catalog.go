@@ -992,6 +992,43 @@ type SceneDayResponse struct {
 	NextShow *SceneShowSummary `json:"next_show,omitempty"`
 }
 
+// ShowAlsoTonightResponse is the "also tonight" rail on a show page: the OTHER
+// shows in the same metro on the same venue-local date.
+//
+// A wrapper rather than a bare []SceneShowSummary because the rail's heading is
+// part of the answer. The mock reads "ALSO / TONIGHT · CHICAGO", and neither
+// half of that is derivable from the show payload the page already has: the
+// metro's display name is not the venue's city (a Mesa show belongs to the
+// Phoenix scene), and the date is a VENUE-LOCAL calendar date that a client
+// re-deriving it from the show's UTC instant would get wrong for any late set.
+// Serving both here also keeps the rail to one request.
+type ShowAlsoTonightResponse struct {
+	// SceneSlug/SceneName/City/State are the scene's DISPLAY identity — the
+	// metro's principal city, so the "see all" link lands on the canonical
+	// /scenes/{slug} rather than a member-city slug. EMPTY when the show has no
+	// venue to scope by, in which case Shows is empty too.
+	SceneSlug string `json:"scene_slug,omitempty"`
+	SceneName string `json:"scene_name,omitempty"` // "City, ST"
+	City      string `json:"city,omitempty"`
+	State     string `json:"state,omitempty"`
+	// Date is the show's own venue-local calendar date (YYYY-MM-DD) — the date
+	// the rail is about, and the date key /scenes/{slug}/day/{date} takes.
+	//
+	// The show's OWN date, never the viewer's "tonight": a reader in Berlin
+	// opening a Chicago show page is asking what else is on that night in
+	// Chicago.
+	Date string `json:"date"`
+	// Timezone is the IANA zone the date and its window were computed in.
+	Timezone string `json:"timezone"`
+	// ShowCount is len(Shows) — the CAPPED count, not the metro's true total for
+	// the night. A rail does not paginate; a client that needs the full night
+	// follows SceneSlug + Date to the scene-day page.
+	ShowCount int `json:"show_count"`
+	// Shows excludes the subject show and is capped. Always non-nil, so a quiet
+	// night marshals as `[]` rather than `null`.
+	Shows []SceneShowSummary `json:"shows"`
+}
+
 // SceneNewArtist is one "new band based here" row for the weekly scene digest
 // (PSY-1342) — just enough to render a linked name.
 type SceneNewArtist struct {
@@ -1539,4 +1576,16 @@ type SceneServiceInterface interface {
 	// the scene's current night — which is not the same as its current date, see
 	// SceneDayResponse.IsTonight.
 	GetSceneDay(city, state, dateKey string) (*SceneDayResponse, error)
+	// GetShowAlsoTonight returns the OTHER shows in the subject show's metro on
+	// the subject show's own venue-local date — the show page's "also tonight"
+	// rail. idOrSlug is a numeric show id or a show slug, matching every other
+	// /shows/{show_id} sub-resource.
+	//
+	// Scene-scoped rather than show-scoped because "same metro" is a scene
+	// question, and there must be exactly one definition of a metro's shows on a
+	// date or this rail and the scene-day page would disagree.
+	//
+	// An unknown or non-approved show is a not-found error; a show whose venue
+	// cannot be scoped to a scene is an EMPTY rail, not an error.
+	GetShowAlsoTonight(idOrSlug string) (*ShowAlsoTonightResponse, error)
 }

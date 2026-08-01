@@ -236,13 +236,7 @@ func (s *SitemapService) listQualifyingScenes(ctx context.Context) ([]sceneGroup
 // ListScenes does: metro scenes use the principal city; fallbacks keep the
 // literal city/state from the group row.
 func sceneDisplayIdentity(g sceneGroupRow) (city, state string) {
-	city, state = g.City, g.State
-	if g.Metro != "" {
-		if mp, ok := geo.MetroPrincipalByCBSA(g.Metro); ok {
-			return mp.City, mp.State
-		}
-	}
-	return city, state
+	return metroDisplayIdentity(g.Metro, g.City, g.State)
 }
 
 // sceneEntries projects one SitemapEntry per qualifying scene. Scenes are

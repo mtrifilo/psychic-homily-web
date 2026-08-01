@@ -5809,6 +5809,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shows/{show_id}/also-tonight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get shows by show ID also tonight */
+        get: operations["get-shows-by-show-id-also-tonight"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows/{show_id}/cancelled": {
         parameters: {
             query?: never;
@@ -15335,6 +15352,23 @@ export interface components {
             slug: string;
             tier_at_source: string;
             tier_at_target: string;
+        };
+        ShowAlsoTonightResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ShowAlsoTonightResponse.json
+             */
+            readonly $schema?: string;
+            city?: string;
+            date: string;
+            scene_name?: string;
+            scene_slug?: string;
+            /** Format: int64 */
+            show_count: number;
+            shows: components["schemas"]["SceneShowSummary"][] | null;
+            state?: string;
+            timezone: string;
         };
         ShowArtistInput: {
             /**
@@ -31434,6 +31468,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-shows-by-show-id-also-tonight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Show ID or slug
+                 * @example desert-doom-night
+                 */
+                show_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowAlsoTonightResponse"];
+                };
             };
             /** @description Error */
             default: {
