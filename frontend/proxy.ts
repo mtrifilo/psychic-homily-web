@@ -80,6 +80,25 @@ const ISO_WEEK_SEGMENT = /^\d{4}-W\d{2}$/i
 const CALENDAR_DATE_SEGMENT = /^\d{4}-\d{2}-\d{2}$/
 
 /**
+ * The years a scene period may name. MUST stay in lockstep with the feature
+ * module's `looksLikeISOWeek` / `looksLikeCalendarDate`, which apply the same
+ * bound (`proxy.scenes.test.ts` asserts they agree; the proxy keeps its own
+ * copy rather than importing `features/`, matching the charts branch).
+ *
+ * Not decoration. The page 404s a key outside this window, and a `notFound()`
+ * that the proxy waved through commits a 404 BODY at HTTP 200 — the exact
+ * soft-404 this whole branch exists to prevent. The backend would happily serve
+ * `1998-W12`, so without the bound here that URL renders a not-found page and
+ * tells every crawler it succeeded.
+ */
+const FIRST_TRACKED_YEAR = 2015
+
+function periodYearInRange(segment: string): boolean {
+  const year = Number(segment.slice(0, 4))
+  return year >= FIRST_TRACKED_YEAR && year <= new Date().getUTCFullYear() + 1
+}
+
+/**
  * Per-entity existence check. The function returns the backend HEAD probe URL
  * whose 404 response means "slug does not exist". The probe uses direct backend
  * existence queries instead of duplicating each page's full `GET /<type>/<slug>`
@@ -236,20 +255,23 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (sub === 'tonight') {
       return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/day`)
     }
-    if (ISO_WEEK_SEGMENT.test(sub)) {
+    if (ISO_WEEK_SEGMENT.test(sub) && periodYearInRange(sub)) {
       return existenceCheck(
         request,
         `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`
       )
     }
-    if (CALENDAR_DATE_SEGMENT.test(sub)) {
+    if (CALENDAR_DATE_SEGMENT.test(sub) && periodYearInRange(sub)) {
       return existenceCheck(
         request,
         `${API_BASE_URL}/scenes/${scene}/day/${encodeURIComponent(sub)}`
       )
     }
-    // Not week- or date-shaped at all (`/scenes/chicago-il/garbage`): no route
-    // can serve it, so 404 without spending a backend round-trip.
+    // Not a servable period (`/scenes/chicago-il/garbage`, `/scenes/chicago-il/
+    // 1998-W12`): no route can serve it, so 404 without spending a backend
+    // round-trip. The out-of-range case matters as much as the junk one — the
+    // backend WOULD serve 1998-W12, and waving it through means the page's
+    // own `notFound()` commits a 404 body at HTTP 200.
     return notFoundResponse(request)
   }
 

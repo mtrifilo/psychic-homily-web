@@ -1,6 +1,7 @@
 import type { components } from '@/types/api'
 import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
 import { parseCalendarDate, type SceneWeekShow } from './sceneWeek'
+import { startInstant } from './sceneShowJsonLd'
 
 /**
  * Scene-day types, DERIVED from the generated OpenAPI schema for the same
@@ -97,6 +98,9 @@ export function formatPointerDay(fromISO: string, targetISO: string): string {
 /**
  * The row's start time, in the VENUE's zone — `8:00 PM`.
  *
+ * Guards the instant through the SAME check the structured data uses, so a show
+ * the JSON-LD refuses to describe is exactly the show whose row shows no time.
+ *
  * `starts_at` is an absolute instant, so it has to be rendered against a zone
  * or it reads as the viewer's, which is the one zone that is never right here.
  * The scene's own zone is the fallback rather than the state map, matching the
@@ -111,8 +115,8 @@ export function formatShowStartTime(
   show: SceneDayShow,
   sceneTimezone?: string | null
 ): string | null {
-  const raw = show.starts_at
-  if (typeof raw !== 'string' || !Number.isFinite(Date.parse(raw))) return null
+  const raw = startInstant(show)
+  if (raw === null) return null
   return formatShowTime(raw, show.venue_state, show.venue_timezone || sceneTimezone)
 }
 
@@ -121,7 +125,16 @@ export function formatShowPrice(show: SceneDayShow): string | null {
   return typeof show.price === 'number' ? formatPrice(show.price) : null
 }
 
-/** Shows for the day. `shows` is typed nullable by the generator. */
+/**
+ * Shows for the day, and the ONLY count of them.
+ *
+ * `shows` is typed nullable by the generator even though the API always emits
+ * an array. Deliberately no `show_count` reader alongside this: the payload
+ * carries one, but it is `len(shows)` computed by the same handler that
+ * serialized the slice, so a header sourced from it could only ever agree with
+ * the list — or, if it somehow did not, would state a number the page cannot
+ * show. The rows are the truth; the header counts them.
+ */
 export function dayShows(day: SceneDayResponse): SceneDayShow[] {
   return day.shows ?? []
 }
@@ -129,17 +142,6 @@ export function dayShows(day: SceneDayResponse): SceneDayShow[] {
 /** The rooms this scene draws from. Nullable by the generator, never in practice. */
 export function dayTrackedVenues(day: SceneDayResponse): SceneTrackedVenue[] {
   return day.tracked_venues ?? []
-}
-
-/**
- * Total shows listed.
- *
- * Prefers the server's `show_count` but falls back to counting, because a
- * header that disagrees with the list below it is worse than a recount.
- */
-export function countDayShows(day: SceneDayResponse): number {
-  if (typeof day.show_count === 'number') return day.show_count
-  return dayShows(day).length
 }
 
 /**

@@ -50,11 +50,19 @@ describe('SceneDayView — a night with shows', () => {
     expect(h1).toHaveTextContent('AZ')
   })
 
-  it('states the night and the count', () => {
-    render(<SceneDayView day={day({ show_count: 4 })} />)
+  it('states the night and counts the rows it actually renders', () => {
+    const shows = [show({ id: 1 }), show({ id: 2 }), show({ id: 3 }), show({ id: 4 })]
+    // `show_count` deliberately disagrees: the header counts what is on the
+    // page, so it can never advertise a show the reader cannot find.
+    render(<SceneDayView day={day({ shows, show_count: 99 })} />)
     expect(screen.getByText(/Tonight/)).toBeInTheDocument()
     expect(screen.getByText(/Friday, July 31, 2026/)).toBeInTheDocument()
     expect(screen.getByText(/4 shows/)).toBeInTheDocument()
+  })
+
+  it('singularises a one-show night', () => {
+    render(<SceneDayView day={day()} />)
+    expect(screen.getByText(/1 show(?!s)/)).toBeInTheDocument()
   })
 
   // The dated permalink is a permanent URL; calling an archived Tuesday

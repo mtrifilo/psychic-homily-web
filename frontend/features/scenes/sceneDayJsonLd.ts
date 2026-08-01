@@ -7,7 +7,7 @@ import {
 } from '@/lib/seo/jsonld'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { showDisplayTitle, showHref } from './sceneWeek'
-import { countDayShows, dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
+import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
 import { sceneShowEvents } from './sceneShowJsonLd'
 
 export interface SceneDayJsonLd {
@@ -49,7 +49,7 @@ export function buildSceneDayJsonLd(
     { name: dateLabel, url: `${SITE_URL}/scenes/${day.slug}/${day.date}` },
   ])
 
-  if (countDayShows(day) === 0 || shows.length === 0) {
+  if (shows.length === 0) {
     return { breadcrumb, events: [] }
   }
 

@@ -19,8 +19,13 @@ import type { SceneWeekShow } from './sceneWeek'
  * date, and `Intl.DateTimeFormat.formatToParts` THROWS on one — from a server
  * component, which turns a missing structured-data field into a 500 for the
  * whole page. Parse defensively at this boundary.
+ *
+ * Exported because the nightly page renders a start TIME from the same field
+ * and must apply the same rule: a second copy would eventually drift, and the
+ * drift would show as a row displaying a time for a show the structured data
+ * refuses to describe.
  */
-function startInstant(show: SceneWeekShow): string | null {
+export function startInstant(show: SceneWeekShow): string | null {
   const raw = show.starts_at
   if (typeof raw !== 'string' || !Number.isFinite(Date.parse(raw))) return null
   return raw

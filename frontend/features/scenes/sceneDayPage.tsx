@@ -4,7 +4,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneDayView } from './components/SceneDayView'
 import { fetchSceneDay } from './sceneDayApi'
-import { countDayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
+import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
 import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 
 /**
@@ -34,7 +34,7 @@ function dayTitle(day: SceneDayResponse): string {
 }
 
 function dayDescription(day: SceneDayResponse): string {
-  const total = countDayShows(day)
+  const total = dayShows(day).length
   const date = formatDayFull(day.date)
   const when = day.is_tonight ? `tonight, ${date}` : date
   if (total === 0) {
@@ -63,7 +63,7 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // linking out of, not worth an index entry. `follow` stays on precisely
   // because the page's job in that state is to point at the week and the rooms.
   const robots =
-    countDayShows(day) === 0 ? { index: false, follow: true } : undefined
+    dayShows(day).length === 0 ? { index: false, follow: true } : undefined
 
   return {
     title,

@@ -79,10 +79,11 @@ func tonightDate(nowLocal time.Time) time.Time {
 // trackedVenueDetails lists the scene's verified rooms alphabetically, each with
 // enough to link it.
 //
-// Separate from trackedVenues (which returns bare names for the week payload)
-// rather than a widening of it: the week's share card and footer read a plain
-// string list, and changing that shape to serve one new page would churn every
-// consumer of a payload that does not need the extra fields.
+// The ONE definition of "a room this scene tracks": trackedVenues projects the
+// names out of this for the week payload rather than running its own query, so
+// the weekly and nightly pages cannot end up naming different rooms for the
+// same city. The two PAYLOADS still differ in shape — the week sends bare
+// strings — because that is a wire-format decision, not a definition.
 func (s *SceneService) trackedVenueDetails(scope sceneScope) ([]contracts.SceneTrackedVenue, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

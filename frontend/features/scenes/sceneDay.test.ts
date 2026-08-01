@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  countDayShows,
+  dayShows,
   formatDayChip,
   formatDayCountLine,
   formatDayFull,
@@ -141,19 +141,21 @@ describe('formatDayCountLine', () => {
   })
 })
 
-describe('countDayShows', () => {
+describe('dayShows', () => {
   const day = (over: Partial<SceneDayResponse> = {}): SceneDayResponse =>
     ({ date: '2026-07-31', shows: [show()], show_count: 1, ...over }) as SceneDayResponse
 
-  it('prefers the server count', () => {
-    expect(countDayShows(day({ show_count: 4 }))).toBe(4)
-  })
-
   // The generator types `shows` nullable even though the API always emits an
   // array; a null must not take the page down.
-  it('falls back to counting, and survives a null list', () => {
-    expect(countDayShows(day({ show_count: undefined as never }))).toBe(1)
-    expect(countDayShows(day({ show_count: undefined as never, shows: null }))).toBe(0)
+  it('survives a null list', () => {
+    expect(dayShows(day({ shows: null }))).toEqual([])
+  })
+
+  // The rows are the count. `show_count` is `len(shows)` computed by the same
+  // handler that serialized the slice, so a header sourced from it could only
+  // ever agree — or state a number the page cannot show.
+  it('ignores a show_count that disagrees with the rows', () => {
+    expect(dayShows(day({ show_count: 99 }))).toHaveLength(1)
   })
 })
 

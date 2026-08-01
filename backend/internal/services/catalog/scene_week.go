@@ -125,20 +125,22 @@ func (s *SceneService) sceneLocation(scope sceneScope, state string) *time.Locat
 // rooms in Chicago, not all of Chicago — so a page that implied it listed
 // everything happening in the city would be false, and a local would notice
 // immediately.
+//
+// A projection over trackedVenueDetails rather than its own query: what counts
+// as "a room this scene tracks" must have ONE definition, or excluding (say)
+// permanently-closed rooms from one query would leave the weekly page and the
+// nightly page naming different rooms for the same city. The week payload keeps
+// its bare-string shape — its share card and footer read a plain list, and
+// widening the wire format to serve a different page would churn consumers that
+// need none of the extra fields.
 func (s *SceneService) trackedVenues(scope sceneScope) ([]string, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+	venues, err := s.trackedVenueDetails(scope)
+	if err != nil {
+		return nil, err
 	}
-	vp, vargs := scope.venuePredicate("v")
-	var names []string
-	if err := s.db.Raw(`
-		SELECT v.name
-		FROM venues v
-		WHERE `+vp+`
-		  AND v.verified = true
-		ORDER BY v.name ASC
-	`, vargs...).Scan(&names).Error; err != nil {
-		return nil, fmt.Errorf("failed to list tracked venues: %w", err)
+	names := make([]string, len(venues))
+	for i, v := range venues {
+		names[i] = v.Name
 	}
 	return names, nil
 }

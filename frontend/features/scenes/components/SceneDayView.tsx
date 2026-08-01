@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { showDisplayTitle, showHref } from '../sceneWeek'
 import {
-  countDayShows,
   dayShows,
   dayTrackedVenues,
   formatDayChip,
@@ -15,20 +14,13 @@ import {
   type SceneDayShow,
   type SceneTrackedVenue,
 } from '../sceneDay'
-
-function StatusBadge({ label, tone }: { label: string; tone: 'destructive' | 'muted' }) {
-  const toneClass =
-    tone === 'destructive'
-      ? 'border-destructive text-destructive'
-      : 'border-muted-foreground text-muted-foreground'
-  return (
-    <span
-      className={`shrink-0 rounded-sm border px-1.5 py-px font-mono text-[10px] leading-4 tracking-wide ${toneClass}`}
-    >
-      {label}
-    </span>
-  )
-}
+import {
+  SCENE_NAV_CHIP_CLASS,
+  SceneBreadcrumb,
+  SceneCityHeading,
+  ShowStatusBadge,
+  TrackedRoomsFooter,
+} from './sceneChrome'
 
 /**
  * One show, time first.
@@ -64,10 +56,8 @@ function ShowRow({ show, sceneTimezone }: { show: SceneDayShow; sceneTimezone?: 
           >
             {showDisplayTitle(show)}
           </span>
-          {show.is_cancelled && <StatusBadge label="CANCELLED" tone="destructive" />}
-          {!show.is_cancelled && show.is_sold_out && (
-            <StatusBadge label="SOLD OUT" tone="destructive" />
-          )}
+          {show.is_cancelled && <ShowStatusBadge label="CANCELLED" />}
+          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="SOLD OUT" />}
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         {price && (
@@ -198,7 +188,7 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
 export function SceneDayView({ day }: { day: SceneDayResponse }) {
   const shows = dayShows(day)
   const rooms = dayTrackedVenues(day)
-  const total = countDayShows(day)
+  const total = shows.length
 
   // The rolling week for tonight, the dated week permalink otherwise — a page
   // about a night two months ago must not link to whatever week it happens to
@@ -209,45 +199,26 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 md:px-6">
-      <nav aria-label="Breadcrumb" className="font-mono text-[11px] text-muted-foreground">
-        <Link href="/scenes" className="hover:underline">
-          Scenes
-        </Link>
-        {'  /  '}
-        <Link href={`/scenes/${day.slug}`} className="hover:underline">
-          {day.scene_name}
-        </Link>
-      </nav>
+      <SceneBreadcrumb slug={day.slug} sceneName={day.scene_name} />
 
       <header className="mt-2">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          {/* City at display scale, state in mono alongside — the same header as
-              the week view, because this page is its sibling and arrives cold
-              from a shared link just as often. "Columbus" alone is ambiguous. */}
-          <h1 className="flex items-baseline gap-3 text-4xl font-bold tracking-tight md:text-5xl">
-            {day.city}
-            <span className="font-mono text-base font-normal tracking-wide text-muted-foreground">
-              {day.state}
-            </span>
-          </h1>
+          <SceneCityHeading city={day.city} state={day.state} />
 
           <div className="flex gap-2">
             <Link
               href={`/scenes/${day.slug}/${day.prev_date}`}
-              className="rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+              className={SCENE_NAV_CHIP_CLASS}
               rel="prev"
             >
               ← {formatDayChip(day.prev_date)}
             </Link>
-            <Link
-              href={weekHref}
-              className="rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50"
-            >
+            <Link href={weekHref} className={SCENE_NAV_CHIP_CLASS}>
               Full week
             </Link>
             <Link
               href={`/scenes/${day.slug}/${day.next_date}`}
-              className="rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+              className={SCENE_NAV_CHIP_CLASS}
               rel="next"
             >
               {formatDayChip(day.next_date)} →
@@ -277,7 +248,7 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
 
       <div className="mt-6 border-t-2 border-foreground" />
 
-      {total === 0 || shows.length === 0 ? (
+      {total === 0 ? (
         <EmptyNight day={day} weekHref={weekHref} />
       ) : (
         <ul className="pt-2">
@@ -287,23 +258,9 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
         </ul>
       )}
 
-      {shows.length > 0 && rooms.length > 0 && (
-        <footer className="mt-12">
-          <div className="border-t-2 border-foreground" />
-          <h2 className="pt-4 font-mono text-[11px] tracking-widest text-muted-foreground">
-            ROOMS WE TRACK IN {day.city.toUpperCase()}
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed">
-            {rooms.map(v => v.name).join(' · ')}
-          </p>
-          <Link
-            href="/contribute"
-            className="mt-2 inline-block text-sm text-muted-foreground hover:underline"
-          >
-            Missing a room? Suggest a venue →
-          </Link>
-        </footer>
-      )}
+      {/* Only under a listing. The empty state names the same rooms as LINKS,
+          which is a different offer — see EmptyNight. */}
+      {total > 0 && <TrackedRoomsFooter city={day.city} roomNames={rooms.map(v => v.name)} />}
     </div>
   )
 }

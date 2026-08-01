@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
 import { proxy } from './proxy'
+import { looksLikeISOWeek } from '@/features/scenes/sceneWeek'
+import { looksLikeCalendarDate } from '@/features/scenes/sceneDay'
 
 function requestFor(pathname: string): NextRequest {
   return {
@@ -60,6 +62,41 @@ describe('proxy — scene period routes', () => {
 
     expect(response.status).toBe(404)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The proxy keeps its OWN copy of the period-shape rule — it stays free of
+   * `features/` imports, matching the charts branch — so the two copies are
+   * pinned together here instead. They must agree in BOTH directions:
+   *
+   * - proxy accepts, page rejects → the page's `notFound()` fires after the
+   *   shell has streamed, committing a 404 body at HTTP 200. That is the exact
+   *   soft-404 this branch exists to prevent, and it is silent.
+   * - proxy rejects, page accepts → a real page 404s and is unreachable.
+   *
+   * The out-of-range years are the cases that actually diverged: the backend
+   * happily serves `1998-W12`, so only this bound stops it from rendering a
+   * not-found page at HTTP 200.
+   */
+  it.each([
+    ['2026-W31', true],
+    ['2026-07-31', true],
+    ['1998-W12', false],
+    ['1998-07-31', false],
+    ['2400-W12', false],
+    ['2400-07-31', false],
+    ['garbage', false],
+    ['2026-7-31', false],
+  ])('agrees with the page about %s', async (segment, servable) => {
+    const fetchMock = mockBackend(200)
+
+    const response = await proxy(requestFor(`/scenes/phoenix-az/${segment}`))
+    const pageAccepts = looksLikeISOWeek(segment) || looksLikeCalendarDate(segment)
+
+    expect(pageAccepts).toBe(servable)
+    // Probing at all IS the proxy's "this might be servable" answer.
+    expect(fetchMock.mock.calls.length > 0).toBe(servable)
+    if (!servable) expect(response.status).toBe(404)
   })
 
   // A transient backend failure must never be reported as "this page does not
