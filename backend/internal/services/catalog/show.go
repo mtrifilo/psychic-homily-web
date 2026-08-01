@@ -792,9 +792,11 @@ func (s *ShowService) loadShowArtistResponses(tx *gorm.DB, showID uint) ([]contr
 				Name:             artist.Name,
 				State:            artist.State,
 				City:             artist.City,
+				Country:          artist.Country,
 				IsHeadliner:      &isHeadliner,
 				SetType:          sa.SetType,
 				Position:         sa.Position,
+				Labels:           []contracts.ShowArtistLabel{},
 				IsNewArtist:      &isNewArtist,
 				BandcampEmbedURL: artist.BandcampEmbedURL,
 				Socials:          socials,
@@ -1817,9 +1819,11 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 			Name:             artist.Name,
 			State:            artist.State,
 			City:             artist.City,
+			Country:          artist.Country,
 			IsHeadliner:      &isHeadliner,
 			SetType:          setType,
 			Position:         position,
+			Labels:           []contracts.ShowArtistLabel{},
 			IsNewArtist:      &isNewArtist,
 			BandcampEmbedURL: artist.BandcampEmbedURL,
 			Socials:          socials,
@@ -1827,6 +1831,66 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 	}
 
 	return artists, nil
+}
+
+// fetchLabelsForArtists batch-loads the labels for a set of artists, keyed by
+// artist ID and ordered by label name ASC to match GetLabelsForArtist. Two
+// queries regardless of bill size. Artists with no labels are absent from the
+// map; callers substitute an empty slice so the JSON is [] and never null.
+//
+// Uses the junction model plus an ID lookup rather than a GORM many2many
+// preload: Artist declares no Labels association (it lives on Label), and the
+// manual pair keeps the query count fixed and inspectable.
+func (s *ShowService) fetchLabelsForArtists(artistIDs []uint) map[uint][]contracts.ShowArtistLabel {
+	if len(artistIDs) == 0 {
+		return nil
+	}
+
+	var artistLabels []catalogm.ArtistLabel
+	if err := s.db.Where("artist_id IN ?", artistIDs).Find(&artistLabels).Error; err != nil {
+		log.Printf("WARN fetchLabelsForArtists: failed to fetch artist_labels: %v", err)
+		return nil
+	}
+	if len(artistLabels) == 0 {
+		return nil
+	}
+
+	labelIDs := make([]uint, 0, len(artistLabels))
+	seen := make(map[uint]struct{}, len(artistLabels))
+	for _, al := range artistLabels {
+		if _, dup := seen[al.LabelID]; dup {
+			continue
+		}
+		seen[al.LabelID] = struct{}{}
+		labelIDs = append(labelIDs, al.LabelID)
+	}
+
+	var labels []catalogm.Label
+	if err := s.db.Where("id IN ?", labelIDs).Order("name ASC").Find(&labels).Error; err != nil {
+		log.Printf("WARN fetchLabelsForArtists: failed to fetch labels: %v", err)
+		return nil
+	}
+
+	// Keep the name-ASC ordering by walking the sorted label list on the outside
+	// and fanning each label out to the artists joined to it.
+	artistsByLabel := make(map[uint][]uint, len(labelIDs))
+	for _, al := range artistLabels {
+		artistsByLabel[al.LabelID] = append(artistsByLabel[al.LabelID], al.ArtistID)
+	}
+
+	byArtist := make(map[uint][]contracts.ShowArtistLabel, len(artistIDs))
+	for _, label := range labels {
+		slug := ""
+		if label.Slug != nil {
+			slug = *label.Slug
+		}
+		entry := contracts.ShowArtistLabel{ID: label.ID, Name: label.Name, Slug: slug}
+		for _, artistID := range artistsByLabel[label.ID] {
+			byArtist[artistID] = append(byArtist[artistID], entry)
+		}
+	}
+
+	return byArtist
 }
 
 // buildShowResponse converts a Show model to contracts.ShowResponse
@@ -1882,6 +1946,8 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 			artistMap[allArtists[i].ID] = &allArtists[i]
 		}
 
+		labelsByArtist := s.fetchLabelsForArtists(artistIDs)
+
 		// Iterate in position order
 		for _, sa := range showArtists {
 			artist, ok := artistMap[sa.ArtistID]
@@ -1907,15 +1973,22 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 			if artist.Slug != nil {
 				artistSlug = *artist.Slug
 			}
+			labels := labelsByArtist[artist.ID]
+			if labels == nil {
+				labels = []contracts.ShowArtistLabel{}
+			}
+
 			artists = append(artists, contracts.ArtistResponse{
 				ID:               artist.ID,
 				Slug:             artistSlug,
 				Name:             artist.Name,
 				State:            artist.State,
 				City:             artist.City,
+				Country:          artist.Country,
 				IsHeadliner:      &isHeadliner,
 				SetType:          sa.SetType,
 				Position:         sa.Position,
+				Labels:           labels,
 				IsNewArtist:      &isNewArtist,
 				BandcampEmbedURL: artist.BandcampEmbedURL,
 				Socials:          socials,

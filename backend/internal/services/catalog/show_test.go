@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -49,7 +50,9 @@ func (suite *ShowServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	// artist_labels cascades off artists; labels must go afterwards on its own.
 	_, _ = sqlDB.Exec("DELETE FROM artists")
+	_, _ = sqlDB.Exec("DELETE FROM labels")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
@@ -485,6 +488,142 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowBySlug_NotFound() {
 	var showErr *apperrors.ShowError
 	suite.ErrorAs(err, &showErr)
 	suite.Equal(apperrors.CodeShowNotFound, showErr.Code)
+}
+
+// createTestLabel persists a label and returns it. Test helper.
+func (suite *ShowServiceIntegrationTestSuite) createTestLabel(name, slug string) *catalogm.Label {
+	label := &catalogm.Label{
+		Name:   name,
+		Slug:   stringPtr(slug),
+		Status: catalogm.LabelStatusActive,
+	}
+	suite.Require().NoError(suite.db.Create(label).Error)
+	return label
+}
+
+// signArtistToLabels writes artist_labels rows and stamps the artist's country.
+// Test helper.
+func (suite *ShowServiceIntegrationTestSuite) signArtistToLabels(artistID uint, country string, labels ...*catalogm.Label) {
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Artist{}).Where("id = ?", artistID).Update("country", country).Error,
+	)
+	for _, label := range labels {
+		suite.Require().NoError(
+			suite.db.Create(&catalogm.ArtistLabel{ArtistID: artistID, LabelID: label.ID}).Error,
+		)
+	}
+}
+
+// artistInBill returns the bill entry with the given name. Test helper.
+func artistInBill(artists []contracts.ArtistResponse, name string) *contracts.ArtistResponse {
+	for i := range artists {
+		if artists[i].Name == name {
+			return &artists[i]
+		}
+	}
+	return nil
+}
+
+// The show-detail bill renders "Artist [Label · Label] City, ST", so the
+// payload has to carry each artist's labels (name ASC) and country.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillCarriesLabelsAndCountry() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Artists = []contracts.CreateShowArtist{
+			{Name: "Two Label Band", IsHeadliner: boolPtr(true)},
+			{Name: "One Label Band", IsHeadliner: boolPtr(false)},
+			{Name: "No Label Band", IsHeadliner: boolPtr(false)},
+		}
+	})
+	suite.Require().Len(created.Artists, 3)
+
+	// Inserted out of alphabetical order on purpose: "Jealous Butcher" gets the
+	// lower ID, so a name-ASC result proves the ordering is not insertion order.
+	jealousButcher := suite.createTestLabel("Jealous Butcher", "jealous-butcher")
+	deadOceans := suite.createTestLabel("Dead Oceans", "dead-oceans")
+	epic := suite.createTestLabel("Epic", "epic")
+
+	two := artistInBill(created.Artists, "Two Label Band")
+	one := artistInBill(created.Artists, "One Label Band")
+	none := artistInBill(created.Artists, "No Label Band")
+	suite.Require().NotNil(two)
+	suite.Require().NotNil(one)
+	suite.Require().NotNil(none)
+
+	suite.signArtistToLabels(two.ID, "US", jealousButcher, deadOceans)
+	suite.signArtistToLabels(one.ID, "AU", epic)
+	suite.signArtistToLabels(none.ID, "GB")
+
+	resp, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	gotTwo := artistInBill(resp.Artists, "Two Label Band")
+	suite.Require().NotNil(gotTwo)
+	suite.Require().Len(gotTwo.Labels, 2)
+	suite.Equal("Dead Oceans", gotTwo.Labels[0].Name)
+	suite.Equal("dead-oceans", gotTwo.Labels[0].Slug)
+	suite.Equal(deadOceans.ID, gotTwo.Labels[0].ID)
+	suite.Equal("Jealous Butcher", gotTwo.Labels[1].Name)
+	suite.Require().NotNil(gotTwo.Country)
+	suite.Equal("US", *gotTwo.Country)
+
+	gotOne := artistInBill(resp.Artists, "One Label Band")
+	suite.Require().NotNil(gotOne)
+	suite.Require().Len(gotOne.Labels, 1)
+	suite.Equal("Epic", gotOne.Labels[0].Name)
+	suite.Equal(epic.ID, gotOne.Labels[0].ID)
+	suite.Require().NotNil(gotOne.Country)
+	suite.Equal("AU", *gotOne.Country)
+
+	gotNone := artistInBill(resp.Artists, "No Label Band")
+	suite.Require().NotNil(gotNone)
+	suite.NotNil(gotNone.Labels, "labels must serialize as [] rather than null")
+	suite.Empty(gotNone.Labels)
+	suite.Require().NotNil(gotNone.Country)
+	suite.Equal("GB", *gotNone.Country)
+
+	// Prove the empty case reaches the wire as [] and not null.
+	encoded, err := json.Marshal(gotNone)
+	suite.Require().NoError(err)
+	suite.Contains(string(encoded), `"labels":[]`)
+}
+
+// An artist with no labels and no country still yields a well-formed bill entry.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillLabelsEmptyWhenNoLabelsExist() {
+	created := suite.createTestShow()
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Artists, 1)
+	suite.NotNil(resp.Artists[0].Labels, "labels must serialize as [] rather than null")
+	suite.Empty(resp.Artists[0].Labels)
+	suite.Nil(resp.Artists[0].Country)
+}
+
+// Two artists on the same label both get the entry; the shared label is fetched
+// once.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_BillSharedLabelFansOutToBothArtists() {
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.Artists = []contracts.CreateShowArtist{
+			{Name: "Label Mate A", IsHeadliner: boolPtr(true)},
+			{Name: "Label Mate B", IsHeadliner: boolPtr(false)},
+		}
+	})
+	suite.Require().Len(created.Artists, 2)
+
+	shared := suite.createTestLabel("Shared Records", "shared-records")
+	suite.signArtistToLabels(created.Artists[0].ID, "US", shared)
+	suite.signArtistToLabels(created.Artists[1].ID, "US", shared)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Artists, 2)
+	for _, artist := range resp.Artists {
+		suite.Require().Len(artist.Labels, 1, "artist %s", artist.Name)
+		suite.Equal("Shared Records", artist.Labels[0].Name)
+	}
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestDeleteShow_Success() {

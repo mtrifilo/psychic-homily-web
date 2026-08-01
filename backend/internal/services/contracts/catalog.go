@@ -133,16 +133,31 @@ type ShowArtistSocials struct {
 	Website    *string `json:"website"`
 }
 
+// ShowArtistLabel is the minimal label reference rendered next to an artist on
+// the show bill. Deliberately narrower than ArtistLabelResponse: the bill only
+// needs a display name and a link target.
+type ShowArtistLabel struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
 // ArtistResponse represents artist data in show responses
 type ArtistResponse struct {
-	ID               uint              `json:"id"`
-	Slug             string            `json:"slug"`
-	Name             string            `json:"name"`
-	State            *string           `json:"state"`
-	City             *string           `json:"city"`
-	IsHeadliner      *bool             `json:"is_headliner"`
-	SetType          string            `json:"set_type"`
-	Position         int               `json:"position"`
+	ID          uint    `json:"id"`
+	Slug        string  `json:"slug"`
+	Name        string  `json:"name"`
+	State       *string `json:"state"`
+	City        *string `json:"city"`
+	Country     *string `json:"country"`
+	IsHeadliner *bool   `json:"is_headliner"`
+	SetType     string  `json:"set_type"`
+	Position    int     `json:"position"`
+	// Labels is populated only by show read responses (buildShowResponse, which
+	// backs GET /shows and GET /shows/{show_id}). Show create/update responses
+	// and the venue/saved-show show projections return an empty slice rather
+	// than paying for the join on write and list-projection paths. Never null.
+	Labels           []ShowArtistLabel `json:"labels"`
 	IsNewArtist      *bool             `json:"is_new_artist"`
 	BandcampEmbedURL *string           `json:"bandcamp_embed_url"`
 	Socials          ShowArtistSocials `json:"socials"`

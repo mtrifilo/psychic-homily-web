@@ -1135,9 +1135,11 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 				Name:        artist.Name,
 				State:       artist.State,
 				City:        artist.City,
+				Country:     artist.Country,
 				IsHeadliner: &isHeadliner,
 				SetType:     sa.SetType,
 				Position:    sa.Position,
+				Labels:      []contracts.ShowArtistLabel{},
 				IsNewArtist: &isNewArtist,
 				Socials:     socials,
 			})
