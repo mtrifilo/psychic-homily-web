@@ -2,24 +2,42 @@ import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { OG_COLORS, OG_CONTENT_TYPE, OG_FONT_FAMILY, OG_SIZE } from '@/lib/og/brand'
 import {
+  OG_COLORS,
+  OG_CONTENT_TYPE,
+  OG_FONT_FAMILY,
+  OG_SIZE,
+  type OgFont,
+} from '@/lib/og/brand'
+import {
+  OG_FALLBACK_CACHE_SECONDS,
   loadBrandFontsOrDefault,
   ogCacheControl,
   ogFallbackCard,
 } from '@/lib/og/response'
+import { loadRemoteImage } from '@/lib/og/remoteImage'
 import {
+  CONTENT_WIDTH,
+  DATE_ROW_GAP,
   DATE_SIZE,
   DOMAIN_SIZE,
   HEADLINE_GAP,
   PAD_X,
   PAD_Y,
+  PLATE_BOX_HEIGHT,
+  PLATE_BOX_WIDTH,
+  PLATE_GAP,
+  SOLD_OUT_PAD_X,
   SOLD_OUT_SIZE,
+  SOLD_OUT_TRACKING,
   SUPPORT_SIZE,
+  TEXT_WIDTH_WITH_PLATE,
   TITLE_LINE_HEIGHT,
   TITLE_SIZE_MAX,
+  VENUE_MAX_WIDTH,
   WORDMARK,
   buildVenueLine,
+  fitPlate,
   fitTitleSize,
   fitVenueSize,
   venueOverflows,
@@ -50,20 +68,37 @@ interface ShowData {
   event_date: string
   is_sold_out: boolean
   is_cancelled: boolean
+  image_url?: string | null
   venues: Array<{ name: string; city: string; state: string; timezone?: string | null }>
   artists: Array<{ name: string; is_headliner?: boolean | null }>
 }
 
+/**
+ * `abbreviated` is what the plate card uses, and it is a fit decision, not a
+ * stylistic one.
+ *
+ * The date row is the one row with no fit function — its size is fixed, because
+ * on the full-width card it always fits. Beside a plate it does not:
+ * "Wednesday, September 30, 2026" measures 603px, and the SOLD OUT badge adds
+ * another 209px, against a 640px column. Both then WRAP — the date breaking
+ * mid-phrase and the badge stacking to "SOLD / OUT" — which is legible but
+ * scrappy, and it steals vertical space from the headline.
+ *
+ * Abbreviating takes the same row to 563px with the badge, on one line, with no
+ * information dropped. At the 300px share size the short form is the more
+ * readable of the two anyway.
+ */
 function formatDate(
   dateString: string,
   state?: string | null,
-  timezone?: string | null
+  timezone?: string | null,
+  abbreviated = false
 ): string {
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', {
-    weekday: 'long',
+    weekday: abbreviated ? 'short' : 'long',
     year: 'numeric',
-    month: 'long',
+    month: abbreviated ? 'short' : 'long',
     day: 'numeric',
     timeZone: resolveShowTimezone(state, timezone), // venue-local for share card (PSY-986)
   })
@@ -79,11 +114,105 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
   if (!show) return ogFallbackCard(fonts)
 
+  // Sequential rather than parallel with the show fetch, because the URL to
+  // fetch comes out of it. Bounded by `loadRemoteImage`'s own deadline.
+  const flyer = await loadRemoteImage(show.image_url)
+  // One nullable value for "there is a flyer", carrying everything drawing it
+  // needs. Two (the bytes and the geometry) would have to be re-narrowed
+  // together at every use.
+  const plate =
+    flyer.status === 'ok'
+      ? { ...fitPlate(flyer.image.width, flyer.image.height), src: flyer.image.data }
+      : null
+  // Only a TRANSIENT failure shortens the cache window. A rejected flyer — an
+  // `http:` URL, a WebP, an oversized scan — is a permanent fact about the row,
+  // and holding those cards at 60s would re-render them forever. See
+  // `FlyerOutcome`.
+  const flyerMissing = flyer.status === 'unavailable'
+
+  // A rejection is the one flyer outcome worth reporting. Network failures are
+  // data quality — a dead Instagram link is not an incident, and reporting them
+  // would be one event per unfurl per stale row. A REJECTED url is different:
+  // the set includes "named a blocked host", and without this line a campaign
+  // walking internal address space through this route is entirely invisible.
+  // The hostname is recorded, never the full URL.
+  if (flyer.status === 'rejected') {
+    Sentry.captureMessage('Show OG: flyer url rejected', {
+      level: 'info',
+      tags: { service: 'og-image' },
+      extra: { slug, host: hostOf(show.image_url) },
+    })
+  }
+
+  const card = renderCard(show, plate, fonts, degraded, flyerMissing)
+  // Satori can throw while the body is STREAMED, which is after `ImageResponse`
+  // has already been constructed and returned — past every try/catch the route
+  // could wrap around it, and past the fail-open design in `loadRemoteImage`.
+  // Attacker-supplied bytes are the realistic trigger: `image_url` is writable
+  // by any email-verified user, and a JPEG that sizes cleanly here can still
+  // trap the rasteriser. Materialising the body is what turns that into a
+  // catchable error, and the answer to it is the card we know renders.
+  const buffered = await materialize(card)
+  if (buffered) return buffered
+  Sentry.captureMessage('Show OG: render threw, falling back to the text card', {
+    level: 'error',
+    tags: { service: 'og-image' },
+    extra: { slug, hadPlate: Boolean(plate) },
+  })
+  return (
+    (plate && (await materialize(renderCard(show, null, fonts, degraded, true)))) ??
+    ogFallbackCard(fonts)
+  )
+}
+
+/**
+ * Read an `ImageResponse` to completion so a streaming failure becomes a value.
+ *
+ * Costs buffering one 1200×630 PNG — a few hundred KB — which is the price of
+ * the route being able to honour its own never-5xx contract.
+ */
+async function materialize(response: ImageResponse): Promise<Response | null> {
+  try {
+    const body = await response.arrayBuffer()
+    return new Response(body, { status: 200, headers: response.headers })
+  } catch (error) {
+    Sentry.captureException(error, { tags: { service: 'og-image', stage: 'rasterise' } })
+    return null
+  }
+}
+
+interface Plate {
+  width: number
+  height: number
+  src: ArrayBuffer
+}
+
+/** Host only — the path of a submitted URL is not ours to put in telemetry. */
+function hostOf(raw: string | null | undefined): string {
+  if (!raw) return ''
+  try {
+    return new URL(raw).host
+  } catch {
+    return 'unparseable'
+  }
+}
+
+function renderCard(
+  show: ShowData,
+  plate: Plate | null,
+  fonts: OgFont[] | undefined,
+  degraded: boolean,
+  flyerMissing: boolean
+): ImageResponse {
+  // The text column narrows only when there is actually a plate beside it, so a
+  // flyer-less show renders exactly the card it rendered before.
+  const textWidth = plate ? TEXT_WIDTH_WITH_PLATE : CONTENT_WIDTH
+
   const headliner =
     show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
   const venue = show.venues?.[0]
   const venueName = venue?.name || 'TBA'
-  const showDate = formatDate(show.event_date, venue?.state, venue?.timezone)
+  const showDate = formatDate(show.event_date, venue?.state, venue?.timezone, Boolean(plate))
   const displayTitle = show.title || `${headliner} at ${venueName}`
   const otherArtists = show.artists?.filter(a => a.name !== headliner).map(a => a.name)
 
@@ -91,12 +220,63 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   // separate city line was 5.5px, i.e. decoration that was carrying meaning.
   const venueLine = buildVenueLine(venueName, venue?.city, venue?.state)
 
-  const titleSize = fitTitleSize(displayTitle)
-  const venueSize = fitVenueSize(venueLine)
+  const titleSize = fitTitleSize(displayTitle, textWidth)
+  // Beside a plate the footer STACKS, so the venue line gets the whole column
+  // rather than sharing a row with the wordmark — kept inline it would have
+  // ~267px of a 640px column, and an ordinary venue name would clip on every
+  // single flyer card. See TEXT_WIDTH_WITH_PLATE.
+  //
+  // This ternary and the footer's `flexDirection` ternary below are ONE
+  // decision expressed twice; they must move together.
+  const venueBudget = plate ? textWidth : VENUE_MAX_WIDTH
+  const venueSize = fitVenueSize(venueLine, venueBudget)
   // Past the minimum size the line still overruns. It must CLIP rather than
   // run under the wordmark and push it off the canvas — the two elements this
   // retune exists to make legible are the two that would be destroyed.
-  const venueClips = venueOverflows(venueLine)
+  const venueClips = venueOverflows(venueLine, venueBudget)
+
+  // Paint order is CONDITIONAL, and both orders are deliberate.
+  //
+  // Satori paints in document order. Declared before an opaque plate the wash
+  // would be painted UNDER it and vanish over the left third of the card,
+  // losing the single most load-bearing fact on it — so the plate card puts it
+  // last. But moving it last unconditionally also changes the FLYER-LESS card,
+  // where the wash previously sat behind the title and now tints its glyphs.
+  // That card is supposed to be untouched by this change, so it keeps the
+  // original order.
+  const cancelledOverlay = show.is_cancelled ? (
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        // Confined to the TEXT COLUMN when there is a plate. The wash is tuned
+        // for 0.3 opacity over the flat brand background; over a gig poster —
+        // dark, high-detail, usually red and black — the glyphs that land on it
+        // are barely readable, and "cancelled" is the one fact on this card a
+        // reader must not miss. Full width otherwise, as before.
+        left: plate ? PAD_X + PLATE_BOX_WIDTH + PLATE_GAP : 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <div
+        style={{
+          color: OG_COLORS.destructive,
+          fontFamily: OG_FONT_FAMILY.sans,
+          fontSize: 96,
+          fontWeight: 700,
+          letterSpacing: '0.1em',
+          opacity: 0.3,
+          transform: 'rotate(-15deg)',
+        }}
+      >
+        CANCELLED
+      </div>
+    </div>
+  ) : null
 
   return new ImageResponse(
     (
@@ -105,156 +285,194 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           width: '100%',
           height: '100%',
           display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
+          flexDirection: 'row',
+          alignItems: 'stretch',
+          // Conditional, and MEASURED rather than reasoned about. The tempting
+          // claim — "without a plate this row has one in-flow child, so a gap
+          // between one child is nothing" — is false: with the absolute
+          // CANCELLED overlay as a sibling, Yoga reserves the gap anyway, and a
+          // cancelled flyer-less card lost exactly PLATE_GAP off its right
+          // edge. Every fit budget on that card is computed for CONTENT_WIDTH,
+          // so the column silently became 40px narrower than the numbers the
+          // text was measured against.
+          gap: plate ? PLATE_GAP : 0,
           backgroundColor: OG_COLORS.background,
           padding: `${PAD_Y}px ${PAD_X}px`,
           position: 'relative',
         }}
       >
-        {show.is_cancelled && (
+        {!plate && cancelledOverlay}
+        {/* The plate: a fixed band, with the artwork letterboxed inside it at
+            its own ratio. Fixed rather than shrink-to-fit so the text column's
+            width — and therefore every fit budget above — is the same number
+            for a portrait poster and a landscape one. */}
+        {plate && (
           <div
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
               display: 'flex',
+              width: PLATE_BOX_WIDTH,
+              height: PLATE_BOX_HEIGHT,
+              flexShrink: 0,
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <div
-              style={{
-                color: OG_COLORS.destructive,
-                fontFamily: OG_FONT_FAMILY.sans,
-                fontSize: 96,
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                opacity: 0.3,
-                transform: 'rotate(-15deg)',
-              }}
-            >
-              CANCELLED
-            </div>
+            {/* A bare <img> on purpose: Satori renders this, not the browser,
+                so next/image has no meaning inside an OG card. */}
+            <img
+              /* Raw bytes, not a data URI — see `RemoteImage.data`. Satori's
+                 resolver takes an ArrayBuffer here; React's DOM typings only
+                 know about the browser's string `src`, hence the cast. */
+              src={plate.src as unknown as string}
+              alt=""
+              width={plate.width}
+              height={plate.height}
+              style={{ borderRadius: 8 }}
+            />
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <div
-            style={{
-              display: 'flex',
-              fontFamily: OG_FONT_FAMILY.mono,
-              fontSize: DATE_SIZE,
-              color: OG_COLORS.primary,
-            }}
-          >
-            {showDate}
-          </div>
-          {show.is_sold_out && (
-            <div
-              style={{
-                display: 'flex',
-                fontFamily: OG_FONT_FAMILY.sans,
-                fontWeight: 700,
-                backgroundColor: OG_COLORS.destructive,
-                color: OG_COLORS.destructiveForeground,
-                fontSize: SOLD_OUT_SIZE,
-                padding: '4px 14px',
-                borderRadius: 6,
-                letterSpacing: '0.05em',
-              }}
-            >
-              SOLD OUT
-            </div>
-          )}
-        </div>
-
-        {/* Clipped rather than allowed to bleed: the title is measured, but a
-            script outside the font subset cannot be measured exactly. */}
-        {/* `flex: 1, minHeight: 0` is what makes the clip real. Without a
-            basis this box is content-driven, so `overflow: hidden` never
-            clipped vertically — a very long title simply grew the box and
-            pushed the venue and wordmark off the canvas entirely. Titles are
-            VARCHAR(500) in the schema and the discovery pipeline writes them
-            without the handlers' 255 cap, so this is a reachable input. */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: HEADLINE_GAP,
+            justifyContent: 'space-between',
             flex: 1,
-            minHeight: 0,
-            justifyContent: 'center',
-            overflow: 'hidden',
+            // Without this the column takes its intrinsic content width and
+            // pushes the plate off the canvas instead of wrapping its own text.
+            minWidth: 0,
           }}
         >
+          <div style={{ display: 'flex', alignItems: 'center', gap: DATE_ROW_GAP }}>
+            <div
+              style={{
+                display: 'flex',
+                fontFamily: OG_FONT_FAMILY.mono,
+                fontSize: DATE_SIZE,
+                color: OG_COLORS.primary,
+              }}
+            >
+              {showDate}
+            </div>
+            {show.is_sold_out && (
+              <div
+                style={{
+                  display: 'flex',
+                  fontFamily: OG_FONT_FAMILY.sans,
+                  fontWeight: 700,
+                  backgroundColor: OG_COLORS.destructive,
+                  color: OG_COLORS.destructiveForeground,
+                  fontSize: SOLD_OUT_SIZE,
+                  padding: `4px ${SOLD_OUT_PAD_X}px`,
+                  borderRadius: 6,
+                  letterSpacing: `${SOLD_OUT_TRACKING}em`,
+                }}
+              >
+                SOLD OUT
+              </div>
+            )}
+          </div>
+
+          {/* Clipped rather than allowed to bleed: the title is measured, but a
+              script outside the font subset cannot be measured exactly. */}
+          {/* `flex: 1, minHeight: 0` is what makes the clip real. Without a
+              basis this box is content-driven, so `overflow: hidden` never
+              clipped vertically — a very long title simply grew the box and
+              pushed the venue and wordmark off the canvas entirely. Titles are
+              VARCHAR(500) in the schema and the discovery pipeline writes them
+              without the handlers' 255 cap, so this is a reachable input. */}
           <div
             style={{
               display: 'flex',
-              fontFamily: OG_FONT_FAMILY.sans,
-              fontWeight: 700,
-              fontSize: titleSize,
-              lineHeight: `${Math.round((TITLE_LINE_HEIGHT / TITLE_SIZE_MAX) * titleSize)}px`,
-              color: OG_COLORS.foreground,
+              flexDirection: 'column',
+              gap: HEADLINE_GAP,
+              flex: 1,
+              minHeight: 0,
+              justifyContent: 'center',
+              overflow: 'hidden',
             }}
           >
-            {displayTitle}
-          </div>
-          {otherArtists && otherArtists.length > 0 && (
             <div
               style={{
                 display: 'flex',
                 fontFamily: OG_FONT_FAMILY.sans,
-                fontWeight: 400,
-                fontSize: SUPPORT_SIZE,
-                color: OG_COLORS.mutedForeground,
+                fontWeight: 700,
+                fontSize: titleSize,
+                lineHeight: `${Math.round((TITLE_LINE_HEIGHT / TITLE_SIZE_MAX) * titleSize)}px`,
+                color: OG_COLORS.foreground,
               }}
             >
-              with {otherArtists.slice(0, 4).join(', ')}
-              {otherArtists.length > 4 ? ` + ${otherArtists.length - 4} more` : ''}
+              {displayTitle}
             </div>
-          )}
+            {otherArtists && otherArtists.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  fontFamily: OG_FONT_FAMILY.sans,
+                  fontWeight: 400,
+                  fontSize: SUPPORT_SIZE,
+                  color: OG_COLORS.mutedForeground,
+                }}
+              >
+                with {otherArtists.slice(0, 4).join(', ')}
+                {otherArtists.length > 4 ? ` + ${otherArtists.length - 4} more` : ''}
+              </div>
+            )}
+          </div>
+
+          {/* Two whole shapes rather than four coupled ternaries: the wordmark
+              costs ~333px in mono, which the 640px plate column cannot spare
+              beside a venue line, so beside a plate the footer stacks. */}
+          <div
+            style={{
+              display: 'flex',
+              overflow: 'hidden',
+              ...(plate
+                ? {
+                    flexDirection: 'column',
+                    justifyContent: 'flex-end',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                  }
+                : {
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-end',
+                  }),
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                fontFamily: OG_FONT_FAMILY.sans,
+                fontWeight: 500,
+                fontSize: venueSize,
+                color: OG_COLORS.foreground,
+                whiteSpace: 'nowrap',
+                ...(venueClips ? { minWidth: 0, overflow: 'hidden' } : {}),
+              }}
+            >
+              {venueLine}
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                fontFamily: OG_FONT_FAMILY.mono,
+                fontSize: DOMAIN_SIZE,
+                color: OG_COLORS.primary,
+                whiteSpace: 'nowrap',
+                // Past the venue's minimum size the row is over budget, and
+                // `space-between` would push the RIGHT-hand element out. The
+                // wordmark is the one thing that must never be what disappears.
+                flexShrink: 0,
+              }}
+            >
+              {WORDMARK}
+            </div>
+          </div>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              fontFamily: OG_FONT_FAMILY.sans,
-              fontWeight: 500,
-              fontSize: venueSize,
-              color: OG_COLORS.foreground,
-              whiteSpace: 'nowrap',
-              ...(venueClips ? { minWidth: 0, overflow: 'hidden' } : {}),
-            }}
-          >
-            {venueLine}
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              fontFamily: OG_FONT_FAMILY.mono,
-              fontSize: DOMAIN_SIZE,
-              color: OG_COLORS.primary,
-              whiteSpace: 'nowrap',
-              // Past the venue's minimum size the row is over budget, and
-              // `space-between` would push the RIGHT-hand element out. The
-              // wordmark is the one thing that must never be what disappears.
-              flexShrink: 0,
-            }}
-          >
-            {WORDMARK}
-          </div>
-        </div>
+        {plate && cancelledOverlay}
       </div>
     ),
     {
@@ -268,10 +486,16 @@ export default async function Image({ params }: { params: Promise<{ slug: string
       // serving a card that says a sold-out show is available.
       //
       // A card drawn without the brand fonts is held shorter still: its fit
-      // budgets assumed Satoshi's metrics, so it may be visually wrong.
+      // budgets assumed Satoshi's metrics, so it may be visually wrong. A card
+      // whose flyer failed to load is held on the same footing — it is an
+      // incomplete render, not a settled one.
       headers: {
         'cache-control': ogCacheControl(
-          degraded ? 60 : showHasPassed(show.event_date) ? SETTLED_REVALIDATE : LIVE_REVALIDATE
+          degraded || flyerMissing
+            ? OG_FALLBACK_CACHE_SECONDS
+            : showHasPassed(show.event_date)
+              ? SETTLED_REVALIDATE
+              : LIVE_REVALIDATE
         ),
       },
     }

@@ -286,4 +286,91 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       ).toBe(404)
     })
   })
+
+  /**
+   * Scene-day routes (PSY-1627) — the same third-segment branch, for the
+   * nightly pages.
+   *
+   * Same failure mode as the week routes above and the same reason it can only
+   * be caught here: the proxy is the only thing that can produce a real 404 for
+   * these paths, and nothing short of reading the HTTP status can tell a 404
+   * from a 404 body served at 200.
+   */
+  test.describe('Scene day routes (PSY-1627)', () => {
+    test('rolling /scenes/<slug>/tonight returns HTTP 200 (proxy does not over-404)', async ({
+      page,
+    }) => {
+      const response = await page.goto('/scenes/phoenix-az/tonight')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/tonight must return 200 — proxy.ts must not over-404 the rolling day route'
+      ).toBe(200)
+      // The SCENE, not merely "an h1 rendered". `app/not-found.tsx` puts its
+      // own <h1>404</h1> inside the same <main>, so a presence check passes on
+      // a soft-404 — which is the one failure this whole block exists to
+      // catch, and the one the cheap scene probe could reintroduce.
+      await expect(
+        page.getByRole('main').getByRole('heading', { level: 1 })
+      ).toContainText('Phoenix', { timeout: 10_000 })
+    })
+
+    // The `[period]` segment now dispatches BOTH shapes from one route. Nothing
+    // else asserts the week branch still resolves to the week view: the week
+    // block above is decided entirely by proxy.ts before the page component
+    // runs, so a branch-order regression there would ship green.
+    test('the shared period route still renders the WEEK view for a week key', async ({
+      page,
+    }) => {
+      const response = await page.goto('/scenes/phoenix-az/2026-W31')
+      expect(response?.status()).toBe(200)
+      // A marker only the week view emits — the day view has no week range.
+      await expect(page.getByRole('main')).toContainText(/Mon,.*–.*Sun,/, {
+        timeout: 10_000,
+      })
+    })
+
+    test('the permalink /tonight declares canonical returns HTTP 200', async ({ page }) => {
+      // A canonical that 404s is worse than no canonical at all. Read the
+      // target OFF the page rather than hardcoding today's date: a fixed date
+      // would keep passing while quietly testing nothing, since any valid date
+      // 200s. This way the assertion follows the real declared relationship.
+      await page.goto('/scenes/phoenix-az/tonight')
+      const href = await page.locator('link[rel="canonical"]').getAttribute('href')
+
+      expect(href, '/tonight must declare a canonical').toBeTruthy()
+      expect(
+        href,
+        'the canonical must be the DATED permalink, never the rolling URL'
+      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
+
+      // The PATH, against the server under test. The canonical is absolute and
+      // points at the production origin, so navigating to it verbatim would
+      // leave the branch entirely and assert a fact about the live site.
+      const { pathname } = new URL(href!)
+      const response = await page.goto(pathname)
+      expect(
+        response?.status(),
+        `${pathname} must return 200 — it is what /tonight points every crawler at`
+      ).toBe(200)
+    })
+
+    test('a date that does not exist returns HTTP 404', async ({ page }) => {
+      // February never has 30 days. Go's date parser NORMALIZES this to March
+      // 2nd rather than rejecting it, so only the backend's round-trip check
+      // stands between an impossible date and a duplicate URL for a real day.
+      const response = await page.goto('/scenes/phoenix-az/2026-02-30')
+      expect(
+        response?.status(),
+        '/scenes/phoenix-az/2026-02-30 must return 404 — an impossible date must not soft-404'
+      ).toBe(404)
+    })
+
+    test('tonight under an unresolvable scene returns HTTP 404', async ({ page }) => {
+      const response = await page.goto('/scenes/nowhere-zz/tonight')
+      expect(
+        response?.status(),
+        '/scenes/nowhere-zz/tonight must return 404 — the scene itself does not resolve'
+      ).toBe(404)
+    })
+  })
 })

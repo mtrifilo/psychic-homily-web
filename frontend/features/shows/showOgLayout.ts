@@ -31,6 +31,18 @@ export const TITLE_LINE_HEIGHT = 84
 /** What the layout budgets vertically before the footer would be pushed off. */
 export const TITLE_MAX_LINES = 2
 
+/** Horizontal padding inside the SOLD OUT pill, and the gap beside the date. */
+export const SOLD_OUT_PAD_X = 14
+export const DATE_ROW_GAP = 20
+/**
+ * The pill's tracking, exported so its measurement cannot drift from its style.
+ *
+ * `textFit` is explicit that letter-spacing is not ignorable at this card's
+ * tracking — 8 glyphs at 0.05em is ~13px, and measuring without it errs in the
+ * unsafe direction: the row is reported as fitting when it does not.
+ */
+export const SOLD_OUT_TRACKING = 0.05
+
 export const VENUE_SIZE = 38
 /** 6.5px effective — below this the line stops being readable, so it clips. */
 export const VENUE_SIZE_MIN = 26
@@ -40,6 +52,68 @@ export const FOOTER_GAP = 40
 export const WORDMARK = 'psychichomily.com'
 
 /**
+ * The flyer plate, when a show has one.
+ *
+ * A gig poster is a designed object, so it is placed as a PLATE — letterboxed
+ * whole at its own aspect ratio — rather than cropped to fill a slot. Cropping
+ * a poster cuts the headline off it, which is the one thing on it that a share
+ * card needs to survive.
+ *
+ * The box is portrait because posters are: at 380×510 a 2:3 flyer fills the
+ * full height, which is the common case getting the best of the space. Wider
+ * artwork letterboxes inside the same box, so the text column's width does not
+ * depend on the image — one geometry, whatever a submitter uploads.
+ *
+ * At the ~300px the card is consumed at, the plate lands at 95×128: a
+ * recognisable thumbnail rather than a decorative smudge.
+ */
+export const PLATE_BOX_WIDTH = 380
+export const PLATE_BOX_HEIGHT = OG_SIZE.height - PAD_Y * 2
+/** Keeps the plate off the text column at the share size, where 40px reads as 10. */
+export const PLATE_GAP = 40
+
+/**
+ * What the text column gets once the plate has taken its band — and, because
+ * the footer STACKS beside a plate, what the venue line gets too.
+ *
+ * The wordmark costs ~333px in mono at its display size (17 chars × 612/1000 ×
+ * 32). Keeping the footer on one row here would leave the venue ~267px of this
+ * 640px column — not enough for "Sleeping Village · Chicago, IL" even at the
+ * minimum size, i.e. the ORDINARY case would clip. The row becomes two rows
+ * instead: vertical space is the one thing the column has spare.
+ */
+export const TEXT_WIDTH_WITH_PLATE = CONTENT_WIDTH - PLATE_BOX_WIDTH - PLATE_GAP
+
+/**
+ * Size the flyer to fit inside the plate box without cropping or distorting it.
+ *
+ * Returned as explicit pixel dimensions rather than left to `object-fit`, so
+ * the geometry is a value the tests can assert on instead of a behaviour of
+ * Satori's image resolver — and so a portrait flyer with an extreme ratio is
+ * KNOWN to be bounded on both axes rather than hoped to be.
+ */
+export function fitPlate(
+  naturalWidth: number,
+  naturalHeight: number
+): { width: number; height: number } {
+  // Without this, `fitPlate(0, 0)` is `0 * Infinity` on both axes — NaN, which
+  // Satori draws as nothing at all. `loadRemoteImage` rejects zero dimensions
+  // before it gets here, but that guarantee lives in another module and this
+  // function's contract is that it is bounded on both axes.
+  if (!(naturalWidth > 0) || !(naturalHeight > 0)) return { width: 1, height: 1 }
+  const scale = Math.min(
+    PLATE_BOX_WIDTH / naturalWidth,
+    PLATE_BOX_HEIGHT / naturalHeight
+  )
+  return {
+    // At least 1px on each axis: a 3000×1 input would otherwise round to a
+    // zero-height element, which Satori draws as nothing at all.
+    width: Math.max(1, Math.round(naturalWidth * scale)),
+    height: Math.max(1, Math.round(naturalHeight * scale)),
+  }
+}
+
+/**
  * Width the venue line gets once the wordmark has taken its share of the row.
  *
  * The wordmark is measured in MONO because that is the face it renders in;
@@ -47,6 +121,28 @@ export const WORDMARK = 'psychichomily.com'
  */
 export const VENUE_MAX_WIDTH =
   CONTENT_WIDTH - measureMono(WORDMARK, DOMAIN_SIZE) - FOOTER_GAP
+
+/**
+ * Width of the top row: the date, plus the SOLD OUT pill when there is one.
+ *
+ * The only row on the card with no fit function — `DATE_SIZE` is fixed, because
+ * on the full-width card the row always fits. Beside a plate it does not, so
+ * this exists to let a test hold the line rather than discovering it in a
+ * share preview. Nothing here shrinks or clips: over budget, Yoga WRAPS, which
+ * breaks the date mid-phrase, stacks the pill to "SOLD / OUT", and steals
+ * height from the headline.
+ */
+export function dateRowWidth(dateText: string, soldOut: boolean): number {
+  const date = measureMono(dateText, DATE_SIZE)
+  if (!soldOut) return date
+  const label = measureSans(
+    'SOLD OUT',
+    'satoshiBold',
+    SOLD_OUT_SIZE,
+    SOLD_OUT_TRACKING * SOLD_OUT_SIZE
+  )
+  return date + DATE_ROW_GAP + label + SOLD_OUT_PAD_X * 2
+}
 
 /**
  * Wrapped text never fills its lines completely — a line breaks at the last
@@ -67,33 +163,33 @@ function longestToken(text: string): string {
  * satisfies "total width fits in two lines" while still being cut mid-glyph at
  * the edge, because no amount of wrapping makes a token narrower than itself.
  */
-export function fitTitleSize(title: string): number {
+export function fitTitleSize(title: string, contentWidth: number = CONTENT_WIDTH): number {
   const byArea = fitFontSize(
     title,
     'satoshiBold',
-    CONTENT_WIDTH * TITLE_MAX_LINES * WRAP_EFFICIENCY,
+    contentWidth * TITLE_MAX_LINES * WRAP_EFFICIENCY,
     TITLE_SIZE_MAX,
     TITLE_SIZE_MIN
   )
   const byToken = fitFontSize(
     longestToken(title),
     'satoshiBold',
-    CONTENT_WIDTH,
+    contentWidth,
     TITLE_SIZE_MAX,
     TITLE_SIZE_MIN
   )
   return Math.min(byArea, byToken)
 }
 
-/** Size for the venue line, which must stay on ONE line beside the wordmark. */
-export function fitVenueSize(venueLine: string): number {
-  return fitFontSize(
-    venueLine,
-    'satoshiMedium',
-    VENUE_MAX_WIDTH,
-    VENUE_SIZE,
-    VENUE_SIZE_MIN
-  )
+/**
+ * Size for the venue line, which must stay on ONE line.
+ *
+ * Takes the budget it actually has rather than the column width, because the
+ * two card shapes reserve differently: the full-width card puts the wordmark
+ * BESIDE the line, the plate card puts it below.
+ */
+export function fitVenueSize(venueLine: string, maxWidth: number = VENUE_MAX_WIDTH): number {
+  return fitFontSize(venueLine, 'satoshiMedium', maxWidth, VENUE_SIZE, VENUE_SIZE_MIN)
 }
 
 /**
@@ -103,8 +199,8 @@ export function fitVenueSize(venueLine: string): number {
  * telling the caller nothing — so the caller has to ask separately in order to
  * clip rather than let the line run under the wordmark.
  */
-export function venueOverflows(venueLine: string): boolean {
-  return measureSans(venueLine, 'satoshiMedium', fitVenueSize(venueLine)) > VENUE_MAX_WIDTH
+export function venueOverflows(venueLine: string, maxWidth: number = VENUE_MAX_WIDTH): boolean {
+  return measureSans(venueLine, 'satoshiMedium', fitVenueSize(venueLine, maxWidth)) > maxWidth
 }
 
 /**

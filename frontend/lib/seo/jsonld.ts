@@ -285,6 +285,8 @@ export function generateMusicEventSchema(show: {
    * emitted — see the offers block below.
    */
   ticket_url?: string
+  /** The flyer, when the show has one. Emitted alongside the generated card. */
+  image_url?: string | null
   slug?: string
 }): MusicEventSchema {
   const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
@@ -403,10 +405,51 @@ export function generateMusicEventSchema(show: {
 
   if (show.slug) {
     schema.url = `${SITE_URL}/shows/${show.slug}`
-    schema.image = [`${SITE_URL}/shows/${show.slug}/opengraph-image`]
+  }
+
+  // Both images, generated card FIRST.
+  //
+  // Google treats the array as ranked preference, and the card is the one we
+  // control: it is always 1200×630, always contains the date, venue and bill as
+  // text, and always exists. The flyer is the richer artefact but an unknown
+  // quantity — arbitrary aspect ratio, possibly a dead link, and cropped to
+  // whatever ratio a given surface wants. Listing it second offers it without
+  // betting the result on it.
+  //
+  // The flyer is emitted even when the OG route could not render it: the two
+  // are independent claims, and a consumer fetching the URL directly is not
+  // affected by whatever made the card fall back to text.
+  const flyer = absoluteHttpUrl(show.image_url)
+  const images = [
+    ...(show.slug ? [`${SITE_URL}/shows/${show.slug}/opengraph-image`] : []),
+    ...(flyer ? [flyer] : []),
+  ]
+  if (images.length > 0) {
+    schema.image = images
   }
 
   return schema
+}
+
+/**
+ * The NORMALISED absolute http(s) URL, or null.
+ *
+ * Returns `href` rather than the input because URL parsing is far more lenient
+ * than the value it produces: `"  https://x/a "` and `"https://x/a\nb"` both
+ * parse, and the backend stores `image_url` untrimmed, so the padded form
+ * genuinely reaches this builder. Emitting the raw string would put whitespace
+ * and control characters inside a machine-readable image claim — the broken
+ * output this check exists to prevent, just in a subtler form than a relative
+ * path.
+ */
+function absoluteHttpUrl(value: string | null | undefined): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null
+  } catch {
+    return null
+  }
 }
 
 /**

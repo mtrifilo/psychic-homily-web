@@ -193,6 +193,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
         // Names the vendor in `offers.seller`. The builder never emits this
         // URL — no free referrals into structured data.
         ticket_url: showData.ticket_url ?? undefined,
+        image_url: showData.image_url,
         slug: showData.slug,
       })} />
       <JsonLd data={generateBreadcrumbSchema([

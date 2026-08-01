@@ -86,8 +86,12 @@ export function formatShowCountLine(total: number, isCurrentWeek: boolean): stri
  * shifted back by one. The backend already resolved these dates in the scene's
  * own timezone; they are calendar dates, not instants, and must be built
  * component-wise to stay that way.
+ *
+ * Exported for the day surface, which parses the same scene-local ISO dates and
+ * must not grow a second copy of this rule — a page and its sibling disagreeing
+ * about what `2026-07-31` means is exactly the bug this guards.
  */
-function parseCalendarDate(iso: string): Date {
+export function parseCalendarDate(iso: string): Date {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, (m ?? 1) - 1, d ?? 1)
 }
@@ -132,6 +136,10 @@ export function formatWeekRange(startISO: string, endISO: string): string {
  * Most shows carry an empty `title` — display names are composed from the bill
  * everywhere else in the app — so artist names are the primary source and the
  * title is the fallback, not the other way round.
+ *
+ * Shared with the day surface, which lists the same rows: the two pages must
+ * name a show identically or a reader following one to the other sees it
+ * rename itself.
  */
 export function showDisplayTitle(show: SceneWeekShow): string {
   const names = show.artist_names ?? []

@@ -5512,6 +5512,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenes/{slug}/day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug day */
+        get: operations["get-scenes-by-slug-day"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** Head scenes by slug day */
+        head: operations["head-scenes-by-slug-day"];
+        patch?: never;
+        trace?: never;
+    };
+    "/scenes/{slug}/day/{date}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug day by date */
+        get: operations["get-scenes-by-slug-day-by-date"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** Head scenes by slug day by date */
+        head: operations["head-scenes-by-slug-day-by-date"];
+        patch?: never;
+        trace?: never;
+    };
     "/scenes/{slug}/follow": {
         parameters: {
             query?: never;
@@ -14567,6 +14603,30 @@ export interface components {
             slug: string;
             state: string | null;
         };
+        SceneDayResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SceneDayResponse.json
+             */
+            readonly $schema?: string;
+            city: string;
+            date: string;
+            is_past_day: boolean;
+            is_tonight: boolean;
+            iso_week: string;
+            next_date: string;
+            next_show?: components["schemas"]["SceneShowSummary"];
+            prev_date: string;
+            scene_name: string;
+            /** Format: int64 */
+            show_count: number;
+            shows: components["schemas"]["SceneShowSummary"][] | null;
+            slug: string;
+            state: string;
+            timezone: string;
+            tracked_venues: components["schemas"]["SceneTrackedVenue"][] | null;
+        };
         SceneDetailResponse: {
             /**
              * Format: uri
@@ -14745,6 +14805,11 @@ export interface components {
             upcoming_show_count: number;
             /** Format: int64 */
             venue_count: number;
+        };
+        SceneTrackedVenue: {
+            name: string;
+            slug?: string;
+            website?: string;
         };
         SceneWeekDay: {
             date: string;
@@ -30400,6 +30465,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetSceneActiveArtistsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-scenes-by-slug-day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDayResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "head-scenes-by-slug-day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDayResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-scenes-by-slug-day-by-date": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+                /**
+                 * @description ISO calendar date (e.g. 2026-07-31)
+                 * @example 2026-07-31
+                 */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDayResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "head-scenes-by-slug-day-by-date": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+                /**
+                 * @description ISO calendar date (e.g. 2026-07-31)
+                 * @example 2026-07-31
+                 */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneDayResponse"];
                 };
             };
             /** @description Error */
