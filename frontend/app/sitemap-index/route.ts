@@ -6,7 +6,8 @@
  * a route under app/sitemap.xml/ collides with the metadata [__metadata_id__]
  * matcher). This dedicated path is what robots.txt points crawlers at.
  *
- * Keep the id list in lockstep with generateSitemaps() via sitemap-shards.ts.
+ * The id list and the shard path shape both come from sitemap-shards.ts, so
+ * this route cannot drift from generateSitemaps().
  */
 import { ALL_SHARD_IDS, shardRoutePath } from '../sitemap-shards'
 

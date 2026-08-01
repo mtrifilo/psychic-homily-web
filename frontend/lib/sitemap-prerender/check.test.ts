@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_SHARD_IDS, FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '@/app/sitemap-shards'
+import {
+  ALL_SHARD_IDS,
+  FAMILY_SHARD_IDS,
+  PAGES_SHARD_ID,
+  shardRoutePath,
+} from '@/app/sitemap-shards'
 import {
   findShardsWithoutFallback,
   formatShardFailures,
   looksLikeManifestShapeChange,
   shardBodyPath,
-  shardRoutePath,
   type PrerenderManifestLike,
 } from './check'
 

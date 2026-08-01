@@ -31,11 +31,21 @@
  * prerendered sitemap. That is what "stale wins" resolves to in practice: the
  * last good document keeps being served, and nobody has to notice.
  *
- * Row 4 is why this gate is expected to fire rarely: Vercel restores
- * `.next/cache` between builds, so a deploy that lands during a short backend
- * restart still prerenders from the Data Cache entry, in window. The gate fires
- * only when a cache miss and a backend outage coincide — the case that used to
- * ship silently.
+ * SCOPE OF THE MEASUREMENT, so the next reader does not over-trust the table.
+ * All four rows were measured locally on `next start` against a stub feed of
+ * two slugs per family. What that establishes is which artifacts a build
+ * produces and what the server does with them, which does not depend on payload
+ * size — rows 1 to 3 carry over. Row 4 does NOT generalise safely: it depends
+ * on the family's response fitting a fetch Data Cache entry (~2 MB cap, body
+ * base64-encoded), which sharding by family exists to stay under but which a
+ * large family could still exceed, and it depends on Vercel restoring
+ * `.next/cache` between builds, which is platform behaviour this repo has not
+ * probed. Read row 4 as "the gate should fire rarely", never as a guarantee
+ * that a warm cache rescues a degraded build. The two Vercel-side steps in the
+ * paragraph above — a failed build not being promoted, and the previous
+ * deployment continuing to serve — are likewise the platform's documented model
+ * rather than something measured here; what was measured is the gate's exit
+ * code.
  *
  * A prerendered body is proof the fetch succeeded, because
  * `fetchSitemapFamily` throws on a bad answer rather than emitting a partial
@@ -55,8 +65,6 @@
  * cost is misattribution, which `formatShardFailures` handles.
  */
 import { ALL_SHARD_IDS, shardRoutePath } from '@/app/sitemap-shards'
-
-export { ALL_SHARD_IDS, shardRoutePath }
 
 /** The build artifact holding shard `id`'s rendered XML, relative to `.next`. */
 export function shardBodyPath(id: string): string {

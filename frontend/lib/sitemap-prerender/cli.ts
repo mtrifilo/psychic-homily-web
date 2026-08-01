@@ -24,8 +24,8 @@
  */
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { ALL_SHARD_IDS } from '@/app/sitemap-shards'
 import {
-  ALL_SHARD_IDS,
   findShardsWithoutFallback,
   formatShardFailures,
   type PrerenderManifestLike,

@@ -39,10 +39,16 @@
  *
  *   Backend unreachable at build time, WARM build cache:
  *     All ten shards prerender anyway, from in-window Data Cache entries —
- *     verified by the stamp in the served body. Vercel restores `.next/cache`
- *     between builds, so a deploy landing during a short backend restart
- *     usually still gets a good prerender. The degraded row needs a cache miss
- *     AND an outage at the same moment.
+ *     verified by the stamp in the served body. Treat this row as the weakest
+ *     of the four: it was measured against a two-slug stub, so it assumes the
+ *     family's response fits a Data Cache entry (~2 MB cap), and it assumes
+ *     Vercel restores `.next/cache` between builds, which is documented
+ *     platform behaviour rather than something probed here. It says the
+ *     degraded row should be RARE — needing a cache miss and an outage at the
+ *     same moment — not that a warm cache will rescue a build.
+ *
+ * Rows 1 to 3 do not depend on payload size: they are about which artifacts a
+ * build produces and what the server does with them.
  *
  * The degraded row is now unshippable rather than survivable: the `build` npm
  * script chains lib/sitemap-prerender/cli.ts, which exits 1 when any shard has
