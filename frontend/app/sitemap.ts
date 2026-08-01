@@ -68,11 +68,14 @@
  *           expire — with `.body`/`.meta` RE-STAMPED mid-poll, so every failed
  *           revalidation resets the age clock. `calculateRevalidate` reads only
  *           `cacheControl.revalidate`; expire is absent from that decision.
- *   Vercel  preview probe, expire 400: 200 `x-vercel-cache: STALE` at age 1566s
+ *   Vercel  PREVIEW probe, expire 400: 200 `x-vercel-cache: STALE` at age 1566s
  *           (3.9x expire), with a PASSING positive control proving the route
  *           does revalidate on that window. `@vercel/next` really does serialize
  *           `staleExpiration` into `.prerender-config.json` — the platform
- *           receives the number and ignores it.
+ *           receives the number and ignores it. CAVEAT: preview only. Production
+ *           ISR policy is ASSUMED identical, not probed. Both environments were
+ *           measured serving shards via the same Prerender path and emit
+ *           identical build artifacts, but that is inference, not measurement.
  *
  * Consequence: there is NO upper bound on how long a stale sitemap serves while
  * revalidation keeps failing. PSY-1629's freshness monitor is not a
