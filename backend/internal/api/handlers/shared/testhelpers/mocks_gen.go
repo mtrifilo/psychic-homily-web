@@ -3402,6 +3402,21 @@ func (m *MockShowAdminService) GetAdminShows(limit int, offset int, filters cont
 }
 
 // ============================================================================
+// Mock: ShowCalendarServiceInterface
+// ============================================================================
+
+type MockShowCalendarService struct {
+	GenerateShowEventFn func(string, string) (*contracts.ShowCalendarEvent, error)
+}
+
+func (m *MockShowCalendarService) GenerateShowEvent(idOrSlug string, frontendURL string) (*contracts.ShowCalendarEvent, error) {
+	if m.GenerateShowEventFn != nil {
+		return m.GenerateShowEventFn(idOrSlug, frontendURL)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: ShowImportServiceInterface
 // ============================================================================
 
@@ -4557,6 +4572,7 @@ var _ contracts.SavedReleaseServiceInterface = (*MockSavedReleaseService)(nil)
 var _ contracts.SavedShowServiceInterface = (*MockSavedShowService)(nil)
 var _ contracts.SceneServiceInterface = (*MockSceneService)(nil)
 var _ contracts.ShowAdminServiceInterface = (*MockShowAdminService)(nil)
+var _ contracts.ShowCalendarServiceInterface = (*MockShowCalendarService)(nil)
 var _ contracts.ShowImportServiceInterface = (*MockShowImportService)(nil)
 var _ contracts.ShowReportServiceInterface = (*MockShowReportService)(nil)
 var _ contracts.ShowServiceInterface = (*MockShowService)(nil)

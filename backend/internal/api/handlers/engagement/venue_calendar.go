@@ -14,20 +14,20 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// venueFeedCacheControl is what an anonymous, aggressively-polled feed advertises.
+// publicCalendarCacheControl is what every anonymous calendar surface advertises.
 //
 // "public" (unlike the personal feed's "private") because the payload contains
 // no per-subscriber data — every caller gets the same bytes, so shared caches
-// SHOULD be allowed to absorb the poll traffic. 15 minutes is the trade being
+// SHOULD be allowed to absorb the traffic. 15 minutes is the trade being
 // made explicit: long enough that a client polling every few minutes mostly
 // never reaches the origin, short enough that a cancellation propagates the same
 // afternoon it is entered.
-const venueFeedCacheControl = "public, max-age=900"
+const publicCalendarCacheControl = "public, max-age=900"
 
-// maxVenueIdentifierLength bounds the path segment before it becomes a database
-// lookup. Real slugs are far shorter; this only exists so a public endpoint
-// cannot be probed with megabyte-long identifiers.
-const maxVenueIdentifierLength = 200
+// maxCalendarIdentifierLength bounds the path segment before it becomes a
+// database lookup. Real slugs are far shorter; this only exists so a public
+// endpoint cannot be probed with megabyte-long identifiers.
+const maxCalendarIdentifierLength = 200
 
 // VenueCalendarHandler serves the public per-venue ICS feed (PSY-1584).
 //
@@ -55,17 +55,12 @@ func NewVenueCalendarHandler(venueCalendarService contracts.VenueCalendarService
 // both correctly.
 func (h *VenueCalendarHandler) GetVenueCalendarFeedHandler(w http.ResponseWriter, r *http.Request) {
 	venueIdentifier := strings.TrimSpace(chi.URLParam(r, "venue_id"))
-	if venueIdentifier == "" || len(venueIdentifier) > maxVenueIdentifierLength {
+	if venueIdentifier == "" || len(venueIdentifier) > maxCalendarIdentifierLength {
 		http.Error(w, "invalid venue identifier", http.StatusBadRequest)
 		return
 	}
 
-	frontendURL := h.config.Email.FrontendURL
-	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
-	}
-
-	feed, err := h.venueCalendarService.GenerateVenueFeed(venueIdentifier, frontendURL)
+	feed, err := h.venueCalendarService.GenerateVenueFeed(venueIdentifier, calendarFrontendURL(h.config))
 	if err != nil {
 		var venueErr *apperrors.VenueError
 		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
@@ -82,19 +77,35 @@ func (h *VenueCalendarHandler) GetVenueCalendarFeedHandler(w http.ResponseWriter
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Header().Set("Content-Disposition", "inline; filename=\""+venueFeedFilename(feed.VenueSlug)+"\"")
-	w.Header().Set("Cache-Control", venueFeedCacheControl)
-	w.Header().Set("ETag", feed.ETag)
+	// An unchanged feed costs the poller nothing beyond the request itself —
+	// writeCalendarResponse answers a matching If-None-Match with a bodyless 304.
+	writeCalendarResponse(w, r, "inline", venueFeedFilename(feed.VenueSlug), feed.ETag, feed.ICS)
+}
 
-	// An unchanged feed costs the poller nothing beyond the request itself.
-	if matchesETag(r.Header.Get("If-None-Match"), feed.ETag) {
+// calendarFrontendURL resolves the origin used for links back into the app.
+func calendarFrontendURL(cfg *config.Config) string {
+	if cfg.Email.FrontendURL != "" {
+		return cfg.Email.FrontendURL
+	}
+	return "http://localhost:3000"
+}
+
+// writeCalendarResponse sets the shared calendar-serving headers and answers
+// conditional requests. disposition is "inline" (a feed rendered in place) or
+// "attachment" (a download handed to the OS calendar client).
+func writeCalendarResponse(w http.ResponseWriter, r *http.Request, disposition, filename, etag string, body []byte) {
+	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
+	w.Header().Set("Content-Disposition", disposition+"; filename=\""+filename+"\"")
+	w.Header().Set("Cache-Control", publicCalendarCacheControl)
+	w.Header().Set("ETag", etag)
+
+	if matchesETag(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	respond.SafeWrite(r.Context(), w, feed.ICS)
+	respond.SafeWrite(r.Context(), w, body)
 }
 
 // matchesETag reports whether an If-None-Match header covers the current ETag.
@@ -116,11 +127,16 @@ func matchesETag(ifNoneMatch, etag string) bool {
 }
 
 // venueFeedFilename derives the download filename from the venue slug.
+func venueFeedFilename(slug string) string {
+	return filenameSafeSlug(slug, "venue") + "-shows.ics"
+}
+
+// filenameSafeSlug reduces a slug to filename-header-safe characters.
 //
 // The slug reaches this function from the database, but it is community-created
 // data flowing into a response HEADER, and a header is exactly where a stray
 // quote or newline stops being cosmetic. Only slug-shaped characters survive.
-func venueFeedFilename(slug string) string {
+func filenameSafeSlug(slug, fallback string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(slug) {
 		switch {
@@ -130,7 +146,7 @@ func venueFeedFilename(slug string) string {
 	}
 	cleaned := strings.Trim(b.String(), "-")
 	if cleaned == "" {
-		cleaned = "venue"
+		cleaned = fallback
 	}
-	return cleaned + "-shows.ics"
+	return cleaned
 }
