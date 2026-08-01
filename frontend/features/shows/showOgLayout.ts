@@ -60,7 +60,16 @@ export const PLATE_BOX_HEIGHT = OG_SIZE.height - PAD_Y * 2
 /** Keeps the plate off the text column at the share size, where 40px reads as 10. */
 export const PLATE_GAP = 40
 
-/** What the text column gets once the plate has taken its band. */
+/**
+ * What the text column gets once the plate has taken its band — and, because
+ * the footer STACKS beside a plate, what the venue line gets too.
+ *
+ * The wordmark costs ~326px in mono at its display size. Keeping the footer on
+ * one row here would leave the venue 274px of this 640px column — not enough
+ * for "Sleeping Village · Chicago, IL" even at the minimum size, i.e. the
+ * ORDINARY case would clip. The row becomes two rows instead: vertical space is
+ * the one thing the column has spare.
+ */
 export const TEXT_WIDTH_WITH_PLATE = CONTENT_WIDTH - PLATE_BOX_WIDTH - PLATE_GAP
 
 /**
@@ -95,18 +104,6 @@ export function fitPlate(
  */
 export const VENUE_MAX_WIDTH =
   CONTENT_WIDTH - measureMono(WORDMARK, DOMAIN_SIZE) - FOOTER_GAP
-
-/**
- * Width the venue line gets on the plate card, where the footer STACKS.
- *
- * The wordmark costs ~326px in mono at its display size. Beside a plate the
- * whole text column is 640px, so keeping the footer on one row would leave the
- * venue 274px — not enough for "Sleeping Village · Chicago, IL" even at the
- * minimum size, i.e. the ORDINARY case would clip. The row is turned into two
- * rows instead: vertical space is the one thing the column has spare, and the
- * venue then gets more room than it does on the full-width card.
- */
-export const VENUE_MAX_WIDTH_WITH_PLATE = TEXT_WIDTH_WITH_PLATE
 
 /**
  * Wrapped text never fills its lines completely — a line breaks at the last

@@ -45,26 +45,39 @@ afterEach(() => {
 })
 
 describe('loadRemoteImage', () => {
-  it('returns a data URI and the intrinsic size for a real image', async () => {
+  it('returns the raw bytes and the intrinsic size for a real image', async () => {
     mockFetch(() => imageResponse(pngBytes(800, 1000)))
     const result = await loadRemoteImage('https://cdn.example.com/flyer.png')
     expect(result?.width).toBe(800)
     expect(result?.height).toBe(1000)
-    expect(result?.dataUri.startsWith('data:image/png;base64,')).toBe(true)
+    // An ArrayBuffer, not a view and not a data URI: Satori sizes it with
+    // `new DataView(e)`, which rejects a typed array, and its data-URI branch
+    // retains every URI in a module-scoped LRU.
+    expect(result?.data).toBeInstanceOf(ArrayBuffer)
+    expect(new Uint8Array(result!.data)).toEqual(pngBytes(800, 1000))
   })
 
-  it('sends no ambient credentials or referrer', async () => {
+  // The guard that keeps the route fail-open: Satori draws png/apng/jpeg/gif
+  // and THROWS on anything else, so a WebP flyer must be dropped here rather
+  // than handed on.
+  it('drops a WebP the rasteriser cannot draw', async () => {
+    const webp = new Uint8Array(30)
+    webp.set([...'RIFF'].map(c => c.charCodeAt(0)), 0)
+    webp.set([...'WEBP'].map(c => c.charCodeAt(0)), 8)
+    webp.set([...'VP8X'].map(c => c.charCodeAt(0)), 12)
+    mockFetch(() => imageResponse(webp))
+    expect(await loadRemoteImage('https://cdn.example.com/flyer.webp')).toBeNull()
+  })
+
+  it('requests on guarded terms: no ambient auth, manual redirects, a deadline', async () => {
     const spy = mockFetch(() => imageResponse(pngBytes()))
     await loadRemoteImage('https://cdn.example.com/flyer.png')
     expect(spy.mock.calls[0][1]).toMatchObject({
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
+      // Manual is what makes the per-hop host checks apply at all.
+      redirect: 'manual',
     })
-  })
-
-  it('bounds the fetch with a deadline', async () => {
-    const spy = mockFetch(() => imageResponse(pngBytes()))
-    await loadRemoteImage('https://cdn.example.com/flyer.png')
     expect(spy.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal)
   })
 })
@@ -204,6 +217,28 @@ describe('responses that must not reach the renderer', () => {
   it('drops an image whose declared canvas exceeds the pixel budget', async () => {
     mockFetch(() => imageResponse(pngBytes(12000, 12000)))
     expect(await loadRemoteImage('https://cdn.example.com/huge.png')).toBeNull()
+  })
+
+  // The caps are safety ceilings, not targets. Sized to the 380×510 plate they
+  // would reject the artwork the feature exists for: a measured 960px Commons
+  // poster is 1.88MB, which an earlier 1.5MB cap threw away.
+  it('admits the flyers the feature is actually for', async () => {
+    for (const [w, h] of [
+      [960, 1387], // the measured Commons poster
+      [1080, 1350], // Instagram portrait export
+      [2550, 3300], // 8.5×11 at 300dpi
+    ] as const) {
+      mockFetch(() => imageResponse(pngBytes(w, h)))
+      expect(await loadRemoteImage('https://cdn.example.com/flyer.png'), `${w}×${h}`).not.toBeNull()
+    }
+  })
+
+  // Documented boundary, not an accident: 4032×3024 is 12.19MP, just over the
+  // cap, so an untouched phone photo degrades to the text card rather than
+  // risking a ~49MB decode in a 128MB runtime.
+  it('drops a full-resolution phone photo, just above the budget', async () => {
+    mockFetch(() => imageResponse(pngBytes(4032, 3024)))
+    expect(await loadRemoteImage('https://cdn.example.com/photo.png')).toBeNull()
   })
 
   it('drops a zero-dimension image', async () => {

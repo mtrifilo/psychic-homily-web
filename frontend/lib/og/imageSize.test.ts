@@ -38,17 +38,6 @@ function webpVp8x(width: number, height: number): Uint8Array {
   return b
 }
 
-function webpLossy(width: number, height: number): Uint8Array {
-  const b = new Uint8Array(30)
-  b.set([...'RIFF'].map(c => c.charCodeAt(0)), 0)
-  b.set([...'WEBP'].map(c => c.charCodeAt(0)), 8)
-  b.set([...'VP8 '].map(c => c.charCodeAt(0)), 12)
-  b.set([0x9d, 0x01, 0x2a], 23)
-  new DataView(b.buffer).setUint16(26, width, true)
-  new DataView(b.buffer).setUint16(28, height, true)
-  return b
-}
-
 /**
  * A JPEG with `segmentsBefore` filler segments ahead of the SOF0, so the test
  * covers the segment WALK and not just a fixed offset — the walk is the part
@@ -81,24 +70,6 @@ describe('readImageHeader', () => {
       width: 500,
       height: 750,
       mime: 'image/gif',
-    })
-  })
-
-  // The extended container is what an animated or alpha-channel flyer arrives
-  // as, and it stores its size minus one — an off-by-one here is silent.
-  it('reads an extended WebP', () => {
-    expect(readImageHeader(webpVp8x(1200, 1600))).toEqual({
-      width: 1200,
-      height: 1600,
-      mime: 'image/webp',
-    })
-  })
-
-  it('reads a lossy WebP', () => {
-    expect(readImageHeader(webpLossy(800, 1200))).toEqual({
-      width: 800,
-      height: 1200,
-      mime: 'image/webp',
     })
   })
 
@@ -145,11 +116,18 @@ describe('readImageHeader rejections', () => {
   it('rejects a truncated header of a supported format', () => {
     expect(readImageHeader(png(100, 100).subarray(0, 16))).toBeNull()
     expect(readImageHeader(gif(100, 100).subarray(0, 6))).toBeNull()
-    expect(readImageHeader(webpVp8x(100, 100).subarray(0, 20))).toBeNull()
   })
 
-  // AVIF and HEIC are deliberately unsupported: the rasteriser cannot decode
-  // them, so parsing one would only yield a card with a blank plate.
+  // The accepted set is deliberately EXACTLY what Satori can rasterise
+  // (`[png, apng, jpeg, gif, svg]`). Anything else throws `Unsupported image
+  // type` from inside `ImageResponse` and 500s the route — so accepting a
+  // format we can size but cannot draw is worse than rejecting it. WebP is the
+  // live case: it parses easily and is common on the web, and it would have
+  // taken the whole card down.
+  it('rejects a WebP the rasteriser cannot draw, rather than sizing it', () => {
+    expect(readImageHeader(webpVp8x(1200, 1600))).toBeNull()
+  })
+
   it('rejects an AVIF rather than pretending to size it', () => {
     const avif = new Uint8Array(32)
     avif.set([...'\0\0\0 ftypavif'].map(c => c.charCodeAt(0)), 0)

@@ -17,10 +17,6 @@
  *
  * The MIME type comes from the magic bytes rather than the server's
  * `Content-Type`, which is remote-controlled and may simply be wrong.
- *
- * Kept dependency-free: this is imported into an edge bundle, where OG failures
- * surface at DEPLOY time rather than at build, so an image-parsing library is
- * exactly the kind of weight not worth carrying for four format headers.
  */
 
 export interface ImageHeader {
@@ -31,16 +27,28 @@ export interface ImageHeader {
 }
 
 /**
- * Read the intrinsic size of a JPEG, PNG, WebP or GIF, or `null` for anything
- * else — including a truncated file of a format we do support.
+ * Read the intrinsic size of a PNG, GIF or JPEG, or `null` for anything else —
+ * including a truncated file of a format we do support.
  *
- * These four cover what image hosts serve. AVIF and HEIC are deliberately out:
- * their sizes live inside an ISOBMFF box tree that needs a real walker, and
- * Satori's rasteriser does not decode them anyway, so parsing one would only
- * produce a card with a blank plate.
+ * The accepted set is exactly what the card's rasteriser can draw, and that is
+ * load-bearing rather than incidental. Satori's supported list is
+ * `[png, apng, jpeg, gif, svg]`; handed anything else it THROWS
+ * `Unsupported image type` from inside `ImageResponse`, which would 500 the
+ * route — destroying the fail-open guarantee this whole path exists to
+ * provide. So a format this parser accepts but the renderer cannot draw is
+ * strictly worse than one it rejects: rejecting yields the text-only card,
+ * accepting yields a broken share preview.
+ *
+ * That rules out WebP and AVIF specifically. WebP is common on the web, so a
+ * WebP flyer silently getting the text card is a real (if minor) product gap —
+ * the fix is to transcode at the write boundary, not to widen this.
+ *
+ * Kept dependency-free: this is imported into an edge bundle, where OG failures
+ * surface at DEPLOY time rather than at build, so an image-parsing library is
+ * exactly the kind of weight not worth carrying for three format headers.
  */
 export function readImageHeader(bytes: Uint8Array): ImageHeader | null {
-  return readPng(bytes) ?? readGif(bytes) ?? readWebp(bytes) ?? readJpeg(bytes)
+  return readPng(bytes) ?? readGif(bytes) ?? readJpeg(bytes)
 }
 
 function u32be(b: Uint8Array, at: number): number {
@@ -53,10 +61,6 @@ function u16be(b: Uint8Array, at: number): number {
 
 function u16le(b: Uint8Array, at: number): number {
   return b[at] | (b[at + 1] << 8)
-}
-
-function u24le(b: Uint8Array, at: number): number {
-  return b[at] | (b[at + 1] << 8) | (b[at + 2] << 16)
 }
 
 function matches(b: Uint8Array, at: number, ascii: string): boolean {
@@ -82,47 +86,6 @@ function readGif(b: Uint8Array): ImageHeader | null {
   if (b.length < 10) return null
   if (!matches(b, 0, 'GIF87a') && !matches(b, 0, 'GIF89a')) return null
   return { width: u16le(b, 6), height: u16le(b, 8), mime: 'image/gif' }
-}
-
-/**
- * WebP has three container flavours and each stores its size differently.
- *
- * Lossy (`VP8 `) keeps it in the frame header; lossless (`VP8L`) packs two
- * 14-bit minus-one fields into a bitstream; extended (`VP8X`) — which is what
- * an animated or alpha-channel flyer arrives as — carries 24-bit minus-one
- * canvas fields in the chunk itself.
- */
-function readWebp(b: Uint8Array): ImageHeader | null {
-  if (b.length < 30) return null
-  if (!matches(b, 0, 'RIFF') || !matches(b, 8, 'WEBP')) return null
-
-  if (matches(b, 12, 'VP8X')) {
-    return {
-      width: u24le(b, 24) + 1,
-      height: u24le(b, 27) + 1,
-      mime: 'image/webp',
-    }
-  }
-  if (matches(b, 12, 'VP8L')) {
-    if (b[20] !== 0x2f) return null // signature byte of the lossless bitstream
-    // Little-endian bit packing: width is the low 14 bits, height the next 14.
-    const packed = (b[21] | (b[22] << 8) | (b[23] << 16) | (b[24] << 24)) >>> 0
-    return {
-      width: (packed & 0x3fff) + 1,
-      height: ((packed >>> 14) & 0x3fff) + 1,
-      mime: 'image/webp',
-    }
-  }
-  if (matches(b, 12, 'VP8 ')) {
-    // 0x9d012a is the start code that precedes the two 14-bit dimensions.
-    if (b[23] !== 0x9d || b[24] !== 0x01 || b[25] !== 0x2a) return null
-    return {
-      width: u16le(b, 26) & 0x3fff,
-      height: u16le(b, 28) & 0x3fff,
-      mime: 'image/webp',
-    }
-  }
-  return null
 }
 
 /**

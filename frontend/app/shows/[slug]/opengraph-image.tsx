@@ -4,6 +4,7 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { OG_COLORS, OG_CONTENT_TYPE, OG_FONT_FAMILY, OG_SIZE } from '@/lib/og/brand'
 import {
+  OG_FALLBACK_CACHE_SECONDS,
   loadBrandFontsOrDefault,
   ogCacheControl,
   ogFallbackCard,
@@ -25,7 +26,6 @@ import {
   TITLE_LINE_HEIGHT,
   TITLE_SIZE_MAX,
   VENUE_MAX_WIDTH,
-  VENUE_MAX_WIDTH_WITH_PLATE,
   WORDMARK,
   buildVenueLine,
   fitPlate,
@@ -93,7 +93,19 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   // fetch comes out of it. Bounded by `loadRemoteImage`'s own deadline, and any
   // failure returns null, which is simply the text-only card.
   const flyer = await loadRemoteImage(show.image_url)
-  const plate = flyer ? fitPlate(flyer.width, flyer.height) : null
+  // One nullable value for "there is a flyer", carrying everything drawing it
+  // needs. Two (the bytes and the geometry) would have to be re-narrowed
+  // together at every use.
+  const plate = flyer
+    ? { ...fitPlate(flyer.width, flyer.height), src: flyer.data }
+    : null
+  // A flyer was expected and did not arrive — a timeout, a dead link, a format
+  // the rasteriser cannot draw. The card is still correct, so it renders, but it
+  // must not be cached like a complete one: `ogCacheControl` sets
+  // stale-while-revalidate equal to s-maxage, so a past show would hold a
+  // momentary blip for up to 48 hours. Same reasoning `ogFallbackCard` writes
+  // down for its own error state.
+  const flyerMissing = Boolean(show.image_url) && !flyer
   // The text column narrows only when there is actually a plate beside it, so a
   // flyer-less show renders exactly the card it rendered before.
   const textWidth = plate ? TEXT_WIDTH_WITH_PLATE : CONTENT_WIDTH
@@ -111,10 +123,11 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const venueLine = buildVenueLine(venueName, venue?.city, venue?.state)
 
   const titleSize = fitTitleSize(displayTitle, textWidth)
-  // Beside a plate the footer stacks, so the venue line gets the whole column
-  // instead of sharing a row with the wordmark. See VENUE_MAX_WIDTH_WITH_PLATE:
-  // kept inline, an ordinary venue name would clip on every flyer card.
-  const venueBudget = plate ? VENUE_MAX_WIDTH_WITH_PLATE : VENUE_MAX_WIDTH
+  // Beside a plate the footer STACKS, so the venue line gets the whole column
+  // rather than sharing a row with the wordmark — kept inline it would have
+  // 274px of a 640px column, and an ordinary venue name would clip on every
+  // single flyer card. See TEXT_WIDTH_WITH_PLATE.
+  const venueBudget = plate ? textWidth : VENUE_MAX_WIDTH
   const venueSize = fitVenueSize(venueLine, venueBudget)
   // Past the minimum size the line still overruns. It must CLIP rather than
   // run under the wordmark and push it off the canvas — the two elements this
@@ -130,7 +143,10 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'stretch',
-          gap: plate ? PLATE_GAP : 0,
+          // Unconditional: without a plate this row has one in-flow child (the
+          // CANCELLED overlay is absolute), and a gap between one child is
+          // nothing.
+          gap: PLATE_GAP,
           backgroundColor: OG_COLORS.background,
           padding: `${PAD_Y}px ${PAD_X}px`,
           position: 'relative',
@@ -140,7 +156,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
             its own ratio. Fixed rather than shrink-to-fit so the text column's
             width — and therefore every fit budget above — is the same number
             for a portrait poster and a landscape one. */}
-        {plate && flyer && (
+        {plate && (
           <div
             style={{
               display: 'flex',
@@ -154,7 +170,10 @@ export default async function Image({ params }: { params: Promise<{ slug: string
             {/* A bare <img> on purpose: Satori renders this, not the browser,
                 so next/image has no meaning inside an OG card. */}
             <img
-              src={flyer.dataUri}
+              /* Raw bytes, not a data URI — see `RemoteImage.data`. Satori's
+                 resolver takes an ArrayBuffer here; React's DOM typings only
+                 know about the browser's string `src`, hence the cast. */
+              src={plate.src as unknown as string}
               alt=""
               width={plate.width}
               height={plate.height}
@@ -174,124 +193,133 @@ export default async function Image({ params }: { params: Promise<{ slug: string
             minWidth: 0,
           }}
         >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+            <div
+              style={{
+                display: 'flex',
+                fontFamily: OG_FONT_FAMILY.mono,
+                fontSize: DATE_SIZE,
+                color: OG_COLORS.primary,
+              }}
+            >
+              {showDate}
+            </div>
+            {show.is_sold_out && (
+              <div
+                style={{
+                  display: 'flex',
+                  fontFamily: OG_FONT_FAMILY.sans,
+                  fontWeight: 700,
+                  backgroundColor: OG_COLORS.destructive,
+                  color: OG_COLORS.destructiveForeground,
+                  fontSize: SOLD_OUT_SIZE,
+                  padding: '4px 14px',
+                  borderRadius: 6,
+                  letterSpacing: '0.05em',
+                }}
+              >
+                SOLD OUT
+              </div>
+            )}
+          </div>
+
+          {/* Clipped rather than allowed to bleed: the title is measured, but a
+              script outside the font subset cannot be measured exactly. */}
+          {/* `flex: 1, minHeight: 0` is what makes the clip real. Without a
+              basis this box is content-driven, so `overflow: hidden` never
+              clipped vertically — a very long title simply grew the box and
+              pushed the venue and wordmark off the canvas entirely. Titles are
+              VARCHAR(500) in the schema and the discovery pipeline writes them
+              without the handlers' 255 cap, so this is a reachable input. */}
           <div
             style={{
               display: 'flex',
-              fontFamily: OG_FONT_FAMILY.mono,
-              fontSize: DATE_SIZE,
-              color: OG_COLORS.primary,
+              flexDirection: 'column',
+              gap: HEADLINE_GAP,
+              flex: 1,
+              minHeight: 0,
+              justifyContent: 'center',
+              overflow: 'hidden',
             }}
           >
-            {showDate}
-          </div>
-          {show.is_sold_out && (
             <div
               style={{
                 display: 'flex',
                 fontFamily: OG_FONT_FAMILY.sans,
                 fontWeight: 700,
-                backgroundColor: OG_COLORS.destructive,
-                color: OG_COLORS.destructiveForeground,
-                fontSize: SOLD_OUT_SIZE,
-                padding: '4px 14px',
-                borderRadius: 6,
-                letterSpacing: '0.05em',
+                fontSize: titleSize,
+                lineHeight: `${Math.round((TITLE_LINE_HEIGHT / TITLE_SIZE_MAX) * titleSize)}px`,
+                color: OG_COLORS.foreground,
               }}
             >
-              SOLD OUT
+              {displayTitle}
             </div>
-          )}
-        </div>
+            {otherArtists && otherArtists.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  fontFamily: OG_FONT_FAMILY.sans,
+                  fontWeight: 400,
+                  fontSize: SUPPORT_SIZE,
+                  color: OG_COLORS.mutedForeground,
+                }}
+              >
+                with {otherArtists.slice(0, 4).join(', ')}
+                {otherArtists.length > 4 ? ` + ${otherArtists.length - 4} more` : ''}
+              </div>
+            )}
+          </div>
 
-        {/* Clipped rather than allowed to bleed: the title is measured, but a
-            script outside the font subset cannot be measured exactly. */}
-        {/* `flex: 1, minHeight: 0` is what makes the clip real. Without a
-            basis this box is content-driven, so `overflow: hidden` never
-            clipped vertically — a very long title simply grew the box and
-            pushed the venue and wordmark off the canvas entirely. Titles are
-            VARCHAR(500) in the schema and the discovery pipeline writes them
-            without the handlers' 255 cap, so this is a reachable input. */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: HEADLINE_GAP,
-            flex: 1,
-            minHeight: 0,
-            justifyContent: 'center',
-            overflow: 'hidden',
-          }}
-        >
+          {/* Two whole shapes rather than four coupled ternaries: the wordmark
+              costs ~326px in mono, which the 640px plate column cannot spare
+              beside a venue line, so beside a plate the footer stacks. */}
           <div
             style={{
               display: 'flex',
-              fontFamily: OG_FONT_FAMILY.sans,
-              fontWeight: 700,
-              fontSize: titleSize,
-              lineHeight: `${Math.round((TITLE_LINE_HEIGHT / TITLE_SIZE_MAX) * titleSize)}px`,
-              color: OG_COLORS.foreground,
+              overflow: 'hidden',
+              ...(plate
+                ? {
+                    flexDirection: 'column',
+                    justifyContent: 'flex-end',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                  }
+                : {
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-end',
+                  }),
             }}
           >
-            {displayTitle}
-          </div>
-          {otherArtists && otherArtists.length > 0 && (
             <div
               style={{
                 display: 'flex',
                 fontFamily: OG_FONT_FAMILY.sans,
-                fontWeight: 400,
-                fontSize: SUPPORT_SIZE,
-                color: OG_COLORS.mutedForeground,
+                fontWeight: 500,
+                fontSize: venueSize,
+                color: OG_COLORS.foreground,
+                whiteSpace: 'nowrap',
+                ...(venueClips ? { minWidth: 0, overflow: 'hidden' } : {}),
               }}
             >
-              with {otherArtists.slice(0, 4).join(', ')}
-              {otherArtists.length > 4 ? ` + ${otherArtists.length - 4} more` : ''}
+              {venueLine}
             </div>
-          )}
-        </div>
-
-        {/* Stacks beside a plate, inline otherwise. The wordmark costs ~326px
-            in mono, which the 640px column cannot spare next to a venue line. */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: plate ? 'column' : 'row',
-            justifyContent: plate ? 'flex-end' : 'space-between',
-            alignItems: plate ? 'flex-start' : 'flex-end',
-            gap: plate ? 8 : 0,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              fontFamily: OG_FONT_FAMILY.sans,
-              fontWeight: 500,
-              fontSize: venueSize,
-              color: OG_COLORS.foreground,
-              whiteSpace: 'nowrap',
-              ...(venueClips ? { minWidth: 0, overflow: 'hidden' } : {}),
-            }}
-          >
-            {venueLine}
+            <div
+              style={{
+                display: 'flex',
+                fontFamily: OG_FONT_FAMILY.mono,
+                fontSize: DOMAIN_SIZE,
+                color: OG_COLORS.primary,
+                whiteSpace: 'nowrap',
+                // Past the venue's minimum size the row is over budget, and
+                // `space-between` would push the RIGHT-hand element out. The
+                // wordmark is the one thing that must never be what disappears.
+                flexShrink: 0,
+              }}
+            >
+              {WORDMARK}
+            </div>
           </div>
-          <div
-            style={{
-              display: 'flex',
-              fontFamily: OG_FONT_FAMILY.mono,
-              fontSize: DOMAIN_SIZE,
-              color: OG_COLORS.primary,
-              whiteSpace: 'nowrap',
-              // Past the venue's minimum size the row is over budget, and
-              // `space-between` would push the RIGHT-hand element out. The
-              // wordmark is the one thing that must never be what disappears.
-              flexShrink: 0,
-            }}
-          >
-            {WORDMARK}
-          </div>
-        </div>
         </div>
 
         {/* LAST on purpose. Satori paints in document order, so an overlay
@@ -340,10 +368,16 @@ export default async function Image({ params }: { params: Promise<{ slug: string
       // serving a card that says a sold-out show is available.
       //
       // A card drawn without the brand fonts is held shorter still: its fit
-      // budgets assumed Satoshi's metrics, so it may be visually wrong.
+      // budgets assumed Satoshi's metrics, so it may be visually wrong. A card
+      // whose flyer failed to load is held on the same footing — it is an
+      // incomplete render, not a settled one.
       headers: {
         'cache-control': ogCacheControl(
-          degraded ? 60 : showHasPassed(show.event_date) ? SETTLED_REVALIDATE : LIVE_REVALIDATE
+          degraded || flyerMissing
+            ? OG_FALLBACK_CACHE_SECONDS
+            : showHasPassed(show.event_date)
+              ? SETTLED_REVALIDATE
+              : LIVE_REVALIDATE
         ),
       },
     }

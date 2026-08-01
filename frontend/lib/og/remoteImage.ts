@@ -28,23 +28,54 @@ const FETCH_TIMEOUT_MS = 2000
  *
  * `arrayBuffer()` on an attacker-chosen URL is an unbounded allocation — a
  * `Content-Length` header is a claim, and a chunked response makes no claim at
- * all. 3MB comfortably covers a photographed gig poster.
+ * all.
+ *
+ * These are SAFETY ceilings, not targets. It is tempting to size them to the
+ * plate — the 380×510 box can only ever show 193,800 pixels, so on paper a few
+ * hundred KB would do. Measured against real artwork that is simply wrong: a
+ * 960px-wide poster PNG on Wikimedia Commons is 1.88MB, and a 1.5MB cap
+ * rejected it. Since every rejection fails open to the text-only card, a tight
+ * cap does not save memory on the common path — it silently removes the
+ * feature for the flyers it was built for.
  */
 const MAX_BYTES = 3 * 1024 * 1024
 
 /**
  * Decoded-pixel cap — the limit the byte cap cannot express.
  *
- * Rasterising costs roughly 4 bytes per pixel regardless of how well the file
- * compressed, so a small JPEG of a 12000×12000 canvas would ask for ~576MB in a
- * runtime that has a small fraction of that. 12MP (about 4000×3000) is far
- * beyond any flyer and stays inside the budget.
+ * Rasterising costs roughly 4 bytes per pixel however well the file compressed,
+ * so a small JPEG declaring a 12000×12000 canvas would ask for ~576MB in a
+ * runtime with a small fraction of that.
+ *
+ * 12MP is where the runtime runs out, not where flyers do: at 4 bytes a pixel
+ * this already admits a ~48MB decode, and the edge runtime has 128MB for that
+ * plus the resvg wasm, the fonts and the 1200×630 output.
+ *
+ * Be precise about what that excludes, because it is close to the line: a
+ * hosted flyer (a 1080×1350 Instagram export, the measured 960×1387 poster) is
+ * far under it, but a full-resolution phone photo at 4032×3024 is 12.19MP —
+ * just OVER, and it falls back to the text-only card. That is the right way to
+ * be wrong: image hosts downscale, so URLs pointing at untouched 12MP
+ * originals are rare, and the alternative is an OOM that takes the route down
+ * rather than degrading it.
  */
 const MAX_PIXELS = 12_000_000
 
 export interface RemoteImage {
-  /** `data:` URI, with the MIME sniffed from the magic bytes. */
-  dataUri: string
+  /**
+   * The raw bytes, handed to Satori as-is.
+   *
+   * Deliberately NOT a `data:` URI. Satori's resolver takes either, but the
+   * data-URI branch ends in `Re.set(uri, …)` — a module-scoped, 100-entry LRU
+   * keyed by the URI STRING. Flyer URIs are unique per show, so they are never
+   * cache hits, and a warm isolate serving a crawler sweep would retain up to
+   * 100 multi-megabyte strings it can never reuse. The object branch returns
+   * before that `set` and retains nothing.
+   *
+   * An `ArrayBuffer` specifically: Satori reads dimensions via `new DataView(e)`,
+   * which rejects a typed-array view.
+   */
+  data: ArrayBuffer
   width: number
   height: number
 }
@@ -122,8 +153,9 @@ export async function loadRemoteImage(raw: string | null | undefined): Promise<R
     const res = await fetchFollowingValidatedRedirects(url, deadline)
     if (!res?.ok || !res.body) return null
 
-    // A truthful `Content-Length` lets an oversized response be dropped before
-    // a single byte is buffered. An absent or lying one is caught below.
+    // A latency optimisation, NOT the safety guard: it saves pulling a huge
+    // body from an honest server, but the header is a claim and a chunked
+    // response makes none, so `readCapped` below is what actually bounds this.
     const declared = Number(res.headers.get('content-length'))
     if (Number.isFinite(declared) && declared > MAX_BYTES) return null
 
@@ -135,11 +167,7 @@ export async function loadRemoteImage(raw: string | null | undefined): Promise<R
     if (header.width < 1 || header.height < 1) return null
     if (header.width * header.height > MAX_PIXELS) return null
 
-    return {
-      dataUri: `data:${header.mime};base64,${toBase64(bytes)}`,
-      width: header.width,
-      height: header.height,
-    }
+    return { data: bytes.buffer as ArrayBuffer, width: header.width, height: header.height }
   } catch {
     // Timeout, DNS failure, TLS failure, connection reset — all the same
     // outcome for the caller, and none of them worth a Sentry event: a broken
@@ -148,6 +176,16 @@ export async function loadRemoteImage(raw: string | null | undefined): Promise<R
     // recurring noise on every unfurl.
     return null
   }
+}
+
+/**
+ * An explicit list, matching `lib/sitemap-monitor/fetch.ts` — the repo's other
+ * manual redirect walker. Treating the whole 3xx block as a redirect would put
+ * a 304 or a 300 down the follow path, where they have no `Location` to follow
+ * and would be reported as a failed hop rather than returned to the caller.
+ */
+function isRedirect(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308
 }
 
 /**
@@ -173,7 +211,7 @@ async function fetchFollowingValidatedRedirects(
       headers: { accept: 'image/*' },
     })
 
-    if (res.status < 300 || res.status > 399) return res
+    if (!isRedirect(res.status)) return res
 
     const location = res.headers.get('location')
     res.body?.cancel().catch(() => {})
@@ -213,6 +251,8 @@ async function readCapped(body: ReadableStream<Uint8Array>, limit: number): Prom
     reader.cancel().catch(() => {})
   }
 
+  // Exactly-sized, so `.buffer` can be handed onward without a further copy or
+  // an offset/length the consumer would have to respect.
   const out = new Uint8Array(total)
   let at = 0
   for (const chunk of chunks) {
@@ -220,17 +260,4 @@ async function readCapped(body: ReadableStream<Uint8Array>, limit: number): Prom
     at += chunk.byteLength
   }
   return out
-}
-
-/**
- * `btoa` needs a binary string, and spreading megabytes into
- * `String.fromCharCode` at once overflows the call stack, so it is chunked.
- */
-function toBase64(bytes: Uint8Array): string {
-  const CHUNK = 0x8000
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(binary)
 }

@@ -6,14 +6,12 @@ import {
   DOMAIN_SIZE,
   PLATE_BOX_HEIGHT,
   PLATE_BOX_WIDTH,
-  PLATE_GAP,
   SOLD_OUT_SIZE,
   SUPPORT_SIZE,
   TEXT_WIDTH_WITH_PLATE,
   TITLE_SIZE_MAX,
   TITLE_SIZE_MIN,
   VENUE_MAX_WIDTH,
-  VENUE_MAX_WIDTH_WITH_PLATE,
   VENUE_SIZE,
   buildVenueLine,
   fitPlate,
@@ -201,10 +199,6 @@ describe('fitPlate', () => {
 })
 
 describe('the text column beside a plate', () => {
-  it('reserves exactly the plate band plus the gap', () => {
-    expect(TEXT_WIDTH_WITH_PLATE).toBe(CONTENT_WIDTH - PLATE_BOX_WIDTH - PLATE_GAP)
-  })
-
   // The whole reason the fit functions take a width: measured against the FULL
   // content width, a title that fits the wide card would overrun the narrow one
   // and be clipped mid-word.
@@ -224,16 +218,13 @@ describe('the text column beside a plate', () => {
       .toBe(true)
   })
 
+  // Stacked, the venue line gets the whole column — which is the budget the
+  // route passes as `textWidth`.
   it('fits an ordinary venue line once the footer stacks', () => {
     const line = buildVenueLine('Sleeping Village', 'Chicago', 'IL')
-    expect(venueOverflows(line, VENUE_MAX_WIDTH_WITH_PLATE)).toBe(false)
+    expect(venueOverflows(line, TEXT_WIDTH_WITH_PLATE)).toBe(false)
     // And at full display size, not shrunk to squeeze in.
-    expect(fitVenueSize(line, VENUE_MAX_WIDTH_WITH_PLATE)).toBe(VENUE_SIZE)
-  })
-
-  // Stacking buys the venue MORE room than the full-width card gives it.
-  it('gives the stacked venue line a wider budget than the inline one', () => {
-    expect(VENUE_MAX_WIDTH_WITH_PLATE).toBeGreaterThan(VENUE_MAX_WIDTH * 0.9)
+    expect(fitVenueSize(line, TEXT_WIDTH_WITH_PLATE)).toBe(VENUE_SIZE)
   })
 
   // Every element is still consumed at a 4× downscale, plate or no plate.
@@ -250,6 +241,5 @@ describe('the text column beside a plate', () => {
     const line = buildVenueLine('Sleeping Village', 'Chicago', 'IL')
     expect(fitVenueSize(line)).toBe(fitVenueSize(line, VENUE_MAX_WIDTH))
     expect(venueOverflows(line)).toBe(venueOverflows(line, VENUE_MAX_WIDTH))
-    expect(VENUE_MAX_WIDTH).toBeGreaterThan(0)
   })
 })
