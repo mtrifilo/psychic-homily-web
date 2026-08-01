@@ -64,6 +64,24 @@ function formatShowDate(
   })
 }
 
+/**
+ * Whether the show has already started, and so has nothing left to sell.
+ *
+ * An undateable show counts as past. A `string` type is not a runtime
+ * guarantee — the frontend and backend deploy separately, and the data cache
+ * can serve a body fetched before a schema change — and the failure directions
+ * are not symmetric: guessing "upcoming" republishes `InStock` forever, which
+ * is the bug this exists to remove. `sceneWeekJsonLd` guards the same way.
+ *
+ * Named rather than inlined at the call site because the `react-hooks/purity`
+ * lint rule rejects a bare `Date.now()` in a component body ("Cannot call
+ * impure function during render").
+ */
+function isShowPast(eventDate: string): boolean {
+  const startedAt = Date.parse(eventDate)
+  return !Number.isFinite(startedAt) || startedAt <= Date.now()
+}
+
 export async function generateMetadata({ params }: ShowPageProps): Promise<Metadata> {
   const { slug } = await params
   const show = await getShow(slug)
@@ -89,6 +107,20 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
         description,
         type: 'website',
         url: `/shows/${slug}`,
+      },
+      // The root layout already sets `twitter.card`, so the card type is not
+      // what this fixes. It sets `twitter.images: ['/og-image.jpg']` too, and
+      // that shadowed the per-show card: every show unfurled on X with the
+      // generic site image. Declaring a route-level `twitter` object replaces
+      // the root's wholesale, and because this one omits `images`, Next copies
+      // the openGraph descriptor — this route's `opengraph-image` — across
+      // instead. Verified by diffing the rendered tags with and without this
+      // block. `images` must stay absent; setting a bare URL here would drop
+      // the alt text and dimensions that come with the descriptor.
+      twitter: {
+        card: 'summary_large_image',
+        title,
+        description,
       },
     }
   }
@@ -154,6 +186,13 @@ export default async function ShowPage({ params }: ShowPageProps) {
           socials: { ...a.socials },
         })),
         price: showData.price ?? undefined,
+        // See the builder for why an offer is dropped once the show has
+        // happened. Deliberately NOT derived inside the builder: that would
+        // make its output depend on the wall clock.
+        is_past: isShowPast(showData.event_date),
+        // Names the vendor in `offers.seller`. The builder never emits this
+        // URL — no free referrals into structured data.
+        ticket_url: showData.ticket_url ?? undefined,
         image_url: showData.image_url,
         slug: showData.slug,
       })} />

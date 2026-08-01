@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Children, isValidElement, type ReactElement } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
+import { JsonLd } from '@/components/seo/JsonLd'
 
 // `notFound()` in Next.js throws a control-flow error to halt rendering. We
 // mirror that here so tests can assert BOTH that it was called and that
@@ -40,6 +42,36 @@ function buildShow(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
+
+/**
+ * Pull the MusicEvent block out of the page's rendered `<JsonLd>` children.
+ *
+ * The page emits two JSON-LD scripts (MusicEvent + BreadcrumbList) as direct
+ * children of a fragment, so matching on the component type and `@type` is
+ * enough — no renderer needed for what is a pure data assertion.
+ */
+function musicEventSchemaFrom(result: ReactElement): Record<string, unknown> {
+  const children = Children.toArray(
+    (result.props as { children?: React.ReactNode }).children
+  )
+  for (const child of children) {
+    if (!isValidElement(child) || child.type !== JsonLd) continue
+    const { data } = child.props as { data?: Record<string, unknown> }
+    if (data?.['@type'] === 'MusicEvent') return data
+  }
+  // Throw rather than return undefined: if the page ever wraps its JSON-LD in
+  // another element, the assertions below would otherwise fail with a confusing
+  // message about `offers` instead of naming the real cause.
+  throw new Error('No MusicEvent JSON-LD found among the page\'s direct children')
+}
+
+/**
+ * `isShowPast` reads the real clock and the page has no seam to inject one, so
+ * these sit far enough either side of "now" that the wall clock cannot flip
+ * them. (`buildSceneWeekJsonLd` takes an injectable `now`; this page does not.)
+ */
+const PAST_DATE = '2020-03-15T20:00:00Z'
+const FUTURE_DATE = '2099-03-15T20:00:00Z'
 
 const fetchMock = vi.fn()
 
@@ -126,6 +158,39 @@ describe('generateMetadata', () => {
     expect(meta.alternates?.canonical).toBe('https://psychichomily.com/shows/test-show')
     expect(meta.openGraph?.url).toBe('/shows/test-show')
   })
+
+  it('declares a large-image Twitter card mirroring the OG title/description', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.twitter).toMatchObject({
+      card: 'summary_large_image',
+      title: 'Headliner Band at The Rebel Lounge',
+    })
+    expect(meta.twitter?.description).toBe(meta.openGraph?.description)
+    expect(meta.twitter?.title).toBe(meta.openGraph?.title)
+  })
+
+  // Leaving `images` unset is what lets the per-show opengraph-image through —
+  // see page.tsx. A proxy for a Next-internal merge, so it would not catch the
+  // resolver changing shape on an upgrade (verified against Next 16.1.4).
+  it('leaves twitter.images unset so the per-show OG image is used', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildShow()))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'test-show' }) })
+
+    expect(meta.twitter).toBeDefined()
+    expect(meta.twitter && 'images' in meta.twitter).toBe(false)
+  })
+
+  it('omits the Twitter card on the not-found fallback shape', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(404))
+
+    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'missing' }) })
+
+    expect(meta.twitter).toBeUndefined()
+  })
 })
 
 describe('ShowPage', () => {
@@ -157,6 +222,87 @@ describe('ShowPage', () => {
 
     expect(notFoundMock).not.toHaveBeenCalled()
     expect(result).toBeTruthy()
+  })
+})
+
+// The generator already guards these; these tests cover the wiring, which is
+// what was missing — the page never told it whether the show had happened.
+describe('ShowPage MusicEvent offers', () => {
+  it('emits no offers for a show that already happened', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: PAST_DATE, price: 20 }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.offers).toBeUndefined()
+  })
+
+  // A show whose date the backend never gave us must not advertise tickets
+  // forever — the failure directions here are not symmetric.
+  //
+  // Venue-less on purpose: with a venue, the builder formats the start time in
+  // the venue's zone and an unparseable date throws out of `toZonedISOString`
+  // before any of this is reached. That crash is pre-existing and out of scope
+  // here, so this pins the branch on the path that survives to the offer.
+  it('emits no offers when the event date is unparseable', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: 'not-a-date', price: 20, venues: [] }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.offers).toBeUndefined()
+  })
+
+  it('emits an offer for an upcoming show', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ event_date: FUTURE_DATE, price: 20 }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.offers).toMatchObject({
+      '@type': 'Offer',
+      price: 20,
+      availability: 'https://schema.org/InStock',
+    })
+  })
+
+  /**
+   * The show page must not publish a purchase URL — neither the vendor's nor
+   * its own. See PSY-1669's Linear thread for the full decision trail: the
+   * original acceptance criteria asked for the vendor's `ticket_url`, that was
+   * reversed because this site has no referral arrangement and would be giving
+   * away sales for free, and the self-referencing URL that replaced it was
+   * dropped too because our show page is not the "landing page that clearly
+   * and predominantly provides the opportunity to buy" that Google's field
+   * expects. `offers.url` is Recommended, not required; omitting it costs only
+   * the "ticket purchase option" placement, while price and sold-out status
+   * still surface. This test exists so neither URL is reintroduced by a future
+   * agent reading the original ticket.
+   */
+  it('publishes no purchase URL, even for a show with a vendor ticket link', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          event_date: FUTURE_DATE,
+          price: 20,
+          ticket_url: 'https://dice.fm/event/abc',
+        })
+      )
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const offers = musicEventSchemaFrom(result).offers as Record<string, unknown>
+
+    expect('url' in offers).toBe(false)
+    expect(JSON.stringify(offers)).not.toContain('dice.fm')
+    // The vendor is named, not linked.
+    expect(offers.seller).toEqual({ '@type': 'Organization', name: 'DICE' })
   })
 })
 

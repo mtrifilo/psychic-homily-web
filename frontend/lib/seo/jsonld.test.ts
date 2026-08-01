@@ -258,9 +258,75 @@ describe('generateMusicEventSchema', () => {
     expect(schema.offers!.availability).toBe('https://schema.org/InStock')
   })
 
-  it('includes offer URL when show has slug', () => {
-    const schema = generateMusicEventSchema({ ...baseShow, price: 25, slug: 'test-show' })
-    expect(schema.offers!.url).toBe('https://psychichomily.com/shows/test-show')
+  // The offer carries NO url — see PSY-1669's Linear thread for the decision
+  // trail. Original AC wanted the vendor's ticket URL; that was reversed
+  // because this site has no referral arrangement and would be handing over
+  // sales for free; the self-referencing URL that replaced it was then dropped
+  // too, because Google's bar for the field is a "landing page that clearly
+  // and predominantly provides the opportunity to buy" and our show page is
+  // not that. Google marks `offers.url` Recommended, not required, and only
+  // the "ticket purchase option" placement is lost by omitting it — price and
+  // sold-out status still surface. Do not "fix" this by adding either URL.
+  it('emits no offer URL at all', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      price: 25,
+      slug: 'test-show',
+      ticket_url: 'https://dice.fm/event/abc',
+    })
+    expect(schema.offers).toBeDefined()
+    expect('url' in schema.offers!).toBe(false)
+  })
+
+  // `seller` names the vendor without linking to them.
+  it.each([
+    ['https://dice.fm/event/abc', 'DICE'],
+    ['https://www.eventbrite.com/e/123', 'Eventbrite'],
+    ['ticketmaster.com/event/1', 'Ticketmaster'],
+    ['https://www.ticketweb.com/event/2', 'TicketWeb'],
+    ['https://seetickets.us/event/3', 'See Tickets'],
+    ['https://event.etix.com/ticket/4', 'Etix'],
+  ])('names the seller for %s', (ticketUrl, expected) => {
+    const schema = generateMusicEventSchema({ ...baseShow, price: 25, ticket_url: ticketUrl })
+    expect(schema.offers!.seller).toEqual({ '@type': 'Organization', name: expected })
+  })
+
+  // Host-anchored: a lookalike domain must not borrow a real vendor's name.
+  it.each([
+    ['a lookalike prefix', 'https://evil-dice.fm/event/abc'],
+    ['a lookalike suffix', 'https://dice.fm.evil.test/event/abc'],
+    ['an unknown vendor', 'https://tix.some-venue.example/e/1'],
+    ['an unparseable value', 'not a url'],
+  ])('omits the seller for %s', (_label, ticketUrl) => {
+    const schema = generateMusicEventSchema({ ...baseShow, price: 25, ticket_url: ticketUrl })
+    expect(schema.offers!.seller).toBeUndefined()
+  })
+
+  it('omits the seller when the show records no ticket URL', () => {
+    const schema = generateMusicEventSchema({ ...baseShow, price: 25 })
+    expect(schema.offers!.seller).toBeUndefined()
+  })
+
+  // Hard rules: the two claims that must never be made.
+  it('never says InStock for a past or sold-out show', () => {
+    const past = generateMusicEventSchema({ ...baseShow, price: 25, is_past: true })
+    expect(past.offers).toBeUndefined()
+
+    const soldOut = generateMusicEventSchema({ ...baseShow, price: 25, is_sold_out: true })
+    expect(soldOut.offers!.availability).toBe('https://schema.org/SoldOut')
+
+    const cancelled = generateMusicEventSchema({ ...baseShow, price: 25, is_cancelled: true })
+    expect(cancelled.offers).toBeUndefined()
+  })
+
+  it('never invents a price the show did not record', () => {
+    const soldOut = generateMusicEventSchema({ ...baseShow, is_sold_out: true })
+    expect(soldOut.offers!.price).toBeUndefined()
+    expect(soldOut.offers!.priceCurrency).toBeUndefined()
+
+    // Nothing to convey without a price or a sold-out flag, so no offer at all.
+    const bare = generateMusicEventSchema({ ...baseShow, ticket_url: 'https://dice.fm/event/abc' })
+    expect(bare.offers).toBeUndefined()
   })
 
   it('omits offers when no price', () => {
