@@ -210,6 +210,28 @@ describe('buildSceneWeekJsonLd — offers and status', () => {
     expect(priced.events[0].eventStatus).toBe('https://schema.org/EventScheduled')
     expect(priced.events[0].startDate).toBe('2026-07-27T20:00:00-07:00')
   })
+
+  // The boundary is the VENUE's midnight, not the start instant and not UTC's
+  // midnight. The fixture show starts 20:00 Phoenix on Jul 27, which is already
+  // Jul 28 in UTC — so a UTC-day or start-instant rule would drop the offer
+  // while doors are still open.
+  it('keeps offering a show that has started but whose venue-local day has not ended', () => {
+    const midSet = new Date('2026-07-28T04:30:00Z') // 21:30 Jul 27 Phoenix
+    const [event] = buildSceneWeekJsonLd(week([show({ price: 20 })]), midSet).events
+    expect(event.offers?.availability).toBe('https://schema.org/InStock')
+  })
+
+  it('drops the offer at venue-local midnight, not at UTC midnight', () => {
+    const stillTonight = new Date('2026-07-28T06:59:00Z') // 23:59 Jul 27 Phoenix
+    expect(
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), stillTonight).events[0].offers
+    ).toBeDefined()
+
+    const nextDay = new Date('2026-07-28T07:01:00Z') // 00:01 Jul 28 Phoenix
+    expect(
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), nextDay).events[0].offers
+    ).toBeUndefined()
+  })
 })
 
 describe('buildSceneWeekJsonLd — BreadcrumbList', () => {

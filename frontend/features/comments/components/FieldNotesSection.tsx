@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { StatusBanner } from '@/components/shared'
+import { hasShowStarted } from '@/lib/utils/showTiming'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { formatInTimezone } from '@/lib/utils/timeUtils'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -21,24 +24,40 @@ interface ShowArtist {
 interface FieldNotesSectionProps {
   showId: number
   showDate: string
+  /** `venues.timezone`, so the gate's date label reads in the venue's own zone. */
+  venueTimezone?: string | null
+  /** US state code, the fallback zone for venues predating the backfill. */
+  venueState?: string | null
   artists?: ShowArtist[]
 }
 
-function isShowInFuture(showDate: string): boolean {
-  const eventDate = new Date(showDate)
-  return eventDate > new Date()
-}
-
-function formatFutureDate(showDate: string): string {
-  const date = new Date(showDate)
-  return date.toLocaleDateString('en-US', {
+/**
+ * "January 15, 2026" in the VENUE's zone.
+ *
+ * The date this names is the one the reader has to wait for, so it has to be
+ * the venue's date: formatted against the reader's clock, a 9 PM Phoenix show
+ * reads as the following day to anyone east of the Mississippi, and the label
+ * then contradicts the date the rest of the page shows.
+ */
+function formatShowDay(
+  showDate: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
+  return formatInTimezone(showDate, resolveShowTimezone(state, timezone), {
     month: 'long',
     day: 'numeric',
     year: 'numeric',
   })
 }
 
-export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotesSectionProps) {
+export function FieldNotesSection({
+  showId,
+  showDate,
+  venueTimezone,
+  venueState,
+  artists = [],
+}: FieldNotesSectionProps) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
   const createMutation = useCreateFieldNote()
@@ -53,7 +72,12 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
 
   const fieldNotes = data?.comments ?? []
   const total = data?.total ?? 0
-  const isFuture = isShowInFuture(showDate)
+  // The START INSTANT, deliberately not the venue-local day the rest of the
+  // show surfaces derive: the API rejects a note on a show whose `event_date`
+  // is still in the future (`ErrFieldNoteShowFuture`), so this gate's job is to
+  // agree with that boundary exactly. A stricter one here would hide a form the
+  // API would have accepted; a looser one would offer a form it will 400.
+  const isFuture = !hasShowStarted({ eventDate: showDate })
 
   const hasCanonicalPending =
     pendingNote !== null && fieldNotes.some((c) => c.id === pendingNote.id)
@@ -96,7 +120,8 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
           className="text-sm text-muted-foreground py-4"
           data-testid="future-show-message"
         >
-          Field notes will be available after {formatFutureDate(showDate)}.
+          Field notes will be available after{' '}
+          {formatShowDay(showDate, venueState, venueTimezone)}.
         </p>
       ) : (
         <>

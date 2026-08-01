@@ -2,6 +2,7 @@ import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { isShowPast } from '@/lib/utils/showTiming'
 import {
   OG_COLORS,
   OG_CONTENT_TYPE,
@@ -278,6 +279,16 @@ function renderCard(
     </div>
   ) : null
 
+  // The venue's own calendar day, shared with the show page's structured data
+  // rather than measured separately here. The previous local rule compared the
+  // start instant in UTC and subtracted a day to absorb the zone skew; deriving
+  // it venue-local removes the skew, so the margin has nothing left to cover.
+  const settled = isShowPast({
+    eventDate: show.event_date,
+    state: venue?.state,
+    timezone: venue?.timezone,
+  })
+
   return new ImageResponse(
     (
       <div
@@ -493,7 +504,7 @@ function renderCard(
         'cache-control': ogCacheControl(
           degraded || flyerMissing
             ? OG_FALLBACK_CACHE_SECONDS
-            : showHasPassed(show.event_date)
+            : settled
               ? SETTLED_REVALIDATE
               : LIVE_REVALIDATE
         ),
@@ -508,17 +519,6 @@ const LIVE_REVALIDATE = 900
 const SETTLED_REVALIDATE = 86400
 /** The data fetch cannot know which it is, so it always asks for the fresh one. */
 const SHOW_REVALIDATE = LIVE_REVALIDATE
-
-/**
- * Compared in UTC, which can run a day ahead of the venue's own clock. The
- * error direction is "treat it as still live", i.e. cache it less — the
- * harmless one.
- */
-function showHasPassed(eventDate: string): boolean {
-  const at = new Date(eventDate).getTime()
-  if (Number.isNaN(at)) return false
-  return at < Date.now() - 24 * 60 * 60 * 1000
-}
 
 /**
  * Deliberate fail-open, classified during the PSY-1630 sweep: every failure

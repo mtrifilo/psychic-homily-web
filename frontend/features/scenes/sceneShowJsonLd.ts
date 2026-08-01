@@ -1,4 +1,5 @@
 import { generateMusicEventSchema, type MusicEventSchema } from '@/lib/seo/jsonld'
+import { isShowPast } from '@/lib/utils/showTiming'
 import type { SceneWeekShow } from './sceneWeek'
 
 /**
@@ -88,8 +89,13 @@ function toMusicEventInput(
     is_sold_out: show.is_sold_out,
     // The archive goes back years, and an offer is a claim about what a reader
     // can still buy. Without this every archived page would advertise tickets
-    // on sale for shows that are long over.
-    is_past: Date.parse(startsAt) <= now.getTime(),
+    // on sale for shows that are long over. Derived against the SAME zone the
+    // venue block above carries, so a show cannot be described as past on a
+    // date the page still renders as tonight.
+    is_past: isShowPast(
+      { eventDate: startsAt, state: venue.state, timezone: venue.timezone },
+      now
+    ),
     venue,
     artists:
       show.artist_names && show.artist_names.length > 0

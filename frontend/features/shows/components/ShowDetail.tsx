@@ -263,6 +263,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           <FieldNotesSection
             showId={show.id}
             showDate={show.event_date}
+            // Same two inputs `ShowHeader` renders the date from, so the gate's
+            // "available after <date>" cannot name a different day than the
+            // date printed at the top of the page.
+            venueState={show.state}
+            venueTimezone={show.venues?.[0]?.timezone}
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>

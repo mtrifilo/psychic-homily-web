@@ -9,6 +9,7 @@ import type { ShowResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { isShowPast } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -62,24 +63,6 @@ function formatShowDate(
     day: 'numeric',
     timeZone: resolveShowTimezone(state, timezone), // venue-local for SEO (PSY-986)
   })
-}
-
-/**
- * Whether the show has already started, and so has nothing left to sell.
- *
- * An undateable show counts as past. A `string` type is not a runtime
- * guarantee — the frontend and backend deploy separately, and the data cache
- * can serve a body fetched before a schema change — and the failure directions
- * are not symmetric: guessing "upcoming" republishes `InStock` forever, which
- * is the bug this exists to remove. `sceneWeekJsonLd` guards the same way.
- *
- * Named rather than inlined at the call site because the `react-hooks/purity`
- * lint rule rejects a bare `Date.now()` in a component body ("Cannot call
- * impure function during render").
- */
-function isShowPast(eventDate: string): boolean {
-  const startedAt = Date.parse(eventDate)
-  return !Number.isFinite(startedAt) || startedAt <= Date.now()
 }
 
 export async function generateMetadata({ params }: ShowPageProps): Promise<Metadata> {
@@ -189,7 +172,11 @@ export default async function ShowPage({ params }: ShowPageProps) {
         // See the builder for why an offer is dropped once the show has
         // happened. Deliberately NOT derived inside the builder: that would
         // make its output depend on the wall clock.
-        is_past: isShowPast(showData.event_date),
+        is_past: isShowPast({
+          eventDate: showData.event_date,
+          state: showData.venues?.[0]?.state,
+          timezone: showData.venues?.[0]?.timezone,
+        }),
         // Names the vendor in `offers.seller`. The builder never emits this
         // URL — no free referrals into structured data.
         ticket_url: showData.ticket_url ?? undefined,

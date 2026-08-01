@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { FieldNotesSection } from './FieldNotesSection'
 import type { Comment } from '../types'
@@ -286,6 +286,103 @@ describe('FieldNotesSection', () => {
       )
 
       expect(screen.queryByTestId('field-note-auth-gate')).not.toBeInTheDocument()
+    })
+
+    // The gate names the date the reader is waiting for, so it has to be the
+    // VENUE's date. 20:00 Dec 31 Phoenix is already Jan 1 in UTC and in every
+    // zone east of it, and a label saying "January 1" under a page heading
+    // saying "December 31" is a contradiction the reader has to resolve.
+    it('names the date in the venue timezone, not the reader s', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '1', email: 'test@test.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate="2100-01-01T03:00:00Z"
+          venueState="AZ"
+          venueTimezone="America/Phoenix"
+          artists={mockArtists}
+        />
+      )
+
+      expect(
+        screen.getByText(/Field notes will be available after December 31, 2099\./)
+      ).toBeInTheDocument()
+    })
+
+    it('falls back to the state map when the venue has no resolved timezone', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '1', email: 'test@test.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate="2100-01-01T03:00:00Z"
+          venueState="NY"
+          venueTimezone={null}
+          artists={mockArtists}
+        />
+      )
+
+      // 22:00 Dec 31 Eastern, still the 31st.
+      expect(
+        screen.getByText(/Field notes will be available after December 31, 2099\./)
+      ).toBeInTheDocument()
+    })
+  })
+
+  // The gate mirrors the API's own `ErrFieldNoteShowFuture` rejection, which
+  // fires on the START INSTANT. It deliberately does NOT use the venue-local
+  // day boundary the show's structured data uses: holding the form shut until
+  // local midnight would hide a form the API would have accepted.
+  describe('boundary (start instant, matching the API gate)', () => {
+    const showDate = '2026-03-15T03:00:00Z' // 20:00 Mar 14 Phoenix
+
+    beforeEach(() => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '1', email: 'test@test.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('gates the form one minute before the show starts', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-03-15T02:59:00Z'))
+
+      render(<FieldNotesSection showId={1} showDate={showDate} venueState="AZ" />)
+
+      expect(screen.getByTestId('future-show-message')).toBeInTheDocument()
+    })
+
+    it('opens the form mid-show, hours before venue-local midnight', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-03-15T03:01:00Z')) // 20:01 Mar 14 Phoenix
+
+      render(<FieldNotesSection showId={1} showDate={showDate} venueState="AZ" />)
+
+      expect(screen.queryByTestId('future-show-message')).not.toBeInTheDocument()
+      expect(screen.getByTestId('field-note-form')).toBeInTheDocument()
     })
   })
 
