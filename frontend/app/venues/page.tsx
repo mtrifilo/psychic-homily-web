@@ -1,9 +1,22 @@
 import { Suspense } from 'react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { VenueList } from '@/features/venues'
+import {
+  VENUE_LIST_FIRST_SCREEN_KEY,
+  VENUE_LIST_FIRST_SCREEN_URL,
+  venueEndpoints,
+  venueQueryKeys,
+} from '@/features/venues/api'
+import type {
+  VenueCitiesResponse,
+  VenuesListResponse,
+} from '@/features/venues/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { seedFirstScreen } from '@/lib/query-hydration'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
 export const metadata = {
   title: 'Venues',
@@ -59,6 +72,46 @@ function VenueListLoading() {
   )
 }
 
+/**
+ * Seed the two cache entries `VenueList` blocks its first paint on — the first
+ * page of venues and the city facet counts — so the venue rows reach the
+ * server HTML (PSY-1624).
+ *
+ * BOTH are required. `VenueList` returns its spinner while either query is
+ * still loading, so seeding the rows alone server-renders the spinner.
+ *
+ * A failed fetch renders `<VenueList />` unseeded rather than throwing; the
+ * component fetches for itself and owns the error state (see
+ * `fetchListPayload`).
+ */
+async function HydratedVenueList() {
+  const [venues, cities] = await Promise.all([
+    fetchListPayload<VenuesListResponse>({
+      url: VENUE_LIST_FIRST_SCREEN_URL,
+      service: 'venues-first-screen',
+    }),
+    fetchListPayload<VenueCitiesResponse>({
+      url: venueEndpoints.CITIES,
+      service: 'venue-cities-first-screen',
+    }),
+  ])
+
+  if (!venues || !cities) {
+    return <VenueList />
+  }
+
+  const dehydratedState = await seedFirstScreen([
+    { queryKey: VENUE_LIST_FIRST_SCREEN_KEY, data: venues },
+    { queryKey: venueQueryKeys.cities, data: cities },
+  ])
+
+  return (
+    <HydrationBoundary state={dehydratedState}>
+      <VenueList />
+    </HydrationBoundary>
+  )
+}
+
 export default async function VenuesPage() {
   const venues = await getVenues()
 
@@ -86,7 +139,7 @@ export default async function VenuesPage() {
         <main className="w-full max-w-6xl px-4 py-8 md:px-8">
           <h1 className="text-3xl font-bold text-center mb-8">Venues</h1>
           <Suspense fallback={<VenueListLoading />}>
-            <VenueList />
+            <HydratedVenueList />
           </Suspense>
         </main>
       </div>

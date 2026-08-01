@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useQueryState } from 'nuqs'
 import { useVenues, useVenueCities } from '../hooks/useVenues'
+import { VENUE_LIST_PAGE_LIMIT } from '../api'
 import type { VenueWithShowCount } from '../types'
 import { VenueCard } from './VenueCard'
 import { VenueSearch } from './VenueSearch'
@@ -18,7 +19,9 @@ import {
   buildTagsParam,
 } from '@/features/tags'
 
-const VENUES_PER_PAGE = 50
+// The page size lives in `../api` because the server-side first-screen
+// prefetch has to request the same one (PSY-1624).
+const VENUES_PER_PAGE = VENUE_LIST_PAGE_LIMIT
 
 export function VenueList() {
   const router = useRouter()

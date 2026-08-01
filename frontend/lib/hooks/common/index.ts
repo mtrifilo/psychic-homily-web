@@ -1,5 +1,7 @@
 export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
+export { useBrowserTimezone } from './useBrowserTimezone'
+
 export { type Density, useDensity } from './useDensity'
 
 export { useFilterNavigation } from './useFilterNavigation'

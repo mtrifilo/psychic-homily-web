@@ -1,9 +1,19 @@
 import { Suspense } from 'react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
+import {
+  SHOW_CITIES_FIRST_SCREEN_KEY,
+  SHOW_CITIES_FIRST_SCREEN_URL,
+  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
+  UPCOMING_SHOWS_FIRST_SCREEN_URL,
+} from '@/features/shows/api'
+import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
+import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
 export const metadata = {
   title: 'Upcoming Shows',
@@ -57,6 +67,55 @@ function getShowName(show: ShowListItem): string {
   return show.title || `${headliner} at ${show.venues?.[0]?.name || 'TBA'}`
 }
 
+/**
+ * Seed the two cache entries `ShowList` blocks its first paint on — the first
+ * page of upcoming shows and the city facet counts — so dates, artists, venues
+ * and cities reach the server HTML (PSY-1624).
+ *
+ * BOTH are required: `ShowList` returns its skeleton while EITHER query is
+ * still loading, so seeding the rows alone server-renders the skeleton.
+ *
+ * This is a second read of `/shows/upcoming` on this page, alongside
+ * `getUpcomingShows` above, and the two are deliberately not merged. They are
+ * bounded by different things: the `ItemList` sends an explicit `limit=50`
+ * argued at `UPCOMING_SHOWS_LIMIT`, while this one must reproduce the client
+ * hook's request exactly — which sends no `limit` at all — or the seeded entry
+ * is not the entry the hook reads. Collapsing them would mean one of the two
+ * silently answering to the other's constraint. Both land in Next's Data Cache
+ * for an hour and are invalidated together by `lib/proxy-revalidation.ts`.
+ *
+ * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
+ * component fetches for itself and owns the error state (see
+ * `fetchListPayload`).
+ */
+async function HydratedShowList() {
+  const [shows, cities] = await Promise.all([
+    fetchListPayload<UpcomingShowsResponse>({
+      url: UPCOMING_SHOWS_FIRST_SCREEN_URL,
+      service: 'shows-first-screen',
+    }),
+    fetchListPayload<ShowCitiesResponse>({
+      url: SHOW_CITIES_FIRST_SCREEN_URL,
+      service: 'show-cities-first-screen',
+    }),
+  ])
+
+  if (!shows || !cities) {
+    return <ShowList />
+  }
+
+  const dehydratedState = await seedFirstScreen([
+    { queryKey: UPCOMING_SHOWS_FIRST_SCREEN_KEY, data: shows },
+    { queryKey: SHOW_CITIES_FIRST_SCREEN_KEY, data: cities },
+  ])
+
+  return (
+    <HydrationBoundary state={dehydratedState}>
+      <ShowList />
+    </HydrationBoundary>
+  )
+}
+
 export default async function ShowsPage() {
   const shows = await getUpcomingShows()
 
@@ -83,7 +142,7 @@ export default async function ShowsPage() {
       <div className="w-full max-w-6xl mx-auto px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-8 leading-9">Upcoming Shows</h1>
         <Suspense fallback={<ShowListSkeleton />}>
-          <ShowList />
+          <HydratedShowList />
         </Suspense>
       </div>
     </>

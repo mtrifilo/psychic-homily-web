@@ -13,6 +13,7 @@ import type { CityState } from '@/components/filters'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { DensityToggle } from '@/components/shared'
+import { useBrowserTimezone } from '@/lib/hooks/common/useBrowserTimezone'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { ShowCard } from './ShowCard'
 import { ShowListSkeleton } from './ShowListSkeleton'
@@ -73,7 +74,14 @@ export function ShowList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  // `undefined` until the hydration render has committed, then the viewer's
+  // zone. Reading `Intl` directly here would key the server render on the
+  // SERVER's zone and the client's on the viewer's, so the server-seeded first
+  // screen (PSY-1624) could never be the entry this hook reads. Both requests
+  // below omit `timezone` on that first pass, and the API falls back to its
+  // documented UTC default; the viewer's zone arrives one render later and
+  // `keepPreviousData` holds the rows on screen while it refetches.
+  const timezone = useBrowserTimezone()
 
   // Any explicit selection (?cities=<pick>, ?cities=all, or legacy single-city)
   // means geo must not seed. Authed favorites also stand the geo hook down

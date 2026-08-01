@@ -98,3 +98,41 @@ export const venueQueryKeys = {
       year ?? null,
     ] as const,
 } as const
+
+// ============================================================================
+// Server-rendered first screen (PSY-1624)
+// ============================================================================
+
+/** The page size `VenueList` requests, and pages through with `offset`. */
+export const VENUE_LIST_PAGE_LIMIT = 50
+
+/**
+ * The exact request `VenueList` issues on its FIRST render of a bare
+ * `/venues`, and the cache key that request lands on.
+ *
+ * `app/venues/page.tsx` fetches the URL server-side and seeds the key, so the
+ * first page of venues is in the server HTML. The two halves are declared
+ * together because they only work as a pair: seed a key the hook does not ask
+ * for and the page silently reverts to its pre-SSR behaviour — the hook misses
+ * the cache and renders its spinner on BOTH the server and the hydration pass,
+ * so nothing looks broken and nothing is server-rendered either. That failure
+ * is invisible by construction, which is why `useVenues.test.tsx` asserts the
+ * hook actually registers this key and requests this URL.
+ *
+ * A filtered `/venues?cities=…` deep link is deliberately NOT covered: the
+ * hook keys on the filter, misses this entry, and both render passes agree on
+ * the spinner. No SSR benefit there, and no hydration mismatch either.
+ */
+export const VENUE_LIST_FIRST_SCREEN_URL = `${venueEndpoints.LIST}?limit=${VENUE_LIST_PAGE_LIMIT}`
+
+export const VENUE_LIST_FIRST_SCREEN_KEY = venueQueryKeys.list({
+  state: undefined,
+  city: undefined,
+  cities: undefined,
+  limit: VENUE_LIST_PAGE_LIMIT,
+  offset: 0,
+  tags: undefined,
+  tagMatch: undefined,
+  includeRail: undefined,
+  metroRollup: undefined,
+})
