@@ -86,7 +86,8 @@ export function VenueAddToCalendar({
       <PopoverTrigger asChild>
         <BracketLink label="Add to calendar" active={open} />
       </PopoverTrigger>
-      <PopoverContent className="w-80" align="end">
+      {/* The shared PopoverContent defaults to p-0; padding is the consumer's job. */}
+      <PopoverContent className="w-80 p-4" align="end">
         <p className="text-sm font-medium mb-1">
           Add shows at {venueName} to your calendar
         </p>
