@@ -18,6 +18,7 @@ import {
 } from '@/lib/utils/formatters'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { ShowForm } from './ShowForm'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import type { BatchedSaveData } from '@/components/shared/batchedSaveData'
@@ -159,7 +160,16 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
   const { user } = useAuthContext()
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isExpanded, setIsExpanded] = useState(density === 'expanded')
+  // DERIVED from density, not initialized from it. `density` comes from
+  // localStorage via a server snapshot, so it is always 'comfortable' on the
+  // server and the hydration render — and since PSY-1624 this card FIRST
+  // mounts on the server, where `useState(density === 'expanded')` would latch
+  // `false` and never re-run. A viewer whose stored density is 'expanded'
+  // would silently lose the auto-opened music section for the whole session.
+  // The override is the user's own toggle, which outranks the preference.
+  const [expandOverride, setExpandOverride] = useState<boolean | null>(null)
+  const isExpanded = expandOverride ?? density === 'expanded'
+  const setIsExpanded = setExpandOverride
   const venue = show.venues[0]
   const artists = show.artists
 
@@ -346,6 +356,9 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                   {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
                     hasArtistMusic && (
                       <Button
+                        // In server HTML since PSY-1624: rows now paint before
+                        // hydration, so this is clickable while dead.
+                        {...replayOnHydrate}
                         variant="ghost"
                         size="sm"
                         onClick={() => setIsExpanded(!isExpanded)}
@@ -582,6 +595,9 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                 {SHOW_LIST_FEATURE_POLICY.discovery.showExpandMusic &&
                   hasArtistMusic && (
                     <Button
+                      // In server HTML since PSY-1624: rows now paint before
+                      // hydration, so this is clickable while dead.
+                      {...replayOnHydrate}
                       variant="ghost"
                       size="sm"
                       onClick={() => setIsExpanded(!isExpanded)}

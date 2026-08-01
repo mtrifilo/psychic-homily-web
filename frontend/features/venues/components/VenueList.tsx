@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useTransition } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useQueryState } from 'nuqs'
 import { useVenues, useVenueCities } from '../hooks/useVenues'
+import { VENUE_LIST_PAGE_LIMIT } from '../api'
 import type { VenueWithShowCount } from '../types'
 import { VenueCard } from './VenueCard'
 import { VenueSearch } from './VenueSearch'
@@ -11,6 +12,7 @@ import { CityFilters, type CityWithCount, type CityState } from '@/components/fi
 import { citiesParser, ALL_CITIES } from '@/components/filters/cityParams'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
   TagFacetPanel,
   TagFacetSheet,
@@ -18,7 +20,9 @@ import {
   buildTagsParam,
 } from '@/features/tags'
 
-const VENUES_PER_PAGE = 50
+// The page size lives in `../api` because the server-side first-screen
+// prefetch has to request the same one (PSY-1624).
+const VENUES_PER_PAGE = VENUE_LIST_PAGE_LIMIT
 
 export function VenueList() {
   const router = useRouter()
@@ -61,8 +65,20 @@ export function VenueList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  const { data: citiesData, isLoading: citiesLoading, isFetching: citiesFetching } = useVenueCities()
-  const { data, isLoading, isFetching, error, refetch } = useVenues({
+  const {
+    data: citiesData,
+    isLoading: citiesLoading,
+    isFetching: citiesFetching,
+    isPlaceholderData: citiesArePlaceholder,
+  } = useVenueCities()
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isPlaceholderData,
+    error,
+    refetch,
+  } = useVenues({
     cities: selectedCities.length > 0 ? selectedCities : undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     tagMatch,
@@ -141,9 +157,25 @@ export function VenueList() {
   }
 
   // Track if we're updating (fetching but already have data)
-  const isUpdating = isFetching || citiesFetching || isPending
+  // Dim only while the rows on screen belong to a DIFFERENT query than the one
+  // being awaited — `keepPreviousData` holding the old page through a filter
+  // change. A same-key background revalidation must not dim: the server-seeded
+  // first screen (PSY-1624) arrives stale by construction, so `isFetching` is
+  // true on the first client commit and raw `isFetching` would fade the list to
+  // 60% the instant it hydrated.
+  const isUpdating =
+    (isFetching && isPlaceholderData) ||
+    (citiesFetching && citiesArePlaceholder) ||
+    isPending
 
-  if (error) {
+  // Report an error only when nothing on screen answers the CURRENT query.
+  // The server-seeded first screen is stale by construction, so every load
+  // revalidates it and a plain `if (error)` would discard a rendered page over
+  // a failed background refetch. `isPlaceholderData` covers the opposite
+  // hazard: `keepPreviousData` carries `data` across a key change, so without
+  // it a failed filter request would present the previous city's venues as the
+  // new filter's answer. See the fuller note in `ShowList`.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load venues. Please try again later.</p>
@@ -235,6 +267,11 @@ export function VenueList() {
                   {data && allVenues.length < data.total && (
                     <div className="text-center py-6">
                       <Button
+                        // Inert as this stands, and kept for the same reason as
+                        // the ShowList button: `disabled` covers the whole
+                        // pre-hydration window, so there is no click to buffer
+                        // until that gate changes.
+                        {...replayOnHydrate}
                         variant="outline"
                         onClick={handleLoadMore}
                         disabled={isFetching}

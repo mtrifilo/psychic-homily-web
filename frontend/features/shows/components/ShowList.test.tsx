@@ -471,6 +471,12 @@ describe('ShowList', () => {
         },
         isLoading: false,
         isFetching: true,
+        // Fetching the NEXT page means a new cursor, so a new query key, so
+        // `keepPreviousData` is serving this page's rows — which is what
+        // distinguishes it from the same-key background revalidation the
+        // server-seeded first screen triggers on every load (PSY-1624). The
+        // button must stay live for that one.
+        isPlaceholderData: true,
         error: null,
         refetch: vi.fn(),
       })

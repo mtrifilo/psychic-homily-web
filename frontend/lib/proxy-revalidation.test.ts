@@ -104,6 +104,9 @@ describe('show rules', () => {
     '/explore',
     '/artists',
     '/venues',
+    // The scene BROWSE page as well as the per-scene pages: since PSY-1624 it
+    // server-renders each city's show counts, which a show mutation moves.
+    '/scenes',
     '/scenes/[slug]',
     '/artists/bright-eyes',
     '/artists/cursive',
@@ -154,6 +157,10 @@ describe('show rules', () => {
       '/explore',
       '/artists',
       '/venues',
+      // Batch-approve is how shows go public in bulk, and the /scenes cards
+      // count only approved upcoming shows — so the browse page it now
+      // server-renders (PSY-1624) goes stale on exactly this path.
+      '/scenes',
       '/scenes/[slug]',
     ]
     await run({
@@ -179,6 +186,7 @@ describe('show rules', () => {
       '/explore',
       '/artists',
       '/venues',
+      '/scenes',
       '/scenes/[slug]',
       '/collections/[slug]',
     ])
@@ -191,6 +199,7 @@ describe('show rules', () => {
       '/explore',
       '/artists',
       '/venues',
+      '/scenes',
       '/scenes/[slug]',
     ])
   })
@@ -219,6 +228,7 @@ describe('suggest-edit rules', () => {
     expect(revalidated()).toEqual([
       '/artists/bright-eyes',
       '/artists',
+      '/shows',
       '/shows/[slug]',
       '/releases/[slug]',
       '/collections/[slug]',
@@ -242,6 +252,7 @@ describe('suggest-edit rules', () => {
     })
     expect(revalidated()).toEqual([
       '/artists',
+      '/shows',
       '/shows/[slug]',
       '/releases/[slug]',
       '/collections/[slug]',
@@ -257,6 +268,7 @@ describe('suggest-edit rules', () => {
     expect(revalidated()).toEqual([
       '/venues/the-rebel-lounge',
       '/venues',
+      '/shows',
       '/shows/[slug]',
       '/collections/[slug]',
     ])
@@ -289,6 +301,7 @@ describe('pending-edit moderation rules', () => {
     expect(revalidated()).toEqual([
       '/artists/bright-eyes',
       '/artists',
+      '/shows',
       '/shows/[slug]',
       '/releases/[slug]',
       '/collections/[slug]',
@@ -351,7 +364,15 @@ describe('artist rules', () => {
 
   // Renames/merges/deletes change the artist name embedded in show, release,
   // and collection ISR payloads → the artist cascade.
-  const artistCascade = ['/shows/[slug]', '/releases/[slug]', '/collections/[slug]']
+  // '/shows' leads the cascade because the browse page server-renders artist
+  // and venue names since PSY-1624 — a rename has to reach the list, not only
+  // the detail pages.
+  const artistCascade = [
+    '/shows',
+    '/shows/[slug]',
+    '/releases/[slug]',
+    '/collections/[slug]',
+  ]
 
   it('admin update revalidates the artist + list + rename cascade', async () => {
     await run({
@@ -415,12 +436,13 @@ describe('venue rules', () => {
       path: '/admin/venues',
       responseText: JSON.stringify({ id: 3, slug: 'new-venue' }),
     })
-    expect(revalidated()).toEqual(['/venues/new-venue', '/venues'])
+    // '/scenes' rides along: the scene cards carry a per-city venue_count.
+    expect(revalidated()).toEqual(['/venues/new-venue', '/venues', '/scenes'])
   })
 
   // Venue renames/deletes change the venue name embedded in show and
   // collection ISR payloads (releases don't credit venues).
-  const venueCascade = ['/shows/[slug]', '/collections/[slug]']
+  const venueCascade = ['/shows', '/shows/[slug]', '/collections/[slug]']
 
   it('update revalidates the venue + list + rename cascade', async () => {
     await run({
@@ -432,12 +454,15 @@ describe('venue rules', () => {
       '/venues/the-rebel-lounge',
       '/venues',
       ...venueCascade,
+      // An edit can move the venue to another city, shifting venue_count
+      // between two scene cards on the server-rendered /scenes list.
+      '/scenes',
     ])
   })
 
   it('delete revalidates the list + rename cascade', async () => {
     await run({ method: 'DELETE', path: '/venues/3' })
-    expect(revalidated()).toEqual(['/venues', ...venueCascade])
+    expect(revalidated()).toEqual(['/venues', '/scenes', ...venueCascade])
   })
 
   it('verify revalidates the venue + list with NO cascade (name unchanged)', async () => {
@@ -860,7 +885,7 @@ describe('resilience', () => {
     ).resolves.toBeUndefined()
     // show-delete touches 4 list pages + scenes + the collection cascade;
     // each failure is captured separately.
-    expect(mockCaptureException).toHaveBeenCalledTimes(6)
+    expect(mockCaptureException).toHaveBeenCalledTimes(7)
   })
 
   it('never throws when the lookup fetch rejects — skips the page and reports', async () => {

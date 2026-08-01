@@ -110,9 +110,14 @@ function nestedSlugs(body: unknown, key: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * ISR list pages by entity URL segment. Only /artists, /venues, and /shows
- * have ISR list routes (revalidate: 3600); the other entity types' browse
- * pages are client-fetched.
+ * ISR list pages by entity URL segment, for the rename/merge/delete cascade.
+ *
+ * /artists, /venues and /shows are the browse pages that embed entity NAMES
+ * in a cached payload, so a rename has to reach them. /scenes also caches a
+ * server-fetched payload since PSY-1624, but it is keyed on city rather than
+ * on any renameable entity, so it is not part of THIS cascade — it is
+ * invalidated by the count-changing mutations in `showPages` / the venue rules
+ * instead. Every other entity type's browse page is still client-fetched.
  */
 const ISR_LIST_PAGES: Readonly<Record<string, string>> = {
   artists: '/artists',
@@ -149,6 +154,15 @@ const ALL_RELEASE_PAGES = '/releases/[slug]'
 const ALL_COLLECTION_PAGES = '/collections/[slug]'
 const ALL_SCENE_PAGES = '/scenes/[slug]'
 
+// The scene BROWSE page. A plain path, not a route pattern — it started
+// caching a server-fetched payload in PSY-1624, so it now needs invalidating
+// alongside the scene pages it links to.
+const SCENE_LIST_PAGE = '/scenes'
+
+// The show BROWSE page, for the same reason: PSY-1624 put entity names into
+// its cached payload, so the rename cascade has to reach it.
+const SHOW_LIST_PAGE = '/shows'
+
 /**
  * Route patterns made stale when an entity of the given segment is renamed,
  * merged, or deleted — the pages that embed the entity's NAME in their own
@@ -167,8 +181,13 @@ const ALL_SCENE_PAGES = '/scenes/[slug]'
  * cheap.
  */
 const RENAME_CASCADES: Readonly<Record<string, readonly string[]>> = {
-  artists: [ALL_SHOW_PAGES, ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
-  venues: [ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
+  // SHOW_LIST_PAGE, not just the show DETAIL pages: since PSY-1624 the /shows
+  // browse page server-renders each row's artist and venue names, so a rename
+  // leaves the old one in cached HTML until the 1h window turns over. It was
+  // previously safe to omit because those names reached /shows only through a
+  // JSON-LD block.
+  artists: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
+  venues: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
   shows: [ALL_COLLECTION_PAGES],
   releases: [ALL_COLLECTION_PAGES],
   labels: [ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
@@ -198,9 +217,23 @@ function bodySlugPages(segment: string): RevalidationRule['paths'] {
 }
 
 /**
- * bodySlugPages + the segment's rename cascade — for update-class rules
- * where the mutation may have changed the entity's name (which other pages
- * embed in their ISR payloads).
+ * A resolver plus fixed extra paths.
+ *
+ * Exists so "this rule also stales page X" is a wrapper rather than a
+ * hand-inlined copy of the resolver it extends. The venue rules needed
+ * '/scenes' added on top of two different base resolvers.
+ */
+function withExtraPaths(
+  base: RevalidationRule['paths'],
+  ...extra: string[]
+): RevalidationRule['paths'] {
+  return async ctx => [...(await base(ctx)), ...extra]
+}
+
+/**
+ * bodySlugPages + the segment's rename cascade, for update-class rules where
+ * the mutation may have changed the entity's name (which other pages embed in
+ * their cached payloads).
  */
 function bodySlugPagesWithCascade(
   segment: string
@@ -214,8 +247,8 @@ function bodySlugPagesWithCascade(
 /**
  * Pages affected by a show mutation: the show itself, the upcoming-show
  * surfaces (/shows, /explore), the /artists and /venues lists (both embed
- * upcoming-show data), every scene page (per-city show counts in
- * SceneStats), and each billed artist's detail page (artist pages
+ * upcoming-show data), the /scenes list and every scene page (per-city show
+ * counts in SceneStats), and each billed artist's detail page (artist pages
  * ISR-cache stats.shows_tracked).
  */
 function showPages(body: unknown): Array<string | undefined> {
@@ -226,6 +259,10 @@ function showPages(body: unknown): Array<string | undefined> {
     '/explore',
     '/artists',
     '/venues',
+    // The /scenes LIST, not only the per-scene pages below: since PSY-1624 it
+    // server-renders each city's show counts, so a show mutation makes it
+    // stale for exactly the same reason.
+    SCENE_LIST_PAGE,
     ALL_SCENE_PAGES,
     ...nestedSlugs(body, 'artists').map((artistSlug) => `/artists/${artistSlug}`),
   ]
@@ -294,6 +331,7 @@ const RULES: readonly RevalidationRule[] = [
       '/explore',
       '/artists',
       '/venues',
+      SCENE_LIST_PAGE,
       ALL_SCENE_PAGES,
       ...cascadePages('shows'),
     ],
@@ -323,6 +361,7 @@ const RULES: readonly RevalidationRule[] = [
       '/explore',
       '/artists',
       '/venues',
+      SCENE_LIST_PAGE,
       ALL_SCENE_PAGES,
     ],
   },
@@ -402,19 +441,23 @@ const RULES: readonly RevalidationRule[] = [
     name: 'venue-create',
     methods: ['POST'],
     pattern: /^\/admin\/venues$/,
-    paths: bodySlugPages('venues'),
+    // Plus the scene browse page: its cards carry a per-city venue_count that
+    // a create moves (PSY-1624 made that count server-rendered).
+    paths: withExtraPaths(bodySlugPages('venues'), SCENE_LIST_PAGE),
   },
   {
     name: 'venue-update',
     methods: ['PUT'],
     pattern: /^\/venues\/\d+$/,
-    paths: bodySlugPagesWithCascade('venues'),
+    // Plus '/scenes': an edit can move the venue to a different city, which
+    // shifts venue_count between two scene cards.
+    paths: withExtraPaths(bodySlugPagesWithCascade('venues'), SCENE_LIST_PAGE),
   },
   {
     name: 'venue-delete',
     methods: ['DELETE'],
     pattern: /^\/venues\/\d+$/,
-    paths: () => ['/venues', ...cascadePages('venues')],
+    paths: () => ['/venues', SCENE_LIST_PAGE, ...cascadePages('venues')],
   },
   {
     name: 'venue-verify',

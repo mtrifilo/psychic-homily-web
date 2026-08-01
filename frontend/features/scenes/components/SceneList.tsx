@@ -17,7 +17,11 @@ export function SceneList() {
     )
   }
 
-  if (error) {
+  // `&& !data`: an error only replaces the grid when there is no grid to show.
+  // The server-seeded first screen is stale by construction (PSY-1624), so
+  // every load forces a revalidation; without this guard one failed background
+  // refetch would swap a fully rendered page for an error message.
+  if (error && !data) {
     return (
       <div className="text-center py-12">
         <p className="text-muted-foreground">

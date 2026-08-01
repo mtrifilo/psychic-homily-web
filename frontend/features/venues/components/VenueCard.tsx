@@ -20,6 +20,7 @@ import { CompactShowRow, SHOW_LIST_FEATURE_POLICY, ShowForm } from '@/features/s
 import { VenueEditForm } from './VenueEditForm'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
 interface VenueCardProps {
   venue: VenueWithShowCount
@@ -50,6 +51,9 @@ export function VenueCard({ venue }: VenueCardProps) {
     <article className="border border-border/50 rounded-lg mb-4 overflow-hidden bg-card hover:shadow-sm transition-shadow">
       {/* Header - always visible */}
       <div
+        // The primary affordance on /venues, and in server HTML since
+        // PSY-1624, so it is clickable for the whole pre-hydration window.
+        {...replayOnHydrate}
         onClick={() => hasShows && setIsExpanded(!isExpanded)}
         role={hasShows ? 'button' : undefined}
         tabIndex={hasShows ? 0 : undefined}

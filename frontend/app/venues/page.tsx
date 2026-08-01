@@ -1,9 +1,22 @@
 import { Suspense } from 'react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { VenueList } from '@/features/venues'
+import {
+  VENUE_LIST_FIRST_SCREEN_KEY,
+  VENUE_LIST_FIRST_SCREEN_URL,
+  venueEndpoints,
+  venueQueryKeys,
+} from '@/features/venues/api'
+import type {
+  VenueCitiesResponse,
+  VenuesListResponse,
+} from '@/features/venues/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { seedFirstScreen } from '@/lib/query-hydration'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 
 export const metadata = {
   title: 'Venues',
@@ -40,6 +53,15 @@ interface VenueListItem {
  * maximum or paginate with `offset`, not to leave the cap here. Going from
  * "none" to "the 100 most active" is still strictly better than the 422 this
  * replaces, which is the only reason it ships in this state.
+ *
+ * NOT consolidated with the first-screen fetch below, unlike `/shows`, which
+ * reads one response for both consumers. The two genuinely differ here: the
+ * `ItemList` wants the 100 most active venues, the browse page's first screen
+ * wants the 50 the client hook asks for. So `/venues` does keep two Data Cache
+ * entries with independently expiring windows, and the two lists can disagree
+ * across a window boundary. Harmless — one is schema, one is rows — but it is
+ * a real divergence from the shows page, recorded so the next reader does not
+ * assume the consolidation was applied everywhere.
  */
 export const VENUE_LIST_LIMIT = 100
 
@@ -56,6 +78,48 @@ function VenueListLoading() {
     <div className="flex justify-center items-center py-12">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground"></div>
     </div>
+  )
+}
+
+/**
+ * Seed the two cache entries `VenueList` blocks its first paint on — the first
+ * page of venues and the city facet counts — so the venue rows reach the
+ * server HTML (PSY-1624).
+ *
+ * BOTH are required. `VenueList` returns its spinner while either query is
+ * still loading, so seeding the rows alone server-renders the spinner.
+ *
+ * A failed fetch renders `<VenueList />` unseeded rather than throwing; the
+ * component fetches for itself and owns the error state (see
+ * `fetchListPayload`).
+ */
+async function HydratedVenueList() {
+  const [venues, cities] = await Promise.all([
+    fetchListPayload<VenuesListResponse>({
+      url: VENUE_LIST_FIRST_SCREEN_URL,
+      collection: 'venues',
+      service: 'venues-first-screen',
+    }),
+    fetchListPayload<VenueCitiesResponse>({
+      url: venueEndpoints.CITIES,
+      collection: 'cities',
+      service: 'venue-cities-first-screen',
+    }),
+  ])
+
+  if (!venues || !cities) {
+    return <VenueList />
+  }
+
+  const dehydratedState = await seedFirstScreen([
+    { queryKey: VENUE_LIST_FIRST_SCREEN_KEY, data: venues },
+    { queryKey: venueQueryKeys.cities, data: cities },
+  ])
+
+  return (
+    <HydrationBoundary state={dehydratedState}>
+      <VenueList />
+    </HydrationBoundary>
   )
 }
 
@@ -86,7 +150,7 @@ export default async function VenuesPage() {
         <main className="w-full max-w-6xl px-4 py-8 md:px-8">
           <h1 className="text-3xl font-bold text-center mb-8">Venues</h1>
           <Suspense fallback={<VenueListLoading />}>
-            <VenueList />
+            <HydratedVenueList />
           </Suspense>
         </main>
       </div>

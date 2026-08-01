@@ -135,6 +135,17 @@ describe('VenueCard', () => {
     })
   })
 
+  // The header row is in server HTML since PSY-1624, so it is clickable before
+  // React attaches its handler. The marker attribute is the load-bearing half
+  // of `replayOnHydrate`; losing it in a refactor silently reinstates the
+  // dropped click, with nothing else failing.
+  it('marks the expandable header as a click-replay root', () => {
+    const { container } = render(<VenueCard venue={makeVenue()} />)
+    expect(
+      container.querySelector('[data-replay-on-hydrate]')
+    ).not.toBeNull()
+  })
+
   it('renders as an article element', () => {
     render(<VenueCard venue={makeVenue()} />)
     expect(screen.getByRole('article')).toBeInTheDocument()

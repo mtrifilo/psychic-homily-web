@@ -5,6 +5,7 @@ import { Search, X, Check, ChevronsUpDown } from 'lucide-react'
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Badge } from '@/components/ui/badge'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
 
 /**
@@ -110,6 +111,13 @@ export function CityFilters({
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button
+              // In server HTML since PSY-1624, so it is painted and clickable
+              // for the whole window before React attaches Radix's handler —
+              // and a click in that window is silently dropped, which is
+              // exactly what this primitive exists for. The replay root goes
+              // on the trigger rather than the surrounding bar because the
+              // trigger is the element that owns the interaction.
+              {...replayOnHydrate}
               role="combobox"
               aria-expanded={open}
               aria-label="Filter by city"

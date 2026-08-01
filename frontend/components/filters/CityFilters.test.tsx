@@ -34,6 +34,21 @@ describe('CityFilters', () => {
     expect(screen.getByText('Filter by city...')).toBeInTheDocument()
   })
 
+  // The trigger reaches server HTML on /shows and /venues (PSY-1624), so it is
+  // clickable for the whole pre-hydration window and a click there is dropped
+  // unless it is a replay root. The marker attribute is the load-bearing half
+  // of `replayOnHydrate` — `PopoverTrigger asChild` composes the ref half, and
+  // a ref refactor that lost the attribute would silently reinstate the drop.
+  it('marks the combobox trigger as a click-replay root', () => {
+    render(
+      <CityFilters cities={cities} selectedCities={[]} onFilterChange={vi.fn()} />
+    )
+
+    expect(screen.getByTestId('city-filter-combobox')).toHaveAttribute(
+      'data-replay-on-hydrate'
+    )
+  })
+
   it('opens the dropdown when combobox is clicked', async () => {
     const user = userEvent.setup()
     render(

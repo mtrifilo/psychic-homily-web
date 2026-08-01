@@ -27,6 +27,7 @@
  */
 
 import { dehydrate, type DehydratedState } from '@tanstack/react-query'
+import { connection } from 'next/server'
 import { getQueryClient } from '@/lib/queryClient'
 
 export async function prefetchEntity<T>(
@@ -38,5 +39,77 @@ export async function prefetchEntity<T>(
     queryKey,
     queryFn: () => data,
   })
+  return dehydrate(queryClient)
+}
+
+/** One cache entry to seed: the key the client hook will read, and its data. */
+export interface QuerySeed {
+  queryKey: readonly unknown[]
+  data: unknown
+}
+
+/**
+ * Seed several cache entries into ONE dehydrated state, each marked as
+ * already stale.
+ *
+ * Two things separate this from `prefetchEntity`, and both are why the list
+ * pages (PSY-1624) need their own function rather than a second call to it.
+ *
+ * **It seeds several keys at once.** `getQueryClient()` mints a fresh client
+ * per call on the server, so two `prefetchEntity` calls produce two states and
+ * only one can be handed to a `<HydrationBoundary>`. A list page blocks its
+ * first paint on BOTH its rows and its filter facets, so seeding one without
+ * the other server-renders the skeleton regardless.
+ *
+ * **It stamps `dataUpdatedAt: 0` instead of "now".** `prefetchQuery` records
+ * the current time, which is two problems at once here. Honesty: these
+ * payloads come out of Next's Data Cache and can be up to
+ * `FIRST_SCREEN_REVALIDATE_SECONDS` old, so "fetched just now" would suppress
+ * the client's revalidation for a `staleTime` it never earned. And mechanics:
+ * under `cacheComponents`, reading the clock in a prerenderable scope is a
+ * build error ("used `Date.now()` before accessing either uncached data or
+ * Request data") — the guard exists precisely because a timestamp baked into a
+ * cached shell goes on lying as the shell ages. Seeding at 0 says "paint this,
+ * then go check", which is what a server-rendered first screen actually is.
+ *
+ * The forced revalidation it buys is not only a freshness nicety. The server
+ * fetch forwards no cookies, so the seed is always the ANONYMOUS payload — an
+ * admin, whose `/shows/upcoming` normally includes unapproved shows, would
+ * otherwise sit on a first screen that silently omits them. Landing stale is
+ * what lets the client correct that on its own. Two consequences to keep in
+ * mind at the call site: the seeded query reports `isFetching` on its very
+ * first commit (do not wire that to a "dimming" affordance — see `ShowList`),
+ * and a failed revalidation leaves `error` set while `data` is still the
+ * server payload (gate error states on `!data`).
+ *
+ * **`await connection()` is load-bearing, not defensive.** `dehydrate()` reads
+ * the clock too — it stamps its own `dehydratedAt` — and that one is TanStack's
+ * to spend, not ours to zero out, so the seed can only be produced where
+ * reading the clock is legitimate: a request-time render. Without it these
+ * three pages fail the `cacheComponents` prerender guard ("used `Date.now()`
+ * before accessing either uncached data or Request data") — observed, not
+ * theorised. `prefetchEntity` above needs no such call only because its
+ * callers are `[slug]` routes that have already `await`ed `params`, which is
+ * Request data and satisfies the same guard; a route with no dynamic input of
+ * its own has nothing to satisfy it with.
+ *
+ * What this costs is close to nothing here: `AuthHydrator` in the root layout
+ * already reads `cookies()` inside a `<Suspense>`, so every route in this app
+ * already streams its content subtree. This adds a second hole to a request
+ * that had one, not a first — and the payload underneath is still Data-Cached,
+ * so a request-time render is not a request-time fetch.
+ *
+ * It lives in here rather than at each call site because a caller that forgot
+ * it would fail at BUILD, on a message that names neither this function nor
+ * the reason.
+ */
+export async function seedFirstScreen(
+  seeds: readonly QuerySeed[],
+): Promise<DehydratedState> {
+  await connection()
+  const queryClient = getQueryClient()
+  for (const seed of seeds) {
+    queryClient.setQueryData(seed.queryKey, seed.data, { updatedAt: 0 })
+  }
   return dehydrate(queryClient)
 }
