@@ -101,10 +101,6 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
         type: 'website',
         url: `/shows/${slug}`,
       },
-      // Twitter/X ignores most OG tags and falls back to a small card without
-      // an explicit `card` type, so the show's opengraph-image renders as a
-      // thumbnail instead of the wide hero it is drawn for. Title and
-      // description mirror OG deliberately — the same show, said the same way.
       // The root layout already sets `twitter.card`, so the card type is not
       // what this fixes. It sets `twitter.images: ['/og-image.jpg']` too, and
       // that shadowed the per-show card: every show unfurled on X with the
