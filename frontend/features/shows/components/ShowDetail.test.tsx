@@ -324,6 +324,64 @@ describe('ShowDetail', () => {
       expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
     })
 
+    // The street address is what people paste into a maps app, and for DIY
+    // venues it is often not findable anywhere else. It is fetched on every
+    // show request, so hiding it was pure data loss.
+    it('renders the venue street address when the venue has one', () => {
+      mockUseShow.mockReturnValue({
+        data: makeShow({
+          venues: [
+            {
+              id: 1,
+              slug: 'the-venue',
+              name: 'The Venue',
+              address: '308 N 2nd Ave',
+              city: 'Phoenix',
+              state: 'AZ',
+              verified: true,
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" />)
+      expect(screen.getByText('308 N 2nd Ave')).toBeInTheDocument()
+    })
+
+    it('omits the address line when the venue has no address', () => {
+      // The default fixture venue carries no `address`.
+      render(<ShowDetail showId="1" />)
+      expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
+      expect(screen.queryByText('308 N 2nd Ave')).not.toBeInTheDocument()
+    })
+
+    // The API can hand back a whitespace-only address; rendering it would leave
+    // a blank indented line under the city/state row.
+    it('omits the address line when the address is whitespace only', () => {
+      mockUseShow.mockReturnValue({
+        data: makeShow({
+          venues: [
+            {
+              id: 1,
+              slug: 'the-venue',
+              name: 'The Venue',
+              address: '   ',
+              city: 'Phoenix',
+              state: 'AZ',
+              verified: true,
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      const { container } = render(<ShowDetail showId="1" />)
+      expect(
+        container.querySelector('.pl-5.text-sm.text-muted-foreground')
+      ).not.toBeInTheDocument()
+    })
+
     it('renders price', () => {
       render(<ShowDetail showId="1" />)
       expect(screen.getByText('$25.00')).toBeInTheDocument()

@@ -133,6 +133,15 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                 {venue.city}, {venue.state}
               </span>
             </div>
+            {/* Street address — plain text, no maps link. `pl-5` (icon w-4 +
+                gap-1) hangs it under the city/state text so the two read as one
+                location group. Trimmed because the API can hand back a
+                whitespace-only address, which would render an empty line. */}
+            {venue.address?.trim() && (
+              <div className="pl-5 text-sm text-muted-foreground">
+                {venue.address.trim()}
+              </div>
+            )}
             {venue.slug && (
               <Link
                 href={`/venues/${venue.slug}`}
