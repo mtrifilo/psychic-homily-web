@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -19,25 +20,23 @@ import (
 const showAlsoTonightCap = 20
 
 // GetShowAlsoTonight returns the other shows in this show's metro on this show's
-// own venue-local date.
+// own scene-local date.
 //
-// Three decisions worth stating, because each has a plausible-looking wrong
+// Four decisions worth stating, because each has a plausible-looking wrong
 // version:
 //
-//   - The date is the SHOW's, resolved in the SCENE's zone — never the viewer's
-//     "tonight" and never UTC. A reader in Berlin opening a Chicago show page is
-//     asking what else is on that night in Chicago, and a 21:00 Chicago set is
-//     already the next UTC day. The scene's clock rather than the room's own
-//     because `Date` is a scene-day key: a metro straddling a zone boundary must
-//     bucket its night the way /scenes/{slug}/day does, or the two disagree.
-//     Only the no-scene branch, which has no scene clock to consult, falls back
-//     to the venue's own zone.
+//   - The date is the SHOW's, never the viewer's "tonight" and never UTC. A
+//     reader in Berlin opening a Chicago show page is asking what else is on that
+//     night in Chicago, and a 21:00 Chicago set is already the next UTC day.
+//   - The clock is the ROOM's own zone when it has one, and the metro's modal
+//     clock otherwise (see alsoTonightLocation for why that order and not the
+//     reverse).
 //   - The window is a strict calendar day, [start, end), taken from the same
 //     calendarDate arithmetic the scene-day page uses — not the 6am night
-//     boundary. `Date` is emitted as the key for /scenes/{slug}/day/{date}, so
-//     the two surfaces MUST bucket a 01:00 set onto the same date or the rail's
-//     own "see all" link would lead to a page missing the shows it advertised.
-//   - The scope comes from GetSceneShowsInRange, so "the metro's shows tonight"
+//     boundary that names a NIGHT. `Date` is a scene-day key, so the two surfaces
+//     must bucket a 01:00 set onto the same date. `IsTonight` carries the 6am
+//     rule separately, so a client never has to reimplement it.
+//   - The rows come from GetSceneShowsInRange, so "the metro's shows on a date"
 //     has ONE definition shared with the scene-day page and the digest.
 //
 // A show whose venue cannot be scoped to a scene returns an empty rail at 200,
@@ -57,9 +56,14 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	}
 
 	// No venue, or a venue with no usable place: nothing to scope by, so there is
-	// no scene clock to date the show on and the room's own zone answers instead
-	// (see venueLocation).
-	if subject.VenueCity == "" || subject.VenueState == "" {
+	// no scene clock to date the show on and the room's own zone answers instead.
+	//
+	// TrimSpace, not `== ""`, so this agrees with the TRIM() the venue pick in
+	// this same function uses. A whitespace-only city otherwise slips through to
+	// scopeFor, where it folds to the empty key and produces a scope matching
+	// EVERY blank-city venue in the state, plus a "---il" slug that resolves to
+	// nothing.
+	if strings.TrimSpace(subject.VenueCity) == "" || strings.TrimSpace(subject.VenueState) == "" {
 		return emptyAlsoTonight(subject, subject.venueLocation()), nil
 	}
 
@@ -69,7 +73,7 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	// answers. Passing it back into GetSceneShowsInRange re-resolves the SAME
 	// scope, which is how every other scene caller addresses a metro.
 	city, state := metroDisplayIdentity(scope.metro, scope.city, scope.state)
-	loc := s.sceneLocation(scope, state)
+	loc := s.alsoTonightLocation(subject, scope, state)
 
 	// Half-open [start, end), both ends from the CALENDAR — see calendarDate.start
 	// for why this is not `time.Date(..., 0, 0, 0, 0, loc)`.
@@ -77,10 +81,13 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 	start := date.start(loc)
 	end := date.addDays(1).start(loc)
 
-	// One over the cap: the subject show is itself in the metro's night and is
-	// about to be dropped, so fetching exactly the cap would quietly serve
-	// nineteen rows on a night that has twenty others.
-	rows, err := s.GetSceneShowsInRange(city, state, start.UTC(), end.UTC(), loc, showAlsoTonightCap+1)
+	// TWO over the cap, and both are load-bearing. One pays for the subject, which
+	// is itself in the metro's night and about to be dropped: fetching exactly the
+	// cap would quietly serve nineteen rows on a night that has twenty others. The
+	// second pays for HasMore, which otherwise cannot tell "exactly the cap" from
+	// "the cap and then some" — with only cap+1 fetched, a subject inside the
+	// window consumes the spare row and every full rail looks complete.
+	rows, err := s.GetSceneShowsInRange(city, state, start.UTC(), end.UTC(), loc, showAlsoTonightCap+2)
 	if err != nil {
 		// Below the scene threshold is not a failure here. The rail's question is
 		// "what else is on tonight", and "this room is not part of a scene we
@@ -88,34 +95,45 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		// otherwise perfectly serveable.
 		var sceneErr *apperrors.SceneError
 		if errors.As(err, &sceneErr) && sceneErr.Code == apperrors.CodeSceneNotFound {
-			// The venue's OWN zone, not the modal scene clock resolved above: the
-			// scene clock earns its place only while there IS a scene page for Date
-			// to agree with. sceneLocation also reads VERIFIED venues only, so the
-			// rooms that land here are exactly the ones it answers worst for.
 			return emptyAlsoTonight(subject, subject.venueLocation()), nil
 		}
 		return nil, err
 	}
 
 	shows := make([]contracts.SceneShowSummary, 0, len(rows))
+	subjectOnTheRail := false
 	for _, row := range rows {
 		if row.ID == subject.ShowID {
+			subjectOnTheRail = true
 			continue
-		}
-		if len(shows) == showAlsoTonightCap {
-			break
 		}
 		shows = append(shows, row)
 	}
+	// More rows than the cap survived the self-exclusion, so the night has more
+	// than the rail can hold and the client needs to say so rather than implying
+	// it listed everything.
+	hasMore := len(shows) > showAlsoTonightCap
+	if hasMore {
+		shows = shows[:showAlsoTonightCap]
+	}
 
-	// The slug is a LINK, so it is served only when the link resolves. The
-	// scene-day surface refuses dates outside its tracked window, and an archive
-	// show has a real scene and a real date but no page to point at; emitting the
-	// slug anyway would advertise a URL this same service answers 404 to. Display
-	// identity below is unconditional, because naming the metro is true either
-	// way. Same split as SceneDayResponse.PrevDate/NextDate.
+	nowLocal := time.Now().In(loc)
+
+	// The slug is a LINK, so it is served only when following it lands somewhere
+	// honest. Two ways it would not:
+	//
+	//   - The scene-day surface refuses dates outside its tracked window, so an
+	//     archive show has a real scene and a real date but no page to point at.
+	//   - The subject's scope comes from the GEOCODER while the rows come from the
+	//     venues.metro COLUMN, which a manually-run backfill maintains. When the
+	//     subject's own room is missing from the column, the scene-day page for
+	//     this date provably does not list the show the reader came from, and
+	//     sending them there is worse than sending them nowhere.
+	//
+	// Display identity below stays unconditional, because naming the metro is
+	// true either way. Same split as SceneDayResponse.PrevDate/NextDate.
 	sceneSlug := ""
-	if dateIsServable(date, time.Now().In(loc)) {
+	if dateIsServable(date, nowLocal) && subjectOnTheRail {
 		sceneSlug = buildSceneSlug(city, state)
 	}
 
@@ -126,9 +144,33 @@ func (s *SceneService) GetShowAlsoTonight(idOrSlug string) (*contracts.ShowAlsoT
 		State:     state,
 		Date:      date.String(),
 		Timezone:  loc.String(),
+		IsTonight: date == tonightDate(nowLocal),
 		ShowCount: len(shows),
+		HasMore:   hasMore,
 		Shows:     shows,
 	}, nil
+}
+
+// alsoTonightLocation is the clock this show's date is read on: the room's own
+// zone when it has one, otherwise the metro's modal clock.
+//
+// That order, and not the reverse, because the two answer different questions.
+// sceneLocation is the right clock for a page the READER dated — it makes every
+// room in the metro agree on which night a date names. Here the DATE is derived
+// from one specific show, so a modal answer can misdate the very show the reader
+// is looking at: sceneLocation reads verified venues only and otherwise falls
+// back to a one-zone-per-state map, so a Pensacola room (America/Chicago, in a
+// state the map calls America/New_York) would have its 23:30 set published under
+// the following date, with a rail listing the following night.
+//
+// The room's own column cannot be wrong about the room. Where the two disagree
+// the metro straddles a zone boundary, and the show's own night is the thing
+// worth getting right.
+func (s *SceneService) alsoTonightLocation(subject *alsoTonightSubject, scope sceneScope, state string) *time.Location {
+	if strings.TrimSpace(subject.VenueTimezone) != "" {
+		return subject.venueLocation()
+	}
+	return s.sceneLocation(scope, state)
 }
 
 // alsoTonightSubject is the subject show reduced to what the rail needs: its
@@ -150,9 +192,8 @@ type alsoTonightSubject struct {
 // state. Without it a 01:00 Berlin set would be published under the previous
 // date by the one field whose entire job is to name the right one.
 func (a *alsoTonightSubject) venueLocation() *time.Location {
-	if a.VenueTimezone == "" {
-		return utils.EventLocation(nil, a.VenueState)
-	}
+	// One call, not a branch on the empty string: EventLocation already treats an
+	// empty zone as absent and falls through to the state map.
 	return utils.EventLocation(&a.VenueTimezone, a.VenueState)
 }
 
@@ -171,6 +212,14 @@ func (a *alsoTonightSubject) venueLocation() *time.Location {
 // same room the scene query would name — otherwise the rail could be computed
 // for one venue's metro while every other surface attributes the show to
 // another.
+//
+// Note this is a THIRD venue-pick rule in the package, and the one it does NOT
+// follow is deliberate: primaryVenueLateralSQL (charts_service.go) picks the
+// lowest venue_id for venue ATTRIBUTION. That rule is right for "which room owns
+// this show"; this one has to match the SCENE query's pick instead, because the
+// two are read together. A bill spanning two metros is therefore scoped by an
+// alphabetical tie-break, which ShowAlsoTonightResponse documents so a client is
+// not surprised when renaming a room moves the rail.
 //
 // It is name-ASC *among placeable rooms*, though, and that qualifier is
 // load-bearing: the scene query applies its venue predicate in the WHERE, so its

@@ -35,18 +35,25 @@ func TestShowAlsoTonightRouteIsRegisteredOnce(t *testing.T) {
 	}
 }
 
-// An unregistered path 404s in chi before any handler runs, so anything other
-// than 404/405 proves the route matched — with a nil-DB test container the
-// service errors out, which is a 500.
-func TestShowAlsoTonightPathResolves(t *testing.T) {
+// The route must be registered AND anonymous. With a nil-DB test container the
+// service fails on its own database check, so a correctly wired public route
+// answers exactly 500 here.
+//
+// Asserting the concrete status rather than "not 404/405": a negative match
+// stays green if the operation is moved onto rc.Protected (401) or grows a
+// required parameter (422), which is precisely the regression that would make a
+// reachable route useless to the anonymous callers it exists for.
+func TestShowAlsoTonightPathResolvesAnonymously(t *testing.T) {
 	router := newTestRouter(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/shows/some-show/also-tonight", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
-		t.Errorf("GET /shows/some-show/also-tonight = %d — the route is not registered", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("GET /shows/some-show/also-tonight = %d, want %d — 404/405 means the route is "+
+			"not registered, and any 4xx means it is no longer reachable anonymously",
+			w.Code, http.StatusInternalServerError)
 	}
 }
 

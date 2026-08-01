@@ -993,7 +993,7 @@ type SceneDayResponse struct {
 }
 
 // ShowAlsoTonightResponse is the "also tonight" rail on a show page: the OTHER
-// shows in the same metro on the same venue-local date.
+// shows in the same metro on the same date.
 //
 // A wrapper rather than a bare []SceneShowSummary because the rail's heading is
 // part of the answer. The mock reads "ALSO / TONIGHT · CHICAGO", and neither
@@ -1004,39 +1004,60 @@ type SceneDayResponse struct {
 // Serving both here also keeps the rail to one request.
 type ShowAlsoTonightResponse struct {
 	// SceneName/City/State are the scene's DISPLAY identity: the metro's
-	// principal city, so the heading reads "Chicago" for an Evanston room. EMPTY
-	// when the show has no venue to scope by, in which case Shows is empty too.
+	// principal city, so the heading reads "Chicago" for an Evanston room.
+	//
+	// EMPTY whenever there is no scene to scope by, which is THREE cases and not
+	// one: the show has no venue, its venue has no usable city/state, or its place
+	// is below the scene threshold. Shows is empty in all three.
 	SceneName string `json:"scene_name,omitempty"` // "City, ST"
 	City      string `json:"city,omitempty"`
 	State     string `json:"state,omitempty"`
-	// SceneSlug is the "see all" LINK target, to be combined with Date as
-	// /scenes/{slug}/day/{date}.
+	// SceneSlug is the "see all" LINK target, to be combined with Date as the
+	// reader-facing /scenes/{slug}/{date} (a single date segment; the API's own
+	// /scenes/{slug}/day/{date} is a different path).
 	//
-	// Present only when that URL will actually resolve, which is why it is
-	// separate from the display identity above: the scene-day surface serves a
-	// bounded window of dates (2015 through next year), so an archive show has a
-	// real scene and a real date but no page to point at. Same contract as
-	// SceneDayResponse.PrevDate/NextDate: render the control only when the field
-	// is set, or you advertise a link this same service answers 404 to.
+	// Present only when following it lands somewhere honest, which is why it is
+	// separate from the display identity above. It is withheld when the
+	// scene-day surface would refuse the date (it serves a bounded window of
+	// years, so an archive show has a real scene and a real date but no page), and
+	// when the subject show is not itself in the metro's night — the rail's scope
+	// is resolved from the geocoder while the rows come from the venues.metro
+	// column, so a room the metro backfill never reached would otherwise be sent
+	// to a page that provably does not list the show it came from. Same contract
+	// as SceneDayResponse.PrevDate/NextDate: render the control only when the
+	// field is set.
 	SceneSlug string `json:"scene_slug,omitempty"`
-	// Date is the show's own scene-local calendar date (YYYY-MM-DD): the date the
-	// rail is about, and the day key SceneSlug pairs with.
+	// Date is the show's own calendar date (YYYY-MM-DD): the date the rail is
+	// about, and the day key SceneSlug pairs with.
 	//
 	// The show's OWN date, never the viewer's "tonight": a reader in Berlin
 	// opening a Chicago show page is asking what else is on that night in
-	// Chicago. Computed in the SCENE's zone rather than the individual room's, so
-	// that a metro straddling a timezone boundary buckets its night exactly the
-	// way /scenes/{slug}/day does. Only a show with no scene at all falls back to
-	// its own venue's zone.
+	// Chicago. Read on the venue's own zone when it has one, and on the metro's
+	// modal clock otherwise.
+	//
+	// A strict calendar date, so a 00:30 set files under the date it starts on.
+	// "Tonight" is a different question, answered by IsTonight.
 	Date string `json:"date"`
 	// Timezone is the IANA zone the date and its window were computed in.
 	Timezone string `json:"timezone"`
-	// ShowCount is len(Shows) — the CAPPED count, not the metro's true total for
-	// the night. A rail does not paginate; a client that needs the full night
-	// follows SceneSlug + Date to the scene-day page.
+	// IsTonight says this date is the one a reader standing in the scene right
+	// now would call "tonight" — which is NOT simply Date == today. Until 06:00
+	// local the answer is still YESTERDAY's date, because a night is named by the
+	// date it BEGAN on. Answered here, exactly as SceneDayResponse does, because
+	// it depends on the scene's clock rather than the viewer's device: a client
+	// computing it locally would have to reimplement the 6am rule and would get a
+	// different answer for a reader in another zone.
+	IsTonight bool `json:"is_tonight"`
+	// ShowCount is len(Shows): the number of rows served, which is the capped
+	// count and not the metro's true total for the night. Read it with HasMore.
 	ShowCount int `json:"show_count"`
-	// Shows excludes the subject show and is capped. Always non-nil, so a quiet
-	// night marshals as `[]` rather than `null`.
+	// HasMore says the night held more shows than the rail can carry, so a client
+	// can say so rather than implying it listed everything. Note the cap keeps the
+	// EARLIEST rows of the date, so on a dense night the dropped shows are the
+	// late ones; a client that needs the full night follows SceneSlug + Date.
+	HasMore bool `json:"has_more"`
+	// Shows excludes the subject show and is capped, earliest first. Always
+	// non-nil, so a quiet night marshals as `[]` rather than `null`.
 	Shows []SceneShowSummary `json:"shows"`
 }
 
@@ -1588,7 +1609,8 @@ type SceneServiceInterface interface {
 	// SceneDayResponse.IsTonight.
 	GetSceneDay(city, state, dateKey string) (*SceneDayResponse, error)
 	// GetShowAlsoTonight returns the OTHER shows in the subject show's metro on
-	// the subject show's own venue-local date — the show page's "also tonight"
+	// the subject show's own venue-local date (read on the room's own zone when
+	// it has one, the metro's modal clock otherwise) — the show page's "also tonight"
 	// rail. idOrSlug is a numeric show id or a show slug, matching every other
 	// /shows/{show_id} sub-resource.
 	//

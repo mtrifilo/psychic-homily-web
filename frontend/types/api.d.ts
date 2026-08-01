@@ -15362,6 +15362,8 @@ export interface components {
             readonly $schema?: string;
             city?: string;
             date: string;
+            has_more: boolean;
+            is_tonight: boolean;
             scene_name?: string;
             scene_slug?: string;
             /** Format: int64 */

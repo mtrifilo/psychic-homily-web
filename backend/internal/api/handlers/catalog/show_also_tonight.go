@@ -6,6 +6,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -29,7 +30,8 @@ type GetShowAlsoTonightResponse struct {
 }
 
 // GetShowAlsoTonightHandler handles GET /shows/{show_id}/also-tonight — the other
-// shows in this show's metro on this show's own venue-local date.
+// shows in this show's metro on this show's own date, read on that show's own
+// clock.
 //
 // It hangs off SceneHandler rather than ShowHandler because the answer is a
 // scene question ("what is on in this metro tonight") that merely takes a show
@@ -45,7 +47,15 @@ func (h *SceneHandler) GetShowAlsoTonightHandler(ctx context.Context, req *GetSh
 		if mapped := shared.MapShowError(err); mapped != nil {
 			return nil, mapped
 		}
-		return nil, huma.Error500InternalServerError("Failed to get also-tonight shows", err)
+		// Logged, not echoed. Huma serializes a wrapped error's text into the
+		// response body, and this endpoint is anonymous and enumerable by show id,
+		// so passing `err` would hand any caller raw Postgres error strings during
+		// a migration or outage. Same shape as the charts handlers.
+		logger.FromContext(ctx).Error("show_also_tonight_failed",
+			"show_id_or_slug", req.ShowID,
+			"error", err.Error(),
+		)
+		return nil, huma.Error500InternalServerError("Failed to get also-tonight shows")
 	}
 
 	return &GetShowAlsoTonightResponse{Body: rail}, nil

@@ -6,6 +6,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // The "also tonight" rail, exercised against a real database because every
@@ -133,7 +134,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_ExcludesSe
 // The window is a half-open venue-local calendar day. A minute either side of it
 // is a different night, and getting this wrong in UTC would move every evening
 // show in the western hemisphere onto the following date.
-func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_WindowIsTheVenueLocalCalendarDay() {
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_WindowIsTheShowLocalCalendarDay() {
 	loc := suite.alsoTonightLoc()
 	chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
 	evanston := suite.createAlsoTonightVenue("Space", "Evanston", "IL")
@@ -283,7 +284,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_MultiVenue
 
 	// The mirror image, so the assertion cannot be satisfied by "Milwaukee always
 	// wins": with an alphabetically-earlier Chicago room the pick flips.
+	//
+	// Created LAST on purpose. It is the alphabetically first room but the highest
+	// venue id, so name-order and id-order disagree — without that, a tiebreak
+	// changed to `v.id ASC` on either side of the invariant would still pass.
 	chicagoB := suite.createAlsoTonightVenue("Alpha Room", "Chicago", "IL")
+	suite.Require().Greater(chicagoB.ID, chicagoA.ID)
 	flipped := suite.createAlsoTonightShowAt("multi-venue-flipped",
 		[]uint{chicagoB.ID, milwaukeeA.ID}, at, catalogm.ShowStatusApproved)
 
@@ -291,6 +297,175 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_MultiVenue
 	suite.Require().NoError(err)
 	suite.Equal("chicago-il", flippedRail.SceneSlug)
 	suite.Contains(suite.showIDs(fmt.Sprint(flipped.ID)), chicagoSibling.ID)
+
+	// The OTHER half of the invariant, and the only assertion that reads both
+	// queries at once: when the multi-venue show appears as a ROW on someone
+	// else's rail, GetSceneShowsInRange's own DISTINCT ON must have named the same
+	// room this service picked. Asserting only the scope would leave scene.go's
+	// tiebreak free to drift to `v.id` with nothing failing.
+	rowRail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(chicagoSibling.ID))
+	suite.Require().NoError(err)
+	var flippedRow *contracts.SceneShowSummary
+	for i := range rowRail.Shows {
+		if rowRail.Shows[i].ID == flipped.ID {
+			flippedRow = &rowRail.Shows[i]
+		}
+	}
+	suite.Require().NotNil(flippedRow, "the flipped multi-venue show belongs to the Chicago night")
+	suite.Equal("Alpha Room", flippedRow.VenueName,
+		"the scene query must carry the SAME room the subject scope was computed from")
+}
+
+// The clock is the ROOM's own zone, not the metro's modal one, and the two can
+// disagree: sceneLocation reads VERIFIED venues only and otherwise falls back to
+// a one-zone-per-state map, so a room in a state that spans two zones can be
+// misdated by the metro's answer. The date here names the subject's own night,
+// so the room's own column has to win.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_RoomZoneBeatsTheMetroModalClock() {
+	mountain, err := time.LoadLocation("America/Denver")
+	suite.Require().NoError(err)
+
+	// Two verified El Paso rooms make the scene, both on Mountain time. The state
+	// map calls TX America/Chicago, and these rooms are the reason that is wrong.
+	subjectRoom := suite.seedVenue(alsoTonightVenue{
+		name: "Lowbrow Palace", city: "El Paso", state: "TX", tz: "America/Denver",
+	})
+	sibling := suite.seedVenue(alsoTonightVenue{
+		name: "Tricky Falls", city: "El Paso", state: "TX", tz: "America/Denver",
+	})
+
+	// 23:30 Mountain on the 18th is 00:30 Central on the 19th, so the two
+	// candidate clocks file this show under different dates. That is the test.
+	at := time.Date(2026, time.September, 18, 23, 30, 0, 0, mountain)
+	subject := suite.createAlsoTonightShow("subject", subjectRoom.ID, at, catalogm.ShowStatusApproved)
+	sameNight := suite.createAlsoTonightShow("same-night", sibling.ID,
+		time.Date(2026, time.September, 18, 21, 0, 0, 0, mountain), catalogm.ShowStatusApproved)
+
+	rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+	suite.Require().NoError(err)
+	suite.Equal("America/Denver", rail.Timezone,
+		"the room's own zone must decide the date, not the state map's answer for TX")
+	suite.Equal("2026-09-18", rail.Date,
+		"a 23:30 Mountain set belongs to the 18th; the Central reading would publish it as the 19th")
+	suite.Equal([]uint{sameNight.ID}, suite.showIDs(fmt.Sprint(subject.ID)))
+}
+
+// A capped rail must say it is capped, or a client renders 20 rows as if that
+// were the whole night. The cap+1 fetch already knows the answer.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_ReportsWhenTheNightOverflowsTheCap() {
+	loc := suite.alsoTonightLoc()
+	chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
+	evanston := suite.createAlsoTonightVenue("Space", "Evanston", "IL")
+
+	subject := suite.createAlsoTonightShow("subject", chicago.ID,
+		time.Date(2026, time.September, 18, 18, 0, 0, 0, loc), catalogm.ShowStatusApproved)
+
+	// Exactly the cap: full rail, nothing withheld.
+	for i := 0; i < showAlsoTonightCap; i++ {
+		suite.createAlsoTonightShow(fmt.Sprintf("sibling-%d", i), evanston.ID,
+			time.Date(2026, time.September, 18, 19, i, 0, 0, loc), catalogm.ShowStatusApproved)
+	}
+	atCap, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+	suite.Require().NoError(err)
+	suite.Len(atCap.Shows, showAlsoTonightCap)
+	suite.Equal(showAlsoTonightCap, atCap.ShowCount)
+	suite.False(atCap.HasMore, "a night with exactly the cap is complete, not truncated")
+
+	// One more, and the rail has to admit it.
+	suite.createAlsoTonightShow("sibling-overflow", evanston.ID,
+		time.Date(2026, time.September, 18, 23, 0, 0, 0, loc), catalogm.ShowStatusApproved)
+	overflowing, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+	suite.Require().NoError(err)
+	suite.Len(overflowing.Shows, showAlsoTonightCap)
+	suite.True(overflowing.HasMore, "the night held more than the rail can carry")
+}
+
+// "Tonight" is not "Date == today": until 06:00 local a night is still named by
+// the date it began on. The server answers it because it depends on the scene's
+// clock, not the reader's device.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_IsTonightUsesTheSceneClockNotTheDate() {
+	loc := suite.alsoTonightLoc()
+	chicago := suite.createAlsoTonightVenue("Empty Bottle", "Chicago", "IL")
+	suite.createAlsoTonightVenue("Space", "Evanston", "IL")
+
+	nowLocal := time.Now().In(loc)
+	tonight := tonightDate(nowLocal)
+
+	onTonight := suite.createAlsoTonightShow("tonight",
+		chicago.ID, tonight.start(loc).Add(20*time.Hour), catalogm.ShowStatusApproved)
+	nextWeek := suite.createAlsoTonightShow("next-week",
+		chicago.ID, tonight.addDays(7).start(loc).Add(20*time.Hour), catalogm.ShowStatusApproved)
+
+	tonightRail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(onTonight.ID))
+	suite.Require().NoError(err)
+	suite.Equal(tonight.String(), tonightRail.Date)
+	suite.True(tonightRail.IsTonight)
+
+	futureRail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(nextWeek.ID))
+	suite.Require().NoError(err)
+	suite.False(futureRail.IsTonight, "a show a week out is not tonight, whatever the reader's clock says")
+}
+
+// The scope comes from the geocoder, the rows come from the venues.metro column,
+// and a manually-run backfill maintains that column. When the subject's own room
+// is missing from it, the scene-day page for this date does NOT list the show the
+// reader came from, so the link must be withheld rather than misleading them.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_WithholdsTheLinkWhenTheSubjectIsNotOnItsOwnScenePage() {
+	phx, err := time.LoadLocation("America/Phoenix")
+	suite.Require().NoError(err)
+	at := time.Date(2026, time.September, 18, 20, 0, 0, 0, phx)
+
+	mesa := suite.seedVenue(alsoTonightVenue{
+		name: "Nile Theater", city: "Mesa", state: "AZ", tz: "America/Phoenix", noMetro: true,
+	})
+	crescent := suite.seedVenue(alsoTonightVenue{
+		name: "Crescent Ballroom", city: "Phoenix", state: "AZ", tz: "America/Phoenix",
+	})
+	valley := suite.seedVenue(alsoTonightVenue{
+		name: "Valley Bar", city: "Phoenix", state: "AZ", tz: "America/Phoenix",
+	})
+
+	orphan := suite.createAlsoTonightShow("orphan", mesa.ID, at, catalogm.ShowStatusApproved)
+	inColumn := suite.createAlsoTonightShow("in-column", crescent.ID, at.Add(time.Hour), catalogm.ShowStatusApproved)
+	suite.createAlsoTonightShow("also-in-column", valley.ID, at.Add(2*time.Hour), catalogm.ShowStatusApproved)
+
+	orphanRail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(orphan.ID))
+	suite.Require().NoError(err)
+	suite.NotEmpty(orphanRail.Shows, "the rail itself is still real and still useful")
+	suite.Equal("Phoenix", orphanRail.City, "the metro is still named")
+	suite.Empty(orphanRail.SceneSlug,
+		"the scene-day page would not list this show, so it must not be linked")
+
+	// A show whose room IS in the column gets the link, proving the guard is not
+	// simply always-off.
+	linkedRail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(inColumn.ID))
+	suite.Require().NoError(err)
+	suite.Equal("phoenix-az", linkedRail.SceneSlug)
+}
+
+// The Go guard and the SQL demotion must agree on what "no usable place" means.
+// Nothing trims venue city/state on write, and a whitespace-only city folds to
+// the empty geocoder key, producing a scope that matches every blank-city room in
+// the state plus a "---il" slug that resolves to nothing.
+func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_WhitespaceOnlyPlaceIsTreatedAsNoPlace() {
+	loc := suite.alsoTonightLoc()
+	at := time.Date(2026, time.September, 18, 20, 0, 0, 0, loc)
+
+	// Two blank-city IL rooms: enough to clear the scene threshold if the blank
+	// bucket were ever allowed to become a scope.
+	blankA := suite.createAlsoTonightVenue("Blank One", "Chicago", "IL")
+	blankB := suite.createAlsoTonightVenue("Blank Two", "Chicago", "IL")
+	suite.Require().NoError(suite.db.Model(blankA).Update("city", "   ").Error)
+	suite.Require().NoError(suite.db.Model(blankB).Update("city", "").Error)
+
+	subject := suite.createAlsoTonightShow("subject", blankA.ID, at, catalogm.ShowStatusApproved)
+	suite.createAlsoTonightShow("other-blank", blankB.ID, at.Add(time.Hour), catalogm.ShowStatusApproved)
+
+	rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
+	suite.Require().NoError(err)
+	suite.Empty(rail.Shows, "a whitespace-only city is no place, not a scope full of other placeless rooms")
+	suite.Empty(rail.SceneSlug, "and it must never emit a slug like \"---il\"")
+	suite.Empty(rail.City)
 }
 
 // A room with no usable place must not win the venue pick. venues.city/state
@@ -459,8 +634,14 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetShowAlsoTonight_NullMetroC
 
 	rail, err := suite.sceneService.GetShowAlsoTonight(fmt.Sprint(subject.ID))
 	suite.Require().NoError(err)
-	suite.Equal("phoenix-az", rail.SceneSlug,
+	suite.Equal("Phoenix", rail.City,
 		"a Mesa room with no metro column still scopes to Phoenix via the geocoder")
+	suite.Equal("Phoenix, AZ", rail.SceneName)
+	// The LINK is withheld here even though the scope resolved, because the
+	// subject's own room is missing from venues.metro and the scene-day page for
+	// this date therefore would not list it. Pinned in its own test; asserted here
+	// so this fixture cannot silently start advertising it.
+	suite.Empty(rail.SceneSlug)
 	ids := suite.showIDs(fmt.Sprint(subject.ID))
 	suite.Contains(ids, phoenixSibling.ID)
 	suite.NotContains(ids, unreachable.ID,

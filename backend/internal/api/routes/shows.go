@@ -37,8 +37,8 @@ func setupShowRoutes(rc RouteContext) {
 	rc.Router.Get("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
 	rc.Router.Head("/shows/{show_id}/calendar.ics", showCalendarHandler.GetShowCalendarHandler)
 
-	// The "also tonight" rail: other shows in this show's metro on this show's own
-	// venue-local date. Served by the SCENE handler because "what else is on in
+	// The "also tonight" rail: other shows in this show's metro on this show's
+	// own date. Served by the SCENE handler because "what else is on in
 	// this metro tonight" is a scene question that merely takes a show as its
 	// address — one definition of a metro's night, shared with /scenes/{slug}/day.
 	//
