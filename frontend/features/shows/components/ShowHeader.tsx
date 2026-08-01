@@ -13,11 +13,12 @@ import type { ArtistResponse, SetType, ShowResponse } from '../types'
  * defensive re-assertion against a caller, cache layer, or future query handing
  * us a different order.
  *
- * Ties are real — a show merge re-points the loser's `show_artists` rows onto
- * the winner carrying their own 0..n positions — and the backend's
- * `ORDER BY position ASC` has no tiebreaker, so Postgres may order tied rows
- * differently between requests. Break the tie on `id` here so the rendered
- * bill is at least deterministic client-side.
+ * Ties are possible: `idx_show_artists_position` is a plain index, so nothing
+ * enforces one position per show, and rows written outside the create path
+ * (backfills, seeds) can share position 0. The backend's `ORDER BY position
+ * ASC` has no tiebreaker, so Postgres may order tied rows differently between
+ * requests. Break the tie on `id` so the rendered bill is at least
+ * deterministic client-side.
  */
 function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
   return a.position - b.position || a.id - b.id
@@ -31,8 +32,8 @@ function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
  * hardcodes it for every non-headliner, and the discovery fallback does the
  * same — so annotating it would append "(opener)" to nearly every support act
  * on nearly every bill. Labelling it only becomes meaningful once `set_type`
- * carries real semantics; that work is tracked separately. Don't re-add it
- * here without that.
+ * carries real semantics — a richer vocabulary plus a backfill. Don't re-add
+ * it here before that lands.
  *
  * A `Map` rather than an object literal on purpose: `set_type` is a bare
  * `string` on the wire (see `types/api.d.ts`) over an unconstrained VARCHAR

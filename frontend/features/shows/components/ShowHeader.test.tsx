@@ -111,8 +111,7 @@ describe('ShowHeader bill rendering', () => {
       expect(supportLineText()).toContain('Later Act')
     })
 
-    // Ties are produced by show merges, which re-point a loser show's
-    // show_artists rows onto the winner carrying their own positions. The
+    // Nothing enforces one position per show (the index is non-unique) and the
     // backend's ORDER BY has no tiebreaker, so the client must impose one.
     it('breaks position ties on id so tied artists render deterministically', () => {
       const show = makeShow({
