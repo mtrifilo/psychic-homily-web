@@ -17,7 +17,7 @@
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds:
  *
  *   Backend reachable at build time (the normal production path):
- *     ├ ○ /sitemap/[id]                      1h      1y
+ *     ├ ● /sitemap/[id]                      1h      1y
  *     prerender-manifest: renderingMode STATIC, initialRevalidateSeconds 3600,
  *     initialExpireSeconds 31536000, and a rendered body on disk. A later
  *     backend outage is SURVIVED — the prerendered document keeps being served
@@ -32,9 +32,9 @@
  * A route-level `export const revalidate` is NOT inert here — it binds as a
  * MINIMUM. Measured, with the per-fetch hint set to 600:
  *
- *   no export                       → ○  10m  1y   (initialRevalidateSeconds 600)
- *   export const revalidate = 60    → ○   1m  1y   (initialRevalidateSeconds  60)
- *   export const revalidate = 7200  → ○  10m  1y   (initialRevalidateSeconds 600)
+ *   no export                       → ●  10m  1y   (initialRevalidateSeconds 600)
+ *   export const revalidate = 60    → ●   1m  1y   (initialRevalidateSeconds  60)
+ *   export const revalidate = 7200  → ●  10m  1y   (initialRevalidateSeconds 600)
  *
  * i.e. effective window = min(route export, per-fetch revalidate). There is no
  * export here because any value >= the fetch hint is a no-op — NOT because the
@@ -56,12 +56,37 @@
  * stale together — including artists that answered in 0.2s. The CDN edge is
  * not the holder (`cache-control: max-age=0`; stage serves `PRERENDER`/`HIT`
  * of the Next document). Hourly revalidate still works when the feed is
- * healthy (stage probe: held inside the 1h window, appeared after ≥1h). Bound
- * expire before relying on revalidate alone when fetches can fail; see the
- * follow-up filed from PSY-1644.
+ * healthy (stage probe: held inside the 1h window, appeared after ≥1h).
+ *
+ * DO NOT try to bound that expire. It cannot be done from the cache layer —
+ * disproven on BOTH runtimes (PSY-1652, which shipped no code; PR #1759 was
+ * closed unmerged). `"use cache"` + `cacheLife` moves the manifest number and
+ * bounds nothing:
+ *
+ *   build   ● 1h 1y / initialExpireSeconds 31536000  →  ● 1h 1d / 86400
+ *   runtime `next start`, expire 960: served the stale body at 1043s — 83s PAST
+ *           expire — with `.body`/`.meta` RE-STAMPED mid-poll, so every failed
+ *           revalidation resets the age clock. `calculateRevalidate` reads only
+ *           `cacheControl.revalidate`; expire is absent from that decision.
+ *   Vercel  preview probe, expire 400: 200 `x-vercel-cache: STALE` at age 1566s
+ *           (3.9x expire), with a PASSING positive control proving the route
+ *           does revalidate on that window. `@vercel/next` really does serialize
+ *           `staleExpiration` into `.prerender-config.json` — the platform
+ *           receives the number and ignores it.
+ *
+ * Consequence: there is NO upper bound on how long a stale sitemap serves while
+ * revalidation keeps failing. PSY-1629's freshness monitor is not a
+ * compensating control — it is the only one. A real bound would have to be
+ * something this route owns: an age check against a feed timestamp, or
+ * on-demand revalidation driven by a health signal.
+ *
+ * Two traps if you tune these numbers anyway: `cacheLife` beats the per-fetch
+ * hint even when LARGER (7200 vs 3600 → 7200; not a `min()`), and an expire
+ * below 300 (`DYNAMIC_EXPIRE`) means the route is not prerendered AT ALL —
+ * measured `ƒ` with no body against a healthy backend.
  *
  * NOTE: this file fixes the fail-open half of the incident via the projection
- * feed. The year-expire holder is a separate fix.
+ * feed. The year-expire holder has no fix; see above.
  */
 import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'

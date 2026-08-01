@@ -19,19 +19,33 @@ const nextConfig: NextConfig = {
   //     per-fetch `next: { revalidate: 3600 }` alone (prerender-manifest
   //     `initialRevalidateSeconds: 3600`). They are still `◐`, not `○`.
   //
-  //   • Dynamic entity `[slug]` pages do NOT. Their prerender-manifest
-  //     entry has `fallbackRevalidate: false`; production serves them
-  //     as `x-vercel-cache: HIT` with Age ≫ 3600 (measured ~17h on
-  //     `/artists/{slug}` and `/venues/{slug}`). Per-fetch revalidate
-  //     alone does not re-render those routes until the next deploy or
-  //     an on-demand `revalidatePath` (see `lib/proxy-revalidation.ts`).
+  //   • Dynamic entity `[slug]` pages DO time-revalidate. Their
+  //     `fallbackRevalidate: false` governs only the FALLBACK SHELL —
+  //     one slug-independent file with no entity data, because these
+  //     routes have no `generateStaticParams`. Entity data is in the
+  //     postponed dynamic resume (`x-nextjs-postponed: 1`,
+  //     `Cache-Control: no-store`), bounded by the per-fetch
+  //     `next: { revalidate }` Data Cache. Measured PSY-1650 at RUNTIME:
+  //     a mutation appeared 68s after a 60s window on `next start`.
+  //     Production `x-vercel-cache: HIT` with a large Age is the shell's
+  //     age, NOT stale content — the tell is many different slugs sharing
+  //     one identical cache `Date`, which per-slug entries cannot do.
+  //     PSY-1641 read that as staleness; PSY-1650 falsified it.
   //
   //   • `export const revalidate` is a build error on page routes under
   //     `cacheComponents` ("Route segment config revalidate is not
-  //     compatible"). It cannot be the fix for slug pages. A candidate
-  //     replacement is `"use cache"` + `cacheLife` (unmeasured here —
-  //     PSY-1650). Metadata routes like `sitemap.ts` are a different
-  //     compiler path; do not conflate (PSY-1621 / PSY-1644).
+  //     compatible"). `"use cache"` + `cacheLife` is NOT a replacement
+  //     for it here: measured PSY-1650, it does not move
+  //     `fallbackRevalidate` in either shape (on the fetch helper, or on
+  //     the page component), because the cached scope is never entered at
+  //     build — `await params` hangs for a fallback route param. Metadata
+  //     routes like `sitemap.ts` are a different compiler path; do not
+  //     conflate (PSY-1621 / PSY-1644 / PSY-1652).
+  //
+  //   • A deploy does NOT refresh entity pages. The Data Cache survives a
+  //     rebuild via `.next/cache/fetch-cache` (measured PSY-1650). Only
+  //     the timer or an on-demand `revalidatePath` busts it (see
+  //     `lib/proxy-revalidation.ts`, which works with no `cacheTag`).
   cacheComponents: true,
   experimental: {
     // Optimize barrel imports for common libraries
