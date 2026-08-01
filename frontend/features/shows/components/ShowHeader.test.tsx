@@ -77,9 +77,9 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      const text = supportLineText()
-      expect(text.indexOf('First Support')).toBeLessThan(text.indexOf('Second Support'))
-      expect(text.indexOf('Second Support')).toBeLessThan(text.indexOf('Third Support'))
+      expect(supportLineText()).toMatch(
+        /First Support.*Second Support.*Third Support/s
+      )
     })
 
     it('renders multiple headliners in position order', () => {
@@ -92,8 +92,9 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      const heading = screen.getByRole('heading', { level: 1 }).textContent ?? ''
-      expect(heading.indexOf('Main Headliner')).toBeLessThan(heading.indexOf('Co Headliner'))
+      expect(screen.getByRole('heading', { level: 1 }).textContent ?? '').toMatch(
+        /Main Headliner.*Co Headliner/s
+      )
     })
 
     it('picks the lowest-position artist as the implicit headliner when none is flagged', () => {
@@ -121,8 +122,7 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      const text = supportLineText()
-      expect(text.indexOf('Bravo')).toBeLessThan(text.indexOf('Charlie'))
+      expect(supportLineText()).toMatch(/Bravo.*Charlie/s)
     })
 
     it('does not mutate the artists array it was handed', () => {

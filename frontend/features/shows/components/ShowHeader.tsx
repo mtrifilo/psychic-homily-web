@@ -8,27 +8,31 @@ import { ShowAddToCalendar } from './ShowAddToCalendar'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 /**
- * Bill order is carried by `show_artists.position` (ascending), not by the
- * order artists happen to arrive in. The backend's `buildShowResponse` does
- * `ORDER BY position ASC` today, so this is a defensive re-assertion: the
- * rendered bill must not silently misorder if a caller, cache layer, or a
- * future query hands us the array in a different order.
- *
- * `Array.prototype.sort` is stable, so artists sharing a position — common on
- * legacy rows where every position is 0 — keep the order the API sent them in.
+ * Bill order lives in `show_artists.position`. The API sorts by it today, so
+ * this is a defensive re-assertion against a caller, cache layer, or future
+ * query handing us a different order. `sort` is stable, so legacy rows that
+ * all share position 0 keep the order the API sent.
  */
 function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
   return a.position - b.position
 }
 
 /**
- * Support-line annotations for the bill positions that carry meaning beyond
- * "not the headliner". `performer` is deliberately unannotated — it is the
+ * Support-line annotations for the set types that carry meaning beyond "not
+ * the headliner". `performer` is deliberately unannotated — it is the
  * default, and labelling it would add noise to every bill.
  */
 const SUPPORT_SET_TYPE_LABELS: Partial<Record<SetType, string>> = {
   opener: 'opener',
   special_guest: 'special guest',
+}
+
+function SupportSetTypeLabel({ setType }: { setType: SetType }) {
+  const label = SUPPORT_SET_TYPE_LABELS[setType]
+  if (!label) return null
+  return (
+    <span className="text-sm text-muted-foreground/70 italic"> ({label})</span>
+  )
 }
 
 interface ShowHeaderProps {
@@ -131,12 +135,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                 ) : (
                   <span>{artist.name}</span>
                 )}
-                {SUPPORT_SET_TYPE_LABELS[artist.set_type] && (
-                  <span className="text-sm text-muted-foreground/70 italic">
-                    {' '}
-                    ({SUPPORT_SET_TYPE_LABELS[artist.set_type]})
-                  </span>
-                )}
+                <SupportSetTypeLabel setType={artist.set_type} />
               </span>
             ))}
           </div>
