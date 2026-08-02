@@ -9,6 +9,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -173,7 +174,22 @@ func backfillVenuePass(
 			continue
 		}
 
-		newTz := res.Timezone
+		// Same write-boundary invariant the API path holds in
+		// VenueService.applyGeocoding (PSY-1707): never persist a zone Postgres
+		// cannot resolve, because readers use AT TIME ZONE and it raises rather
+		// than degrading. This CLI writes the geocoder's answer directly instead
+		// of going through applyGeocoding, so it has to check for itself.
+		canonicalTz := shared.NormalizedGeocodedTimezoneOrNull(database, &res.Timezone, "venue_id", v.ID, "venue_name", v.Name)
+		if canonicalTz == nil {
+			effectiveTz[v.ID] = v.Timezone
+			report.VenuesMissed++
+			report.VenueChanges = append(report.VenueChanges, VenueGeoChange{
+				VenueID: v.ID, Name: v.Name, City: v.City, State: v.State,
+				OldTz: v.Timezone, NewTz: v.Timezone, Action: "skip:invalid-tz",
+			})
+			continue
+		}
+		newTz := *canonicalTz
 		newLat := roundCoord(res.Latitude)
 		newLng := roundCoord(res.Longitude)
 		effectiveTz[v.ID] = &newTz

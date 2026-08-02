@@ -57,6 +57,18 @@ func (s *VenueService) WithAddressGeocoder(ag geo.AddressGeocoder) *VenueService
 // on a venue from its city/state/country via the offline geocoder (in-memory, no
 // network, never errors). A miss leaves the fields nil so display falls back to
 // the legacy state->timezone map — no regression. (PSY-985; metro PSY-1255 step B)
+//
+// Holds the PSY-1707 write-boundary invariant for the three paths that run
+// through it — CreateVenue, UpdateVenue and FindOrCreateVenue: whatever lands in
+// venues.timezone is a name Postgres itself recognizes. Readers (the venue-local
+// show-list partition, the ICS feed, reminder rendering) resolve it with
+// AT TIME ZONE, which does not degrade gracefully — an unknown name raises and
+// takes the query down.
+//
+// It is NOT the only writer of that column, so a new write path does not inherit
+// this for free. The others each hold the invariant themselves via the admin
+// package twin: admin.ApprovePendingEdit, data_sync's importVenue and importShow,
+// and catalog.backfillVenuePass (the CLI). Adding a fifth means adding the call.
 func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	country := ""
 	if v.Country != nil {
@@ -64,6 +76,10 @@ func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	}
 	v.Latitude, v.Longitude, v.Timezone = geo.LookupPointers(s.geocoder, v.City, v.State, country)
 	v.Metro = geo.MetroPointer(s.geocoder, v.City, v.State, country)
+	// PSY-1707 write-boundary invariant. Policy lives in one place; see
+	// shared.NormalizedGeocodedTimezoneOrNull for why it degrades instead of failing.
+	v.Timezone = shared.NormalizedGeocodedTimezoneOrNull(s.db, v.Timezone,
+		"venue_name", v.Name, "city", v.City, "state", v.State)
 }
 
 // streetGeocodeTimeout caps ONE inline street-geocode for a venue, including

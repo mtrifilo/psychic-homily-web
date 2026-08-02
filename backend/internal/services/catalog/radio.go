@@ -61,34 +61,17 @@ func NewRadioService(database *gorm.DB) *RadioService {
 // Station CRUD
 // =============================================================================
 
-// normalizeStationTimezone validates a station timezone against the SAME catalog
-// the aired-only feed resolves it through — Postgres' pg_timezone_names
-// (PSY-1204) — and returns the catalog's canonical spelling to persist. This
-// keeps the write boundary and the feed's AT TIME ZONE in agreement so an
-// accepted value can never silently resolve to UTC in the feed. time.LoadLocation
-// is intentionally NOT used: Go's tz catalog differs from Postgres' (it accepts
-// abbreviations like "EST" and the alias "Local", which pg_timezone_names lacks),
-// so validating with it would accept zones the feed then quietly treats as UTC.
-// nil or blank → nil (store NULL; the feed falls back to UTC). A value not in
+// normalizeStationTimezone validates a station timezone against Postgres'
+// pg_timezone_names and returns the catalog's canonical spelling to persist,
+// so the write boundary and the aired-only feed's AT TIME ZONE stay in
+// agreement (PSY-1204). The rule and the reason time.LoadLocation is the wrong
+// validator both live in shared.NormalizeIANATimezone, which PSY-1707 extracted
+// from this function so venues could hold the same invariant.
+//
+// nil or blank -> nil (store NULL; the feed falls back to UTC). A value not in
 // pg_timezone_names is rejected.
 func (s *RadioService) normalizeStationTimezone(tz *string) (*string, error) {
-	if tz == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*tz)
-	if trimmed == "" {
-		return nil, nil
-	}
-	var canonical string
-	if err := s.db.Raw(
-		"SELECT name FROM pg_timezone_names WHERE lower(name) = lower(?) LIMIT 1", trimmed,
-	).Scan(&canonical).Error; err != nil {
-		return nil, fmt.Errorf("validate station timezone: %w", err)
-	}
-	if canonical == "" {
-		return nil, fmt.Errorf("invalid timezone %q: not a recognized IANA zone name", *tz)
-	}
-	return &canonical, nil
+	return shared.NormalizeIANATimezone(s.db, tz)
 }
 
 // stationLocalToday returns the current calendar date ("YYYY-MM-DD") in a
