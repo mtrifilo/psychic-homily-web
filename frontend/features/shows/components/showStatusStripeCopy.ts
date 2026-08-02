@@ -20,10 +20,11 @@ import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 
 /**
  * How long a show is assumed to run when nobody has said. Doors plus this is
- * rendered as an estimate ("ENDS ~11PM (EST.)") and is deliberately shallow:
- * it is never stored, never emitted into JSON-LD, and never shown without the
- * "~" and the "(EST.)" that mark it as a guess. "(EST.)" abbreviates ESTIMATED
- * and is not a timezone; the times beside it are already venue-local.
+ * rendered as an estimate ("ENDS ~11PM") and is deliberately shallow: it is
+ * never stored, never emitted into JSON-LD, and never shown without the "~"
+ * that marks it as a guess. The tilde is the whole signal: an earlier draft
+ * spelled it "(EST.)" for ESTIMATED, which reads as Eastern Time next to a
+ * clock (user decision).
  *
  * A flat constant rather than a per-venue or per-genre curve on purpose: a
  * wrong-but-uniform estimate reads as the convention it is, while a
@@ -101,12 +102,6 @@ function formatStripeTime(instant: number, timeZone: string): string {
   ).toUpperCase()}`
 }
 
-/** "14 JUL", the cancelled register, day before month, per the locked copy. */
-function formatStripeDayMonth(instant: number, timeZone: string): string {
-  const part = partsOf(instant, timeZone, { month: 'short', day: 'numeric' })
-  return `${part('day')} ${part('month').toUpperCase()}`
-}
-
 /** "WED, AUG 12 2026" */
 function formatStripeFullDate(instant: number, timeZone: string): string {
   const part = partsOf(instant, timeZone, {
@@ -144,10 +139,15 @@ export function buildShowStatusStripeSegments(
   // Before the date guard, deliberately. A cancellation is the one thing on
   // this page a reader must not miss, and it is knowable without a readable
   // date; the band the cancellation replaced said so with no date at all.
+  //
+  // The date is in the same weekday/month/day register as every other state
+  // (user decision): a band that reordered its date fields per state would
+  // read as a different kind of statement rather than the same one saying
+  // something else.
   if (input.isCancelled) {
     return startedAt === null
       ? ['CANCELLED']
-      : ['CANCELLED', formatStripeDayMonth(startedAt, timeZone)]
+      : ['CANCELLED', ...upcomingDateSegments(startedAt, input)]
   }
 
   if (startedAt === null) return []
@@ -197,7 +197,7 @@ export function buildShowStatusStripeSegments(
     // value would overflow it and throw out of `Intl`.
     const endsAt = doorsAt + ESTIMATED_SHOW_LENGTH_HOURS * 60 * 60 * 1000
     const ends = Number.isFinite(new Date(endsAt).getTime())
-      ? [`ENDS ~${formatStripeTime(endsAt, timeZone)} (EST.)`]
+      ? [`ENDS ~${formatStripeTime(endsAt, timeZone)}`]
       : []
     return ['TONIGHT', doors, ...music, ...ends]
   }

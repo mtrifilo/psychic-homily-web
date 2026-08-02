@@ -41,7 +41,7 @@ describe('ShowStatusStripe', () => {
       />
     )
     expect(screen.getByTestId('show-status-stripe').textContent).toBe(
-      'TONIGHT· DOORS 7PM· ENDS ~11PM (EST.)'
+      'TONIGHT· DOORS 7PM· ENDS ~11PM'
     )
   })
 
@@ -63,7 +63,7 @@ describe('ShowStatusStripe', () => {
       )
       .replace(/\s+/g, ' ')
       .trim()
-    expect(spoken).toBe('TONIGHT DOORS 7PM ENDS ~11PM (EST.)')
+    expect(spoken).toBe('TONIGHT DOORS 7PM ENDS ~11PM')
   })
 
   // An admin marking a show cancelled rewrites this band in place, with no

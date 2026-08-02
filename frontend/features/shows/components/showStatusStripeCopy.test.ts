@@ -72,7 +72,7 @@ describe('buildShowStatusStripeSegments', () => {
             musicAt: '2026-04-16T03:00:00Z', // 8 PM
           })
         )
-      ).toEqual(['TONIGHT', 'DOORS 7PM', 'MUSIC 8PM', 'ENDS ~11PM (EST.)'])
+      ).toEqual(['TONIGHT', 'DOORS 7PM', 'MUSIC 8PM', 'ENDS ~11PM'])
     })
 
     // The times line is one statement hanging off doors. Half of it is not a
@@ -106,7 +106,7 @@ describe('buildShowStatusStripeSegments', () => {
           hour12: true,
         })
       ).toBe('11 PM')
-      expect(segments.at(-1)).toBe('ENDS ~11PM (EST.)')
+      expect(segments.at(-1)).toBe('ENDS ~11PM')
     })
 
     it('carries a half-hour doors time through to the estimate', () => {
@@ -114,7 +114,7 @@ describe('buildShowStatusStripeSegments', () => {
         buildShowStatusStripeSegments(
           input({ lifecycle: 'today', doorsAt: '2026-04-16T02:30:00Z' })
         )
-      ).toEqual(['TONIGHT', 'DOORS 7:30PM', 'ENDS ~11:30PM (EST.)'])
+      ).toEqual(['TONIGHT', 'DOORS 7:30PM', 'ENDS ~11:30PM'])
     })
 
     // Late doors push the estimate past midnight. It is still an estimate, and
@@ -124,7 +124,7 @@ describe('buildShowStatusStripeSegments', () => {
         buildShowStatusStripeSegments(
           input({ lifecycle: 'today', doorsAt: '2026-04-16T06:00:00Z' }) // 11 PM
         )
-      ).toEqual(['TONIGHT', 'DOORS 11PM', 'ENDS ~3AM (EST.)'])
+      ).toEqual(['TONIGHT', 'DOORS 11PM', 'ENDS ~3AM'])
     })
 
     // The estimate is added to the INSTANT, so a venue that springs forward
@@ -142,7 +142,7 @@ describe('buildShowStatusStripeSegments', () => {
             doorsAt: '2026-03-08T05:00:00Z', // 11 PM Sat Mar 7 Chicago
           })
         )
-      ).toEqual(['TONIGHT', 'DOORS 11PM', 'ENDS ~4AM (EST.)'])
+      ).toEqual(['TONIGHT', 'DOORS 11PM', 'ENDS ~4AM'])
     })
   })
 
@@ -157,6 +157,9 @@ describe('buildShowStatusStripeSegments', () => {
   })
 
   describe('cancelled', () => {
+    // The date is in the same weekday/month/day register as the other states,
+    // so the band reads as one statement changing its words rather than
+    // changing its shape.
     it('outranks every timing state', () => {
       for (const lifecycle of ['upcoming', 'today', 'past'] as const) {
         expect(
@@ -167,7 +170,7 @@ describe('buildShowStatusStripeSegments', () => {
               doorsAt: '2026-04-16T02:00:00Z',
             })
           )
-        ).toEqual(['CANCELLED', '15 APR'])
+        ).toEqual(['CANCELLED', 'WED', 'APR 15'])
       }
     })
   })
@@ -258,7 +261,7 @@ describe('buildShowStatusStripeSegments', () => {
             doorsAt: '2026-04-16T09:00:00Z',
           })
         )
-      ).toEqual(['TONIGHT', 'DOORS 6PM', 'ENDS ~10PM (EST.)'])
+      ).toEqual(['TONIGHT', 'DOORS 6PM', 'ENDS ~10PM'])
     })
   })
 })

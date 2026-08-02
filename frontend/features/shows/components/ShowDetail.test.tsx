@@ -476,7 +476,7 @@ describe('ShowDetail', () => {
       })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('show-status-stripe')).toHaveTextContent(
-        /CANCELLED.*15 APR/
+        /CANCELLED.*WED.*APR 15/
       )
     })
 
