@@ -104,6 +104,13 @@ export function SceneList() {
                 them is that emptiness costs nothing to look at, and "No shows
                 this week" is the last thing a card should say loudest.
 
+                `shows_calendar_week`, NOT `shows_this_week`. The number and the
+                link are one sentence, so the number has to be the destination's
+                own — the rolling field beside it counts a different seven days
+                and would make this card contradict the page it opens. "Quiet"
+                means quiet in the CALENDAR week for the same reason: a scene
+                muted here must be a scene whose week page is empty.
+
                 `relative` lifts it above the card-wide link overlay. The
                 `aria-label` names the city because the visible text does not:
                 on a quiet week a dozen cards would otherwise offer a dozen
@@ -111,12 +118,12 @@ export function SceneList() {
                 different pages. */}
             <Link
               href={`/scenes/${scene.slug}/week`}
-              aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_this_week, true)}`}
+              aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_calendar_week, true)}`}
               className={`relative mt-2 inline-block text-sm underline underline-offset-2 hover:no-underline ${
-                scene.shows_this_week === 0 ? 'text-muted-foreground' : 'text-primary'
+                scene.shows_calendar_week === 0 ? 'text-muted-foreground' : 'text-primary'
               }`}
             >
-              {formatShowCountLine(scene.shows_this_week, true)}{' '}
+              {formatShowCountLine(scene.shows_calendar_week, true)}{' '}
               <span aria-hidden="true">→</span>
             </Link>
           </CardContent>

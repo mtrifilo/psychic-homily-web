@@ -120,6 +120,7 @@ function scene(
     upcoming_show_count: 4,
     total_show_count: 10,
     shows_this_week: 1,
+    shows_calendar_week: 1,
     ...overrides,
   }
 }

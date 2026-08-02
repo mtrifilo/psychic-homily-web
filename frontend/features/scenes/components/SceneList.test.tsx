@@ -30,6 +30,10 @@ vi.mock('../hooks', () => ({
 
 import { SceneList } from './SceneList'
 
+// The two week fields disagree on BOTH scenes, deliberately. The card's count
+// and its mute decision belong to `shows_calendar_week` — the window the linked
+// page serves — and Tucson is the case that proves it: busy in the rolling
+// seven days, empty in the calendar week its link opens.
 const sampleData: SceneListResponse = {
   scenes: [
     {
@@ -40,6 +44,7 @@ const sampleData: SceneListResponse = {
       upcoming_show_count: 45,
       total_show_count: 200,
       shows_this_week: 23,
+      shows_calendar_week: 31,
     },
     {
       city: 'Tucson',
@@ -48,7 +53,8 @@ const sampleData: SceneListResponse = {
       venue_count: 1,
       upcoming_show_count: 0,
       total_show_count: 1,
-      shows_this_week: 0,
+      shows_this_week: 5,
+      shows_calendar_week: 0,
     },
   ],
   count: 2,
@@ -143,7 +149,7 @@ describe('SceneList', () => {
       renderWithProviders(<SceneList />)
 
       expect(
-        screen.getByRole('link', { name: 'Phoenix, AZ, 23 shows this week' })
+        screen.getByRole('link', { name: 'Phoenix, AZ, 31 shows this week' })
       ).toHaveAttribute('href', '/scenes/phoenix-az/week')
       expect(
         screen.getByRole('link', { name: 'Tucson, AZ, No shows this week' })
@@ -166,6 +172,10 @@ describe('SceneList', () => {
     // Same reason the /shows block mutes its zero rows: always linking the
     // quiet scenes is only free if emptiness is not the loudest thing on the
     // card.
+    //
+    // Tucson is muted on a NONZERO `shows_this_week`, which is the assertion
+    // that pins the mute to the calendar week: "quiet" has to mean the linked
+    // page is empty, not that the next seven days happen to be.
     it('drops the accent on a quiet scene without dropping the link', () => {
       renderWithProviders(<SceneList />)
 
@@ -176,7 +186,7 @@ describe('SceneList', () => {
       expect(tucson).not.toHaveClass('text-primary')
 
       const phoenix = screen.getByRole('link', {
-        name: 'Phoenix, AZ, 23 shows this week',
+        name: 'Phoenix, AZ, 31 shows this week',
       })
       expect(phoenix).toHaveClass('text-primary')
     })

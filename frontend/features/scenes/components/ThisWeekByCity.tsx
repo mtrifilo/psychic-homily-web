@@ -8,7 +8,7 @@ import type { SceneListItem } from '../types'
 /**
  * Rank order, ties broken by the order the API already chose.
  *
- * `sort` is stable, so scenes level on `shows_this_week` keep the list
+ * `sort` is stable, so scenes level on `shows_calendar_week` keep the list
  * endpoint's own ordering (total shows, then upcoming) rather than an arbitrary
  * one. That is what makes a quiet week's block deterministic: eleven scenes on
  * the long tail of scenes sitting on a count of 0 or 1 would otherwise be free
@@ -20,11 +20,11 @@ import type { SceneListItem } from '../types'
  * in the weeks it happens to be busy is a page a crawler cannot rely on.
  */
 function rankByWeek(scenes: readonly SceneListItem[]): SceneListItem[] {
-  return [...scenes].sort((a, b) => b.shows_this_week - a.shows_this_week)
+  return [...scenes].sort((a, b) => b.shows_calendar_week - a.shows_calendar_week)
 }
 
 function CityRow({ scene }: { scene: SceneListItem }) {
-  const quiet = scene.shows_this_week === 0
+  const quiet = scene.shows_calendar_week === 0
 
   return (
     // A plain anchor, not `next/link`. The locked decision for this block is
@@ -35,7 +35,7 @@ function CityRow({ scene }: { scene: SceneListItem }) {
     // internal link in this feature still uses `next/link`.
     <a
       href={`/scenes/${scene.slug}/week`}
-      aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_this_week, true)}`}
+      aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_calendar_week, true)}`}
       className="group flex break-inside-avoid items-baseline gap-2 border-b border-border/50 py-2 transition-colors hover:bg-muted/40"
     >
       {/* `min-w-0` is what lets `truncate` actually truncate: a flex item
@@ -52,7 +52,7 @@ function CityRow({ scene }: { scene: SceneListItem }) {
         {scene.state}
       </span>
       <span className="ml-auto shrink-0 pl-2 font-mono text-sm text-muted-foreground">
-        {scene.shows_this_week}
+        {scene.shows_calendar_week}
       </span>
     </a>
   )
@@ -61,25 +61,20 @@ function CityRow({ scene }: { scene: SceneListItem }) {
 /**
  * The by-city index that sits under the show list.
  *
- * WHAT THE COUNTS ARE, because the heading is looser than the number.
- * `shows_this_week` is the endpoint's rolling window — approved shows in the
- * next seven days from now (`sceneThisWeekDays`, PSY-1309) — and it is what the
- * app already labels "this week" everywhere it appears (the scene cards, the
- * Atlas pulse). The range beside the heading is a Monday-to-Sunday week, which
- * is the shape the linked pages serve.
+ * WHAT THE COUNTS ARE, because the heading is looser than the numbers.
+ * `shows_calendar_week` is each scene's OWN Monday-to-Sunday total, resolved in
+ * its own venue timezone by `GET /scenes` — the same window, in the same zone,
+ * that the page each row links to serves. A row's number therefore equals the
+ * total on its destination, which is the whole point of the field existing:
+ * `shows_this_week` is a ROLLING seven days from now and read 76 for Chicago
+ * against that page's 96 on 2026-08-02.
  *
- * THE TWO DO NOT DESCRIBE THE SAME DAYS, and the gap is not small. Measured
- * against production on 2026-08-02, a Sunday, when the rolling window and the
- * calendar week share exactly one day: Chicago read 76 here and 96 on its week
- * page; Phoenix read 28 here and 22. Re-measure rather than trusting those
- * numbers. Closing the gap needs a per-scene calendar-week count that no
- * endpoint reports today, so it is a product decision on PSY-1623 rather than
- * something to settle at this call site.
- *
- * The range is also derived in ONE zone (`SCENE_WEEK_INDEX_TIMEZONE`) while
- * each week page resolves its own bounds in its scene's venue timezone, so
- * around the Monday boundary the label and an eastern scene's destination
- * disagree about which week it is.
+ * The RANGE beside the heading is the looser half, and deliberately so. It is
+ * one range for every row, derived in ONE zone (`SCENE_WEEK_INDEX_TIMEZONE`),
+ * while each scene resolves its own Monday. Around that boundary a scene east
+ * of the heading's zone has already turned over while the label still names
+ * last week — a few hours a week, on a decorative header, above numbers that
+ * are individually exact. Per-row ranges were not the approved design.
  *
  * Column-major by CSS, deliberately: `columns-*` lays a single rank-ordered
  * list down column 1 then column 2, so the DOM order stays the rank order for a

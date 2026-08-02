@@ -8,6 +8,10 @@ import { ThisWeekByCity } from './ThisWeekByCity'
 // scene gets one, that a quiet scene still gets one, and that the rank order a
 // reader sees is the DOM order a crawler walks.
 
+// Fixtures carry BOTH week fields, and disagreeing values on purpose: the block
+// reads `shows_calendar_week` (its rows' destinations serve that window) and a
+// regression to `shows_this_week` has to show up as a wrong number rather than
+// as an identical one.
 function scene(over: Partial<SceneListItem> & { slug: string }): SceneListItem {
   return {
     city: 'Phoenix',
@@ -15,19 +19,20 @@ function scene(over: Partial<SceneListItem> & { slug: string }): SceneListItem {
     venue_count: 11,
     upcoming_show_count: 334,
     total_show_count: 500,
-    shows_this_week: 0,
+    shows_this_week: 999,
+    shows_calendar_week: 0,
     ...over,
   }
 }
 
 const scenes: SceneListItem[] = [
-  scene({ slug: 'chicago-il', city: 'Chicago', state: 'IL', shows_this_week: 76 }),
+  scene({ slug: 'chicago-il', city: 'Chicago', state: 'IL', shows_calendar_week: 96 }),
   // Two scenes tied on 12 and listed in this order by the API — the block must
   // not reorder them relative to each other.
-  scene({ slug: 'minneapolis-mn', city: 'Minneapolis', state: 'MN', shows_this_week: 12 }),
-  scene({ slug: 'phoenix-az', shows_this_week: 28 }),
-  scene({ slug: 'dallas-tx', city: 'Dallas', state: 'TX', shows_this_week: 12 }),
-  scene({ slug: 'seattle-wa', city: 'Seattle', state: 'WA', shows_this_week: 0 }),
+  scene({ slug: 'minneapolis-mn', city: 'Minneapolis', state: 'MN', shows_calendar_week: 12 }),
+  scene({ slug: 'phoenix-az', shows_calendar_week: 22 }),
+  scene({ slug: 'dallas-tx', city: 'Dallas', state: 'TX', shows_calendar_week: 12 }),
+  scene({ slug: 'seattle-wa', city: 'Seattle', state: 'WA', shows_calendar_week: 0 }),
 ]
 
 function renderBlock(rows: SceneListItem[] = scenes) {
@@ -81,7 +86,7 @@ describe('ThisWeekByCity', () => {
     renderBlock()
 
     expect(
-      screen.getByRole('link', { name: 'Phoenix, AZ, 28 shows this week' })
+      screen.getByRole('link', { name: 'Phoenix, AZ, 22 shows this week' })
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Seattle, WA, No shows this week' })
@@ -104,7 +109,19 @@ describe('ThisWeekByCity', () => {
     const row = screen.getByRole('link', { name: /^Chicago/ })
     expect(within(row).getByText('Chicago')).toBeInTheDocument()
     expect(within(row).getByText('IL')).toBeInTheDocument()
-    expect(within(row).getByText('76')).toBeInTheDocument()
+    expect(within(row).getByText('96')).toBeInTheDocument()
+  })
+
+  // The reason `shows_calendar_week` was added to the API (PSY-1623): a row's
+  // number is read as the size of the page the row opens, so it has to be that
+  // page's own total. Chicago's fixture carries the two production values that
+  // exposed the lie — 96 on the week page, 76 in the rolling field.
+  it('counts the destination page’s week, not the rolling seven days', () => {
+    renderBlock()
+
+    const row = screen.getByRole('link', { name: /^Chicago/ })
+    expect(within(row).getByText('96')).toBeInTheDocument()
+    expect(within(row).queryByText('999')).not.toBeInTheDocument()
   })
 
   // Both spellings ship; CSS picks one by viewport, so both are in the HTML.

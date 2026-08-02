@@ -65,7 +65,7 @@ describe('getScenesForWeekIndex', () => {
   })
 
   it('asks for the whole scene list, guarded on the scenes collection', async () => {
-    const scenes = [{ slug: 'phoenix-az', shows_this_week: 28 }]
+    const scenes = [{ slug: 'phoenix-az', shows_calendar_week: 22 }]
     fetchListPayload.mockResolvedValue({ scenes, count: 1 })
 
     await expect(getScenesForWeekIndex()).resolves.toEqual({ scenes, count: 1 })

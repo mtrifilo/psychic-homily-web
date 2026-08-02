@@ -15,6 +15,7 @@ const SCENE = (
   upcoming_show_count: upcoming,
   total_show_count: upcoming * 10,
   shows_this_week: 1,
+  shows_calendar_week: 1,
 })
 
 const SCENES = [

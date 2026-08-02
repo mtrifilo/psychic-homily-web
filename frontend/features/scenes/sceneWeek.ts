@@ -68,9 +68,11 @@ export function resolveRequestedWeek(segment: string | undefined): string | unde
  * A show count as a sentence, optionally suffixed "this week".
  *
  * WHICH week is the CALLER's to know — this function only spells the phrase.
- * The share card passes the scene's Monday-to-Sunday total; the scene cards and
- * the `/shows` by-city index pass `shows_this_week` from `GET /scenes`, which
- * is a rolling seven-day window. Same words, different windows.
+ * Every caller now passes a Monday-to-Sunday total in the scene's own timezone:
+ * the share card reads it off the week payload, the scene cards and the
+ * `/shows` by-city index read `shows_calendar_week` from `GET /scenes`. The
+ * rolling `shows_this_week` is a different seven days and must not be spelled
+ * with these words next to a link to a week page.
  *
  * The suffix is dropped for an archived share card, which carries its date
  * range directly above this line: that reads correctly for a week shared months
@@ -113,12 +115,18 @@ export function parseCalendarDate(iso: string): Date {
  * own docstring also says PSY-1678 retires it along with the `timezone`
  * parameter, and whoever does that must not silently take this surface with it.
  *
- * A single zone is a compromise here, not a correct answer. The scene-week
- * pages resolve "current week" in each scene's OWN venue timezone, so around
- * the Monday boundary a scene east of this zone has already turned over while
- * this label still names the previous week. It is a few hours a week on a
- * decorative header; it would need per-scene bounds from `GET /scenes` to fix
- * properly.
+ * A single zone is a compromise here, and the ONLY approximation left in the
+ * by-city block: the per-row counts are each scene's own calendar week, exact
+ * against the page the row links to (`shows_calendar_week`, PSY-1623). This
+ * heading is not, because the approved mock puts one range above every row.
+ * The scene-week pages resolve "current week" in each scene's OWN venue
+ * timezone, so for a few hours after Monday midnight a scene east of this zone
+ * has already turned over while this label still names the previous week — its
+ * count and its destination agree with each other, and only the shared heading
+ * above them is stale.
+ *
+ * Fixing it properly means per-row ranges, which is a design change rather than
+ * a data one: `GET /scenes` would also have to publish each scene's bounds.
  */
 export const SCENE_WEEK_INDEX_TIMEZONE = 'America/Los_Angeles'
 

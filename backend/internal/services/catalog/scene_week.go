@@ -7,6 +7,7 @@ import (
 	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -71,6 +72,156 @@ func ISOWeekStart(year, week int, loc *time.Location) time.Time {
 	}
 	week1Monday := jan4.AddDate(0, 0, -(weekday - 1))
 	return week1Monday.AddDate(0, 0, (week-1)*7)
+}
+
+// sceneCalendarWeekWindow returns the half-open [start, end) instants bounding
+// the Monday-Sunday week that CONTAINS now, in loc.
+//
+// The same two instants GetSceneWeek derives for its current week, reached
+// through the same ISOWeekStart: the calendar maths lives in exactly one place,
+// so a list count and the page it links to cannot drift onto different Mondays.
+// end is walked forward by seven CALENDAR days rather than 168 hours, so a week
+// containing a DST transition still closes at local midnight.
+func sceneCalendarWeekWindow(now time.Time, loc *time.Location) (start, end time.Time) {
+	if loc == nil {
+		loc = time.UTC
+	}
+	year, week := now.In(loc).ISOWeek()
+	start = ISOWeekStart(year, week, loc)
+	return start, start.AddDate(0, 0, 7)
+}
+
+// sceneTimezonesByKey resolves every scene's week-boundary timezone in ONE
+// query, keyed the way ListScenes groups venues.
+//
+// The modal rule is sceneLocation's, restated over all scenes at once rather
+// than per scene: most common explicit timezone among the scene's VERIFIED
+// venues, ties broken alphabetically. Grouping by sceneGroupKeySQL reproduces
+// sceneScope.venuePredicate for the scenes that can appear in the list — a
+// metro scene's key IS its CBSA, and a fallback scene exists only where the
+// geocoder resolves no metro for that (city, state), which is the same input
+// the venues.metro column was written from.
+//
+// Scenes missing from the returned map have no verified venue carrying a
+// timezone; the caller falls back to the state map exactly as sceneLocation
+// does.
+func (s *SceneService) sceneTimezonesByKey() (map[string]string, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	type tzRow struct {
+		SceneKey string `gorm:"column:scene_key"`
+		Timezone string `gorm:"column:timezone"`
+	}
+	var rows []tzRow
+	// The window function ranks each scene's timezones by venue count; the
+	// outer WHERE keeps the winner. A NULL key (a venue with no metro and no
+	// usable city/state) can match no scene, so it is dropped here rather than
+	// scanning into an empty-string key that looks like a real one.
+	err := s.db.Raw(`
+		SELECT scene_key, timezone FROM (
+			SELECT ` + sceneGroupKeySQL + ` AS scene_key,
+			       v.timezone AS timezone,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY ` + sceneGroupKeySQL + `
+			           ORDER BY COUNT(*) DESC, v.timezone ASC
+			       ) AS rn
+			FROM venues v
+			WHERE v.verified = true
+			  AND v.timezone IS NOT NULL
+			  AND v.timezone <> ''
+			GROUP BY ` + sceneGroupKeySQL + `, v.timezone
+		) ranked
+		WHERE rn = 1 AND scene_key IS NOT NULL
+	`).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve scene timezones: %w", err)
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		out[r.SceneKey] = r.Timezone
+	}
+	return out, nil
+}
+
+// sceneCalendarWeekTarget is one scene to count a calendar week for: the key
+// ListScenes grouped it under, plus the display state that backs the timezone
+// fallback.
+type sceneCalendarWeekTarget struct {
+	key   string
+	state string
+}
+
+// sceneCalendarWeekCounts returns, per scene key, how many shows that scene's
+// /scenes/{slug}/week page reports for the week containing now.
+//
+// Two queries for the whole list, not two per scene: one resolves every
+// scene's timezone, one counts every scene's own week. The count query joins a
+// VALUES list of per-scene windows, which is what lets a single statement apply
+// a DIFFERENT Monday to Chicago than to Honolulu.
+//
+// The predicate is GetSceneShowsInRange's, deliberately down to its omissions:
+// approved shows at ANY venue in scope, verified or not, cancelled ones
+// included. This number's only job is to equal the destination page's total, so
+// it has to be counted the way that page counts, not the way that page ideally
+// would. Capped at sceneWeekShowCap for the same reason — the page's total is
+// the length of a capped list, so an uncapped count would overstate it for a
+// scene busy enough to hit the ceiling.
+func (s *SceneService) sceneCalendarWeekCounts(now time.Time, targets []sceneCalendarWeekTarget) (map[string]int, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if len(targets) == 0 {
+		return map[string]int{}, nil
+	}
+
+	timezones, err := s.sceneTimezonesByKey()
+	if err != nil {
+		return nil, err
+	}
+
+	values := make([]string, 0, len(targets))
+	args := make([]any, 0, len(targets)*3+1)
+	for _, t := range targets {
+		var loc *time.Location
+		if tz, ok := timezones[t.key]; ok && tz != "" {
+			loc = utils.EventLocation(&tz, t.state)
+		} else {
+			loc = utils.EventLocation(nil, t.state)
+		}
+		start, end := sceneCalendarWeekWindow(now, loc)
+		// Casts on every row, not just the first: without them Postgres types
+		// the VALUES columns as `unknown` and the join comparison fails.
+		values = append(values, "(?::text, ?::timestamptz, ?::timestamptz)")
+		args = append(args, t.key, start.UTC(), end.UTC())
+	}
+	args = append(args, catalogm.ShowStatusApproved)
+
+	type countRow struct {
+		SceneKey string `gorm:"column:scene_key"`
+		Count    int    `gorm:"column:count"`
+	}
+	var rows []countRow
+	if err := s.db.Raw(`
+		SELECT w.scene_key AS scene_key,
+		       LEAST(COUNT(DISTINCT s.id), `+strconv.Itoa(sceneWeekShowCap)+`) AS count
+		FROM (VALUES `+strings.Join(values, ", ")+`) AS w(scene_key, wk_start, wk_end)
+		JOIN venues v ON `+sceneGroupKeySQL+` = w.scene_key
+		JOIN show_venues sv ON sv.venue_id = v.id
+		JOIN shows s ON s.id = sv.show_id
+		WHERE s.status = ?
+		  AND s.event_date >= w.wk_start
+		  AND s.event_date < w.wk_end
+		GROUP BY w.scene_key
+	`, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to count scene calendar weeks: %w", err)
+	}
+
+	out := make(map[string]int, len(rows))
+	for _, r := range rows {
+		out[r.SceneKey] = r.Count
+	}
+	return out, nil
 }
 
 // weekHasEnded reports whether a scene's week is entirely behind it.

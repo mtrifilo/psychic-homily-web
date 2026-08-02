@@ -200,6 +200,7 @@ const sampleData: SceneListResponse = {
       upcoming_show_count: 283,
       total_show_count: 337,
       shows_this_week: 0,
+      shows_calendar_week: 0,
       latitude: 41.88,
       longitude: -87.63,
     },
@@ -212,6 +213,7 @@ const sampleData: SceneListResponse = {
       upcoming_show_count: 3,
       total_show_count: 3,
       shows_this_week: 0,
+      shows_calendar_week: 0,
     },
   ],
   count: 2,
@@ -342,6 +344,7 @@ describe('AtlasGlobe', () => {
         longitude: -87.63,
         upcoming_show_count: 14,
         shows_this_week: 3,
+        shows_calendar_week: 3,
         updated_at: '2026-07-25T00:00:00Z',
       },
       {
@@ -354,6 +357,7 @@ describe('AtlasGlobe', () => {
         longitude: -87.63,
         upcoming_show_count: 4,
         shows_this_week: 0,
+        shows_calendar_week: 0,
         updated_at: '2026-07-24T00:00:00Z',
       },
     ]

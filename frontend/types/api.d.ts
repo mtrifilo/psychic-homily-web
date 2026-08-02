@@ -14790,6 +14790,8 @@ export interface components {
             /** Format: double */
             longitude?: number;
             /** Format: int64 */
+            shows_calendar_week: number;
+            /** Format: int64 */
             shows_this_week: number;
             slug: string;
             state: string;
