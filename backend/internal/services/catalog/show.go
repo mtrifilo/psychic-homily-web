@@ -81,10 +81,17 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Re-check the show-time order at the storage chokepoint, mirroring how
-	// instagram_handle is handled: the handler's Resolve gives the common path
-	// a field-located 422, and this covers the callers that never see it
-	// (ConfirmShowImport, the entity-request fulfiller, and any future importer).
+	// Re-check the show-time order here, mirroring how instagram_handle is
+	// handled: the handler's Resolve gives the common path a field-located 422,
+	// and this backstops CreateShow callers that never run it. In practice that
+	// is the entity-request fulfiller, which validates the same rule earlier at
+	// queue-create; this is defense in depth, not the primary gate.
+	//
+	// Note this is NOT every write path: DataSyncService.importShow builds the
+	// row and calls tx.Create directly, below this function, so an import can
+	// still land a disordered pair. That is tolerated on purpose, same as a
+	// revision rollback restoring one, and the update guard keeps such a row
+	// editable.
 	//
 	// Deliberately NOT mirrored on the update path. There, the equivalent guard
 	// runs in the handler and only when the request touches a time, because a

@@ -1629,20 +1629,37 @@ func TestAdminFulfill_Show_CarriesShowTimes(t *testing.T) {
 		}
 	})
 
-	t.Run("malformed time fails fulfillment", func(t *testing.T) {
+	// A malformed or disordered pair must be rejected at QUEUE-CREATE, never at
+	// fulfillment: fulfillment runs after the decide call has atomically claimed
+	// the row, and no endpoint can edit a queued payload, so failing there
+	// strands an approved-but-unfulfilled request whose only exit is void.
+	// The fulfiller's own parse stays as defense in depth; these payloads must
+	// not reach it.
+	t.Run("malformed and disordered times are rejected before the row is claimed", func(t *testing.T) {
 		bad := "tonight-ish"
-		var got *contracts.CreateShowRequest
-		h := newHandler(t, communitym.ShowRequestPayload{
-			Title:     "Deferred Show",
-			EventDate: "2026-08-01T21:00:00-07:00",
-			DoorsAt:   &bad,
-		}, &got)
+		doors := "2026-09-01T21:00:00Z"
+		earlierMusic := "2026-09-01T20:00:00Z"
 
-		if _, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), fulfillReq()); err == nil {
-			t.Fatal("expected a malformed doors_at to fail fulfillment")
-		}
-		if got != nil {
-			t.Error("CreateShow must not be called with an unparseable doors_at")
+		for _, tc := range []struct {
+			name    string
+			payload communitym.ShowRequestPayload
+		}{
+			{"unparseable doors_at", communitym.ShowRequestPayload{
+				Title: "X", EventDate: "2026-09-01", DoorsAt: &bad,
+			}},
+			{"music before doors", communitym.ShowRequestPayload{
+				Title: "X", EventDate: "2026-09-01", DoorsAt: &doors, MusicAt: &earlierMusic,
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				raw, err := communitym.MarshalPayload(tc.payload)
+				if err != nil {
+					t.Fatalf("marshal show payload: %v", err)
+				}
+				if err := communitym.ValidateEntityRequestPayload(communitym.EntityRequestShow, raw); err == nil {
+					t.Fatal("expected the queue-create trust boundary to reject this payload")
+				}
+			})
 		}
 	})
 }
