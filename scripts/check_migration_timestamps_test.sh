@@ -21,7 +21,12 @@ trap 'rm -rf "$FIXTURE"' EXIT
 FAILURES=0
 CASE=""
 
-g() { git -C "$FIXTURE" "$@" >/dev/null 2>&1; }
+# Fixture git. Commit signing and a global core.hooksPath are neutralised so
+# the self-test behaves the same on a CI runner and on a laptop that has either
+# turned on globally.
+g() {
+  git -C "$FIXTURE" -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@" >/dev/null 2>&1
+}
 
 add_migration() {
   # add_migration <version>_<name>
