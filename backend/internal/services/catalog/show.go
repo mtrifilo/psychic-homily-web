@@ -782,10 +782,6 @@ func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contra
 	var venueResponses []contracts.VenueResponse
 	for _, sv := range showVenues {
 		if venue, ok := venueMap[sv.VenueID]; ok {
-			var addr *string
-			if venue.Verified {
-				addr = venue.Address
-			}
 			// Slug was omitted here while both peer builders resolve it, so an
 			// update response carried venues[].slug == "" against a contract
 			// that declares it non-nullable, degrading venue links to plain
@@ -798,7 +794,7 @@ func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contra
 				ID:        venue.ID,
 				Slug:      venueSlug,
 				Name:      venue.Name,
-				Address:   addr,
+				Address:   venue.PublicAddress(),
 				City:      venue.City,
 				State:     venue.State,
 				Timezone:  venue.Timezone,
@@ -1766,17 +1762,11 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			venueSlug = *venue.Slug
 		}
 
-		// Hide address for unverified venues
-		var venueAddr *string
-		if venue.Verified {
-			venueAddr = venue.Address
-		}
-
 		venues = append(venues, contracts.VenueResponse{
 			ID:         venue.ID,
 			Slug:       venueSlug,
 			Name:       venue.Name,
-			Address:    venueAddr,
+			Address:    venue.PublicAddress(),
 			City:       venue.City,
 			State:      venue.State,
 			Timezone:   venue.Timezone,
@@ -2021,16 +2011,11 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 		if venue.Slug != nil {
 			venueSlug = *venue.Slug
 		}
-		// Hide address for unverified venues
-		var address *string
-		if venue.Verified {
-			address = venue.Address
-		}
 		venues[i] = contracts.VenueResponse{
 			ID:       venue.ID,
 			Slug:     venueSlug,
 			Name:     venue.Name,
-			Address:  address,
+			Address:  venue.PublicAddress(),
 			City:     venue.City,
 			State:    venue.State,
 			Timezone: venue.Timezone,
