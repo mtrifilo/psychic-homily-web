@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useVenueShows } from '../hooks/useVenues'
+import { VENUE_SHOWS_VIEWER_TIMEZONE } from '../api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { createInvalidateQueries } from '@/lib/queryClient'
@@ -26,6 +27,13 @@ interface VenueCardProps {
   venue: VenueWithShowCount
 }
 
+/**
+ * Rows the expanded card fetches and draws. Was the `useVenueShows` default;
+ * named here so the request states its own page size rather than inheriting
+ * one, now that the page size is part of the cache key.
+ */
+const VENUE_CARD_PREVIEW_LIMIT = 20
+
 export function VenueCard({ venue }: VenueCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [isAddingShow, setIsAddingShow] = useState(false)
@@ -39,9 +47,17 @@ export function VenueCard({ venue }: VenueCardProps) {
   // suggest edits via the EntityEditDrawer on VenueDetail (unified queue).
   const canEdit = isAuthenticated && !!user?.is_admin
 
+  // The inline preview's own page, deliberately shorter than the venue page's
+  // VENUE_SHOWS_PAGE_LIMIT: the card renders every row it fetches and offers a
+  // "View all N shows" link out when the venue has more. Until PSY-1698 keyed
+  // venue-shows entries on the limit, this default-20 request and the venue
+  // page's 50-row list shared one entry, so expanding a card here and then
+  // opening that venue handed the venue page a truncated list for the whole
+  // 5-minute staleTime.
   const { data, error, refetch } = useVenueShows({
     venueId: venue.id,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    limit: VENUE_CARD_PREVIEW_LIMIT,
+    timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
     enabled: isExpanded,
   })
 

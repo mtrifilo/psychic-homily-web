@@ -33,9 +33,10 @@ interface VenueShowsListProps {
   onShowAdded?: () => void
 }
 
-// Shared with every other venue-shows caller (the Atlas venue panel today):
-// venueQueryKeys.shows() doesn't key on limit/timezone, so the surfaces have
-// to agree on them or they poison each other's cache entry.
+// Shared with the Atlas venue panel, the other surface that renders a venue's
+// full show list. venueQueryKeys.showsPage() keys on limit and timezone, so
+// agreeing on them is what lets the two share a cache entry rather than what
+// keeps them from corrupting one (PSY-1698).
 const TIMEZONE = VENUE_SHOWS_VIEWER_TIMEZONE
 
 function ShowsLoader() {

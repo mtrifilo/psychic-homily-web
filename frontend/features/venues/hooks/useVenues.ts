@@ -10,6 +10,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
+import type { VenueShowsTimeFilter } from '@/features/venues/api'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters/CityFilters'
 import type {
@@ -140,7 +141,11 @@ export const useVenue = createNamedDetailHook<Venue, 'venueId'>(
   venueQueryKeys.detail,
 )
 
-export type TimeFilter = 'upcoming' | 'past' | 'all'
+/**
+ * Re-exported from `../api`, where the query key that consumes it lives.
+ * Kept under this name because every existing caller imports it from here.
+ */
+export type TimeFilter = VenueShowsTimeFilter
 
 interface UseVenueShowsOptions {
   venueId: string | number
@@ -175,7 +180,10 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
     : venueEndpoints.SHOWS(venueId)
 
   return useQuery({
-    queryKey: [...venueQueryKeys.shows(venueId), timeFilter],
+    // Keyed on the request, not just the venue: `limit` and `timezone` both
+    // change the response body, so callers asking different questions get
+    // different entries (PSY-1698).
+    queryKey: venueQueryKeys.showsPage(venueId, { timeFilter, limit, timezone }),
     queryFn: async (): Promise<VenueShowsResponse> => {
       return apiRequest<VenueShowsResponse>(endpoint, {
         method: 'GET',

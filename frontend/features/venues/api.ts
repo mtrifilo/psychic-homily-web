@@ -34,31 +34,41 @@ export const venueEndpoints = {
 // Shared venue-shows page parameters
 // ============================================================================
 
+/** Which side of "today" a venue-shows request asks for. */
+export type VenueShowsTimeFilter = 'upcoming' | 'past' | 'all'
+
 /**
- * The page size EVERY venue-shows caller must use.
+ * The full page of a venue's shows, as requested by the surfaces that render
+ * the whole list: the venue page's `VenueShowsList` and the Atlas
+ * `VenuePanel`. Sharing one constant is what lets those two share a cache
+ * entry, because `venueQueryKeys.showsPage()` keys on the limit.
  *
- * `venueQueryKeys.shows()` keys on venue id + time filter and deliberately not
- * on limit or timezone, so two surfaces requesting the same venue's upcoming
- * shows share one cache entry. That is only safe while they request the same
- * page: a caller that quietly asked for 5 would hand the venue page a
- * five-row list, or be handed fifty rows itself, depending purely on which
- * request landed first. One constant makes the agreement structural instead
- * of a comment in two files that can drift apart.
+ * It is NOT a rule every caller must obey. Surfaces that deliberately want a
+ * shorter page say so and get their own entry — `VenueCard` fetches a compact
+ * preview with a "view all" link out, and the collection graph's entity panel
+ * only needs the next show. Before PSY-1698 the key ignored the limit, so
+ * those smaller requests silently answered for the venue page (and vice
+ * versa) depending purely on which one landed first.
  */
 export const VENUE_SHOWS_PAGE_LIMIT = 50
 
 /**
- * The timezone every venue-shows caller must send, for the same reason.
+ * The timezone every venue-shows caller should send.
  *
  * It only sets the backend's "today" boundary for the upcoming/past split —
  * rendering is always done in the VENUE's zone (PSY-985/986), never this one.
+ * A caller that omits it gets the backend's UTC default, which puts the
+ * boundary in the wrong place for most of the Americas.
  *
  * Evaluated at import, and this module reaches the server graph (via
  * `lib/queryClient.ts`), so on the server this resolves to the SERVER's zone.
- * That is inert rather than a hydration hazard: it is not part of
- * `venueQueryKeys.shows()`, and no route server-prefetches venue shows — the
- * venue page seeds only `venues.detail` — so the value that ever reaches a
- * request is always the browser's.
+ * Since PSY-1698 it is part of `venueQueryKeys.showsPage()`, which makes one
+ * fact load-bearing: no route may server-prefetch venue shows. Seeding the
+ * cache from a server component would compute this key under the server's
+ * zone and the browser would then look under its own, missing the seed
+ * silently. Today no route does — the venue page seeds only `venues.detail`
+ * (see `app/venues/[slug]/page.tsx`) — so every key that reaches a request is
+ * built from the browser's zone.
  */
 export const VENUE_SHOWS_VIEWER_TIMEZONE =
   Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -75,13 +85,41 @@ export const venueQueryKeys = {
   detail: (idOrSlug: string | number) => ['venues', 'detail', String(idOrSlug)] as const,
   search: (query: string) =>
     ['venues', 'search', query.toLowerCase()] as const,
-  // NOTE: keyed on venue + time filter ONLY — not on limit or timezone. Two
-  // surfaces asking for the same venue's upcoming shows with DIFFERENT limits
-  // therefore share one cache entry, and whichever request lands first answers
-  // for both. Rather than widen the key (and split the cache for two surfaces
-  // that want the same page), every caller passes the same page parameters —
-  // see VENUE_SHOWS_PAGE_LIMIT below.
+  /**
+   * The PREFIX every venue-shows entry lives under — an invalidation handle,
+   * not a cache key. `showsPage()` builds the key an actual request lands on.
+   */
   shows: (venueIdOrSlug: string | number) => ['venues', 'shows', String(venueIdOrSlug)] as const,
+  /**
+   * The cache key for one venue-shows REQUEST (PSY-1698).
+   *
+   * Every parameter that changes the response body is in the key, so two
+   * surfaces share an entry exactly when they are asking the same question.
+   * Before this, the key stopped at venue + time filter while `limit` and
+   * `timezone` still varied per caller, so a compact 20-row preview and the
+   * venue page's 50-row list collided: whichever request resolved first
+   * answered for both, for the whole 5-minute staleTime, and which one that
+   * was depended on the order the user happened to navigate in.
+   *
+   * Extends `shows()` rather than replacing it so the coarse `['venues']`
+   * invalidation in `createInvalidateQueries` keeps prefix-matching every page.
+   */
+  showsPage: (
+    venueIdOrSlug: string | number,
+    params: {
+      timeFilter: VenueShowsTimeFilter
+      limit: number
+      timezone?: string
+    },
+  ) =>
+    [
+      ...venueQueryKeys.shows(venueIdOrSlug),
+      params.timeFilter,
+      params.limit,
+      // Normalized so an omitted timezone is one stable key rather than a
+      // hole that hashes differently from an explicit undefined.
+      params.timezone ?? null,
+    ] as const,
   genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
   // PSY-365: bill-network cache is keyed by venue + active window so
   // toggling all/12m/year cycles through cache entries instead of refetching.

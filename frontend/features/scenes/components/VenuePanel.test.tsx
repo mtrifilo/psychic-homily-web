@@ -596,9 +596,9 @@ describe('VenuePanel', () => {
   })
 
   it('requests the same page the venue page does, so the two share one cache entry', () => {
-    // venueQueryKeys.shows() keys only on venue id + time filter — not on
-    // limit or timezone — so a differently-parameterized request here would
-    // collide with VenueShowsList's.
+    // venueQueryKeys.showsPage() keys on limit and timezone, so requesting
+    // the venue page's exact page is what puts this panel on the same cache
+    // entry instead of a redundant second one.
     renderPanel()
     expect(mockUseVenueShows).toHaveBeenCalledWith(
       expect.objectContaining({

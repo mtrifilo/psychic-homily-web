@@ -71,6 +71,58 @@ describe('venueQueryKeys', () => {
     expect(venueQueryKeys.genres(42)).toEqual(['venues', 'genres', '42'])
   })
 
+  it('keys a shows PAGE on every parameter that changes the response body', () => {
+    // PSY-1698: limit and timezone used to be absent from the key while
+    // callers still varied them, so a 20-row preview and the venue page's
+    // 50-row list shared one entry.
+    expect(
+      venueQueryKeys.showsPage(42, {
+        timeFilter: 'upcoming',
+        limit: 50,
+        timezone: 'America/Phoenix',
+      }),
+    ).toEqual(['venues', 'shows', '42', 'upcoming', 50, 'America/Phoenix'])
+  })
+
+  it('gives differently-parameterized shows requests distinct keys', () => {
+    const base = { timeFilter: 'upcoming', timezone: 'America/Phoenix' } as const
+    const venuePage = venueQueryKeys.showsPage(42, { ...base, limit: 50 })
+    const preview = venueQueryKeys.showsPage(42, { ...base, limit: 20 })
+    expect(preview).not.toEqual(venuePage)
+
+    const utc = venueQueryKeys.showsPage(42, {
+      timeFilter: 'upcoming',
+      limit: 50,
+      timezone: 'UTC',
+    })
+    expect(utc).not.toEqual(venuePage)
+
+    const past = venueQueryKeys.showsPage(42, {
+      ...base,
+      timeFilter: 'past',
+      limit: 50,
+    })
+    expect(past).not.toEqual(venuePage)
+  })
+
+  it('normalizes an omitted timezone to null rather than a key hole', () => {
+    expect(
+      venueQueryKeys.showsPage(42, { timeFilter: 'upcoming', limit: 20 }),
+    ).toEqual(['venues', 'shows', '42', 'upcoming', 20, null])
+  })
+
+  it('nests every shows page under the shows() invalidation prefix', () => {
+    // createInvalidateQueries fans out from a prefix, so the extra segments
+    // have to be appended rather than woven in.
+    const prefix = venueQueryKeys.shows(42)
+    const page = venueQueryKeys.showsPage(42, {
+      timeFilter: 'upcoming',
+      limit: 50,
+      timezone: 'America/Phoenix',
+    })
+    expect(page.slice(0, prefix.length)).toEqual([...prefix])
+  })
+
   it('produces identical detail keys for a numeric id and its string form', () => {
     expect(venueQueryKeys.detail(42)).toEqual(venueQueryKeys.detail('42'))
   })

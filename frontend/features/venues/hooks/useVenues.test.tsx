@@ -24,6 +24,20 @@ vi.mock('@/features/venues/api', () => ({
     list: (filters?: Record<string, unknown>) => ['venues', 'list', filters],
     detail: (id: string) => ['venues', 'detail', id],
     shows: (venueId: string | number) => ['venues', 'shows', String(venueId)],
+    // Mirrors the real builder. This file mocks the api module, so it cannot
+    // assert the real key — useVenueShowsCacheKey.test.tsx does that against
+    // the genuine one.
+    showsPage: (
+      venueId: string | number,
+      params: { timeFilter: string; limit: number; timezone?: string },
+    ) => [
+      'venues',
+      'shows',
+      String(venueId),
+      params.timeFilter,
+      params.limit,
+      params.timezone ?? null,
+    ],
     cities: ['venues', 'cities'],
   },
 }))
