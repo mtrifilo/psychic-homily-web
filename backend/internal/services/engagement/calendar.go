@@ -230,6 +230,15 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 }
 
 // GenerateICSFeed creates an ICS calendar feed for a user's saved upcoming shows.
+//
+// The venue addresses that reach the feed's LOCATION are already gated: the
+// shows come from SavedShowService.GetUserSavedShows, whose venue builder
+// applies Venue.PublicAddress, so an unverified venue arrives with a nil
+// Address. That is load-bearing rather than incidental. The feed URL carries a
+// bearer token instead of a session, so anyone holding the link reads it, and
+// an ICS LOCATION is copied onto the subscriber's device where a later
+// redaction can never reach it. See formatEventLocation for the rule that binds
+// every calendar caller.
 func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]byte, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -266,80 +275,48 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 			continue
 		}
 
-		// Shared with the public venue feed (venue_calendar.go): the same show
-		// reached through two different feeds must be the same calendar event,
-		// so the UID format lives in one place rather than being spelled out
-		// twice and drifting.
+		// Shared with the public calendar surfaces (venue_calendar.go): the same
+		// show reached through any of them must be the same calendar event, so
+		// the UID format lives in one place rather than being spelled out per
+		// surface and drifting.
 		event := cal.AddEvent(showEventUID(show.ID))
 		event.SetCreatedTime(show.CreatedAt)
 		event.SetModifiedAt(show.UpdatedAt)
 
-		// Anchor the event to the venue's local timezone so it reads at the
-		// correct wall-clock time for every subscriber (PSY-987). A bare UTC
-		// DTSTART would let each client re-shift the show into the viewer's
-		// own zone — wrong for a fixed-location event.
-		var venueTimezone *string
-		var venueState string
-		if len(show.Venues) > 0 {
-			venueTimezone = show.Venues[0].Timezone
-			venueState = show.Venues[0].State
-		}
-		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, venueTimezone, venueState)
-
-		summary := show.Title
-		if show.IsSoldOut {
-			summary += " [SOLD OUT]"
-		}
-		event.SetSummary(summary)
-
-		if len(show.Venues) > 0 {
-			event.SetLocation(formatVenueLocation(show.Venues[0]))
-		}
-
-		var descParts []string
-
-		if len(show.Venues) > 0 {
-			if loc := formatVenueLocation(show.Venues[0]); loc != "" {
-				descParts = append(descParts, "Venue: "+loc)
-			}
-		}
-
-		if len(show.Artists) > 0 {
-			names := make([]string, len(show.Artists))
-			for i, a := range show.Artists {
-				names[i] = a.Name
-			}
-			descParts = append(descParts, "Artists: "+strings.Join(names, ", "))
-		}
-
-		if show.Price != nil {
-			descParts = append(descParts, fmt.Sprintf("Price: $%.0f", *show.Price))
-		}
-		if show.AgeRequirement != nil && *show.AgeRequirement != "" {
-			descParts = append(descParts, "Ages: "+*show.AgeRequirement)
-		}
-
-		slug := show.Slug
-		if slug == "" {
-			slug = fmt.Sprintf("%d", show.ID)
-		}
-		showURL := fmt.Sprintf("%s/shows/%s", frontendURL, slug)
-		descParts = append(descParts, showURL)
-
-		event.SetDescription(strings.Join(descParts, "\n"))
-		event.SetURL(showURL)
+		// Times, naming, location, description and link are assembled by the
+		// helper the per-show download also uses, rather than by a local copy of
+		// the same sequence. That is what puts every community-editable value
+		// through sanitizeICSText (see its doc for why an unsanitized CR is a
+		// property-injection vector).
+		//
+		// The helper's cancelled branch is unreachable from here: the loop skips
+		// cancelled shows above. Calling the shared helper anyway keeps this feed
+		// from re-deciding how an event is named, and stays correct if that
+		// filter is ever relaxed.
+		applyShowEventContent(event, &show.ShowResponse, frontendURL)
 	}
 
-	// KNOWN DIVERGENCE from the two sibling feeds, noticed and deliberately left
-	// for its own change rather than silently carried: show_calendar.go and
-	// venue_calendar.go both pass every community-editable value through
-	// sanitizeICSText, set DTSTAMP on each VEVENT, and serialize with
-	// ics.WithNewLine("\r\n"). This feed does none of the three. The sanitize gap
-	// is the one that matters — golang-ical's TEXT escaper does not escape CR, so
-	// a contributor-editable name carrying one can forge a calendar property in a
-	// subscriber's client (see sanitizeICSText's own doc). Closing these changes
-	// the feed's bytes and therefore its ETag and cache behavior, so it needs its
-	// own tests; it is not a drive-by.
+	// REMAINING DIVERGENCE from the two sibling feeds, recorded so the next
+	// reader does not mistake any of it for an oversight. The safety gap is
+	// closed above: every community-editable value now passes through
+	// sanitizeICSText, which golang-ical's TEXT escaper does not do for CR.
+	// What is still different:
+	//
+	//   - No DTSTAMP per VEVENT, though RFC 5545 requires one under
+	//     METHOD:PUBLISH.
+	//   - Bare LF line endings, though RFC 5545 3.1 mandates CRLF and strict
+	//     clients reject an LF-delimited calendar.
+	//   - No SEQUENCE. This one is not merely cosmetic: the surfaces share a
+	//     UID per show, and RFC 5546 3.2 resolves a UID collision in favour of
+	//     the higher SEQUENCE, so a subscriber to both this feed and a public
+	//     one always sees the public copy win.
+	//   - feedCache has no entry cap and expires only lazily on that user's next
+	//     request, where the venue feed bounds itself at
+	//     venueFeedCacheMaxEntries. Bounded in practice by the number of issued
+	//     tokens, so it is capacity planning rather than an attack surface.
+	//
+	// Each is a wire-format or memory change wanting its own test, so they are
+	// tracked as their own work rather than folded into a security fix.
 	data := []byte(cal.Serialize())
 	cachedCopy := make([]byte, len(data))
 	copy(cachedCopy, data)
@@ -348,18 +325,6 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		expiresAt: time.Now().Add(icsFeedCacheTTL),
 	})
 	return data, nil
-}
-
-// formatVenueLocation builds a LOCATION-friendly venue string including address.
-//
-// The address it receives is already gated: this feed's shows come from
-// SavedShowService.GetUserSavedShows, whose venue builder applies
-// Venue.PublicAddress, so an unverified venue arrives with a nil Address. That
-// is load-bearing rather than incidental — the feed URL carries a bearer token
-// instead of a session, so anyone holding the link reads it. See
-// formatEventLocation for the rule that binds every caller.
-func formatVenueLocation(venue contracts.VenueResponse) string {
-	return formatEventLocation(venue.Name, venue.Address, venue.City, venue.State)
 }
 
 // setVenueLocalEventTimes writes DTSTART/DTEND anchored to the venue's local
