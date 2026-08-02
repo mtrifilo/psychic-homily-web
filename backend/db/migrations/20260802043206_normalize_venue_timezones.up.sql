@@ -15,6 +15,13 @@
 -- invariant true by construction for any environment restored from an older
 -- dump or seeded by hand.
 
+-- NOTE the two-argument btrim. One-argument btrim() trims ONLY U+0020, so a
+-- zone stored as E'\tAmerica/Phoenix' would miss statement 1's EXISTS, fall
+-- through to statement 2, and be NULLed -- destroying a value that both the Go
+-- write boundary (strings.TrimSpace) and every current reader
+-- (saved_show.go, radio.go, both of which already pass E' \t\n\r') handle
+-- correctly. The character set here is strings.TrimSpace's ASCII subset.
+
 -- 1. Canonicalize spelling/whitespace where the value resolves but is not
 --    stored exactly as pg_timezone_names spells it ("america/phoenix",
 --    " America/Phoenix "). Matching stays case-insensitive at read time, but
@@ -29,15 +36,15 @@
 UPDATE venues v
 SET timezone = (
   SELECT t.name FROM pg_timezone_names t
-  WHERE lower(t.name) = lower(btrim(v.timezone))
+  WHERE lower(t.name) = lower(btrim(v.timezone, E' \t\n\r\f\v'))
   ORDER BY t.name
   LIMIT 1
 )
 WHERE v.timezone IS NOT NULL
-  AND btrim(v.timezone) <> ''
+  AND btrim(v.timezone, E' \t\n\r\f\v') <> ''
   AND EXISTS (
     SELECT 1 FROM pg_timezone_names t
-    WHERE lower(t.name) = lower(btrim(v.timezone))
+    WHERE lower(t.name) = lower(btrim(v.timezone, E' \t\n\r\f\v'))
       AND t.name <> v.timezone
   );
 
@@ -50,9 +57,9 @@ UPDATE venues v
 SET timezone = NULL
 WHERE v.timezone IS NOT NULL
   AND (
-    btrim(v.timezone) = ''
+    btrim(v.timezone, E' \t\n\r\f\v') = ''
     OR NOT EXISTS (
       SELECT 1 FROM pg_timezone_names t
-      WHERE lower(t.name) = lower(btrim(v.timezone))
+      WHERE lower(t.name) = lower(btrim(v.timezone, E' \t\n\r\f\v'))
     )
   );

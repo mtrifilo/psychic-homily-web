@@ -42,11 +42,13 @@ func (suite *VenueServiceIntegrationTestSuite) TestApplyGeocoding_HoldsTimezoneI
 		{name: "surrounding whitespace is trimmed", zone: "  America/Phoenix  ", want: stringPtr("America/Phoenix")},
 		{name: "empty zone becomes NULL", zone: "", want: nil},
 
-		// The cases that matter: a zone Postgres cannot resolve must never be
-		// persisted, or every venue-local query touching this row raises.
+		// The case that matters: a zone absent from the server's catalog must
+		// never be persisted, or every venue-local query touching this row raises.
+		// "Local" is absent on every build; EST/Asia-Calcutta are image-dependent
+		// (see shared.NormalizeIANATimezone) so they are asserted there, against
+		// the live catalog, rather than hard-coded here.
 		{name: "junk zone becomes NULL", zone: "Not/AZone", want: nil},
-		{name: "Go-only abbreviation becomes NULL", zone: "EST", want: nil},
-		{name: "Go-only alias becomes NULL", zone: "Local", want: nil},
+		{name: "Go alias becomes NULL", zone: "Local", want: nil},
 	}
 
 	for _, tc := range cases {

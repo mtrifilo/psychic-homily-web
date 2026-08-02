@@ -1,8 +1,11 @@
 package shared
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/testutil"
 )
@@ -48,11 +51,8 @@ func TestNormalizeIANATimezone(t *testing.T) {
 		{name: "plain word", in: str("Phoenix"), wantErr: true},
 		{name: "numeric", in: str("-07:00"), wantErr: true},
 
-		// The cases that make time.LoadLocation the WRONG validator: Go accepts
-		// both of these, Postgres does not carry them, and AT TIME ZONE would
-		// raise on a value Go had blessed.
-		{name: "Go-only abbreviation EST", in: str("EST"), wantErr: true},
-		{name: "Go-only alias Local", in: str("Local"), wantErr: true},
+		// "Local" is a Go alias with no pg_timezone_names entry on any build.
+		{name: "Go alias Local", in: str("Local"), wantErr: true},
 	}
 
 	for _, tc := range cases {
@@ -87,8 +87,76 @@ func TestNormalizeIANATimezone(t *testing.T) {
 	}
 }
 
-// A nil DB must be an error, not a panic and not a silent pass -- the function
-// is a gate, and a gate that opens when its dependency is missing is not a gate.
+// Fixed-offset abbreviations and deprecated aliases are the interesting class,
+// and their presence in pg_timezone_names depends on the SERVER'S TZDATA
+// PACKAGING, not on Postgres: postgres:18 (Debian) ships 487 zones without EST
+// or Asia/Calcutta because Debian splits the `backward` links into
+// tzdata-legacy, while postgres:16-alpine ships 599 with them. So the
+// expectation is derived from the live catalog instead of hard-coded -- a
+// hard-coded one turns an image bump into a mystifying failure in this package.
+func TestNormalizeIANATimezone_TracksTheServersCatalog(t *testing.T) {
+	db := testutil.SetupTestPostgres(t).DB
+
+	for _, name := range []string{"EST", "MST", "US/Arizona", "US/Eastern", "Asia/Calcutta", "Navajo"} {
+		var canonical string
+		if err := db.Raw(
+			"SELECT COALESCE((SELECT n.name FROM pg_timezone_names n WHERE lower(n.name) = lower(?) LIMIT 1), '')", name,
+		).Scan(&canonical).Error; err != nil {
+			t.Fatal(err)
+		}
+		got, err := NormalizeIANATimezone(db, &name)
+		if canonical == "" {
+			if err == nil {
+				t.Errorf("%s: absent from this server's catalog but was accepted", name)
+			} else if !errors.Is(err, ErrUnknownTimezone) {
+				t.Errorf("%s: expected ErrUnknownTimezone, got %v", name, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: present in this server's catalog but was rejected: %v", name, err)
+		} else if got == nil || *got != canonical {
+			t.Errorf("%s: expected canonical %q, got %v", name, canonical, got)
+		}
+	}
+}
+
+// A database failure must NOT look like a bad zone: the derived value survives.
+// Otherwise one pool timeout silently blanks a venue's timezone forever.
+func TestNormalizedGeocodedTimezoneOrNull_KeepsValueWhenValidationFails(t *testing.T) {
+	db := testutil.SetupTestPostgres(t).DB
+	good := "America/Phoenix"
+
+	// Valid zone survives; junk is nulled.
+	if got := NormalizedGeocodedTimezoneOrNull(db, &good); got == nil || *got != good {
+		t.Errorf("valid zone should pass through, got %v", got)
+	}
+	junk := "Not/AZone"
+	if got := NormalizedGeocodedTimezoneOrNull(db, &junk); got != nil {
+		t.Errorf("unknown zone should be nulled, got %q", *got)
+	}
+
+	// A closed pool is a DB failure, not a verdict on the zone.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken, err := gorm.Open(db.Dialector, &gorm.Config{})
+	if err != nil {
+		t.Skipf("cannot build a second handle to simulate a DB failure: %v", err)
+	}
+	if inner, err := broken.DB(); err == nil {
+		_ = inner.Close()
+	}
+	_ = sqlDB
+	if got := NormalizedGeocodedTimezoneOrNull(broken, &good); got == nil || *got != good {
+		t.Errorf("a DB failure must keep the derived value, got %v", got)
+	}
+}
+
+// A nil DB must be an error from the validator itself, not a panic and not a
+// silent pass. (Its log-and-NULL wrapper deliberately differs -- see
+// NormalizedGeocodedTimezoneOrNull.)
 func TestNormalizeIANATimezone_NilDBIsAnError(t *testing.T) {
 	value := "America/Phoenix"
 	got, err := NormalizeIANATimezone(nil, &value)

@@ -406,7 +406,7 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 				// (PSY-1707). This path matters most of the four: a CONTRIBUTOR's
 				// city/state edit is what triggers the re-derivation, so it is the
 				// one an outsider can aim, even though the zone itself is ours.
-				updates["timezone"] = normalizedGeocodedTimezone(s.db, tz)
+				updates["timezone"] = shared.NormalizedGeocodedTimezoneOrNull(s.db, tz, "venue_id", edit.EntityID)
 				// metro is a sibling of the geocoding (PSY-1255 step B): keep it
 				// fresh when a contribution edit relocates the venue.
 				updates["metro"] = geo.MetroPointer(geo.Default(),

@@ -24,6 +24,11 @@ func TestNormalizeVenueTimezonesMigration(t *testing.T) {
 		{"canonical", "America/Phoenix"},
 		{"lowercased", "america/phoenix"},
 		{"padded", "  America/Phoenix  "},
+		// The classes one-argument btrim() does NOT trim. These are what caught a
+		// migration that would have destroyed them.
+		{"tab-padded", "\tAmerica/Phoenix"},
+		{"newline-padded", "America/Phoenix\n"},
+		{"cr-padded", "America/Phoenix\r"},
 		{"blank", ""},
 		{"whitespace", "   "},
 		{"junk", "Not/AZone"},
@@ -58,6 +63,9 @@ func TestNormalizeVenueTimezonesMigration(t *testing.T) {
 		"canonical":      ptr("America/Phoenix"),
 		"lowercased":     ptr("America/Phoenix"),
 		"padded":         ptr("America/Phoenix"),
+		"tab-padded":     ptr("America/Phoenix"),
+		"newline-padded": ptr("America/Phoenix"),
+		"cr-padded":      ptr("America/Phoenix"),
 		"blank":          nil,
 		"whitespace":     nil,
 		"junk":           nil,

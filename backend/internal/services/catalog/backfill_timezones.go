@@ -179,8 +179,8 @@ func backfillVenuePass(
 		// cannot resolve, because readers use AT TIME ZONE and it raises rather
 		// than degrading. This CLI writes the geocoder's answer directly instead
 		// of going through applyGeocoding, so it has to check for itself.
-		canonicalTz, tzErr := shared.NormalizeIANATimezone(database, &res.Timezone)
-		if tzErr != nil || canonicalTz == nil {
+		canonicalTz := shared.NormalizedGeocodedTimezoneOrNull(database, &res.Timezone, "venue_id", v.ID, "venue_name", v.Name)
+		if canonicalTz == nil {
 			effectiveTz[v.ID] = v.Timezone
 			report.VenuesMissed++
 			report.VenueChanges = append(report.VenueChanges, VenueGeoChange{

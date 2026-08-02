@@ -509,7 +509,7 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 	// geocode-venue-addresses backfill CLI resolves them afterwards.
 	newVenue.Latitude, newVenue.Longitude, newVenue.Timezone = geo.LookupPointers(geo.Default(), newVenue.City, newVenue.State, "")
 	// PSY-1707 write-boundary invariant.
-	newVenue.Timezone = normalizedGeocodedTimezone(s.db, newVenue.Timezone)
+	newVenue.Timezone = shared.NormalizedGeocodedTimezoneOrNull(s.db, newVenue.Timezone, "venue_name", newVenue.Name, "city", newVenue.City, "state", newVenue.State)
 	newVenue.Metro = geo.MetroPointer(geo.Default(), newVenue.City, newVenue.State, "") // PSY-1255 step B
 
 	if err := s.db.Create(&newVenue).Error; err != nil {
@@ -662,7 +662,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 				// PSY-985: geocode imported venues (see importVenue).
 				venue.Latitude, venue.Longitude, venue.Timezone = geo.LookupPointers(geo.Default(), venue.City, venue.State, "")
 				// PSY-1707 write-boundary invariant.
-				venue.Timezone = normalizedGeocodedTimezone(tx, venue.Timezone)
+				venue.Timezone = shared.NormalizedGeocodedTimezoneOrNull(tx, venue.Timezone, "venue_name", venue.Name, "city", venue.City, "state", venue.State)
 				venue.Metro = geo.MetroPointer(geo.Default(), venue.City, venue.State, "") // PSY-1255 step B
 				if err := tx.Create(&venue).Error; err != nil {
 					return fmt.Errorf("failed to create venue: %w", err)
