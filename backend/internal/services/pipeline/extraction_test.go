@@ -788,7 +788,10 @@ func TestMatchArtists(t *testing.T) {
 		assert.Nil(t, result[0].Suggestions)
 	})
 
-	t.Run("passes_through_set_type_and_billing_order", func(t *testing.T) {
+	// PSY-1673: the response carries NORMALIZED set_type, not the model's raw
+	// term. The show form's role selector reads this field directly, so an
+	// un-normalized value there would either fail submission or silently drop.
+	t.Run("normalizes_set_type_and_passes_through_billing_order", func(t *testing.T) {
 		svc := &ExtractionService{
 			artistService: &testArtistSearcher{db: nil}, // nil db -> error, so no match
 		}
@@ -796,13 +799,22 @@ func TestMatchArtists(t *testing.T) {
 		result := svc.matchArtists([]rawArtist{
 			{Name: "Headliner Band", IsHeadliner: true, SetType: "headliner", BillingOrder: 1},
 			{Name: "Support Band", IsHeadliner: false, SetType: "support", BillingOrder: 2},
+			{Name: "DJ Spinz", IsHeadliner: false, SetType: "dj", BillingOrder: 3},
+			// The vocabulary models no host slot, so it stays empty rather
+			// than being lossily recorded as a performer.
+			{Name: "The Host", IsHeadliner: false, SetType: "host", BillingOrder: 4},
+			{Name: "Unstated", IsHeadliner: false, BillingOrder: 5},
 		})
 
-		require.Len(t, result, 2)
-		assert.Equal(t, "headliner", result[0].SetType)
+		require.Len(t, result, 5)
+		assert.Equal(t, contracts.SetTypeHeadliner, result[0].SetType)
 		assert.Equal(t, 1, result[0].BillingOrder)
-		assert.Equal(t, "support", result[1].SetType)
+		assert.Equal(t, contracts.SetTypeDirectSupport, result[1].SetType)
 		assert.Equal(t, 2, result[1].BillingOrder)
+		assert.Equal(t, contracts.SetTypeDJ, result[2].SetType)
+		assert.Equal(t, 3, result[2].BillingOrder)
+		assert.Empty(t, result[3].SetType)
+		assert.Empty(t, result[4].SetType)
 	})
 }
 

@@ -57,11 +57,19 @@ func NewShowHandler(
 	}
 }
 
-// Artist represents an artist in a show request
+// Artist represents an artist in a show request.
+//
+// set_type is the curated bill role and is authoritative when present:
+// is_headliner is derived from it, so a client may send set_type alone.
+// Omitting set_type keeps the legacy is_headliner-only behavior. The enum is
+// enforced by the generated OpenAPI schema on both the create and the update
+// body, which is why neither Resolve nor the update handler re-checks it; the
+// show service backstops in-process callers that bypass the schema.
 type Artist struct {
 	ID              *uint   `json:"id,omitempty"`
 	Name            *string `json:"name,omitempty"`
 	IsHeadliner     *bool   `json:"is_headliner,omitempty"`
+	SetType         *string `json:"set_type,omitempty" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role."`
 	InstagramHandle *string `json:"instagram_handle,omitempty"`
 }
 
@@ -76,7 +84,11 @@ type Venue struct {
 
 // initializeArtist provides sensible defaults for Artist fields
 func initializeArtist(a *Artist) {
-	// Set default for IsHeadliner if not provided
+	// Set default for IsHeadliner if not provided.
+	//
+	// Harmless alongside set_type: the show service reads set_type first and
+	// derives is_headliner from it, so defaulting the flag here cannot
+	// contradict a caller that curated the role and sent set_type alone.
 	if a.IsHeadliner == nil {
 		// Default to false for non-headliners
 		defaultValue := false
@@ -475,6 +487,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 			ID:              artist.ID,
 			Name:            shared.Deref(artist.Name),
 			IsHeadliner:     artist.IsHeadliner,
+			SetType:         artist.SetType,
 			InstagramHandle: artist.InstagramHandle,
 		}
 	}
@@ -1007,6 +1020,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 				ID:              artist.ID,
 				Name:            shared.Deref(artist.Name),
 				IsHeadliner:     artist.IsHeadliner,
+				SetType:         artist.SetType,
 				InstagramHandle: artist.InstagramHandle,
 			}
 		}

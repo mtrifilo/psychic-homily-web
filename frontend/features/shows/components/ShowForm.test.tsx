@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import type { ShowResponse } from '../types'
+import { SET_TYPE_OPTIONS } from './show-form-utils'
 
 // ─────────────────────────────────────────────────────────────
 // Shared mock state
@@ -767,5 +768,170 @@ describe('ShowForm — private-show toggle visibility (create vs edit)', () => {
     // specifically on the toggle's own label so we're testing the
     // !isEditMode gate, not the outer banner.
     expect(screen.queryByLabelText(/do not publish/i)).not.toBeInTheDocument()
+  })
+})
+
+
+// ─────────────────────────────────────────────────────────────
+// Bill role selector (PSY-1673)
+//
+// set_type used to be dead below the headliner line: the backend stamped
+// "opener" on every non-headliner and no surface let anyone say otherwise.
+// These pin that the form is now that surface, for EVERY editor and EVERY
+// value in the vocabulary.
+// ─────────────────────────────────────────────────────────────
+
+describe('ShowForm: bill role selector', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetMockState()
+  })
+
+  it('renders a bill role selector for every artist row', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" />)
+
+    expect(
+      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /add another artist/i }))
+
+    expect(
+      await screen.findByRole('combobox', { name: 'Bill role for artist 2' })
+    ).toBeInTheDocument()
+  })
+
+  it('seeds the first act as headliner and added acts as the neutral default', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" />)
+
+    expect(
+      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+    ).toHaveTextContent('Headliner')
+
+    await user.click(screen.getByRole('button', { name: /add another artist/i }))
+
+    // NOT "Opener" -- nobody has said what slot this act plays.
+    expect(
+      await screen.findByRole('combobox', { name: 'Bill role for artist 2' })
+    ).toHaveTextContent('Performer (slot unknown)')
+  })
+
+  it('offers every vocabulary value in the selector', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="create" />)
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+    )
+
+    for (const option of SET_TYPE_OPTIONS) {
+      expect(
+        await screen.findByRole('option', { name: option.label })
+      ).toBeInTheDocument()
+    }
+  })
+
+  // The acceptance bar for this ticket: the selector has to be able to write
+  // each value, not merely display it. One case per value, so a regression
+  // names the value it broke.
+  for (const option of SET_TYPE_OPTIONS) {
+    it(`submits set_type "${option.value}" when "${option.label}" is chosen`, async () => {
+      mockShowSubmit.mutate.mockImplementation((_vars, opts) => {
+        opts?.onSuccess?.({ status: 'approved' })
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<ShowForm mode="create" redirectOnCreate={false} />)
+
+      await user.type(
+        screen.getByPlaceholderText('Enter artist name'),
+        'Role Test Band'
+      )
+      await user.type(screen.getByLabelText(/^Venue$/i), 'Role Venue')
+      await user.type(screen.getByLabelText(/^City$/i), 'Phoenix')
+      await user.type(screen.getByLabelText(/^State$/i), 'AZ')
+      fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
+
+      await user.click(
+        screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+      )
+      await user.click(
+        await screen.findByRole('option', { name: option.label })
+      )
+
+      await user.click(screen.getByRole('button', { name: /submit show/i }))
+
+      await waitFor(() => expect(mockShowSubmit.mutate).toHaveBeenCalledTimes(1))
+
+      const submission = mockShowSubmit.mutate.mock.calls[0][0] as {
+        artists: Array<{ set_type: string; is_headliner: boolean }>
+      }
+      expect(submission.artists[0].set_type).toBe(option.value)
+      // is_headliner is derived from set_type, never tracked beside it.
+      expect(submission.artists[0].is_headliner).toBe(
+        option.value === 'headliner'
+      )
+    })
+  }
+
+  it('pre-fills the selector from the stored role in edit mode', async () => {
+    renderWithProviders(
+      <ShowForm
+        mode="edit"
+        initialData={makeShow({
+          artists: [
+            {
+              id: 11,
+              slug: 'top-act',
+              name: 'Top Act',
+              is_headliner: true,
+              set_type: 'headliner',
+              position: 0,
+              socials: {},
+            },
+            {
+              id: 12,
+              slug: 'support-act',
+              name: 'Support Act',
+              is_headliner: false,
+              set_type: 'direct_support',
+              position: 1,
+              socials: {},
+            },
+          ],
+        })}
+      />
+    )
+
+    expect(
+      await screen.findByRole('combobox', { name: 'Bill role for artist 1' })
+    ).toHaveTextContent('Headliner')
+    expect(
+      screen.getByRole('combobox', { name: 'Bill role for artist 2' })
+    ).toHaveTextContent('Direct support')
+  })
+
+  it('sends the edited role on the update payload', async () => {
+    mockShowUpdate.mutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.({ id: 42 })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+    )
+    await user.click(await screen.findByRole('option', { name: 'DJ' }))
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => expect(mockShowUpdate.mutate).toHaveBeenCalledTimes(1))
+
+    const call = mockShowUpdate.mutate.mock.calls[0][0] as {
+      updates: { artists: Array<{ set_type: string; is_headliner: boolean }> }
+    }
+    expect(call.updates.artists[0].set_type).toBe('dj')
+    expect(call.updates.artists[0].is_headliner).toBe(false)
   })
 })

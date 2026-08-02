@@ -465,14 +465,20 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 				position = entry.BillingOrder - 1 // billing_order is 1-based, position is 0-based
 			}
 
-			// Determine set type from AI extraction, with fallback logic
+			// Determine set type from AI extraction, with fallback logic.
+			//
+			// The fallback only ever infers the HEADLINER, from first position.
+			// Every other slot the source did not state resolves to the neutral
+			// default: a scrape that lists four names in order is evidence of
+			// billing order, not evidence that acts two through four were the
+			// openers, and stamping a role on that inference is what made this
+			// column unreadable before PSY-1673.
 			setType := normalizeSetType(entry.SetType)
 			if setType == "" {
-				// Fallback: first artist is headliner, others are opener
 				if idx == 0 {
-					setType = "headliner"
+					setType = contracts.SetTypeHeadliner
 				} else {
-					setType = "opener"
+					setType = contracts.SetTypeDefault
 				}
 			}
 
@@ -778,29 +784,15 @@ func parsePriceString(s string) *float64 {
 	return &val
 }
 
-// normalizeSetType maps AI-extracted set_type values to the values stored in the DB.
-// The show_artists.set_type column is VARCHAR and stores: headliner, opener, performer, special_guest.
-// AI extraction may return additional values like "support", "dj", "host" which are
-// mapped to the closest DB equivalent.
+// normalizeSetType maps an AI-extracted set_type onto the curated vocabulary.
+// Thin delegation to contracts.NormalizeSetType, which owns the mapping table
+// and the reasoning behind each row; kept as a package-local name because the
+// pipeline reads better without the qualifier at the call site.
+//
+// Returns "" for anything unmappable, which the caller must answer with
+// contracts.SetTypeDefault rather than a guessed role.
 func normalizeSetType(setType string) string {
-	switch strings.ToLower(strings.TrimSpace(setType)) {
-	case "headliner":
-		return "headliner"
-	case "support":
-		return "opener" // "support" maps to "opener" in the DB
-	case "opener":
-		return "opener"
-	case "special_guest":
-		return "special_guest"
-	case "performer":
-		return "performer"
-	case "dj":
-		return "performer" // DJ sets stored as performer
-	case "host":
-		return "performer" // Hosts stored as performer
-	default:
-		return "" // Unknown — caller should use fallback logic
-	}
+	return contracts.NormalizeSetType(setType)
 }
 
 // splitAndTrim splits a string by separator and trims whitespace from each part

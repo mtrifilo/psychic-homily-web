@@ -102,6 +102,14 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		return nil, apperrors.ErrShowValidationFailed("music_at cannot be before doors_at")
 	}
 
+	// Same defense-in-depth shape as above: the handler's OpenAPI enum rejects a
+	// bad set_type with a field-located 422, and this backstops in-process
+	// callers (the entity-request fulfiller, the show importer) that never see
+	// that schema.
+	if err := validateShowArtistSetTypes(req.Artists); err != nil {
+		return nil, err
+	}
+
 	// Use transaction for data consistency
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -243,7 +251,7 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 	// Get all headliners from the request
 	var headlinerNames []string
 	for _, artist := range req.Artists {
-		if artist.IsHeadliner != nil && *artist.IsHeadliner {
+		if requestsHeadlinerSlot(artist) {
 			headlinerNames = append(headlinerNames, artist.Name)
 		}
 	}
@@ -542,6 +550,12 @@ func (s *ShowService) UpdateShowWithRelations(
 ) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 	if s.db == nil {
 		return nil, nil, fmt.Errorf("database not initialized")
+	}
+
+	// Validate before the transaction so a bad set_type never partially
+	// rebuilds the bill (replaceShowArtists tears the old rows down first).
+	if err := validateShowArtistSetTypes(artists); err != nil {
+		return nil, nil, err
 	}
 
 	updates := showUpdatesToMap(req)
@@ -1790,6 +1804,80 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 	return venues, nil
 }
 
+// curatedSetType returns the caller's explicitly curated set_type, or "" when
+// the caller did not curate this act's slot. Whitespace-only counts as absent.
+// The value is returned verbatim, NOT coerced: validateShowArtistSetTypes is
+// the single place that decides whether a stated role is acceptable, so this
+// helper cannot quietly turn a rejected value into an accepted one.
+func curatedSetType(a contracts.CreateShowArtist) string {
+	if a.SetType == nil {
+		return ""
+	}
+	return strings.TrimSpace(*a.SetType)
+}
+
+// validateShowArtistSetTypes rejects any entry whose curated set_type is
+// outside the vocabulary.
+//
+// Boundary validation: callers run it once, before opening the write
+// transaction, so a malformed bill fails whole rather than writing some rows
+// and rolling back. Everything downstream may then trust the value.
+func validateShowArtistSetTypes(artists []contracts.CreateShowArtist) error {
+	for i, a := range artists {
+		value := curatedSetType(a)
+		if value == "" || contracts.IsValidSetType(value) {
+			continue
+		}
+		return apperrors.ErrShowValidationFailed(fmt.Sprintf(
+			"artists[%d].set_type %q is not a valid set type (allowed: %s)",
+			i, value, contracts.SetTypeVocabularyCSV(),
+		))
+	}
+	return nil
+}
+
+// requestsHeadlinerSlot reports whether a request entry explicitly asks for
+// the top-of-bill slot, by either signal. Reads set_type first because it is
+// authoritative, so a caller that sends only set_type is still seen by the
+// duplicate-headliner pre-check.
+func requestsHeadlinerSlot(a contracts.CreateShowArtist) bool {
+	if value := curatedSetType(a); value != "" {
+		return value == contracts.SetTypeHeadliner
+	}
+	return a.IsHeadliner != nil && *a.IsHeadliner
+}
+
+// resolveArtistRole decides the (set_type, is_headliner) pair written for one
+// act, in strict precedence order:
+//
+//  1. A curated set_type wins outright; is_headliner is derived from it.
+//  2. Otherwise the legacy is_headliner flag decides headliner vs default.
+//  3. Otherwise, with NO signal at all, position 0 is taken as the headliner.
+//
+// Everything that is not the headliner resolves to SetTypeDefault. It
+// deliberately does NOT invent a support role from list order: before PSY-1673
+// this function stamped "opener" on every non-headliner, which made the column
+// unreadable -- an "(opener)" annotation would have fired on essentially every
+// support act on the site regardless of what slot they actually played.
+//
+// An out-of-vocabulary set_type is treated as absent rather than written
+// through; validateShowArtistSetTypes is the enforcement point and runs first.
+func resolveArtistRole(a contracts.CreateShowArtist, position int) (setType string, isHeadliner bool) {
+	if value := curatedSetType(a); contracts.IsValidSetType(value) {
+		return value, value == contracts.SetTypeHeadliner
+	}
+	if a.IsHeadliner != nil {
+		if *a.IsHeadliner {
+			return contracts.SetTypeHeadliner, true
+		}
+		return contracts.SetTypeDefault, false
+	}
+	if position == 0 {
+		return contracts.SetTypeHeadliner, true
+	}
+	return contracts.SetTypeDefault, false
+}
+
 // associateArtists associates artists with a show, creating new artists if needed
 func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists []contracts.CreateShowArtist) ([]contracts.ArtistResponse, error) {
 	var artists []contracts.ArtistResponse
@@ -1839,16 +1927,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 		}
 
 		// Determine set type and IsHeadliner flag
-		setType := "opener"
-		isHeadliner := false
-		if requestArtist.IsHeadliner != nil && *requestArtist.IsHeadliner {
-			setType = "headliner"
-			isHeadliner = true
-		} else if requestArtist.IsHeadliner == nil && position == 0 {
-			// Fallback: first artist is headliner if not explicitly specified
-			setType = "headliner"
-			isHeadliner = true
-		}
+		setType, isHeadliner := resolveArtistRole(requestArtist, position)
 
 		// Create show-artist association with position
 		showArtist := catalogm.ShowArtist{
@@ -2617,14 +2696,25 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contract
 		})
 	}
 
-	// Build artists for contracts.CreateShowRequest
+	// Build artists for contracts.CreateShowRequest.
+	//
+	// The export frontmatter's set_type is a curated value that a prior export
+	// wrote out, so it is passed through rather than collapsed to a boolean --
+	// an import used to preserve only "was this the headliner" and silently
+	// flattened every other role. Values the vocabulary does not recognize are
+	// left off so the import falls back to the default instead of failing a
+	// whole file on one stale label.
 	var requestArtists []contracts.CreateShowArtist
 	for _, artistData := range parsed.Frontmatter.Artists {
-		isHeadliner := artistData.SetType == "headliner"
-		requestArtists = append(requestArtists, contracts.CreateShowArtist{
+		isHeadliner := artistData.SetType == contracts.SetTypeHeadliner
+		entry := contracts.CreateShowArtist{
 			Name:        artistData.Name,
 			IsHeadliner: &isHeadliner,
-		})
+		}
+		if normalized := contracts.NormalizeSetType(artistData.SetType); normalized != "" {
+			entry.SetType = &normalized
+		}
+		requestArtists = append(requestArtists, entry)
 	}
 
 	// Build the create request

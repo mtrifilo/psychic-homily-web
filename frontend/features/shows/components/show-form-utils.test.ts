@@ -8,6 +8,11 @@ import {
   makeFormArtist,
   mergeExtraction,
   extractedVenueToSelected,
+  toArtistPayloads,
+  toSetType,
+  DEFAULT_SET_TYPE,
+  SET_TYPE_OPTIONS,
+  SET_TYPE_VALUES,
   type FormArtist,
 } from './show-form-utils'
 import type { ShowResponse, VenueResponse } from '../types'
@@ -101,16 +106,53 @@ describe('showToFormValues', () => {
     expect(result.venue.address).toBe('123 Main St')
   })
 
-  it('maps artists with headliner status', () => {
+  it('maps artists with their stored bill role', () => {
     const show = makeShowResponse()
     const result = showToFormValues(show)
 
     expect(result.artists).toHaveLength(2)
     expect(result.artists[0].name).toBe('Artist One')
-    expect(result.artists[0].is_headliner).toBe(true)
+    expect(result.artists[0].set_type).toBe('headliner')
     expect(result.artists[0].matched_id).toBe(100)
     expect(result.artists[1].name).toBe('Artist Two')
-    expect(result.artists[1].is_headliner).toBe(false)
+    // A curated 'opener' round-trips into the editor unchanged.
+    expect(result.artists[1].set_type).toBe('opener')
+  })
+
+  it('loads every vocabulary value into the editor unchanged', () => {
+    const show = makeShowResponse({
+      artists: SET_TYPE_VALUES.map((value, index) => ({
+        id: 200 + index,
+        slug: `artist-${value}`,
+        name: `Artist ${value}`,
+        set_type: value,
+        position: index,
+        socials: {},
+      })),
+    })
+
+    expect(showToFormValues(show).artists.map(a => a.set_type)).toEqual([
+      ...SET_TYPE_VALUES,
+    ])
+  })
+
+  it('falls back to the neutral default for a set_type this build cannot render', () => {
+    // A newer server can know a slot this client does not. Showing "slot
+    // unknown" is the only honest answer; guessing a role is not.
+    const show = makeShowResponse({
+      artists: [
+        {
+          id: 300,
+          slug: 'artist-future',
+          name: 'Future Slot',
+          set_type: 'co_headliner' as ShowResponse['artists'][number]['set_type'],
+          position: 0,
+          socials: {},
+        },
+      ],
+    })
+
+    expect(showToFormValues(show).artists[0].set_type).toBe('performer')
   })
 
   it('assigns a unique _clientId to every artist in edit mode', () => {
@@ -248,9 +290,9 @@ describe('parseCost', () => {
 // --- removeArtistAtIndex ---
 
 describe('removeArtistAtIndex', () => {
-  const headliner: FormArtist = { _clientId: 'cid-1', name: 'Head', is_headliner: true, matched_id: 1 }
-  const opener: FormArtist = { _clientId: 'cid-2', name: 'Opener', is_headliner: false, matched_id: 2 }
-  const support: FormArtist = { _clientId: 'cid-3', name: 'Support', is_headliner: false, matched_id: 3 }
+  const headliner: FormArtist = { _clientId: 'cid-1', name: 'Head', set_type: 'headliner', matched_id: 1 }
+  const opener: FormArtist = { _clientId: 'cid-2', name: 'Opener', set_type: 'opener', matched_id: 2 }
+  const support: FormArtist = { _clientId: 'cid-3', name: 'Support', set_type: 'direct_support', matched_id: 3 }
 
   it('returns null when only one artist remains', () => {
     expect(removeArtistAtIndex([headliner], 0)).toBeNull()
@@ -264,13 +306,19 @@ describe('removeArtistAtIndex', () => {
 
   it('promotes first remaining artist to headliner when headliner is removed', () => {
     const result = removeArtistAtIndex([headliner, opener, support], 0)!
-    expect(result[0].is_headliner).toBe(true)
+    expect(result[0].set_type).toBe('headliner')
     expect(result[0].name).toBe('Opener')
+  })
+
+  it('leaves the other acts\' curated roles alone when promoting', () => {
+    // Losing an act says nothing about what slot the survivors played.
+    const result = removeArtistAtIndex([headliner, opener, support], 0)!
+    expect(result.map(a => a.set_type)).toEqual(['headliner', 'direct_support'])
   })
 
   it('does not change headliner status when non-headliner is removed', () => {
     const result = removeArtistAtIndex([headliner, opener], 1)!
-    expect(result[0].is_headliner).toBe(true)
+    expect(result[0].set_type).toBe('headliner')
     expect(result[0].name).toBe('Head')
   })
 
@@ -320,9 +368,9 @@ describe('isVenueLocationEditable', () => {
 // --- defaultFormValues ---
 
 describe('defaultFormValues', () => {
-  it('has one artist with headliner status', () => {
+  it('has one artist in the headliner slot', () => {
     expect(defaultFormValues.artists).toHaveLength(1)
-    expect(defaultFormValues.artists[0].is_headliner).toBe(true)
+    expect(defaultFormValues.artists[0].set_type).toBe('headliner')
     expect(defaultFormValues.artists[0].name).toBe('')
   })
 
@@ -339,8 +387,8 @@ describe('defaultFormValues', () => {
 
 describe('makeFormArtist', () => {
   it('mints a unique _clientId on each call', () => {
-    const a = makeFormArtist({ name: 'A', is_headliner: true })
-    const b = makeFormArtist({ name: 'B', is_headliner: false })
+    const a = makeFormArtist({ name: 'A', set_type: 'headliner' })
+    const b = makeFormArtist({ name: 'B', set_type: 'performer' })
     expect(a._clientId).toBeTruthy()
     expect(b._clientId).toBeTruthy()
     expect(a._clientId).not.toBe(b._clientId)
@@ -349,12 +397,12 @@ describe('makeFormArtist', () => {
   it('preserves all supplied fields', () => {
     const artist = makeFormArtist({
       name: 'A',
-      is_headliner: true,
+      set_type: 'headliner',
       matched_id: 42,
       instagram_handle: '@a',
     })
     expect(artist.name).toBe('A')
-    expect(artist.is_headliner).toBe(true)
+    expect(artist.set_type).toBe('headliner')
     expect(artist.matched_id).toBe(42)
     expect(artist.instagram_handle).toBe('@a')
   })
@@ -380,12 +428,40 @@ describe('mergeExtraction', () => {
     expect(mergeExtraction(defaultFormValues, undefined)).toBe(defaultFormValues)
   })
 
+  it('prefers the extraction set_type over the headliner flag', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      ...fullExtraction,
+      artists: [
+        { name: 'Top', is_headliner: true, set_type: 'headliner' },
+        { name: 'Second', is_headliner: false, set_type: 'direct_support' },
+        { name: 'Spinner', is_headliner: false, set_type: 'dj' },
+      ],
+    })
+
+    expect(result.artists.map(a => a.set_type)).toEqual([
+      'headliner',
+      'direct_support',
+      'dj',
+    ])
+  })
+
+  it('gives non-headliners the neutral default when the flyer stated no slot', () => {
+    // The extraction endpoint leaves set_type empty when the source did not
+    // say. Filling that in as 'opener' is the guess this ticket removed.
+    const result = mergeExtraction(defaultFormValues, fullExtraction)
+
+    expect(result.artists.map(a => a.set_type)).toEqual([
+      'headliner',
+      'performer',
+    ])
+  })
+
   it('folds every extracted field into the form values', () => {
     const result = mergeExtraction(defaultFormValues, fullExtraction)
 
     expect(result.artists).toHaveLength(2)
     expect(result.artists[0].name).toBe('Headliner')
-    expect(result.artists[0].is_headliner).toBe(true)
+    expect(result.artists[0].set_type).toBe('headliner')
     expect(result.artists[1].name).toBe('Opener')
     expect(result.artists[1].instagram_handle).toBe('@opener')
     expect(result.venue.name).toBe('The Venue')
@@ -499,5 +575,119 @@ describe('extractedVenueToSelected', () => {
         venue: { name: 'Partial', matched_id: 5, matched_name: 'Partial' },
       })
     ).toBeNull()
+  })
+})
+
+
+// --- set_type vocabulary (PSY-1673) ---
+
+describe('SET_TYPE_OPTIONS', () => {
+  it('matches the backend vocabulary, in order', () => {
+    // Mirrors contracts.SetTypeVocabulary() in
+    // backend/internal/services/contracts/catalog.go, which the OpenAPI enum
+    // on the show create/update body enforces. Drift here means the selector
+    // can offer a value the API rejects.
+    expect(SET_TYPE_VALUES).toEqual([
+      'headliner',
+      'direct_support',
+      'opener',
+      'special_guest',
+      'dj',
+      'performer',
+    ])
+  })
+
+  it('offers a label for every value', () => {
+    for (const option of SET_TYPE_OPTIONS) {
+      expect(option.label.trim().length).toBeGreaterThan(0)
+    }
+  })
+
+  it('defaults to the neutral value, which stays in the vocabulary', () => {
+    expect(DEFAULT_SET_TYPE).toBe('performer')
+    expect(SET_TYPE_VALUES).toContain(DEFAULT_SET_TYPE)
+  })
+})
+
+describe('toSetType', () => {
+  it('passes every vocabulary value through', () => {
+    for (const value of SET_TYPE_VALUES) {
+      expect(toSetType(value)).toBe(value)
+    }
+  })
+
+  it('falls back to the neutral default for anything else', () => {
+    expect(toSetType('co_headliner')).toBe(DEFAULT_SET_TYPE)
+    expect(toSetType('')).toBe(DEFAULT_SET_TYPE)
+    expect(toSetType(undefined)).toBe(DEFAULT_SET_TYPE)
+    expect(toSetType(null)).toBe(DEFAULT_SET_TYPE)
+    // Strict, matching the server: casing is not coerced.
+    expect(toSetType('Headliner')).toBe(DEFAULT_SET_TYPE)
+  })
+})
+
+// --- toArtistPayloads (PSY-1673) ---
+
+describe('toArtistPayloads', () => {
+  it('sends every vocabulary value verbatim', () => {
+    const artists: FormArtist[] = SET_TYPE_VALUES.map((value, index) => ({
+      _clientId: `cid-${index}`,
+      name: `Artist ${value}`,
+      set_type: value,
+    }))
+
+    expect(toArtistPayloads(artists).map(a => a.set_type)).toEqual([
+      ...SET_TYPE_VALUES,
+    ])
+  })
+
+  it('derives is_headliner from set_type rather than tracking it separately', () => {
+    const artists: FormArtist[] = SET_TYPE_VALUES.map((value, index) => ({
+      _clientId: `cid-${index}`,
+      name: `Artist ${value}`,
+      set_type: value,
+    }))
+
+    expect(toArtistPayloads(artists).map(a => a.is_headliner)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ])
+  })
+
+  it('carries the matched id and drops instagram for matched artists', () => {
+    const payloads = toArtistPayloads([
+      {
+        _clientId: 'cid-1',
+        name: 'Matched',
+        set_type: 'headliner',
+        matched_id: 7,
+        instagram_handle: '@matched',
+      },
+      {
+        _clientId: 'cid-2',
+        name: 'New Act',
+        set_type: 'direct_support',
+        instagram_handle: '@newact',
+      },
+    ])
+
+    expect(payloads[0]).toEqual({
+      id: 7,
+      name: 'Matched',
+      is_headliner: true,
+      set_type: 'headliner',
+      instagram_handle: undefined,
+    })
+    expect(payloads[1]).toEqual({
+      id: undefined,
+      name: 'New Act',
+      is_headliner: false,
+      set_type: 'direct_support',
+      instagram_handle: '@newact',
+    })
   })
 })

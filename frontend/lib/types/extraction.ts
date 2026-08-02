@@ -41,6 +41,12 @@ export interface ExtractedArtist {
   name: string
   /** Whether this artist is the headliner */
   is_headliner: boolean
+  /**
+   * Curated bill role, already normalized server-side to the show vocabulary.
+   * Empty/absent when the source did not state a slot, which callers must
+   * answer with the neutral default rather than a guessed role.
+   */
+  set_type?: string
   /** Instagram handle extracted from flyer (only for new/unmatched artists) */
   instagram_handle?: string
   /** Database ID if matched to existing artist */

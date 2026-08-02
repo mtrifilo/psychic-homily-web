@@ -16,7 +16,24 @@ export interface ShowArtistSocials {
   website?: string | null
 }
 
-export type SetType = 'headliner' | 'opener' | 'performer' | 'special_guest'
+/**
+ * Curated bill role for one act on one show (show_artists.set_type).
+ *
+ * Must stay in sync with the backend vocabulary in
+ * backend/internal/services/contracts/catalog.go, which the OpenAPI enum on
+ * the show create/update body enforces.
+ *
+ * 'performer' is the NEUTRAL DEFAULT and means "on the bill, slot unknown".
+ * It is what every uncurated row holds, so it must never be rendered as a
+ * role. Every other value is an assertion somebody actually made.
+ */
+export type SetType =
+  | 'headliner'
+  | 'direct_support'
+  | 'opener'
+  | 'special_guest'
+  | 'dj'
+  | 'performer'
 
 export interface ArtistResponse {
   id: number

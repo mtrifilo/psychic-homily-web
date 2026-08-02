@@ -34,6 +34,13 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 // Deep imports (not feature/forms barrels) on purpose: the root barrels are
 // multi-route reachable, so barrel edges here would (a) create shows<->artists
 // and shows<->venues value-import cycles and (b) hoist the artists/venues
@@ -48,6 +55,10 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   type FormArtist,
   type FormValues,
+  DEFAULT_SET_TYPE,
+  SET_TYPE_OPTIONS,
+  SET_TYPE_VALUES,
+  toSetType,
   defaultFormValues,
   showToFormValues,
   parseCost,
@@ -55,6 +66,7 @@ import {
   isVenueLocationEditable as computeVenueEditable,
   makeFormArtist,
   mergeExtraction,
+  toArtistPayloads,
   extractedVenueToSelected,
 } from './show-form-utils'
 
@@ -67,7 +79,7 @@ const showFormSchema = z.object({
         // Transient UI-only identifier for stable React keys.
         _clientId: z.string(),
         name: z.string().min(1, 'Artist name is required'),
-        is_headliner: z.boolean(),
+        set_type: z.enum(SET_TYPE_VALUES),
         matched_id: z.number().optional(),
         instagram_handle: z.string().optional(),
       })
@@ -234,12 +246,7 @@ export function ShowForm({
               address: value.venue.address || undefined,
             },
           ],
-          artists: value.artists.map(artist => ({
-            id: artist.matched_id,
-            name: artist.name,
-            is_headliner: artist.is_headliner,
-            instagram_handle: artist.matched_id ? undefined : artist.instagram_handle || undefined,
-          })),
+          artists: toArtistPayloads(value.artists),
         }
 
         updateMutation.mutate(
@@ -280,12 +287,7 @@ export function ShowForm({
               address: value.venue.address || undefined,
             },
           ],
-          artists: value.artists.map(artist => ({
-            id: artist.matched_id,
-            name: artist.name,
-            is_headliner: artist.is_headliner,
-            instagram_handle: artist.matched_id ? undefined : artist.instagram_handle || undefined,
-          })),
+          artists: toArtistPayloads(value.artists),
           // Only include is_private for new/unverified venue submissions
           is_private: isPrivateShow || undefined,
         }
@@ -357,7 +359,7 @@ export function ShowForm({
       ...currentArtists,
       makeFormArtist({
         name: '',
-        is_headliner: false,
+        set_type: DEFAULT_SET_TYPE,
         matched_id: undefined,
         instagram_handle: undefined,
       }),
@@ -437,6 +439,41 @@ export function ShowForm({
                           }
                         }}
                       />
+                    )}
+                  </form.Field>
+                  {/* Bill role. Shown for every artist, in every editor: the
+                      slot an act played is a curated fact somebody has to
+                      state, and it is never inferred from row order. Leaving
+                      it on the default says "slot unknown", which is the
+                      honest answer when nobody knows. */}
+                  <form.Field name={`artists[${index}].set_type`}>
+                    {field => (
+                      <div className="space-y-2">
+                        <Label htmlFor={field.name}>
+                          Bill role {index + 1}
+                        </Label>
+                        <Select
+                          value={field.state.value}
+                          onValueChange={value =>
+                            field.handleChange(toSetType(value))
+                          }
+                        >
+                          <SelectTrigger
+                            id={field.name}
+                            className="w-full"
+                            aria-label={`Bill role for artist ${index + 1}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SET_TYPE_OPTIONS.map(option => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     )}
                   </form.Field>
                   {/* Instagram handle input - only for new (unmatched) artists with a name */}

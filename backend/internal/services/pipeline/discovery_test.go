@@ -261,19 +261,25 @@ func TestNormalizeSetType(t *testing.T) {
 		{"headliner", "headliner"},
 		{"Headliner", "headliner"},
 		{"HEADLINER", "headliner"},
-		{"support", "opener"}, // support maps to opener
-		{"Support", "opener"},
+		// PSY-1673: the prompt emits "support" only for an act the source
+		// billed under "w/" or "with", which IS the direct support slot.
+		{"support", "direct_support"},
+		{"Support", "direct_support"},
+		{"direct_support", "direct_support"},
 		{"opener", "opener"},
 		{"special_guest", "special_guest"},
 		{"performer", "performer"},
-		{"dj", "performer"}, // dj maps to performer
-		{"DJ", "performer"},
-		{"host", "performer"}, // host maps to performer
-		{"Host", "performer"},
+		// dj is a first-class slot now, no longer flattened into performer.
+		{"dj", "dj"},
+		{"DJ", "dj"},
+		// The vocabulary has no host role, so hosting stays unmapped rather
+		// than being lossily recorded as a performer. Callers default it.
+		{"host", ""},
+		{"Host", ""},
 		{"", ""},                       // empty returns empty
 		{"unknown", ""},                // unknown returns empty
 		{"  headliner  ", "headliner"}, // whitespace trimmed
-		{"  support ", "opener"},
+		{"  support ", "direct_support"},
 	}
 
 	for _, tt := range tests {
@@ -624,8 +630,8 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithBillingArtists(
 	suite.Equal("headliner", showArtists[0].SetType)
 	suite.Equal(0, showArtists[0].Position)
 
-	// Support Band: normalized "support" → "opener", position 1 (billing_order 2 → position 1)
-	suite.Equal("opener", showArtists[1].SetType)
+	// Support Band: normalized "support" → "direct_support", position 1 (billing_order 2 → position 1)
+	suite.Equal("direct_support", showArtists[1].SetType)
 	suite.Equal(1, showArtists[1].Position)
 
 	// Opener Band: "opener", position 2 (billing_order 3 → position 2)
@@ -634,8 +640,9 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithBillingArtists(
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBillingArtists() {
-	// When BillingArtists is empty, should fall back to old logic:
-	// position 0 = headliner, others = opener
+	// When BillingArtists is empty, the fallback infers ONLY the headliner
+	// from bill order (PSY-1673). Positions past 0 get the neutral default:
+	// list order is evidence of billing order, not of an opening slot.
 	events := []contracts.DiscoveredEvent{
 		{
 			ID:        "evt-no-billing-1",
@@ -664,7 +671,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBill
 
 	suite.Equal("headliner", showArtists[0].SetType)
 	suite.Equal(0, showArtists[0].Position)
-	suite.Equal("opener", showArtists[1].SetType)
+	suite.Equal("performer", showArtists[1].SetType)
 	suite.Equal(1, showArtists[1].Position)
 }
 
@@ -701,7 +708,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithSpecialGuestAnd
 
 	suite.Equal("headliner", showArtists[0].SetType)
 	suite.Equal("special_guest", showArtists[1].SetType)
-	suite.Equal("performer", showArtists[2].SetType) // dj normalized to performer
+	suite.Equal("dj", showArtists[2].SetType) // dj is a first-class slot
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_WithBillingArtists() {

@@ -1,0 +1,22 @@
+-- Irreversible by design.
+--
+-- The up migration folds 'opener' rows into 'performer'. After it runs, a
+-- 'performer' row that was rewritten is indistinguishable from one that was
+-- always 'performer' -- nothing records which rows moved.
+--
+-- The tempting inverse, UPDATE ... SET set_type = 'opener' WHERE set_type =
+-- 'performer', would be actively destructive: it would relabel every genuinely
+-- uncurated act, plus any act a human curates as 'performer' after this
+-- deploys, as an opener. That is strictly worse than the state the up
+-- migration removed, since it would then look curated.
+--
+-- Faking a rollback would also hide a data change behind a migration that
+-- claims to have undone it. This file is intentionally a no-op so that
+-- `migrate down` still walks past this version cleanly (the CI reversibility
+-- job runs up -> down -all -> up on a fresh database and must not fail here).
+--
+-- To recover the pre-migration labels: restore from the pre-deploy database
+-- backup. Nothing is lost by not rolling back -- the values this discards were
+-- a hardcoded default, not a human judgment.
+
+SELECT 1;
