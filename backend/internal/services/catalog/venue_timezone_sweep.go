@@ -61,6 +61,20 @@ import (
 // sweeps rather than the DISABLE_* workers. It writes NULLs over operator-
 // visible data on a schedule, so it should require a deliberate act to turn ON
 // in a given environment rather than arriving silently with a deploy.
+//
+// Its 24h interval puts it inside the overdue-sweep health check's coverage
+// (PSY-1612 watches loops with an interval of an hour or more), so a silently
+// dead cycle is reported rather than discovered weeks later. Note the corollary
+// for whoever turns it off: a sweep that has run in an environment keeps its
+// registration row and will read as overdue for the 7-day retirement window --
+// see backend/README.md, "Overdue-sweep alerting", for the retirement SQL. A
+// sweep never enabled in an environment has no row and is never reported.
+//
+// It NULLs rather than re-deriving. Re-geocoding here would be a second guess
+// layered on the first: the venue's city/state may also have moved on, and the
+// backfill CLI already owns deliberate re-derivation. NULL puts the venue in the
+// state map fallback immediately and leaves a logged trail for an operator to
+// act on.
 const (
 	defaultVenueTimezoneSweepInterval = 24 * time.Hour
 	// Deliberately long. The drift this catches arrives with a deploy or an
@@ -155,7 +169,7 @@ func SweepVenueTimezones(ctx context.Context, database *gorm.DB) (*VenueTimezone
 	report := &VenueTimezoneSweepReport{}
 
 	var scanned int64
-	if err := database.WithContext(ctx).Model(&struct{}{}).
+	if err := database.WithContext(ctx).
 		Table("venues").Where("timezone IS NOT NULL").Count(&scanned).Error; err != nil {
 		return nil, err
 	}
