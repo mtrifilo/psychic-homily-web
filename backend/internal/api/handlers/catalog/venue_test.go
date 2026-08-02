@@ -3,6 +3,8 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -225,6 +227,115 @@ func TestUpdateVenueHandler_RejectsOverlongAgePolicy(t *testing.T) {
 
 	_, err := h.UpdateVenueHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// TestUpdateVenueHandler_RejectsOutOfRangeCapacity and its create-side twin are
+// the two tests that prove the bound BEHAVIORALLY. The huma minimum/maximum
+// tags on both bodies are real, but they only fire on a full huma round trip,
+// and every handler test in this package calls the handler directly. Without
+// the inline guard these two exercise, the tags would be the only enforcement
+// and nothing here could tell whether they still worked.
+//
+// TestVenueHandlers_AcceptCapacityOnBothBounds below is NOT one of them: it is a
+// no-overshoot guard and passes with the feature removed.
+func TestUpdateVenueHandler_RejectsOutOfRangeCapacity(t *testing.T) {
+	for _, bad := range []int{0, -1, contracts.MaxVenueCapacity + 1} {
+		t.Run(fmt.Sprintf("capacity_%d", bad), func(t *testing.T) {
+			capacity := bad
+			mock := &testhelpers.MockVenueService{
+				UpdateVenueFn: func(_ uint, _ *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
+					t.Error("service must not be called for an out-of-range capacity")
+					return &contracts.VenueDetailResponse{ID: 42}, nil
+				},
+			}
+			h := NewVenueHandler(mock, nil, nil, nil)
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+			req := &UpdateVenueRequest{VenueID: "42"}
+			req.Body.Capacity = &capacity
+
+			_, err := h.UpdateVenueHandler(ctx, req)
+			testhelpers.AssertHumaError(t, err, 422)
+		})
+	}
+}
+
+func TestAdminCreateVenue_RejectsOutOfRangeCapacity(t *testing.T) {
+	capacity := 0
+	mock := &testhelpers.MockVenueService{
+		CreateVenueFn: func(_ *contracts.CreateVenueRequest, _ bool) (*contracts.VenueDetailResponse, error) {
+			t.Error("service must not be called for an out-of-range capacity")
+			return &contracts.VenueDetailResponse{ID: 1}, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateVenueRequest{}
+	req.Body.Name = "Valley Bar"
+	req.Body.City = "Phoenix"
+	req.Body.State = "AZ"
+	req.Body.Capacity = &capacity
+
+	_, err := h.AdminCreateVenueHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestVenueHandlers_AcceptCapacityOnBothBounds(t *testing.T) {
+	// The guard must not overshoot: both ends of the range are legal.
+	for _, ok := range []int{contracts.MinVenueCapacity, contracts.MaxVenueCapacity} {
+		capacity := ok
+		called := false
+		mock := &testhelpers.MockVenueService{
+			UpdateVenueFn: func(_ uint, _ *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
+				called = true
+				return &contracts.VenueDetailResponse{ID: 42}, nil
+			},
+		}
+		h := NewVenueHandler(mock, nil, nil, nil)
+		ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+		req := &UpdateVenueRequest{VenueID: "42"}
+		req.Body.Capacity = &capacity
+
+		if _, err := h.UpdateVenueHandler(ctx, req); err != nil {
+			t.Fatalf("capacity %d is on the bound and must pass: %v", ok, err)
+		}
+		if !called {
+			t.Errorf("capacity %d never reached the service", ok)
+		}
+	}
+}
+
+// TestVenueCapacitySchemaTagsMatchContract closes the drift class the bound
+// otherwise invites: huma schema tags take string LITERALS, so the admin
+// create/update bodies cannot reference contracts.MinVenueCapacity /
+// MaxVenueCapacity directly the way the contributor suggest-edit path does.
+// Without this test, moving the constant would leave the two admin routes
+// advertising the old range in the OpenAPI document.
+//
+// It does NOT prove enforcement; the three tests above do that. Note the
+// frontend repeats the same pair in VENUE_CAPACITY_BOUNDS
+// (frontend/features/contributions/types.ts) and no test can see it from here.
+func TestVenueCapacitySchemaTagsMatchContract(t *testing.T) {
+	wantMin := strconv.Itoa(contracts.MinVenueCapacity)
+	wantMax := strconv.Itoa(contracts.MaxVenueCapacity)
+
+	bodies := map[string]reflect.Type{
+		"AdminCreateVenueRequest": reflect.TypeOf(AdminCreateVenueRequest{}.Body),
+		"UpdateVenueRequest":      reflect.TypeOf(UpdateVenueRequest{}.Body),
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			field, ok := body.FieldByName("Capacity")
+			if !ok {
+				t.Fatalf("%s has no Capacity field", name)
+			}
+			if got := field.Tag.Get("minimum"); got != wantMin {
+				t.Errorf("%s.Capacity minimum tag = %q, want %q", name, got, wantMin)
+			}
+			if got := field.Tag.Get("maximum"); got != wantMax {
+				t.Errorf("%s.Capacity maximum tag = %q, want %q", name, got, wantMax)
+			}
+		})
+	}
 }
 
 func TestDeleteVenueHandler_ZeroID(t *testing.T) {

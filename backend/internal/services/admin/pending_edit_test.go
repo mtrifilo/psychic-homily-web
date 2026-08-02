@@ -34,6 +34,67 @@ func TestIsValidPendingEditEntityType(t *testing.T) {
 	assert.False(t, adminm.IsValidPendingEditEntityType("comment"))
 }
 
+// NarrowNumericUpdates is the last gate before an untyped Updates() writes a
+// stored JSON number into an integer column, on BOTH the approve path and the
+// rollback path, so it is unit-tested independently of the database-backed
+// flows below.
+func TestNarrowNumericUpdates(t *testing.T) {
+	// Round-tripping through JSON is the real shape: field_changes is JSONB, so
+	// every number comes back out as float64, never as the int a client sent.
+	updates := map[string]interface{}{"capacity": float64(550), "name": "Crescent"}
+	assert.NoError(t, NarrowNumericUpdates(updates))
+	narrowed, ok := updates["capacity"].(*int)
+	assert.True(t, ok, "capacity must be narrowed to *int, got %T", updates["capacity"])
+	assert.Equal(t, 550, *narrowed)
+	// Unregistered fields are left exactly as they were.
+	assert.Equal(t, "Crescent", updates["name"])
+
+	// nil is the clear gesture and must reach the column as SQL NULL, which
+	// means a TYPED nil pointer, not a bare interface nil.
+	updates = map[string]interface{}{"capacity": nil}
+	assert.NoError(t, NarrowNumericUpdates(updates))
+	typedNil, ok := updates["capacity"].(*int)
+	assert.True(t, ok, "a cleared capacity must stay a typed *int")
+	assert.Nil(t, typedNil)
+
+	// An absent field is not invented.
+	updates = map[string]interface{}{"name": "Crescent"}
+	assert.NoError(t, NarrowNumericUpdates(updates))
+	_, present := updates["capacity"]
+	assert.False(t, present)
+
+	// Narrowing is a TYPE fix, so it does not apply the domain range: rollback
+	// restores historical values that may predate a bound.
+	for _, outOfRange := range []float64{0, -1, contracts.MaxVenueCapacity + 1} {
+		updates = map[string]interface{}{"capacity": outOfRange}
+		assert.NoErrorf(t, NarrowNumericUpdates(updates), "%v is out of range but narrowable", outOfRange)
+	}
+
+	// A value with no faithful narrowing is an error rather than a silent write.
+	for _, bad := range []any{550.7, "550", true, map[string]any{"x": 1}} {
+		updates = map[string]interface{}{"capacity": bad}
+		assert.Errorf(t, NarrowNumericUpdates(updates), "capacity %#v must be rejected", bad)
+	}
+}
+
+// checkNumericUpdateBounds is the policy half, applied only where NEW
+// contributor input is accepted.
+func TestCheckNumericUpdateBounds(t *testing.T) {
+	inRange := func(v int) map[string]interface{} { return map[string]interface{}{"capacity": &v} }
+
+	for _, ok := range []int{contracts.MinVenueCapacity, contracts.MaxVenueCapacity, 550} {
+		assert.NoErrorf(t, checkNumericUpdateBounds(inRange(ok)), "capacity %d is legal", ok)
+	}
+	for _, bad := range []int{0, -1, contracts.MaxVenueCapacity + 1} {
+		assert.Errorf(t, checkNumericUpdateBounds(inRange(bad)), "capacity %d must be rejected", bad)
+	}
+
+	// The clear gesture is not a range violation.
+	assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{"capacity": (*int)(nil)}))
+	// Neither is an absent field.
+	assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{"name": "Crescent"}))
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
@@ -542,6 +603,104 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAge
 
 	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
 	s.Nil(updated.AgePolicy, "whitespace-only contributor value must clear to NULL")
+}
+
+// Capacity is the only field the drawer submits as a JSON number, so approving
+// one is the only place the pipeline has to narrow a JSONB number to an integer
+// column. Pins the full round trip: submit → JSONB → approve → *int in the
+// column, and the clear gesture landing as NULL rather than as 0.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCapacitySetsAndClears() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Capacity Venue")
+
+	set, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: 550}},
+		Summary: "counted the room",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), set.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	var updated catalogm.Venue
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Require().NotNil(updated.Capacity)
+	s.Equal(550, *updated.Capacity)
+
+	// The revision is what the History UI diffs, so the approval has to leave
+	// one carrying the capacity change, not just mutate the column.
+	var revisionJSON string
+	s.Require().NoError(s.db.Raw(
+		"SELECT field_changes::text FROM revisions WHERE entity_type = 'venue' AND entity_id = ? ORDER BY id DESC LIMIT 1",
+		venue.ID).Scan(&revisionJSON).Error)
+	s.Contains(revisionJSON, `"capacity"`, "the approval must record a capacity revision")
+	s.Contains(revisionJSON, "550")
+
+	cleared, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: nil}},
+		Summary: "the number was wrong, we do not know it",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), cleared.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Nil(updated.Capacity, "clearing capacity must store NULL, not 0")
+}
+
+// The fraction case is the one that fails if normalizeCapacityUpdate is
+// deleted. Postgres does not reject a float written to an integer column: it
+// stores a truncated value and reports success, so without the narrowing a
+// contributor's 550.7 would land as 550 with nothing anywhere saying so.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsFractionalCapacity() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Fractional Capacity Venue")
+
+	edit, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: 550.7}},
+		Summary: "a capacity cannot have a fraction",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(context.Background(), edit.ID, reviewer.ID)
+	s.Require().Error(err)
+
+	var untouched catalogm.Venue
+	s.Require().NoError(s.db.First(&untouched, venue.ID).Error)
+	s.Nil(untouched.Capacity, "a fraction must be rejected, not silently truncated into the column")
+}
+
+// A capacity outside the accepted range cannot be applied. The suggest-edit
+// handler rejects it at submit, so reaching approval means the row arrived from
+// somewhere else; the entity must be left untouched rather than take the value.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsOutOfRangeCapacity() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Out Of Range Venue")
+
+	edit, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: 0}},
+		Summary: "zero is not a capacity",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(context.Background(), edit.ID, reviewer.ID)
+	s.Require().Error(err)
+
+	var untouched catalogm.Venue
+	s.Require().NoError(s.db.First(&untouched, venue.ID).Error)
+	s.Nil(untouched.Capacity, "a rejected capacity must not reach the column")
+
+	// The edit stays pending so an admin can reject it with a real reason
+	// instead of it vanishing behind a failed approval.
+	var row adminm.PendingEntityEdit
+	s.Require().NoError(s.db.First(&row, edit.ID).Error)
+	s.Equal(adminm.PendingEditStatusPending, row.Status)
 }
 
 // TestApprovePendingEdit_VenueLocationReGeocodes verifies PSY-985: approving a

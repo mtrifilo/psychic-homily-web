@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { validateUrlField } from './types'
+import {
+  EDITABLE_FIELDS,
+  VENUE_CAPACITY_BOUNDS,
+  fieldChangeValue,
+  validateFieldValue,
+  validateNumberField,
+  validateUrlField,
+  type EditableField,
+} from './types'
 
 // PSY-599: client-side URL pre-validator for the suggest-edit drawer's
 // `type: 'url'` fields. Server-side validation is the source of truth (see
@@ -59,5 +67,123 @@ describe('validateUrlField', () => {
 
   it('rejects mailto: URLs', () => {
     expect(validateUrlField('mailto:matt@example.com')).toMatch(/http/i)
+  })
+})
+
+// PSY-1694: client-side pre-validator for the drawer's `type: 'number'` fields
+// (venue capacity is the only one today). Mirrors `validateBoundedInt` in
+// `backend/internal/api/handlers/shared/url_validation.go`, which stays the
+// source of truth; this exists so a typo surfaces before the 422 roundtrip.
+describe('validateNumberField', () => {
+  const capacityBounds = VENUE_CAPACITY_BOUNDS
+
+  it('returns null for empty string (clearing is intentional)', () => {
+    expect(validateNumberField('', capacityBounds)).toBeNull()
+  })
+
+  it('returns null for whitespace-only string (treated as empty)', () => {
+    expect(validateNumberField('   ', capacityBounds)).toBeNull()
+  })
+
+  it('accepts a whole number inside the range, padding included', () => {
+    expect(validateNumberField('550', capacityBounds)).toBeNull()
+    expect(validateNumberField('  550  ', capacityBounds)).toBeNull()
+  })
+
+  it('accepts both inclusive bounds', () => {
+    expect(validateNumberField(String(capacityBounds.min), capacityBounds)).toBeNull()
+    expect(validateNumberField(String(capacityBounds.max), capacityBounds)).toBeNull()
+  })
+
+  it('reports a digit string too large to represent as out of range', () => {
+    // Twenty digits parse to a float that no longer holds what was typed. The
+    // useful message is the range, not "that is not a whole number" (it is).
+    expect(validateNumberField('99999999999999999999', capacityBounds)).toMatch(/between/i)
+  })
+
+  it('rejects zero and negatives as out of range, not as gibberish', () => {
+    // NULL already means "we do not know this room's capacity", so a stored 0
+    // would be a second way to say the same thing.
+    expect(validateNumberField('0', capacityBounds)).toMatch(/between/i)
+    expect(validateNumberField('-5', capacityBounds)).toMatch(/between/i)
+  })
+
+  it('rejects a value past the ceiling', () => {
+    expect(validateNumberField('200001', capacityBounds)).toMatch(/between/i)
+  })
+
+  it('rejects fractions', () => {
+    expect(validateNumberField('550.5', capacityBounds)).toMatch(/whole number/i)
+  })
+
+  it('rejects notations Number() would silently accept', () => {
+    // Number('0x10') is 16 and Number('1e3') is 1000; neither is what someone
+    // typing a capacity meant, and both would be stored as a number the user
+    // never wrote.
+    expect(validateNumberField('0x10', capacityBounds)).toMatch(/whole number/i)
+    expect(validateNumberField('1e3', capacityBounds)).toMatch(/whole number/i)
+    expect(validateNumberField('Infinity', capacityBounds)).toMatch(/whole number/i)
+  })
+
+  it('rejects trailing junk parseInt would have swallowed', () => {
+    expect(validateNumberField('3600abc', capacityBounds)).toMatch(/whole number/i)
+    expect(validateNumberField('550 people', capacityBounds)).toMatch(/whole number/i)
+  })
+
+  it('reports a one-sided bound when only one is set', () => {
+    expect(validateNumberField('0', { min: 1 })).toMatch(/at least/i)
+    expect(validateNumberField('5', { max: 1 })).toMatch(/at most/i)
+  })
+})
+
+describe('fieldChangeValue', () => {
+  const capacity = EDITABLE_FIELDS.venue.find((f) => f.key === 'capacity') as EditableField
+  const agePolicy = EDITABLE_FIELDS.venue.find((f) => f.key === 'age_policy') as EditableField
+
+  it('exposes capacity as the venue drawer numeric field', () => {
+    expect(capacity).toBeDefined()
+    expect(capacity.type).toBe('number')
+    expect(capacity.min).toBe(1)
+    expect(capacity.max).toBe(200000)
+  })
+
+  it('submits a numeric field as a JSON number, not the input string', () => {
+    // The column is an integer and the backend rejects a numeric string on
+    // purpose, so the coercion here is load-bearing rather than cosmetic.
+    expect(fieldChangeValue(capacity, '550')).toBe(550)
+    expect(fieldChangeValue(capacity, '  550  ')).toBe(550)
+  })
+
+  it('submits null when a numeric field is cleared', () => {
+    // Clearing must reach the column as NULL, never as 0.
+    expect(fieldChangeValue(capacity, '')).toBeNull()
+    expect(fieldChangeValue(capacity, '   ')).toBeNull()
+  })
+
+  it('passes an unparseable numeric value through unconverted', () => {
+    // Submit is disabled while the field has an error, so this never ships;
+    // coercing it would invent a number the user did not type.
+    expect(fieldChangeValue(capacity, '550abc')).toBe('550abc')
+  })
+
+  it('leaves non-numeric fields exactly as they were', () => {
+    expect(fieldChangeValue(agePolicy, '21+')).toBe('21+')
+    expect(fieldChangeValue(agePolicy, '')).toBeNull()
+    // Whitespace-only stays a string for text fields: the server normalizes it,
+    // and changing it here would alter behavior for every existing field.
+    expect(fieldChangeValue(agePolicy, '   ')).toBe('   ')
+  })
+})
+
+describe('validateFieldValue', () => {
+  it('dispatches to the validator that matches the field type', () => {
+    const capacity = EDITABLE_FIELDS.venue.find((f) => f.key === 'capacity') as EditableField
+    const instagram = EDITABLE_FIELDS.venue.find((f) => f.key === 'instagram') as EditableField
+    const name = EDITABLE_FIELDS.venue.find((f) => f.key === 'name') as EditableField
+
+    expect(validateFieldValue(capacity, '0')).toMatch(/between/i)
+    expect(validateFieldValue(instagram, 'not-a-real-url')).toMatch(/http/i)
+    // Plain text carries no client-side constraint.
+    expect(validateFieldValue(name, 'anything at all')).toBeNull()
   })
 })

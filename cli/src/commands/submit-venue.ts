@@ -25,6 +25,45 @@ interface VenueInput {
   bandcamp?: string;
 }
 
+/**
+ * Inclusive capacity range the venue API accepts, mirroring
+ * `contracts.MinVenueCapacity` / `contracts.MaxVenueCapacity` on the backend.
+ * A zero, a negative, or an absurd number is now a 422 rather than a stored
+ * value, so an extraction that produced one has to be dropped here or it takes
+ * the whole venue down with it.
+ */
+const VENUE_CAPACITY_MIN = 1;
+const VENUE_CAPACITY_MAX = 200000;
+
+/**
+ * Drops an ingest capacity the API would reject, so a bad number costs the
+ * FIELD rather than the venue.
+ *
+ * Extracted capacities come from scraped pages and model output, so a 0 or a
+ * garbage magnitude is a normal occurrence, not an exceptional one. Before the
+ * bound existed, a 0 was accepted and stored; now it 422s the create/update
+ * outright, which on a batch run would fail a venue over a field nobody asked
+ * for. Warn and continue: the venue is the thing the operator wanted.
+ */
+function usableCapacity(
+  capacity: unknown,
+  venueName: string,
+): number | undefined {
+  if (capacity === undefined || capacity === null) return undefined;
+  if (
+    typeof capacity === "number" &&
+    Number.isInteger(capacity) &&
+    capacity >= VENUE_CAPACITY_MIN &&
+    capacity <= VENUE_CAPACITY_MAX
+  ) {
+    return capacity;
+  }
+  display.warn(
+    `  Dropping capacity ${JSON.stringify(capacity)} for ${venueName}: outside ${VENUE_CAPACITY_MIN}-${VENUE_CAPACITY_MAX}`,
+  );
+  return undefined;
+}
+
 export interface SubmitVenuesResult {
   creates: number;
   updates: number;
@@ -242,6 +281,14 @@ export async function submitVenues(
             venuePayload[field] = venue[field];
           }
         }
+        // The API now bounds capacity, so an unusable extraction is dropped
+        // rather than allowed to 422 the whole create.
+        const createCapacity = usableCapacity(venue.capacity, venueName);
+        if (createCapacity === undefined) {
+          delete venuePayload.capacity;
+        } else {
+          venuePayload.capacity = createCapacity;
+        }
 
         const response = await client.post<{
           venue?: { id: number };
@@ -268,6 +315,16 @@ export async function submitVenues(
         for (const field of dupResult.fields) {
           if (field.status === "new_info") {
             updateBody[field.field] = venue[field.field];
+          }
+        }
+        // Same bound as the create branch above: a capacity the API would
+        // reject must not take the rest of the enrichment down with it.
+        if ("capacity" in updateBody) {
+          const updateCapacity = usableCapacity(updateBody.capacity, venueName);
+          if (updateCapacity === undefined) {
+            delete updateBody.capacity;
+          } else {
+            updateBody.capacity = updateCapacity;
           }
         }
 

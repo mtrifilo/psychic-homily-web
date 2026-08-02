@@ -6,6 +6,14 @@ package catalog
 //
 // MUST stay in sync with frontend EDITABLE_FIELDS.venue in
 // frontend/features/contributions/types.ts.
+//
+// capacity is the only field here whose value arrives as a JSON NUMBER rather
+// than a string, so the suggest-edit validator (validateBoundedInt) and the
+// approve path (normalizeCapacityUpdate) both handle it explicitly.
+//
+// It is not the only integer-backed contributor-editable column in the repo:
+// labels.founded_year and releases.release_year are too, and the drawer submits
+// those as text. They are unguarded and want their own ticket.
 var VenueAllowedEditFields = map[string]bool{
 	"name":        true,
 	"address":     true,
@@ -13,6 +21,7 @@ var VenueAllowedEditFields = map[string]bool{
 	"state":       true,
 	"country":     true,
 	"zipcode":     true,
+	"capacity":    true, // Room capacity; see the numeric-field note above
 	"age_policy":  true, // House-default age rule, free text
 	"description": true,
 	"image_url":   true,

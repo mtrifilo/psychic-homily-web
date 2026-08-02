@@ -116,6 +116,49 @@ func TestSuggestEdit_VenueDisallowedField(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// Capacity IS an allowed venue field, so the field-name allowlist waves it
+// through and the VALUE gate is the only thing left. That gate matters more
+// here than for any text field: nothing below it objects to a bad numeric
+// value: a numeric string or a fraction is accepted and coerced with no error
+// at any layer (measurements in the utils.WholeNumber doc comment), so a value
+// this handler accepts is a value that gets written.
+//
+// Asserting through the handler (not just ValidateFieldChangeValue) is the
+// point: on the trusted-tier branch an approve failure is logged and the
+// response is still 200 "submitted for review", so a validator that quietly
+// stopped running would look like success from the outside.
+func TestSuggestEdit_VenueRejectsBadCapacityValue(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+	}{
+		{"zero", float64(0)},
+		{"negative", float64(-40)},
+		{"past the ceiling", float64(contracts.MaxVenueCapacity + 1)},
+		{"fraction", 3600.7},
+		{"numeric string", "3600"},
+		{"boolean", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := NewPendingEditHandler(
+				&testhelpers.MockPendingEditService{
+					CreatePendingEditFn: func(*contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+						t.Error("a rejected capacity must never reach the pending queue")
+						return nil, nil
+					},
+				},
+				nil,
+			)
+			req := &SuggestEntityEditRequest{EntityID: "1"}
+			req.Body.Changes = []adminm.FieldChange{{Field: "capacity", OldValue: nil, NewValue: c.value}}
+			req.Body.Summary = "set the room capacity"
+			_, err := h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
+			testhelpers.AssertHumaError(t, err, 422)
+		})
+	}
+}
+
 func TestSuggestEdit_FestivalDisallowedField(t *testing.T) {
 	h := testPendingEditHandler()
 	req := &SuggestEntityEditRequest{EntityID: "1"}

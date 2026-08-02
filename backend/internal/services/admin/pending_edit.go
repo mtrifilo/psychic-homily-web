@@ -281,6 +281,83 @@ func updatedString(updates map[string]interface{}, key, fallback string) string 
 	return fallback
 }
 
+// NarrowNumericUpdates rewrites every registered whole-number field in an
+// update map from the shape JSONB hands back (float64) to the shape the column
+// actually is (*int), leaving a nil as a typed nil so it lands as SQL NULL.
+//
+// This is a TYPE fix, not a policy one, and it is deliberately separate from the
+// range check below. The layers underneath accept a float or a numeric string
+// for an integer column without complaint and quietly truncate (see
+// utils.WholeNumber), so any path that feeds an untyped Updates() from stored
+// JSON needs this or it writes a value nobody chose. Both such paths call it:
+// ApprovePendingEdit, and RevisionService.Rollback.
+//
+// Rollback deliberately gets narrowing WITHOUT the range check. It restores a
+// value this system previously stored, and history can legitimately contain
+// values that predate a bound, so re-litigating the range there would break
+// undo for exactly the rows most likely to need it.
+//
+// A value that is not a whole number at all is returned as an error rather than
+// written, because there is no faithful narrowing of "banana" to an integer.
+func NarrowNumericUpdates(updates map[string]interface{}) error {
+	for field := range contracts.NumericEditFieldBounds {
+		raw, present := updates[field]
+		if !present {
+			continue
+		}
+		if raw == nil {
+			updates[field] = (*int)(nil)
+			continue
+		}
+		n, ok := utils.WholeNumber(raw)
+		if !ok {
+			return apperrors.ErrPendingEditInvalidRequest(
+				fmt.Sprintf("%s must be a whole number", field))
+		}
+		updates[field] = &n
+	}
+	return nil
+}
+
+// checkNumericUpdateBounds rejects a registered whole-number field whose value
+// falls outside the range its column accepts. Runs on the APPROVE path only:
+// that is where new contributor input is applied.
+//
+// The range is re-checked here even though the suggest-edit handler already
+// rejected out-of-range values at submit time. This is the same defence-in-depth
+// posture as FilterAllowedFields directly above: rows can reach
+// pending_entity_edits from outside that handler, and this is the last point
+// before an untyped Updates() that can still tell a real value from garbage.
+//
+// A bad value returns an invalid-request error (422) rather than an internal
+// one, because the actionable fact is the value, not a fault in the server. The
+// pending row is left PENDING rather than auto-rejected, unlike the
+// disallowed-fields gate above which writes a rejection reason: a disallowed
+// COLUMN is unambiguously corrupt and nobody should have to look at it, while a
+// bad value is something an admin can read, judge, and reject with a real
+// reason. RejectPendingEdit does not run this, so such a row is always
+// clearable. Both dispositions are deliberate.
+//
+// Reads the same contracts.NumericEditFieldBounds registry the submit-side
+// validator does, so the two cannot drift into disagreeing.
+func checkNumericUpdateBounds(updates map[string]interface{}) error {
+	for field, bounds := range contracts.NumericEditFieldBounds {
+		raw, present := updates[field]
+		if !present {
+			continue
+		}
+		narrowed, isPtr := raw.(*int)
+		if !isPtr || narrowed == nil {
+			continue // absent, or the clear gesture
+		}
+		if *narrowed < bounds.Min || *narrowed > bounds.Max {
+			return apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+				"%s must be between %d and %d", field, bounds.Min, bounds.Max))
+		}
+	}
+	return nil
+}
+
 // fetchedURLFields maps a pending-edit field whose stored value is later
 // FETCHED server-side to the user-facing label used in the refusal message. The
 // canonical registry is urlFieldSpecs in internal/api/handlers/shared (the
@@ -431,6 +508,17 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		updates[c.Field] = c.NewValue
 	}
 	updates["updated_at"] = time.Now()
+
+	// Numeric columns first, before any entity-specific handling: JSONB hands
+	// every number back as float64, and the driver would take that for an
+	// integer column and silently truncate it. Narrowing is the type fix; the
+	// bounds check is the policy one, and only new contributor input gets it.
+	if err := NarrowNumericUpdates(updates); err != nil {
+		return nil, err
+	}
+	if err := checkNumericUpdateBounds(updates); err != nil {
+		return nil, err
+	}
 
 	// PSY-1692: re-classify the URL fields that get fetched server-side, reading
 	// the very map the untyped Updates() below writes.

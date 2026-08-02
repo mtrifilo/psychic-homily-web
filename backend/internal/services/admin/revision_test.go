@@ -486,3 +486,59 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_EntityNotFound() {
 	s.Error(err)
 	s.Contains(err.Error(), "entity not found")
 }
+
+// Rollback replays revisions.field_changes through an untyped Updates(), so a
+// stored number arrives as float64 exactly as it does on the approve path.
+// Without narrowing the driver takes that for an integer column and truncates
+// it, so an undo would restore a value that is not the one being undone.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_NarrowsNumericValues() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Rollback Capacity Venue")
+
+	const original = 550
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+		Update("capacity", original).Error)
+
+	// A revision that moved capacity 550 -> 3600, as the approve path records it.
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{{Field: "capacity", OldValue: original, NewValue: 3600}},
+		"counted the room"))
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+		Update("capacity", 3600).Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID))
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Require().NotNil(restored.Capacity)
+	s.Equal(original, *restored.Capacity, "rollback must restore the exact prior capacity")
+}
+
+// A rollback restores history, so it deliberately does NOT apply the capacity
+// range. Values stored before the bound existed must stay undoable.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHistoricalValue() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Legacy Capacity Venue")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{{Field: "capacity", OldValue: 0, NewValue: 550}},
+		"replaced a legacy zero"))
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+		Update("capacity", 550).Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID),
+		"undo must not be blocked by a bound the historical value predates")
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Require().NotNil(restored.Capacity)
+	s.Equal(0, *restored.Capacity)
+}

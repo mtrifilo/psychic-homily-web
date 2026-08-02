@@ -419,6 +419,78 @@ type ExportFrontmatter struct {
 // deliberately tighter than shows.age_requirement's VARCHAR(255).
 const MaxVenueAgePolicyLength = 100
 
+// MinVenueCapacity and MaxVenueCapacity bound the RANGE of venues.capacity on
+// all three write paths: admin create, admin update, and the contributor
+// suggest-edit queue. They are the single source of truth for the range, so the
+// three surfaces cannot drift into disagreeing about what a legal capacity is.
+//
+// Range only. The three paths still differ on the CLEAR gesture: the
+// contributor path can set the column back to NULL, while the admin bodies take
+// a *int where nil means "not supplied", so they cannot express a clear at all.
+// That asymmetry lives in the body contracts, not here.
+//
+// FOUR other copies of these numbers exist and only two are pinned by a test.
+// Changing either constant means changing all of them:
+//   - the huma minimum/maximum tags on both admin venue bodies
+//     (handlers/catalog/venue.go) -- pinned by TestVenueCapacitySchemaTagsMatchContract
+//   - VENUE_CAPACITY_BOUNDS in frontend/features/contributions/types.ts
+//     (pre-validates the edit drawer) -- NOT pinned
+//   - VENUE_CAPACITY_MIN/MAX in cli/src/commands/submit-venue.ts
+//     (drops an out-of-range ingest capacity instead of failing the venue)
+//     -- NOT pinned
+//
+// Nothing enforces the two TypeScript copies across the language boundary.
+//
+// Superseding an earlier note: the age_policy migration
+// (20260801143000_add_venue_age_policy.up.sql) says capacity is "admin/ingest
+// only" and therefore not a precedent for contributor curation. That was true
+// when it was written and stopped being true in PSY-1694.
+//
+// The floor is 1, not 0. NULL already means "we do not know this room's
+// capacity"; a stored 0 would be a second way to say the same thing, and one
+// that reads downstream as a known fact ("this room holds nobody"). Negative
+// values are nonsense for the same reason.
+//
+// The ceiling is deliberately generous rather than tight. The largest stadium
+// on earth seats roughly 130,000, so 200,000 admits any real room while still
+// catching the failure this bound exists for: a typo or a scraped garbage
+// number landing as a capacity nobody notices. It is a sanity rail, not a
+// domain claim about how big a venue can be.
+//
+// Callers must range-check BEFORE narrowing a JSON number to int: values
+// arriving through the pending-edit queue are float64, and converting an
+// out-of-range float64 to int is implementation-defined in Go.
+const (
+	MinVenueCapacity = 1
+	MaxVenueCapacity = 200000
+)
+
+// NumericEditBounds is the accepted range for one whole-number column that the
+// contributor pending-edit pipeline can write.
+type NumericEditBounds struct {
+	// DisplayName is the user-facing field name in a validation message.
+	DisplayName string
+	Min         int
+	Max         int
+}
+
+// NumericEditFieldBounds is the registry both halves of the pending-edit
+// pipeline read: the suggest-edit validator rejects out-of-range values at
+// submit, and the approve path narrows the surviving JSONB float64 to an int
+// before it reaches an untyped Updates().
+//
+// It exists as one map rather than two hand-written branches so those halves
+// cannot drift. Adding a field here gives it BOTH gates; adding it to only one
+// of two hardcoded call sites would give it neither reliably.
+//
+// NOT here, and unguarded today: labels.founded_year and releases.release_year
+// are *int columns on contributor allowlists whose drawer fields submit TEXT.
+// Adding them means choosing sane year bounds, which is a product question, so
+// they want their own ticket rather than a guess here.
+var NumericEditFieldBounds = map[string]NumericEditBounds{
+	"capacity": {DisplayName: "Capacity", Min: MinVenueCapacity, Max: MaxVenueCapacity},
+}
+
 // CreateVenueRequest represents the data needed to create a new venue
 type CreateVenueRequest struct {
 	Name        string  `json:"name" validate:"required"`

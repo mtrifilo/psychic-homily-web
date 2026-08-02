@@ -270,7 +270,10 @@ type AdminCreateVenueRequest struct {
 		Zipcode *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
 		// PSY-1179: capacity + description were silently dropped on create — the
 		// service contract + CLI sent them but this HTTP body omitted them.
-		Capacity *int `json:"capacity" required:"false" minimum:"0" doc:"Venue capacity"`
+		// Bounds mirror contracts.MinVenueCapacity / MaxVenueCapacity, which the
+		// contributor suggest-edit queue enforces too. Tag values must be
+		// literals, so TestVenueCapacitySchemaTagsMatchContract pins them.
+		Capacity *int `json:"capacity" required:"false" minimum:"1" maximum:"200000" doc:"Venue capacity"`
 		// House-default age rule. Free text mirroring the show-level
 		// age_requirement vocabulary; the show's own value is the per-event override.
 		AgePolicy   *string `json:"age_policy" required:"false" doc:"House-default age policy, e.g. all ages, 17+, 21+" maxLength:"100"`
@@ -292,6 +295,36 @@ type AdminCreateVenueResponse struct {
 	Body *contracts.VenueDetailResponse
 }
 
+// validateCapacityBound rejects an admin-supplied capacity outside the range the
+// contributor suggest-edit queue enforces, so all three write paths agree.
+//
+// This duplicates the bodies' minimum/maximum schema tags on purpose. Those tags
+// are real (huma reads its own schema tags, unlike the inert `validate:"..."`
+// ones elsewhere in this package) but they only fire on a full huma round trip,
+// which every handler test in this package bypasses by calling the handler
+// directly. Below this point there is no backstop: VenueService copies a
+// non-nil req.Capacity into the update map without inspecting it, and the
+// column has no CHECK constraint. An inline guard is the only form of this
+// bound a test in this file can prove.
+//
+// nil means "not supplied" on both bodies and passes through untouched, so
+// these routes cannot express a CLEAR. That predates this check (a *int body
+// has never had a way to say NULL) but the bound narrows the workaround: an
+// admin used to be able to overwrite a bad capacity with 0, and now cannot.
+// The remedy is the edit drawer, which routes an admin's save through the
+// contributor auto-apply path and does clear to NULL. Giving these routes an
+// explicit clear gesture is a body-contract change and its own ticket.
+func validateCapacityBound(capacity *int) error {
+	if capacity == nil {
+		return nil
+	}
+	if *capacity < contracts.MinVenueCapacity || *capacity > contracts.MaxVenueCapacity {
+		return huma.Error422UnprocessableEntity(fmt.Sprintf(
+			"Capacity must be between %d and %d", contracts.MinVenueCapacity, contracts.MaxVenueCapacity))
+	}
+	return nil
+}
+
 // AdminCreateVenueHandler handles POST /admin/venues - creates a venue directly (admin only)
 func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCreateVenueRequest) (*AdminCreateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
@@ -301,6 +334,9 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 	// PSY-525: URL scheme validation (http/https only) for social URL fields.
 	if err := shared.ValidateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
 		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
+	}
+	if err := validateCapacityBound(req.Body.Capacity); err != nil {
 		return nil, err
 	}
 
@@ -374,7 +410,7 @@ type UpdateVenueRequest struct {
 		State       *string `json:"state,omitempty" required:"false" doc:"Venue state"`
 		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country"`
 		Zipcode     *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
-		Capacity    *int    `json:"capacity,omitempty" required:"false" minimum:"0" doc:"Venue capacity"` // PSY-1179
+		Capacity    *int    `json:"capacity,omitempty" required:"false" minimum:"1" maximum:"200000" doc:"Venue capacity"`
 		AgePolicy   *string `json:"age_policy,omitempty" required:"false" doc:"House-default age policy, e.g. all ages, 17+, 21+ (max 100)"`
 		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
@@ -431,6 +467,9 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	if req.Body.AgePolicy != nil && utf8.RuneCountInString(*req.Body.AgePolicy) > contracts.MaxVenueAgePolicyLength {
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Age policy must be %d characters or fewer", contracts.MaxVenueAgePolicyLength))
+	}
+	if err := validateCapacityBound(req.Body.Capacity); err != nil {
+		return nil, err
 	}
 
 	// PSY-525 scheme check + PSY-1675 SSRF host guard (resolves DNS; see urlguard)

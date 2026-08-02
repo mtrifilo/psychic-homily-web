@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
 	"strings"
@@ -115,6 +116,11 @@ func FetchedURLFieldNames() []string {
 var boundedTextFieldSpecs = map[string]urlFieldSpec{
 	"age_policy": {displayName: "Age policy", maxLength: contracts.MaxVenueAgePolicyLength},
 }
+
+// The whole-number counterpart of boundedTextFieldSpecs lives in
+// contracts.NumericEditFieldBounds, because the approve path needs the same
+// registry and cannot import this package. See utils.WholeNumber for what the
+// layers underneath do with an unchecked numeric value: they accept it silently.
 
 // ValidateImageURL applies the http/https scheme check AND the SSRF host guard
 // to an optional image URL. Empty strings pass through so callers that allow
@@ -287,6 +293,9 @@ func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) 
 	if spec, ok := boundedTextFieldSpecs[fieldName]; ok {
 		return validateBoundedText(spec, value)
 	}
+	if bounds, ok := contracts.NumericEditFieldBounds[fieldName]; ok {
+		return validateBoundedInt(bounds, value)
+	}
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok {
 		return nil
@@ -345,6 +354,53 @@ func validateBoundedText(spec urlFieldSpec, value any) error {
 		)
 	}
 	return nil
+}
+
+// validateBoundedInt enforces the type and range contract for a whole-number
+// field arriving through the suggest-edit queue.
+//
+// Like validateBoundedText, the type check is the load-bearing half:
+// FieldChange.NewValue is `any` decoded from JSONB, so a caller can put a
+// string, a bool, an object or a fraction where a count belongs, and
+// ApprovePendingEdit assigns it straight into an untyped Updates(). The layers
+// below do not object to any of that (see utils.WholeNumber for the measured
+// behavior), so this is the only place that can tell a bad value from a real
+// capacity while someone is still around to fix it.
+//
+// nil passes: it is the clear-the-field gesture, and the column is nullable.
+// A numeric STRING ("3600") is rejected on purpose rather than parsed. The
+// column is an integer, so the wire type should be a number; accepting both
+// would leave two encodings of the same edit in pending_entity_edits and in
+// revisions.field_changes, and the difference would surface later as a
+// rendering or comparison bug rather than here as a 422.
+func validateBoundedInt(bounds contracts.NumericEditBounds, value any) error {
+	if value == nil {
+		return nil
+	}
+	n, ok := utils.WholeNumber(value)
+	if !ok {
+		// A finite integral float that WholeNumber still refuses is one too
+		// large to hold in an int. Telling that caller "must be a whole number"
+		// would be false: 1e19 is a whole number, it is just absurd for this
+		// field. Every ceiling in the registry is many orders of magnitude
+		// below MaxInt, so out-of-int necessarily means out-of-range.
+		if f, isFloat := value.(float64); isFloat && !math.IsInf(f, 0) && f == math.Trunc(f) {
+			return outOfRangeError(bounds)
+		}
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s must be a whole number", bounds.DisplayName),
+		)
+	}
+	if n < bounds.Min || n > bounds.Max {
+		return outOfRangeError(bounds)
+	}
+	return nil
+}
+
+func outOfRangeError(bounds contracts.NumericEditBounds) error {
+	return huma.Error422UnprocessableEntity(
+		fmt.Sprintf("%s must be between %d and %d", bounds.DisplayName, bounds.Min, bounds.Max),
+	)
 }
 
 // URLSchemeError validates the http/https scheme and per-field length cap for
