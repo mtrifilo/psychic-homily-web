@@ -51,6 +51,28 @@ jobs:
       - name: Check entity_requests payload-struct parity
         run: bash scripts/check_entity_request_payloads.sh
 
+      # PSY-1708 (stage outage 2026-08-02): two parallel branches stamped their
+      # migrations in author-time order but merged in the reverse order.
+      # golang-migrate silently skips any migration at or below the current
+      # schema_migrations pointer (it reports "no change" and exits 0), so the
+      # earlier-stamped file never applied and every stage deploy failed for
+      # four hours. The checks above cannot see this: they inspect a file in
+      # isolation, and the defect is the timestamp relative to what is MERGED.
+      #
+      # These steps run LAST in the job because the shallow `git fetch` below
+      # touches repository state the earlier file-tree checks do not need.
+      - name: Self-test the migration timestamp gate
+        run: bash scripts/check_migration_timestamps_test.sh
+
+      # actions/checkout leaves a depth-1 clone with no origin/main ref on a
+      # pull_request event, so fetch the one ref the gate compares against.
+      # Keep --depth=1: the gate diffs two tip trees and never walks history.
+      - name: Fetch origin/main for the migration timestamp gate
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Check new migration timestamps exceed the merged maximum
+        run: bash scripts/check_migration_timestamps.sh origin/main
+
   migration-reversibility:
     name: Migration Reversibility
     runs-on: ubuntu-latest
