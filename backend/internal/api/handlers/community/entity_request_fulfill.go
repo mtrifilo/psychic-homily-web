@@ -182,6 +182,27 @@ func parseShowEventDate(value, state string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("show event_date %q is not an RFC3339 timestamp or YYYY-MM-DD date", trimmed)
 }
 
+// parseOptionalShowTime parses an optional doors_at/music_at payload value.
+// Unlike event_date these are RFC3339-only: a date-only value would have to
+// invent a time of day, which is the sole thing these fields carry. Absent or
+// blank stays nil; anything else that fails to parse is an error rather than a
+// silent drop, since fulfillment is a second trust boundary over a stored blob.
+func parseOptionalShowTime(field string, value *string) (*time.Time, error) {
+	if value == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("show %s %q is not an RFC3339 timestamp", field, trimmed)
+	}
+	utc := t.UTC()
+	return &utc, nil
+}
+
 // PSY-997: fulfillment dispatcher — turns an approved entity_request's typed
 // payload into a real catalog entity via the narrow fulfiller interface.
 //
@@ -378,9 +399,19 @@ func (h *EntityRequestHandler) fulfillEntity(ctx context.Context, req *community
 		if perr != nil {
 			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, perr)
 		}
+		doorsAt, perr := parseOptionalShowTime("doors_at", p.DoorsAt)
+		if perr != nil {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, perr)
+		}
+		musicAt, perr := parseOptionalShowTime("music_at", p.MusicAt)
+		if perr != nil {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, perr)
+		}
 		created, err := h.fulfiller.CreateShow(&contracts.CreateShowRequest{
 			Title:          p.Title,
 			EventDate:      eventDate,
+			DoorsAt:        doorsAt,
+			MusicAt:        musicAt,
 			City:           shared.Deref(p.City),
 			State:          shared.Deref(p.State),
 			Price:          p.Price,

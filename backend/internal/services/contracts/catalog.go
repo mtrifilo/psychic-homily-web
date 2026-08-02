@@ -36,14 +36,18 @@ type CreateShowArtist struct {
 // The service will prevent duplicate headliners at the same venue on the same date/time
 // and reuse existing venues by name and city (venues are unique by name within a city).
 type CreateShowRequest struct {
-	Title          string    `json:"title" validate:"required"`
-	EventDate      time.Time `json:"event_date" validate:"required"`
-	City           string    `json:"city"`
-	State          string    `json:"state"`
-	Price          *float64  `json:"price"`
-	AgeRequirement string    `json:"age_requirement"`
-	Description    string    `json:"description"`
-	TicketURL      string    `json:"ticket_url"`
+	Title     string    `json:"title" validate:"required"`
+	EventDate time.Time `json:"event_date" validate:"required"`
+	// DoorsAt / MusicAt are optional display times. Nil means unknown; they
+	// never substitute for EventDate.
+	DoorsAt        *time.Time `json:"doors_at"`
+	MusicAt        *time.Time `json:"music_at"`
+	City           string     `json:"city"`
+	State          string     `json:"state"`
+	Price          *float64   `json:"price"`
+	AgeRequirement string     `json:"age_requirement"`
+	Description    string     `json:"description"`
+	TicketURL      string     `json:"ticket_url"`
 	// ImageURL is populated by the entity_request fulfiller (PSY-1037, the
 	// payload's flyer). The direct create handler does not expose it yet (set
 	// post-create via the update endpoint), so it leaves it nil here.
@@ -62,8 +66,14 @@ type CreateShowRequest struct {
 // Artist and venue association replacement is handled separately via the
 // venues/artists params on UpdateShowWithRelations.
 type UpdateShowRequest struct {
-	Title          *string    `json:"title"`
-	EventDate      *time.Time `json:"event_date"`
+	Title     *string    `json:"title"`
+	EventDate *time.Time `json:"event_date"`
+	// DoorsAt / MusicAt follow the same nil-means-unchanged rule as every
+	// other field here, so there is no way to clear a previously set time
+	// through this struct. Clearing needs an explicit tri-state signal and no
+	// caller asks for it yet.
+	DoorsAt        *time.Time `json:"doors_at"`
+	MusicAt        *time.Time `json:"music_at"`
 	City           *string    `json:"city"`
 	State          *string    `json:"state"`
 	Price          *float64   `json:"price"`
@@ -75,10 +85,15 @@ type UpdateShowRequest struct {
 
 // ShowResponse represents the show data returned to clients
 type ShowResponse struct {
-	ID                uint             `json:"id"`
-	Slug              string           `json:"slug"`
-	Title             string           `json:"title"`
-	EventDate         time.Time        `json:"event_date"`
+	ID        uint      `json:"id"`
+	Slug      string    `json:"slug"`
+	Title     string    `json:"title"`
+	EventDate time.Time `json:"event_date"`
+	// DoorsAt / MusicAt are null when unknown. Emitted unconditionally rather
+	// than with omitempty so a client can tell "not set" from "this response
+	// shape predates the field".
+	DoorsAt           *time.Time       `json:"doors_at"`
+	MusicAt           *time.Time       `json:"music_at"`
 	City              *string          `json:"city"`
 	State             *string          `json:"state"`
 	Price             *float64         `json:"price"`

@@ -66,6 +66,12 @@ export interface ShowResponse {
   slug: string
   title: string
   event_date: string // ISO date string
+  // Display times, null when unannounced (the common case). The backend always
+  // emits both keys; these are optional here only because every field in this
+  // hand-written mirror is, and tightening two of them alone would be the
+  // inconsistency. types/api.d.ts is the strict generated contract.
+  doors_at?: string | null
+  music_at?: string | null
   city?: string | null
   state?: string | null
   price?: number | null

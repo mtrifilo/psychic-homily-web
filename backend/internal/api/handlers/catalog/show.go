@@ -89,14 +89,18 @@ func initializeArtist(a *Artist) {
 
 // CreateShowRequestBody represents the request body with preprocessing
 type CreateShowRequestBody struct {
-	Title          *string   `json:"title,omitempty" doc:"Show title (optional)"`
-	EventDate      time.Time `json:"event_date" validate:"required" doc:"Event date and time"`
-	City           string    `json:"city" doc:"City where the show takes place"`
-	State          string    `json:"state" doc:"State where the show takes place"`
-	Price          *float64  `json:"price,omitempty" doc:"Ticket price"`
-	AgeRequirement *string   `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
-	Description    *string   `json:"description,omitempty" doc:"Show description" required:"false"`
-	TicketURL      *string   `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
+	Title     *string   `json:"title,omitempty" doc:"Show title (optional)"`
+	EventDate time.Time `json:"event_date" validate:"required" doc:"Event date and time"`
+	// DoorsAt / MusicAt are optional display times. They do not replace
+	// EventDate, which stays the show's canonical instant.
+	DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
+	MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
+	City           string     `json:"city" doc:"City where the show takes place"`
+	State          string     `json:"state" doc:"State where the show takes place"`
+	Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
+	AgeRequirement *string    `json:"age_requirement,omitempty" doc:"Age requirement (e.g., '21+', 'All Ages')"`
+	Description    *string    `json:"description,omitempty" doc:"Show description" required:"false"`
+	TicketURL      *string    `json:"ticket_url,omitempty" doc:"Ticket purchase URL" required:"false"`
 	// NOTE: `validate:"..."` tags are NOT enforced here — huma reads its own schema
 	// tags (minItems/maxItems/...), not go-playground `validate`, and this repo wires
 	// no validator. The real per-field validation is the Resolve method below, where
@@ -237,7 +241,38 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 		}
 	}
 
+	if err := validateShowTimeOrder(r.DoorsAt, r.MusicAt); err != nil {
+		errors = append(errors, err)
+	}
+
 	return errors
+}
+
+// validateShowTimeOrder rejects music starting before doors open. This is the
+// only relationship between the two that is true by definition rather than by
+// policy, so it is the only one enforced here: any tolerance window against
+// event_date would be an invented threshold, and rejecting a real submission on
+// a guess is worse than the display oddity it would prevent. Returns nil unless
+// both times are present.
+func validateShowTimeOrder(doorsAt, musicAt *time.Time) *huma.ErrorDetail {
+	if doorsAt == nil || musicAt == nil || !musicAt.Before(*doorsAt) {
+		return nil
+	}
+	return &huma.ErrorDetail{
+		Location: "body.music_at",
+		Message:  "music_at cannot be before doors_at",
+		Value:    musicAt.Format(time.RFC3339),
+	}
+}
+
+// effectiveTime resolves what a partial update leaves in a column: the incoming
+// value when the request supplied one, otherwise the stored value it leaves
+// untouched.
+func effectiveTime(incoming, stored *time.Time) *time.Time {
+	if incoming != nil {
+		return incoming
+	}
+	return stored
 }
 
 // CreateShowRequest represents the HTTP request for creating a show
@@ -338,8 +373,12 @@ type GetUpcomingShowsResponse struct {
 type UpdateShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID"`
 	Body   struct {
-		Title          *string    `json:"title,omitempty" doc:"Show title"`
-		EventDate      *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
+		Title     *string    `json:"title,omitempty" doc:"Show title"`
+		EventDate *time.Time `json:"event_date,omitempty" doc:"Event date and time"`
+		// Omitting doors_at / music_at leaves the stored value unchanged;
+		// there is no clear-back-to-null signal yet.
+		DoorsAt        *time.Time `json:"doors_at,omitempty" doc:"When doors open (RFC3339)"`
+		MusicAt        *time.Time `json:"music_at,omitempty" doc:"When the first set starts (RFC3339)"`
 		City           *string    `json:"city,omitempty" doc:"City where the show takes place"`
 		State          *string    `json:"state,omitempty" doc:"State where the show takes place"`
 		Price          *float64   `json:"price,omitempty" doc:"Ticket price"`
@@ -450,6 +489,8 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	serviceReq := &contracts.CreateShowRequest{
 		Title:             title,
 		EventDate:         req.Body.EventDate,
+		DoorsAt:           req.Body.DoorsAt,
+		MusicAt:           req.Body.MusicAt,
 		City:              req.Body.City,
 		State:             req.Body.State,
 		Price:             req.Body.Price,
@@ -907,6 +948,23 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.Summary != nil && len(*req.Body.Summary) > 5000 {
 		return nil, huma.Error422UnprocessableEntity("Summary must be 5000 characters or fewer")
 	}
+	// Only run the order check when this request actually touches a show time,
+	// but judge it against the values the row will END UP with, so supplying
+	// only music_at is still rejected when it lands before a stored doors_at.
+	//
+	// The guard is load-bearing, not an optimization: without it a row that is
+	// already out of order (a rollback, an import, or two concurrent PUTs each
+	// validating against its own pre-write snapshot) would fail EVERY later
+	// edit, including title-only ones, naming a field the caller never sent.
+	// No UI writes these times yet, so there would be no in-product way out.
+	if req.Body.DoorsAt != nil || req.Body.MusicAt != nil {
+		if err := validateShowTimeOrder(
+			effectiveTime(req.Body.DoorsAt, existingShow.DoorsAt),
+			effectiveTime(req.Body.MusicAt, existingShow.MusicAt),
+		); err != nil {
+			return nil, huma.Error422UnprocessableEntity("validation failed", err)
+		}
+	}
 
 	// Build typed update request for basic show fields. The service writes
 	// only the non-nil fields, converts EventDate to UTC, and normalizes an
@@ -914,6 +972,8 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	serviceUpdates := &contracts.UpdateShowRequest{
 		Title:          req.Body.Title,
 		EventDate:      req.Body.EventDate,
+		DoorsAt:        req.Body.DoorsAt,
+		MusicAt:        req.Body.MusicAt,
 		City:           req.Body.City,
 		State:          req.Body.State,
 		Price:          req.Body.Price,

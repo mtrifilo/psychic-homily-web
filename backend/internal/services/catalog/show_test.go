@@ -62,6 +62,61 @@ func TestShowServiceIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, new(ShowServiceIntegrationTestSuite))
 }
 
+// TestShowUpdatesToMap_NormalizesShowTimesToUTC pins the normalization at the
+// only place it can be asserted deterministically: the map handed to GORM.
+// Reading the columns back instead would assert the driver's session timezone,
+// not the write path, because TIMESTAMPTZ round-trips an instant.
+func TestShowUpdatesToMap_NormalizesShowTimesToUTC(t *testing.T) {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, eastern)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
+
+	updates := showUpdatesToMap(&contracts.UpdateShowRequest{DoorsAt: &doors, MusicAt: &music})
+
+	for _, tc := range []struct {
+		column string
+		want   time.Time
+	}{
+		{"doors_at", doors},
+		{"music_at", music},
+	} {
+		// Accept either a time.Time or a *time.Time: which one the map holds
+		// is an implementation detail, the UTC normalization is the behavior.
+		var got time.Time
+		switch v := updates[tc.column].(type) {
+		case time.Time:
+			got = v
+		case *time.Time:
+			got = *v
+		default:
+			t.Fatalf("%s: expected a time in updates map, got %T", tc.column, updates[tc.column])
+		}
+		if got.Location() != time.UTC {
+			t.Errorf("%s: expected UTC, got %s", tc.column, got.Location())
+		}
+		if !got.Equal(tc.want) {
+			t.Errorf("%s: instant changed: got %s, want %s", tc.column, got, tc.want)
+		}
+	}
+}
+
+// TestShowUpdatesToMap_OmitsUnsetShowTimes guards the partial-update contract:
+// an omitted time must not appear in the map at all, since a present key would
+// write NULL and silently clear a stored value.
+func TestShowUpdatesToMap_OmitsUnsetShowTimes(t *testing.T) {
+	updates := showUpdatesToMap(&contracts.UpdateShowRequest{Title: stringPtr("x")})
+
+	if _, ok := updates["doors_at"]; ok {
+		t.Error("doors_at must be absent when not supplied")
+	}
+	if _, ok := updates["music_at"]; ok {
+		t.Error("music_at must be absent when not supplied")
+	}
+}
+
 // =============================================================================
 // HELPERS
 // =============================================================================
@@ -908,6 +963,161 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_EventDate_UTC() {
 	// Verify the stored time represents the same instant (service converts to UTC before storing)
 	suite.Equal(newDate.UTC().Unix(), resp.EventDate.Unix(),
 		"event_date should represent the same instant after UTC conversion")
+}
+
+// TestCreateShow_ShowTimesDefaultToNull pins the common case: most shows have
+// no announced doors/music time, and the response must say "unknown" rather
+// than fall back to event_date.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ShowTimesDefaultToNull() {
+	created := suite.createTestShow()
+
+	suite.Nil(created.DoorsAt, "doors_at should be null when not supplied")
+	suite.Nil(created.MusicAt, "music_at should be null when not supplied")
+
+	fetched, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Nil(fetched.DoorsAt)
+	suite.Nil(fetched.MusicAt)
+}
+
+// TestCreateShow_PersistsShowTimes covers the create path end to end: supplied
+// in a non-UTC zone, normalized to UTC like event_date, and readable back
+// through GetShow (not just the create response, which is built
+// in-transaction). The Location assertions cover the normalization step; the
+// read-back compares instants, since TIMESTAMPTZ stores an instant and the
+// offset a driver hands back depends on the session timezone.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PersistsShowTimes() {
+	eastern, err := time.LoadLocation("America/New_York")
+	suite.Require().NoError(err)
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, eastern)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
+
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.DoorsAt = &doors
+		req.MusicAt = &music
+	})
+
+	suite.Require().NotNil(created.DoorsAt)
+	suite.Require().NotNil(created.MusicAt)
+	suite.Equal(time.UTC, created.DoorsAt.Location(), "doors_at should be stored UTC-normalized")
+	suite.Equal(time.UTC, created.MusicAt.Location(), "music_at should be stored UTC-normalized")
+
+	fetched, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.DoorsAt)
+	suite.Require().NotNil(fetched.MusicAt)
+	suite.Equal(doors.Unix(), fetched.DoorsAt.Unix())
+	suite.Equal(music.Unix(), fetched.MusicAt.Unix())
+}
+
+// TestUpdateShow_ShowTimes covers the edit path, including the partial-update
+// contract: an omitted field must leave the stored value alone rather than
+// clearing it.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ShowTimes() {
+	created := suite.createTestShow()
+
+	// Non-UTC inputs, so dropping the update path's UTC normalization fails
+	// here rather than passing on instant-only assertions.
+	eastern, err := time.LoadLocation("America/New_York")
+	suite.Require().NoError(err)
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, eastern)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, eastern)
+
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		DoorsAt: &doors,
+		MusicAt: &music,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Require().NotNil(resp.MusicAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Equal(music.Unix(), resp.MusicAt.Unix())
+
+	// Editing an unrelated field must not disturb the times.
+	resp, err = suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Title: stringPtr("Retitled"),
+	})
+	suite.Require().NoError(err)
+	suite.Equal("Retitled", resp.Title)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Require().NotNil(resp.MusicAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Equal(music.Unix(), resp.MusicAt.Unix())
+}
+
+// TestCreateShow_RejectsMusicBeforeDoors covers the storage chokepoint, which
+// is what protects the create callers that never run the handler's Resolve.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_RejectsMusicBeforeDoors() {
+	user := suite.createTestUser()
+	doors := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
+	music := doors.Add(-time.Hour)
+
+	resp, err := suite.showService.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Bad Order",
+		EventDate: doors,
+		DoorsAt:   &doors,
+		MusicAt:   &music,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues: []contracts.CreateShowVenue{
+			{Name: "The Venue", City: "Phoenix", State: "AZ"},
+		},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Test Artist", IsHeadliner: boolPtr(true)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	})
+
+	suite.Require().Error(err, "the service must reject music before doors, not only the handler")
+	suite.Nil(resp)
+}
+
+// TestUpdateShowWithRelations_SetsShowTimes covers the path the PUT handler
+// actually calls. UpdateShow above has no non-test callers, so without this the
+// production edit path's write-through and response rebuild are unpinned.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_SetsShowTimes() {
+	created := suite.createTestShow()
+
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
+	music := time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC)
+
+	resp, _, err := suite.showService.UpdateShowWithRelations(created.ID,
+		&contracts.UpdateShowRequest{DoorsAt: &doors, MusicAt: &music}, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Require().NotNil(resp.MusicAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Equal(music.Unix(), resp.MusicAt.Unix())
+
+	// Re-read, so the assertion covers what was written, not just what the
+	// in-transaction builder echoed back.
+	fetched, err := suite.showService.GetShow(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.DoorsAt)
+	suite.Require().NotNil(fetched.MusicAt)
+	suite.Equal(doors.Unix(), fetched.DoorsAt.Unix())
+	suite.Equal(music.Unix(), fetched.MusicAt.Unix())
+}
+
+// TestUpdateShowWithRelations_PreservesShowTimes guards the relations path,
+// which rebuilds the response from a separate builder than UpdateShow's.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_PreservesShowTimes() {
+	doors := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
+	created := suite.createTestShow(func(req *contracts.CreateShowRequest) {
+		req.DoorsAt = &doors
+	})
+
+	newArtists := []contracts.CreateShowArtist{
+		{Name: "Replacement Headliner", IsHeadliner: boolPtr(true)},
+	}
+	resp, _, err := suite.showService.UpdateShowWithRelations(created.ID, nil, nil, newArtists, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.DoorsAt)
+	suite.Equal(doors.Unix(), resp.DoorsAt.Unix())
+	suite.Nil(resp.MusicAt)
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_ReplaceArtists() {

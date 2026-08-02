@@ -35,6 +35,21 @@ func fnvHash(s string) int64 {
 	return int64(h.Sum64())
 }
 
+// utcOrNil normalizes an optional instant to UTC, preserving nil.
+//
+// This does not affect what lands in the column: TIMESTAMPTZ stores an instant
+// and no offset, so the write is identical either way. What it buys is that
+// the in-memory response CreateShow builds inside the transaction renders in
+// the same zone as a later read, instead of echoing back whatever offset the
+// request happened to use.
+func utcOrNil(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	utc := t.UTC()
+	return &utc
+}
+
 // ShowService handles show-related business logic
 type ShowService struct {
 	db *gorm.DB
@@ -66,6 +81,27 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		return nil, fmt.Errorf("database not initialized")
 	}
 
+	// Re-check the show-time order here, mirroring how instagram_handle is
+	// handled: the handler's Resolve gives the common path a field-located 422,
+	// and this backstops CreateShow callers that never run it. In practice that
+	// is the entity-request fulfiller, which validates the same rule earlier at
+	// queue-create; this is defense in depth, not the primary gate.
+	//
+	// Note this is NOT every write path: DataSyncService.importShow builds the
+	// row and calls tx.Create directly, below this function, so an import can
+	// still land a disordered pair. That is tolerated on purpose, same as a
+	// revision rollback restoring one, and the update guard keeps such a row
+	// editable.
+	//
+	// Deliberately NOT mirrored on the update path. There, the equivalent guard
+	// runs in the handler and only when the request touches a time, because a
+	// row can hold a disordered pair legitimately: revision Rollback restores
+	// whatever state was recorded, and a restore must never be refused. Blocking
+	// writes on stored disorder would make such a row uneditable.
+	if req.DoorsAt != nil && req.MusicAt != nil && req.MusicAt.Before(*req.DoorsAt) {
+		return nil, apperrors.ErrShowValidationFailed("music_at cannot be before doors_at")
+	}
+
 	// Use transaction for data consistency
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -81,6 +117,8 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		show := &catalogm.Show{
 			Title:          req.Title,
 			EventDate:      req.EventDate.UTC(), // Ensure UTC storage
+			DoorsAt:        utcOrNil(req.DoorsAt),
+			MusicAt:        utcOrNil(req.MusicAt),
 			City:           &req.City,
 			State:          &req.State,
 			Price:          req.Price,
@@ -156,6 +194,8 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			Slug:            slug,
 			Title:           show.Title,
 			EventDate:       show.EventDate,
+			DoorsAt:         show.DoorsAt,
+			MusicAt:         show.MusicAt,
 			City:            show.City,
 			State:           show.State,
 			Price:           show.Price,
@@ -426,6 +466,12 @@ func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 	if req.EventDate != nil {
 		updates["event_date"] = req.EventDate.UTC()
 	}
+	if req.DoorsAt != nil {
+		updates["doors_at"] = req.DoorsAt.UTC()
+	}
+	if req.MusicAt != nil {
+		updates["music_at"] = req.MusicAt.UTC()
+	}
 	if req.City != nil {
 		updates["city"] = *req.City
 	}
@@ -690,6 +736,8 @@ func (s *ShowService) buildUpdatedShowResponse(
 		ID:              show.ID,
 		Title:           show.Title,
 		EventDate:       show.EventDate,
+		DoorsAt:         show.DoorsAt,
+		MusicAt:         show.MusicAt,
 		City:            show.City,
 		State:           show.State,
 		Price:           show.Price,
@@ -2075,6 +2123,8 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 		Slug:              showSlug,
 		Title:             show.Title,
 		EventDate:         show.EventDate,
+		DoorsAt:           show.DoorsAt,
+		MusicAt:           show.MusicAt,
 		City:              show.City,
 		State:             show.State,
 		Price:             show.Price,

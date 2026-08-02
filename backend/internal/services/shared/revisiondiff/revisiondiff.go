@@ -16,6 +16,14 @@
 //   - int               → compare with ==, emit int
 //   - *int              → deref or 0, emit int (both-nil counts as equal)
 //   - time.Time         → compare with Equal, emit RFC3339 string
+//   - *time.Time        → compare with Equal, emit RFC3339 string or nil
+//
+// The unset sentinel differs by type on purpose. The pre-existing pointer
+// kinds emit a zero value ("" / 0) because that is what their hand-written
+// predecessors did and their columns accept it. *time.Time emits nil instead:
+// Rollback feeds these values straight back into a GORM update map, and ""
+// is not a valid TIMESTAMPTZ, so a zero-value sentinel would make any
+// revision touching a nullable timestamp permanently unrollbackable.
 //
 // The per-entity field lists — not the contributor allowlist — are the source
 // of truth for which fields appear in revision history. They intentionally
@@ -138,7 +146,19 @@ func diffValue(before, after reflect.Value) (oldVal, newVal interface{}, changed
 // *string (deref or ""), *float64 (deref or 0), *int (deref or 0). A nil
 // pointer is treated as the zero value, matching ptrToStr / shared.Deref /
 // intPtrVal so a nil↔value transition is a change and nil↔nil is not.
+//
+// *time.Time is the exception to the nil-as-zero rule: a set value emits the
+// same RFC3339 string the non-pointer time.Time case emits, but unset emits
+// nil, not "". Rollback writes these values back into the column verbatim, and
+// "" is not a valid TIMESTAMPTZ; nil restores SQL NULL, which is the state the
+// field actually had.
 func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal interface{}, changed bool) {
+	if elem == timeType {
+		b, bok := derefTime(before)
+		a, aok := derefTime(after)
+		return optionalTimeValue(b, bok), optionalTimeValue(a, aok), bok != aok || (bok && !b.Equal(a))
+	}
+
 	switch elem.Kind() {
 	case reflect.String:
 		b := derefString(before)
@@ -158,6 +178,27 @@ func diffPtr(before, after reflect.Value, elem reflect.Type) (oldVal, newVal int
 	default:
 		panic(fmt.Sprintf("revisiondiff: unsupported pointer element kind %s", elem.Kind()))
 	}
+}
+
+// derefTime reports the pointed-to instant and whether the pointer was set.
+// The bool is what lets a set-to-unset transition register as a change without
+// conflating "unset" with any particular instant.
+func derefTime(p reflect.Value) (time.Time, bool) {
+	if p.IsNil() {
+		return time.Time{}, false
+	}
+	return p.Elem().Interface().(time.Time), true
+}
+
+// optionalTimeValue returns nil for unset so Rollback restores SQL NULL rather
+// than trying to write a string into a TIMESTAMPTZ column. The interface{}
+// return type is load-bearing: returning "" here is what made a doors_at
+// revision unrollbackable.
+func optionalTimeValue(t time.Time, set bool) interface{} {
+	if !set {
+		return nil
+	}
+	return t.Format(time.RFC3339)
 }
 
 func derefString(p reflect.Value) string {

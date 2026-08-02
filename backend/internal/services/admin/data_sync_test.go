@@ -829,6 +829,72 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_StatusParsing()
 // Full Round-Trip Test
 // =============================================================================
 
+// TestImportData_RoundTripsShowTimes pins doors_at/music_at through the
+// export/import pair, whose entire purpose is fidelity. Without it either
+// mapping line can be deleted and the suite stays green while a stage-to-prod
+// sync silently nulls admin-entered show times.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_RoundTripsShowTimes() {
+	venue := suite.createVenue("Times Venue", "NYC", "NY", true)
+	artist := suite.createArtist("Times Band")
+	eventDate := time.Date(2025, 8, 1, 20, 0, 0, 0, time.UTC)
+	show := suite.createShow("Times Show", eventDate, catalogm.ShowStatusApproved, venue, artist)
+
+	doors := eventDate.Add(-time.Hour)
+	music := eventDate
+	suite.Require().NoError(suite.db.Model(show).
+		Updates(map[string]interface{}{"doors_at": doors, "music_at": music}).Error)
+
+	exportResult, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "approved"})
+	suite.Require().NoError(err)
+	suite.Require().Len(exportResult.Shows, 1)
+	suite.Require().NotNil(exportResult.Shows[0].DoorsAt, "export must carry doorsAt")
+	suite.Require().NotNil(exportResult.Shows[0].MusicAt, "export must carry musicAt")
+
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM show_artists")
+	_, _ = sqlDB.Exec("DELETE FROM show_venues")
+	_, _ = sqlDB.Exec("DELETE FROM shows")
+
+	importResult, err := suite.service.ImportData(contracts.DataImportRequest{Shows: exportResult.Shows})
+	suite.Require().NoError(err)
+	suite.Equal(1, importResult.Shows.Imported)
+
+	var reimported catalogm.Show
+	suite.Require().NoError(suite.db.Where("title = ?", "Times Show").First(&reimported).Error)
+	suite.Require().NotNil(reimported.DoorsAt, "import must land doors_at")
+	suite.Require().NotNil(reimported.MusicAt, "import must land music_at")
+	suite.Equal(doors.Unix(), reimported.DoorsAt.Unix())
+	suite.Equal(music.Unix(), reimported.MusicAt.Unix())
+}
+
+// TestImportData_RejectsMalformedShowTime covers the failure mode of the new
+// parse step: a bad value aborts the import rather than silently landing a
+// show with no doors time.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_RejectsMalformedShowTime() {
+	bad := "not-a-timestamp"
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{{
+			Title:     "Malformed Times",
+			EventDate: time.Date(2025, 8, 1, 20, 0, 0, 0, time.UTC).Format(time.RFC3339),
+			DoorsAt:   &bad,
+			Status:    string(catalogm.ShowStatusApproved),
+			Venues:    []contracts.ExportedVenue{{Name: "V", City: "NYC", State: "NY"}},
+			Artists:   []contracts.ExportedShowArtist{{Name: "A", Position: 0, SetType: "performer"}},
+		}},
+	})
+
+	// ImportData reports per-show failures in the result rather than aborting
+	// the batch, matching how a malformed event_date is handled.
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Shows.Errors, "a malformed doorsAt must be counted as an error")
+	suite.Equal(0, result.Shows.Imported, "the show must not land with its doors time dropped")
+
+	var count int64
+	suite.db.Model(&catalogm.Show{}).Where("title = ?", "Malformed Times").Count(&count)
+	suite.Zero(count)
+}
+
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_FullRoundTrip() {
 	// Create data to export
 	insta := "@thevenue"

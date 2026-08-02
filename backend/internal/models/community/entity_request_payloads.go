@@ -89,8 +89,12 @@ func (LabelRequestPayload) entityRequestType() string { return EntityRequestLabe
 
 // ShowRequestPayload carries the user-supplied fields to create a show.
 type ShowRequestPayload struct {
-	Title          string   `json:"title"`
-	EventDate      string   `json:"event_date"` // RFC3339 / YYYY-MM-DD; parsed at fulfillment
+	Title     string `json:"title"`
+	EventDate string `json:"event_date"` // RFC3339 / YYYY-MM-DD; parsed at fulfillment
+	// DoorsAt / MusicAt are optional and, unlike EventDate, must be RFC3339:
+	// a bare date carries no time of day, which is the only thing these mean.
+	DoorsAt        *string  `json:"doors_at,omitempty"`
+	MusicAt        *string  `json:"music_at,omitempty"`
 	City           *string  `json:"city,omitempty"`
 	State          *string  `json:"state,omitempty"`
 	Price          *float64 `json:"price,omitempty"`
@@ -247,6 +251,23 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		// at fulfill (500).
 		if err := requireDateTimeOrDate("show", "event_date", p.EventDate); err != nil {
 			return err
+		}
+		// doors_at/music_at must be checked HERE, not at fulfillment. They are
+		// RFC3339-only (a bare date carries no time of day, the sole thing they
+		// mean), and music cannot precede doors. Deferring either check past the
+		// claim is what produces the approved-but-unfulfilled orphan described
+		// below: the decide call claims the row, fulfillment then 422s, and no
+		// endpoint can edit a queued payload to repair it.
+		doorsAt, err := optionalRFC3339("show", "doors_at", p.DoorsAt)
+		if err != nil {
+			return err
+		}
+		musicAt, err := optionalRFC3339("show", "music_at", p.MusicAt)
+		if err != nil {
+			return err
+		}
+		if doorsAt != nil && musicAt != nil && musicAt.Before(*doorsAt) {
+			return fmt.Errorf("show payload: music_at cannot be before doors_at")
 		}
 		// Shows are fulfillable when the admin supplies associations (PSY-1037),
 		// so the payload's fields ride onto a created show — validate them with
@@ -462,6 +483,25 @@ func requireDateTimeOrDate(entityType, field, value string) error {
 		return nil
 	}
 	return fmt.Errorf("%s payload: %s must be an RFC3339 timestamp or a YYYY-MM-DD date", entityType, field)
+}
+
+// optionalRFC3339 parses an optional RFC3339 payload field at the queue-create
+// trust boundary. Absent or blank is valid and yields nil; anything else that
+// does not parse is rejected here so it can never reach fulfillment, which runs
+// after the row has been claimed and cannot be retried.
+func optionalRFC3339(entityType, field string, value *string) (*time.Time, error) {
+	if value == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("%s payload: %s must be an RFC3339 timestamp", entityType, field)
+	}
+	return &t, nil
 }
 
 // ValidEntityRequestTypes returns the registered entity_type discriminators.

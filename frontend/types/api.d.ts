@@ -9628,11 +9628,21 @@ export interface components {
             description?: string;
             /**
              * Format: date-time
+             * @description When doors open (RFC3339)
+             */
+            doors_at?: string;
+            /**
+             * Format: date-time
              * @description Event date and time
              */
             event_date: string;
             /** @description If true, show is private and only visible to submitter */
             is_private?: boolean;
+            /**
+             * Format: date-time
+             * @description When the first set starts (RFC3339)
+             */
+            music_at?: string;
             /**
              * Format: double
              * @description Ticket price
@@ -10357,9 +10367,11 @@ export interface components {
             artists: components["schemas"]["ExportedShowArtist"][] | null;
             city?: string;
             description?: string;
+            doorsAt?: string;
             eventDate: string;
             isCancelled: boolean;
             isSoldOut: boolean;
+            musicAt?: string;
             /** Format: double */
             price?: number;
             state?: string;
@@ -14582,6 +14594,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: date-time */
+            doors_at: string | null;
             /** Format: int64 */
             duplicate_of_show_id?: number;
             /** Format: date-time */
@@ -14591,6 +14605,8 @@ export interface components {
             image_url: string | null;
             is_cancelled: boolean;
             is_sold_out: boolean;
+            /** Format: date-time */
+            music_at: string | null;
             /** Format: double */
             price: number | null;
             rejection_category?: string;
@@ -15468,6 +15484,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: date-time */
+            doors_at: string | null;
             /** Format: int64 */
             duplicate_of_show_id?: number;
             /** Format: date-time */
@@ -15477,6 +15495,8 @@ export interface components {
             image_url: string | null;
             is_cancelled: boolean;
             is_sold_out: boolean;
+            /** Format: date-time */
+            music_at: string | null;
             /** Format: double */
             price: number | null;
             rejection_category?: string;
@@ -16422,11 +16442,21 @@ export interface components {
             description?: string;
             /**
              * Format: date-time
+             * @description When doors open (RFC3339)
+             */
+            doors_at?: string;
+            /**
+             * Format: date-time
              * @description Event date and time
              */
             event_date?: string;
             /** @description Show flyer image URL */
             image_url?: string;
+            /**
+             * Format: date-time
+             * @description When the first set starts (RFC3339)
+             */
+            music_at?: string;
             /**
              * Format: double
              * @description Ticket price
@@ -16456,6 +16486,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: string | null;
+            /** Format: date-time */
+            doors_at: string | null;
             /** Format: int64 */
             duplicate_of_show_id?: number;
             /** Format: date-time */
@@ -16465,6 +16497,8 @@ export interface components {
             image_url: string | null;
             is_cancelled: boolean;
             is_sold_out: boolean;
+            /** Format: date-time */
+            music_at: string | null;
             /** @description Artists that became orphaned (0 shows) after this update */
             orphaned_artists?: components["schemas"]["OrphanedArtist"][] | null;
             /** Format: double */

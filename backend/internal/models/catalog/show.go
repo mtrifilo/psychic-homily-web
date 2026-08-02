@@ -37,10 +37,17 @@ const (
 )
 
 type Show struct {
-	ID             uint `gorm:"primaryKey"`
-	Title          string
-	Slug           *string   `gorm:"column:slug;uniqueIndex"`
-	EventDate      time.Time `gorm:"not null"`
+	ID        uint `gorm:"primaryKey"`
+	Title     string
+	Slug      *string   `gorm:"column:slug;uniqueIndex"`
+	EventDate time.Time `gorm:"not null"`
+	// DoorsAt and MusicAt are optional display times, not a second source of
+	// truth for when the show is: EventDate remains the canonical instant that
+	// sorting, dedup, slugs, and structured data all read. Nil means unknown,
+	// which is the common case. Pointers keep the GORM zero-value trap out of
+	// the picture.
+	DoorsAt        *time.Time `gorm:"column:doors_at"`
+	MusicAt        *time.Time `gorm:"column:music_at"`
 	City           *string
 	State          *string
 	Price          *float64
