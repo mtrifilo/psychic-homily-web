@@ -82,10 +82,17 @@ type labelRosterRow struct {
 	ArtistID uint    `gorm:"column:artist_id"`
 }
 
-// labelRosterQuery is the membership read both scopes share. The ordering is
-// part of the contract: buildLabelHubs emits hubs in first-seen label order, so
-// a stable SQL order is what makes node and link ordering stable across
+// queryLabelRosters loads the membership rows for an artist set. The ordering
+// is part of the contract: buildLabelHubs emits hubs in first-seen label order,
+// so a stable SQL order is what makes node and link ordering stable across
 // requests.
+//
+// The read is bounded by the artist set at every scope. A catalog-wide consumer
+// passes every artist it will draw rather than dropping the bound, because the
+// builder can only count and spoke artists the payload contains — an unbounded
+// read would fetch rows it must then discard. buildLabelHubs discards them
+// safely either way, so a consumer that measures the bounded read to be the
+// worse plan can swap in a wider one without changing the rules.
 //
 // Slug-less labels ARE selected, even though they can never become hubs (a
 // hub's payoff is opening the label's page, and an unlinkable hub would occupy
@@ -95,38 +102,18 @@ type labelRosterRow struct {
 // kept — filtering them out here would silently delete the only evidence of that
 // relationship, the exact outcome the below-threshold keep-rule exists to
 // prevent.
-func labelRosterQuery(db *gorm.DB) *gorm.DB {
-	return db.Table("artist_labels AS al").
-		Select("l.id AS label_id, l.name, l.slug, l.city, l.state, l.country, al.artist_id").
-		Joins("JOIN labels l ON l.id = al.label_id").
-		Order("l.name ASC, l.id ASC, al.artist_id ASC")
-}
-
-// queryLabelRostersForArtists loads memberships for a bounded artist set — the
-// scene-graph path, where the payload is one metro's roster and pushing the
-// bound into SQL keeps the scan proportional to that roster.
-func queryLabelRostersForArtists(db *gorm.DB, artistIDs []uint) ([]labelRosterRow, error) {
+func queryLabelRosters(db *gorm.DB, artistIDs []uint) ([]labelRosterRow, error) {
 	if len(artistIDs) == 0 {
 		return nil, nil
 	}
 	var rows []labelRosterRow
-	err := labelRosterQuery(db).Where("al.artist_id IN ?", artistIDs).Scan(&rows).Error
+	err := db.Table("artist_labels AS al").
+		Select("l.id AS label_id, l.name, l.slug, l.city, l.state, l.country, al.artist_id").
+		Joins("JOIN labels l ON l.id = al.label_id").
+		Where("al.artist_id IN ?", artistIDs).
+		Order("l.name ASC, l.id ASC, al.artist_id ASC").
+		Scan(&rows).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to query label rosters: %w", err)
-	}
-	return rows, nil
-}
-
-// queryAllLabelRosters loads EVERY membership row — the catalog-wide path,
-// where an `IN` list of the whole artist table would be a worse plan than the
-// plain join it replaces.
-//
-// It may return rows for artists outside the caller's artist set (an artist the
-// payload does not contain still has memberships). buildLabelHubs ignores those
-// rows, so the two are safe to pair with any artist set.
-func queryAllLabelRosters(db *gorm.DB) ([]labelRosterRow, error) {
-	var rows []labelRosterRow
-	if err := labelRosterQuery(db).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to query label rosters: %w", err)
 	}
 	return rows, nil
@@ -139,18 +126,22 @@ func queryAllLabelRosters(db *gorm.DB) ([]labelRosterRow, error) {
 //
 //  1. Every rule is evaluated in-set. Roster rows for artists outside the set
 //     are ignored, so a caller whose roster read is broader than its node set
-//     (queryAllLabelRosters) can neither count an absent artist toward the
-//     threshold nor mint a spoke pointing at a node the payload lacks.
+//     can neither count an absent artist toward the threshold nor mint a spoke
+//     pointing at a node the payload lacks.
 //  2. The offset collision guard covers the whole set, not just artists
 //     carrying label rows: an artist with no memberships never reaches
 //     rosterRows, so a roster-only check would let hubs mint IDs in the
 //     colliding range while claiming to refuse.
 //
-// It returns an error rather than degrading silently when an artist ID reaches
-// labelHubNodeIDOffset, because past that point a hub node ID could collide with
-// an artist node ID and the canvas would merge two unrelated entities. The
-// returned zero value fails closed: replacesSharedLabelEdge guards on an empty
-// hubbedLabels set, so a refused build claims no edge as replaced.
+// Two conditions return an error rather than degrading silently, because both
+// would otherwise produce a plausible-looking empty or colliding build:
+// membership rows with no artist set at all (job 1 would discard every row and
+// report "no hubs here", which is indistinguishable from a scope that genuinely
+// has none), and an artist ID that has reached labelHubNodeIDOffset (past that
+// point a hub node ID could collide with an artist node ID and the canvas would
+// merge two unrelated entities). The returned zero value fails closed:
+// replacesSharedLabelEdge guards on an empty hubbedLabels set, so a refused
+// build claims no edge as replaced.
 //
 // rosterRows must be ordered deterministically by the caller (label name, then
 // artist ID) so node and link ordering is stable across requests.
@@ -158,6 +149,13 @@ func buildLabelHubs(rosterRows []labelRosterRow, artistIDs []uint) (labelHubs, e
 	out := labelHubs{
 		labelsByArtist: make(map[uint]map[uint]struct{}),
 		hubbedLabels:   make(map[uint]struct{}),
+	}
+
+	if len(rosterRows) > 0 && len(artistIDs) == 0 {
+		return labelHubs{}, fmt.Errorf(
+			"buildLabelHubs got %d roster rows with an empty artist set; the caller must pass the artist set its payload contains",
+			len(rosterRows),
+		)
 	}
 
 	inSet := make(map[uint]struct{}, len(artistIDs))
@@ -176,13 +174,16 @@ func buildLabelHubs(rosterRows []labelRosterRow, artistIDs []uint) (labelHubs, e
 	}
 
 	// Roster accumulation preserves first-seen label order so the emitted hub
-	// nodes inherit the caller's deterministic ordering.
+	// nodes inherit the caller's deterministic ordering. Both collections are
+	// keyed by LABEL, so they are left unsized rather than hinted at the row
+	// count: a catalog-wide build reads every membership row to find a few
+	// hundred labels.
 	type rosterEntry struct {
 		row     labelRosterRow
 		artists []uint
 	}
-	order := make([]uint, 0, len(rosterRows))
-	byLabel := make(map[uint]*rosterEntry, len(rosterRows))
+	var order []uint
+	byLabel := make(map[uint]*rosterEntry)
 
 	for _, r := range rosterRows {
 		if _, inPayload := inSet[r.ArtistID]; !inPayload {

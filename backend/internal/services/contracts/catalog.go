@@ -1349,7 +1349,7 @@ const SceneEdgeTypeOnLabel = "on_label"
 type SceneGraphNode struct {
 	// ID is the artist ID for artist nodes. Label hubs are offset into a
 	// reserved range so both kinds can share this single numeric node-ID space
-	// (see sceneLabelNodeIDOffset) — pair it with EntityType before treating it
+	// (see labelHubNodeIDOffset) — pair it with EntityType before treating it
 	// as a database key.
 	ID uint `json:"id"`
 	// EntityType is one of the SceneNodeKind* constants. Always populated.

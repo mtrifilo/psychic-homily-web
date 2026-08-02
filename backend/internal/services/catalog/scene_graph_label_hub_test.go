@@ -4,7 +4,7 @@ package catalog
 // suite: a label roster arrives from DeriveSharedLabels as a complete C(n,2)
 // clique, and the graph must serve it as one hub node plus n membership spokes.
 //
-// The unit-level rules live in scene_label_hubs_test.go (pure builder). These
+// The unit-level rules live in label_hubs_test.go (pure builder). These
 // tests cover the wiring the builder can't see: that the pairwise rows really
 // are dropped from the response, that spokes clear the isolate flag, that the
 // `types` filter takes the hubs with it, and that hub node IDs can't collide
@@ -32,13 +32,7 @@ func (suite *SceneServiceIntegrationTestSuite) seedLabelWithRoster(
 		State:   stringPtr(state),
 		Country: stringPtr(country),
 	}
-	suite.Require().NoError(suite.db.Create(label).Error)
-
-	for _, a := range artists {
-		suite.Require().NoError(suite.db.Create(&catalogm.ArtistLabel{
-			ArtistID: a.ID, LabelID: label.ID,
-		}).Error)
-	}
+	suite.seedLabelMemberships(label, artists)
 
 	// Pairwise clique, canonical endpoint order (source < target) like the
 	// deriver's CHECK constraint requires.

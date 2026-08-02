@@ -1347,7 +1347,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	// type must exclude the hubs too — otherwise a caller who asked not to see
 	// label edges still gets hubs whose spokes they excluded.
 	if !noEdgesByFilter && slices.Contains(resolvedTypes, catalogm.RelationshipTypeSharedLabel) {
-		rosterRows, err := queryLabelRostersForArtists(s.db, artistIDs)
+		rosterRows, err := queryLabelRosters(s.db, artistIDs)
 		if err != nil {
 			slog.Error("scene graph: label roster query failed; falling back to pairwise label edges",
 				"scene", resp.Scene.Slug, "error", err)

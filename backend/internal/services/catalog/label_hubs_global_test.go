@@ -1,37 +1,38 @@
 package catalog
 
 // Catalog-wide label hubs (PSY-1722), on the SceneService Postgres suite: the
-// same builder GetSceneGraph uses, driven from queryAllLabelRosters over every
-// artist in the catalog instead of one metro's roster.
+// same builder GetSceneGraph uses, driven over every artist in the catalog
+// instead of one metro's roster.
 //
 // The rules themselves are pinned by the pure fixtures in label_hubs_test.go.
-// What only a database can show is here: that the global roster read is
-// genuinely unbounded by metro (the same label is just a 2-artist overlap when
-// read at scene scope), and that the label columns survive the round trip into
-// the hub node.
+// What only a database can show is here: that the same rows produce a hub at
+// catalog scope and no hub at scene scope, that the label columns survive the
+// round trip into the hub node, and that spokes land on real seeded artists.
+// The three headline outcomes are re-asserted against real rows because they
+// are what the ticket's acceptance criteria ask to see at global scope.
 
 import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// seedLabelMemberships creates a label and puts every artist on it. Unlike
-// seedLabelWithRoster it writes no `shared_label` rows: hubs are derived from
-// the artist_labels fact table, never from the edges DeriveSharedLabels stores.
+// seedLabelMemberships creates a label and puts every artist on it. It is the
+// membership primitive seedLabelWithRoster builds on: hubs are derived from the
+// artist_labels fact table, so a test that only needs memberships should not
+// have to write the `shared_label` clique too.
 func (suite *SceneServiceIntegrationTestSuite) seedLabelMemberships(
 	label *catalogm.Label, artists []*catalogm.Artist,
-) *catalogm.Label {
+) {
 	suite.Require().NoError(suite.db.Create(label).Error)
 	for _, a := range artists {
 		suite.Require().NoError(suite.db.Create(&catalogm.ArtistLabel{
 			ArtistID: a.ID, LabelID: label.ID,
 		}).Error)
 	}
-	return label
 }
 
-// catalogArtistIDs is the catalog-wide artist set — the node set a global
-// consumer passes alongside queryAllLabelRosters.
+// catalogArtistIDs is the catalog-wide artist set — every artist a global
+// consumer would draw, and so the bound on its roster read.
 func (suite *SceneServiceIntegrationTestSuite) catalogArtistIDs() []uint {
 	var ids []uint
 	suite.Require().NoError(suite.db.Table("artists").Order("id ASC").Pluck("id", &ids).Error)
@@ -73,11 +74,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestGlobalLabelHubs_CollapseRoste
 		Name: "Unlinkable Records", Slug: nil,
 	}, []*catalogm.Artist{un1, un2, un3})
 
-	rows, err := queryAllLabelRosters(suite.db)
+	catalogSet := suite.catalogArtistIDs()
+	rows, err := queryLabelRosters(suite.db, catalogSet)
 	suite.Require().NoError(err)
-	suite.Len(rows, 9, "the global read returns every membership row, unbounded by metro")
+	suite.Len(rows, 9, "the catalog-wide set sees every membership row, unbounded by metro")
 
-	hubs, err := buildLabelHubs(rows, suite.catalogArtistIDs())
+	hubs, err := buildLabelHubs(rows, catalogSet)
 	suite.Require().NoError(err)
 
 	// Only the linkable 3+ roster hubs.
@@ -128,7 +130,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGlobalLabelHubs_CollapseRoste
 	// 2-artist overlap, below the threshold — the roster size that matters is
 	// the one inside the payload.
 	phoenixSet := []uint{phx1.ID, phx2.ID}
-	phoenixRows, err := queryLabelRostersForArtists(suite.db, phoenixSet)
+	phoenixRows, err := queryLabelRosters(suite.db, phoenixSet)
 	suite.Require().NoError(err)
 	suite.Len(phoenixRows, 2, "the scoped read sees only the in-set memberships")
 

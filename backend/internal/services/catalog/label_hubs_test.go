@@ -39,6 +39,18 @@ func artistIDsFromRows(rows []labelRosterRow) []uint {
 	return ids
 }
 
+// mustBuildHubs is the ordinary build: every roster artist is in the payload.
+// Tests that deliberately mismatch the two, or that expect a refusal, call
+// buildLabelHubs directly so the mismatch is visible at the call site.
+func mustBuildHubs(t *testing.T, rows []labelRosterRow) labelHubs {
+	t.Helper()
+	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return hubs
+}
+
 func TestBuildLabelHubs_ThresholdBoundary(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -74,10 +86,7 @@ func TestBuildLabelHubs_ThresholdBoundary(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			hubs, err := buildLabelHubs(tc.rows, artistIDsFromRows(tc.rows))
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			hubs := mustBuildHubs(t, tc.rows)
 			if len(hubs.Nodes) != tc.wantHubs {
 				t.Errorf("hub nodes: got %d, want %d", len(hubs.Nodes), tc.wantHubs)
 			}
@@ -102,10 +111,7 @@ func TestBuildLabelHubs_CollapsesCliqueToSpokes(t *testing.T) {
 		rows = append(rows, rosterRow(7, "12XU", 100+i))
 	}
 
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	hubs := mustBuildHubs(t, rows)
 	if len(hubs.Nodes) != 1 {
 		t.Fatalf("hub nodes: got %d, want 1", len(hubs.Nodes))
 	}
@@ -127,10 +133,7 @@ func TestBuildLabelHubs_HubNodeShape(t *testing.T) {
 		{LabelID: 7, Name: "12XU", Slug: &slug, City: &city, State: &state, Country: &country, ArtistID: 12},
 	}
 
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	hubs := mustBuildHubs(t, rows)
 	hub := hubs.Nodes[0]
 
 	if hub.EntityType != contracts.SceneNodeKindLabel {
@@ -199,10 +202,7 @@ func TestReplacesSharedLabelEdge(t *testing.T) {
 		rosterRow(2, "Small Records", 10),
 		rosterRow(2, "Small Records", 30),
 	}
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	hubs := mustBuildHubs(t, rows)
 
 	tests := []struct {
 		name           string
@@ -235,10 +235,7 @@ func TestReplacesSharedLabelEdge_MixedHubbedAndSmallLabel(t *testing.T) {
 		rosterRow(2, "Small Records", 10),
 		rosterRow(2, "Small Records", 11),
 	}
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	hubs := mustBuildHubs(t, rows)
 	if hubs.replacesSharedLabelEdge(10, 11) {
 		t.Error("pair sharing an un-hubbed label too must keep its pairwise edge")
 	}
@@ -259,10 +256,7 @@ func TestBuildLabelHubs_MultiLabelArtistGetsSpokePerHub(t *testing.T) {
 		rosterRow(2, "Beta Records", 20),
 		rosterRow(2, "Beta Records", 21),
 	}
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	hubs := mustBuildHubs(t, rows)
 	if len(hubs.Nodes) != 2 {
 		t.Fatalf("hub nodes: got %d, want 2", len(hubs.Nodes))
 	}
@@ -306,10 +300,7 @@ func TestReplacesSharedLabelEdge_SlugLessLabelKeepsEdge(t *testing.T) {
 		sluglessRosterRow(2, "Unlinkable Records", 11),
 	}
 
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	hubs := mustBuildHubs(t, rows)
 	if len(hubs.Nodes) != 1 {
 		t.Fatalf("only the slugged label may hub: got %d hubs", len(hubs.Nodes))
 	}
@@ -329,10 +320,7 @@ func TestBuildLabelHubs_SlugLessLabelNeverHubs(t *testing.T) {
 		sluglessRosterRow(5, "No Slug Records", 11),
 		sluglessRosterRow(5, "No Slug Records", 12),
 	}
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	hubs := mustBuildHubs(t, rows)
 	if len(hubs.Nodes) != 0 || len(hubs.Spokes) != 0 {
 		t.Errorf("slug-less label must not hub: got %d nodes / %d spokes", len(hubs.Nodes), len(hubs.Spokes))
 	}
@@ -366,80 +354,70 @@ func TestBuildLabelHubs_RefusesCollisionFromArtistWithoutLabels(t *testing.T) {
 // GLOBAL SCOPE (PSY-1722)
 // =============================================================================
 
-// The catalog-wide shape the Map of the Scene overview needs: one builder call
-// over the WHOLE artist set. 12XU's global roster is 59 artists — 1,711 pairwise
-// `shared_label` edges — and it must arrive as 1 hub + 59 spokes, with a
-// 2-artist label and a slug-less label in the same payload keeping theirs.
-func TestBuildLabelHubs_GlobalScope(t *testing.T) {
+// The catalog-wide roster size, exhaustively. 12XU's roster across the whole
+// catalog is 59 artists, so every one of its C(59,2) = 1,711 stored pairwise
+// edges must report as replaced — the number the ticket exists to remove. The
+// threshold, slug, and 2-artist rules are owned by the tests above; this one
+// only asserts that nothing leaks at real global size.
+func TestBuildLabelHubs_GlobalRosterReplacesEveryPair(t *testing.T) {
 	const globalRosterSize = 59
+	const cliqueEdges = 1711
 
-	var rows []labelRosterRow
-	// Label 1: the catalog-wide 12XU roster.
-	bigRoster := make([]uint, 0, globalRosterSize)
+	roster := make([]uint, 0, globalRosterSize)
+	rows := make([]labelRosterRow, 0, globalRosterSize)
 	for i := uint(0); i < globalRosterSize; i++ {
 		artistID := 1000 + i
-		bigRoster = append(bigRoster, artistID)
+		roster = append(roster, artistID)
 		rows = append(rows, rosterRow(1, "12XU", artistID))
 	}
-	// Label 2: the 2-artist control, on artists that touch no other label.
-	rows = append(rows,
-		rosterRow(2, "Duo Records", 2000),
-		rosterRow(2, "Duo Records", 2001),
-	)
-	// Label 3: slug-less, 3 artists — over the threshold but unlinkable.
-	rows = append(rows,
-		sluglessRosterRow(3, "Unlinkable Records", 3000),
-		sluglessRosterRow(3, "Unlinkable Records", 3001),
-		sluglessRosterRow(3, "Unlinkable Records", 3002),
-	)
 
-	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Only the linkable 3+ roster hubs.
+	hubs := mustBuildHubs(t, rows)
 	if len(hubs.Nodes) != 1 {
-		t.Fatalf("hub nodes: got %d, want 1 (only 12XU is both over-threshold and linkable)", len(hubs.Nodes))
-	}
-	if hubs.Nodes[0].Name != "12XU" {
-		t.Errorf("hub name: got %q, want %q", hubs.Nodes[0].Name, "12XU")
+		t.Fatalf("hub nodes: got %d, want 1", len(hubs.Nodes))
 	}
 	if len(hubs.Spokes) != globalRosterSize {
-		t.Errorf("spokes: got %d, want %d (one per global roster artist)", len(hubs.Spokes), globalRosterSize)
-	}
-	if cliqueEdges := globalRosterSize * (globalRosterSize - 1) / 2; cliqueEdges != 1711 {
-		t.Fatalf("fixture drift: C(%d,2) = %d, want 1711", globalRosterSize, cliqueEdges)
+		t.Errorf("spokes: got %d, want %d (one per roster artist)", len(hubs.Spokes), globalRosterSize)
 	}
 
-	// (a) Every pair in the hubbed roster loses its pairwise edge — all 1,711.
 	replaced := 0
-	for i := 0; i < len(bigRoster); i++ {
-		for j := i + 1; j < len(bigRoster); j++ {
-			if hubs.replacesSharedLabelEdge(bigRoster[i], bigRoster[j]) {
+	for i := 0; i < len(roster); i++ {
+		for j := i + 1; j < len(roster); j++ {
+			if hubs.replacesSharedLabelEdge(roster[i], roster[j]) {
 				replaced++
 			}
 		}
 	}
-	if want := globalRosterSize * (globalRosterSize - 1) / 2; replaced != want {
-		t.Errorf("replaced pairwise edges: got %d, want %d", replaced, want)
+	if replaced != cliqueEdges {
+		t.Errorf("replaced pairwise edges: got %d, want %d", replaced, cliqueEdges)
+	}
+}
+
+// A build must fail loudly when it is handed membership rows with no artist
+// set: the in-set filter would discard every row and report "no hubs", which
+// reads exactly like a scope that legitimately has none.
+func TestBuildLabelHubs_RefusesRowsWithoutArtistSet(t *testing.T) {
+	rows := []labelRosterRow{
+		rosterRow(1, "Trio Records", 10),
+		rosterRow(1, "Trio Records", 11),
+		rosterRow(1, "Trio Records", 12),
 	}
 
-	// (b) The 2-artist control keeps its single pairwise edge.
-	if hubs.replacesSharedLabelEdge(2000, 2001) {
-		t.Error("a 2-artist label has no hub, so its pairwise edge must survive")
+	hubs, err := buildLabelHubs(rows, nil)
+	if err == nil {
+		t.Fatal("expected an error when roster rows arrive with an empty artist set")
 	}
-
-	// (c) The slug-less roster keeps its pairwise edges.
-	if hubs.replacesSharedLabelEdge(3000, 3001) {
-		t.Error("a slug-less label has no hub, so its pairwise edges must survive")
+	if len(hubs.Nodes) != 0 || len(hubs.Spokes) != 0 {
+		t.Errorf("expected no hubs on refusal, got %d nodes / %d spokes", len(hubs.Nodes), len(hubs.Spokes))
+	}
+	if hubs.replacesSharedLabelEdge(10, 11) {
+		t.Error("a refused build must not claim to replace any edge")
 	}
 }
 
 // The builder is bounded by the artist set, not by the breadth of the roster
-// read: queryAllLabelRosters returns memberships for artists a payload may not
-// contain, and counting those toward the threshold would mint a spoke pointing
-// at a node that does not exist.
+// read: a catalog-wide consumer may hold memberships for artists its payload
+// does not contain, and counting those toward the threshold would mint a spoke
+// pointing at a node that does not exist.
 func TestBuildLabelHubs_IgnoresRosterRowsOutsideArtistSet(t *testing.T) {
 	rows := []labelRosterRow{
 		rosterRow(1, "Wide Records", 10),
