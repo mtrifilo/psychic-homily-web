@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -307,7 +308,8 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_RejectsMusicBeforeDoors() {
 	s.Require().NotEmpty(errs, "music before doors must be rejected")
 	found := false
 	for _, e := range errs {
-		if detail, ok := e.(*huma.ErrorDetail); ok && detail.Location == "body.music_at" {
+		var detail *huma.ErrorDetail
+		if errors.As(e, &detail) && detail.Location == "body.music_at" {
 			found = true
 		}
 	}
