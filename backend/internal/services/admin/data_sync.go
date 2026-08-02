@@ -508,6 +508,8 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 	// import seam — new rows start with NULL street fields and the
 	// geocode-venue-addresses backfill CLI resolves them afterwards.
 	newVenue.Latitude, newVenue.Longitude, newVenue.Timezone = geo.LookupPointers(geo.Default(), newVenue.City, newVenue.State, "")
+	// PSY-1707 write-boundary invariant.
+	newVenue.Timezone = normalizedGeocodedTimezone(s.db, newVenue.Timezone)
 	newVenue.Metro = geo.MetroPointer(geo.Default(), newVenue.City, newVenue.State, "") // PSY-1255 step B
 
 	if err := s.db.Create(&newVenue).Error; err != nil {
@@ -659,6 +661,8 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 				}
 				// PSY-985: geocode imported venues (see importVenue).
 				venue.Latitude, venue.Longitude, venue.Timezone = geo.LookupPointers(geo.Default(), venue.City, venue.State, "")
+				// PSY-1707 write-boundary invariant.
+				venue.Timezone = normalizedGeocodedTimezone(tx, venue.Timezone)
 				venue.Metro = geo.MetroPointer(geo.Default(), venue.City, venue.State, "") // PSY-1255 step B
 				if err := tx.Create(&venue).Error; err != nil {
 					return fmt.Errorf("failed to create venue: %w", err)

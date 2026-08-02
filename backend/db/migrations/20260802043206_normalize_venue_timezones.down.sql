@@ -1,0 +1,11 @@
+-- PSY-1707 down migration.
+--
+-- Deliberately a no-op. The up migration canonicalizes spelling and NULLs
+-- values Postgres cannot resolve; neither is reversible, because it does not
+-- record what the previous text was. Restoring an unresolvable timezone would
+-- also be actively harmful -- it re-arms the AT TIME ZONE failure the up
+-- migration exists to disarm.
+--
+-- Rolling this back therefore means "stop enforcing the invariant going
+-- forward" (revert the application code), not "put the bad strings back".
+SELECT 1;

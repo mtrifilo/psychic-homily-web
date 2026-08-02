@@ -57,6 +57,13 @@ func (s *VenueService) WithAddressGeocoder(ag geo.AddressGeocoder) *VenueService
 // on a venue from its city/state/country via the offline geocoder (in-memory, no
 // network, never errors). A miss leaves the fields nil so display falls back to
 // the legacy state->timezone map — no regression. (PSY-985; metro PSY-1255 step B)
+//
+// This is the ONLY place venues.timezone is assigned, on both the create and the
+// update path, which is what makes it the right place to hold the write-boundary
+// invariant PSY-1707 establishes: whatever lands in that column is a name
+// Postgres itself recognizes. Readers (the venue-local show-list partition, the
+// ICS feed, reminder rendering) resolve it with AT TIME ZONE, which does not
+// degrade gracefully — an unknown name raises and takes the query down.
 func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	country := ""
 	if v.Country != nil {
@@ -64,6 +71,42 @@ func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	}
 	v.Latitude, v.Longitude, v.Timezone = geo.LookupPointers(s.geocoder, v.City, v.State, country)
 	v.Metro = geo.MetroPointer(s.geocoder, v.City, v.State, country)
+	v.Timezone = s.normalizedGeocodedTimezone(v)
+}
+
+// normalizedGeocodedTimezone canonicalizes the zone the geocoder just produced,
+// or returns nil when it is not a name Postgres knows.
+//
+// Degrades to NULL rather than failing the write, deliberately: this value is
+// derived internally from the GeoNames dataset, not supplied by the caller, so a
+// bad one is our bug and refusing the user's venue would be the wrong end of it.
+// NULL is a shape every reader already handles (it is what a geocode MISS
+// produces, and 8 of 237 production venues sit in it today) and it falls back to
+// the state map. A request-supplied timezone would want the opposite treatment —
+// reject with 422 — which is why shared.NormalizeIANATimezone returns the error
+// rather than swallowing it. No such path exists today: every venue create and
+// update body is city/state/country, and the zone is derived from those.
+func (s *VenueService) normalizedGeocodedTimezone(v *catalogm.Venue) *string {
+	// No database means nothing is being persisted -- applyGeocoding is also used
+	// as a pure derivation helper in unit tests (venue_geocoding_test.go) -- so
+	// there is nothing to guard and the derived value passes through untouched.
+	// Safe rather than fail-open: the column can only be written through a
+	// service that HAS a handle, and every such path validates.
+	if s.db == nil {
+		return v.Timezone
+	}
+	rejected := ""
+	if v.Timezone != nil {
+		rejected = *v.Timezone
+	}
+	canonical, err := shared.NormalizeIANATimezone(s.db, v.Timezone)
+	if err != nil {
+		slog.Error("venue geocode produced a timezone Postgres does not recognize; storing NULL",
+			"venue_name", v.Name, "city", v.City, "state", v.State,
+			"rejected_timezone", rejected, "error", err)
+		return nil
+	}
+	return canonical
 }
 
 // streetGeocodeTimeout caps ONE inline street-geocode for a venue, including
