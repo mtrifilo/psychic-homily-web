@@ -542,3 +542,229 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHis
 	s.Require().NotNil(restored.Capacity)
 	s.Equal(0, *restored.Capacity)
 }
+
+// =============================================================================
+// Read-time privacy redaction
+// =============================================================================
+
+func (s *RevisionServiceIntegrationTestSuite) createVerifiedTestVenue(name string) *catalogm.Venue {
+	venue := s.createTestVenue(name)
+	// Verified is set with an explicit UPDATE rather than on Create so both
+	// helpers share one path and neither can drift onto GORM's
+	// zero-value-vs-column-default behavior for bools.
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+		Update("verified", true).Error)
+	venue.Verified = true
+	return venue
+}
+
+// addressChanges is the diff an approved contributor address edit records.
+func addressChanges() []adminm.FieldChange {
+	return []adminm.FieldChange{
+		{Field: "name", OldValue: "Old Room", NewValue: "The Basement"},
+		{Field: "address", OldValue: "1 Old St", NewValue: "1234 Secret St"},
+		{Field: "zipcode", OldValue: "85003", NewValue: "85004"},
+	}
+}
+
+// changesFor unmarshals a served revision's field_changes into a field->change
+// map for assertions.
+func (s *RevisionServiceIntegrationTestSuite) changesFor(r adminm.Revision) map[string]adminm.FieldChange {
+	s.Require().NotNil(r.FieldChanges)
+	var parsed []adminm.FieldChange
+	s.Require().NoError(json.Unmarshal(*r.FieldChanges, &parsed))
+	byField := make(map[string]adminm.FieldChange, len(parsed))
+	for _, c := range parsed {
+		byField[c.Field] = c
+	}
+	return byField
+}
+
+// assertAddressMasked pins the actual acceptance criterion first — neither the
+// old nor the new street address appears ANYWHERE in the served bytes — and
+// only then the shape of the mask. A field-by-field check alone would pass if a
+// future writer duplicated the value under another key.
+func (s *RevisionServiceIntegrationTestSuite) assertAddressMasked(r adminm.Revision) {
+	s.Require().NotNil(r.FieldChanges)
+	raw := string(*r.FieldChanges)
+	s.NotContains(raw, "1234 Secret St", "new address must not be served")
+	s.NotContains(raw, "1 Old St", "old address must not be served either")
+	s.NotContains(raw, "85004")
+	s.NotContains(raw, "85003")
+
+	byField := s.changesFor(r)
+	s.Equal(revisiondiff.RedactedValue, byField["address"].OldValue)
+	s.Equal(revisiondiff.RedactedValue, byField["address"].NewValue)
+	s.Equal(revisiondiff.RedactedValue, byField["zipcode"].OldValue)
+	s.Equal(revisiondiff.RedactedValue, byField["zipcode"].NewValue)
+
+	// The edit itself stays visible — this is redaction, not deletion.
+	s.Len(byField, 3)
+	s.Equal("Old Room", byField["name"].OldValue)
+	s.Equal("The Basement", byField["name"].NewValue)
+}
+
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_RedactsUnverifiedVenueAddress() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Unverified Room")
+	s.Require().False(venue.Verified)
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+
+	revisions, total, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Equal(int64(1), total)
+	s.Require().Len(revisions, 1)
+	s.assertAddressMasked(revisions[0])
+
+	// Redaction is a serving concern only. The stored row must still hold the
+	// real values, which is what rollback and any future policy change read.
+	var stored adminm.Revision
+	s.Require().NoError(s.db.First(&stored).Error)
+	s.Contains(string(*stored.FieldChanges), "1234 Secret St",
+		"the stored row must not be rewritten by a read")
+}
+
+// The DB-error half of fail-closed. An aborted transaction makes the
+// verified-venue lookup fail for real, which must mask rather than publish.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LookupErrorFailsClosed() {
+	user := s.createTestUser()
+	venue := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+
+	tx := s.db.Begin()
+	defer func() { _ = tx.Rollback() }()
+	// Poison the transaction: every later statement on it errors until rollback.
+	s.Require().Error(tx.Exec("SELECT 1/0").Error)
+
+	revisions, _, err := NewRevisionService(tx).GetEntityHistory("venue", venue.ID, 10, 0)
+	s.Require().Error(err, "the history query itself fails on a poisoned tx")
+	s.Empty(revisions)
+
+	// The lookup alone, on the same poisoned tx: a VERIFIED venue must still
+	// come back unverified, because the gate cannot prove otherwise.
+	verified := NewRevisionService(tx).verifiedVenueIDs([]uint{venue.ID})
+	s.Empty(verified, "a lookup error must not admit a venue to the verified set")
+}
+
+// nil db is the other fail-closed input: no lookup is possible, so nothing is
+// verified and every venue revision masks.
+func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_NilDBFailsClosed() {
+	raw := json.RawMessage(`[{"field":"address","old_value":"1 Old St","new_value":"1234 Secret St"}]`)
+	revisions := []adminm.Revision{{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: &raw}}
+
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions)
+
+	s.NotContains(string(*revisions[0].FieldChanges), "1234 Secret St")
+	s.NotContains(string(*revisions[0].FieldChanges), "1 Old St")
+}
+
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesVerifiedVenueAddress() {
+	user := s.createTestUser()
+	venue := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 1)
+
+	byField := s.changesFor(revisions[0])
+	s.Equal("1 Old St", byField["address"].OldValue)
+	s.Equal("1234 Secret St", byField["address"].NewValue)
+	s.Equal("85004", byField["zipcode"].NewValue)
+}
+
+// A revision pointing at a venue row that no longer exists must mask, not
+// publish: the gate has no evidence that venue was ever verified.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MissingVenueFailsClosed() {
+	user := s.createTestUser()
+
+	s.Require().NoError(s.svc.RecordRevision("venue", 987654, user.ID, addressChanges(), "moved"))
+
+	revisions, _, err := s.svc.GetEntityHistory("venue", 987654, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 1)
+	s.assertAddressMasked(revisions[0])
+}
+
+// Non-venue entities carry no private field, so their diffs must come back
+// exactly as stored — the gate must not quietly reshape unrelated history.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LeavesNonVenueEntitiesUntouched() {
+	user := s.createTestUser()
+
+	changes := []adminm.FieldChange{
+		{Field: "city", OldValue: "Phoenix", NewValue: "Tempe"},
+		{Field: "description", OldValue: "", NewValue: "a band"},
+	}
+	s.Require().NoError(s.svc.RecordRevision("artist", 31, user.ID, changes, "moved"))
+
+	var stored adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ?", "artist").First(&stored).Error)
+
+	revisions, _, err := s.svc.GetEntityHistory("artist", 31, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 1)
+	s.JSONEq(string(*stored.FieldChanges), string(*revisions[0].FieldChanges))
+}
+
+func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_RedactsUnverifiedVenueAddress() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Unverified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+
+	var stored adminm.Revision
+	s.Require().NoError(s.db.First(&stored).Error)
+
+	revision, err := s.svc.GetRevision(stored.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(revision)
+	s.assertAddressMasked(*revision)
+}
+
+func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_RedactsUnverifiedVenueAddress() {
+	user := s.createTestUser()
+	unverified := s.createTestVenue("Unverified Room")
+	verified := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", unverified.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", verified.ID, user.ID, addressChanges(), "moved"))
+
+	revisions, _, err := s.svc.GetUserRevisions(user.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 2)
+
+	// One page, two venues, opposite verdicts — proves the batched lookup keys
+	// each revision to its OWN venue rather than to the page as a whole.
+	byEntity := map[uint]adminm.Revision{}
+	for _, r := range revisions {
+		byEntity[r.EntityID] = r
+	}
+	s.assertAddressMasked(byEntity[unverified.ID])
+	s.Equal("1234 Secret St", s.changesFor(byEntity[verified.ID])["address"].NewValue)
+}
+
+// The stored row is never touched, so it is still the truth an admin rollback
+// restores. If Rollback read the served copy it would write "(hidden)" into
+// venues.address.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresRealAddressForUnverifiedVenue() {
+	user := s.createTestUser()
+	adminUser := s.createTestUser()
+	venue := s.createTestVenue("Unverified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+		Update("address", "1234 Secret St").Error)
+
+	var stored adminm.Revision
+	s.Require().NoError(s.db.First(&stored).Error)
+
+	s.Require().NoError(s.svc.Rollback(stored.ID, adminUser.ID))
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Require().NotNil(restored.Address)
+	s.Equal("1 Old St", *restored.Address, "rollback must restore the real address, not the mask")
+}

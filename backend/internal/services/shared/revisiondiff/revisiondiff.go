@@ -35,6 +35,57 @@
 // Field paths are validated against their struct once at package init via
 // ValidateAll, so a renamed or mistyped field fails loudly at startup (and in
 // tests) rather than silently dropping from every future revision row.
+//
+// # Privacy: what revision history may publish
+//
+// Revision history is read through ANONYMOUS endpoints
+// (GET /revisions/{entity_type}/{entity_id}, GET /revisions/{revision_id},
+// GET /users/{user_id}/revisions), so anything Compare records about an entity
+// is world-readable for the life of the row. A field that the live entity
+// payload withholds must therefore be withheld here too, or the gate on the
+// live payload is decorative: edit the field once and the value is published in
+// the history instead.
+//
+// One such field family exists today. catalog.Venue.PublicAddress /
+// PublicZipcode withhold an unverified venue's street address and zipcode,
+// because an unverified venue is routinely a DIY show at somebody's home. The
+// same rule, spelled in revision-field names, lives in privacy.go and is
+// applied at READ time by admin.RevisionService — the stored row keeps the real
+// values, so admin rollback still restores what was actually there.
+//
+// Read time, not write time, is deliberate: the gate depends on venues.verified,
+// which changes after the revision is written. Masking at write time would
+// permanently withhold the history of a venue that later gets verified, and
+// would leave every already-stored row leaking.
+//
+// Every other entity's field list was audited against its live detail response
+// at the commit that added this: artist, show, release, label and festival
+// builders serve every field they record unconditionally, so no other field
+// family needs masking. That sentence is a point-in-time reading, not a check —
+// what keeps it true is the rule, which is that adding a FIELD-level gate to
+// any live entity response means adding its revision-field name to privacy.go
+// in the same change.
+//
+// Three KNOWN GAPS are not closed by a field list, and none of them should be
+// read as covered by the paragraph above.
+//
+// One: Summary is contributor-authored free text, stored and served unmasked
+// beside the diff. The edit drawer asks "why are you making this change?" and
+// tells the contributor it "helps reviewers understand your edit", so the
+// natural summary for an address correction contains the address, and on the
+// trusted-tier auto-apply path no reviewer ever sees it. No field-name rule can
+// reach prose; closing it needs a decision about whether to withhold summaries
+// on gated entities, rewrite the drawer copy to say the field is public, or
+// both.
+//
+// Two: shows are gated at the ENTITY level rather than the field level.
+// GET /shows/{id} 404s an anonymous caller for a show whose status is pending,
+// rejected or private, while GET /revisions/show/{id} still publishes every
+// recorded field. Unpublishing a show hides the show but not its history.
+//
+// Three: venue merge re-points a losing venue's revisions onto the canonical
+// row and deletes the loser, so merging an unverified venue into a verified one
+// republishes the masked history. See MergeVenues.
 package revisiondiff
 
 import (

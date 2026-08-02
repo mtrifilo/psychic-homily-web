@@ -9,7 +9,10 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
 // RevisionService handles revision history business logic.
@@ -89,12 +92,33 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 		return nil, 0, fmt.Errorf("failed to get entity history: %w", err)
 	}
 
+	s.applyPrivacyRedaction(revisions)
 	return revisions, total, nil
 }
 
-// GetRevision retrieves a single revision by ID.
+// GetRevision retrieves a single revision by ID, redacted for serving.
 // Returns nil, nil if not found.
 func (s *RevisionService) GetRevision(revisionID uint) (*adminm.Revision, error) {
+	revision, err := s.getRevisionRaw(revisionID)
+	if err != nil || revision == nil {
+		return nil, err
+	}
+
+	// Redact through a one-element batch so the served copy goes through
+	// exactly the same code path as a list read; there is no second spelling
+	// of the policy to fall out of sync.
+	batch := []adminm.Revision{*revision}
+	s.applyPrivacyRedaction(batch)
+	return &batch[0], nil
+}
+
+// getRevisionRaw loads a revision with its stored field_changes untouched.
+//
+// This is the INTERNAL accessor. Rollback needs it: redacted values are display
+// strings, and writing one back would overwrite a venue's real address with
+// "(hidden)". Anything that serves a revision to a client must go through
+// GetRevision instead.
+func (s *RevisionService) getRevisionRaw(revisionID uint) (*adminm.Revision, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -137,6 +161,7 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int) ([]ad
 		return nil, 0, fmt.Errorf("failed to get user revisions: %w", err)
 	}
 
+	s.applyPrivacyRedaction(revisions)
 	return revisions, total, nil
 }
 
@@ -147,7 +172,9 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	revision, err := s.GetRevision(revisionID)
+	// Raw, not GetRevision: a rollback restores stored values, so it must read
+	// the row as written. See getRevisionRaw.
+	revision, err := s.getRevisionRaw(revisionID)
 	if err != nil {
 		return err
 	}
@@ -208,4 +235,129 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	// Record the rollback as a new revision
 	summary := fmt.Sprintf("Rollback of revision #%d", revisionID)
 	return s.RecordRevision(revision.EntityType, revision.EntityID, adminUserID, rollbackChanges, summary)
+}
+
+// =============================================================================
+// READ-TIME PRIVACY REDACTION
+// =============================================================================
+
+// applyPrivacyRedaction masks, in place, the FieldChanges values that revision
+// history is not allowed to publish. The policy it enforces, the field list,
+// and the gaps it does not cover are stated once on the revisiondiff package
+// doc; this is the mechanism.
+//
+// It is caller-independent, mirroring the live gate, which turns on
+// venues.verified alone and has no caller tier: an admin loading an unverified
+// venue's detail page does not see its address either. Admin surfaces that
+// legitimately need the raw value read it directly (the moderation queue, the
+// data-sync export), and rollback reads the stored row through getRevisionRaw.
+//
+// Fail closed. A lookup error, a nil db, or a missing venue row leaves the
+// venue out of the verified set, so its history is masked. Withholding an
+// address that turned out to be publishable is recoverable; the reverse is not.
+//
+// It masks VALUES, not the fact of an edit: a masked revision still names the
+// field, the author and the timestamp. That is the residual, and it is
+// deliberate — revision history exists to be auditable.
+func (s *RevisionService) applyPrivacyRedaction(revisions []adminm.Revision) {
+	venueIDs := make([]uint, 0, len(revisions))
+	seen := make(map[uint]struct{}, len(revisions))
+	for i := range revisions {
+		if revisions[i].EntityType != "venue" {
+			continue
+		}
+		if _, dup := seen[revisions[i].EntityID]; dup {
+			continue
+		}
+		seen[revisions[i].EntityID] = struct{}{}
+		venueIDs = append(venueIDs, revisions[i].EntityID)
+	}
+	if len(venueIDs) == 0 {
+		return
+	}
+
+	verified := s.verifiedVenueIDs(venueIDs)
+	for i := range revisions {
+		if revisions[i].EntityType != "venue" {
+			continue
+		}
+		if _, ok := verified[revisions[i].EntityID]; ok {
+			continue
+		}
+		redactVenueRevision(&revisions[i])
+	}
+}
+
+// verifiedVenueIDs returns the subset of ids whose venue row is verified, as a
+// set. One query for the whole page rather than one per revision.
+//
+// Returns an empty (non-nil) set on error, which redacts everything — see the
+// failure-mode note on applyPrivacyRedaction.
+func (s *RevisionService) verifiedVenueIDs(ids []uint) map[uint]struct{} {
+	verified := make(map[uint]struct{}, len(ids))
+	if s.db == nil || len(ids) == 0 {
+		return verified
+	}
+
+	var found []uint
+	err := s.db.Model(&catalogm.Venue{}).
+		Where("id IN ? AND verified = ?", ids, true).
+		Pluck("id", &found).Error
+	if err != nil {
+		logger.Default().Error("revision_privacy_venue_lookup_failed",
+			"venue_id_count", len(ids),
+			"error", err.Error(),
+		)
+		return verified
+	}
+
+	for _, id := range found {
+		verified[id] = struct{}{}
+	}
+	return verified
+}
+
+// redactVenueRevision rewrites one unverified-venue revision's FieldChanges
+// from the parsed diff with the private values masked.
+//
+// It ALWAYS re-marshals rather than passing the stored bytes through when no
+// private field matched. Serving the stored bytes would make the guarantee
+// depend on the stored JSON having exactly the shape adminm.FieldChange models:
+// encoding/json silently drops keys the struct does not declare, so a row
+// carrying an address under an unmodeled key would parse to a clean-looking
+// diff and then be served verbatim. Rebuilding the payload from the three
+// fields this function can actually inspect makes what is served a function of
+// what was checked. The cost is one marshal of a bounded slice per masked row.
+//
+// It assigns a NEW *json.RawMessage rather than writing through the existing
+// one. GetRevision hands this a copy of a struct that still shares its pointer
+// with the raw row, so mutating the bytes in place would corrupt the value
+// rollback reads.
+func redactVenueRevision(r *adminm.Revision) {
+	if r.FieldChanges == nil {
+		return
+	}
+
+	blank := func(event string, err error) {
+		blanked := json.RawMessage("[]")
+		r.FieldChanges = &blanked
+		logger.Default().Error(event, "revision_id", r.ID, "error", err.Error())
+	}
+
+	var changes []adminm.FieldChange
+	if err := json.Unmarshal(*r.FieldChanges, &changes); err != nil {
+		// Unreadable stored JSON: the handler renders changes from these same
+		// bytes, so blank them rather than pass along a blob nothing here could
+		// inspect.
+		blank("revision_privacy_field_changes_unreadable", err)
+		return
+	}
+
+	encoded, err := json.Marshal(revisiondiff.RedactVenueChanges(changes))
+	if err != nil {
+		blank("revision_privacy_remarshal_failed", err)
+		return
+	}
+	raw := json.RawMessage(encoded)
+	r.FieldChanges = &raw
 }
