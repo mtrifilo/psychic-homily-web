@@ -124,12 +124,12 @@ func (Venue) TableName() string {
 // route is registered only under ENVIRONMENT=development, which is the whole
 // reason it is not a leak despite being anonymous there.
 //
-// KNOWN GAP, not covered by this gate: field-level revision history stores the
-// submitted address string in revisions.field_changes and the read endpoint is
-// anonymous, so an address that was ever EDITED on an unverified venue is
-// published there regardless of what this returns. Closing it needs a policy for
-// historical values, not another call to this function, so it is tracked
-// separately rather than papered over here.
+// Revision history carries the same rule but cannot use this accessor: it
+// stores the submitted address string in revisions.field_changes, so there is no
+// Venue to gate at read time. It applies the rule by field NAME instead, in
+// services/shared/revisiondiff/privacy.go, masked at read time by
+// admin.RevisionService. The two are one policy in two spellings — a field
+// withheld here that is not also withheld there is published by editing it once.
 func (v *Venue) PublicAddress() *string {
 	if v == nil || !v.Verified {
 		return nil

@@ -35,6 +35,44 @@
 // Field paths are validated against their struct once at package init via
 // ValidateAll, so a renamed or mistyped field fails loudly at startup (and in
 // tests) rather than silently dropping from every future revision row.
+//
+// # Privacy: what revision history may publish
+//
+// Revision history is read through ANONYMOUS endpoints
+// (GET /revisions/{entity_type}/{entity_id}, GET /revisions/{revision_id},
+// GET /users/{user_id}/revisions), so anything Compare records about an entity
+// is world-readable for the life of the row. A field that the live entity
+// payload withholds must therefore be withheld here too, or the gate on the
+// live payload is decorative: edit the field once and the value is published in
+// the history instead.
+//
+// One such field family exists today. catalog.Venue.PublicAddress /
+// PublicZipcode withhold an unverified venue's street address and zipcode,
+// because an unverified venue is routinely a DIY show at somebody's home. The
+// same rule, spelled in revision-field names, lives in privacy.go and is
+// applied at READ time by admin.RevisionService — the stored row keeps the real
+// values, so admin rollback still restores what was actually there.
+//
+// Read time, not write time, is deliberate: the gate depends on venues.verified,
+// which changes after the revision is written. Masking at write time would
+// permanently withhold the history of a venue that later gets verified, and
+// would leave every already-stored row leaking.
+//
+// Every other entity's field list was audited against its live detail response:
+// artist, show, release, label and festival builders serve every field they
+// record unconditionally, so no other field family needs masking. Adding a
+// FIELD-level gate to any live entity response means adding its revision-field
+// name to privacy.go in the same change.
+//
+// KNOWN GAP, a different shape and therefore not closed here: shows are gated at
+// the ENTITY level rather than the field level. GET /shows/{id} 404s an
+// anonymous caller for a show whose status is pending, rejected or private
+// (handlers/catalog/show.go), while GET /revisions/show/{id} still publishes
+// every recorded field for that show. A submitter who unpublishes an approved
+// show therefore hides the show but not the values its history recorded. Closing
+// that needs a decision about whether such a show's history should be withheld
+// wholesale or merely masked, which is a policy question rather than another
+// entry in privacy.go, so it is tracked separately.
 package revisiondiff
 
 import (

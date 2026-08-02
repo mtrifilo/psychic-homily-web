@@ -143,9 +143,14 @@ func init() {
 }
 
 // ValidateAll checks every registered field list against its struct: each Path
-// must resolve to an existing field whose type is one Compare can diff. Returns
-// the first problem found, or nil when all lists are well-formed.
+// must resolve to an existing field whose type is one Compare can diff. It also
+// checks that every privacy-masked field name is one the diff can actually emit
+// (see privacy.go). Returns the first problem found, or nil when all lists are
+// well-formed.
 func ValidateAll() error {
+	if err := validateVenuePrivateFields(); err != nil {
+		return err
+	}
 	for _, e := range registry {
 		t := reflect.TypeOf(e.example)
 		for _, f := range e.fields {

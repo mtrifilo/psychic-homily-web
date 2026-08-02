@@ -130,6 +130,15 @@ func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contr
 // Field data is NOT combined: the canonical venue keeps its own name, address
 // and links untouched. Choosing which record's details survive is a judgment
 // call, so it stays with the admin, who picks the canonical id.
+//
+// KNOWN GAP, admin-triggered: revision history is re-pointed like any other
+// reference, and revision address redaction is decided at READ time from the
+// current entity_id's venues.verified. Merging an UNVERIFIED venue into a
+// VERIFIED one therefore republishes the loser's address history, and the losing
+// row is deleted so nothing survives to re-derive its verification state.
+// Closing it means scrubbing or carrying forward the loser's redaction at merge
+// time, which is a write-path change to stored history rather than another read
+// gate, so it is tracked separately.
 func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
 	result, err := s.mergeVenues(canonicalID, mergeFromID, false)
 	if err != nil {

@@ -107,6 +107,12 @@ func resolveRevisionUserUsername(u *authm.User) *string {
 }
 
 // mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem.
+//
+// It publishes FieldChanges verbatim, and all three read routes are anonymous,
+// so what may appear here is decided upstream: RevisionService applies the
+// read-time privacy redaction (see applyPrivacyRedaction) before returning a
+// revision. Do not read revisions.field_changes into a response through any
+// other path.
 func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 	item := RevisionResponseItem{
 		ID:           r.ID,
