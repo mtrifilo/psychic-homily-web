@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { isShowCardSettled, ogCacheControl } from './response'
+import { isShowCardSettled } from './settled'
+import { ogCacheControl } from './response'
 
 /**
  * Tests the symbol the show-card route actually calls, not a copy of it.
+ *
+ * `ogCacheControl` is imported from `response` only to show what a settled
+ * classification commits the CDN to; the rule itself deliberately lives apart
+ * from that module, which two Edge Function routes import. See `settled.ts`.
  *
  * The route cannot assert this itself: the brand fonts are route assets that do
  * not resolve under vitest, so every card rendered there is `degraded` and takes

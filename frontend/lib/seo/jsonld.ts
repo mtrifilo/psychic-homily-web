@@ -255,7 +255,15 @@ export function generateMusicEventSchema(show: {
   is_cancelled?: boolean
   is_sold_out?: boolean
   /**
-   * The show has already happened, so there is nothing left to offer.
+   * The show's advertised START INSTANT has passed, so there is nothing left to
+   * sell. Both callers supply `hasShowStarted` from `lib/utils/showTiming`.
+   *
+   * The name is older than the distinction and undersells it: this is NOT "the
+   * show's day is over". Do not feed it `isShowPast` from that module, which
+   * draws the venue-local calendar-day boundary for listing liveness. That
+   * boundary keeps an `InStock` offer standing through the show itself, and for
+   * nearly a full day for a show starting after midnight, which is a shortened
+   * form of the bug the offer gate exists to prevent.
    *
    * Caller-supplied rather than derived from `date` here, so this stays a pure
    * function of its input: its output is reproducible and its tests do not

@@ -7,7 +7,6 @@ import {
   loadBrandFonts,
   type OgFont,
 } from './brand'
-import { isShowPast, type ShowTimingInput } from '@/lib/utils/showTiming'
 
 /**
  * A font load that may have degraded.
@@ -100,50 +99,6 @@ export function ogCacheControl(seconds: number): string {
  * blank previews for that URL.
  */
 export const OG_FALLBACK_CACHE_SECONDS = 60
-
-/**
- * A day of margin between "the show is over" and "this card will never change
- * again".
- *
- * NOT a timezone allowance — deriving the boundary in the venue's own zone
- * removed the need for that. It is a CACHE-INVALIDATION one. `ogCacheControl`
- * sets stale-while-revalidate equal to s-maxage, so committing a card to the
- * long window commits the CDN to it for up to twice that: an admin who cancels
- * a show, fixes its date, or finally attaches a flyer the morning after would
- * not reach an iMessage or Discord unfurl for two days. Shows are edited most
- * right after they happen, so the margin covers exactly that window.
- *
- * Carried over from the rule this replaced, which subtracted the same day for
- * a different stated reason. Changing the number is a product call about how
- * stale a share preview may be, not a refactor.
- */
-const SETTLED_MARGIN_MS = 24 * 60 * 60 * 1000
-
-/**
- * Whether a show's card can never change again, and so may cache hard.
- *
- * Exported rather than inlined at the route so it can be tested at all: the
- * brand fonts are route assets that do not resolve under vitest, so every card
- * rendered there is `degraded` and takes the short window before this branch is
- * reached. A copy of the rule living in a test would pin the copy, not the
- * route — this is the one definition both use.
- *
- * Reads the venue-local boundary a margin into the past, which is the same
- * question the pre-`isShowPast` rule asked ("did this end more than a day ago")
- * with the UTC-versus-venue skew taken out of it.
- *
- * An unreadable `event_date` counts as settled here only because it cannot
- * reach this function: the route's `asShow` rejects one before rendering, and
- * a card that survives to be classified always has a parseable date. Do not
- * relax that guard without revisiting this, since a 48-hour freeze is the
- * expensive direction to be wrong in.
- */
-export function isShowCardSettled(
-  show: ShowTimingInput,
-  now: Date = new Date()
-): boolean {
-  return isShowPast(show, new Date(now.getTime() - SETTLED_MARGIN_MS))
-}
 
 /**
  * The branded card shown when the data behind a share card cannot be had.

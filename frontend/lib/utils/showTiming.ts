@@ -15,6 +15,14 @@ import { resolveShowTimezone } from './formatters'
  * Pick by the claim being made, not by which reads better. An `Offer` is the
  * first kind; a cache lifetime is the second.
  *
+ * Where they are used TODAY, so nobody has to grep for it: `hasShowStarted`
+ * backs both JSON-LD offer gates and the field-notes form. `isShowPast` has
+ * exactly one consumer, the share card's cache window. No listing surface uses
+ * it yet: the past/upcoming splits on artist, venue and library pages are
+ * partitioned by the API, and the scene pages read backend-computed
+ * `is_past_day` / `is_past_week`. It is here because the show-page lifecycle
+ * design needs one venue-local answer, and that work will consume it.
+ *
  * There is deliberately NO post-midnight grace window ("a Friday show is still
  * Friday at 1 AM Saturday"). The lifecycle design calls for one, its duration
  * is an open product decision, and inventing a constant here would quietly bind
@@ -34,7 +42,12 @@ export interface ShowTimingInput {
   eventDate: string | null | undefined
   /** `venues.timezone` (GeoNames-backed), when the venue has one resolved. */
   timezone?: string | null
-  /** US state code, the fallback zone for venues predating the backfill. */
+  /**
+   * US state code, the fallback zone for venues predating the backfill. US
+   * ONLY: an unrecognized value (including any non-US region) resolves to
+   * America/Phoenix, so a non-US venue needs `timezone` populated to be judged
+   * on its own calendar. See `isShowPast`.
+   */
   state?: string | null
 }
 
@@ -48,7 +61,7 @@ export interface ShowTimingInput {
  * Ordering holds because each field occupies a fixed decimal width.
  *
  * Constructs its formatter per call, deliberately. An earlier revision memoized
- * them, which is the right shape for a hot loop — but `isShowPast` has one
+ * them, which is the right shape for a hot loop, but `isShowPast` has one
  * caller, once per share-card request, so the memo bought nothing and cost a
  * module-level mutable map plus a cap to bound it. Add the memo back when a
  * caller arrives that asks this per row; `resolveShowTimezone` builds a
@@ -78,16 +91,26 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
  * started two hours ago is still tonight's listing, and an 8 PM Phoenix show is
  * past at 00:00 Phoenix time whatever the reader's clock says.
  *
- * Use this for LISTING LIVENESS — how long a share card may be cached, whether
+ * Use this for LISTING LIVENESS: how long a share card may be cached, whether
  * a row is still "tonight". Do NOT use it to decide whether tickets are still
  * on sale: doors close at an instant, and stretching that to the end of the
  * local day would publish a purchasable ticket for a show already in progress,
  * or for nearly a full day after an after-midnight one. `hasShowStarted` is the
  * predicate for that question.
  *
+ * KNOWN LIMIT, read this before using it for anything a reader sees: the zone
+ * comes from `resolveShowTimezone`, which ends at a US state map defaulting to
+ * America/Phoenix. A venue outside the US whose `venues.timezone` has not been
+ * backfilled is therefore judged on Arizona's calendar, which can be most of a
+ * day out. Today that only picks a cache lifetime. Populate `venues.timezone`
+ * for non-US venues before this decides anything a reader or crawler reads.
+ *
  * Both inputs are guarded: an undateable show counts as past, and an unreadable
  * `now` counts as not-past, because the alternative is `Intl` throwing
- * `RangeError` out of a server component.
+ * `RangeError` out of a server component. "Counts as past" is not automatically
+ * the safe direction here the way withholding an offer would be: for the share
+ * card it selects the LONG cache window, which is why `isShowCardSettled`
+ * depends on its route rejecting unparseable dates upstream.
  *
  * `now` is injectable so callers on the server can stay pure functions of their
  * input and so tests do not depend on the wall clock.
@@ -120,13 +143,11 @@ export function isShowPast(show: ShowTimingInput, now: Date = new Date()): boole
  * different boundary would either hide a form the API would have accepted or
  * offer one it is about to reject with a 400.
  *
- * An undateable show counts as started. Note this is the SAME rule as
- * `isShowPast`'s undateable case but NOT the same fail direction: there,
- * "already happened" withholds an offer, which is safe; here it opens a form
- * the API may then reject. It is deliberate anyway, because it is what this
- * gate already did before the derivation moved here, and because the API is the
- * authority on that rejection either way. The alternative renders "available
- * after Invalid Date".
+ * An undateable show counts as started, which opens a form the API may then
+ * reject with a 400. Deliberate: it is what this gate already did before the
+ * derivation moved here, and the API is the authority on that rejection either
+ * way. `isShowPast` applies the same rule to an unreadable date, but do not
+ * assume the two are equally harmless there: see its own note.
  */
 export function hasShowStarted(
   eventDate: string | null | undefined,

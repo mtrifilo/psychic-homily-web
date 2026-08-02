@@ -11,11 +11,11 @@ import {
 } from '@/lib/og/brand'
 import {
   OG_FALLBACK_CACHE_SECONDS,
-  isShowCardSettled,
   loadBrandFontsOrDefault,
   ogCacheControl,
   ogFallbackCard,
 } from '@/lib/og/response'
+import { isShowCardSettled } from '@/lib/og/settled'
 import { loadRemoteImage } from '@/lib/og/remoteImage'
 import {
   CONTENT_WIDTH,

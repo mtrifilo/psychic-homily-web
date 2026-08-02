@@ -250,7 +250,12 @@ describe('FieldNotesSection', () => {
       )
 
       expect(screen.getByTestId('future-show-message')).toBeInTheDocument()
-      expect(screen.getByText(/Field notes will be available after/)).toBeInTheDocument()
+      // The EXACT string. A looser matcher passed against the old copy too,
+      // which named a calendar date in front of a gate that opens at the start
+      // instant, so nothing stopped that regression from coming back.
+      expect(
+        screen.getByText('Field notes will be available after the show starts.')
+      ).toBeInTheDocument()
     })
 
     it('does not show form for future show', () => {

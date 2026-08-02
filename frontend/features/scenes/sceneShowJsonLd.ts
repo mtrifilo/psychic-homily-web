@@ -63,7 +63,7 @@ export function isDescribableEvent(show: SceneWeekShow): boolean {
  * `sceneTimezone` is preferred over the state map as the fallback zone: the
  * backend bucketed this show into its day using the scene's modal venue zone,
  * and a venue whose own zone is missing must not be rendered against a
- * different one — that is how the JSON-LD date ends up disagreeing with the
+ * different one, and that is how the JSON-LD date ends up disagreeing with the
  * date heading above it. The state map is still the LAST resort underneath
  * both, inside `resolveShowTimezone`, shared with `generateMusicEventSchema`.
  */

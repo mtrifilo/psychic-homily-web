@@ -40,11 +40,14 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
 
   const fieldNotes = data?.comments ?? []
   const total = data?.total ?? 0
-  // The START INSTANT, deliberately not the venue-local day the rest of the
-  // show surfaces derive: the API rejects a note on a show whose `event_date`
-  // is still in the future (`ErrFieldNoteShowFuture`), so this gate's job is to
+  // The START INSTANT: the API rejects a note on a show whose `event_date` is
+  // still in the future (`ErrFieldNoteShowFuture`), so this gate's job is to
   // agree with that boundary exactly. A stricter one here would hide a form the
   // API would have accepted; a looser one would offer a form it will 400.
+  //
+  // `showTiming` also exports `isShowPast`, the venue-local calendar-day
+  // boundary. It is the wrong one here and its only consumer is the share
+  // card's cache window, not any reader-facing surface.
   const isFuture = !hasShowStarted(showDate)
 
   const hasCanonicalPending =

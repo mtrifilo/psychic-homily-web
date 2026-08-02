@@ -82,7 +82,7 @@ describe('isShowPast', () => {
 
   describe('zones that are not the reader / server zone', () => {
     it('holds a Berlin show live while it is already tomorrow in Auckland', () => {
-      // 21:00 Mar 14 Berlin (UTC+1) — 09:00 Mar 15 in Auckland.
+      // 21:00 Mar 14 Berlin (UTC+1), which is 09:00 Mar 15 in Auckland.
       expect(
         isShowPast(
           { eventDate: '2026-03-14T20:00:00Z', ...BERLIN },

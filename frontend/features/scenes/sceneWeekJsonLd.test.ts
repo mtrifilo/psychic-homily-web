@@ -212,7 +212,7 @@ describe('buildSceneWeekJsonLd — offers and status', () => {
   })
 
   // An `Offer` is a claim that a reader can still BUY a ticket, so the boundary
-  // is the start instant — not the venue-local calendar day the share card is
+  // is the start instant, not the venue-local calendar day the share card is
   // cached against. Stretching it to local midnight would advertise tickets for
   // a show already in progress, and for nearly a full day on an after-midnight
   // one. The fixture starts 20:00 Phoenix on Jul 27.
