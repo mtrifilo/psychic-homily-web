@@ -341,6 +341,14 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 }
 
 // formatVenueLocation builds a LOCATION-friendly venue string including address.
+//
+// The address it receives is already gated: this feed's shows come from
+// SavedShowService.GetUserSavedShows, whose venue builder applies
+// Venue.PublicAddress, so an unverified venue arrives with a nil Address. That
+// is load-bearing rather than incidental — the feed URL carries a bearer token
+// instead of a session, so anyone holding the link reads it, and an ICS
+// LOCATION is copied onto the subscriber's device where a later redaction
+// cannot reach it. Do not build this string from a venue model directly.
 func formatVenueLocation(venue contracts.VenueResponse) string {
 	return formatEventLocation(venue.Name, venue.Address, venue.City, venue.State)
 }

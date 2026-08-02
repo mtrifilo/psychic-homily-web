@@ -408,6 +408,57 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_VenueCa
 	suite.Equal("18+", *resp[0].Venues[0].AgePolicy)
 }
 
+// An unverified venue is routinely a DIY / house show at somebody's home, so
+// its street address must not reach a client before human review. This builder
+// used to copy Address across ungated, which published those addresses twice
+// over: once in the saved-shows list, and again in the personal ICS feed, whose
+// shows are read through this same call and whose URL is a bearer token rather
+// than a session.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_RedactsUnverifiedVenueAddress() {
+	user := suite.createTestUser()
+	show, venue, _ := suite.createShowWithVenueAndArtist("House Show", user.ID)
+
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"address": "1234 Secret St", "verified": false}).Error)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
+
+	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().Len(resp[0].Venues, 1)
+	suite.Nil(resp[0].Venues[0].Address, "unverified venue address must not be served")
+	suite.False(resp[0].Venues[0].Verified)
+	// The rest of the venue identity is city-level and stays, so redaction is
+	// not silently emptying the embed.
+	suite.Equal(venue.ID, resp[0].Venues[0].ID)
+	suite.Equal("Phoenix", resp[0].Venues[0].City)
+}
+
+// The mirror case: redaction must be scoped to the verification flag and not
+// blanket-drop the field, or every legitimate venue loses its address.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_ServesVerifiedVenueAddress() {
+	user := suite.createTestUser()
+	show, venue, _ := suite.createShowWithVenueAndArtist("Club Show", user.ID)
+
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"address": "100 Main St", "verified": true}).Error)
+
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
+
+	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "")
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().Len(resp[0].Venues, 1)
+	suite.Require().NotNil(resp[0].Venues[0].Address)
+	suite.Equal("100 Main St", *resp[0].Venues[0].Address)
+	suite.True(resp[0].Venues[0].Verified)
+}
+
 func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Pagination() {
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {

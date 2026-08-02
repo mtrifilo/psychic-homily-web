@@ -84,3 +84,30 @@ type Venue struct {
 func (Venue) TableName() string {
 	return "venues"
 }
+
+// PublicAddress is THE street-address privacy gate, and the only sanctioned way
+// to move Address from a venue row into anything a client can read.
+//
+// An unverified venue is frequently a DIY / house show at somebody's home, so
+// its street address must not be published before a human has reviewed the row.
+// Every response builder that embeds a venue has to apply that rule, and the
+// rule was previously re-spelled as an inline `if venue.Verified` at each site.
+// That is a drift shape rather than a policy: a builder written later (or in
+// another package) simply omits the conditional and the leak is invisible in
+// review, which is exactly how the saved-shows payload came to serve raw
+// addresses. Naming the gate here gives new builders one obvious thing to call
+// and makes the absence of a call the conspicuous part.
+//
+// Returns nil for an unverified venue, so callers assign the result straight
+// into the nullable Address field of their response type.
+//
+// Note the zipcode and street-level coordinates carry the SAME gate but are not
+// covered here: they are served by exactly one builder (buildVenueResponse) and
+// the coordinates take an extra freshness condition, so they stay where their
+// single caller can see the whole rule at once.
+func (v *Venue) PublicAddress() *string {
+	if v == nil || !v.Verified {
+		return nil
+	}
+	return v.Address
+}

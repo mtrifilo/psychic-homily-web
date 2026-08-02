@@ -781,11 +781,12 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 	if venue.Slug != nil {
 		slug = *venue.Slug
 	}
-	// Hide address and zipcode for unverified venues
-	var address *string
+	// Hide address and zipcode for unverified venues. Address goes through the
+	// shared gate (Venue.PublicAddress); zipcode stays inline because this is
+	// its only producer.
+	address := venue.PublicAddress()
 	var zipcode *string
 	if venue.Verified {
-		address = venue.Address
 		zipcode = venue.Zipcode
 	}
 	// Street-precise coordinates (PSY-1536) follow the same privacy gate as
