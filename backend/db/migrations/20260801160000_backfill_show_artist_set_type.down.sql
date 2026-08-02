@@ -1,8 +1,10 @@
 -- Irreversible by design.
 --
--- The up migration folds 'opener' rows into 'performer'. After it runs, a
--- 'performer' row that was rewritten is indistinguishable from one that was
--- always 'performer' -- nothing records which rows moved.
+-- The up migration folds 'opener' rows into 'performer' and normalizes any
+-- value outside the vocabulary. After it runs, a 'performer' row that was
+-- rewritten is indistinguishable from one that was always 'performer' --
+-- nothing records which rows moved, and the pre-migration 'opener' was itself
+-- ambiguous (see the up file), so there is no earlier state to return to.
 --
 -- The tempting inverse, UPDATE ... SET set_type = 'opener' WHERE set_type =
 -- 'performer', would be actively destructive: it would relabel every genuinely

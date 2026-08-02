@@ -32,8 +32,14 @@ const (
 )
 
 // SetTypeDefault is the value written when nothing curated is known about an
-// act's slot. Never nil/empty: the column is a non-null string and consumers
-// read it without a presence check.
+// act's slot.
+//
+// Every writer in this codebase supplies it rather than leaving the column to
+// chance, and the PSY-1673 migration normalizes the rows that predate that
+// rule, so readers may treat set_type as always-present. Note the SCHEMA does
+// not enforce it: the column is `VARCHAR(50) DEFAULT 'performer'` with no NOT
+// NULL and no CHECK, so this is a convention the code keeps, not a guarantee
+// the database makes. Adding those constraints would make it one.
 const SetTypeDefault = SetTypePerformer
 
 // setTypeVocabulary is ordered top-of-bill first, then by descending

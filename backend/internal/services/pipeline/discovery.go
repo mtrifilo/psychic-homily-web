@@ -467,15 +467,26 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 
 			// Determine set type from AI extraction, with fallback logic.
 			//
-			// The fallback only ever infers the HEADLINER, from first position.
-			// Every other slot the source did not state resolves to the neutral
-			// default: a scrape that lists four names in order is evidence of
-			// billing order, not evidence that acts two through four were the
-			// openers, and stamping a role on that inference is what made this
-			// column unreadable before PSY-1673.
+			// The fallback infers the HEADLINER only from a first position the
+			// source said NOTHING about. Two distinct silences have to be told
+			// apart here:
+			//
+			//   - the source stated no slot at all -> position 0 is the usual
+			//     billing convention, and headliner is a fair reading
+			//   - the source stated a slot the vocabulary cannot model (a
+			//     "host", say) -> it already told us this act is not the
+			//     headliner, so inferring one from position would assert
+			//     something the source contradicts
+			//
+			// Everything else the source did not state resolves to the neutral
+			// default: a scrape listing four names in order is evidence of
+			// billing order, not evidence that acts two through four opened,
+			// and stamping a role on that inference is what made this column
+			// unreadable before PSY-1673.
 			setType := contracts.NormalizeSetType(entry.SetType)
 			if setType == "" {
-				if idx == 0 {
+				statedSomeSlot := strings.TrimSpace(entry.SetType) != ""
+				if idx == 0 && !statedSomeSlot {
 					setType = contracts.SetTypeHeadliner
 				} else {
 					setType = contracts.SetTypeDefault

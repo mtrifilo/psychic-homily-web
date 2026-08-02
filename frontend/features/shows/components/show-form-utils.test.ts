@@ -585,9 +585,14 @@ describe('extractedVenueToSelected', () => {
 describe('SET_TYPE_OPTIONS', () => {
   it('matches the backend vocabulary, in order', () => {
     // Mirrors contracts.SetTypeVocabulary() in
-    // backend/internal/services/contracts/catalog.go, which the OpenAPI enum
-    // on the show create/update body enforces. Drift here means the selector
-    // can offer a value the API rejects.
+    // backend/internal/services/contracts/set_type.go, which the OpenAPI enum
+    // on the show create/update body publishes into types/api.d.ts.
+    //
+    // MEMBERSHIP is already guaranteed at COMPILE time: SetType is derived
+    // from that generated enum, SET_TYPE_LABELS is an exhaustive
+    // Record<SetType, string>, and an exhaustiveness assertion pins this list
+    // against the union. What this test adds is ORDER, which a union cannot
+    // express -- it is the presentation order of the selector.
     expect(SET_TYPE_VALUES).toEqual([
       'headliner',
       'direct_support',
@@ -595,6 +600,14 @@ describe('SET_TYPE_OPTIONS', () => {
       'special_guest',
       'dj',
       'performer',
+    ])
+  })
+
+  it('labels every value the vocabulary contains', () => {
+    // Cheap runtime echo of the compile-time Record<SetType, string> guard,
+    // so a reader of the test file sees the invariant stated.
+    expect(SET_TYPE_OPTIONS.map(option => option.value)).toEqual([
+      ...SET_TYPE_VALUES,
     ])
   })
 

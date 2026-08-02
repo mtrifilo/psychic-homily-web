@@ -248,10 +248,16 @@ func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.Create
 // Uses pg_advisory_xact_lock to prevent race conditions where two concurrent
 // requests could both pass the check before either commits.
 func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contracts.CreateShowRequest) error {
-	// Get all headliners from the request
+	// Get all headliners from the request.
+	//
+	// Resolved with the same function and the same positions associateArtists
+	// will use, so the names locked and probed here are exactly the rows about
+	// to be written as headliners. Reading a different signal -- or the same
+	// signal without position -- would let an artist be written into the
+	// headliner slot without ever being duplicate-checked.
 	var headlinerNames []string
-	for _, artist := range req.Artists {
-		if requestsHeadlinerSlot(artist) {
+	for position, artist := range req.Artists {
+		if _, isHeadliner := resolveArtistRole(artist, position); isHeadliner {
 			headlinerNames = append(headlinerNames, artist.Name)
 		}
 	}
@@ -1810,7 +1816,15 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 // the single place that decides whether a stated role is acceptable, so this
 // helper cannot quietly turn a rejected value into an accepted one.
 func curatedSetType(a contracts.CreateShowArtist) string {
-	return strings.TrimSpace(derefString(a.SetType))
+	value := derefString(a.SetType)
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	// Deliberately NOT trimmed. Only emptiness is forgiving; the value itself
+	// is judged exactly as sent, so an in-process caller gets the same verdict
+	// on " headliner " that the OpenAPI enum gives an HTTP caller. Trimming
+	// here would make the service quietly laxer than its published contract.
+	return value
 }
 
 // validateShowArtistSetTypes rejects any entry whose curated set_type is
@@ -1831,23 +1845,6 @@ func validateShowArtistSetTypes(artists []contracts.CreateShowArtist) error {
 		))
 	}
 	return nil
-}
-
-// positionUnspecified disables resolveArtistRole's position-0 fallback, so it
-// answers "what did the caller EXPLICITLY ask for" rather than "what will this
-// row end up as". Any non-zero position would do; naming it says why.
-const positionUnspecified = -1
-
-// requestsHeadlinerSlot reports whether a request entry explicitly asks for the
-// top-of-bill slot, by either signal, so a caller that sends only set_type is
-// still seen by the duplicate-headliner pre-check.
-//
-// Defined in terms of resolveArtistRole rather than repeating its precedence:
-// the pre-check and the write must agree on who the headliner is, and two
-// copies of the ladder could drift apart without any test noticing.
-func requestsHeadlinerSlot(a contracts.CreateShowArtist) bool {
-	_, isHeadliner := resolveArtistRole(a, positionUnspecified)
-	return isHeadliner
 }
 
 // resolveArtistRole decides the (set_type, is_headliner) pair written for one
@@ -2531,12 +2528,22 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		response.Venues = append(response.Venues, result)
 	}
 
-	// Check artists
+	// Check artists.
+	//
+	// set_type is normalized to exactly what ConfirmShowImport will store, not
+	// echoed raw: a preview that shows a value the import will not write is
+	// worse than no preview, and the headliner warning below compares against
+	// this field. An unmappable label previews as the neutral default, which
+	// is what the import writes.
 	for _, artistData := range parsed.Frontmatter.Artists {
+		previewSetType := contracts.NormalizeSetType(artistData.SetType)
+		if previewSetType == "" {
+			previewSetType = contracts.SetTypeDefault
+		}
 		result := contracts.ArtistMatchResult{
 			Name:     artistData.Name,
 			Position: artistData.Position,
-			SetType:  artistData.SetType,
+			SetType:  previewSetType,
 		}
 
 		// Match by LOWER(name) = ?
@@ -2560,7 +2567,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 	if err == nil {
 		// Find headliners
 		for _, artistResult := range response.Artists {
-			if artistResult.SetType == "headliner" && artistResult.ExistingID != nil {
+			if artistResult.SetType == contracts.SetTypeHeadliner && artistResult.ExistingID != nil {
 				for _, venueResult := range response.Venues {
 					if venueResult.ExistingID != nil {
 						// Check for existing show

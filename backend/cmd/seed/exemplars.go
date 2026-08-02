@@ -723,7 +723,7 @@ func seedExemplarArtistShows(db *gorm.DB, artistID, venueID uint) {
 				ShowID:   show.ID,
 				ArtistID: artistID,
 				Position: 0,
-				SetType:  "headliner",
+				SetType:  contracts.SetTypeHeadliner,
 			}).Error
 		})
 		if err != nil {

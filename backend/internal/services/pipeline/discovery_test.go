@@ -634,6 +634,82 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBill
 	suite.Equal(1, showArtists[1].Position)
 }
 
+// A slot the vocabulary cannot model is still a STATEMENT about the act, so it
+// must not be overwritten by the position-0 headliner inference. Before this
+// guard, "host" normalized to empty and the first-billed act was promoted to
+// headliner -- a stronger false assertion than the "opener" default this
+// ticket exists to remove.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UnmappableSetTypeAtPositionZeroIsNotPromoted() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-host-first-1",
+			Title:     "Hosted Night",
+			Date:      "2026-12-28",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"The Host", "Actual Headliner"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "The Host", SetType: "host", BillingOrder: 1},
+				{Name: "Actual Headliner", SetType: "headliner", BillingOrder: 2},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	err = suite.db.Where("source_event_id = ?", "evt-host-first-1").First(&show).Error
+	suite.Require().NoError(err)
+
+	var showArtists []catalogm.ShowArtist
+	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(showArtists, 2)
+
+	// The stated-but-unmappable host defaults; it is NOT crowned.
+	suite.Equal("performer", showArtists[0].SetType)
+	suite.Equal("headliner", showArtists[1].SetType)
+}
+
+// The inference still fires when the source stated NOTHING at all -- that is
+// the ordinary billing convention and the only slot this path may infer.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SilentSourceStillInfersHeadlinerAtPositionZero() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-silent-first-1",
+			Title:     "Silent Billing",
+			Date:      "2026-12-29",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"Top Of Bill", "Also Playing"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Top Of Bill", BillingOrder: 1},
+				{Name: "Also Playing", BillingOrder: 2},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	err = suite.db.Where("source_event_id = ?", "evt-silent-first-1").First(&show).Error
+	suite.Require().NoError(err)
+
+	var showArtists []catalogm.ShowArtist
+	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(showArtists, 2)
+
+	suite.Equal("headliner", showArtists[0].SetType)
+	suite.Equal("performer", showArtists[1].SetType)
+}
+
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithSpecialGuestAndDJ() {
 	events := []contracts.DiscoveredEvent{
 		{

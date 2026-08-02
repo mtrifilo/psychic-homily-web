@@ -6,34 +6,59 @@ import type { SetType, ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
 /**
- * The set_type choices offered in the show form, in the order they appear in
- * the selector: top of bill first, then descending specificity, with the
- * neutral default last.
+ * Human labels for every bill role, for the show FORM.
  *
- * Order and membership mirror contracts.SetTypeVocabulary() on the backend.
- * The labels are UI copy for the FORM only -- how a role is annotated on a
- * show page is a separate decision and deliberately not defined here.
+ * Typed as an EXHAUSTIVE Record on purpose. `SetType` is derived from the
+ * generated OpenAPI enum, so a value added on the backend widens the union and
+ * this object stops compiling until somebody supplies a label. That compile
+ * error is the guard: without it a stale client would silently coerce the new
+ * role to the neutral default and overwrite it on the next save.
+ *
+ * These strings are form copy only. How a role is ANNOTATED on a show page is
+ * a separate decision and deliberately not defined here.
  */
+const SET_TYPE_LABELS: Record<SetType, string> = {
+  headliner: 'Headliner',
+  direct_support: 'Direct support',
+  opener: 'Opener',
+  special_guest: 'Special guest',
+  dj: 'DJ',
+  performer: 'Performer (slot unknown)',
+}
+
+/**
+ * The vocabulary in presentation order: top of bill first, then descending
+ * specificity, with the neutral default last. Mirrors the order of
+ * contracts.SetTypeVocabulary() in
+ * backend/internal/services/contracts/set_type.go.
+ *
+ * Order cannot be derived from a union (TypeScript unions are unordered), so
+ * this list is written out. `satisfies` pins every entry to a real SetType, and
+ * the exhaustiveness assertion below pins the reverse direction.
+ */
+export const SET_TYPE_VALUES = [
+  'headliner',
+  'direct_support',
+  'opener',
+  'special_guest',
+  'dj',
+  'performer',
+] as const satisfies readonly SetType[]
+
+/**
+ * Compile-time proof that SET_TYPE_VALUES covers the whole vocabulary. If the
+ * backend adds a role and the ordered list above is not updated, this type
+ * resolves to `never` and the assignment below fails to build.
+ */
+type UnlistedSetType = Exclude<SetType, (typeof SET_TYPE_VALUES)[number]>
+const _everySetTypeIsListed: UnlistedSetType extends never ? true : never = true
+void _everySetTypeIsListed
+
+/** The set_type choices offered in the show form, in presentation order. */
 export const SET_TYPE_OPTIONS: ReadonlyArray<{
   value: SetType
   label: string
-}> = [
-  { value: 'headliner', label: 'Headliner' },
-  { value: 'direct_support', label: 'Direct support' },
-  { value: 'opener', label: 'Opener' },
-  { value: 'special_guest', label: 'Special guest' },
-  { value: 'dj', label: 'DJ' },
-  { value: 'performer', label: 'Performer (slot unknown)' },
-]
-
-/**
- * The vocabulary as a non-empty tuple, for schema validators that need one.
- * Derived from SET_TYPE_OPTIONS so the selector and the validator can never
- * disagree about what is accepted.
- */
-export const SET_TYPE_VALUES = SET_TYPE_OPTIONS.map(
-  option => option.value
-) as [SetType, ...SetType[]]
+}> = SET_TYPE_VALUES.map(value => ({ value, label: SET_TYPE_LABELS[value] }))
 
 /** The value written when nobody has curated an act's slot. */
 export const DEFAULT_SET_TYPE: SetType = 'performer'
@@ -41,10 +66,13 @@ export const DEFAULT_SET_TYPE: SetType = 'performer'
 /**
  * Coerce a server-supplied set_type into the vocabulary the form can render.
  *
- * Falls back to the neutral default rather than dropping the row or guessing
- * a role: an unrecognized value means the server knows a slot this build of
- * the form does not, and showing "slot unknown" is the only honest answer a
- * stale client can give.
+ * Falls back to the neutral default rather than dropping the row or guessing a
+ * role. This is a DISPLAY coercion, and it is only safe because it should be
+ * unreachable: every backend write path validates against the same vocabulary,
+ * the PSY-1673 migration normalized the rows that predate it, and SetType is
+ * derived from the generated enum so this build cannot fall behind the server
+ * without failing to compile. If it ever does fire, the form will send the
+ * coerced value back on save.
  */
 export function toSetType(value: string | null | undefined): SetType {
   return SET_TYPE_VALUES.find(known => known === value) ?? DEFAULT_SET_TYPE

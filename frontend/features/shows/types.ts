@@ -5,6 +5,8 @@
  * from backend/internal/services/show.go
  */
 
+import type { components } from '@/types/api'
+
 export interface ShowArtistSocials {
   instagram?: string | null
   facebook?: string | null
@@ -19,21 +21,28 @@ export interface ShowArtistSocials {
 /**
  * Curated bill role for one act on one show (show_artists.set_type).
  *
- * Must stay in sync with the backend vocabulary in
- * backend/internal/services/contracts/catalog.go, which the OpenAPI enum on
- * the show create/update body enforces.
+ * DERIVED from the generated OpenAPI enum rather than hand-listed, so the
+ * vocabulary has exactly one source of truth: `SetTypeVocabulary()` in
+ * backend/internal/services/contracts/set_type.go, which the `enum` tag on the
+ * show create/update body publishes into types/api.d.ts. Regenerating types is
+ * a CI gate, so a value added on the server widens this union automatically --
+ * and the exhaustive SET_TYPE_LABELS record then fails to compile until the
+ * form is taught the new role. That compile error is the whole point: a
+ * hand-written mirror could silently fall behind, and the show form sends
+ * set_type back on every save, so a role this build cannot represent would be
+ * quietly overwritten.
+ *
+ * Deliberately reads the REQUEST schema: only that one carries the enum
+ * (responses type set_type as a bare string), and the request enum is the
+ * authoritative contract for what may be written.
  *
  * 'performer' is the NEUTRAL DEFAULT and means "on the bill, slot unknown".
  * It is what every uncurated row holds, so it must never be rendered as a
  * role. Every other value is an assertion somebody actually made.
  */
-export type SetType =
-  | 'headliner'
-  | 'direct_support'
-  | 'opener'
-  | 'special_guest'
-  | 'dj'
-  | 'performer'
+export type SetType = NonNullable<
+  components['schemas']['Artist']['set_type']
+>
 
 export interface ArtistResponse {
   id: number

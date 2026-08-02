@@ -115,6 +115,16 @@ func TestResolveArtistRole(t *testing.T) {
 			wantIsHeadliner: true,
 		},
 		{
+			// Padding is NOT trimmed away into a valid value: the boundary
+			// validator rejects it, and resolution treats it as absent rather
+			// than accepting what the OpenAPI enum would have refused.
+			name:            "padded set_type is not silently accepted",
+			artist:          contracts.CreateShowArtist{Name: "Act", SetType: strPtr(" headliner ")},
+			position:        1,
+			wantSetType:     contracts.SetTypePerformer,
+			wantIsHeadliner: false,
+		},
+		{
 			// The boundary validator rejects this first; resolution treats it
 			// as absent rather than writing an unknown value to the column.
 			name:            "out-of-vocabulary set_type falls back rather than writing through",
@@ -181,14 +191,25 @@ func TestValidateShowArtistSetTypes(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "artists[1].set_type")
 		assert.Contains(t, err.Error(), "co-headliner")
-		// The message lists what IS allowed, so a client can fix it without
-		// reading the source.
+		// The message lists what IS allowed. Note this text is for LOGS and
+		// in-process callers only: both HTTP handlers replace it with a
+		// generic "failed to create/update show", so the vocabulary is never
+		// echoed to a client. Do not "fix" that by surfacing the raw error.
 		assert.Contains(t, err.Error(), contracts.SetTypeVocabularyCSV())
 	})
 
 	t.Run("rejects wrong casing rather than coercing it", func(t *testing.T) {
 		assert.Error(t, validateShowArtistSetTypes([]contracts.CreateShowArtist{
 			{Name: "Shouty", SetType: strPtr("HEADLINER")},
+		}))
+	})
+
+	t.Run("rejects a padded value, matching the OpenAPI enum exactly", func(t *testing.T) {
+		// The service must not be quietly laxer than the published contract:
+		// the enum 422s " headliner ", so an in-process caller gets the same
+		// verdict rather than a silently trimmed pass.
+		assert.Error(t, validateShowArtistSetTypes([]contracts.CreateShowArtist{
+			{Name: "Padded", SetType: strPtr(" headliner ")},
 		}))
 	})
 
@@ -199,28 +220,6 @@ func TestValidateShowArtistSetTypes(t *testing.T) {
 			{Name: "Support", SetType: strPtr("support")},
 		}))
 	})
-}
-
-// The duplicate-headliner pre-check reads the request, not the resolved rows,
-// so it has to see a headliner declared by set_type alone.
-func TestRequestsHeadlinerSlot(t *testing.T) {
-	tests := []struct {
-		name   string
-		artist contracts.CreateShowArtist
-		want   bool
-	}{
-		{"set_type headliner alone", contracts.CreateShowArtist{SetType: strPtr(contracts.SetTypeHeadliner)}, true},
-		{"legacy flag alone", contracts.CreateShowArtist{IsHeadliner: boolPtr(true)}, true},
-		{"set_type overrides a true flag", contracts.CreateShowArtist{IsHeadliner: boolPtr(true), SetType: strPtr(contracts.SetTypeOpener)}, false},
-		{"set_type overrides a false flag", contracts.CreateShowArtist{IsHeadliner: boolPtr(false), SetType: strPtr(contracts.SetTypeHeadliner)}, true},
-		{"no signal", contracts.CreateShowArtist{}, false},
-		{"non-headliner set_type", contracts.CreateShowArtist{SetType: strPtr(contracts.SetTypeDJ)}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, requestsHeadlinerSlot(tt.artist))
-		})
-	}
 }
 
 // =============================================================================
@@ -432,3 +431,90 @@ func (suite *ShowServiceIntegrationTestSuite) uniqueEventDate() time.Time {
 }
 
 var setTypeTestDateOffset int
+
+// The duplicate-headliner pre-check must see EVERY row that will be written as
+// a headliner, including one the caller never flagged and never named a slot
+// for -- associateArtists infers that row from position 0, so a pre-check that
+// did not would lock and probe a different set than it writes.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PositionZeroWithNoSignalIsDuplicateChecked() {
+	user := suite.createTestUser()
+	eventDate := suite.uniqueEventDate()
+	venue := contracts.CreateShowVenue{Name: "Inferred Headliner Room", City: "Phoenix", State: "AZ"}
+
+	build := func(title string) *contracts.CreateShowRequest {
+		return &contracts.CreateShowRequest{
+			Title:     title,
+			EventDate: eventDate,
+			City:      "Phoenix",
+			State:     "AZ",
+			Venues:    []contracts.CreateShowVenue{venue},
+			Artists: []contracts.CreateShowArtist{
+				// No set_type and no is_headliner: resolved to headliner from
+				// position 0 alone.
+				{Name: "Inferred Headliner"},
+				// An explicit headliner further down the bill. Before the
+				// pre-check resolved with real positions, this entry alone
+				// filled headlinerNames, which suppressed the first-billed
+				// fallback and left the inferred headliner unchecked.
+				{Name: "Named Headliner", SetType: strPtr(contracts.SetTypeHeadliner)},
+			},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+	}
+
+	first, err := suite.showService.CreateShow(build("First Inferred Booking"))
+	suite.Require().NoError(err)
+	suite.Equal([]string{contracts.SetTypeHeadliner, contracts.SetTypeHeadliner}, suite.storedSetTypes(first.ID))
+
+	_, err = suite.showService.CreateShow(build("Second Inferred Booking"))
+	suite.Require().Error(err, "the position-inferred headliner must be duplicate-checked too")
+}
+
+// ConfirmShowImport carries curated roles through from the export frontmatter
+// instead of collapsing them to "was this the headliner".
+func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_PersistsAndNormalizesFrontmatterSetTypes() {
+	eventDate := suite.uniqueEventDate().Format(time.RFC3339)
+
+	markdown := fmt.Sprintf(`---
+show:
+  title: Imported Curated Bill
+  event_date: "%s"
+  city: Phoenix
+  state: AZ
+venues:
+  - name: Import Room
+    city: Phoenix
+    state: AZ
+artists:
+  - name: Import Headliner
+    position: 0
+    set_type: headliner
+  - name: Import Support
+    position: 1
+    set_type: support
+  - name: Import Spinner
+    position: 2
+    set_type: dj
+  - name: Import Host
+    position: 3
+    set_type: host
+---
+
+Imported by the PSY-1673 set_type test.
+`, eventDate)
+
+	resp, err := suite.showService.ConfirmShowImport([]byte(markdown), true)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+
+	suite.Equal([]string{
+		contracts.SetTypeHeadliner,
+		// "support" is a stated role, mapped rather than flattened.
+		contracts.SetTypeDirectSupport,
+		contracts.SetTypeDJ,
+		// The vocabulary models no host slot, so it defaults rather than
+		// guessing -- and is NOT promoted to headliner by position.
+		contracts.SetTypeDefault,
+	}, suite.storedSetTypes(resp.ID))
+}
