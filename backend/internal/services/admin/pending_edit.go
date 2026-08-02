@@ -284,8 +284,22 @@ func updatedString(updates map[string]interface{}, key, fallback string) string 
 // fetchedURLFields maps a pending-edit field whose stored value is later
 // FETCHED server-side to the user-facing label used in the refusal message. The
 // canonical registry is urlFieldSpecs in internal/api/handlers/shared (the
-// entries marked `fetched`); this is its counterpart on the apply side, which
-// cannot import a handler package.
+// entries marked `fetched`); this is its counterpart on the apply side.
+//
+// To be precise about why it is a copy: nothing in the compiler stops a service
+// from importing internal/api/handlers/shared (no cycle exists in either
+// direction). It is a LAYERING rule, and one this codebase keeps everywhere
+// else: no package under internal/services imports a handler package in
+// production code. Handler-shaped concerns come with handler-shaped errors, and
+// validateFetchHost over there returns a huma 422 that means nothing to a
+// service.
+//
+// The better factoring, if this list ever grows past one entry, is to move the
+// field-to-label registry AND its dispatch down into internal/utils/urlguard
+// (a true leaf, already imported by both layers) and let each caller wrap the
+// returned error in its own error type. That is left alone here because it
+// would rewrite PSY-1675's urlFieldSpecs, whose displayName is also consumed by
+// the scheme and length checks that have no business moving.
 //
 // TestFetchedURLFieldsMatchHandlerRegistry is the tripwire for the two drifting
 // apart: mark another field `fetched` there without adding it here and the

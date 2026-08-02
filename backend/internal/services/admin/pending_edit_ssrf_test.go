@@ -59,9 +59,14 @@ var ssrfApprovalImageURLs = []struct{ name, value string }{
 // TestFetchedURLFieldsMatchHandlerRegistry is the tripwire for the two copies of
 // the fetched-field list drifting apart. urlFieldSpecs in
 // internal/api/handlers/shared is canonical; fetchedURLFields here is the
-// apply-side counterpart, needed because a service cannot import a handler
-// package. Marking another field `fetched` there without adding it here would
-// silently leave the approve path unguarded for that field.
+// apply-side counterpart (see its doc comment for why it is a copy). Marking
+// another field `fetched` there without adding it here would silently leave the
+// approve path unguarded for that field.
+//
+// This test file is the one place the layering rule is relaxed: a TEST may
+// import across layers to assert two layers agree, which is precedented here
+// (internal/services/catalog/venue_bill_network_test.go). Production code in
+// internal/services must not.
 //
 // A pure unit test: no database, no resolver.
 func TestFetchedURLFieldsMatchHandlerRegistry(t *testing.T) {
@@ -78,11 +83,10 @@ func TestFetchedURLFieldsMatchHandlerRegistry(t *testing.T) {
 // stored value is applied to the live entity at approval, so a row carrying a
 // host that points inward must fail the approval outright.
 //
-// Failing rather than silently dropping the field is the point, and the row
-// must survive the refusal, which is what the status/reviewed_by assertions
-// pin: this function has no atomic claim (the pending→approved flip happens in
-// the transaction that applies the update), so a pre-transaction return leaves
-// the edit exactly as it was, still rejectable and still cancellable.
+// Failing rather than silently dropping the field is the point, and the row must
+// survive the refusal. That is what the status/reviewed_by assertions pin; the
+// reasoning for why a pre-transaction return leaves the row untouched lives on
+// the check itself in pending_edit.go.
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsStoredSSRFImageURL() {
 	for _, c := range ssrfApprovalImageURLs {
 		s.Run(c.name, func() {
