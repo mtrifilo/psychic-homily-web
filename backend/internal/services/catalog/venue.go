@@ -1043,9 +1043,22 @@ func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, l
 }
 
 // GetShowsForVenue retrieves shows at a specific venue with time filtering.
-// timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"
-// Only returns approved shows.
+// timeFilter can be: "upcoming", "past", or "all". Only returns approved shows.
+//
+// "today" is the show's OWN venue-local calendar day (showVenueTZJoin) rather
+// than this venue's, which are the same thing for every single-venue show and
+// deliberately so for the rest: a show booked across two venues gets one
+// venue-local date everywhere, so it cannot read "upcoming" here and "past" on
+// the artist page. limit and total both apply to the venue-local partition.
+//
+// Deprecated parameter: timezone is accepted and ignored. It used to set the
+// boundary from the CALLER's zone, which made the same show upcoming for one
+// reader and past for another. Kept in the signature because removing it is a
+// breaking change for every caller; frontend call sites are cleaned up in
+// PSY-1698. Do not add new callers that pass a meaningful value.
 func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error) {
+	_ = timezone // see the deprecation note above
+
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -1059,54 +1072,42 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 		return nil, 0, fmt.Errorf("failed to get venue: %w", err)
 	}
 
-	// Load timezone, default to UTC
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		loc = time.UTC
+	// Partition on each show's own venue-local calendar day. The fragment is
+	// empty for "all", and only then is the timezone lateral unnecessary.
+	dateCondition := showVenueLocalDateCondition(timeFilter)
+
+	var orderDirection string
+	if timeFilter == "past" {
+		orderDirection = "shows.event_date DESC" // Most recent past shows first
+	} else {
+		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
 	}
 
-	// Get start of today in the user's timezone, then convert to UTC for query
-	now := time.Now().In(loc)
-	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	startOfTodayUTC := startOfToday.UTC()
-
-	// Apply time filter
-	var dateCondition string
-	var orderDirection string
-	switch timeFilter {
-	case "past":
-		dateCondition = "shows.event_date < ?"
-		orderDirection = "shows.event_date DESC" // Most recent past shows first
-	case "all":
-		dateCondition = "" // No date filter
-		orderDirection = "shows.event_date ASC"
-	default: // "upcoming"
-		dateCondition = "shows.event_date >= ?"
-		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
+	// Fresh builder per query: GORM builders accumulate clauses, so the count
+	// and the id page must not share one.
+	baseQuery := func() *gorm.DB {
+		q := s.db.Table("show_venues").
+			Joins("JOIN shows ON show_venues.show_id = shows.id").
+			Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
+		if dateCondition != "" {
+			q = q.Joins(showVenueTZJoin).Where(dateCondition)
+		}
+		return q
 	}
 
 	// Count total shows matching the filter
 	var total int64
-	countQuery := s.db.Table("show_venues").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
-	if dateCondition != "" {
-		countQuery = countQuery.Where(dateCondition, startOfTodayUTC)
-	}
-	if err := countQuery.Count(&total).Error; err != nil {
+	if err := baseQuery().Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
 	}
 
 	// Get show IDs with limit
 	var showIDs []uint
-	showQuery := s.db.Table("show_venues").
+	if err := baseQuery().
 		Select("show_venues.show_id").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
-	if dateCondition != "" {
-		showQuery = showQuery.Where(dateCondition, startOfTodayUTC)
-	}
-	if err := showQuery.Order(orderDirection).Limit(limit).Pluck("show_venues.show_id", &showIDs).Error; err != nil {
+		Order(orderDirection).
+		Limit(limit).
+		Pluck("show_venues.show_id", &showIDs).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get show IDs: %w", err)
 	}
 

@@ -21776,7 +21776,7 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description Timezone for date filtering
+                 * @description Deprecated and ignored. The upcoming/past split is made in each show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only.
                  * @example America/Phoenix
                  */
                 timezone?: string;
@@ -33474,7 +33474,7 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description Timezone for date filtering
+                 * @description Deprecated and ignored. The upcoming/past split is made in each show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only.
                  * @example America/Phoenix
                  */
                 timezone?: string;

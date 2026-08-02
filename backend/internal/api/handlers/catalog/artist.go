@@ -216,7 +216,7 @@ func (h *ArtistHandler) GetArtistHandler(ctx context.Context, req *GetArtistRequ
 // GetArtistShowsRequest represents the request for getting shows for an artist
 type GetArtistShowsRequest struct {
 	ArtistID   string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`
-	Timezone   string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
+	Timezone   string `query:"timezone" doc:"Deprecated and ignored. The upcoming/past split is made in each show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only." example:"America/Phoenix"`
 	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"200" doc:"Maximum number of shows to return (max 200)"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
 }
@@ -235,11 +235,6 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 	limit := req.Limit
 	if limit == 0 {
 		limit = 20
-	}
-
-	timezone := req.Timezone
-	if timezone == "" {
-		timezone = "UTC"
 	}
 
 	timeFilter := req.TimeFilter
@@ -264,7 +259,9 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 		artistID = artist.ID
 	}
 
-	shows, total, err := h.artistService.GetShowsForArtist(artistID, timezone, limit, timeFilter)
+	// req.Timezone is forwarded unchanged and ignored by the service: the split
+	// is venue-local now. See GetShowsForArtist's deprecation note.
+	shows, total, err := h.artistService.GetShowsForArtist(artistID, req.Timezone, limit, timeFilter)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
