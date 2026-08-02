@@ -210,6 +210,29 @@ describe('buildSceneWeekJsonLd — offers and status', () => {
     expect(priced.events[0].eventStatus).toBe('https://schema.org/EventScheduled')
     expect(priced.events[0].startDate).toBe('2026-07-27T20:00:00-07:00')
   })
+
+  // An `Offer` is a claim that a reader can still BUY a ticket, so the boundary
+  // is the start instant, not the venue-local calendar day the share card is
+  // cached against. Stretching it to local midnight would advertise tickets for
+  // a show already in progress, and for nearly a full day on an after-midnight
+  // one. The fixture starts 20:00 Phoenix on Jul 27.
+  it('drops the offer the moment doors open, not at venue-local midnight', () => {
+    const oneMinuteBefore = new Date('2026-07-28T02:59:00Z') // 19:59 Jul 27 Phoenix
+    expect(
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), oneMinuteBefore).events[0].offers
+    ).toBeDefined()
+
+    const doorsOpen = new Date('2026-07-28T03:00:00Z') // 20:00 Jul 27 Phoenix
+    expect(
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), doorsOpen).events[0].offers
+    ).toBeUndefined()
+
+    // Still the venue's Jul 27, so a venue-local-day rule would keep offering.
+    const midSet = new Date('2026-07-28T04:30:00Z') // 21:30 Jul 27 Phoenix
+    expect(
+      buildSceneWeekJsonLd(week([show({ price: 20 })]), midSet).events[0].offers
+    ).toBeUndefined()
+  })
 })
 
 describe('buildSceneWeekJsonLd — BreadcrumbList', () => {

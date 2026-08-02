@@ -15,6 +15,7 @@ import {
   ogCacheControl,
   ogFallbackCard,
 } from '@/lib/og/response'
+import { isShowCardSettled } from '@/lib/og/settled'
 import { loadRemoteImage } from '@/lib/og/remoteImage'
 import {
   CONTENT_WIDTH,
@@ -278,6 +279,16 @@ function renderCard(
     </div>
   ) : null
 
+  // Hoisted out of the `headers` block below only because the card's JSX sits
+  // between here and there. The rule itself lives in `lib/og/response` so it can
+  // be tested: every card rendered under vitest is `degraded` and takes the
+  // short window before this branch is reached.
+  const settled = isShowCardSettled({
+    eventDate: show.event_date,
+    state: venue?.state,
+    timezone: venue?.timezone,
+  })
+
   return new ImageResponse(
     (
       <div
@@ -493,7 +504,7 @@ function renderCard(
         'cache-control': ogCacheControl(
           degraded || flyerMissing
             ? OG_FALLBACK_CACHE_SECONDS
-            : showHasPassed(show.event_date)
+            : settled
               ? SETTLED_REVALIDATE
               : LIVE_REVALIDATE
         ),
@@ -508,17 +519,6 @@ const LIVE_REVALIDATE = 900
 const SETTLED_REVALIDATE = 86400
 /** The data fetch cannot know which it is, so it always asks for the fresh one. */
 const SHOW_REVALIDATE = LIVE_REVALIDATE
-
-/**
- * Compared in UTC, which can run a day ahead of the venue's own clock. The
- * error direction is "treat it as still live", i.e. cache it less — the
- * harmless one.
- */
-function showHasPassed(eventDate: string): boolean {
-  const at = new Date(eventDate).getTime()
-  if (Number.isNaN(at)) return false
-  return at < Date.now() - 24 * 60 * 60 * 1000
-}
 
 /**
  * Deliberate fail-open, classified during the PSY-1630 sweep: every failure

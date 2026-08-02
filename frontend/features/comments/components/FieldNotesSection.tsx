@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { StatusBanner } from '@/components/shared'
+import { hasShowStarted } from '@/lib/utils/showTiming'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -24,20 +25,6 @@ interface FieldNotesSectionProps {
   artists?: ShowArtist[]
 }
 
-function isShowInFuture(showDate: string): boolean {
-  const eventDate = new Date(showDate)
-  return eventDate > new Date()
-}
-
-function formatFutureDate(showDate: string): string {
-  const date = new Date(showDate)
-  return date.toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-
 export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotesSectionProps) {
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
@@ -53,7 +40,15 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
 
   const fieldNotes = data?.comments ?? []
   const total = data?.total ?? 0
-  const isFuture = isShowInFuture(showDate)
+  // The START INSTANT: the API rejects a note on a show whose `event_date` is
+  // still in the future (`ErrFieldNoteShowFuture`), so this gate's job is to
+  // agree with that boundary exactly. A stricter one here would hide a form the
+  // API would have accepted; a looser one would offer a form it will 400.
+  //
+  // `showTiming` also exports `isShowPast`, the venue-local calendar-day
+  // boundary. It is the wrong one here and its only consumer is the share
+  // card's cache window, not any reader-facing surface.
+  const isFuture = !hasShowStarted(showDate)
 
   const hasCanonicalPending =
     pendingNote !== null && fieldNotes.some((c) => c.id === pendingNote.id)
@@ -96,7 +91,18 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
           className="text-sm text-muted-foreground py-4"
           data-testid="future-show-message"
         >
-          Field notes will be available after {formatFutureDate(showDate)}.
+          {/* No date. The gate opens at the start instant, so any date or time
+              in this sentence is a promise about a boundary this component
+              cannot keep: `hasShowStarted` is evaluated once per render and
+              nothing re-renders when doors open, so a reader sitting on the
+              page at 7:55 for an 8:00 show would watch a stated time pass with
+              the form still shut. The date and start time are already on the
+              page header, in the venue's zone, a section above.
+
+              This also drops a `toLocaleDateString` with no `timeZone`, which
+              formatted against the SERVER's clock during SSR and the reader's
+              on hydration. */}
+          Field notes will be available after the show starts.
         </p>
       ) : (
         <>

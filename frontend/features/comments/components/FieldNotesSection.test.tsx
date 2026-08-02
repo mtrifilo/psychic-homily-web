@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { FieldNotesSection } from './FieldNotesSection'
 import type { Comment } from '../types'
@@ -250,7 +250,12 @@ describe('FieldNotesSection', () => {
       )
 
       expect(screen.getByTestId('future-show-message')).toBeInTheDocument()
-      expect(screen.getByText(/Field notes will be available after/)).toBeInTheDocument()
+      // The EXACT string. A looser matcher passed against the old copy too,
+      // which named a calendar date in front of a gate that opens at the start
+      // instant, so nothing stopped that regression from coming back.
+      expect(
+        screen.getByText('Field notes will be available after the show starts.')
+      ).toBeInTheDocument()
     })
 
     it('does not show form for future show', () => {
@@ -286,6 +291,48 @@ describe('FieldNotesSection', () => {
       )
 
       expect(screen.queryByTestId('field-note-auth-gate')).not.toBeInTheDocument()
+    })
+  })
+
+  // The gate mirrors the API's own `ErrFieldNoteShowFuture` rejection, which
+  // fires on the START INSTANT. It deliberately does NOT use the venue-local
+  // day boundary `isShowPast` draws: holding the form shut until local midnight
+  // would hide a form the API would have accepted.
+  describe('boundary (start instant, matching the API gate)', () => {
+    const showDate = '2026-03-15T03:00:00Z' // 20:00 Mar 14 Phoenix
+
+    beforeEach(() => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '1', email: 'test@test.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('gates the form one minute before the show starts', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-03-15T02:59:00Z'))
+
+      render(<FieldNotesSection showId={1} showDate={showDate} />)
+
+      expect(screen.getByTestId('future-show-message')).toBeInTheDocument()
+    })
+
+    it('opens the form mid-show, hours before venue-local midnight', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-03-15T03:01:00Z')) // 20:01 Mar 14 Phoenix
+
+      render(<FieldNotesSection showId={1} showDate={showDate} />)
+
+      expect(screen.queryByTestId('future-show-message')).not.toBeInTheDocument()
+      expect(screen.getByTestId('field-note-form')).toBeInTheDocument()
     })
   })
 
