@@ -1144,6 +1144,16 @@ func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *Adm
 		return nil, huma.Error422UnprocessableEntity("Name is required")
 	}
 
+	// PSY-1692: image_url on a radio show is the same fetched-server-side field
+	// the catalog write paths guard (PSY-1675), and this admin CRUD path predates
+	// the guard, so it accepted any scheme and any host. Admin-gated is not a
+	// substitute: the value is stored and later requested by the share-card
+	// renderer, so a mistyped or pasted internal URL becomes an outbound request
+	// from our infrastructure.
+	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
+		return nil, err
+	}
+
 	serviceReq := &contracts.CreateRadioShowRequest{
 		Name:            req.Body.Name,
 		Slug:            req.Body.Slug,
@@ -1229,6 +1239,11 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 	requestID := logger.GetRequestID(ctx)
 
 	user := middleware.GetUserFromContext(ctx)
+
+	// PSY-1692: same guard as the create path; see the note there.
+	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
+		return nil, err
+	}
 
 	serviceReq := &contracts.UpdateRadioShowRequest{
 		Name:            req.Body.Name,

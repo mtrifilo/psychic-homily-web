@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
+	"psychic-homily-backend/internal/utils/urlguard"
 )
 
 // PendingEditService handles business logic for generic pending entity edits.
@@ -279,9 +281,59 @@ func updatedString(updates map[string]interface{}, key, fallback string) string 
 	return fallback
 }
 
+// fetchedURLFields maps a pending-edit field whose stored value is later
+// FETCHED server-side to the user-facing label used in the refusal message. The
+// canonical registry is urlFieldSpecs in internal/api/handlers/shared (the
+// entries marked `fetched`); this is its counterpart on the apply side, which
+// cannot import a handler package.
+//
+// TestFetchedURLFieldsMatchHandlerRegistry is the tripwire for the two drifting
+// apart: mark another field `fetched` there without adding it here and the
+// approve path silently stops guarding it.
+var fetchedURLFields = map[string]string{
+	"image_url": "Image URL",
+}
+
+// revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
+// is about to apply, and reports the first one that must not go live.
+//
+// Submission already checks these (shared.ValidateFieldChangeValue), so this is
+// deliberately a SECOND run of the same policy rather than a new one. It exists
+// because the queue outlives the guard: a row written before PSY-1675 shipped,
+// or through any write path that missed it, carries an unvetted value that
+// approval would otherwise apply verbatim. Approval is where the value goes
+// live, so approval is where it has to hold.
+//
+// Failing is the right outcome, not silently dropping the field: an admin who
+// is told which host was refused can reject the edit with a reason, whereas a
+// silent drop would approve an edit that did not do what either party read.
+//
+// Non-string and empty values are skipped: an empty string is the
+// clear-the-field gesture, and a non-string in a URL column is a separate
+// (pre-existing) failure the submit-time type check owns.
+func revalidateFetchedURLs(ctx context.Context, changes []adminm.FieldChange) error {
+	for _, c := range changes {
+		displayName, guarded := fetchedURLFields[c.Field]
+		if !guarded {
+			continue
+		}
+		value, isString := c.NewValue.(string)
+		if !isString || value == "" {
+			continue
+		}
+		if err := urlguard.Default.Validate(ctx, value, displayName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ApprovePendingEdit approves a pending edit, applying changes to the entity
 // and recording a revision.
-func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
+//
+// ctx bounds the DNS lookups the SSRF host guard performs below; a disconnected
+// admin cancels them.
+func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
 	if s.db == nil {
 		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
@@ -341,6 +393,40 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		// Sentinel (NOT a PendingEditError): the approve handler maps this via
 		// errors.Is to a 400 with the rejected field list. Keep it as-is.
 		return nil, fmt.Errorf("%w: %s", adminm.ErrPendingEditDisallowedFields, joined)
+	}
+
+	// PSY-1692: re-classify the URL fields that get fetched server-side, on the
+	// exact slice the untyped Updates() below is about to apply.
+	//
+	// Placement (after the allowlist gate, before the transaction) is load
+	// bearing in two ways:
+	//
+	//  1. It leaves the row ACTIONABLE. Unlike entity_requests, whose Decide is an
+	//     atomic pending→approved claim (so PSY-1675 had to check pre-claim in the
+	//     handler or strand the row), this function has no claim: the status flip
+	//     happens inside the transaction below. Returning here touches nothing, so
+	//     the edit stays 'pending' with reviewed_by NULL and the admin can still
+	//     reject it with a reason, or the contributor can cancel and resubmit.
+	//  2. It runs after the PSY-572 disallowed-fields auto-rejection, so that
+	//     gate's behaviour for corrupted submissions is unchanged and still wins.
+	//
+	// In the service rather than in the approve handler so it covers BOTH callers
+	// (the admin approve endpoint and the trusted-tier auto-approve inside
+	// suggestEdit) at the one point where the value actually goes live, with no
+	// read-then-apply window between what was checked and what is written.
+	if err := revalidateFetchedURLs(ctx, changes); err != nil {
+		slog.Default().Warn("pending_edit_blocked_unsafe_url",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"error", err.Error(),
+		)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+			"cannot approve: %s. Reject this edit and ask the contributor to resubmit with a public image URL.",
+			err,
+		))
 	}
 
 	// Build update map from new values

@@ -199,7 +199,7 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 
 	// If trusted user, auto-approve immediately
 	if canEditDirectly(user) {
-		approved, approveErr := h.pendingEditService.ApprovePendingEdit(resp.ID, user.ID)
+		approved, approveErr := h.pendingEditService.ApprovePendingEdit(ctx, resp.ID, user.ID)
 		if approveErr != nil {
 			logger.FromContext(ctx).Error("pending_edit_auto_approve_failed",
 				"edit_id", resp.ID,
@@ -410,7 +410,7 @@ func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context,
 		return nil, huma.Error400BadRequest("Invalid edit ID")
 	}
 
-	approved, err := h.pendingEditService.ApprovePendingEdit(uint(editID), user.ID)
+	approved, err := h.pendingEditService.ApprovePendingEdit(ctx, uint(editID), user.ID)
 	if err != nil {
 		// PSY-572: pending_edit carried fields not on the per-entity allowlist.
 		// The service has already auto-marked the row 'rejected' and logged

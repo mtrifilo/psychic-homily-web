@@ -2446,7 +2446,7 @@ type MockPendingEditService struct {
 	GetPendingEditsForEntityFn func(string, uint) ([]contracts.PendingEditResponse, error)
 	GetUserPendingEditsFn      func(uint, int, int) ([]contracts.PendingEditResponse, int64, error)
 	ListPendingEditsFn         func(*contracts.PendingEditFilters) ([]contracts.PendingEditResponse, int64, error)
-	ApprovePendingEditFn       func(uint, uint) (*contracts.PendingEditResponse, error)
+	ApprovePendingEditFn       func(context.Context, uint, uint) (*contracts.PendingEditResponse, error)
 	RejectPendingEditFn        func(uint, uint, string) (*contracts.PendingEditResponse, error)
 	CancelPendingEditFn        func(uint, uint) error
 }
@@ -2481,9 +2481,9 @@ func (m *MockPendingEditService) ListPendingEdits(filters *contracts.PendingEdit
 	}
 	return nil, 0, nil
 }
-func (m *MockPendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
+func (m *MockPendingEditService) ApprovePendingEdit(ctx context.Context, editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
 	if m.ApprovePendingEditFn != nil {
-		return m.ApprovePendingEditFn(editID, reviewerID)
+		return m.ApprovePendingEditFn(ctx, editID, reviewerID)
 	}
 	return nil, nil
 }

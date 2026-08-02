@@ -1,9 +1,11 @@
 package contracts
 
 import (
+	"context"
+	"time"
+
 	adminm "psychic-homily-backend/internal/models/admin"
 	engagementm "psychic-homily-backend/internal/models/engagement"
-	"time"
 )
 
 // MaxPendingEditSummaryLength is the maximum length, in bytes, accepted for
@@ -35,7 +37,9 @@ type PendingEditServiceInterface interface {
 	ListPendingEdits(filters *PendingEditFilters) ([]PendingEditResponse, int64, error)
 
 	// ApprovePendingEdit approves a pending edit, applying changes to the entity.
-	ApprovePendingEdit(editID uint, reviewerID uint) (*PendingEditResponse, error)
+	// ctx bounds the SSRF host guard's DNS lookups over the values being applied
+	// (PSY-1692).
+	ApprovePendingEdit(ctx context.Context, editID uint, reviewerID uint) (*PendingEditResponse, error)
 
 	// RejectPendingEdit rejects a pending edit with a reason.
 	RejectPendingEdit(editID uint, reviewerID uint, reason string) (*PendingEditResponse, error)
