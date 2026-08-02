@@ -1,3 +1,35 @@
+import type { ShowTimingInput } from '@/lib/utils/showTiming'
+import type { ShowResponse } from './types'
+
+/**
+ * The timing view of a show: its start instant and the zone that instant is
+ * meant to be read in.
+ *
+ * One mapping, so a page cannot judge a show on two different calendars. The
+ * status stripe's copy is rendered on the client from the show payload while
+ * its past/tonight/upcoming state is computed on the server; if the two picked
+ * zones differently, a band could say TONIGHT above tomorrow's date.
+ *
+ * The VENUE's state wins over the show's, because the venue is where the show
+ * happens and a show row's `state` is denormalized and can lag an edit. Note
+ * this only ever matters for a venue with no resolved `timezone`, since
+ * `resolveShowTimezone` consults `state` only as a fallback.
+ *
+ * Not the repo-wide rule yet. The show PAGE uses it throughout, but `ShowCard`
+ * and the artist / venue list rows still pass `show.state` alongside the
+ * venue's timezone, which differs from this for a zone-less venue whose state
+ * disagrees with its show row. That is the same class of bug this exists to
+ * prevent, one surface out; converging them is a follow-up, not this ticket.
+ */
+export function showTimingInput(show: ShowResponse): ShowTimingInput {
+  const venue = show.venues?.[0]
+  return {
+    eventDate: show.event_date,
+    state: venue?.state ?? show.state,
+    timezone: venue?.timezone,
+  }
+}
+
 /**
  * Render-time dedup helpers for show lists shown on artist + venue
  * detail pages (PSY-559).

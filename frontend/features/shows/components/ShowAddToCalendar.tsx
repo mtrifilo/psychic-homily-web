@@ -21,6 +21,12 @@ import type { ShowResponse } from '../types'
  * Assumed show length for the Google Calendar link — mirrors the backend's
  * defaultShowDuration so the two export paths never disagree about when a
  * show ends.
+ *
+ * A THIRD number exists and is deliberately not this one: the status stripe's
+ * `ESTIMATED_SHOW_LENGTH_HOURS` is four hours from DOORS rather than three
+ * from the start, because it was specified as reader-facing copy rather than
+ * as a calendar block. Both can render on one show page. Do not unify them
+ * without deciding which number is right; see that constant's comment.
  */
 const SHOW_DURATION_MS = 3 * 60 * 60 * 1000
 

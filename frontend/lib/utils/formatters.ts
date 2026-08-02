@@ -1,5 +1,6 @@
 import {
   getTimezoneForState,
+  hasTimezoneForState,
   formatDateInTimezone,
   formatDateWithYearInTimezone,
   formatTimeInTimezone,
@@ -19,6 +20,24 @@ export function resolveShowTimezone(
 ): string {
   if (timezone && isValidTimeZone(timezone)) return timezone
   return getTimezoneForState(state || 'AZ')
+}
+
+/**
+ * Whether `resolveShowTimezone` would return a zone it actually KNOWS for this
+ * show, rather than the America/Phoenix default it falls back to for anything
+ * outside the US state map.
+ *
+ * Ask this before rendering a clock time or a same-day claim ("tonight") for a
+ * venue that may not have a resolved `timezone`: the default is a guess, and a
+ * guess that is hours or a calendar day wrong reads as fact once it is printed
+ * next to a venue name. Formatting a date is a weaker claim and can live with
+ * the fallback; naming an hour cannot.
+ */
+export function isShowTimezoneResolved(
+  state?: string | null,
+  timezone?: string | null
+): boolean {
+  return (!!timezone && isValidTimeZone(timezone)) || hasTimezoneForState(state)
 }
 
 function isValidTimeZone(tz: string): boolean {

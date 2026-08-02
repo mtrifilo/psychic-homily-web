@@ -81,6 +81,20 @@ export function getTimezoneForState(state: string): string {
 }
 
 /**
+ * Whether the map actually knows this state, as opposed to handing back the
+ * Arizona default.
+ *
+ * The default is silent by design: every caller needs SOME zone, and a
+ * plausible one beats a crash. But a caller that is about to print a clock time
+ * or the word "tonight" is making a claim, and a claim built on the default is
+ * wrong by up to most of a day for a venue outside the US. This lets such a
+ * caller tell the two apart and say less instead of saying it confidently.
+ */
+export function hasTimezoneForState(state?: string | null): boolean {
+  return !!state && state.toUpperCase() in STATE_TIMEZONES
+}
+
+/**
  * Combines a date string and time string into a UTC ISO timestamp
  * Treats the input as local time in the specified timezone
  *

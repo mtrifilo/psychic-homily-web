@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { dedupArtistShows, dedupVenueShows, formatShowCountLabel } from './utils'
+import {
+  dedupArtistShows,
+  dedupVenueShows,
+  formatShowCountLabel,
+  showTimingInput,
+} from './utils'
+import type { ShowResponse, VenueResponse } from './types'
 
 // =============================================================================
 // PSY-559: dedup helpers
@@ -184,5 +190,73 @@ describe('formatShowCountLabel', () => {
   it('falls back to loaded-only when total is missing', () => {
     expect(formatShowCountLabel(50)).toBe('50 shows')
     expect(formatShowCountLabel(50, null)).toBe('50 shows')
+  })
+})
+
+// =============================================================================
+// showTimingInput: which calendar a show is judged on
+// =============================================================================
+
+describe('showTimingInput', () => {
+  function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
+    return {
+      id: 1,
+      slug: 'a-show',
+      title: 'A Show',
+      event_date: '2026-04-16T03:00:00Z',
+      status: 'approved',
+      state: 'AZ',
+      venues: [],
+      artists: [],
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+      is_sold_out: false,
+      is_cancelled: false,
+      ...overrides,
+    }
+  }
+
+  function makeVenue(overrides: Partial<VenueResponse> = {}): VenueResponse {
+    return {
+      id: 1,
+      slug: 'the-venue',
+      name: 'The Venue',
+      city: 'Chicago',
+      state: 'IL',
+      verified: true,
+      ...overrides,
+    }
+  }
+
+  it('takes the zone from the venue the show happens at', () => {
+    expect(
+      showTimingInput(
+        makeShow({
+          venues: [makeVenue({ timezone: 'America/Chicago' })],
+        })
+      )
+    ).toEqual({
+      eventDate: '2026-04-16T03:00:00Z',
+      state: 'IL',
+      timezone: 'America/Chicago',
+    })
+  })
+
+  // The show row's `state` is denormalized and can lag a venue edit, so it is
+  // the fallback rather than the source.
+  it('prefers the venue state over the show row when they disagree', () => {
+    expect(
+      showTimingInput(
+        makeShow({ state: 'AZ', venues: [makeVenue({ state: 'IL' })] })
+      ).state
+    ).toBe('IL')
+  })
+
+  it('falls back to the show state when there is no venue', () => {
+    expect(showTimingInput(makeShow())).toEqual({
+      eventDate: '2026-04-16T03:00:00Z',
+      state: 'AZ',
+      timezone: undefined,
+    })
   })
 })

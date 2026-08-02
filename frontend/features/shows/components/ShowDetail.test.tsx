@@ -228,7 +228,7 @@ describe('ShowDetail', () => {
         isLoading: true,
         error: null,
       })
-      const { container } = render(<ShowDetail showId="1" />)
+      const { container } = render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(container.querySelector('.animate-spin')).toBeInTheDocument()
     })
   })
@@ -240,7 +240,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: new Error('Something went wrong'),
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('Error Loading Show')).toBeInTheDocument()
       expect(screen.getByText('Something went wrong')).toBeInTheDocument()
     })
@@ -253,7 +253,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('Show Not Found')).toBeInTheDocument()
       expect(screen.getByText(/doesn't exist or has been removed/)).toBeInTheDocument()
     })
@@ -264,7 +264,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: new Error('Error'),
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       const link = screen.getByText('Back to Shows').closest('a')
       expect(link).toHaveAttribute('href', '/shows')
     })
@@ -277,7 +277,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('Show Not Found')).toBeInTheDocument()
     })
   })
@@ -292,7 +292,7 @@ describe('ShowDetail', () => {
     })
 
     it('renders artist names', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('Headliner')).toBeInTheDocument()
       expect(screen.getByText('Opener')).toBeInTheDocument()
     })
@@ -300,7 +300,7 @@ describe('ShowDetail', () => {
     it('offers a share affordance built from the show slug, not the route param', () => {
       // `showId` here is the numeric id the route happened to be hit with;
       // the shared link must still be the durable slug URL.
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('share-button')).toHaveAttribute(
         'data-path',
         '/shows/test-show'
@@ -308,19 +308,19 @@ describe('ShowDetail', () => {
     })
 
     it('links artists with slugs to artist pages', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       const link = screen.getByText('Headliner').closest('a')
       expect(link).toHaveAttribute('href', '/artists/headliner')
     })
 
     it('renders venue name as link', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       const link = screen.getByText('The Venue').closest('a')
       expect(link).toHaveAttribute('href', '/venues/the-venue')
     })
 
     it('renders venue location', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
     })
 
@@ -345,7 +345,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('venue-address')).toHaveTextContent(
         '308 N 2nd Ave'
       )
@@ -353,7 +353,7 @@ describe('ShowDetail', () => {
 
     it('omits the address line when the venue has no address', () => {
       // The default fixture venue carries no `address`.
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
       expect(screen.queryByTestId('venue-address')).not.toBeInTheDocument()
     })
@@ -378,22 +378,22 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.queryByTestId('venue-address')).not.toBeInTheDocument()
     })
 
     it('renders price', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('$25.00')).toBeInTheDocument()
     })
 
     it('renders age requirement', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('21+')).toBeInTheDocument()
     })
 
     it('renders description', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('A great show description.')).toBeInTheDocument()
     })
 
@@ -403,12 +403,12 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.queryByText('A great show description.')).not.toBeInTheDocument()
     })
 
     it('renders breadcrumb with link to shows', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       const breadcrumbNav = screen.getByRole('navigation', { name: /Breadcrumb/ })
       expect(breadcrumbNav).toBeInTheDocument()
       const link = breadcrumbNav.querySelector('a')
@@ -416,23 +416,48 @@ describe('ShowDetail', () => {
     })
 
     it('renders save button', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('save-button')).toBeInTheDocument()
     })
 
     it('renders report button', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('report-button')).toBeInTheDocument()
     })
 
-    it('renders EntityTagList in the header slot', () => {
-      render(<ShowDetail showId="1" />)
-      const header = screen.getByTestId('header-slot')
-      expect(header).toContainElement(screen.getByTestId('entity-tag-list'))
+    // Tags and attribution moved out of the header and into the provenance
+    // footer with the mock's module order: above the fold belongs to the bill.
+    // Asserted against the footer itself, not merely "somewhere in the content
+    // slot", so moving them back above the embeds fails here.
+    it('renders EntityTagList in the provenance footer, not the header', () => {
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      expect(screen.getByTestId('show-provenance-footer')).toContainElement(
+        screen.getByTestId('entity-tag-list')
+      )
+      expect(screen.getByTestId('header-slot')).not.toContainElement(
+        screen.getByTestId('entity-tag-list')
+      )
+    })
+
+    // Position is the whole design claim: one band, at the very top, in every
+    // state, so nothing below it moves. Containment alone would still pass with
+    // the band buried under the comment thread.
+    it('renders the status stripe above the layout with venue-local copy', () => {
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      const stripe = screen.getByTestId('show-status-stripe')
+      // 2026-04-15T20:00:00Z is 1 PM Wed Apr 15 in Phoenix.
+      expect(stripe).toHaveTextContent(/WED.*APR 15/)
+
+      const layout = screen.getByTestId('entity-layout')
+      expect(layout).not.toContainElement(stripe)
+      expect(
+        stripe.compareDocumentPosition(layout) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
     })
 
     it('renders EntityCollections, FieldNotes, and CommentThread as content siblings', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('entity-collections')).toBeInTheDocument()
       expect(screen.getByTestId('field-notes-section')).toBeInTheDocument()
       expect(screen.getByTestId('comment-thread')).toBeInTheDocument()
@@ -440,14 +465,33 @@ describe('ShowDetail', () => {
   })
 
   describe('cancelled show', () => {
-    it('shows cancellation alert', () => {
+    // The destructive alert that used to sit above the layout is gone: the
+    // status stripe carries cancellation now, in the one place the page says
+    // what state it is in.
+    it('announces the cancellation in the status stripe', () => {
       mockUseShow.mockReturnValue({
         data: makeShow({ is_cancelled: true }),
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
-      expect(screen.getByText('This show has been cancelled.')).toBeInTheDocument()
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      expect(screen.getByTestId('show-status-stripe')).toHaveTextContent(
+        /CANCELLED.*WED.*APR 15/
+      )
+    })
+
+    // Cancellation outranks the clock: an admin can cancel a show hours before
+    // doors, and the stripe must not still be counting it in.
+    it('says cancelled rather than tonight for a cancelled show today', () => {
+      mockUseShow.mockReturnValue({
+        data: makeShow({ is_cancelled: true }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="today" />)
+      const stripe = screen.getByTestId('show-status-stripe')
+      expect(stripe).toHaveTextContent(/CANCELLED/)
+      expect(stripe).not.toHaveTextContent(/TONIGHT/)
     })
   })
 
@@ -458,7 +502,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
     })
   })
@@ -479,12 +523,12 @@ describe('ShowDetail', () => {
     })
 
     it('shows edit button for admin', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
     })
 
     it('shows delete button for admin', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument()
     })
 
@@ -493,7 +537,7 @@ describe('ShowDetail', () => {
     // ShowActions.
     it('toggles the edit drawer on click', async () => {
       const user = userEvent.setup()
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
 
       expect(screen.queryByTestId('entity-edit-drawer')).not.toBeInTheDocument()
 
@@ -506,7 +550,7 @@ describe('ShowDetail', () => {
     // Mirrors the artist/venue/release/label/festival detail pages.
     it('flashes the save banner after a successful drawer save', async () => {
       const user = userEvent.setup()
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
 
       await user.click(screen.getByRole('button', { name: /Edit/ }))
       expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
@@ -519,32 +563,34 @@ describe('ShowDetail', () => {
     // PSY-563: revision history accordion mounts at the bottom of the
     // detail page (mirrors the other 5 detail pages).
     it('renders RevisionHistory for shows', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('revision-history')).toBeInTheDocument()
     })
 
-    // PSY-563: AttributionLine renders directly in the header slot
-    // (mirrors artist/venue/release/label/festival).
-    it('renders AttributionLine in the header slot', () => {
-      render(<ShowDetail showId="1" />)
-      const header = screen.getByTestId('header-slot')
-      expect(header).toContainElement(screen.getByTestId('attribution-line'))
+    // PSY-563 put AttributionLine in the header slot; the show page moves it
+    // to the provenance footer with the tags. The other five detail pages are
+    // unchanged.
+    it('renders AttributionLine in the provenance footer', () => {
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      expect(screen.getByTestId('show-provenance-footer')).toContainElement(
+        screen.getByTestId('attribution-line')
+      )
     })
 
     it('renders the save success banner when the hook reports it visible', () => {
       mockSaveBannerVisible = true
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('save-success-banner')).toBeInTheDocument()
     })
 
     it('does not render the save success banner when hidden', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.queryByTestId('save-success-banner')).not.toBeInTheDocument()
     })
 
     it('opens delete dialog on click', async () => {
       const user = userEvent.setup()
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
 
       expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /Delete/ }))
@@ -552,12 +598,12 @@ describe('ShowDetail', () => {
     })
 
     it('shows Mark Sold Out button', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: 'Mark Sold Out' })).toBeInTheDocument()
     })
 
     it('shows Mark Cancelled button', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: 'Mark Cancelled' })).toBeInTheDocument()
     })
 
@@ -567,7 +613,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: 'Unmark Sold Out' })).toBeInTheDocument()
     })
 
@@ -577,13 +623,13 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: 'Unmark Cancelled' })).toBeInTheDocument()
     })
 
     it('calls sold out mutation on toggle', async () => {
       const user = userEvent.setup()
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
 
       await user.click(screen.getByRole('button', { name: 'Mark Sold Out' }))
       expect(mockSetSoldOut).toHaveBeenCalledWith({ showId: 1, value: true })
@@ -591,7 +637,7 @@ describe('ShowDetail', () => {
 
     it('calls cancelled mutation on toggle', async () => {
       const user = userEvent.setup()
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
 
       await user.click(screen.getByRole('button', { name: 'Mark Cancelled' }))
       expect(mockSetCancelled).toHaveBeenCalledWith({ showId: 1, value: true })
@@ -614,12 +660,12 @@ describe('ShowDetail', () => {
     })
 
     it('does not show edit button for non-admin', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.queryByRole('button', { name: /Edit/ })).not.toBeInTheDocument()
     })
 
     it('does not show delete button for non-admin non-owner', () => {
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument()
     })
   })
@@ -637,7 +683,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument()
     })
 
@@ -653,7 +699,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: 'Mark Sold Out' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Mark Cancelled' })).toBeInTheDocument()
     })
@@ -674,7 +720,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByText('Listen to the Artists')).toBeInTheDocument()
       expect(screen.getByTestId('music-embed')).toBeInTheDocument()
     })
@@ -689,7 +735,7 @@ describe('ShowDetail', () => {
         isLoading: false,
         error: null,
       })
-      render(<ShowDetail showId="1" />)
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.queryByText('Listen to the Artists')).not.toBeInTheDocument()
     })
   })
