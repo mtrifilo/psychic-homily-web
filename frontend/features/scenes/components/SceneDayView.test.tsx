@@ -98,13 +98,27 @@ describe('SceneDayView — share affordance', () => {
     )
   })
 
-  it('renders no share control when the browser cannot share or copy', async () => {
+  // Both halves in one test on purpose. jsdom exposes neither `navigator.share`
+  // nor `navigator.clipboard`, so the absence alone would also pass with the
+  // control deleted outright — the presence half is what makes the absence mean
+  // "no mechanism" rather than "no component".
+  it('renders no share control when the browser can neither share nor copy', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+      writable: true,
+    })
+    const withClipboard = render(<SceneDayView day={day()} />)
+    expect(
+      await screen.findByRole('button', { name: 'Share this night' })
+    ).toBeInTheDocument()
+    withClipboard.unmount()
+
+    Reflect.deleteProperty(navigator, 'clipboard')
     render(<SceneDayView day={day()} />)
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('button', { name: 'Share this night' })
-      ).not.toBeInTheDocument()
-    )
+    expect(
+      screen.queryByRole('button', { name: 'Share this night' })
+    ).not.toBeInTheDocument()
   })
 })
 

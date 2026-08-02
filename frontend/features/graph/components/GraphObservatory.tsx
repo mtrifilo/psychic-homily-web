@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type Ref,
 } from 'react'
 import Link from 'next/link'
@@ -461,8 +462,9 @@ function AccessibleGraphList({
 /**
  * Escape hatches for the no-connections empty state (PSY-1474 F4): two scene
  * links anchored on the artist's metro plus the random rabbit hole. Mounted
- * only while the empty state is visible, so the scenes list is fetched only
- * when a hatch can actually render (it's cached for 10 minutes anyway).
+ * only while the empty state is visible; the scenes list it reads is the same
+ * 10-minute query the footer's nightly link holds open, so this mount is a
+ * cache read rather than a request of its own.
  */
 function EmptyGraphEscapeHatches({
   city,
@@ -642,35 +644,55 @@ const FOOTER_LINK_CLASS =
   'inline-flex items-center gap-1 text-muted-foreground hover:text-foreground'
 
 /**
+ * The store behind the hydration gate below. Browser-only facts never change
+ * after load, so `subscribe` is a no-op and both snapshots are module-level
+ * constants — anything else re-renders forever.
+ */
+const subscribeToNothing = () => () => {}
+const alwaysHydrated = () => true
+const neverOnTheServer = () => false
+
+/**
  * "Tonight's shows" — the visitor's own scene when we can place them, the
  * global listing otherwise.
  *
  * A nightly scene page is the better answer for a visitor we can place: one
- * city, tonight, at the rooms we track. It is also otherwise unreachable by
- * clicking from anywhere in the app.
+ * city, tonight, at the rooms we track, rather than every city at once.
  *
  * The LABEL is fixed; only the href moves. This link sits in a wrap row ahead
- * of the shuffle pill and geo resolves after mount, so a label that grew a city
- * name would drag its siblings sideways under the reader's cursor.
+ * of the shuffle pill and the resolution lands after mount, so a label that
+ * grew a city name would drag its siblings sideways under the reader's cursor.
  *
- * Both reads are cached and shared — the scenes list is the same 10-minute
- * query the empty-state hatches use, and `/api/geo` is session-cached across
- * the homepage graph and the shows city filter — and neither blocks the first
- * render: until they resolve this is exactly the link it was before.
+ * The href is pinned to the global listing until hydration, which is what
+ * makes it safe to derive from browser-only state at all: this page is server
+ * -rendered, and `useGeoDefaultScene` reads a sessionStorage cache that the
+ * server cannot see. Without the gate the two renders could disagree about the
+ * href — not today (the scenes query is cold at hydration, so the visitor
+ * cannot be placed yet either way), but the day someone prefetches scenes into
+ * this route, which is not a change anyone would expect to break a link.
+ *
+ * Cost: one scenes-list read and one `/api/geo` read per visit, both cached —
+ * the scenes list is the same 10-minute query the empty-state hatches use, and
+ * the geo answer is session-cached across the homepage graph and the shows
+ * city filter, so a visitor arriving from either pays nothing. Neither blocks
+ * the first paint.
  */
 function TonightShowsLink() {
+  const hydrated = useSyncExternalStore(
+    subscribeToNothing,
+    alwaysHydrated,
+    neverOnTheServer,
+  )
   const geo = useGeoDefaultScene()
   const scenesQuery = useScenes()
   const scene = useMemo(
     () => pickViewerScene(scenesQuery.data?.scenes ?? [], geo),
     [scenesQuery.data, geo],
   )
+  const href = hydrated && scene ? `/scenes/${scene.slug}/tonight` : '/shows'
 
   return (
-    <Link
-      href={scene ? `/scenes/${scene.slug}/tonight` : '/shows'}
-      className={FOOTER_LINK_CLASS}
-    >
+    <Link href={href} className={FOOTER_LINK_CLASS}>
       Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
     </Link>
   )

@@ -225,8 +225,9 @@ describe('SceneDetailView', () => {
       expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBeInTheDocument()
     })
 
-    // These two are the only route into the scene's nightly and weekly pages
-    // from anywhere in the app.
+    // The scene page is where a reader arrives; the nightly and weekly pages
+    // link to each other but to little else, so this pair is what connects
+    // that sub-site to the rest of the app.
     it('links to the scene’s own night and week from the upcoming-shows header', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene(),

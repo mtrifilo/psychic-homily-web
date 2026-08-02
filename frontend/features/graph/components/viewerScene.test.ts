@@ -48,15 +48,27 @@ describe('pickViewerScene', () => {
 
   // Unlike the homepage graph's default, there is no liveliest-scene fallback:
   // the caller is a navigation target, and another region's night is a worse
-  // answer than the listing the visitor already had.
-  it('returns null when the visitor cannot be placed against any scene', () => {
-    const scenes = [scene({ latitude: null, longitude: null })]
-    expect(pickViewerScene(scenes, { city: 'Berlin', state: 'BE' })).toBeNull()
+  // answer than the listing the visitor already had. The visitor here HAS
+  // coordinates — it is the ungeocoded scene that makes the pair unplaceable,
+  // which is the branch that decides whether a fallback exists at all.
+  it('returns null when no scene can be placed against the visitor', () => {
+    const scenes = [scene({ city: 'Chicago', state: 'IL', latitude: null, longitude: null })]
+    const placedVisitor = { city: 'Phoenix', state: 'AZ', latitude: 33.45, longitude: -112.07 }
+    expect(pickViewerScene(scenes, placedVisitor)).toBeNull()
   })
 
-  // A correct-but-empty nightly page is a worse destination than the listing.
-  it('returns null when the matched scene has nothing upcoming', () => {
-    const scenes = [scene({ upcoming_show_count: 0 })]
+  // A scene dark all week has a nightly page that is correct and empty, which
+  // is a worse destination than the listing.
+  it('returns null when the matched scene has been quiet all week', () => {
+    const scenes = [scene({ shows_this_week: 0 })]
+    expect(pickViewerScene(scenes, { city: 'Phoenix', state: 'AZ' })).toBeNull()
+  })
+
+  // The gate is near-term activity, not the scene's whole upcoming calendar:
+  // a scene with a full month ahead and nothing this week is not somewhere to
+  // send a reader asking what is on tonight.
+  it('reads this week, not the whole upcoming calendar', () => {
+    const scenes = [scene({ upcoming_show_count: 40, shows_this_week: 0 })]
     expect(pickViewerScene(scenes, { city: 'Phoenix', state: 'AZ' })).toBeNull()
   })
 })

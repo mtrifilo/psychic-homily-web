@@ -877,59 +877,54 @@ describe('GraphObservatory', () => {
       expect(screen.queryByText(/The whole map/)).not.toBeInTheDocument()
     })
   })
-})
 
-describe('GraphObservatory — the "Tonight’s shows" escape hatch', () => {
-  const phoenix = {
-    city: 'Phoenix',
-    state: 'AZ',
-    slug: 'phoenix-az',
-    venue_count: 10,
-    upcoming_show_count: 12,
-    total_show_count: 400,
-    shows_this_week: 4,
-    latitude: 33.45,
-    longitude: -112.07,
-  }
+  describe('the "Tonight’s shows" escape hatch', () => {
+    const phoenix = {
+      city: 'Phoenix',
+      state: 'AZ',
+      slug: 'phoenix-az',
+      venue_count: 10,
+      upcoming_show_count: 12,
+      total_show_count: 400,
+      shows_this_week: 4,
+      latitude: 33.45,
+      longitude: -112.07,
+    }
+    const inPhoenix = { city: 'Phoenix', state: 'AZ' }
 
-  beforeEach(() => {
-    scenesState.scenes = []
-    geoState.geo = null
-  })
+    // The EXACT accessible name, shared by every case below: the label is
+    // fixed on purpose and only the href moves. This link sits in a wrap row
+    // ahead of the shuffle pill, so a label that grew a city name when geo
+    // landed would drag its siblings sideways after the reader had aimed.
+    const tonightLink = () =>
+      screen.getByRole('link', { name: 'Tonight’s shows' })
 
-  // The scenes list and the geo suggestion both arrive after mount, so the
-  // global listing is what the link is until they do — and what it stays for a
-  // visitor we cannot place.
-  it('points at the global listing when no scene can be resolved', () => {
-    renderWithProviders(<GraphObservatory />)
+    // The scenes list and the geo suggestion both arrive after mount, so the
+    // global listing is what the link is until they do — and what it stays for
+    // a visitor we cannot place.
+    it('points at the global listing when no scene can be resolved', () => {
+      renderWithProviders(<GraphObservatory />)
 
-    expect(screen.getByRole('link', { name: /Tonight’s shows/ })).toHaveAttribute(
-      'href',
-      '/shows',
-    )
-  })
+      expect(tonightLink()).toHaveAttribute('href', '/shows')
+    })
 
-  it('points at the visitor’s own scene for the night once geo resolves', () => {
-    scenesState.scenes = [phoenix]
-    geoState.geo = { city: 'Phoenix', state: 'AZ' }
-    renderWithProviders(<GraphObservatory />)
+    it('points at the visitor’s own scene for the night once geo resolves', () => {
+      scenesState.scenes = [phoenix]
+      geoState.geo = inPhoenix
+      renderWithProviders(<GraphObservatory />)
 
-    expect(screen.getByRole('link', { name: /Tonight’s shows/ })).toHaveAttribute(
-      'href',
-      '/scenes/phoenix-az/tonight',
-    )
-  })
+      expect(tonightLink()).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
+    })
 
-  // The label is fixed on purpose: this link sits in a wrap row ahead of the
-  // shuffle pill, and a label that grew a city name when geo landed would drag
-  // its siblings sideways after the reader had already aimed at one.
-  it('reads the same either way', () => {
-    scenesState.scenes = [phoenix]
-    geoState.geo = { city: 'Phoenix', state: 'AZ' }
-    renderWithProviders(<GraphObservatory />)
+    // Placing the visitor is not enough. A scene that has been dark all week
+    // has a nightly page that is correct and empty, which is a worse answer
+    // than the listing the reader already had.
+    it('keeps the listing when the visitor’s scene has been quiet all week', () => {
+      scenesState.scenes = [{ ...phoenix, shows_this_week: 0 }]
+      geoState.geo = inPhoenix
+      renderWithProviders(<GraphObservatory />)
 
-    expect(
-      screen.getByRole('link', { name: /^Tonight’s shows$/ }),
-    ).toBeInTheDocument()
+      expect(tonightLink()).toHaveAttribute('href', '/shows')
+    })
   })
 })

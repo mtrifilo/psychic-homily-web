@@ -222,7 +222,7 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
         {/* Upcoming Shows */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex min-w-0 items-center gap-2 text-base">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               Upcoming Shows
             </CardTitle>
@@ -230,10 +230,10 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
                 as bare bracket links, not verbs in an action row: the action
                 row is for auth-gated relationship verbs (Follow / Notify me),
                 and a link that syndicates a list belongs on that list's
-                header. This is the only route into either page from anywhere
-                in the app, so do not drop them in a restyle without adding
-                another. */}
-            <CardAction className="flex items-center gap-3">
+                header. The two pages link to each other, so this pair is what
+                connects that whole sub-site to the rest of the app — dropping
+                one in a restyle strands more than itself. */}
+            <CardAction className="flex flex-wrap items-center gap-3">
               <BracketLink
                 label="Tonight"
                 href={`/scenes/${slug}/tonight`}

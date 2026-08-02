@@ -161,9 +161,8 @@ describe('SceneWeekView', () => {
     )
   })
 
-  // Load-bearing: this chip is currently the ONLY route into the nightly page
-  // from anywhere in the app. A restyle of this three-chip row that drops it
-  // orphans that whole surface silently.
+  // Load-bearing: the two pages are read as a pair, and this chip is the half
+  // of that pairing a restyle of the three-chip row would drop silently.
   it('links out to tonight, the reciprocal of the day view Full week chip', () => {
     render(<SceneWeekView week={week()} />)
     expect(screen.getByRole('link', { name: 'Tonight' })).toHaveAttribute(

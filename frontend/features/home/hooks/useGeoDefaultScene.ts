@@ -20,9 +20,15 @@ import { GEO_CACHE_KEY, toGeoLocation } from '@/lib/geo-client'
  * swaps to the visitor's scene when the suggestion resolves (via the section's
  * existing scene-rotation path). A warm session cache resolves synchronously in
  * the initializer, so the common case shows the geo scene on the first render
- * with no swap. Reading the cache in the initializer (not an effect) is safe
- * because the section is client-only lazy-mounted (never SSR'd), so `window`
- * exists and there's no hydration to mismatch.
+ * with no swap.
+ *
+ * CALLER CONTRACT: the returned value can differ between a server render and
+ * the hydration render that follows it, because a warm sessionStorage cache is
+ * visible only to the browser. A caller that is server-rendered must therefore
+ * not let this value reach its markup until after hydration — the homepage
+ * section is client-only lazy-mounted so the question never arises for it, but
+ * the Observatory's nightly link IS server-rendered and gates on hydration for
+ * exactly this reason.
  *
  * Deliberately NOT auth/favorites-gated (unlike `useGeoDefaultCity`): the graph
  * has no per-user "favorite scene", so geo is an overridable default for every
