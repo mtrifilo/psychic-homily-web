@@ -4,9 +4,9 @@ import Link from 'next/link'
 import {
   MapPin, Building2, Mic2, Calendar, Tent, ArrowRight, Loader2, Music,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { TagPill } from '@/components/shared'
+import { BracketLink, TagPill } from '@/components/shared'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
 import { ScenePulse } from './ScenePulse'
@@ -226,6 +226,25 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
               <Calendar className="h-4 w-4 text-muted-foreground" />
               Upcoming Shows
             </CardTitle>
+            {/* The scene's nightly and weekly listings. On the section header
+                as bare bracket links, not verbs in an action row: the action
+                row is for auth-gated relationship verbs (Follow / Notify me),
+                and a link that syndicates a list belongs on that list's
+                header. This is the only route into either page from anywhere
+                in the app, so do not drop them in a restyle without adding
+                another. */}
+            <CardAction className="flex items-center gap-3">
+              <BracketLink
+                label="Tonight"
+                href={`/scenes/${slug}/tonight`}
+                ariaLabel={`Shows tonight in ${scene.city}`}
+              />
+              <BracketLink
+                label="This week"
+                href={`/scenes/${slug}/week`}
+                ariaLabel={`This week in ${scene.city}`}
+              />
+            </CardAction>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-3">

@@ -1,4 +1,8 @@
 import Link from 'next/link'
+// Imported directly, not through the `components/shared` barrel: this page had
+// no dependency on that barrel at all, and going through it would pull all ~30
+// shared components into this route's module graph to use one of them.
+import { ShareButton } from '@/components/shared/ShareButton'
 import { showDisplayTitle, showHref } from '../sceneWeek'
 import {
   dayShows,
@@ -207,12 +211,23 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
           </div>
         </div>
 
-        <p className="mt-3 font-mono text-sm">
-          {day.is_tonight && 'Tonight — '}
-          {formatDayFull(day.date)}
-          {'   ·   '}
-          {formatDayCountLine(total)}
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="font-mono text-sm">
+            {day.is_tonight && 'Tonight — '}
+            {formatDayFull(day.date)}
+            {'   ·   '}
+            {formatDayCountLine(total)}
+          </p>
+          {/* Always the DATED permalink, even when this renders at the rolling
+              `/scenes/{slug}/tonight` URL. Sharing the rolling URL would hand a
+              friend a page whose contents change out from under the message
+              tomorrow — the same divergence the weekly page's control makes,
+              between the canonical and what the address bar shows. */}
+          <ShareButton
+            path={`/scenes/${day.slug}/${day.date}`}
+            ariaLabel="Share this night"
+          />
+        </div>
 
         {/* Load-bearing, not filler: coverage is a curated slice (11 rooms in
             Chicago, not all of Chicago). A page that implied full city coverage

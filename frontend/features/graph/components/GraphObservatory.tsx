@@ -49,12 +49,18 @@ import {
   type RandomArtistTargetResponse,
 } from '@/features/discovery/useRandomArtistTarget'
 import { useScenes } from '@/features/scenes/hooks/useScenes'
+// The shared client-geo suggestion hook. It lives under `features/home`
+// because the homepage graph was its first consumer, but nothing in it is
+// homepage-specific: it reads the same `/api/geo` route and sessionStorage
+// cache every client geo consumer shares.
+import { useGeoDefaultScene } from '@/features/home/hooks/useGeoDefaultScene'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
+import { pickViewerScene } from './viewerScene'
 
 interface GraphAnchor {
   id: number
@@ -630,6 +636,46 @@ function ReplayStatusLine({ replay }: { replay: SceneReplayController }) {
   return <span ref={textRef} className="text-foreground" />
 }
 
+// The serendipity footer's two plain links share one treatment; hoisted so a
+// restyle can't land on one and not the other.
+const FOOTER_LINK_CLASS =
+  'inline-flex items-center gap-1 text-muted-foreground hover:text-foreground'
+
+/**
+ * "Tonight's shows" — the visitor's own scene when we can place them, the
+ * global listing otherwise.
+ *
+ * A nightly scene page is the better answer for a visitor we can place: one
+ * city, tonight, at the rooms we track. It is also otherwise unreachable by
+ * clicking from anywhere in the app.
+ *
+ * The LABEL is fixed; only the href moves. This link sits in a wrap row ahead
+ * of the shuffle pill and geo resolves after mount, so a label that grew a city
+ * name would drag its siblings sideways under the reader's cursor.
+ *
+ * Both reads are cached and shared — the scenes list is the same 10-minute
+ * query the empty-state hatches use, and `/api/geo` is session-cached across
+ * the homepage graph and the shows city filter — and neither blocks the first
+ * render: until they resolve this is exactly the link it was before.
+ */
+function TonightShowsLink() {
+  const geo = useGeoDefaultScene()
+  const scenesQuery = useScenes()
+  const scene = useMemo(
+    () => pickViewerScene(scenesQuery.data?.scenes ?? [], geo),
+    [scenesQuery.data, geo],
+  )
+
+  return (
+    <Link
+      href={scene ? `/scenes/${scene.slug}/tonight` : '/shows'}
+      className={FOOTER_LINK_CLASS}
+    >
+      Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
+    </Link>
+  )
+}
+
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
@@ -1126,12 +1172,10 @@ export function GraphObservatory() {
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border/50 pt-4 text-sm">
         <span className="font-display text-base font-medium">No artist in mind?</span>
-        <Link href="/scenes" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+        <Link href="/scenes" className={FOOTER_LINK_CLASS}>
           Your scene <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
-        <Link href="/shows" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-          Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
-        </Link>
+        <TonightShowsLink />
         <ShufflePill onClick={handleShuffle} busy={isShuffleBusy} />
         {/* The lookup error renders beside the affordance the user most
             likely clicked: the hero when it is mounted (the fallback zero

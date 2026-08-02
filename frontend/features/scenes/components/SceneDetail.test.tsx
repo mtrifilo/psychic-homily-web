@@ -225,6 +225,24 @@ describe('SceneDetailView', () => {
       expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBeInTheDocument()
     })
 
+    // These two are the only route into the scene's nightly and weekly pages
+    // from anywhere in the app.
+    it('links to the scene’s own night and week from the upcoming-shows header', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene(),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+
+      expect(
+        screen.getByRole('link', { name: 'Shows tonight in Phoenix' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
+      expect(
+        screen.getByRole('link', { name: 'This week in Phoenix' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+    })
+
     it('renders the scene description when present', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene({ description: 'A desert DIY scene.' }),
