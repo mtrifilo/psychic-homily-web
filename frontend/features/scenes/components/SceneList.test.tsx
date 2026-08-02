@@ -107,10 +107,15 @@ describe('SceneList', () => {
       expect(screen.getByText('Phoenix, AZ')).toBeInTheDocument()
       expect(screen.getByText('Tucson, AZ')).toBeInTheDocument()
 
-      const phoenixLink = screen.getByText('Phoenix, AZ').closest('a')!
-      expect(phoenixLink).toHaveAttribute('href', '/scenes/phoenix-az')
-      const tucsonLink = screen.getByText('Tucson, AZ').closest('a')!
-      expect(tucsonLink).toHaveAttribute('href', '/scenes/tucson-az')
+      // The card's link is an overlay covering the card rather than a wrapper
+      // around it, so it is addressed by its accessible name, not by the title
+      // text it sits over.
+      expect(
+        screen.getByRole('link', { name: 'Phoenix, AZ' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az')
+      expect(
+        screen.getByRole('link', { name: 'Tucson, AZ' })
+      ).toHaveAttribute('href', '/scenes/tucson-az')
     })
 
     it('pluralizes venue and show counts', () => {
@@ -137,11 +142,43 @@ describe('SceneList', () => {
     it('links every card to the scene week page', () => {
       renderWithProviders(<SceneList />)
 
-      const phoenixWeek = screen.getByRole('link', { name: /23 shows this week/ })
-      expect(phoenixWeek).toHaveAttribute('href', '/scenes/phoenix-az/week')
+      expect(
+        screen.getByRole('link', { name: 'Phoenix, AZ, 23 shows this week' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+      expect(
+        screen.getByRole('link', { name: 'Tucson, AZ, No shows this week' })
+      ).toHaveAttribute('href', '/scenes/tucson-az/week')
+    })
 
-      const tucsonWeek = screen.getByRole('link', { name: /No shows this week/ })
-      expect(tucsonWeek).toHaveAttribute('href', '/scenes/tucson-az/week')
+    // A quiet week puts the same four words on every card, so the city has to
+    // be in the accessible name or a links list offers a dozen identical
+    // entries pointing at a dozen different pages.
+    it('names the city in the week link, not just the count', () => {
+      renderWithProviders(<SceneList />)
+
+      const names = screen
+        .getAllByRole('link')
+        .map(link => link.getAttribute('aria-label') ?? link.textContent)
+
+      expect(new Set(names).size).toBe(names.length)
+    })
+
+    // Same reason the /shows block mutes its zero rows: always linking the
+    // quiet scenes is only free if emptiness is not the loudest thing on the
+    // card.
+    it('drops the accent on a quiet scene without dropping the link', () => {
+      renderWithProviders(<SceneList />)
+
+      const tucson = screen.getByRole('link', {
+        name: 'Tucson, AZ, No shows this week',
+      })
+      expect(tucson).toHaveClass('text-muted-foreground')
+      expect(tucson).not.toHaveClass('text-primary')
+
+      const phoenix = screen.getByRole('link', {
+        name: 'Phoenix, AZ, 23 shows this week',
+      })
+      expect(phoenix).toHaveClass('text-primary')
     })
 
     // Nesting the week link inside the card's own link would be invalid HTML —

@@ -11,7 +11,8 @@ import type { SceneListItem } from '../types'
  * `sort` is stable, so scenes level on `shows_this_week` keep the list
  * endpoint's own ordering (total shows, then upcoming) rather than an arbitrary
  * one. That is what makes a quiet week's block deterministic: eleven scenes on
- * a count of 0 or 1 would otherwise be free to reshuffle between renders.
+ * the long tail of scenes sitting on a count of 0 or 1 would otherwise be free
+ * to reshuffle between renders.
  *
  * Zero-show scenes sort last for free and are NOT dropped. Hiding them would
  * make the block's membership churn week to week, and every row here is an
@@ -26,9 +27,12 @@ function CityRow({ scene }: { scene: SceneListItem }) {
   const quiet = scene.shows_this_week === 0
 
   return (
-    // A plain anchor, not `next/link`: this block exists to be followed by
-    // crawlers, and 26 prefetching links at the foot of the page would buy a
-    // reader nothing while costing every visitor 26 speculative requests.
+    // A plain anchor, not `next/link`. The locked decision for this block is
+    // that it carries no client JS, and a bare anchor per scene is what
+    // satisfies it: a `<Link>` per row would pull the router into a footer
+    // index whose whole job is to be followed once, by a crawler. The cost is a
+    // full navigation instead of a client-side one, which is why every other
+    // internal link in this feature still uses `next/link`.
     <a
       href={`/scenes/${scene.slug}/week`}
       aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_this_week, true)}`}
@@ -61,19 +65,30 @@ function CityRow({ scene }: { scene: SceneListItem }) {
  * `shows_this_week` is the endpoint's rolling window — approved shows in the
  * next seven days from now (`sceneThisWeekDays`, PSY-1309) — and it is what the
  * app already labels "this week" everywhere it appears (the scene cards, the
- * Atlas pulse). The range shown beside the heading is the Monday-to-Sunday week
- * that the LINKS open, which is what the range is there to say. On a Wednesday
- * the two windows overlap without matching, so a city's number here can differ
- * from the total on the page it links to. Measured against production
- * 2026-08-02: Phoenix reads 28 here and 22 on its week page. Both numbers are
- * correct about their own window; only one endpoint reports per-scene counts,
- * and fetching 26 week pages to align them is not a trade this block is worth.
+ * Atlas pulse). The range beside the heading is a Monday-to-Sunday week, which
+ * is the shape the linked pages serve.
+ *
+ * THE TWO DO NOT DESCRIBE THE SAME DAYS, and the gap is not small. Measured
+ * against production on 2026-08-02, a Sunday, when the rolling window and the
+ * calendar week share exactly one day: Chicago read 76 here and 96 on its week
+ * page; Phoenix read 28 here and 22. Re-measure rather than trusting those
+ * numbers. Closing the gap needs a per-scene calendar-week count that no
+ * endpoint reports today, so it is a product decision on PSY-1623 rather than
+ * something to settle at this call site.
+ *
+ * The range is also derived in ONE zone (`SCENE_WEEK_INDEX_TIMEZONE`) while
+ * each week page resolves its own bounds in its scene's venue timezone, so
+ * around the Monday boundary the label and an eastern scene's destination
+ * disagree about which week it is.
  *
  * Column-major by CSS, deliberately: `columns-*` lays a single rank-ordered
  * list down column 1 then column 2, so the DOM order stays the rank order for a
  * crawler and a screen reader while the eye reads it in columns. Chunking into
  * per-column arrays would have fixed the column count on the server and lost
  * the 4-to-2 reflow.
+ *
+ * One row per scene, always. `GET /scenes` is unpaginated and bounded by the
+ * scene thresholds, so the block grows with the catalogue, not with traffic.
  */
 export function ThisWeekByCity({
   scenes,

@@ -177,14 +177,21 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
             own page not pointing at that scene's week was the most obviously
             missing edge in the site's crawl graph. It renders unconditionally,
             unlike the stats beside it: a scene with no countable stats still
-            has a week. */}
+            has a week.
+
+            `scene.slug`, NOT the route param. A metro member slug resolves to
+            its principal city, so `/scenes/mesa-az` renders the Phoenix scene;
+            building the href from the requested spelling would mint a second
+            URL for a week page that already has one, which is the opposite of
+            what this ticket is for. The backend canonicalizes the slug it
+            returns precisely so callers do not have to guess. */}
         <p className="text-muted-foreground mt-1">
           {statParts.length > 0 && `${statParts.join(' \u00B7 ')} \u00B7 `}
           <Link
-            href={`/scenes/${slug}/week`}
+            href={`/scenes/${scene.slug}/week`}
             className="text-primary underline underline-offset-2 hover:no-underline"
           >
-            This week in {scene.city} →
+            This week in {scene.city} <span aria-hidden="true">→</span>
           </Link>
         </p>
         {scene.description && (

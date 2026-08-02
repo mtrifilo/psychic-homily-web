@@ -48,26 +48,35 @@ export function SceneList() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {data.scenes.map((scene) => (
-        /* Two destinations, one card, and no nested anchors — which is why the
-           card is no longer wrapped in a single `<Link>`. The title's link is
-           stretched over the whole card by an `::after` overlay, so the card
-           stays entirely clickable, and the week link sits above that overlay.
-           Nesting the second link inside the first would have been invalid
-           HTML: the parser lifts the inner anchor out, and what a crawler is
-           handed stops matching what was written. */
+        /* Two destinations on one card, and the card is no longer wrapped in a
+           single `<Link>` because a second anchor inside the first is invalid
+           HTML: the parser lifts the inner anchor out, so what a crawler is
+           handed stops matching what was written.
+
+           So the card link is an overlay element covering the card, and the
+           week link sits above it (positioned, and later in tree order). The
+           overlay is a DIRECT CHILD of the `relative` card, deliberately: an
+           `::after` on the title inside `CardHeader` would have depended on
+           whether `container-type: inline-size` — which `CardHeader` sets —
+           makes that header the containing block for absolutely positioned
+           descendants. Chromium says it does not (measured: a click 27px below
+           the header still reached the card link), but that is a subtle rule to
+           rest a whole card's click target on, and it is not worth a
+           cross-browser bet when parenting the overlay to the card answers the
+           question outright. */
         <Card
           key={scene.slug}
           className="relative h-full transition-colors hover:bg-muted/50"
         >
+          <Link
+            href={`/scenes/${scene.slug}`}
+            aria-label={`${scene.city}, ${scene.state}`}
+            className="absolute inset-0 rounded-lg"
+          />
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-lg">
               <MapPin className="h-4 w-4 text-muted-foreground" />
-              <Link
-                href={`/scenes/${scene.slug}`}
-                className="after:absolute after:inset-0 after:content-['']"
-              >
-                {scene.city}, {scene.state}
-              </Link>
+              {scene.city}, {scene.state}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -90,12 +99,25 @@ export function SceneList() {
             {/* Rendered for every scene, including the quiet ones (PSY-1623):
                 the week page is otherwise unreachable, and a link that appears
                 only in the weeks a city is busy is one a crawler cannot rely
-                on. `relative` lifts it out of the title link's overlay. */}
+                on. A quiet scene drops the accent, for the same reason the
+                `/shows` block mutes its zero rows: the point of always linking
+                them is that emptiness costs nothing to look at, and "No shows
+                this week" is the last thing a card should say loudest.
+
+                `relative` lifts it above the card-wide link overlay. The
+                `aria-label` names the city because the visible text does not:
+                on a quiet week a dozen cards would otherwise offer a dozen
+                links all called "No shows this week", pointing at a dozen
+                different pages. */}
             <Link
               href={`/scenes/${scene.slug}/week`}
-              className="relative mt-2 inline-block text-sm text-primary underline underline-offset-2 hover:no-underline"
+              aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_this_week, true)}`}
+              className={`relative mt-2 inline-block text-sm underline underline-offset-2 hover:no-underline ${
+                scene.shows_this_week === 0 ? 'text-muted-foreground' : 'text-primary'
+              }`}
             >
-              {formatShowCountLine(scene.shows_this_week, true)} →
+              {formatShowCountLine(scene.shows_this_week, true)}{' '}
+              <span aria-hidden="true">→</span>
             </Link>
           </CardContent>
         </Card>

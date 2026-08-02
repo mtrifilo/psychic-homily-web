@@ -1,12 +1,18 @@
 import { Suspense, cache } from 'react'
 import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
-// Imported by path, not through the `@/features/scenes` barrel: that barrel
-// re-exports the Atlas globe and the scene graph, and going through it would
-// pull maplibre and the force-graph canvas into this route's module graph to
-// render a list of city names.
+// Imported by path rather than through the `@/features/scenes` barrel, which
+// is a surface of client components (`SceneList`, `SceneDetailView`, the Atlas
+// globe). This is a server component that needs none of them, and the sibling
+// page-level scene components — `SceneWeekView`, `SceneDayView` — are imported
+// by path for the same reason. NOTE: this is not a claim that the barrel would
+// ship maplibre or the force graph to this route; both are already behind
+// `next/dynamic` in their own chunks.
 import { ThisWeekByCity } from '@/features/scenes/components/ThisWeekByCity'
-import { currentWeekBounds } from '@/features/scenes/sceneWeek'
+import {
+  currentWeekBounds,
+  SCENE_WEEK_INDEX_TIMEZONE,
+} from '@/features/scenes/sceneWeek'
 import type { SceneListResponse } from '@/features/scenes/types'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
 import {
@@ -184,23 +190,24 @@ async function HydratedShowList() {
  * it, and `fetchListPayload` returns `null` precisely so a caller can drop a
  * section instead of turning an API blip into an error page.
  */
-async function HydratedThisWeekByCity() {
-  await connection()
-
-  const payload = await fetchListPayload<SceneListResponse>({
+export function getScenesForWeekIndex(): Promise<SceneListResponse | null> {
+  return fetchListPayload<SceneListResponse>({
     url: API_ENDPOINTS.SCENES.LIST,
     collection: 'scenes',
     service: 'shows-this-week-by-city',
   })
+}
+
+async function HydratedThisWeekByCity() {
+  await connection()
+
+  const payload = await getScenesForWeekIndex()
 
   if (!payload?.scenes?.length) {
     return null
   }
 
-  const { start, end } = currentWeekBounds(
-    new Date(),
-    CANONICAL_FIRST_SCREEN_TIMEZONE,
-  )
+  const { start, end } = currentWeekBounds(new Date(), SCENE_WEEK_INDEX_TIMEZONE)
 
   return (
     <ThisWeekByCity scenes={payload.scenes} weekStart={start} weekEnd={end} />

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
 
-import { UPCOMING_SHOWS_LIMIT, getUpcomingShows } from './page'
+import { UPCOMING_SHOWS_LIMIT, getScenesForWeekIndex, getUpcomingShows } from './page'
 
 // The bound here was implicit — no `limit` was sent, so the endpoint's
 // `default:"50"` applied silently. Asserting it keeps the number a decision
@@ -51,5 +51,36 @@ describe('getUpcomingShows', () => {
     fetchListPayload.mockResolvedValue(null)
 
     await expect(getUpcomingShows()).resolves.toEqual([])
+  })
+})
+
+// PSY-1623: the by-city block is the only inbound link `/shows` gives the
+// scene-week pages. `HydratedThisWeekByCity` is a server component and cannot
+// be called from here, so the fetch it delegates to is what this pins: the
+// endpoint, the collection guard, and the Sentry tag that would name it in an
+// outage.
+describe('getScenesForWeekIndex', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('asks for the whole scene list, guarded on the scenes collection', async () => {
+    const scenes = [{ slug: 'phoenix-az', shows_this_week: 28 }]
+    fetchListPayload.mockResolvedValue({ scenes, count: 1 })
+
+    await expect(getScenesForWeekIndex()).resolves.toEqual({ scenes, count: 1 })
+    expect(fetchListPayload).toHaveBeenCalledWith({
+      url: expect.stringMatching(/\/scenes$/),
+      collection: 'scenes',
+      service: 'shows-this-week-by-city',
+    })
+  })
+
+  // A failed fetch drops the block rather than throwing: it is supplementary to
+  // the list above it, and an API blip should not become an error page.
+  it('passes the failure through as null for the caller to drop', async () => {
+    fetchListPayload.mockResolvedValue(null)
+
+    await expect(getScenesForWeekIndex()).resolves.toBeNull()
   })
 })

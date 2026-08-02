@@ -65,12 +65,17 @@ export function resolveRequestedWeek(segment: string | undefined): string | unde
 }
 
 /**
- * The card's count line.
+ * A show count as a sentence, optionally suffixed "this week".
  *
- * "this week" is only true of the rolling week. An archived card carries its
- * date range directly above this line, so dropping the phrase reads correctly
- * for a week shared months later rather than claiming to be current. A quiet
- * week says so in words — `0 shows` is a bad thing to post.
+ * WHICH week is the CALLER's to know — this function only spells the phrase.
+ * The share card passes the scene's Monday-to-Sunday total; the scene cards and
+ * the `/shows` by-city index pass `shows_this_week` from `GET /scenes`, which
+ * is a rolling seven-day window. Same words, different windows.
+ *
+ * The suffix is dropped for an archived share card, which carries its date
+ * range directly above this line: that reads correctly for a week shared months
+ * later rather than claiming to be current. A quiet week says so in words —
+ * `0 shows` is a bad thing to post.
  */
 export function formatShowCountLine(total: number, isCurrentWeek: boolean): string {
   const period = isCurrentWeek ? ' this week' : ''
@@ -95,6 +100,27 @@ export function parseCalendarDate(iso: string): Date {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, (m ?? 1) - 1, d ?? 1)
 }
+
+/**
+ * The zone the cross-city week index names its week in.
+ *
+ * It holds the same value as `lib/canonicalTimezone.ts`'s
+ * `CANONICAL_FIRST_SCREEN_TIMEZONE` and is deliberately NOT that constant.
+ * That one places the start-of-today boundary for `GET /shows/upcoming`, and
+ * its safety argument is specific to that question: everything the boundary
+ * excludes has already started, so it cannot hide an upcoming show from anyone.
+ * None of that reasoning transfers to picking which Monday a heading names. Its
+ * own docstring also says PSY-1678 retires it along with the `timezone`
+ * parameter, and whoever does that must not silently take this surface with it.
+ *
+ * A single zone is a compromise here, not a correct answer. The scene-week
+ * pages resolve "current week" in each scene's OWN venue timezone, so around
+ * the Monday boundary a scene east of this zone has already turned over while
+ * this label still names the previous week. It is a few hours a week on a
+ * decorative header; it would need per-scene bounds from `GET /scenes` to fix
+ * properly.
+ */
+export const SCENE_WEEK_INDEX_TIMEZONE = 'America/Los_Angeles'
 
 /** `2026-07-27` from a `Date` read in its own local fields. */
 function toCalendarDate(date: Date): string {
