@@ -2,8 +2,101 @@ import {
   parseISOToDateAndTime,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
-import type { ShowResponse, VenueResponse } from '../types'
+import type { SetType, ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
+
+/**
+ * Human labels for every bill role, for the show FORM.
+ *
+ * Typed as an EXHAUSTIVE Record on purpose. `SetType` is derived from the
+ * generated OpenAPI enum, so a value added on the backend widens the union and
+ * this object stops compiling until somebody supplies a label. That compile
+ * error is the guard: without it a stale client would silently coerce the new
+ * role to the neutral default and overwrite it on the next save.
+ *
+ * These strings are form copy only. How a role is ANNOTATED on a show page is
+ * a separate decision and deliberately not defined here.
+ */
+const SET_TYPE_LABELS: Record<SetType, string> = {
+  headliner: 'Headliner',
+  direct_support: 'Direct support',
+  opener: 'Opener',
+  special_guest: 'Special guest',
+  dj: 'DJ',
+  performer: 'Performer (slot unknown)',
+}
+
+/**
+ * The vocabulary in presentation order: top of bill first, then descending
+ * specificity, with the neutral default last. Mirrors the order of
+ * contracts.SetTypeVocabulary() in
+ * backend/internal/services/contracts/set_type.go.
+ *
+ * Order cannot be derived from a union (TypeScript unions are unordered), so
+ * this list is written out. `satisfies` pins every entry to a real SetType, and
+ * the exhaustiveness assertion below pins the reverse direction.
+ */
+export const SET_TYPE_VALUES = [
+  'headliner',
+  'direct_support',
+  'opener',
+  'special_guest',
+  'dj',
+  'performer',
+] as const satisfies readonly SetType[]
+
+/**
+ * Compile-time proof that SET_TYPE_VALUES covers the whole vocabulary. If the
+ * backend adds a role and the ordered list above is not updated, this type
+ * resolves to `never` and the assignment below fails to build.
+ */
+type UnlistedSetType = Exclude<SetType, (typeof SET_TYPE_VALUES)[number]>
+const _everySetTypeIsListed: UnlistedSetType extends never ? true : never = true
+void _everySetTypeIsListed
+
+/** The set_type choices offered in the show form, in presentation order. */
+export const SET_TYPE_OPTIONS: ReadonlyArray<{
+  value: SetType
+  label: string
+}> = SET_TYPE_VALUES.map(value => ({ value, label: SET_TYPE_LABELS[value] }))
+
+/** The value written when nobody has curated an act's slot. */
+export const DEFAULT_SET_TYPE: SetType = 'performer'
+
+/**
+ * Coerce a server-supplied set_type into the vocabulary the form can render.
+ *
+ * Falls back to the neutral default rather than dropping the row or guessing a
+ * role. This is a DISPLAY coercion, and it is only safe because it should be
+ * unreachable: every backend write path validates against the same vocabulary,
+ * the PSY-1673 migration normalized the rows that predate it, and SetType is
+ * derived from the generated enum so this build cannot fall behind the server
+ * without failing to compile. If it ever does fire, the form will send the
+ * coerced value back on save.
+ */
+export function toSetType(value: string | null | undefined): SetType {
+  return SET_TYPE_VALUES.find(known => known === value) ?? DEFAULT_SET_TYPE
+}
+
+/**
+ * Resolve the bill role for an inbound record that may carry either signal.
+ *
+ * The same precedence the backend applies when writing the row: a curated
+ * set_type wins, the legacy is_headliner flag decides only in its absence, and
+ * anything else is the neutral default. Named rather than inlined so the one
+ * caller that needs it today (the AI-extraction merge) and any future importer
+ * share a ladder instead of each carrying a private copy.
+ *
+ * Note it never infers a headliner from list position: that inference belongs
+ * to the write path, which knows the whole bill.
+ */
+export function resolveFormSetType(source: {
+  set_type?: string | null
+  is_headliner?: boolean | null
+}): SetType {
+  if (source.set_type) return toSetType(source.set_type)
+  return source.is_headliner ? 'headliner' : DEFAULT_SET_TYPE
+}
 
 export interface FormArtist {
   /**
@@ -13,9 +106,42 @@ export interface FormArtist {
    */
   _clientId: string
   name: string
-  is_headliner: boolean
+  /**
+   * The act's curated bill role, and the form's SINGLE source of truth for
+   * headliner-ness: is_headliner is derived from it at submit time, never
+   * tracked alongside it, so the two cannot drift apart in form state.
+   */
+  set_type: SetType
   matched_id?: number
   instagram_handle?: string
+}
+
+/** Artist entry as sent to the show create/update endpoints. */
+export interface ArtistPayload {
+  id?: number
+  name: string
+  is_headliner: boolean
+  set_type: SetType
+  instagram_handle?: string
+}
+
+/**
+ * Map the form's artist rows onto the API payload.
+ *
+ * is_headliner is derived here rather than carried: the backend treats
+ * set_type as authoritative and derives the flag the same way, and sending
+ * both keeps older readers of the response working.
+ */
+export function toArtistPayloads(artists: FormArtist[]): ArtistPayload[] {
+  return artists.map(artist => ({
+    id: artist.matched_id,
+    name: artist.name,
+    is_headliner: artist.set_type === 'headliner',
+    set_type: artist.set_type,
+    instagram_handle: artist.matched_id
+      ? undefined
+      : artist.instagram_handle || undefined,
+  }))
 }
 
 /**
@@ -52,7 +178,7 @@ export const defaultFormValues: FormValues = {
   artists: [
     makeFormArtist({
       name: '',
-      is_headliner: true,
+      set_type: 'headliner',
       matched_id: undefined,
       instagram_handle: undefined,
     }),
@@ -79,7 +205,7 @@ export function showToFormValues(show: ShowResponse): FormValues {
     artists: show.artists.map(artist =>
       makeFormArtist({
         name: artist.name,
-        is_headliner: artist.is_headliner ?? false,
+        set_type: toSetType(artist.set_type),
         matched_id: artist.id,
         instagram_handle: undefined,
       })
@@ -125,6 +251,10 @@ export function parseCost(cost: string): number | undefined {
  * Remove an artist at the given index. If the removed artist was the headliner,
  * promote the first remaining artist to headliner.
  * Returns null if removal would leave zero artists.
+ *
+ * Promotion only ever assigns the HEADLINER slot. It never rewrites any other
+ * role, because losing an act says nothing about what slot the survivors
+ * played.
  */
 export function removeArtistAtIndex(
   artists: FormArtist[],
@@ -132,11 +262,11 @@ export function removeArtistAtIndex(
 ): FormArtist[] | null {
   if (artists.length <= 1) return null
 
-  const wasHeadliner = artists[index]?.is_headliner
+  const wasHeadliner = artists[index]?.set_type === 'headliner'
   const remaining = artists.filter((_, i) => i !== index)
 
   if (wasHeadliner && remaining.length > 0) {
-    remaining[0] = { ...remaining[0], is_headliner: true }
+    remaining[0] = { ...remaining[0], set_type: 'headliner' }
   }
 
   return remaining
@@ -178,8 +308,11 @@ export function mergeExtraction(
   if (extraction.artists.length > 0) {
     merged.artists = extraction.artists.map(a =>
       makeFormArtist({
+        // The extraction endpoint normalizes set_type to the vocabulary and
+        // leaves it empty when the flyer did not state a slot, so the headliner
+        // flag is the fallback rather than an invented support role.
         name: a.matched_name || a.name,
-        is_headliner: a.is_headliner,
+        set_type: resolveFormSetType(a),
         matched_id: a.matched_id,
         instagram_handle: a.matched_id ? undefined : a.instagram_handle,
       })

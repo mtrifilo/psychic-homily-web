@@ -250,41 +250,6 @@ func TestSplitAndTrim_NoSeparator(t *testing.T) {
 }
 
 // =============================================================================
-// UNIT TESTS — normalizeSetType
-// =============================================================================
-
-func TestNormalizeSetType(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"headliner", "headliner"},
-		{"Headliner", "headliner"},
-		{"HEADLINER", "headliner"},
-		{"support", "opener"}, // support maps to opener
-		{"Support", "opener"},
-		{"opener", "opener"},
-		{"special_guest", "special_guest"},
-		{"performer", "performer"},
-		{"dj", "performer"}, // dj maps to performer
-		{"DJ", "performer"},
-		{"host", "performer"}, // host maps to performer
-		{"Host", "performer"},
-		{"", ""},                       // empty returns empty
-		{"unknown", ""},                // unknown returns empty
-		{"  headliner  ", "headliner"}, // whitespace trimmed
-		{"  support ", "opener"},
-	}
-
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("input_%s", tt.input), func(t *testing.T) {
-			result := normalizeSetType(tt.input)
-			assert.Equal(t, tt.expected, result, "normalizeSetType(%q)", tt.input)
-		})
-	}
-}
-
-// =============================================================================
 // testVenueFinderCreator — lightweight impl of venueFinderCreator for tests
 // =============================================================================
 
@@ -624,8 +589,8 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithBillingArtists(
 	suite.Equal("headliner", showArtists[0].SetType)
 	suite.Equal(0, showArtists[0].Position)
 
-	// Support Band: normalized "support" → "opener", position 1 (billing_order 2 → position 1)
-	suite.Equal("opener", showArtists[1].SetType)
+	// Support Band: normalized "support" → "direct_support", position 1 (billing_order 2 → position 1)
+	suite.Equal("direct_support", showArtists[1].SetType)
 	suite.Equal(1, showArtists[1].Position)
 
 	// Opener Band: "opener", position 2 (billing_order 3 → position 2)
@@ -634,8 +599,9 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithBillingArtists(
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBillingArtists() {
-	// When BillingArtists is empty, should fall back to old logic:
-	// position 0 = headliner, others = opener
+	// When BillingArtists is empty, the fallback infers ONLY the headliner
+	// from bill order (PSY-1673). Positions past 0 get the neutral default:
+	// list order is evidence of billing order, not of an opening slot.
 	events := []contracts.DiscoveredEvent{
 		{
 			ID:        "evt-no-billing-1",
@@ -664,8 +630,84 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBill
 
 	suite.Equal("headliner", showArtists[0].SetType)
 	suite.Equal(0, showArtists[0].Position)
-	suite.Equal("opener", showArtists[1].SetType)
+	suite.Equal("performer", showArtists[1].SetType)
 	suite.Equal(1, showArtists[1].Position)
+}
+
+// A slot the vocabulary cannot model is still a STATEMENT about the act, so it
+// must not be overwritten by the position-0 headliner inference. Before this
+// guard, "host" normalized to empty and the first-billed act was promoted to
+// headliner -- a stronger false assertion than the "opener" default this
+// ticket exists to remove.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UnmappableSetTypeAtPositionZeroIsNotPromoted() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-host-first-1",
+			Title:     "Hosted Night",
+			Date:      "2026-12-28",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"The Host", "Actual Headliner"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "The Host", SetType: "host", BillingOrder: 1},
+				{Name: "Actual Headliner", SetType: "headliner", BillingOrder: 2},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	err = suite.db.Where("source_event_id = ?", "evt-host-first-1").First(&show).Error
+	suite.Require().NoError(err)
+
+	var showArtists []catalogm.ShowArtist
+	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(showArtists, 2)
+
+	// The stated-but-unmappable host defaults; it is NOT crowned.
+	suite.Equal("performer", showArtists[0].SetType)
+	suite.Equal("headliner", showArtists[1].SetType)
+}
+
+// The inference still fires when the source stated NOTHING at all -- that is
+// the ordinary billing convention and the only slot this path may infer.
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SilentSourceStillInfersHeadlinerAtPositionZero() {
+	events := []contracts.DiscoveredEvent{
+		{
+			ID:        "evt-silent-first-1",
+			Title:     "Silent Billing",
+			Date:      "2026-12-29",
+			Venue:     "Valley Bar",
+			VenueSlug: "valley-bar",
+			Artists:   []string{"Top Of Bill", "Also Playing"},
+			BillingArtists: []contracts.DiscoveredArtist{
+				{Name: "Top Of Bill", BillingOrder: 1},
+				{Name: "Also Playing", BillingOrder: 2},
+			},
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	err = suite.db.Where("source_event_id = ?", "evt-silent-first-1").First(&show).Error
+	suite.Require().NoError(err)
+
+	var showArtists []catalogm.ShowArtist
+	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(showArtists, 2)
+
+	suite.Equal("headliner", showArtists[0].SetType)
+	suite.Equal("performer", showArtists[1].SetType)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithSpecialGuestAndDJ() {
@@ -701,7 +743,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithSpecialGuestAnd
 
 	suite.Equal("headliner", showArtists[0].SetType)
 	suite.Equal("special_guest", showArtists[1].SetType)
-	suite.Equal("performer", showArtists[2].SetType) // dj normalized to performer
+	suite.Equal("dj", showArtists[2].SetType) // dj is a first-class slot
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_WithBillingArtists() {

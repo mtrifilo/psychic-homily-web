@@ -210,7 +210,7 @@ func (s *DiscoveryService) resolveHeadlinerName(event *contracts.DiscoveredEvent
 	if len(event.BillingArtists) > 0 {
 		// Look for an explicit headliner
 		for _, ba := range event.BillingArtists {
-			if normalizeSetType(ba.SetType) == "headliner" {
+			if contracts.NormalizeSetType(ba.SetType) == contracts.SetTypeHeadliner {
 				return ba.Name
 			}
 		}
@@ -465,14 +465,31 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 				position = entry.BillingOrder - 1 // billing_order is 1-based, position is 0-based
 			}
 
-			// Determine set type from AI extraction, with fallback logic
-			setType := normalizeSetType(entry.SetType)
+			// Determine set type from AI extraction, with fallback logic.
+			//
+			// The fallback infers the HEADLINER only from a first position the
+			// source said NOTHING about. Two distinct silences have to be told
+			// apart here:
+			//
+			//   - the source stated no slot at all -> position 0 is the usual
+			//     billing convention, and headliner is a fair reading
+			//   - the source stated a slot the vocabulary cannot model (a
+			//     "host", say) -> it already told us this act is not the
+			//     headliner, so inferring one from position would assert
+			//     something the source contradicts
+			//
+			// Everything else the source did not state resolves to the neutral
+			// default: a scrape listing four names in order is evidence of
+			// billing order, not evidence that acts two through four opened,
+			// and stamping a role on that inference is what made this column
+			// unreadable before PSY-1673.
+			setType := contracts.NormalizeSetType(entry.SetType)
 			if setType == "" {
-				// Fallback: first artist is headliner, others are opener
-				if idx == 0 {
-					setType = "headliner"
+				statedSomeSlot := strings.TrimSpace(entry.SetType) != ""
+				if idx == 0 && !statedSomeSlot {
+					setType = contracts.SetTypeHeadliner
 				} else {
-					setType = "opener"
+					setType = contracts.SetTypeDefault
 				}
 			}
 
@@ -776,31 +793,6 @@ func parsePriceString(s string) *float64 {
 		return nil
 	}
 	return &val
-}
-
-// normalizeSetType maps AI-extracted set_type values to the values stored in the DB.
-// The show_artists.set_type column is VARCHAR and stores: headliner, opener, performer, special_guest.
-// AI extraction may return additional values like "support", "dj", "host" which are
-// mapped to the closest DB equivalent.
-func normalizeSetType(setType string) string {
-	switch strings.ToLower(strings.TrimSpace(setType)) {
-	case "headliner":
-		return "headliner"
-	case "support":
-		return "opener" // "support" maps to "opener" in the DB
-	case "opener":
-		return "opener"
-	case "special_guest":
-		return "special_guest"
-	case "performer":
-		return "performer"
-	case "dj":
-		return "performer" // DJ sets stored as performer
-	case "host":
-		return "performer" // Hosts stored as performer
-	default:
-		return "" // Unknown — caller should use fallback logic
-	}
 }
 
 // splitAndTrim splits a string by separator and trims whitespace from each part

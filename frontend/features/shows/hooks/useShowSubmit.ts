@@ -6,7 +6,7 @@ import { createInvalidateQueries } from '@/lib/queryClient'
 import { showEndpoints } from '@/features/shows/api'
 import { showLogger } from '@/lib/utils/showLogger'
 import { ShowError, ShowErrorCode } from '@/lib/errors'
-import type { ShowResponse } from '../types'
+import type { SetType, ShowResponse } from '../types'
 
 /**
  * Artist data for show submission
@@ -15,6 +15,11 @@ interface SubmitArtist {
   name: string
   id?: number
   is_headliner?: boolean
+  /**
+   * Curated bill role. Authoritative on the server when present: is_headliner
+   * is derived from it. Omit to leave the slot uncurated.
+   */
+  set_type?: SetType
   instagram_handle?: string
 }
 

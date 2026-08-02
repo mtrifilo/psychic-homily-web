@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/seeddata"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 
 	authm "psychic-homily-backend/internal/models/auth"
@@ -374,10 +375,14 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 				}
 			}
 
-			// Determine set type based on position
-			setType := "opener"
+			// Determine set type based on position.
+			//
+			// Only the headliner is inferable from bill order; every other
+			// slot seeds as the neutral default rather than a guessed role,
+			// matching what the create/edit and discovery paths now write.
+			setType := contracts.SetTypeDefault
 			if position == 0 {
-				setType = "headliner"
+				setType = contracts.SetTypeHeadliner
 			}
 
 			// Create show-artist association with position. EventDate +

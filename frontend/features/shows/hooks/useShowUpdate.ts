@@ -6,7 +6,7 @@ import { createInvalidateQueries } from '@/lib/queryClient'
 import { showEndpoints } from '@/features/shows/api'
 import { showLogger } from '@/lib/utils/showLogger'
 import { ShowError } from '@/lib/errors'
-import type { ShowResponse, OrphanedArtist } from '../types'
+import type { SetType, ShowResponse, OrphanedArtist } from '../types'
 
 /**
  * Venue data for show update requests
@@ -28,6 +28,11 @@ export interface ShowUpdateArtist {
   id?: number
   name?: string
   is_headliner?: boolean
+  /**
+   * Curated bill role. Authoritative on the server when present: is_headliner
+   * is derived from it. Omit to leave the slot uncurated.
+   */
+  set_type?: SetType
   instagram_handle?: string
 }
 

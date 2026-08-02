@@ -10,6 +10,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
+	"psychic-homily-backend/internal/services/contracts"
 
 	"gorm.io/gorm"
 )
@@ -591,7 +592,7 @@ func seedExemplarShow(db *gorm.DB, userID, headlinerID, venueID uint) uint {
 		State:          strptr("AZ"),
 		Price:          &price,
 		AgeRequirement: strptr("21+"),
-		Description:    strptr("An evening of dream-folk and experimental sounds with a five-act bill spanning headliner through host. Doors at 7, music at 8.\n\nSeeded as the PSY-665 rich show exemplar: description, flyer image, age requirement, ticket URL, tags, and a multi-artist bill with full set_type variety so the show detail page renders the lineup with role labels and every metadata field."),
+		Description:    strptr("An evening of dream-folk and experimental sounds with a five-act bill spanning headliner through special guest. Doors at 7, music at 8.\n\nSeeded as the PSY-665 rich show exemplar: description, flyer image, age requirement, ticket URL, tags, and a multi-artist bill with full set_type variety so the show detail page renders the lineup with role labels and every metadata field."),
 		Status:         catalogm.ShowStatusApproved,
 		Source:         catalogm.ShowSourceUser,
 		SubmittedBy:    &userID,
@@ -622,11 +623,11 @@ func seedExemplarShow(db *gorm.DB, userID, headlinerID, venueID uint) uint {
 			SetType string
 			Pos     int
 		}{
-			{"Marissa Nadler (Exemplar)", "headliner", 0},
-			{"Mount Eerie", "support", 1},
-			{"Chat Pile", "opener", 2},
-			{"Bill Orcutt", "dj", 3},
-			{"Cat Power", "host", 4},
+			{"Marissa Nadler (Exemplar)", contracts.SetTypeHeadliner, 0},
+			{"Mount Eerie", contracts.SetTypeDirectSupport, 1},
+			{"Chat Pile", contracts.SetTypeOpener, 2},
+			{"Bill Orcutt", contracts.SetTypeDJ, 3},
+			{"Cat Power", contracts.SetTypeSpecialGuest, 4},
 		}
 		for _, b := range bill {
 			var artist *catalogm.Artist
@@ -722,7 +723,7 @@ func seedExemplarArtistShows(db *gorm.DB, artistID, venueID uint) {
 				ShowID:   show.ID,
 				ArtistID: artistID,
 				Position: 0,
-				SetType:  "headliner",
+				SetType:  contracts.SetTypeHeadliner,
 			}).Error
 		})
 		if err != nil {

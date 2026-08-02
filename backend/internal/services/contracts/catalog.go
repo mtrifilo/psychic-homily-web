@@ -24,11 +24,21 @@ type CreateShowVenue struct {
 }
 
 // CreateShowArtist represents an artist in a show creation request.
-// IsHeadliner is used for duplicate prevention (headliners can't perform at same venue on same date).
+//
+// SetType carries the curated bill role and is AUTHORITATIVE whenever it is
+// present: is_headliner is then derived from it, never the other way round.
+// A nil SetType means the caller is not curating this act's slot, which falls
+// back to the legacy IsHeadliner signal and otherwise to SetTypeDefault.
+// Callers must not send a contradicting pair; set_type wins if they do.
+//
+// IsHeadliner is also used for duplicate prevention (headliners can't perform
+// at the same venue on the same date), which is why the headliner slot -- and
+// only the headliner slot -- may still be inferred from bill position.
 type CreateShowArtist struct {
 	ID              *uint   `json:"id"`
 	Name            string  `json:"name"`
 	IsHeadliner     *bool   `json:"is_headliner"`
+	SetType         *string `json:"set_type,omitempty"`
 	InstagramHandle *string `json:"instagram_handle,omitempty"`
 }
 

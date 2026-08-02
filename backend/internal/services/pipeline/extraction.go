@@ -438,10 +438,16 @@ func (s *ExtractionService) matchArtists(rawArtists []rawArtist) []contracts.Ext
 	var matched []contracts.ExtractedArtist
 
 	for _, raw := range rawArtists {
+		// Normalize at the boundary so the extraction response only ever
+		// carries vocabulary values. The prompt asks the model for terms the
+		// vocabulary does not have ("support", "host"), and this endpoint
+		// feeds the show form's set_type selector directly -- an un-normalized
+		// value there would either fail submission or silently drop.
+		// Unmappable stays empty, meaning "the flyer did not say".
 		result := contracts.ExtractedArtist{
 			Name:            raw.Name,
 			IsHeadliner:     raw.IsHeadliner,
-			SetType:         raw.SetType,
+			SetType:         contracts.NormalizeSetType(raw.SetType),
 			BillingOrder:    raw.BillingOrder,
 			InstagramHandle: raw.InstagramHandle,
 		}
