@@ -27,9 +27,17 @@ func TestVenueLocalStateCaseSQL_DefaultsToGetTimezoneForState(t *testing.T) {
 	// An unmatched state (including the NULL a venue-less show produces) must
 	// land on exactly what the Go helper would return, or the SQL and Go paths
 	// disagree for the same show.
-	want := " ELSE '" + utils.GetTimezoneForState("") + "' END"
-	if !strings.HasSuffix(sql, want) {
-		t.Errorf("state CASE does not end with %q:\n%s", want, sql)
+	want := " ELSE '" + utils.GetTimezoneForState("") + "' END)"
+	if !strings.Contains(sql, want) {
+		t.Errorf("state CASE does not default to %q:\n%s", want, sql)
+	}
+	// ...and the whole thing is wrapped in the country gate, whose own ELSE is
+	// UTC so a non-US venue never touches the US state map.
+	if !strings.HasSuffix(sql, " ELSE 'UTC' END") {
+		t.Errorf("state CASE is not country-gated:\n%s", sql)
+	}
+	if !strings.Contains(sql, "venue_tz.country") {
+		t.Errorf("state CASE does not consult country:\n%s", sql)
 	}
 }
 

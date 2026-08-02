@@ -193,6 +193,33 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_VenueLocal
 	suite.Equal(int64(0), pastTotal)
 }
 
+// A show that has ALREADY STARTED is still tonight's listing until venue-local
+// midnight. This is the half of the rule a future-dated fixture cannot prove:
+// the old caller-anchored boundary was start-of-today in the caller's zone,
+// which for a caller east of the venue had already passed venue-local midnight,
+// so it filed this show under Past.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_AlreadyStartedShowStaysUpcomingUntilVenueMidnight() {
+	const zone = "Pacific/Honolulu"
+	artist := suite.createTestArtist("In Progress Artist")
+	venue := newVenueInZone(suite.T(), suite.db, "In Progress Room", "HI", zone, false)
+	user := suite.createTestUser()
+
+	// The first instant of the venue's today: as far into the venue's past as a
+	// show can be while still belonging to today's listing.
+	at := venueLocalInstant(suite.T(), zone, 0, 0)
+	suite.Require().True(at.Before(time.Now()) || at.Equal(time.Now()) || time.Since(at) > -time.Hour,
+		"fixture should be at or before now for most of the venue's day")
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, at)
+
+	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), upcomingTotal, "a show already in progress is still an upcoming listing")
+
+	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), pastTotal)
+}
+
 func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_SamePartitionForEveryCallerZone() {
 	artist := suite.createTestArtist("Sweep Artist")
 	venue := newVenueInZone(suite.T(), suite.db, "Sweep Room", "AZ", "Asia/Tokyo", false)
@@ -497,4 +524,52 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_MultiVenueSh
 	suite.Equal(int64(1), pastTotal)
 	suite.Require().Len(past, 1)
 	suite.Equal(show.ID, past[0].ID)
+}
+
+// Venue-suite twin of TestGetShowsForArtist_ExtremeVenueOffsetSurvivesCoarsePrefilter.
+// Without it the venue path had no test that both proves venue-locality AND
+// fails against a caller- or UTC-anchored boundary at every hour of the day:
+// SamePartitionForEveryCallerZone proves only caller-INDEPENDENCE, which a
+// hardcoded UTC boundary would also satisfy.
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_ExtremeVenueOffsetSurvivesCoarsePrefilter() {
+	user := suite.createTestUser()
+
+	for _, zone := range []string{"Etc/GMT+12", "Etc/GMT+11", "Etc/GMT-14", "Etc/GMT-13"} {
+		venue := newVenueInZone(suite.T(), suite.db, "Edge Room "+zone, "AZ", zone, true)
+		suite.createApprovedShowAt(venue.ID, user.ID, venueLocalInstant(suite.T(), zone, 0, 0))
+		suite.createApprovedShowAt(venue.ID, user.ID, venueLocalInstant(suite.T(), zone, -1, 23))
+
+		_, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 50, "upcoming")
+		suite.Require().NoError(err, "zone %s", zone)
+		suite.Equal(int64(1), upcomingTotal, "zone %s: venue-local midnight today must be upcoming", zone)
+
+		_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 50, "past")
+		suite.Require().NoError(err, "zone %s", zone)
+		suite.Equal(int64(1), pastTotal, "zone %s: the last instant of venue-local yesterday must be past", zone)
+	}
+}
+
+// A venue outside the US must NOT be judged on the US state map: "WA" is
+// Western Australia as well as Washington, and the ungated map would put a
+// Fremantle venue on America/Los_Angeles, 16 hours away.
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_NonUSVenueIgnoresStateMap() {
+	venue := &catalogm.Venue{
+		Name:     "Fremantle Room",
+		City:     "Fremantle",
+		State:    "WA",
+		Country:  stringPtr("Australia"),
+		Verified: true,
+	}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+	suite.Require().Nil(venue.Timezone)
+	user := suite.createTestUser()
+
+	// Noon UTC yesterday: past on UTC's calendar (the non-US fallback) and on
+	// Perth's, but 05:00 yesterday in America/Los_Angeles, which the ungated
+	// state map would have used.
+	suite.createApprovedShowAt(venue.ID, user.ID, venueLocalInstant(suite.T(), "UTC", -1, 12))
+
+	_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "past")
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), pastTotal, "a non-US venue must fall back to UTC, not the US state map")
 }

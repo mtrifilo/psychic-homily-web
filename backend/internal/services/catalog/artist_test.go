@@ -1259,12 +1259,15 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_ShowAtExac
 	artist := suite.createTestArtist("Midnight Artist")
 	venue := suite.createTestVenue("Midnight Venue", "Phoenix", "AZ")
 	user := suite.createTestUser()
-	now := time.Now().UTC()
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// Midnight on the VENUE's calendar, not UTC's. The venue has no geocoded
+	// timezone, so it resolves through the state map to America/Phoenix (UTC-7)
+	// -- a UTC-anchored fixture here would be 17:00 the PREVIOUS Phoenix day and
+	// would correctly read as past for 17 of every 24 hours (PSY-1695).
+	midnight := venueLocalInstant(suite.T(), "America/Phoenix", 0, 0)
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, midnight)
 	shows, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "upcoming")
 	suite.Require().NoError(err)
-	suite.NotEmpty(shows, "show at exact midnight today should appear in upcoming")
+	suite.NotEmpty(shows, "show at exact venue-local midnight today should appear in upcoming")
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_PastShowExcluded() {

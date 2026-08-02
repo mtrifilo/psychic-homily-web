@@ -141,12 +141,18 @@ func (s *SavedShowService) savedShowPageByEventDate(userID uint, limit, offset i
 	// Fresh builder per query: GORM builders accumulate clauses, so Count and
 	// Find must not share one.
 	baseQuery := func() *gorm.DB {
-		return s.db.Table("user_bookmarks").
+		q := s.db.Table("user_bookmarks").
 			Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
-			Joins(shared.VenueTZJoin).
 			Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action = ?",
-				userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave).
-			Where(dateCondition)
+				userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave)
+		// Guarded rather than applied unconditionally: GORM silently DROPS an
+		// empty Where, so routing "all" in here would return every saved show
+		// with no error and an unpartitioned total. Only the caller's upstream
+		// validation stops that today.
+		if dateCondition != "" {
+			q = q.Joins(shared.VenueTZJoin).Where(dateCondition)
+		}
+		return q
 	}
 
 	var total int64

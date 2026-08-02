@@ -1265,8 +1265,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_LimitZero() 
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_ShowAtExactMidnight() {
 	venue := suite.createTestVenue("Midnight ShowVenue", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
-	now := time.Now().UTC()
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// Midnight on the VENUE's calendar -- see the artist twin for why a
+	// UTC-anchored fixture fails 17 hours out of 24 (PSY-1695).
+	midnight := venueLocalInstant(suite.T(), "America/Phoenix", 0, 0)
 	midnightShow := &catalogm.Show{Title: "Venue Midnight Show", EventDate: midnight, City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: catalogm.ShowStatusApproved, SubmittedBy: &user.ID}
 	suite.db.Create(midnightShow)
 	suite.db.Create(&catalogm.ShowVenue{ShowID: midnightShow.ID, VenueID: venue.ID})

@@ -54,9 +54,14 @@ func batchArtistUpcomingShowCounts(db *gorm.DB, artistIDs []uint) map[uint]int {
 // keeps the pick deterministic and consistent with the graph-card's next-show
 // line; the trailing venue_id tiebreak pins which venue row wins for the rare
 // multi-venue show. The upcoming cutoff (event_date > NOW()) deliberately
-// matches batchArtistUpcomingShowCounts, NOT GetNextShowForArtist's
-// timezone-aware start-of-today — on a graph node the invariant that matters
-// is next_show ≠ nil ⟺ upcoming_show_count > 0.
+// matches batchArtistUpcomingShowCounts — on a graph node the invariant that
+// matters is next_show ≠ nil ⟺ upcoming_show_count > 0.
+//
+// It no longer matches GetNextShowForArtist, which since PSY-1695 partitions on
+// the venue-local calendar day: a show that started earlier today is "next" on
+// the graph CARD while leaving this node's dot unlit. Migrating both batch
+// helpers to shared.VenueLocalDateCondition would close that and needs its own
+// ticket, because the same count gates which artists appear on /artists.
 //
 // Artists with no upcoming show are simply absent (map lookup yields nil).
 // Errors degrade to an empty map — same decorative posture as the sibling

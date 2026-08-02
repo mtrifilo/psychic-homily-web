@@ -10,19 +10,31 @@ import (
 // Venue-local partitioning for a show's upcoming/past split, in SQL.
 //
 // A show stops being an upcoming listing when its calendar day ends WHERE IT
-// HAPPENS, not when the reader's clock rolls over. Anything that partitions
-// shows into upcoming/past must build through this file, because the moment two
-// surfaces draw the boundary differently the same show reads "upcoming" on one
-// page and "past" on another, which is the bug class PSY-1676/PSY-1695 exist to
-// close.
+// HAPPENS, not when the reader's clock rolls over. The moment two surfaces draw
+// that boundary differently, the same show reads "upcoming" on one page and
+// "past" on another — the bug class PSY-1676/PSY-1695 exist to close. New
+// partitioning surfaces should build through this file.
 //
-// This lives in services/shared rather than in catalog or engagement because it
-// already has callers in both (artist and venue show lists; the saved-shows
-// list) and had drifted into two byte-identical copies. The Go-side twin of
-// these rules is utils.EventLocation, and the frontend's is
-// frontend/lib/utils/showTiming.ts — the three must agree on the fallback
-// chain, which is why venueLocalZoneSQL below is built from utils.StateTimezones
-// rather than restating it.
+// It lives in services/shared rather than catalog or engagement because it
+// already has callers in both. The Go-side twin of these rules is
+// utils.EventLocation and the frontend's is frontend/lib/utils/showTiming.ts;
+// the three must agree on the fallback chain, which is why venueLocalZoneSQL is
+// built from utils.StateTimezones rather than restating it.
+//
+// MIGRATED so far: artist show lists, venue show lists, the artist graph card's
+// next-show, and the saved-shows list.
+//
+// NOT migrated — do not read the paragraph above as a description of the whole
+// repo, because these still draw their own boundary:
+//   - catalog.ShowService.GetUpcomingShows / GetShowCities — the main /shows
+//     feed, still start-of-today in the CALLER's zone (PSY-1678 owns it).
+//   - engagement/venue_calendar.go upcomingShowsForVenue — the venue ICS feed,
+//     start-of-today in the QUERIED venue's zone, so it can disagree with the
+//     venue page for a show booked at two venues.
+//   - catalog/artist_graph_helpers.go batchArtistUpcomingShowCounts and
+//     batchArtistNextShows — instant-based (event_date > NOW()), which is why a
+//     graph node can show no upcoming dot for a show that started earlier today
+//     while the card still calls it next.
 
 // PrimaryVenueLateralSQL renders the repo's primary-venue pick as a LATERAL
 // subquery: at most one deterministic venue per show, lowest venue_id first.
@@ -56,11 +68,18 @@ func PrimaryVenueLateralSQL(cols, showIDExpr string) string {
 // randomized), which keeps query plans and test output deterministic.
 //
 // Interpolation is safe by construction: every fragment comes from a hardcoded
-// Go map, never from a request. The ELSE mirrors GetTimezoneForState's
-// America/Phoenix default, which also covers a show with no venue row at all
-// (state reads NULL, so no WHEN matches). That US-centric default is a KNOWN
-// LIMIT shared with the frontend, not an endorsement: a non-US venue needs its
-// `timezone` column populated to be judged on its own calendar.
+// Go map, never from a request. Pinned by TestStateTimezones_AreSafeToInterpolate.
+//
+// GATED ON COUNTRY, which the Go twin does not do and should: the state map is
+// US-only, and its abbreviations collide badly with the rest of the world.
+// Western Australia is "WA", Indonesia is "ID", Israel is "IL", India is "IN" --
+// an ungated CASE would put a Fremantle venue on America/Los_Angeles and be off
+// by 16 hours. Venues outside the US resolve to UTC instead, which is wrong by
+// at most half a day rather than confidently wrong by most of one. The real fix
+// is populating venues.timezone for them; this is the floor, not the goal.
+//
+// A NULL country is treated as US because that is what the existing data means:
+// the column was added late and the domestic backfill left it unset.
 var venueLocalStateCaseSQL = buildVenueLocalStateCaseSQL()
 
 func buildVenueLocalStateCaseSQL() string {
@@ -71,6 +90,8 @@ func buildVenueLocalStateCaseSQL() string {
 	sort.Strings(states)
 
 	var b strings.Builder
+	b.WriteString("CASE WHEN venue_tz.country IS NULL OR btrim(venue_tz.country) = '' OR ")
+	b.WriteString("upper(btrim(venue_tz.country)) IN ('US', 'USA', 'UNITED STATES') THEN (")
 	b.WriteString("CASE upper(btrim(venue_tz.state))")
 	for _, state := range states {
 		b.WriteString(" WHEN '")
@@ -79,33 +100,49 @@ func buildVenueLocalStateCaseSQL() string {
 		b.WriteString(utils.StateTimezones[state])
 		b.WriteString("'")
 	}
+	// Mirrors GetTimezoneForState's default, and also covers a show with no
+	// venue row at all (state reads NULL, so no WHEN matches).
 	b.WriteString(" ELSE '")
 	b.WriteString(utils.GetTimezoneForState(""))
-	b.WriteString("' END")
+	b.WriteString("' END) ELSE 'UTC' END")
 	return b.String()
 }
 
 // VenueTZJoin resolves each show's venue-local IANA zone. Requires the query to
 // have already joined `shows` — the lateral correlates on shows.id.
 //
-// TWO joins, deliberately, and the split is load-bearing for performance. The
-// lateral picks the primary venue's RAW stored zone and state (a cheap index hop
-// on show_venues_pkey); VALIDATING that zone against pg_timezone_names is a
-// separate plain LEFT JOIN so Postgres materializes the view ONCE per query and
-// hash-joins it. Resolving the name inside the lateral instead makes it a
-// correlated subquery that re-scans pg_timezone_names' ~490 rows PER SHOW:
-// measured at 136ms for an 800-show artist and 3.4s for a 20k-show venue,
-// against ~10ms and ~500ms for the form below. Do not fold them back together.
+// KNOWN PERFORMANCE DEFECT, measured, not theoretical — read before reusing this.
+// Because `venue_tz` is a LATERAL correlated on shows.id, Postgres is free to
+// push the pg_timezone_names join into the inner side of the nested loop over
+// shows, and it does: EXPLAIN ANALYZE on a seeded 20k-show venue shows
+// `Function Scan on pg_timezone_names ... loops=17228` and 8.1s for the `past`
+// COUNT (1.3s for `upcoming`). An `OFFSET 0` optimization fence does not move
+// it. An earlier revision measured loops=1 for this same shape, so the plan is
+// cost-sensitive and flips as the filter expression grows — do not trust a
+// one-off good plan here.
+//
+// It is bounded in practice today (the busiest real venue has ~100 rows, where
+// this is single-digit ms) but it scales with a venue's whole back catalogue on
+// the `past` tab, whose coarse bound `event_date < now()` excludes nothing.
+// The real fix is to stop asking Postgres to validate the zone per row:
+// normalize venues.timezone to a canonical IANA name at WRITE time (mirroring
+// catalog.normalizeStationTimezone for radio) and drop this join entirely, or
+// materialize the zone list into a real indexed table. Both need their own
+// ticket; neither belongs in a partitioning change.
 //
 // The DISTINCT ON makes fan-out impossible by construction rather than by
 // assertion. pg_timezone_names is populated from the host OS tzdata, so
 // "lower(name) is unique" is an environment-dependent claim (it holds on the
 // Postgres 18 test image); a duplicate would multiply rows and silently corrupt
-// every total built on this join.
+// every total built on this join. The ORDER BY is required for DISTINCT ON to
+// pick deterministically — without it Postgres may return either row of a
+// collision, and while two names differing only in case resolve to the same
+// zone anyway, a nondeterministic query is not something to leave lying around.
 var VenueTZJoin = `LEFT JOIN LATERAL ` +
-	PrimaryVenueLateralSQL("iv.timezone, iv.state", "shows.id") + ` venue_tz ON true
-	LEFT JOIN (SELECT DISTINCT ON (lower(name)) name FROM pg_timezone_names) venue_tzn
-		ON lower(venue_tzn.name) = lower(btrim(venue_tz.timezone, E' \t\n\r'))`
+	PrimaryVenueLateralSQL("iv.timezone, iv.state, iv.country", "shows.id") + ` venue_tz ON true
+	LEFT JOIN (
+		SELECT DISTINCT ON (lower(name)) name FROM pg_timezone_names ORDER BY lower(name), name
+	) venue_tzn ON lower(venue_tzn.name) = lower(btrim(venue_tz.timezone, E' \t\n\r'))`
 
 // venueLocalZoneSQL is the resolved zone for the primary venue, mirroring
 // utils.EventLocation's precedence: a valid explicit venue timezone, then the

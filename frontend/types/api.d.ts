@@ -21582,7 +21582,7 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description Timezone for the next-show date filter
+                 * @description Deprecated and ignored. The next-show cutoff is made in the show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only.
                  * @example America/Phoenix
                  */
                 timezone?: string;

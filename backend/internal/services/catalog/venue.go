@@ -1049,11 +1049,13 @@ func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, l
 // GetShowsForVenue retrieves shows at a specific venue with time filtering.
 // timeFilter can be: "upcoming", "past", or "all". Only returns approved shows.
 //
-// "today" is the show's OWN venue-local calendar day (showVenueTZJoin) rather
-// than this venue's, which are the same thing for every single-venue show and
-// deliberately so for the rest: a show booked across two venues gets one
-// venue-local date everywhere, so it cannot read "upcoming" here and "past" on
-// the artist page. limit and total both apply to the venue-local partition.
+// "today" is the show's OWN primary-venue calendar day (shared.VenueTZJoin)
+// rather than this venue's. Identical for every single-venue show, and
+// deliberate for the rest: one show gets one venue-local date, so it cannot read
+// "upcoming" here and "past" on the artist page. The venue ICS feed
+// (engagement/venue_calendar.go) still uses the QUERIED venue's zone and can
+// therefore still disagree for a multi-venue show — see shared's header note.
+// limit and total both apply to the venue-local partition.
 //
 // Deprecated parameter: timezone is accepted and ignored. It used to set the
 // boundary from the CALLER's zone, which made the same show upcoming for one
@@ -1084,6 +1086,11 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	} else {
 		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
 	}
+	// Deterministic tiebreak on equal event_date, matching GetShowsForArtist
+	// (PSY-1352): without it the Pluck below and the Find that re-orders the
+	// same ids are each free to break a tie differently, so a venue with two
+	// shows on one date could return them in one order and page them in another.
+	orderDirection += ", shows.id ASC"
 
 	// Fresh builder per query: GORM builders accumulate clauses, so the count
 	// and the id page must not share one.

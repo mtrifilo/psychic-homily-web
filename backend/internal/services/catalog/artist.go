@@ -894,7 +894,7 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 // GetShowsForArtist retrieves shows for a specific artist with time filtering.
 // timeFilter can be: "upcoming", "past", or "all". Only returns approved shows.
 //
-// "today" is each show's OWN venue-local calendar day (showVenueTZJoin), not a
+// "today" is each show's OWN venue-local calendar day (shared.VenueTZJoin), not a
 // single boundary shared by the whole page: an artist on tour crosses zones, so
 // a Berlin date and a Phoenix date graduate from upcoming to past at different
 // instants. limit and total both apply to the venue-local partition, so paging
