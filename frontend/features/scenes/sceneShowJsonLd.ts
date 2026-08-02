@@ -3,6 +3,18 @@ import { hasShowStarted } from '@/lib/utils/showTiming'
 import type { SceneWeekShow } from './sceneWeek'
 
 /**
+ * The builder's input shape, pinned so this module's mapper is checked against
+ * it. Without an explicit return type the mapper's shape is merely INFERRED,
+ * and TypeScript skips its excess-property check on an inferred object handed
+ * over as a function result. A key this builder no longer reads would then
+ * compile clean here and surface only as a wrong payload: an offer left
+ * standing for a show already underway. The page-level call site passes an
+ * object literal, which the compiler does check; this pins the same guarantee
+ * on the path that literal syntax does not cover.
+ */
+type MusicEventInput = Parameters<typeof generateMusicEventSchema>[0]
+
+/**
  * Turning one scene show row into one `MusicEvent`.
  *
  * Lives apart from either page's JSON-LD builder because BOTH publish the same
@@ -71,7 +83,7 @@ function toMusicEventInput(
   show: SceneWeekShow,
   sceneTimezone: string | undefined,
   now: Date
-) {
+): MusicEventInput {
   const startsAt = startInstant(show) as string // isDescribableEvent gated this
 
   const venue = {
@@ -97,7 +109,7 @@ function toMusicEventInput(
     // a moment, and the shared module's `isShowPast` answers a different
     // question (how long the listing stays live) that would keep this offer
     // standing through the show itself.
-    is_past: hasShowStarted(startsAt, now),
+    has_started: hasShowStarted(startsAt, now),
     venue,
     artists:
       show.artist_names && show.artist_names.length > 0
