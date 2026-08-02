@@ -419,7 +419,9 @@ export async function runBatch(
   // Process
   const result = await processBatch(items, env, confirm);
 
+  // `process.exitCode`, not `process.exit()`: entities written before a failure
+  // still need their ISR revalidation flushed at the end of the run (PSY-1691).
   if (result.totalErrors > 0) {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

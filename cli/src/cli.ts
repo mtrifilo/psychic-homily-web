@@ -18,6 +18,7 @@ import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/fest
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
 import { runSourcesStale, runSourcesRegister, runSourcesRefresh } from "./commands/sources";
 import { runRadioRematch } from "./commands/radio";
+import { flushRevalidation } from "./lib/revalidate";
 
 const program = new Command();
 
@@ -293,6 +294,8 @@ async function resolveEnvOrExit(
 
 // ─── Run ───────────────────────────────────────────────────────────────────────
 
+let exitCode = 0;
+
 try {
   await program.parseAsync();
 } catch (err) {
@@ -306,5 +309,19 @@ try {
       err instanceof Error ? err.message : "Unexpected error.";
     display.error(message);
   }
-  process.exit(1);
+  exitCode = 1;
+}
+
+// Push ISR revalidation for whatever this run touched (PSY-1691), including
+// after a partial failure — entities written before the error are already live
+// and their pages are already stale. Never throws.
+//
+// This is why the submit/link commands signal failure with `process.exitCode`
+// instead of `process.exit()`: an immediate exit would kill the process before
+// the flush. The `process.exit()` calls left in commands/ either run before
+// the first mutation or belong to commands that record nothing (`ph sources`).
+await flushRevalidation();
+
+if (exitCode !== 0) {
+  process.exit(exitCode);
 }
