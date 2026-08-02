@@ -55,15 +55,19 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   const title = dayTitle(day)
   const description = dayDescription(day)
 
+  const dayPermalink = `${SITE_URL}/scenes/${day.slug}/${day.date}`
+
   // The rolling /tonight URL canonicalizes to the scene's WEEK permalink; a
   // DATED permalink stays its own canonical.
   //
   // /tonight cannot be its own canonical, because its content changes every
   // night and an indexed snippet would describe a night that has passed. It
-  // used to name the dated permalink instead, but day permalinks appear in no
-  // sitemap, so that aimed crawlers at a URL we never announce. The week
-  // permalink is both stable and announced, so it is the page that can hold
-  // whatever ranking this night earns.
+  // used to name the dated permalink instead. Day permalinks are internally
+  // linked (the prev/next chips, the breadcrumb leaf) but they are in NO
+  // sitemap family, and there are unboundedly many of them; see
+  // FAMILY_SHARD_IDS in app/sitemap-shards.ts, which has scene_weeks and no
+  // scene_days. The week permalink is the announced, bounded surface, so it is
+  // the page that can hold whatever ranking this night earns.
   //
   // `day.iso_week` comes from the PAYLOAD and is never derived here. "Tonight"
   // is resolved by the backend in the scene's timezone against a 6am night
@@ -74,16 +78,32 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // The discriminator is the ABSENT `date` argument, not `day.is_tonight`: that
   // flag is also true for a dated permalink naming today, and that permalink
   // must keep pointing at itself rather than be folded into the week.
+  //
+  // The empty-`iso_week` fallback is not paranoia about a field the backend
+  // always fills: the payload guard (`asPayload`) admits any string, and two
+  // fields in the SAME required list, `prev_date`/`next_date`, are empty by
+  // design at the window edges. Without the guard an empty week key would
+  // silently canonicalize every scene's /tonight at `/scenes/{slug}/`.
   const isRollingRoute = date === undefined
-  const canonical = isRollingRoute
-    ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
-    : `${SITE_URL}/scenes/${day.slug}/${day.date}`
+  const canonical =
+    isRollingRoute && day.iso_week
+      ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
+      : dayPermalink
 
   // A night with nothing on it is thin content — real, worth serving, worth
   // linking out of, not worth an index entry. `follow` stays on precisely
   // because the page's job in that state is to point at the week and the rooms.
+  //
+  // Only on the DATED route, which is its own canonical. A noindex emitted
+  // beside a canonical naming a DIFFERENT URL is a contradiction search engines
+  // are documented to resolve by consolidating the suppression onto the target,
+  // and the target here is the week page the sitemap actively pushes. /tonight
+  // needs no noindex anyway: declaring another URL as its canonical is already
+  // what keeps it from being indexed as itself.
   const robots =
-    dayShows(day).length === 0 ? { index: false, follow: true } : undefined
+    !isRollingRoute && dayShows(day).length === 0
+      ? { index: false, follow: true }
+      : undefined
 
   return {
     title,
@@ -93,9 +113,14 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
     openGraph: {
       title,
       description,
-      // Deliberately the canonical, so /tonight declares the WEEK permalink
-      // here too rather than answering the same question two ways.
-      url: canonical,
+      // The DAY permalink, deliberately NOT the canonical. og:url is a share
+      // object's identity, not a duplicate-consolidation hint: Facebook and
+      // Discord cache one unfurled object per og:url. Pointing /tonight's at
+      // the week permalink would make this night's title, description and card
+      // collide with the week page's, which declares that same og:url with its
+      // own generated card, and whichever a scraper saw first would win for
+      // both. The dated permalink names exactly the night these tags describe.
+      url: dayPermalink,
       type: 'website',
       // Set explicitly to suppress the `opengraph-image` in the `[period]`
       // segment — the segment the DATED permalink renders under, so its

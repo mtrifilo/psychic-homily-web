@@ -357,6 +357,50 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       ).toBe(200)
     })
 
+    /**
+     * A real DATED day permalink still resolves.
+     *
+     * Kept as its own test after the canonical above moved to the week key
+     * (PSY-1728). Day permalinks are no longer any page's canonical, but they
+     * are still linked from every day page's prev/next chips and named as the
+     * breadcrumb JSON-LD leaf, and this is the only place the assembled path
+     * (proxy.ts's date branch, then `[period]`'s `looksLikeCalendarDate`
+     * dispatch to the DAY view) is exercised against a date the server agrees
+     * exists. Without it, a change that 404s or soft-404s every dated permalink
+     * ships green.
+     */
+    test('a real dated day permalink returns HTTP 200 and renders the DAY view', async ({
+      page,
+    }) => {
+      // Read the date off the page rather than hardcoding today's: a fixed date
+      // would keep passing while testing nothing, since any valid date 200s.
+      await page.goto('/scenes/phoenix-az/tonight')
+      const graph = await page
+        .locator('script[type="application/ld+json"]')
+        .filter({ hasText: 'BreadcrumbList' })
+        .first()
+        .textContent()
+
+      const leaf = JSON.parse(graph!).itemListElement.at(-1).item as string
+      expect(
+        leaf,
+        'the breadcrumb leaf must name the dated day permalink'
+      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
+
+      const { pathname } = new URL(leaf)
+      const response = await page.goto(pathname)
+      expect(
+        response?.status(),
+        `${pathname} must return 200 — it is linked from every day page`
+      ).toBe(200)
+      // The DAY view, not the week view: the shared `[period]` segment decides
+      // between them, and a branch-order regression there would otherwise pass.
+      await expect(
+        page.getByRole('main').getByRole('heading', { level: 1 })
+      ).toContainText('Phoenix', { timeout: 10_000 })
+      await expect(page.getByRole('main')).not.toContainText(/Mon,.*–.*Sun,/)
+    })
+
     test('a date that does not exist returns HTTP 404', async ({ page }) => {
       // February never has 30 days. Go's date parser NORMALIZES this to March
       // 2nd rather than rejecting it, so only the backend's round-trip check

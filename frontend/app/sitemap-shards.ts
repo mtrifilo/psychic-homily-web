@@ -14,10 +14,12 @@ export const PAGES_SHARD_ID = 'pages'
  * the other. Keep in sync with the Huma `family` query enum on
  * GET /sitemap/entries and the known-family map in SitemapService.Entries.
  *
- * There is deliberately no `scene_days` family. `buildSceneDayMetadata` depends
- * on that absence: it canonicalizes the rolling /tonight page to the WEEK
- * permalink precisely because day permalinks are announced nowhere. Adding a
- * day family here obliges revisiting that canonical.
+ * There is deliberately no `scene_days` family. Day permalinks ARE internally
+ * linked (the prev/next chips and the breadcrumb leaf on every day page); what
+ * they are not is announced here, and there are unboundedly many of them.
+ * `buildSceneDayMetadata` leans on that: it canonicalizes the rolling /tonight
+ * page to the week permalink rather than to a day. Adding a day family here
+ * obliges revisiting that canonical.
  */
 export const FAMILY_SHARD_IDS = [
   'shows',

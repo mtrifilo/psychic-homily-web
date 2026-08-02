@@ -23,10 +23,12 @@ import * as Sentry from '@sentry/nextjs'
  * the whole point of the page. Only a period that has actually ended is
  * immutable.
  *
- * Note what does NOT decide this: the URL shape. The dated/keyed permalink is
- * the CANONICAL url for the rolling route too, so it serves the live period as
- * often as an old one. `fetchScenePeriod` picks between these two from the
- * payload itself.
+ * Note what does NOT decide this: the URL shape. A keyed permalink serves the
+ * LIVE period as often as an ended one, because the same key names the current
+ * week or night while it is still running. `fetchScenePeriod` picks between
+ * these two from the payload itself, never from the URL. (Do not re-derive this
+ * from canonical tags: /tonight canonicalizes to the week permalink and a dated
+ * day permalink to itself, and neither fact says anything about freshness.)
  */
 export const CURRENT_PERIOD_REVALIDATE = 900
 export const ARCHIVED_PERIOD_REVALIDATE = 86400
