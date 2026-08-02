@@ -280,66 +280,52 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		// own zone — wrong for a fixed-location event.
 		var venueTimezone *string
 		var venueState string
+		venueName := ""
+		location := ""
 		if len(show.Venues) > 0 {
-			venueTimezone = show.Venues[0].Timezone
-			venueState = show.Venues[0].State
+			venue := show.Venues[0]
+			venueTimezone = venue.Timezone
+			venueState = venue.State
+			venueName = venue.Name
+			location = sanitizeICSText(formatVenueLocation(venue))
 		}
 		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, venueTimezone, venueState)
 
-		summary := show.Title
-		if show.IsSoldOut {
-			summary += " [SOLD OUT]"
-		}
-		event.SetSummary(summary)
-
-		if len(show.Venues) > 0 {
-			event.SetLocation(formatVenueLocation(show.Venues[0]))
+		artistNames := make([]string, 0, len(show.Artists))
+		for _, a := range show.Artists {
+			artistNames = append(artistNames, a.Name)
 		}
 
-		var descParts []string
+		// Naming, description and location all go through the helpers the two
+		// sibling feeds use, rather than a local copy of the same assembly. That
+		// is what puts every community-editable value through sanitizeICSText
+		// (see its doc for why an unsanitized CR is a property-injection vector),
+		// and it also keeps the three surfaces agreeing on an event's name, which
+		// they must: they emit the same UID per show, so a subscriber to two of
+		// them would otherwise watch the event's title flip.
+		applyEventSummaryAndStatus(event, show.Title, artistNames, venueName, show.IsCancelled, show.IsSoldOut)
 
-		if len(show.Venues) > 0 {
-			if loc := formatVenueLocation(show.Venues[0]); loc != "" {
-				descParts = append(descParts, "Venue: "+loc)
-			}
+		if location != "" {
+			event.SetLocation(location)
 		}
 
-		if len(show.Artists) > 0 {
-			names := make([]string, len(show.Artists))
-			for i, a := range show.Artists {
-				names[i] = a.Name
-			}
-			descParts = append(descParts, "Artists: "+strings.Join(names, ", "))
+		showURL := showPageURL(frontendURL, show.Slug, show.ID)
+		event.SetDescription(buildEventDescription(
+			location, artistNames, show.Price, show.AgeRequirement, show.IsCancelled, showURL))
+		if showURL != "" {
+			event.SetURL(showURL)
 		}
-
-		if show.Price != nil {
-			descParts = append(descParts, fmt.Sprintf("Price: $%.0f", *show.Price))
-		}
-		if show.AgeRequirement != nil && *show.AgeRequirement != "" {
-			descParts = append(descParts, "Ages: "+*show.AgeRequirement)
-		}
-
-		slug := show.Slug
-		if slug == "" {
-			slug = fmt.Sprintf("%d", show.ID)
-		}
-		showURL := fmt.Sprintf("%s/shows/%s", frontendURL, slug)
-		descParts = append(descParts, showURL)
-
-		event.SetDescription(strings.Join(descParts, "\n"))
-		event.SetURL(showURL)
 	}
 
-	// KNOWN DIVERGENCE from the two sibling feeds, noticed and deliberately left
-	// for its own change rather than silently carried: show_calendar.go and
-	// venue_calendar.go both pass every community-editable value through
-	// sanitizeICSText, set DTSTAMP on each VEVENT, and serialize with
-	// ics.WithNewLine("\r\n"). This feed does none of the three. The sanitize gap
-	// is the one that matters — golang-ical's TEXT escaper does not escape CR, so
-	// a contributor-editable name carrying one can forge a calendar property in a
-	// subscriber's client (see sanitizeICSText's own doc). Closing these changes
-	// the feed's bytes and therefore its ETag and cache behavior, so it needs its
-	// own tests; it is not a drive-by.
+	// REMAINING DIVERGENCE from the two sibling feeds, recorded so the next
+	// reader does not mistake it for an oversight: show_calendar.go and
+	// venue_calendar.go also set DTSTAMP on each VEVENT and serialize with
+	// ics.WithNewLine("\r\n"); this feed still does neither. Both are RFC 5545
+	// conformance gaps rather than safety ones, and closing them changes the
+	// feed's bytes and therefore its cache behavior, so they are tracked as
+	// their own change. The one that mattered is closed above: passing
+	// community-editable text through sanitizeICSText, since golang-ical's TEXT
+	// escaper does not escape CR.
 	data := []byte(cal.Serialize())
 	cachedCopy := make([]byte, len(data))
 	copy(cachedCopy, data)

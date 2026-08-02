@@ -12,6 +12,7 @@ import (
 
 	ics "github.com/arran4/golang-ical"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -250,6 +251,172 @@ func TestGenerateICSFeed_FallbackToID(t *testing.T) {
 	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
 	assert.NoError(t, err)
 	assert.Contains(t, string(data), "https://psychichomily.com/shows/42")
+}
+
+// icsContentLines unfolds the feed and splits it into RFC 5545 content lines,
+// so a test can count REAL properties instead of substring-matching wire bytes.
+// Folding (CRLF + one space/tab) can split a property name away from its value,
+// which makes a naive "the payload must not contain X" assertion pass while X
+// is sitting in the payload.
+func icsContentLines(feed string) []string {
+	normalized := strings.ReplaceAll(unfoldICS(feed), "\r\n", "\n")
+	return strings.Split(strings.TrimRight(normalized, "\n"), "\n")
+}
+
+// icsEventLines narrows the feed to the content lines of its single VEVENT.
+// Counting inside the component matters because the VCALENDAR carries its own
+// NAME / DESCRIPTION, so a whole-payload count of an event property would be
+// off by the calendar-level one.
+func icsEventLines(t *testing.T, feed string) []string {
+	t.Helper()
+	var (
+		event  []string
+		inside bool
+	)
+	for _, line := range icsContentLines(feed) {
+		switch {
+		case line == "BEGIN:VEVENT":
+			inside = true
+		case line == "END:VEVENT":
+			inside = false
+		case inside:
+			event = append(event, line)
+		}
+	}
+	require.NotEmpty(t, event, "feed must contain a VEVENT")
+	return event
+}
+
+// countICSProperty counts content lines that OPEN the named property. A value
+// that merely mentions "SUMMARY:" mid-line is inert text and is not counted;
+// only a line that starts one is a property.
+func countICSProperty(lines []string, name string) int {
+	count := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, name+":") || strings.HasPrefix(line, name+";") {
+			count++
+		}
+	}
+	return count
+}
+
+// The personal feed is served from a bearer-token URL, and every text value in
+// it originates in community-editable data. golang-ical's TEXT escaper handles
+// `\`, `;`, `,` and LF but NOT CR, so without sanitization a submitted title
+// carrying a carriage return could close its own property and have a lenient
+// client read the remainder as a forged one.
+func TestGenerateICSFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T) {
+	mockShows := []*contracts.SavedShowResponse{
+		{
+			ShowResponse: contracts.ShowResponse{
+				ID:        7,
+				Slug:      "hostile-show",
+				Title:     "Gig\r\nSUMMARY:Hijacked\r\nDTSTART:19700101T000000Z",
+				EventDate: time.Now().Add(24 * time.Hour),
+				Status:    "approved",
+				Venues: []contracts.VenueResponse{
+					{
+						ID:      1,
+						Name:    "Evil Room\r\nX-FORGED-VENUE:yes",
+						Address: ptrString("1 Main St\nX-FORGED-ADDRESS:yes"),
+						City:    "Phoenix",
+						State:   "AZ",
+					},
+				},
+				Artists: []contracts.ArtistResponse{
+					{ID: 1, Name: "Band\r\nATTENDEE:mailto:victim@example.com"},
+					// A bare CR with no LF: the character golang-ical does not
+					// escape, and the one a lenient parser is likeliest to treat
+					// as a line break on its own.
+					{ID: 2, Name: "Support\rORGANIZER:mailto:victim@example.com"},
+				},
+				AgeRequirement: ptrString("21+\r\nX-FORGED-AGES:yes"),
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
+			},
+		},
+	}
+
+	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: &mockSavedShowSvc{shows: mockShows, total: 1}}
+	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+	require.NoError(t, err)
+	out := string(data)
+
+	// No bare CR may survive outside line endings. Written this way rather than
+	// as a plain NotContains so the assertion holds whichever line ending the
+	// serializer is configured with.
+	assert.NotContains(t, strings.ReplaceAll(out, "\r\n", ""), "\r",
+		"no raw carriage returns may survive into the payload")
+
+	parsed, err := ics.ParseCalendar(strings.NewReader(out))
+	require.NoError(t, err, "hostile text must still produce a parseable calendar")
+	require.Len(t, parsed.Events(), 1)
+	event := parsed.Events()[0]
+
+	// Assertions run on UNFOLDED content lines: the hostile strings are long
+	// enough that folding would otherwise hide an injected property from a
+	// substring match.
+	all := icsContentLines(out)
+	eventLines := icsEventLines(t, out)
+
+	assert.Equal(t, 1, countICSProperty(eventLines, "SUMMARY"), "injected text must not add a second SUMMARY")
+	assert.Equal(t, 1, countICSProperty(eventLines, "DTSTART"), "injected text must not add a second DTSTART")
+	assert.Equal(t, 1, countICSProperty(eventLines, "LOCATION"))
+	assert.Equal(t, 1, countICSProperty(eventLines, "DESCRIPTION"))
+	assert.Equal(t, 0, countICSProperty(all, "X-FORGED-VENUE"), "a venue name must not add a property")
+	assert.Equal(t, 0, countICSProperty(all, "X-FORGED-ADDRESS"), "a venue address must not add a property")
+	assert.Equal(t, 0, countICSProperty(all, "X-FORGED-AGES"), "an age requirement must not add a property")
+	assert.Equal(t, 0, countICSProperty(all, "ATTENDEE"), "an artist name must not add an attendee")
+	assert.Equal(t, 0, countICSProperty(all, "ORGANIZER"), "a bare CR in an artist name must not add an organizer")
+
+	// One VEVENT, not one per injected line break (BEGIN:VCALENDAR is the other).
+	assert.Equal(t, 2, countICSProperty(all, "BEGIN"), "the calendar must hold exactly one VEVENT")
+
+	// The hostile text survives only as INERT VALUE inside the property it was
+	// typed into.
+	require.NotNil(t, event.GetProperty(ics.ComponentPropertySummary))
+	assert.Equal(t, "GigSUMMARY:HijackedDTSTART:19700101T000000Z",
+		event.GetProperty(ics.ComponentPropertySummary).Value,
+		"the whole hostile string must stay inside SUMMARY's value")
+	assert.Nil(t, event.GetProperty("X-FORGED-VENUE"))
+	assert.Nil(t, event.GetProperty(ics.ComponentPropertyAttendee))
+	assert.Nil(t, event.GetProperty(ics.ComponentPropertyOrganizer))
+}
+
+// U+2028 / U+2029 are line separators to a JavaScript parser but ordinary
+// multi-byte characters to an iCalendar one, which delimits content lines on
+// CRLF alone. They must therefore be preserved as inert text rather than
+// stripped: mangling them would corrupt legitimate non-ASCII names for no
+// safety gain.
+func TestGenerateICSFeed_UnicodeLineSeparatorsStayInert(t *testing.T) {
+	mockShows := []*contracts.SavedShowResponse{
+		{
+			ShowResponse: contracts.ShowResponse{
+				ID:        8,
+				Slug:      "unicode-show",
+				Title:     "Gig\u2028X-FORGED-U2028:yes\u2029X-FORGED-U2029:yes",
+				EventDate: time.Now().Add(24 * time.Hour),
+				Status:    "approved",
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			},
+		},
+	}
+
+	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: &mockSavedShowSvc{shows: mockShows, total: 1}}
+	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+	require.NoError(t, err)
+	out := string(data)
+
+	assert.Equal(t, 1, countICSProperty(icsEventLines(t, out), "SUMMARY"))
+	assert.Equal(t, 0, countICSProperty(icsContentLines(out), "X-FORGED-U2028"))
+	assert.Equal(t, 0, countICSProperty(icsContentLines(out), "X-FORGED-U2029"))
+
+	parsed, err := ics.ParseCalendar(strings.NewReader(out))
+	require.NoError(t, err)
+	require.Len(t, parsed.Events(), 1)
+	assert.Equal(t, "Gig\u2028X-FORGED-U2028:yes\u2029X-FORGED-U2029:yes",
+		parsed.Events()[0].GetProperty(ics.ComponentPropertySummary).Value)
 }
 
 // =============================================================================
