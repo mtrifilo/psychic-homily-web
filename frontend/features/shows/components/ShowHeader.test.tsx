@@ -265,6 +265,33 @@ describe('ShowHeader layout', () => {
     expect(screen.queryByTestId('show-flyer-credit')).not.toBeInTheDocument()
   })
 
+  // The venue line goes through the same location helper as the bill above it.
+  // The hand-written template it replaced printed "Phoenix, " for a venue with
+  // no state.
+  it('renders a stateless venue location without a trailing comma', () => {
+    render(
+      <ShowHeader
+        show={makeShow({
+          venues: [
+            {
+              id: 1,
+              slug: 'the-venue',
+              name: 'The Venue',
+              city: 'Berlin',
+              state: '',
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    expect(screen.getByTestId('venue-location')).toHaveTextContent('Berlin')
+    expect(
+      screen.getByTestId('venue-location').textContent?.trim()
+    ).toBe('Berlin')
+  })
+
   // The venue is where the show happens, so its state decides the calendar the
   // date is read on. The status stripe resolves the zone the same way; a header
   // that used the denormalized show row could print a different day inches
@@ -397,15 +424,18 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      expect(headlineText()).toContain('Modest Mouse')
-      expect(headlineText()).toContain('[Epic]')
-      // The connectives are screen-reader-only text, so they are part of the
-      // announced heading and not of what a sighted reader sees.
-      expect(headlineText()).toContain('on [Epic]')
-      expect(headlineText()).toContain('from Issaquah, WA')
+      // Exact, so the mock's locked SEQUENCE is pinned: name, then labels,
+      // then hometown, with nothing interposed.
+      expect(headlineText()).toBe('Modest Mouse on [Epic] from Issaquah, WA')
       // Locked location rule: the country is suppressed for a US state.
-      expect(headlineText()).toContain('Issaquah, WA')
       expect(headlineText()).not.toContain('USA')
+      // The accessible name is the assertion that actually pins the a11y
+      // decisions: it honours `aria-hidden` (so the brackets vanish) and keeps
+      // `sr-only` (so the connectives stay). Deleting either would leave the
+      // textContent assertion above green.
+      expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName(
+        'Modest Mouse on Epic from Issaquah, WA'
+      )
       expect(screen.getByRole('link', { name: 'Epic' })).toHaveAttribute(
         'href',
         '/labels/epic'
@@ -591,37 +621,87 @@ describe('ShowHeader bill rendering', () => {
 
       expect(headlineText()).toBe('Placeless')
     })
-  })
 
-  describe('set_type annotations', () => {
-    // `opener` is the backend's default for every non-headliner, not a
-    // distinguishing role, so annotating it would mark nearly every support
-    // act. Locked in so it is not "fixed" back the other way by accident.
-    it('leaves openers unannotated', () => {
+    // The drop is decided on the PARTS. A string comparison against the
+    // formatter's placeholder would also silence a band whose city is
+    // literally that placeholder, which is what an extraction run writes when
+    // it does not know.
+    it('still prints a hometown for a city named like the unknown placeholder', () => {
       const show = makeShow({
         artists: [
-          makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
-          makeArtist({ id: 2, name: 'The Opener', slug: 'the-opener', set_type: 'opener', position: 1 }),
+          makeArtist({
+            id: 1,
+            name: 'Edge Case',
+            slug: 'edge-case',
+            set_type: 'headliner',
+            position: 0,
+            city: 'Location Unknown',
+          }),
         ],
       })
 
       render(<ShowHeader show={show} />)
 
-      expect(screen.queryByText('(opener)')).not.toBeInTheDocument()
-      expect(supportLineText()).toContain('The Opener')
+      expect(headlineText()).toBe('Edge Case from Location Unknown')
     })
+  })
 
-    it('annotates special guests', () => {
+  describe('set_type annotations', () => {
+    // The locked mock renders NO role labels on the bill: support acts are
+    // `w/` lines and nothing more. `set_type` is curated and authoritative
+    // since PSY-1673, so the data exists and adding annotations is now a
+    // DESIGN decision rather than a data-quality one. This table is what makes
+    // that decision cost a failing test instead of a one-line map entry.
+    it.each([
+      ['opener', 'opener'],
+      ['direct_support', 'direct_support'],
+      ['dj', 'dj'],
+      ['performer', 'performer'],
+    ])('leaves a %s unannotated', (_label, setType) => {
       const show = makeShow({
         artists: [
           makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
-          makeArtist({ id: 2, name: 'The Guest', slug: 'guest', set_type: 'special_guest', position: 1 }),
+          makeArtist({
+            id: 2,
+            name: 'The Support',
+            slug: 'the-support',
+            set_type: setType as SetType,
+            position: 1,
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(supportLineText()).toBe('w/ The Support')
+    })
+
+    // The one exception, and it predates the mock. Kept because removing a
+    // shipped annotation is as much a design change as adding one, but pinned
+    // LAST on the line so the mock's name-labels-hometown sequence survives.
+    it('annotates special guests, after the labels and hometown', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
+          makeArtist({
+            id: 2,
+            name: 'The Guest',
+            slug: 'guest',
+            set_type: 'special_guest',
+            position: 1,
+            city: 'Chicago',
+            state: 'IL',
+            labels: [{ id: 40, name: 'Dead Oceans', slug: 'dead-oceans' }],
+          }),
         ],
       })
 
       render(<ShowHeader show={show} />)
 
       expect(screen.getByText('(special guest)')).toBeInTheDocument()
+      expect(supportLineText()).toBe(
+        'w/ The Guest on [Dead Oceans] from Chicago, IL (special guest)'
+      )
     })
 
     // `set_type` is a bare string on the wire over an unconstrained VARCHAR

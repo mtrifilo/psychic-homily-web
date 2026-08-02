@@ -47,15 +47,15 @@ export type SetType = NonNullable<
 /**
  * Minimal label reference rendered next to an artist on the show bill.
  *
+ * DERIVED from the generated OpenAPI schema rather than hand-written, for the
+ * same reason `SetType` above is: a hand-written mirror of a backend struct
+ * can fall behind it silently, and regenerating types is a CI gate.
+ *
  * `slug` can be an empty string: `labels.slug` is nullable in the database and
  * the backend flattens null to "". Callers must treat empty as "no label page
  * to link to" rather than building `/labels/`.
  */
-export interface ShowArtistLabel {
-  id: number
-  name: string
-  slug: string
-}
+export type ShowArtistLabel = components['schemas']['ShowArtistLabel']
 
 export interface ArtistResponse {
   id: number

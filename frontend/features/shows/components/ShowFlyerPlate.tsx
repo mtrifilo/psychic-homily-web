@@ -83,10 +83,17 @@ export function ShowFlyerPlate({
         alt=""
         data-testid="show-flyer-image"
         onError={onError}
-        // The flyer is a third-party host's file. Send the origin rather than
-        // the full show URL: they get to see that traffic came from us, not
-        // which show every reader was looking at.
-        referrerPolicy="strict-origin-when-cross-origin"
+        // The plate is last in the document and only moves left at `md`, so on
+        // a phone it is genuinely below the fold. Lazy means a reader who
+        // bounces before scrolling never hands their IP to the third-party
+        // host at all. In the desktop two-column layout the plate is in the
+        // viewport, so the browser fetches it immediately and nothing is lost.
+        //
+        // No `referrerPolicy` here on purpose: the document already sends
+        // `Referrer-Policy: strict-origin-when-cross-origin` (next.config.ts),
+        // and restating it per-image is a second copy that would silently keep
+        // the old value after someone tightens the header.
+        loading="lazy"
         className="block h-auto max-h-[70vh] w-auto max-w-full rounded-sm border border-border/60"
       />
       {credit && (

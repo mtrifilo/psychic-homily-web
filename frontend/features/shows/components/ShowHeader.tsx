@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
+import { formatLocation } from '@/lib/formatLocation'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
@@ -105,7 +105,11 @@ function BillLabels({
     <>
       {' '}
       <span className={cn('font-mono font-normal text-primary', className)}>
-        <span className="sr-only">on </span>
+        {/* The space after the connective is its own text node, not a trailing
+            space inside the span: accessible-name computation trims each node,
+            which is how "on Epic" becomes "onEpic". Two adjacent whitespace
+            nodes still paint as one space. */}
+        <span className="sr-only">on</span>{' '}
         <span aria-hidden="true">[</span>
         {labels.map((label, index) => (
           <span key={label.id}>
@@ -141,10 +145,10 @@ function BillLabels({
  *
  * Delegates to `formatLocation` so the bill obeys the same locked display rule
  * as every other surface: country included UNLESS the state is set and the
- * country is USA/US. The `LOCATION_UNKNOWN` placeholder that helper returns is
- * dropped rather than printed: it is designed to stand alone in a location
- * field, and "Modest Mouse [Epic] Location Unknown" states something the bill
- * was not asked to state.
+ * country is USA/US. An act with nothing placeable renders NO segment. The
+ * helper's "Location Unknown" placeholder is designed to stand alone in a
+ * location field, and "Modest Mouse [Epic] Location Unknown" states something
+ * the bill was not asked to state.
  *
  * Carries the same kind of screen-reader-only connective as {@link BillLabels}
  * and for the same reason: visually a city sits in its own typographic slot,
@@ -157,18 +161,27 @@ function BillHometown({
   artist: ArtistResponse
   className?: string
 }) {
+  // Judged on the PARTS, not on the formatted string. Comparing the result to
+  // `LOCATION_UNKNOWN` would also silence an artist whose city is literally
+  // "Location Unknown", which is exactly the placeholder an extraction run
+  // writes when it does not know.
+  const hasPlaceableLocation = [
+    artist.city,
+    artist.state,
+    artist.country,
+  ].some(part => part?.trim())
+  if (!hasPlaceableLocation) return null
   const hometown = formatLocation({
     city: artist.city,
     state: artist.state,
     country: artist.country,
   })
-  if (hometown === LOCATION_UNKNOWN) return null
   return (
     <>
       {' '}
       <span className={cn('font-normal text-muted-foreground', className)}>
-        <span className="sr-only">from </span>
-        {hometown}
+        {/* Space outside the span, for the same reason as BillLabels' "on". */}
+        <span className="sr-only">from</span> {hometown}
       </span>
     </>
   )
@@ -208,20 +221,28 @@ interface ShowHeaderProps {
 export function ShowHeader({ show, actions }: ShowHeaderProps) {
   // A flyer URL that 404s, or points at a host that blocks hotlinking, is the
   // same situation as no flyer at all, so it collapses the column the same
-  // way rather than leaving a broken-image glyph in a reserved 18rem gutter.
+  // way rather than leaving a broken-image glyph in a reserved gutter.
   //
   // The failed URL is stored, not a boolean: an admin can fix `image_url` from
   // the edit drawer on this very page, and the live query then re-renders this
-  // component with a new src. A boolean would stay stuck on the old failure and
-  // suppress the new flyer until a reload; comparing URLs resets itself.
+  // component with a new src, which a boolean would keep suppressed until a
+  // reload. One slot, so it only forgives FORWARD: switching back to a URL
+  // that failed earlier in this mount stays suppressed even if the host has
+  // since recovered. Refreshing fixes that, and it is not worth a set.
   const [failedFlyerSrc, setFailedFlyerSrc] = useState<string | null>(null)
-  const flyerSrc = flyerImageSrc(show)
-  const hasFlyer = flyerSrc !== null && flyerSrc !== failedFlyerSrc
+  const candidateFlyerSrc = flyerImageSrc(show)
+  // ONE value, not a boolean plus a URL. The grid template below and the plate
+  // at the foot of this component have to agree about whether there is a
+  // flyer; two expressions that must stay in step is an invariant somebody
+  // eventually breaks, and the failure mode is a two-column desktop layout
+  // with an empty left column.
+  const flyerSrc =
+    candidateFlyerSrc !== failedFlyerSrc ? candidateFlyerSrc : null
   // Stable per URL: the plate holds it in a callback ref, and an identity that
   // changed every render would detach and re-attach that ref every render.
   const handleFlyerError = useCallback(
-    () => setFailedFlyerSrc(flyerSrc),
-    [flyerSrc]
+    () => setFailedFlyerSrc(candidateFlyerSrc),
+    [candidateFlyerSrc]
   )
 
   const venue = show.venues[0]
@@ -255,8 +276,13 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
         // FLYER. A show with no image collapses to one full-width column
         // rather than reserving a gutter for a placeholder. The earlier
         // always-on plate promised an image that was never coming, and every
-        // flyerless show paid 18rem of whitespace for it.
-        hasFlyer && 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-8'
+        // flyerless show paid a column of whitespace for it.
+        //
+        // EXACTLY TWO CHILDREN by construction: the content column and the
+        // plate. A third direct child would be auto-placed into row 2 of the
+        // narrow first track, under the flyer. New modules go INSIDE the
+        // content div below, not beside it.
+        flyerSrc && 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-8'
       )}
     >
       <div className="min-w-0">
@@ -285,7 +311,11 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
             the visual line and the document's heading disagree. The brackets
             and separators are aria-hidden, so the announced name is
             "Modest Mouse Epic Issaquah, WA". */}
-        <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
+        {/* `break-words`: a label or band name can be one long unbroken token
+            (a URL-ish name, a 200-character joke name), and in an 18rem-wide
+            reading column an unbreakable token would push the whole line past
+            the viewport. */}
+        <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9 break-words">
           {effectiveHeadliners.map((artist, index) => (
             <span key={artist.id}>
               {/* Same rule as BillLabels' middot: the glyph is decoration and
@@ -326,11 +356,15 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           // empty grid cell on lines 2+ is what keeps them aligned under the
           // first name without repeating the marker as text an assistive
           // reader would hear on every line.
-          <div className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-lg text-muted-foreground">
+          <div className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-lg text-muted-foreground break-words">
             {effectiveSupport.map((artist, index) => (
               <Fragment key={artist.id}>
                 {index === 0 ? (
-                  <span className="italic">w/</span>
+                  // The trailing space is a real character: the marker and the
+                  // name are separate grid cells, so the gap between them is
+                  // layout, not text, and a reader that flattens the line would
+                  // otherwise get "w/Califone".
+                  <span className="italic">w/ </span>
                 ) : (
                   // Empty, so it is already absent from the accessibility
                   // tree; it exists only to fill the marker column.
@@ -349,11 +383,16 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                       {artist.name}
                     </span>
                   )}
-                  <SupportSetTypeLabel setType={artist.set_type} />
                   {/* Both annotations at one size: they are the same class of
                       fact and sit on the same line under an 18px name. */}
                   <BillLabels labels={artist.labels} className="text-sm" />
                   <BillHometown artist={artist} className="text-sm" />
+                  {/* LAST, after the hometown. The mock's locked sequence is
+                      name, labels, hometown with nothing interposed, and this
+                      annotation predates the mock (see
+                      SUPPORT_SET_TYPE_LABELS). Keeping it but putting it at
+                      the end of the line is what lets both be true. */}
+                  <SupportSetTypeLabel setType={artist.set_type} />
                 </div>
               </Fragment>
             ))}
@@ -385,8 +424,11 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
               className="flex items-center gap-1 text-muted-foreground mt-1"
             >
               <MapPin className="h-4 w-4" />
+              {/* Same locked rule as the bill above, through the same helper.
+                  The hand-written template this replaced printed a trailing
+                  comma for a venue with no state. */}
               <span>
-                {venue.city}, {venue.state}
+                {formatLocation({ city: venue.city, state: venue.state })}
               </span>
             </div>
             {/* Street address — plain text, no maps link. `pl-5` (icon w-4 +
@@ -477,8 +519,14 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
 
           `md:order-first` puts it back in the left column at desktop, where
           the mock has it. */}
-      {hasFlyer && flyerSrc && (
+      {flyerSrc && (
         <ShowFlyerPlate
+          // A new URL gets a NEW element rather than a reused one. The plate
+          // reads `complete` / `naturalWidth` off the node on mount, and on a
+          // reused element those still describe the PREVIOUS image at that
+          // moment (the spec queues the image update as a microtask), so a
+          // good replacement could be judged on the old one's failure.
+          key={flyerSrc}
           src={flyerSrc}
           credit={flyerCredit(show)}
           onError={handleFlyerError}

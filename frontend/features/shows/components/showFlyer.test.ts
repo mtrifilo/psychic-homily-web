@@ -17,7 +17,6 @@ function venue(overrides: Partial<VenueResponse> = {}): VenueResponse {
 describe('flyerImageSrc', () => {
   it.each([
     ['a plain https url', 'https://flyers.example/poster.jpg'],
-    ['an http url', 'http://flyers.example/poster.jpg'],
     ['a url with a query and fragment', 'https://flyers.example/p.jpg?v=2#x'],
   ])('accepts %s', (_label, value) => {
     expect(flyerImageSrc({ image_url: value })).toBe(value)
@@ -46,7 +45,7 @@ describe('flyerImageSrc', () => {
   })
 
   // `image_url` is writable by any email-verified submitter, so everything
-  // that is not an http(s) URL has to resolve to "no flyer" rather than reach
+  // that is not an https URL has to resolve to "no flyer" rather than reach
   // an <img src>.
   it.each([
     ['null', null],
@@ -54,6 +53,9 @@ describe('flyerImageSrc', () => {
     ['an empty string', ''],
     ['whitespace only', '   '],
     ['a relative path', '/uploads/flyer.jpg'],
+    // The backend accepts http and such rows exist, but the app's CSP is
+    // `img-src ... https:`, so an http flyer can only ever be blocked.
+    ['an http url the CSP would block', 'http://flyers.example/poster.jpg'],
     ['a protocol-relative url', '//flyers.example/poster.jpg'],
     ['a bare host, which is NOT repaired into https', 'flyers.example/p.jpg'],
     ['a data url', 'data:image/png;base64,AAAA'],
