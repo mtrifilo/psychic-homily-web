@@ -108,46 +108,69 @@ func buildVenueLocalStateCaseSQL() string {
 	return b.String()
 }
 
-// VenueTZJoin resolves each show's venue-local IANA zone. Requires the query to
-// have already joined `shows` — the lateral correlates on shows.id.
+// VenueTZJoin resolves each show's venue-local zone inputs. Requires the query
+// to have already joined `shows` — the lateral correlates on shows.id.
 //
-// KNOWN PERFORMANCE DEFECT, measured, not theoretical — read before reusing this.
-// Because `venue_tz` is a LATERAL correlated on shows.id, Postgres is free to
-// push the pg_timezone_names join into the inner side of the nested loop over
-// shows, and it does: EXPLAIN ANALYZE on a seeded 20k-show venue shows
-// `Function Scan on pg_timezone_names ... loops=17228` and 8.1s for the `past`
-// COUNT (1.3s for `upcoming`). An `OFFSET 0` optimization fence does not move
-// it. An earlier revision measured loops=1 for this same shape, so the plan is
-// cost-sensitive and flips as the filter expression grows — do not trust a
-// one-off good plan here.
+// ONE lateral, and nothing else. Everything downstream of it is a pure scalar
+// expression, so the whole zone resolution costs a single index hop on
+// show_venues_pkey per candidate row.
 //
-// It is bounded in practice today (the busiest real venue has ~100 rows, where
-// this is single-digit ms) but it scales with a venue's whole back catalogue on
-// the `past` tab, whose coarse bound `event_date < now()` excludes nothing.
-// The real fix is to stop asking Postgres to validate the zone per row:
-// normalize venues.timezone to a canonical IANA name at WRITE time (mirroring
-// catalog.normalizeStationTimezone for radio) and drop this join entirely, or
-// materialize the zone list into a real indexed table. Both need their own
-// ticket; neither belongs in a partitioning change.
+// It used to carry a second join validating the stored zone against
+// pg_timezone_names. That is gone, and must not come back into this path: as a
+// LATERAL-correlated relation it was pushed into the inner side of the nested
+// loop over shows and re-scanned the ~490-row catalog PER SHOW. Measured on a
+// seeded 20k-show venue: `Function Scan on pg_timezone_names ... loops=17228`,
+// 8.1s for the `past` COUNT. An OFFSET 0 optimization fence did not move it, and
+// an earlier revision planned it at loops=1, so a one-off good plan here proves
+// nothing.
 //
-// The DISTINCT ON makes fan-out impossible by construction rather than by
-// assertion. pg_timezone_names is populated from the host OS tzdata, so
-// "lower(name) is unique" is an environment-dependent claim (it holds on the
-// Postgres 18 test image); a duplicate would multiply rows and silently corrupt
-// every total built on this join. The ORDER BY is required for DISTINCT ON to
-// pick deterministically — without it Postgres may return either row of a
-// collision, and while two names differing only in case resolve to the same
-// zone anyway, a nondeterministic query is not something to leave lying around.
+// WHAT MAKES DROPPING IT SAFE is a two-layer guarantee on the column itself,
+// NOT an assumption:
+//
+//  1. WRITE GATE (PSY-1707). Every path that writes venues.timezone validates
+//     against the server's pg_timezone_names first and stores NULL rather than a
+//     name it does not carry — see shared.NormalizeIANATimezone. So the column
+//     holds either NULL or a name this server resolved at write time.
+//  2. INTEGRITY SWEEP (PSY-1695, VenueTimezoneSweep). The write gate is a
+//     point-in-time check and the catalog is NOT stable: its contents come from
+//     the server's tzdata PACKAGING, not from Postgres. Measured — postgres:18
+//     (Debian) carries 487 zones and no EST or Asia/Calcutta because Debian
+//     splits the `backward` links into tzdata-legacy; postgres:16-alpine carries
+//     599 and has them. So a Postgres upgrade, a tzdata refresh (US/Pacific-New
+//     really was deleted in 2020b), or a restore onto a differently-packaged
+//     build can invalidate a value that was valid when written. The sweep
+//     re-validates stored zones against the live catalog and NULLs the casualties.
+//
+// The residual risk that buys is a window, not zero: a zone can go unknown
+// between sweep runs, and `AT TIME ZONE` RAISES on an unknown name rather than
+// degrading — it would take down every listing query touching that venue until
+// the next sweep. That is the trade this path accepts for not paying 8.1s.
+//
+// Neither layer covers the GO-side readers (utils.EventLocation, the ICS feeds,
+// the Discord notifier), which resolve through Go's catalog rather than
+// Postgres'. The two disagree in both directions: "localtime" and "Factory" pass
+// the write gate and fail time.LoadLocation. Those readers have their own
+// fallback and are not made safe by anything here.
 var VenueTZJoin = `LEFT JOIN LATERAL ` +
-	PrimaryVenueLateralSQL("iv.timezone, iv.state, iv.country", "shows.id") + ` venue_tz ON true
-	LEFT JOIN (
-		SELECT DISTINCT ON (lower(name)) name FROM pg_timezone_names ORDER BY lower(name), name
-	) venue_tzn ON lower(venue_tzn.name) = lower(btrim(venue_tz.timezone, E' \t\n\r'))`
+	PrimaryVenueLateralSQL("iv.timezone, iv.state, iv.country", "shows.id") + ` venue_tz ON true`
 
 // venueLocalZoneSQL is the resolved zone for the primary venue, mirroring
-// utils.EventLocation's precedence: a valid explicit venue timezone, then the
-// US state map, which itself defaults to America/Phoenix.
-var venueLocalZoneSQL = `COALESCE(venue_tzn.name, ` + venueLocalStateCaseSQL + `)`
+// utils.EventLocation's precedence: the stored venue timezone, then the US state
+// map, which itself defaults to America/Phoenix.
+//
+// The stored value is TRUSTED rather than validated — see VenueTZJoin for the
+// two layers that make that sound. NULLIF(btrim(...)) is belt-and-braces for a
+// blank that predates the write gate: the gate stores NULL for blank input, so
+// this should never fire, but a blank reaching AT TIME ZONE would raise.
+//
+// The NULL arm is the US state map rather than a bare 'UTC', deliberately. Eight
+// of production's 237 venues have no geocoded zone, and every OTHER surface
+// dates their shows through utils.EventLocation's state arm — sending only this
+// path to UTC would put a Phoenix venue's listing 7 hours away from its own show
+// page, which is the class of disagreement this ticket exists to remove. It
+// costs nothing in the hot path: a CASE over two already-fetched columns is a
+// scalar expression, not a relation scan.
+var venueLocalZoneSQL = `COALESCE(NULLIF(btrim(venue_tz.timezone, E' \t\n\r\f\v'), ''), ` + venueLocalStateCaseSQL + `)`
 
 // VenueLocalDateSQL is the show's calendar date in its venue's local zone.
 // event_date is TIMESTAMPTZ (migration 000028), so a single AT TIME ZONE shifts

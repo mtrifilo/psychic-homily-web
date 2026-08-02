@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -258,21 +259,44 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_NullVenueT
 	suite.Equal(int64(0), upcomingTotal)
 }
 
-// A blank or malformed stored zone is the other pre-backfill shape, and must
-// degrade to the state map the same way rather than take the query down.
-func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_MalformedVenueTimezoneUsesStateMap() {
-	artist := suite.createTestArtist("Bad Zone Artist")
+// The trust-the-column contract, stated as a test rather than left implicit.
+//
+// The partition reads venues.timezone straight into AT TIME ZONE, so a stored
+// zone the server does not carry does NOT degrade -- it raises SQLSTATE 22023
+// and takes the listing query down. That is the cost of not paying per-row
+// validation (8.1s on a 20k-show venue), and it is only acceptable because two
+// layers keep such a value out of the column: the write gate (PSY-1707) and the
+// integrity sweep below.
+//
+// This asserts the raw failure mode so nobody "fixes" it by quietly
+// reintroducing a COALESCE that would mask real drift, and then asserts the
+// sweep is what actually resolves it.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_DriftedVenueTimezoneRaisesUntilSwept() {
+	artist := suite.createTestArtist("Drift Artist")
+	venue := newVenueInZone(suite.T(), suite.db, "Drift Room", "HI", "Pacific/Honolulu", false)
 	user := suite.createTestUser()
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, venueLocalInstant(suite.T(), "Pacific/Honolulu", 1, 20))
 
-	at := venueLocalInstant(suite.T(), "Pacific/Honolulu", -1, 23)
-	for i, zone := range []string{"", "   ", "Not/AZone", "EST"} {
-		venue := newVenueInZone(suite.T(), suite.db, fmt.Sprintf("Bad Zone Room %d", i), "HI", zone, false)
-		suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, at)
-	}
+	// Simulate tzdata drift: a zone that WAS valid when written is no longer in
+	// the catalog. Written straight to the column, bypassing the write gate,
+	// because that is exactly what drift looks like.
+	suite.Require().NoError(suite.db.Table("venues").Where("id = ?", venue.ID).
+		Update("timezone", "Pacific/Atlantis").Error)
 
-	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
-	suite.Require().NoError(err)
-	suite.Equal(int64(4), pastTotal, "every malformed zone should degrade to the state map, not drop the show")
+	_, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	suite.Require().Error(err, "a drifted zone must surface loudly, not silently mis-partition")
+	suite.Contains(err.Error(), "not recognized")
+
+	report, sweepErr := SweepVenueTimezones(context.Background(), suite.db)
+	suite.Require().NoError(sweepErr)
+	suite.Equal(1, report.Cleared)
+	suite.Require().Len(report.Drifted, 1)
+	suite.Equal("Pacific/Atlantis", report.Drifted[0].Timezone)
+
+	// After the sweep the venue falls back to the state map and listings work.
+	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	suite.Require().NoError(err, "the sweep must restore a queryable state")
+	suite.Equal(int64(1), upcomingTotal)
 }
 
 // A show with no venue row at all: the LEFT JOIN LATERAL must keep it, or
