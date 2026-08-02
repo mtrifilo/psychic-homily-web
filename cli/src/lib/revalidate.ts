@@ -4,9 +4,11 @@ import * as display from "./display";
  * Push ISR revalidation to the Next.js app after an ingest run (PSY-1691).
  *
  * The CLI writes straight to the Go API, so it bypasses the frontend proxy
- * that normally revalidates ISR pages after a mutation. Entity detail pages do
- * not time-revalidate, so without this an ingested show stays invisible on its
- * own page until the next deploy.
+ * that normally revalidates ISR pages after a mutation. Ingested changes are
+ * then invisible for up to the page's revalidate window (1h for entity pages),
+ * and a deploy does NOT shorten that — the Data Cache survives a rebuild, so
+ * only the timer or an on-demand revalidate busts it (measured in PSY-1650;
+ * see the cacheComponents note in frontend/next.config.ts).
  *
  * Shape of the wiring:
  *   1. `APIClient` records every successful catalog mutation here (one choke
@@ -70,7 +72,10 @@ const ENTITY_PATH_RULES: ReadonlyArray<{ pattern: RegExp; type: string }> = [
   { pattern: /^\/releases(?:\/\d+)?$/, type: "release" },
   { pattern: /^\/labels(?:\/\d+)?$/, type: "label" },
   { pattern: /^\/festivals(?:\/\d+)?$/, type: "festival" },
-  { pattern: /^\/tags(?:\/\d+)?$/, type: "tag" },
+  // Deliberately no /tags rule: POST /tags CREATES a tag, whose page has no
+  // cached copy to invalidate. What does stale a tag page is ATTACHING a tag
+  // (POST /entities/{type}/{id}/tags), which carries no tag slug in its
+  // response — part of the known gap above.
 ];
 
 /** Types whose response embeds a billed/credited artist list worth recording. */
@@ -113,9 +118,11 @@ export function recordMutationResponse(
   );
   if (!rule) return;
 
-  // Responses are either the entity itself or the entity wrapped under its
-  // singular name ({"artist": {...}}) — both shapes exist in this API.
-  const entity = unwrapEntity(body, rule.type);
+  // Every one of these endpoints answers with the entity at the top level
+  // (huma keys the JSON off the handler's `Body` field). Some of this CLI's
+  // response type annotations still claim a `{"artist": {...}}` wrapper; that
+  // shape was verified not to exist, so there is nothing to unwrap.
+  const entity = asRecord(body);
   if (!entity) return;
 
   recordTouchedEntity(rule.type, entity.slug);
@@ -155,7 +162,14 @@ export async function flushRevalidation(): Promise<void> {
   }
 }
 
-/** The configured endpoint, or undefined when either env var is missing. */
+/**
+ * The configured endpoint, or undefined when either env var is missing or the
+ * base URL is unusable.
+ *
+ * The request carries the shared secret in a header, so the transport has to
+ * be https anywhere it could cross a network. http is allowed only for
+ * loopback, which is how local dev and the per-worktree stacks run.
+ */
 export function revalidationTarget():
   | { url: string; secret: string }
   | undefined {
@@ -165,10 +179,34 @@ export function revalidationTarget():
   );
   if (!base || !secret) return undefined;
 
+  let parsed: URL;
+  try {
+    parsed = new URL(base);
+  } catch {
+    display.warn(`${FRONTEND_URL_ENV} is not a valid URL: ${base}`);
+    return undefined;
+  }
+
+  if (parsed.protocol !== "https:" && !isLoopback(parsed.hostname)) {
+    display.warn(
+      `${FRONTEND_URL_ENV} must use https outside localhost (got ${parsed.protocol}//${parsed.hostname}); skipping ISR revalidation.`,
+    );
+    return undefined;
+  }
+
   return {
     url: `${base.replace(/\/+$/, "")}/api/internal/revalidate`,
     secret,
   };
+}
+
+function isLoopback(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname === "::1"
+  );
 }
 
 /** Split a list into fixed-size batches. */
@@ -194,6 +232,10 @@ async function postBatch(
       },
       body: JSON.stringify({ entities }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      // fetch strips Authorization and Cookie on a cross-origin redirect but
+      // NOT custom headers, so following one would hand x-internal-secret to
+      // whatever host the 302 names. There is no legitimate redirect here.
+      redirect: "error",
     });
 
     if (!response.ok) {
@@ -249,15 +291,4 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
-}
-
-/** The entity record itself, whether it is the body or nested under `type`. */
-function unwrapEntity(
-  body: unknown,
-  type: string,
-): Record<string, unknown> | undefined {
-  const record = asRecord(body);
-  if (!record) return undefined;
-  if (typeof record.slug === "string") return record;
-  return asRecord(record[type]);
 }

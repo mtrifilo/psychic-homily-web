@@ -12,8 +12,11 @@ import { OUT_OF_BAND_SEGMENTS, outOfBandPages } from './revalidation-paths'
  * Context: browser mutations go through app/api/[...path]/route.ts, which
  * revalidates affected pages via lib/proxy-revalidation.ts. Backend-originated
  * writes — the `ph` ingest CLI today, discovery/radio jobs later — talk to the
- * Go API directly, so nothing revalidates and entity detail pages (which do
- * not time-revalidate) serve pre-write HTML until the next deploy.
+ * Go API directly, so nothing revalidates and the change stays invisible for
+ * up to the page's revalidate window (1h for entity pages). A deploy does NOT
+ * shorten that: the Data Cache survives a rebuild, so only the timer or an
+ * on-demand revalidate busts it (measured in PSY-1650; see the cacheComponents
+ * note in next.config.ts). This endpoint is the on-demand path.
  *
  * Callers are fire-and-forget: they log failures and never fail the write that
  * triggered them. So this module is deliberately lenient about the CONTENTS of
@@ -31,7 +34,15 @@ export const SECRET_HEADER = 'x-internal-secret'
  */
 export const MAX_ENTITIES_PER_REQUEST = 100
 
-/** Max request body bytes. 100 entries of {type, slug} is well under 16 KB. */
+/**
+ * Max request body bytes. 100 entries of {type, slug} is well under 16 KB.
+ *
+ * This bounds JSON.parse and the work after it, NOT the read: the runtime has
+ * already buffered the body by the time we can measure it. The route's
+ * Content-Length pre-check rejects an HONEST oversized request before the read,
+ * but Content-Length is optional and caller-supplied, so this is the guarantee.
+ * Both checks sit behind auth, so an anonymous caller reaches neither.
+ */
 export const MAX_BODY_BYTES = 64 * 1024
 
 /** Longest slug accepted. Backend slugs are far shorter; this is a guard. */
@@ -47,15 +58,21 @@ const MAX_SLUG_LENGTH = 200
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** One entity an out-of-band write touched. */
-export interface TouchedEntity {
+interface TouchedEntity {
   /** Singular entity type: a key of OUT_OF_BAND_SEGMENTS. */
   type: string
   slug: string
+  /**
+   * True when the write changed the entity's NAME, which also stales every
+   * page embedding that name. Defaults to false: see outOfBandPages in
+   * lib/revalidation-paths.ts for why the cascade is opt-in.
+   */
+  renamed: boolean
 }
 
 export interface RevalidateResult {
   /** Entities accepted and resolved to paths. */
-  revalidated: number
+  accepted: number
   /** Entities dropped as unusable (unknown type or malformed slug). */
   skipped: number
   /** Distinct paths revalidated. */
@@ -81,18 +98,38 @@ export interface RevalidateResult {
 export function isAuthorized(provided: string | null | undefined): boolean {
   const configured = process.env.INTERNAL_API_SECRET
   if (!configured) {
-    Sentry.captureMessage(
-      'internal-revalidate: INTERNAL_API_SECRET unset, rejecting',
-      {
-        level: 'warning',
-        tags: { service: 'isr-revalidation', source: 'internal-revalidate' },
-      }
-    )
+    reportUnconfiguredOnce()
     return false
   }
   if (!provided) return false
 
   return timingSafeEqual(sha256(provided), sha256(configured))
+}
+
+/**
+ * An unset secret is a static deployment fact, not a per-request event.
+ * Reporting it on every call would let anyone who finds this URL turn an
+ * anonymous request loop into unbounded Sentry volume — and a misconfigured
+ * deployment (Vercel Preview, most likely) is exactly where that bites.
+ * Module scope means once per server instance, which is the right cadence.
+ */
+let reportedUnconfigured = false
+
+function reportUnconfiguredOnce(): void {
+  if (reportedUnconfigured) return
+  reportedUnconfigured = true
+  Sentry.captureMessage(
+    'internal-revalidate: INTERNAL_API_SECRET unset, rejecting all callers',
+    {
+      level: 'warning',
+      tags: { service: 'isr-revalidation', source: 'internal-revalidate' },
+    }
+  )
+}
+
+/** Test seam: reset the once-per-process report latch. */
+export function resetUnconfiguredReportForTest(): void {
+  reportedUnconfigured = false
 }
 
 function sha256(value: string): Buffer {
@@ -139,15 +176,15 @@ export function parseRevalidateBody(
   return { entities }
 }
 
-/** A usable {type, slug} pair, or undefined when the entry is unusable. */
+/** A usable entity entry, or undefined when it cannot be used. */
 function toTouchedEntity(value: unknown): TouchedEntity | undefined {
   if (typeof value !== 'object' || value === null) return undefined
-  const { type, slug } = value as Record<string, unknown>
+  const { type, slug, renamed } = value as Record<string, unknown>
 
-  if (
-    typeof type !== 'string' ||
-    !Object.hasOwn(OUT_OF_BAND_SEGMENTS, type)
-  ) {
+  // Object.hasOwn, not `in` or a bare lookup: `in` would accept 'constructor'
+  // and 'toString' as entity types and hand their prototype values to the
+  // path builder.
+  if (typeof type !== 'string' || !Object.hasOwn(OUT_OF_BAND_SEGMENTS, type)) {
     return undefined
   }
   if (
@@ -158,7 +195,10 @@ function toTouchedEntity(value: unknown): TouchedEntity | undefined {
     return undefined
   }
 
-  return { type, slug }
+  // A non-boolean `renamed` is a caller bug, but dropping the whole entry over
+  // it would lose a revalidation the entity genuinely needs. Treat anything
+  // that is not exactly true as "not renamed" — the safe, cheaper reading.
+  return { type, slug, renamed: renamed === true }
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +215,7 @@ export function revalidateEntities(
   entries: readonly unknown[]
 ): RevalidateResult {
   const paths = new Set<string>()
-  let revalidated = 0
+  let accepted = 0
   let skipped = 0
 
   for (const entry of entries) {
@@ -184,10 +224,11 @@ export function revalidateEntities(
       skipped++
       continue
     }
-    revalidated++
+    accepted++
     for (const path of outOfBandPages(
       OUT_OF_BAND_SEGMENTS[entity.type],
-      entity.slug
+      entity.slug,
+      { renamed: entity.renamed }
     )) {
       paths.add(path)
     }
@@ -197,7 +238,7 @@ export function revalidateEntities(
     Sentry.captureMessage('internal-revalidate: skipped unusable entities', {
       level: 'warning',
       tags: { service: 'isr-revalidation', source: 'internal-revalidate' },
-      extra: { skipped, accepted: revalidated },
+      extra: { skipped, accepted },
     })
   }
 
@@ -206,5 +247,5 @@ export function revalidateEntities(
     safeRevalidatePath(path, 'internal-revalidate')
   }
 
-  return { revalidated, skipped, paths: paths.size }
+  return { accepted, skipped, paths: paths.size }
 }

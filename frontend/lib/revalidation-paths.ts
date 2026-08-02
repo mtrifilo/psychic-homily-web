@@ -8,7 +8,8 @@
  *      API proxy (browser traffic), keyed on HTTP method + backend path.
  *   2. app/api/internal/revalidate/route.ts — out-of-band writes that never
  *      touch the proxy (the ph ingest CLI today; background jobs later),
- *      keyed on entity type + slug (PSY-1691).
+ *      keyed on entity type + slug (PSY-1691). Without it those writes stay
+ *      invisible for up to the page's revalidate window.
  *
  * Keeping the table here means a new page that embeds entity data is added
  * in ONE place and both callers pick it up.
@@ -28,7 +29,7 @@
  * invalidated by the count-changing mutations in `showPages` / the venue rules
  * instead. Every other entity type's browse page is still client-fetched.
  */
-export const ISR_LIST_PAGES: Readonly<Record<string, string>> = {
+const ISR_LIST_PAGES: Readonly<Record<string, string>> = {
   artists: '/artists',
   venues: '/venues',
   shows: '/shows',
@@ -59,8 +60,8 @@ export const SINGULAR_TO_SEGMENT: Readonly<Record<string, string>> = {
 // Dynamic route patterns. safeRevalidatePath revalidates these with type
 // 'page', invalidating every cached page under the route on its next visit.
 export const ALL_SHOW_PAGES = '/shows/[slug]'
-export const ALL_RELEASE_PAGES = '/releases/[slug]'
-export const ALL_COLLECTION_PAGES = '/collections/[slug]'
+const ALL_RELEASE_PAGES = '/releases/[slug]'
+const ALL_COLLECTION_PAGES = '/collections/[slug]'
 export const ALL_SCENE_PAGES = '/scenes/[slug]'
 
 // The scene BROWSE page. A plain path, not a route pattern — it started
@@ -70,7 +71,7 @@ export const SCENE_LIST_PAGE = '/scenes'
 
 // The show BROWSE page, for the same reason: PSY-1624 put entity names into
 // its cached payload, so the rename cascade has to reach it.
-export const SHOW_LIST_PAGE = '/shows'
+const SHOW_LIST_PAGE = '/shows'
 
 /**
  * Route patterns made stale when an entity of the given segment is renamed,
@@ -163,52 +164,53 @@ export function releasePages(
 // Out-of-band writes (PSY-1691)
 // ---------------------------------------------------------------------------
 
-/**
- * Entity types the internal revalidate endpoint accepts, → URL segment.
- *
- * SINGULAR_TO_SEGMENT plus `tag`: the ph CLI applies tags during ingest and
- * /tags/{slug} ISR-caches usage counts. `tag` is not in SINGULAR_TO_SEGMENT
- * because that map is also the backend `entity_type` vocabulary for pending
- * edits, which tags are not part of.
- */
-export const OUT_OF_BAND_SEGMENTS: Readonly<Record<string, string>> = {
-  ...SINGULAR_TO_SEGMENT,
-  tag: 'tags',
-}
+/** Entity types the internal revalidate endpoint accepts, → URL segment. */
+export const OUT_OF_BAND_SEGMENTS: Readonly<Record<string, string>> =
+  SINGULAR_TO_SEGMENT
 
 /**
  * Pages made stale by an out-of-band write to one entity.
  *
- * Out-of-band callers report only "this entity changed" — they cannot say
- * whether it was a create, a field edit, or a rename, and the endpoint has no
- * mutation body to inspect. So this is deliberately the UNION of the proxy
- * rules for that segment: the entity's own pages, the list surfaces its
- * counts feed, and the rename cascade. Over-invalidation costs a lazy
- * regeneration on next visit; under-invalidation is the bug this exists to
- * fix (PSY-1691).
+ * Covers the entity's own pages plus the list surfaces its counts feed. The
+ * rename cascade is NOT included unless the caller sets `renamed`, and that
+ * split is the whole design decision here:
+ *
+ * The cascade invalidates entire route patterns (`/shows/[slug]` and friends),
+ * which RENAME_CASCADES justifies above on the grounds that rename-class
+ * mutations are rare admin events. Out-of-band writes are not rare — a single
+ * `ph batch` run touches dozens of entities — so applying the cascade to all
+ * of them would flush the show, release and collection route caches on every
+ * ingest. Creates and field edits do not change any name that another page
+ * embedded, so they genuinely do not need it.
+ *
+ * The cost of the split is that a caller which DOES rename must say so.
+ * Today's only caller cannot rename: the `ph` CLI's update path writes a field
+ * only when the stored value is empty (`new_info` in cli/src/lib/duplicates.ts),
+ * and an existing entity's name is never empty.
  *
  * Related entities that a proxy rule would have read out of the mutation
  * response (a show's billed artists, a release's credited artists) are NOT
  * inferred here — the caller batches them as their own entries instead.
  */
-export function outOfBandPages(segment: string, slug: string): string[] {
-  const paths = ((): Array<string | undefined> => {
+export function outOfBandPages(
+  segment: string,
+  slug: string,
+  { renamed = false }: { renamed?: boolean } = {}
+): string[] {
+  const ownPages = ((): Array<string | undefined> => {
     switch (segment) {
       case 'shows':
-        return [...showPages(slug, []), ...cascadePages('shows')]
+        return showPages(slug, [])
       case 'releases':
-        return [...releasePages(slug, []), ...cascadePages('releases')]
+        return releasePages(slug, [])
       case 'venues':
         // A created or moved venue shifts a per-city venue_count on /scenes.
-        return [
-          ...entityPages('venues', slug),
-          SCENE_LIST_PAGE,
-          ...cascadePages('venues'),
-        ]
+        return [...entityPages('venues', slug), SCENE_LIST_PAGE]
       default:
-        return [...entityPages(segment, slug), ...cascadePages(segment)]
+        return entityPages(segment, slug)
     }
   })()
 
+  const paths = renamed ? [...ownPages, ...cascadePages(segment)] : ownPages
   return paths.filter((path): path is string => typeof path === 'string')
 }

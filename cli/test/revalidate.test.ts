@@ -34,12 +34,18 @@ afterEach(() => {
   }
 });
 
-/** Record the requests a flush makes, answering each with `status`. */
-function captureFetch(status = 200): Array<{ url: string; init: RequestInit }> {
+/**
+ * Record the requests a flush makes, answering each with `status` and a body
+ * shaped like the real endpoint's ({accepted, skipped, paths}).
+ */
+function captureFetch(
+  status = 200,
+  body: unknown = { accepted: 1, skipped: 0, paths: 8 },
+): Array<{ url: string; init: RequestInit }> {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     calls.push({ url: String(url), init });
-    return new Response(JSON.stringify({ revalidated: 1 }), { status });
+    return new Response(JSON.stringify(body), { status });
   }) as unknown as typeof fetch;
   return calls;
 }
@@ -115,8 +121,8 @@ describe("recordMutationResponse", () => {
     ]);
   });
 
-  test("unwraps an entity nested under its singular name", () => {
-    recordMutationResponse("POST", "/labels", { label: { id: 2, slug: "numero" } });
+  test("records a label from the top-level response body", () => {
+    recordMutationResponse("POST", "/labels", { id: 2, slug: "numero" });
     expect(pendingRevalidationEntities()).toEqual([
       { type: "label", slug: "numero" },
     ]);
@@ -137,6 +143,8 @@ describe("recordMutationResponse", () => {
     recordMutationResponse("GET", "/shows", { slug: "a-big-gig" });
     recordMutationResponse("POST", "/auth/login", { slug: "a-big-gig" });
     recordMutationResponse("POST", "/admin/sources/refresh", { slug: "x-y" });
+    // Creating a tag does not stale anything: the new tag's page is not cached.
+    recordMutationResponse("POST", "/tags", { slug: "post-punk" });
     // Sub-resource routes carry no parent slug — the documented known gap.
     recordMutationResponse("POST", "/festivals/3/artists", { success: true });
     recordMutationResponse("POST", "/admin/labels/3/releases", { success: true });
@@ -177,6 +185,36 @@ describe("revalidationTarget", () => {
     process.env.PH_INTERNAL_API_SECRET = "preferred".repeat(4);
     process.env.INTERNAL_API_SECRET = "fallback".repeat(5);
     expect(revalidationTarget()?.secret).toBe("preferred".repeat(4));
+  });
+
+  // The request carries the shared secret in a header, so plaintext off-box is
+  // a credential leak, not just a hygiene issue.
+  test("refuses plain http to a non-loopback host", () => {
+    process.env.PH_INTERNAL_API_SECRET = "s".repeat(40);
+    process.env.PH_FRONTEND_URL = "http://psychichomily.com";
+    expect(revalidationTarget()).toBeUndefined();
+  });
+
+  test("allows plain http to loopback (local dev and worktree stacks)", () => {
+    process.env.PH_INTERNAL_API_SECRET = "s".repeat(40);
+    for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+      process.env.PH_FRONTEND_URL = `http://${host}:3000`;
+      expect(revalidationTarget()).toBeDefined();
+    }
+  });
+
+  test("allows https anywhere", () => {
+    process.env.PH_INTERNAL_API_SECRET = "s".repeat(40);
+    process.env.PH_FRONTEND_URL = "https://psychichomily.com";
+    expect(revalidationTarget()?.url).toBe(
+      "https://psychichomily.com/api/internal/revalidate",
+    );
+  });
+
+  test("refuses a malformed base URL", () => {
+    process.env.PH_INTERNAL_API_SECRET = "s".repeat(40);
+    process.env.PH_FRONTEND_URL = "not a url";
+    expect(revalidationTarget()).toBeUndefined();
   });
 });
 
@@ -223,6 +261,17 @@ describe("flushRevalidation", () => {
       { type: "artist", slug: "bright-eyes" },
     ]);
     expect(pendingRevalidationEntities()).toEqual([]);
+  });
+
+  test("does not follow redirects, which would forward the secret", async () => {
+    process.env.PH_FRONTEND_URL = "http://localhost:3000";
+    process.env.PH_INTERNAL_API_SECRET = "s".repeat(40);
+    const calls = captureFetch();
+
+    recordTouchedEntity("show", "a-big-gig");
+    await flushRevalidation();
+
+    expect(calls[0].init.redirect).toBe("error");
   });
 
   test("chunks batches larger than the endpoint cap", async () => {

@@ -6,6 +6,7 @@ import {
   MAX_ENTITIES_PER_REQUEST,
   isAuthorized,
   parseRevalidateBody,
+  resetUnconfiguredReportForTest,
   revalidateEntities,
 } from './internal-revalidate'
 
@@ -21,6 +22,9 @@ const SECRET = 'a'.repeat(40)
 
 beforeEach(() => {
   vi.resetAllMocks()
+  // The unconfigured-secret warning is latched at module scope, so it has to
+  // be unlatched per test or only the first one would observe it.
+  resetUnconfiguredReportForTest()
 })
 
 afterEach(() => {
@@ -66,6 +70,14 @@ describe('isAuthorized', () => {
       expect.stringContaining('INTERNAL_API_SECRET unset'),
       expect.objectContaining({ level: 'warning' })
     )
+  })
+
+  it('reports an unconfigured secret only once, however many requests come', () => {
+    vi.stubEnv('INTERNAL_API_SECRET', '')
+    // Otherwise anyone who finds the URL turns a request loop into unbounded
+    // Sentry volume against a deployment that merely forgot the env var.
+    for (let i = 0; i < 50; i++) isAuthorized(SECRET)
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -143,18 +155,33 @@ describe('revalidateEntities', () => {
         '/venues',
         '/scenes',
         '/scenes/[slug]',
-        '/collections/[slug]',
       ])
     )
     expect(result).toEqual({
-      revalidated: 1,
+      accepted: 1,
       skipped: 0,
       paths: revalidated().length,
     })
   })
 
-  it('revalidates an artist page plus the rename cascade', () => {
+  it('revalidates an artist page without touching the rename cascade', () => {
+    // The cascade wipes whole route caches. A plain ingest edit did not change
+    // any name another page embedded, so it must not pay that cost.
     revalidateEntities([{ type: 'artist', slug: 'bright-eyes' }])
+
+    const paths = revalidated()
+    expect(paths).toEqual(
+      expect.arrayContaining(['/artists/bright-eyes', '/artists'])
+    )
+    expect(paths).not.toContain('/shows/[slug]')
+    expect(paths).not.toContain('/releases/[slug]')
+    expect(paths).not.toContain('/collections/[slug]')
+  })
+
+  it('adds the rename cascade when the caller reports a rename', () => {
+    revalidateEntities([
+      { type: 'artist', slug: 'bright-eyes', renamed: true },
+    ])
 
     expect(revalidated()).toEqual(
       expect.arrayContaining([
@@ -168,17 +195,23 @@ describe('revalidateEntities', () => {
     )
   })
 
+  it('treats a non-boolean renamed as not renamed', () => {
+    // Dropping the entry over a bad flag would lose a revalidation the entity
+    // genuinely needs; the cheaper reading wins.
+    const result = revalidateEntities([
+      { type: 'artist', slug: 'bright-eyes', renamed: 'yes' },
+    ])
+
+    expect(result.accepted).toBe(1)
+    expect(revalidated()).not.toContain('/shows/[slug]')
+  })
+
   it('revalidates the scene list for a venue (per-city venue counts)', () => {
     revalidateEntities([{ type: 'venue', slug: 'the-rebel-lounge' }])
 
     expect(revalidated()).toEqual(
       expect.arrayContaining(['/venues/the-rebel-lounge', '/venues', '/scenes'])
     )
-  })
-
-  it('accepts tags, which the proxy entity_type vocabulary excludes', () => {
-    revalidateEntities([{ type: 'tag', slug: 'post-punk' }])
-    expect(revalidated()).toContain('/tags/post-punk')
   })
 
   it('revalidates each shared path only once across a batch', () => {
@@ -198,7 +231,7 @@ describe('revalidateEntities', () => {
 
   it('does nothing for an empty batch', () => {
     expect(revalidateEntities([])).toEqual({
-      revalidated: 0,
+      accepted: 0,
       skipped: 0,
       paths: 0,
     })
@@ -212,7 +245,7 @@ describe('revalidateEntities', () => {
       { type: '__proto__', slug: 'nope' },
     ])
 
-    expect(result.revalidated).toBe(0)
+    expect(result.accepted).toBe(0)
     expect(result.skipped).toBe(3)
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
@@ -235,7 +268,7 @@ describe('revalidateEntities', () => {
       'a-show',
     ])
 
-    expect(result.revalidated).toBe(0)
+    expect(result.accepted).toBe(0)
     expect(result.skipped).toBe(14)
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
@@ -246,7 +279,7 @@ describe('revalidateEntities', () => {
       { type: 'nonsense', slug: 'whatever' },
     ])
 
-    expect(result).toMatchObject({ revalidated: 1, skipped: 1 })
+    expect(result).toMatchObject({ accepted: 1, skipped: 1 })
     expect(revalidated()).toContain('/shows/a-real-show')
     expect(mockCaptureMessage).toHaveBeenCalledWith(
       expect.stringContaining('skipped unusable entities'),
@@ -260,7 +293,7 @@ describe('revalidateEntities', () => {
     // safeRevalidatePath must call revalidatePath(pattern, 'page') for
     // bracketed routes and revalidatePath(path) for concrete ones.
     expect(mockRevalidatePath).toHaveBeenCalledWith('/scenes/[slug]', 'page')
-    expect(mockRevalidatePath).toHaveBeenCalledWith('/collections/[slug]', 'page')
     expect(mockRevalidatePath).toHaveBeenCalledWith('/shows/a-big-gig')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/shows')
   })
 })

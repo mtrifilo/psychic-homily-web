@@ -15,7 +15,10 @@ import {
  *   POST /api/internal/revalidate
  *   x-internal-secret: <INTERNAL_API_SECRET>
  *   { "entities": [ { "type": "show", "slug": "big-gig-2026-08-01" } ] }
- *   → 200 { "revalidated": 1, "skipped": 0, "paths": 8 }
+ *   → 200 { "accepted": 1, "skipped": 0, "paths": 8 }
+ *
+ * Add `"renamed": true` to an entity when the write changed its NAME; that
+ * opts into the cascade over every page embedding the old name.
  *
  * No route-segment config: reading `request.headers` already makes this
  * handler dynamic, and `cacheComponents: true` (next.config.ts) rejects
@@ -28,8 +31,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Cheap pre-read rejection; parseRevalidateBody re-checks the real size
-    // because Content-Length is caller-supplied and optional.
+    // Rejects an HONEST oversized request before reading it. Content-Length is
+    // optional and caller-supplied, so this is an optimisation, not the
+    // guarantee — parseRevalidateBody measures the body we actually got.
     const declaredLength = Number(request.headers.get('content-length'))
     if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
       return NextResponse.json(

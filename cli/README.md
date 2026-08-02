@@ -97,30 +97,29 @@ bun run src/entry.ts config set default_environment local
 ### ISR revalidation (optional but recommended)
 
 The CLI writes straight to the Go API, so it bypasses the frontend proxy that
-normally refreshes Next.js ISR pages after a mutation. Entity detail pages do
-not time-revalidate, so without this an ingested show is invisible on its own
-page until the next deploy.
+normally refreshes Next.js ISR pages after a mutation. An ingested change is
+then invisible for up to the page's revalidate window (1h for entity pages),
+and redeploying does not shorten that — only the timer or an on-demand
+revalidate busts the cache.
 
 Set two environment variables and the CLI POSTs the run's touched entities to
 the frontend's `/api/internal/revalidate` endpoint once, when the run finishes:
 
 | Variable | Meaning |
 | --- | --- |
-| `PH_FRONTEND_URL` | Base URL of the Next.js app (`https://psychichomily.com`, `http://localhost:3000`) |
-| `PH_INTERNAL_API_SECRET` | The shared `INTERNAL_API_SECRET` (>=32 chars). Falls back to `INTERNAL_API_SECRET` when unset |
+| `PH_FRONTEND_URL` | Base URL of the Next.js app (`https://psychichomily.com`). Must be https unless it points at localhost |
+| `PH_INTERNAL_API_SECRET` | Must equal the `INTERNAL_API_SECRET` set on THAT deployment (>=32 chars). Falls back to `INTERNAL_API_SECRET` when unset |
 
 ```bash
 export PH_FRONTEND_URL=http://localhost:3000
 export PH_INTERNAL_API_SECRET="$INTERNAL_API_SECRET"
 bun run src/entry.ts submit show '[...]' --confirm
-# → Revalidated ISR pages for 3 entities.
+# → Revalidated 11 ISR paths for 3 entities.
 ```
 
-Both must point at the SAME deployment you want refreshed, and the secret must
-match the one that deployment has. Leave them unset (the local-dev default) and
-the CLI logs a one-line skip instead. Failures are logged and never fail an
-ingest run — the data is already saved either way. Batches over 100 entities
-are chunked into separate requests.
+Leave them unset (the local-dev default) and the CLI logs a one-line skip
+instead. Failures are logged and never fail an ingest run — the data is already
+saved either way. Batches over 100 entities are chunked into separate requests.
 
 Not covered yet: mutations whose response carries no slug (label roster links,
 festival lineup links, entity tagging) queue nothing, so those pages keep their

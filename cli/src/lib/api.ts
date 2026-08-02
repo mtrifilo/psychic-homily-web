@@ -208,8 +208,9 @@ export class APIClient {
 
     // Single choke point for ISR revalidation (PSY-1691): the CLI writes
     // straight to the Go API, bypassing the frontend proxy that normally
-    // revalidates cached pages after a mutation. Queue-only — the batch is
-    // POSTed once at the end of the run. See lib/revalidate.ts.
+    // revalidates cached pages after a mutation, which leaves the change
+    // invisible for up to the page's revalidate window. Queue-only — the batch
+    // is POSTed once at the end of the run. See lib/revalidate.ts.
     this.recordForRevalidation(method, url, parsed);
 
     return parsed;
