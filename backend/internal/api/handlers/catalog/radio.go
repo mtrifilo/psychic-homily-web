@@ -1126,6 +1126,35 @@ func validateRadioShowImageURL(ctx context.Context, imageURL *string) error {
 	return shared.ValidateImageURL(ctx, imageURL)
 }
 
+// radioShowImageURLChanged reports whether an update that carries image_url
+// actually changes it, comparing BYTE-EXACTLY against the stored value.
+//
+// Byte-exact is the deliberate choice. Normalizing first (case-folding the
+// host, ignoring a trailing slash, decoding percent-escapes) would widen what
+// counts as "unchanged", and everything that lands in that wider set skips the
+// guard. A spelling that merely resolves the same as the stored one is still a
+// different stored value, and telling the two apart is the resolver's job, not
+// a string comparison's. Byte-exact can only err toward validating too often,
+// which costs a DNS lookup on a rare admin write.
+//
+// A nil stored value counts as changed: there is nothing to have matched. That
+// is also the fail-closed answer when the stored value could not be read.
+func radioShowImageURLChanged(requested string, stored *string) bool {
+	return stored == nil || *stored != requested
+}
+
+// storedRadioShowImageURL reads a radio show's currently stored image_url.
+// Any read failure (including "no such show", which the update itself will
+// report) yields nil, which radioShowImageURLChanged treats as changed, so an
+// unreadable row validates rather than skipping the guard.
+func (h *RadioHandler) storedRadioShowImageURL(showID uint) *string {
+	show, err := h.showReader.GetShow(showID)
+	if err != nil || show == nil {
+		return nil
+	}
+	return show.ImageURL
+}
+
 // ============================================================================
 // Admin: Create Radio Show
 // ============================================================================
@@ -1264,9 +1293,25 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 
 	user := middleware.GetUserFromContext(ctx)
 
-	// PSY-1692: same guard as the create path; see the note there.
-	if err := validateRadioShowImageURL(ctx, req.Body.ImageURL); err != nil {
-		return nil, err
+	// PSY-1692's guard, but only when this request actually CHANGES image_url
+	// (PSY-1702). The admin form re-sends the stored value on every save, so
+	// validating unconditionally means one stored value that no longer clears the
+	// guard - written before PSY-1692, or on a host that has since been re-pointed
+	// inward - would 422 EVERY later edit of that show, including title-only ones,
+	// naming a field the admin never meant to touch and leaving no in-product way
+	// out. Same failure shape PSY-1681 guarded against for doors/music ordering.
+	//
+	// A changed value validates exactly as before, cancellation posture included:
+	// urlguard detaches from the caller's context itself, so a cancelled request
+	// still resolves.
+	//
+	// An omitted image_url costs no read; only a request that carries the field
+	// looks the stored value up.
+	if req.Body.ImageURL != nil &&
+		radioShowImageURLChanged(*req.Body.ImageURL, h.storedRadioShowImageURL(req.ShowID)) {
+		if err := validateRadioShowImageURL(ctx, req.Body.ImageURL); err != nil {
+			return nil, err
+		}
 	}
 
 	serviceReq := &contracts.UpdateRadioShowRequest{
