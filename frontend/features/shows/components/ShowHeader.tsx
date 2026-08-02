@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils'
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import { ShowFlyerPlate, flyerCredit, flyerImageSrc } from './ShowFlyerPlate'
+import { ShowFlyerPlate } from './ShowFlyerPlate'
+import { flyerCredit, flyerImageSrc } from './showFlyer'
 import { showTimingInput } from '../utils'
 import type {
   ArtistResponse,
@@ -80,8 +81,13 @@ function SupportSetTypeLabel({ setType }: { setType: SetType }) {
  * BracketLink: the brackets here are annotation, and each NAME inside is its
  * own link.
  *
- * Brackets and separators are `aria-hidden` so the line is announced as
- * "Modest Mouse Epic Issaquah, WA" rather than as punctuation.
+ * The brackets and the middot are decoration, so they are `aria-hidden` and a
+ * screen reader gets the word "on" instead: "Modest Mouse on Epic". Without
+ * that word the punctuation was the ONLY thing saying "Epic" is a different
+ * kind of fact from "Modest Mouse", and hiding it left three proper nouns in
+ * a row. Note where the spaces sit: OUTSIDE the hidden spans. A space inside
+ * an `aria-hidden` subtree is removed along with it, which runs the label
+ * names together as "Jealous ButcherDead Oceans".
  *
  * A missing `slug` renders as plain text: `labels.slug` is nullable in the
  * database and the backend flattens null to "", which would otherwise build a
@@ -99,19 +105,22 @@ function BillLabels({
     <>
       {' '}
       <span className={cn('font-mono font-normal text-primary', className)}>
+        <span className="sr-only">on </span>
         <span aria-hidden="true">[</span>
         {labels.map((label, index) => (
           <span key={label.id}>
             {index > 0 && (
-              <span aria-hidden="true" className="text-primary/60">
+              <>
                 {' '}
-                &middot;{' '}
-              </span>
+                <span aria-hidden="true" className="text-primary/60">
+                  &middot;
+                </span>{' '}
+              </>
             )}
             {label.slug ? (
               <Link
                 href={`/labels/${label.slug}`}
-                className="hover:underline"
+                className="hover:underline focus-visible:underline"
               >
                 {label.name}
               </Link>
@@ -136,6 +145,10 @@ function BillLabels({
  * dropped rather than printed: it is designed to stand alone in a location
  * field, and "Modest Mouse [Epic] Location Unknown" states something the bill
  * was not asked to state.
+ *
+ * Carries the same kind of screen-reader-only connective as {@link BillLabels}
+ * and for the same reason: visually a city sits in its own typographic slot,
+ * but read aloud it is one more proper noun unless something says "from".
  */
 function BillHometown({
   artist,
@@ -154,6 +167,7 @@ function BillHometown({
     <>
       {' '}
       <span className={cn('font-normal text-muted-foreground', className)}>
+        <span className="sr-only">from </span>
         {hometown}
       </span>
     </>
@@ -274,11 +288,20 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
         <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
           {effectiveHeadliners.map((artist, index) => (
             <span key={artist.id}>
+              {/* Same rule as BillLabels' middot: the glyph is decoration and
+                  is hidden, the spaces around it are real text and stay in the
+                  accessibility tree, so a co-headline bill is announced as
+                  "Modest Mouse ... Califone ..." rather than as a bullet. */}
               {index > 0 && (
-                <span className="text-muted-foreground/60 font-normal">
+                <>
                   {' '}
-                  &bull;{' '}
-                </span>
+                  <span
+                    aria-hidden="true"
+                    className="text-muted-foreground/60 font-normal"
+                  >
+                    &bull;
+                  </span>{' '}
+                </>
               )}
               {artist.slug ? (
                 <Link
@@ -309,7 +332,9 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                 {index === 0 ? (
                   <span className="italic">w/</span>
                 ) : (
-                  <span aria-hidden="true" />
+                  // Empty, so it is already absent from the accessibility
+                  // tree; it exists only to fill the marker column.
+                  <span />
                 )}
                 <div>
                   {artist.slug ? (
@@ -325,8 +350,10 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                     </span>
                   )}
                   <SupportSetTypeLabel setType={artist.set_type} />
+                  {/* Both annotations at one size: they are the same class of
+                      fact and sit on the same line under an 18px name. */}
                   <BillLabels labels={artist.labels} className="text-sm" />
-                  <BillHometown artist={artist} className="text-base" />
+                  <BillHometown artist={artist} className="text-sm" />
                 </div>
               </Fragment>
             ))}

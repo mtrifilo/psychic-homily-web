@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback } from 'react'
-import type { ShowResponse } from '../types'
 
 /**
  * The show's flyer, at its own aspect ratio and uncropped.
@@ -23,6 +22,11 @@ import type { ShowResponse } from '../types'
  * does reflow once on load. Accepted rather than papered over: the alternative
  * is reserving a guessed aspect ratio, which is a visible wrong-shaped box on
  * every flyer that is not that shape.
+ *
+ * A `figure` with a `figcaption`, not a div with a paragraph, because the
+ * image carries no alt text (see below). Without the figure grouping, the
+ * credit would reach a screen reader as a loose line of prose crediting an
+ * object that is not in the accessibility tree at all.
  */
 export function ShowFlyerPlate({
   src,
@@ -30,7 +34,7 @@ export function ShowFlyerPlate({
   onError,
   className,
 }: {
-  /** A normalised absolute http(s) URL. See {@link flyerImageSrc}. */
+  /** A normalised absolute http(s) URL, from `flyerImageSrc` in ./showFlyer. */
   src: string
   /** Display name of the source the listing (and so the flyer) came from. */
   credit?: string | null
@@ -47,6 +51,12 @@ export function ShowFlyerPlate({
   // reads it once on mount: `complete` with a zero `naturalWidth` is exactly
   // "finished, and decoded nothing".
   //
+  // Known false positive, accepted: an SVG with no intrinsic width reports
+  // naturalWidth 0 in Firefox even when it rendered fine, so an SVG flyer can
+  // collapse the column there. The alternatives (sniffing the extension,
+  // reading the content type) are guesses about a URL, and flyers are
+  // photographs and scans, not vector art.
+  //
   // A callback ref rather than an effect: this is reading the DOM node the
   // moment it exists, which is what a ref is for.
   const reportPreHydrationFailure = useCallback(
@@ -57,7 +67,7 @@ export function ShowFlyerPlate({
   )
 
   return (
-    <div data-testid="show-flyer-plate" className={className}>
+    <figure data-testid="show-flyer-plate" className={className}>
       {/* eslint-disable-next-line @next/next/no-img-element -- flyer URLs are
           hotlinked venue/promoter hosts, outside next/image's remotePatterns
           allowlist (see next.config.ts). Same call as LibraryWallGrid. */}
@@ -67,69 +77,26 @@ export function ShowFlyerPlate({
         /* Empty on purpose. The image restates the bill that is typeset
            immediately beside it, and its actual content (the poster art) is
            not something an alt string can hand over. A name like "Flyer for
-           X" would announce a thing and then have nothing to say about it. The
-           credit line below is real text and is read normally. */
+           X" would announce a thing and then have nothing to say about it.
+           The figcaption below is real text and is read normally, and the
+           figure grouping is what ties it to this image. */
         alt=""
         data-testid="show-flyer-image"
         onError={onError}
+        // The flyer is a third-party host's file. Send the origin rather than
+        // the full show URL: they get to see that traffic came from us, not
+        // which show every reader was looking at.
+        referrerPolicy="strict-origin-when-cross-origin"
         className="block h-auto max-h-[70vh] w-auto max-w-full rounded-sm border border-border/60"
       />
       {credit && (
-        <p
+        <figcaption
           data-testid="show-flyer-credit"
           className="mt-2 font-mono text-[11px] tracking-wide text-muted-foreground"
         >
           flyer via {credit}
-        </p>
+        </figcaption>
       )}
-    </div>
+    </figure>
   )
-}
-
-/**
- * The flyer URL to render, or null when there is nothing renderable.
- *
- * `image_url` is writable by any email-verified user (a show's submitter can
- * PUT it) and the backend stores it untrimmed, so this normalises rather than
- * trusts: whitespace is stripped, the value must parse as a URL, and the
- * scheme must be http(s). Anything else collapses the plate instead of
- * emitting an `<img src>` built from an attacker-chosen string.
- *
- * Returns `url.href`, not the input, for the same reason `lib/seo/jsonld.ts`
- * does: `"https://x/a\nb"` parses, and the raw form would put control
- * characters into the markup.
- */
-export function flyerImageSrc(show: Pick<ShowResponse, 'image_url'>): string | null {
-  const raw = show.image_url?.trim()
-  if (!raw) return null
-  try {
-    const url = new URL(raw)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Who to credit the flyer to, or null when we cannot say honestly.
- *
- * The only provenance the show row carries is `source_venue`, the venue SLUG a
- * discovery run scraped the listing from. That is a slug, not a display name,
- * so it is resolved against the show's own venues and the venue's NAME is what
- * gets printed. A slug that matches nothing (a venue swapped after import, a
- * hand-entered value) credits nobody rather than printing "flyer via
- * valley-bar". A user-submitted show has no source at all, so it gets no
- * credit line.
- *
- * Deliberately conservative: a credit is a factual claim about where an image
- * came from, and there is no per-image provenance column to make a stronger
- * one from.
- */
-export function flyerCredit(
-  show: Pick<ShowResponse, 'source_venue' | 'venues'>
-): string | null {
-  const sourceSlug = show.source_venue?.trim()
-  if (!sourceSlug) return null
-  const sourceVenue = show.venues.find(venue => venue.slug === sourceSlug)
-  return sourceVenue?.name?.trim() || null
 }

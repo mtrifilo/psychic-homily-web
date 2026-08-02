@@ -359,7 +359,9 @@ describe('ShowDetail', () => {
     it('omits the address line when the venue has no address', () => {
       // The default fixture venue carries no `address`.
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByTestId('venue-location')).toBeInTheDocument()
+      expect(screen.getByTestId('venue-location')).toHaveTextContent(
+        'Phoenix, AZ'
+      )
       expect(screen.queryByTestId('venue-address')).not.toBeInTheDocument()
     })
 

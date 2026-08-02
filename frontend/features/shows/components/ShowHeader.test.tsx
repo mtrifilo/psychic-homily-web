@@ -240,6 +240,31 @@ describe('ShowHeader layout', () => {
     expect(screen.queryByTestId('show-flyer-credit')).not.toBeInTheDocument()
   })
 
+  // A matched venue whose name is blank credits nobody rather than printing
+  // "flyer via " with nothing after it.
+  it('credits nobody when the matched venue has a blank name', () => {
+    render(
+      <ShowHeader
+        show={makeShow({
+          image_url: 'https://flyers.example/poster.jpg',
+          source_venue: 'the-venue',
+          venues: [
+            {
+              id: 1,
+              slug: 'the-venue',
+              name: '   ',
+              city: 'Phoenix',
+              state: 'AZ',
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    expect(screen.queryByTestId('show-flyer-credit')).not.toBeInTheDocument()
+  })
+
   // The venue is where the show happens, so its state decides the calendar the
   // date is read on. The status stripe resolves the zone the same way; a header
   // that used the denormalized show row could print a different day inches
@@ -374,6 +399,10 @@ describe('ShowHeader bill rendering', () => {
 
       expect(headlineText()).toContain('Modest Mouse')
       expect(headlineText()).toContain('[Epic]')
+      // The connectives are screen-reader-only text, so they are part of the
+      // announced heading and not of what a sighted reader sees.
+      expect(headlineText()).toContain('on [Epic]')
+      expect(headlineText()).toContain('from Issaquah, WA')
       // Locked location rule: the country is suppressed for a US state.
       expect(headlineText()).toContain('Issaquah, WA')
       expect(headlineText()).not.toContain('USA')
@@ -415,6 +444,51 @@ describe('ShowHeader bill rendering', () => {
       ).toHaveAttribute('href', '/labels/dead-oceans')
     })
 
+    // A co-headline bill runs two annotated names through one heading. The
+    // bullet between them is decoration and must not be announced, while the
+    // spaces around it must survive.
+    it('annotates every headliner on a co-headline bill', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'First Name',
+            slug: 'first',
+            set_type: 'headliner',
+            position: 0,
+            city: 'Chicago',
+            state: 'IL',
+            labels: [{ id: 10, name: 'Label One', slug: 'label-one' }],
+          }),
+          makeArtist({
+            id: 2,
+            name: 'Second Name',
+            slug: 'second',
+            set_type: 'headliner',
+            position: 1,
+            city: 'Melbourne',
+            country: 'Australia',
+            labels: [{ id: 11, name: 'Label Two', slug: 'label-two' }],
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      // textContent ignores aria-hidden, so the bullet is in this string; what
+      // matters is that the SPACES around it are their own text nodes, outside
+      // the hidden span, and that the span itself is hidden.
+      expect(headlineText()).toBe(
+        'First Name on [Label One] from Chicago, IL • ' +
+          'Second Name on [Label Two] from Melbourne, Australia'
+      )
+      expect(screen.getByText('•')).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.getByRole('link', { name: 'Label Two' })).toHaveAttribute(
+        'href',
+        '/labels/label-two'
+      )
+    })
+
     it('renders an unsigned artist with no brackets at all', () => {
       const show = makeShow({
         artists: [
@@ -433,7 +507,7 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      expect(headlineText()).toBe('No Label Band Phoenix, AZ')
+      expect(headlineText()).toBe('No Label Band from Phoenix, AZ')
     })
 
     // The list endpoints omit the key entirely (absent means "not looked up").
@@ -446,7 +520,7 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      expect(headlineText()).not.toContain('[')
+      expect(headlineText()).toBe('Unknown Signing')
     })
 
     // `labels.slug` is nullable in the database and flattened to "" on the
@@ -467,7 +541,9 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      expect(headlineText()).toContain('[Unslugged Records]')
+      // Also the labels-without-hometown case: pins the spacing when
+      // BillLabels is the last thing on the line.
+      expect(headlineText()).toBe('Top Bill on [Unslugged Records]')
       expect(
         screen.queryByRole('link', { name: 'Unslugged Records' })
       ).not.toBeInTheDocument()
@@ -490,7 +566,7 @@ describe('ShowHeader bill rendering', () => {
 
       render(<ShowHeader show={show} />)
 
-      expect(headlineText()).toContain('Melbourne, Australia')
+      expect(headlineText()).toBe('Rolling Blackouts from Melbourne, Australia')
     })
 
     // `formatLocation`'s placeholder is designed to stand alone in a location
