@@ -586,8 +586,8 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAge
 	s.Nil(updated.AgePolicy, "whitespace-only contributor value must clear to NULL")
 }
 
-// Capacity is the only numeric field a contributor can edit, so approving one
-// is the only place the pipeline has to narrow a JSONB number to an integer
+// Capacity is the only field the drawer submits as a JSON number, so approving
+// one is the only place the pipeline has to narrow a JSONB number to an integer
 // column. Pins the full round trip: submit → JSONB → approve → *int in the
 // column, and the clear gesture landing as NULL rather than as 0.
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCapacitySetsAndClears() {
@@ -620,6 +620,30 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCap
 
 	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
 	s.Nil(updated.Capacity, "clearing capacity must store NULL, not 0")
+}
+
+// The fraction case is the one that fails if normalizeCapacityUpdate is
+// deleted. Postgres does not reject a float written to an integer column: it
+// stores a truncated value and reports success, so without the narrowing a
+// contributor's 550.7 would land as 550 with nothing anywhere saying so.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsFractionalCapacity() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Fractional Capacity Venue")
+
+	edit, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: 550.7}},
+		Summary: "a capacity cannot have a fraction",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(edit.ID, reviewer.ID)
+	s.Require().Error(err)
+
+	var untouched catalogm.Venue
+	s.Require().NoError(s.db.First(&untouched, venue.ID).Error)
+	s.Nil(untouched.Capacity, "a fraction must be rejected, not silently truncated into the column")
 }
 
 // A capacity outside the accepted range cannot be applied. The suggest-edit

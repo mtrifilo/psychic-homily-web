@@ -292,8 +292,21 @@ func updatedString(updates map[string]interface{}, key, fallback string) string 
 //
 // A bad value returns an invalid-request error (422) rather than an internal
 // one, because the actionable fact is the value, not a fault in the server. The
-// pending row is left pending so an admin can reject it with a real reason
-// instead of the edit vanishing into a 500 nobody can clear.
+// pending row is left PENDING rather than auto-rejected, unlike the
+// disallowed-fields gate above which writes a rejection reason: a disallowed
+// COLUMN is unambiguously corrupt and nobody should have to look at it, while a
+// bad value is something an admin can read, judge, and reject with a real
+// reason. Both dispositions are deliberate.
+//
+// It must stay in lockstep with validateBoundedInt on the submit side: same
+// bounds, same utils.WholeNumber predicate. If they drift, a trusted-tier
+// contributor's auto-applied edit fails here, gets logged, and the handler
+// still answers 200 "submitted for review".
+//
+// NOT covered: RevisionService.Rollback replays revisions.field_changes through
+// the same untyped Updates() with no narrowing, so rolling back a capacity
+// revision still hands the driver a float64. That path predates this change and
+// affects every *int field; it wants its own fix.
 func normalizeCapacityUpdate(raw any) (*int, error) {
 	if raw == nil {
 		return nil, nil
@@ -398,11 +411,11 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 				updates["age_policy"] = utils.NilIfBlank(s)
 			}
 		}
-		// capacity is the one NUMERIC field on a contributor allowlist, and the
-		// only one whose stored JSONB value cannot go into Updates() as-is: it
-		// comes back from the queue as float64, which GORM would hand Postgres
-		// as a float8 for an integer column. Narrow it to *int (or NULL for the
-		// clear gesture) so the type reaching the driver is the column's type.
+		// capacity comes back from the queue as float64 (encoding/json's shape
+		// for any JSON number decoded into an interface). Handing that to an
+		// integer column is not an error, which is the problem: measured, the
+		// driver silently stores 3600.7 as 3600. Narrow it to *int (or NULL for
+		// the clear gesture) so the value written is one this code chose.
 		if raw, ok := updates["capacity"]; ok {
 			capacity, err := normalizeCapacityUpdate(raw)
 			if err != nil {

@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"unicode/utf8"
@@ -99,17 +100,28 @@ type boundedIntFieldSpec struct {
 	max         int
 }
 
-// boundedIntFieldSpecs is the numeric counterpart of boundedTextFieldSpecs.
-// Everything else on every contributor allowlist is text, so this map is the
-// one place that knows a suggest-edit value may legitimately not be a string.
+// boundedIntFieldSpecs is the numeric counterpart of boundedTextFieldSpecs: the
+// integer-backed fields whose suggest-edit value must be range- and
+// type-checked before it can be queued.
 //
-// It exists for the same reason the text map does: ApprovePendingEdit feeds
-// field values into an untyped Updates(), so anything this validator lets past
-// fails at the DRIVER during a later admin's approve request rather than at the
-// contributor's submit request. For a numeric column the failure modes are
-// worse than an over-long string, because a wrong TYPE (a string, an object, a
-// bool) reaches Postgres as a cast error rather than a length error, and a
-// fractional value would be silently rounded by an assignment cast.
+// It exists for the same reason the text map does. ApprovePendingEdit feeds
+// field values into an untyped Updates(), so whatever this validator lets past
+// is applied by a LATER admin's approve request with no further inspection.
+//
+// The failure it prevents is SILENT, which is what makes it worth having.
+// Measured against Postgres through the real pipeline (see the PSY-1694 PR):
+// the driver accepts a JSON string "1985" for an integer column and stores
+// 1985, and accepts 1990.7 and stores 1990. Neither raises an error at any
+// layer. So an unchecked numeric field does not fail loudly the way an
+// over-length string does; it lands a value the contributor never typed, in a
+// column nobody re-reads.
+//
+// KNOWN SIBLINGS, deliberately not covered here: labels.founded_year and
+// releases.release_year are also *int columns on contributor allowlists (see
+// label_allowlist.go / release_allowlist.go), and the drawer submits both as
+// TEXT. They have the same exposure and want their own ticket, because their
+// sane bounds are a product question this change has no answer for. Capacity is
+// the only numeric field the edit drawer submits AS a number.
 var boundedIntFieldSpecs = map[string]boundedIntFieldSpec{
 	"capacity": {
 		displayName: "Capacity",
@@ -358,9 +370,9 @@ func validateBoundedText(spec urlFieldSpec, value any) error {
 // Like validateBoundedText, the type check is the load-bearing half:
 // FieldChange.NewValue is `any` decoded from JSONB, so a caller can put a
 // string, a bool, an object or a fraction where a count belongs, and
-// ApprovePendingEdit assigns it straight into an untyped Updates(). A string
-// would reach Postgres as a cast error on an ADMIN's approve request; a
-// fraction would be rounded into the column without anyone noticing.
+// ApprovePendingEdit assigns it straight into an untyped Updates(). Measured:
+// the driver stores "3600" as 3600 and 3600.7 as 3600 without complaint, so
+// this is the only layer that can tell those apart from a real capacity.
 //
 // nil passes: it is the clear-the-field gesture, and the column is nullable.
 // A numeric STRING ("3600") is rejected on purpose rather than parsed. The
@@ -374,16 +386,28 @@ func validateBoundedInt(spec boundedIntFieldSpec, value any) error {
 	}
 	n, ok := utils.WholeNumber(value)
 	if !ok {
+		// A finite integral float that WholeNumber still refuses is one too
+		// large to hold in an int. Telling that caller "must be a whole number"
+		// would be false: 1e19 is a whole number, it is just absurd for this
+		// field. Every domain ceiling here is many orders of magnitude below
+		// MaxInt, so out-of-int necessarily means out-of-range.
+		if f, isFloat := value.(float64); isFloat && !math.IsInf(f, 0) && f == math.Trunc(f) {
+			return outOfRangeError(spec)
+		}
 		return huma.Error422UnprocessableEntity(
 			fmt.Sprintf("%s must be a whole number", spec.displayName),
 		)
 	}
 	if n < spec.min || n > spec.max {
-		return huma.Error422UnprocessableEntity(
-			fmt.Sprintf("%s must be between %d and %d", spec.displayName, spec.min, spec.max),
-		)
+		return outOfRangeError(spec)
 	}
 	return nil
+}
+
+func outOfRangeError(spec boundedIntFieldSpec) error {
+	return huma.Error422UnprocessableEntity(
+		fmt.Sprintf("%s must be between %d and %d", spec.displayName, spec.min, spec.max),
+	)
 }
 
 // URLSchemeError validates the http/https scheme and per-field length cap for

@@ -409,10 +409,25 @@ type ExportFrontmatter struct {
 // deliberately tighter than shows.age_requirement's VARCHAR(255).
 const MaxVenueAgePolicyLength = 100
 
-// MinVenueCapacity and MaxVenueCapacity bound venues.capacity on every write
-// path: admin create, admin update, and the contributor suggest-edit queue.
-// They are the single source of truth for the range, so the three surfaces
-// cannot drift into disagreeing about what a legal capacity is.
+// MinVenueCapacity and MaxVenueCapacity bound the RANGE of venues.capacity on
+// all three write paths: admin create, admin update, and the contributor
+// suggest-edit queue. They are the single source of truth for the range, so the
+// three surfaces cannot drift into disagreeing about what a legal capacity is.
+//
+// Range only. The three paths still differ on the CLEAR gesture: the
+// contributor path can set the column back to NULL, while the admin bodies take
+// a *int where nil means "not supplied", so they cannot express a clear at all.
+// That asymmetry lives in the body contracts, not here.
+//
+// The frontend repeats these numbers in VENUE_CAPACITY_BOUNDS
+// (frontend/features/contributions/types.ts) to pre-validate the edit drawer.
+// Nothing enforces that across the language boundary, so changing either
+// constant means changing that pair too.
+//
+// Superseding an earlier note: the age_policy migration
+// (20260801143000_add_venue_age_policy.up.sql) says capacity is "admin/ingest
+// only" and therefore not a precedent for contributor curation. That was true
+// when it was written and stopped being true in PSY-1694.
 //
 // The floor is 1, not 0. NULL already means "we do not know this room's
 // capacity"; a stored 0 would be a second way to say the same thing, and one

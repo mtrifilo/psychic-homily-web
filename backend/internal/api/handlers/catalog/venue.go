@@ -295,6 +295,32 @@ type AdminCreateVenueResponse struct {
 	Body *contracts.VenueDetailResponse
 }
 
+// validateCapacityBound rejects an admin-supplied capacity outside the range the
+// contributor suggest-edit queue enforces, so all three write paths agree.
+//
+// This duplicates the bodies' minimum/maximum schema tags on purpose. Those tags
+// are real (huma reads its own schema tags, unlike the inert `validate:"..."`
+// ones elsewhere in this package) but they only fire on a full huma round trip,
+// which every handler test in this package bypasses by calling the handler
+// directly. Below this point there is no backstop at all: VenueService assigns
+// req.Capacity into the update map unconditionally and the column has no CHECK.
+// An inline guard is the only form of this bound a test in this file can prove.
+//
+// nil means "not supplied" on both bodies and passes through untouched. Note
+// that this makes capacity unclearable through the admin routes, unlike the
+// contributor path; that asymmetry predates this check and lives in the *int
+// body contract, not here.
+func validateCapacityBound(capacity *int) error {
+	if capacity == nil {
+		return nil
+	}
+	if *capacity < contracts.MinVenueCapacity || *capacity > contracts.MaxVenueCapacity {
+		return huma.Error422UnprocessableEntity(fmt.Sprintf(
+			"Capacity must be between %d and %d", contracts.MinVenueCapacity, contracts.MaxVenueCapacity))
+	}
+	return nil
+}
+
 // AdminCreateVenueHandler handles POST /admin/venues - creates a venue directly (admin only)
 func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCreateVenueRequest) (*AdminCreateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
@@ -304,6 +330,9 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 	// PSY-525: URL scheme validation (http/https only) for social URL fields.
 	if err := shared.ValidateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
 		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
+	}
+	if err := validateCapacityBound(req.Body.Capacity); err != nil {
 		return nil, err
 	}
 
@@ -434,6 +463,9 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	if req.Body.AgePolicy != nil && utf8.RuneCountInString(*req.Body.AgePolicy) > contracts.MaxVenueAgePolicyLength {
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Age policy must be %d characters or fewer", contracts.MaxVenueAgePolicyLength))
+	}
+	if err := validateCapacityBound(req.Body.Capacity); err != nil {
+		return nil, err
 	}
 
 	// PSY-525 scheme check + PSY-1675 SSRF host guard (resolves DNS; see urlguard)

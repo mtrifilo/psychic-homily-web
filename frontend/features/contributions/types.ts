@@ -213,19 +213,37 @@ export function validateUrlField(value: string): string | null {
 }
 
 /**
- * Optional-digits grammar for `type: 'number'` fields: an optional sign then
- * digits, nothing else.
+ * Inclusive bounds for `venues.capacity`, mirroring `contracts.MinVenueCapacity`
+ * and `contracts.MaxVenueCapacity` on the Go side.
+ *
+ * Declared once and spread into the field definition so the drawer, its tests,
+ * and any future capacity control read the same pair. The coupling to the Go
+ * constants is MANUAL: nothing enforces it across the language boundary, so a
+ * change there has to be repeated here. The Go side pins its own two copies
+ * (the huma schema tags) with `TestVenueCapacitySchemaTagsMatchContract`.
+ */
+export const VENUE_CAPACITY_BOUNDS = { min: 1, max: 200000 } as const
+
+/**
+ * Optional-sign-then-digits grammar for `type: 'number'` fields: nothing else.
  *
  * Deliberately stricter than `Number()`, which accepts forms nobody types into
  * a capacity box and which would then be stored as a number the user never
  * wrote: `Number('0x10')` is 16 and `Number('1e3')` is 1000. `parseInt` is
- * worse still — `parseInt('3600abc')` returns 3600. A leading `-` is matched so
- * a negative reads as an out-of-range value ("must be at least 1") rather than
- * as gibberish.
+ * worse still: `parseInt('3600abc')` returns 3600. Signs are matched so `-40`
+ * and `+40` read as out-of-range values ("must be between 1 and 200,000")
+ * rather than as gibberish, which is the more useful message.
  */
 const WHOLE_NUMBER_PATTERN = /^[+-]?\d+$/
 
-/** Parses a drawer input as a whole number, or null when it is not one. */
+/**
+ * Parses a drawer input as a whole number, or null when it is not one.
+ *
+ * `Number.isSafeInteger` rather than `Number.isInteger`: a 20-digit entry
+ * parses to a float that no longer represents the digits the user typed, and
+ * comparing that against a bound would be theatre. Every caller treats a
+ * digits-only string that lands here as out of range, which it always is.
+ */
 function parseWholeNumber(value: string): number | null {
   const trimmed = value.trim()
   if (!WHOLE_NUMBER_PATTERN.test(trimmed)) return null
@@ -237,7 +255,7 @@ function parseWholeNumber(value: string): number | null {
  * Client-side pre-validator for the drawer's `type: 'number'` fields.
  *
  * Returns null for valid input, or a short user-facing error string. Empty
- * input is valid because empty means "clear the field" — the server stores
+ * input is valid because empty means "clear the field": the server stores
  * NULL rather than a zero.
  *
  * Mirrors the backend rule in `validateBoundedInt`
@@ -251,17 +269,30 @@ export function validateNumberField(
   value: string,
   bounds: { min?: number; max?: number } = {}
 ): string | null {
-  if (value.trim().length === 0) return null
-
-  const parsed = parseWholeNumber(value)
-  if (parsed === null) return 'Enter a whole number.'
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return null
 
   const { min, max } = bounds
-  if (min !== undefined && max !== undefined && (parsed < min || parsed > max)) {
-    return `Enter a number between ${min.toLocaleString()} and ${max.toLocaleString()}.`
+  const outOfRange =
+    min !== undefined && max !== undefined
+      ? `Enter a number between ${min.toLocaleString()} and ${max.toLocaleString()}.`
+      : min !== undefined
+        ? `Enter a number of at least ${min.toLocaleString()}.`
+        : max !== undefined
+          ? `Enter a number of at most ${max.toLocaleString()}.`
+          : null
+
+  const parsed = parseWholeNumber(trimmed)
+  if (parsed === null) {
+    // Digits that failed to parse are too large to represent, which is an
+    // out-of-range value rather than a malformed one. Saying "that is not a
+    // whole number" about 99999999999999999999 would be false and unhelpful.
+    if (WHOLE_NUMBER_PATTERN.test(trimmed) && outOfRange !== null) return outOfRange
+    return 'Enter a whole number.'
   }
-  if (min !== undefined && parsed < min) return `Enter a number of at least ${min.toLocaleString()}.`
-  if (max !== undefined && parsed > max) return `Enter a number of at most ${max.toLocaleString()}.`
+
+  if (min !== undefined && parsed < min) return outOfRange
+  if (max !== undefined && parsed > max) return outOfRange
 
   return null
 }
@@ -293,8 +324,12 @@ export function validateFieldValue(field: EditableField, value: string): string 
  * one edit, in both `pending_entity_edits` and `revisions.field_changes`).
  *
  * A value that fails `validateFieldValue` is passed through unconverted. That
- * case cannot submit — Submit is disabled while any field has an error — so
- * coercing it would only invent a number the user did not type.
+ * case cannot reach the server (Submit is disabled while any field has an
+ * error), so coercing it would only invent a number the user did not type.
+ *
+ * The drawer also uses this to decide WHETHER a field changed, so the function
+ * has to be stable: two inputs that mean the same edit must convert to the same
+ * value, or a no-op lands in the review queue.
  */
 export function fieldChangeValue(field: EditableField, value: string): string | number | null {
   // Non-numeric fields keep their long-standing behavior verbatim: the raw
@@ -432,11 +467,11 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
     // requirement is the per-event override and is edited on the show, not
     // here. Free text so the room's real wording survives.
     { key: 'age_policy', label: 'Age Policy', type: 'text', placeholder: 'All Ages, 17+, 21+', group: 'details', maxLength: 100 },
-    // Room capacity. The only numeric field in this map, so it is the only one
-    // whose change is submitted as a JSON number instead of a string. Bounds
-    // mirror contracts.MinVenueCapacity / MaxVenueCapacity; the server is the
-    // real gate and these just stop the round trip.
-    { key: 'capacity', label: 'Capacity', type: 'number', placeholder: 'e.g. 550', group: 'details', min: 1, max: 200000 },
+    // Room capacity. The only field in this map submitted as a JSON number
+    // instead of a string (release_year and founded_year are integer-backed
+    // too, but ride as text). The server is the real gate; these bounds only
+    // stop the round trip.
+    { key: 'capacity', label: 'Capacity', type: 'number', placeholder: 'e.g. 550', group: 'details', ...VENUE_CAPACITY_BOUNDS },
     { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
     { key: 'instagram', label: 'Instagram', type: 'url', placeholder: 'https://instagram.com/...', group: 'social' },
     { key: 'facebook', label: 'Facebook', type: 'url', placeholder: 'https://facebook.com/...', group: 'social' },

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   EDITABLE_FIELDS,
+  VENUE_CAPACITY_BOUNDS,
   fieldChangeValue,
   validateFieldValue,
   validateNumberField,
@@ -74,7 +75,7 @@ describe('validateUrlField', () => {
 // `backend/internal/api/handlers/shared/url_validation.go`, which stays the
 // source of truth; this exists so a typo surfaces before the 422 roundtrip.
 describe('validateNumberField', () => {
-  const capacityBounds = { min: 1, max: 200000 }
+  const capacityBounds = VENUE_CAPACITY_BOUNDS
 
   it('returns null for empty string (clearing is intentional)', () => {
     expect(validateNumberField('', capacityBounds)).toBeNull()
@@ -90,8 +91,14 @@ describe('validateNumberField', () => {
   })
 
   it('accepts both inclusive bounds', () => {
-    expect(validateNumberField('1', capacityBounds)).toBeNull()
-    expect(validateNumberField('200000', capacityBounds)).toBeNull()
+    expect(validateNumberField(String(capacityBounds.min), capacityBounds)).toBeNull()
+    expect(validateNumberField(String(capacityBounds.max), capacityBounds)).toBeNull()
+  })
+
+  it('reports a digit string too large to represent as out of range', () => {
+    // Twenty digits parse to a float that no longer holds what was typed. The
+    // useful message is the range, not "that is not a whole number" (it is).
+    expect(validateNumberField('99999999999999999999', capacityBounds)).toMatch(/between/i)
   })
 
   it('rejects zero and negatives as out of range, not as gibberish', () => {
@@ -110,7 +117,7 @@ describe('validateNumberField', () => {
   })
 
   it('rejects notations Number() would silently accept', () => {
-    // Number('0x10') is 16 and Number('1e3') is 1000 — neither is what someone
+    // Number('0x10') is 16 and Number('1e3') is 1000; neither is what someone
     // typing a capacity meant, and both would be stored as a number the user
     // never wrote.
     expect(validateNumberField('0x10', capacityBounds)).toMatch(/whole number/i)

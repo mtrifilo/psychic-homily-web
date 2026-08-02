@@ -15,9 +15,18 @@ type Venue struct {
 	State   string  `gorm:"not null"` // Required
 	Country *string `gorm:"column:country;size:100"`
 	Zipcode *string
-	// Capacity (PSY-1179): venue capacity captured during ingest. Nullable —
-	// unknown for most rows. Not sensitive, so unlike Address/Zipcode it is not
-	// redacted for unverified venues.
+	// Capacity is the room's headcount. Nullable and unknown for most rows;
+	// NULL means "we do not know", which is why 0 is not an accepted value on
+	// any write path (see contracts.MinVenueCapacity / MaxVenueCapacity).
+	//
+	// Populated by ingest, by the two admin routes, and by the contributor
+	// suggest-edit queue. That last path makes the value attacker-influenced,
+	// and it is the one field whose pending-edit value arrives as a JSON number
+	// rather than a string: see validateBoundedInt in handlers/shared and
+	// normalizeCapacityUpdate in services/admin for the type and range gates.
+	//
+	// Not sensitive, so unlike Address/Zipcode it is not redacted for
+	// unverified venues.
 	Capacity *int `gorm:"column:capacity"`
 	// AgePolicy (PSY-1682) is the venue's HOUSE DEFAULT age rule, free text
 	// borrowing the vocabulary of shows.age_requirement ("all ages", "17+",
@@ -25,9 +34,9 @@ type Venue struct {
 	// wins where both are present; this field is what makes such an override
 	// legible as one, and what a show with no override falls back to.
 	//
-	// Nullable and unknown for most rows. UNLIKE Capacity (admin/ingest only),
-	// this IS on the contributor allowlist, so the value is attacker-influenced
-	// free text: see VenueAllowedEditFields and the length/type gate in
+	// Nullable and unknown for most rows. Like Capacity above, this is on the
+	// contributor allowlist, so the value is attacker-influenced free text: see
+	// VenueAllowedEditFields and the length/type gate in
 	// handlers/shared.boundedTextFieldSpecs.
 	//
 	// Served unredacted for unverified venues, matching Description (the other

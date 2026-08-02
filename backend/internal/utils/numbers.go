@@ -7,10 +7,14 @@ import "math"
 //
 // It exists because the pending-edit pipeline stores field values as JSONB and
 // hands them back as `any`: a numeric column edited through that pipeline
-// arrives as float64 (encoding/json's representation for every number decoded
-// into an interface), while the same field written by an internal caller or a
-// test arrives as a plain int. Both are legitimate. A string, a bool, an
-// object and a fractional number are not.
+// always arrives as float64, encoding/json's representation for every number
+// decoded into an interface. A string, a bool, an object and a fractional
+// number are not acceptable.
+//
+// The int case is for callers that construct a value directly rather than
+// decoding one, which today means tests only. It is kept because a helper that
+// rejected a plain Go int would be surprising, not because production reaches
+// it.
 //
 // Only int and float64 are accepted, because those are the only two shapes
 // this codebase actually produces. A new decoder (json.Number via UseNumber,
@@ -20,9 +24,9 @@ import "math"
 //
 // Two rejections are load-bearing rather than fussy:
 //
-//   - Fractional values. Postgres applies an assignment cast and ROUNDS a
-//     float into an integer column, so 3600.7 would silently become 3601. A
-//     capacity the contributor never typed is worse than a rejection.
+//   - Fractional values. Writing a float to an integer column raises NO error
+//     anywhere in the stack; measured, 1990.7 lands as 1990. A value the
+//     contributor never typed, stored silently, is worse than a rejection.
 //   - Values outside the int range. Converting an out-of-range float64 to int
 //     is implementation-defined in Go, so the check has to happen before the
 //     conversion, not after.

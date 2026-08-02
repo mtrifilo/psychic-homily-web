@@ -346,6 +346,9 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
       <EntityEditDrawer {...venueProps} entity={{ name: 'Crescent Ballroom', capacity: 0 }} />
     )
 
+    // The tolerated bad value is really in the form, not merely absent.
+    expect((screen.getByTestId('edit-capacity-input') as HTMLInputElement).value).toBe('0')
+
     fillSummary('Fix the venue name')
     fireEvent.change(screen.getByLabelText(/^Name$/), {
       target: { value: 'Crescent Ballroom PHX' },
@@ -353,5 +356,46 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
 
     expect(getSubmitButton()).toBeEnabled()
     expect(screen.queryByTestId('edit-capacity-error')).not.toBeInTheDocument()
+    expect(mockMutate).not.toHaveBeenCalled()
+  })
+
+  it('renders a falsy numeric value in the preview instead of calling it cleared', () => {
+    // The preview used to test old/new for TRUTHINESS, so 0 rendered as
+    // "cleared" -- a different edit from the one the contributor made. Only
+    // null means cleared.
+    renderWithProviders(<EntityEditDrawer {...venueProps} />)
+
+    fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: '0' } })
+
+    expect(screen.getByText('Changes Preview')).toBeInTheDocument()
+    expect(screen.getByText('0')).toBeInTheDocument()
+    expect(screen.queryByText('cleared')).not.toBeInTheDocument()
+  })
+
+  it('files no change when a numeric edit is only cosmetic', () => {
+    // Change detection compares the values that get SENT, not the raw input.
+    // "550 " and "550" are the same capacity, and submitting the difference
+    // would put a "550 -> 550" row in front of an admin.
+    renderWithProviders(
+      <EntityEditDrawer {...venueProps} entity={{ name: 'Crescent Ballroom', capacity: 550 }} />
+    )
+
+    fillSummary()
+    fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: ' 550 ' } })
+
+    expect(screen.queryByText('Changes Preview')).not.toBeInTheDocument()
+    expect(getSubmitButton()).toBeDisabled()
+  })
+
+  it('files no change when whitespace is typed into an already empty capacity', () => {
+    // Both sides convert to null, so this clears nothing and must not reach
+    // the review queue as a spurious "cleared".
+    renderWithProviders(<EntityEditDrawer {...venueProps} />)
+
+    fillSummary()
+    fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: '   ' } })
+
+    expect(screen.queryByText('Changes Preview')).not.toBeInTheDocument()
+    expect(getSubmitButton()).toBeDisabled()
   })
 })

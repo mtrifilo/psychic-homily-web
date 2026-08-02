@@ -37,9 +37,9 @@ func TestAllowedEditFields_VenueAgePolicyEditable(t *testing.T) {
 // above: dropping it from the allowlist makes FilterAllowedFields auto-reject
 // every submitted capacity edit with no compile-time or runtime signal.
 //
-// Capacity is the only NUMERIC field on any allowlist, so it is also the case
-// that proves the pipeline carries non-string values end to end
-// (FieldChange.NewValue is interface{} over JSONB).
+// Capacity is the field that proves the pipeline carries non-string values end
+// to end (FieldChange.NewValue is interface{} over JSONB): it is the only one
+// the edit drawer submits as a JSON number.
 func TestAllowedEditFields_VenueCapacityEditable(t *testing.T) {
 	fields, ok := AllowedEditFields(PendingEditEntityVenue)
 	assert.True(t, ok)

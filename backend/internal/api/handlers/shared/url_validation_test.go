@@ -241,12 +241,16 @@ func TestValidateFieldChangeValue_AgePolicyLengthAndType(t *testing.T) {
 // Bounded whole-number fields on the suggest-edit path
 // ============================================================================
 
-// capacity is the only NUMERIC field on any contributor allowlist, so it is the
-// only one whose suggest-edit value is not a string. These cases guard the sole
+// capacity is the only field the edit drawer submits as a JSON number, so it is
+// the only suggest-edit value that is not a string. These cases guard the sole
 // server-side check between a contributor and an integer column that
-// ApprovePendingEdit writes through an untyped Updates(): a wrong TYPE reaches
-// Postgres as a cast error on a later ADMIN's approve request, and a FRACTION
-// would be silently rounded into the column by an assignment cast.
+// ApprovePendingEdit writes through an untyped Updates().
+//
+// The gate matters because the layers below it do NOT complain. Measured
+// against Postgres through the real pipeline: the driver stores the string
+// "1985" as 1985 and stores 1990.7 as 1990, with no error at any layer. So the
+// wrong value lands silently rather than failing loudly, and only these
+// assertions stand between a contributor and a capacity nobody typed.
 func TestValidateFieldChangeValue_CapacityTypeAndRange(t *testing.T) {
 	// The wire shape: encoding/json decodes every JSON number into an
 	// interface{} as float64, so that is what actually arrives here.

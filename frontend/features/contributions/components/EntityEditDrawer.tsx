@@ -142,14 +142,20 @@ export function EntityEditDrawer({
     for (const field of fields) {
       const currentVal = getValue(field.key)
       const originalVal = initialValues[field.key] ?? ''
-      if (currentVal !== originalVal) {
-        // `fieldChangeValue` is what makes a numeric field submit a JSON
-        // number rather than the string the input holds, while keeping the
-        // empty-means-null gesture identical for every type.
+      // Compare the values that will actually be SENT, not the raw input
+      // strings. For every other field type those are the same comparison,
+      // because the conversion is the identity. For a numeric field they are
+      // not: "550 " and "550" are different strings and the same number, and
+      // "   " and "" are different strings that both mean "cleared". Comparing
+      // strings there would file a pending edit that changes nothing and put it
+      // in front of an admin as "550 -> 550" or as a spurious "cleared".
+      const next = fieldChangeValue(field, currentVal)
+      const previous = fieldChangeValue(field, originalVal)
+      if (next !== previous) {
         result.push({
           field: field.key,
-          old_value: fieldChangeValue(field, originalVal),
-          new_value: fieldChangeValue(field, currentVal),
+          old_value: previous,
+          new_value: next,
         })
       }
     }
@@ -160,7 +166,7 @@ export function EntityEditDrawer({
   // PSY-599: validate constrained fields client-side so a malformed value
   // disables Submit and surfaces an inline hint, instead of forcing the user
   // through a server roundtrip that returns a confusing 422 banner. We only
-  // consider fields the user actually changed — pre-existing bad values on the
+  // consider fields the user actually changed. Pre-existing bad values on the
   // entity stay tolerated (the backend grandfathers them too).
   const fieldErrors = useMemo(() => {
     const errors: Record<string, string> = {}
