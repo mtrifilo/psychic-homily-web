@@ -88,6 +88,16 @@ describe('ThisWeekByCity', () => {
     ).toBeInTheDocument()
   })
 
+  // A locked decision, not a style detail: quiet scenes stay in the block but
+  // must not read as equals of a busy one, which is what makes always linking
+  // them cost nothing.
+  it('mutes a scene with no shows and leaves a busy one at full weight', () => {
+    renderBlock()
+
+    expect(screen.getByText('Seattle')).toHaveClass('text-muted-foreground')
+    expect(screen.getByText('Chicago')).not.toHaveClass('text-muted-foreground')
+  })
+
   it('shows the city, its state and its count', () => {
     renderBlock()
 

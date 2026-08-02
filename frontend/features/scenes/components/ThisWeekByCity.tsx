@@ -34,8 +34,11 @@ function CityRow({ scene }: { scene: SceneListItem }) {
       aria-label={`${scene.city}, ${scene.state}, ${formatShowCountLine(scene.shows_this_week, true)}`}
       className="group flex break-inside-avoid items-baseline gap-2 border-b border-border/50 py-2 transition-colors hover:bg-muted/40"
     >
+      {/* `min-w-0` is what lets `truncate` actually truncate: a flex item
+          defaults to `min-width: auto`, so without it a long city name pushes
+          the count out of the row instead of ellipsizing. */}
       <span
-        className={`truncate font-medium group-hover:underline ${
+        className={`min-w-0 truncate font-medium group-hover:underline ${
           quiet ? 'text-muted-foreground' : ''
         }`}
       >

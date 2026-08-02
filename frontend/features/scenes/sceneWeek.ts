@@ -111,28 +111,30 @@ function toCalendarDate(date: Date): string {
  * derive it in a stated zone, because "which week is it" changes at a different
  * instant in Phoenix than in London.
  *
- * `en-CA` is not a locale preference: it is the only widely-supported
- * short-date format that is already `YYYY-MM-DD`, so it converts an instant to
- * a calendar date in an arbitrary zone without any date maths. The rest is
- * plain local-field arithmetic on a local-midnight `Date`, which `Date`
- * normalizes across month and year ends for us.
+ * `formatToParts` reads the year, month and day the zone is currently on
+ * without any date maths, and without depending on how a locale happens to
+ * order a short date (`lib/utils/timeUtils.ts` and `lib/utils/showTiming.ts`
+ * take the same route to the same question). The rest is plain local-field
+ * arithmetic on a local-midnight `Date`, which `Date` normalizes across month
+ * and year ends for us.
  *
  * `now` is a parameter rather than a `new Date()` inside, so tests can pin a
- * week and so the caller is forced to own reading the clock — under
+ * week and so the caller is forced to own reading the clock. Under
  * `cacheComponents` that read is only legal at request time.
  */
 export function currentWeekBounds(
   now: Date,
   timeZone: string,
 ): { start: string; end: string } {
-  const todayInZone = new Intl.DateTimeFormat('en-CA', {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(now)
+  }).formatToParts(now)
+  const field = (type: string) => Number(parts.find(p => p.type === type)?.value)
 
-  const today = parseCalendarDate(todayInZone)
+  const today = new Date(field('year'), field('month') - 1, field('day'))
   // `getDay()` is Sunday-first; the week here is Monday-first, matching the ISO
   // week the `/scenes/{slug}/week` pages serve.
   const daysSinceMonday = (today.getDay() + 6) % 7
