@@ -309,7 +309,7 @@ var fetchedURLFields = map[string]string{
 }
 
 // revalidateFetchedURLs re-runs the SSRF host guard over the values an approval
-// is about to apply, and reports the first one that must not go live.
+// is about to apply, and reports one that must not go live.
 //
 // Submission already checks these (shared.ValidateFieldChangeValue), so this is
 // deliberately a SECOND run of the same policy rather than a new one. It exists
@@ -322,17 +322,33 @@ var fetchedURLFields = map[string]string{
 // is told which host was refused can reject the edit with a reason, whereas a
 // silent drop would approve an edit that did not do what either party read.
 //
-// Non-string and empty values are skipped: an empty string is the
-// clear-the-field gesture, and a non-string in a URL column is a separate
-// (pre-existing) failure the submit-time type check owns.
-func revalidateFetchedURLs(ctx context.Context, changes []adminm.FieldChange) error {
-	for _, c := range changes {
-		displayName, guarded := fetchedURLFields[c.Field]
-		if !guarded {
+// It takes the built `updates` map, NOT the raw change slice, for two reasons.
+// The value checked is then literally the value the untyped Updates() writes,
+// so "validated equals applied" is structural rather than an argument about two
+// loops staying in step. And driving the loop from fetchedURLFields caps the
+// work at one DNS lookup per guarded field however many entries the row
+// carries: this function's whole premise is that it cannot trust how the row
+// got here, so it must not inherit the submit path's fan-out bounds
+// (maxPendingEditChanges and the per-field dedup live in the handler, and a row
+// that skipped the handler never met them).
+//
+// A present-but-non-string value is refused rather than skipped. It cannot be
+// an SSRF vector (JSON yields float64/bool/map/slice/nil, none of which spell a
+// URL, and pgx's extended protocol errors rather than coercing one into the
+// varchar column), but skipping it would leave the row to 500 at the driver on
+// every approve attempt and sit pending forever. A 422 is actionable. An empty
+// string still passes: that is the clear-the-field gesture.
+func revalidateFetchedURLs(ctx context.Context, updates map[string]interface{}) error {
+	for field, displayName := range fetchedURLFields {
+		raw, present := updates[field]
+		if !present || raw == nil {
 			continue
 		}
-		value, isString := c.NewValue.(string)
-		if !isString || value == "" {
+		value, isString := raw.(string)
+		if !isString {
+			return fmt.Errorf("%s must be a string", displayName)
+		}
+		if value == "" {
 			continue
 		}
 		if err := urlguard.Default.Validate(ctx, value, displayName); err != nil {
@@ -409,11 +425,18 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		return nil, fmt.Errorf("%w: %s", adminm.ErrPendingEditDisallowedFields, joined)
 	}
 
-	// PSY-1692: re-classify the URL fields that get fetched server-side, on the
-	// exact slice the untyped Updates() below is about to apply.
+	// Build update map from new values
+	updates := make(map[string]interface{})
+	for _, c := range changes {
+		updates[c.Field] = c.NewValue
+	}
+	updates["updated_at"] = time.Now()
+
+	// PSY-1692: re-classify the URL fields that get fetched server-side, reading
+	// the very map the untyped Updates() below writes.
 	//
-	// Placement (after the allowlist gate, before the transaction) is load
-	// bearing in two ways:
+	// Placement (after the allowlist gate and the map build, before the
+	// transaction) is load bearing in three ways:
 	//
 	//  1. It leaves the row ACTIONABLE. Unlike entity_requests, whose Decide is an
 	//     atomic pending→approved claim (so PSY-1675 had to check pre-claim in the
@@ -423,12 +446,19 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 	//     reject it with a reason, or the contributor can cancel and resubmit.
 	//  2. It runs after the PSY-572 disallowed-fields auto-rejection, so that
 	//     gate's behaviour for corrupted submissions is unchanged and still wins.
+	//  3. It reads `updates`, so no later edit to how the map is built can leave a
+	//     checked value and a written value out of step. The branches below only
+	//     add system-derived columns (geocode, metro, timezone), never a URL.
 	//
 	// In the service rather than in the approve handler so it covers BOTH callers
 	// (the admin approve endpoint and the trusted-tier auto-approve inside
-	// suggestEdit) at the one point where the value actually goes live, with no
-	// read-then-apply window between what was checked and what is written.
-	if err := revalidateFetchedURLs(ctx, changes); err != nil {
+	// suggestEdit) at the one point where the value actually goes live.
+	//
+	// A cancelled admin request must not disable the classification: the writes
+	// below take no context, so the row would still go live. urlguard detaches
+	// from caller cancellation itself (hostResolvesPublic), which is why the
+	// request ctx can be passed straight through here.
+	if err := revalidateFetchedURLs(ctx, updates); err != nil {
 		slog.Default().Warn("pending_edit_blocked_unsafe_url",
 			"edit_id", edit.ID,
 			"entity_type", edit.EntityType,
@@ -442,13 +472,6 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 			err,
 		))
 	}
-
-	// Build update map from new values
-	updates := make(map[string]interface{})
-	for _, c := range changes {
-		updates[c.Field] = c.NewValue
-	}
-	updates["updated_at"] = time.Now()
 
 	// PSY-985: a venue location edit through the contribution flow bypasses
 	// VenueService, so re-geocode here too. Resolve the effective post-edit

@@ -1108,6 +1108,24 @@ func (h *RadioHandler) AdminDeleteRadioStationHandler(ctx context.Context, req *
 	return nil, nil
 }
 
+// maxRadioShowImageURLLength matches the radio_shows.image_url column
+// (VARCHAR(500), migration 000055). It is deliberately NOT the 2048 that
+// urlFieldSpecs uses for image_url: that number tracks the entity tables'
+// VARCHAR(2048), and borrowing it here would let a value through that the
+// column cannot hold.
+const maxRadioShowImageURLLength = 500
+
+// validateRadioShowImageURL applies the length cap and then the shared
+// scheme + SSRF host guard to a radio show's optional image_url, so the create
+// and update paths cannot drift apart on it (PSY-1692).
+func validateRadioShowImageURL(ctx context.Context, imageURL *string) error {
+	if imageURL != nil && len(*imageURL) > maxRadioShowImageURLLength {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Image URL must be %d characters or fewer", maxRadioShowImageURLLength))
+	}
+	return shared.ValidateImageURL(ctx, imageURL)
+}
+
 // ============================================================================
 // Admin: Create Radio Show
 // ============================================================================
@@ -1150,7 +1168,13 @@ func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *Adm
 	// substitute: the value is stored and later requested by the share-card
 	// renderer, so a mistyped or pasted internal URL becomes an outbound request
 	// from our infrastructure.
-	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
+	//
+	// Length first, as on the venue/label/show paths: ValidateImageURL documents
+	// that length is somebody else's job, and these bodies carry no maxLength tag.
+	// The cap is 500, not the 2048 those paths use, because radio_shows.image_url
+	// is VARCHAR(500) while the entity columns are VARCHAR(2048). Without it an
+	// over-long value clears the guard and dies at the driver as an opaque 500.
+	if err := validateRadioShowImageURL(ctx, req.Body.ImageURL); err != nil {
 		return nil, err
 	}
 
@@ -1241,7 +1265,7 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 	user := middleware.GetUserFromContext(ctx)
 
 	// PSY-1692: same guard as the create path; see the note there.
-	if err := shared.ValidateImageURL(ctx, req.Body.ImageURL); err != nil {
+	if err := validateRadioShowImageURL(ctx, req.Body.ImageURL); err != nil {
 		return nil, err
 	}
 

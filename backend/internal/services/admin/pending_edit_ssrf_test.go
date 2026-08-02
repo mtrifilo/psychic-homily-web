@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -219,6 +220,104 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_SSRFChec
 	var row adminm.PendingEntityEdit
 	s.Require().NoError(s.db.First(&row, created.ID).Error)
 	s.Equal(adminm.PendingEditStatusRejected, row.Status)
+}
+
+// TestApprovePendingEdit_RejectsNonStringImageURL: FieldChange.NewValue is `any`
+// decoded from JSONB, so a legacy or hand-written row can carry a number, bool,
+// object or array where a URL belongs. Skipping those would leave the row to
+// fail at the driver on every approve attempt and sit pending forever. A 422
+// names the problem and lets the admin reject it.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsNonStringImageURL() {
+	for _, c := range []struct {
+		name  string
+		value any
+	}{
+		{"number", float64(42)},
+		{"bool", true},
+		{"object", map[string]any{"url": "https://example.com/x.jpg"}},
+		{"array", []any{"https://example.com/x.jpg"}},
+	} {
+		s.Run(c.name, func() {
+			user := s.createTestUser()
+			reviewer := s.createTestUser()
+			artist := s.createTestArtist(fmt.Sprintf("SSRF Test Artist %d", time.Now().UnixNano()))
+
+			created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+				EntityType: "artist",
+				EntityID:   artist.ID,
+				UserID:     user.ID,
+				Changes:    []adminm.FieldChange{{Field: "image_url", NewValue: c.value}},
+				Summary:    "malformed row",
+			})
+			s.Require().NoError(err)
+
+			_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
+			s.Require().Error(err)
+			s.Contains(err.Error(), "must be a string")
+
+			// Still actionable, same as the hostile-host case.
+			var row adminm.PendingEntityEdit
+			s.Require().NoError(s.db.First(&row, created.ID).Error)
+			s.Equal(adminm.PendingEditStatusPending, row.Status)
+		})
+	}
+}
+
+// cancelAwareResolver models what a REAL resolver does with a dead context and
+// what urlguard.MapResolver does not: it returns the context error instead of
+// answering. Without it a cancellation test is vacuous, because MapResolver
+// answers from a map and never looks at ctx, so the test passes whether or not
+// the guard detaches from the caller's context.
+type cancelAwareResolver struct{ inner urlguard.MapResolver }
+
+func (r cancelAwareResolver) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return r.inner.LookupIPAddr(ctx, host)
+}
+
+// TestApprovePendingEdit_GuardSurvivesCancelledContext pins the reason the guard
+// runs on a detached context. urlguard treats a failed lookup as a PASS, and the
+// writes below it take no context, so if the caller's cancelled context reached
+// the resolver the classification would silently be skipped while the row still
+// went live. The hostile value must be refused even when the admin's request
+// context is already dead.
+//
+// Verified non-vacuous: replacing context.WithoutCancel(ctx) with ctx in
+// ApprovePendingEdit makes this test fail.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_GuardSurvivesCancelledContext() {
+	defer urlguard.Default.UseResolver(cancelAwareResolver{inner: urlguard.MapResolver{
+		"example.com":         {"93.184.216.34"},
+		"rebind.example.test": {"169.254.169.254"},
+	}})()
+
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist(fmt.Sprintf("SSRF Test Artist %d", time.Now().UnixNano()))
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+		UserID:     user.ID,
+		// A NAME, not a literal: only the resolver can classify it, so this case
+		// fails if the lookup is skipped. An IP literal would be caught without
+		// one and would prove nothing.
+		Changes: []adminm.FieldChange{{Field: "image_url", NewValue: "https://rebind.example.test/x.jpg"}},
+		Summary: "hostile host",
+	})
+	s.Require().NoError(err)
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = s.svc.ApprovePendingEdit(cancelled, created.ID, reviewer.ID)
+	s.Require().Error(err, "a cancelled request context must not disable the host guard")
+
+	var applied struct{ ImageURL *string }
+	s.Require().NoError(s.db.Table("artists").
+		Select("image_url").Where("id = ?", artist.ID).Scan(&applied).Error)
+	s.Nil(applied.ImageURL, "nothing may be applied when the guard refuses")
 }
 
 // TestApprovePendingEdit_IgnoresNonURLFieldsAndEmptyValues confirms the re-check
