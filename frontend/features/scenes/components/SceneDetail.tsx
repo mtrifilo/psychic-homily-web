@@ -172,11 +172,21 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
             <SceneNotifyModeToggle slug={slug} />
           </div>
         </div>
-        {statParts.length > 0 && (
-          <p className="text-muted-foreground mt-1">
-            {statParts.join(' \u00B7 ')}
-          </p>
-        )}
+        {/* The stats line carries the week link (PSY-1623). `/scenes/{slug}/week`
+            had no inbound link from anywhere, including from here. A scene's
+            own page not pointing at that scene's week was the most obviously
+            missing edge in the site's crawl graph. It renders unconditionally,
+            unlike the stats beside it: a scene with no countable stats still
+            has a week. */}
+        <p className="text-muted-foreground mt-1">
+          {statParts.length > 0 && `${statParts.join(' \u00B7 ')} \u00B7 `}
+          <Link
+            href={`/scenes/${slug}/week`}
+            className="text-primary underline underline-offset-2 hover:no-underline"
+          >
+            This week in {scene.city} →
+          </Link>
+        </p>
         {scene.description && (
           <p className="text-muted-foreground mt-3 max-w-2xl">
             {scene.description}

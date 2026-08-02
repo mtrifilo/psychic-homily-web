@@ -151,8 +151,47 @@ describe('SceneDetailView', () => {
       const summary = heading.closest('div')!.nextElementSibling as HTMLElement
       const sep = ' · ' // statParts.join separator
       expect(summary.textContent).toBe(
-        ['12 venues', '85 artists', '45 upcoming shows'].join(sep)
+        ['12 venues', '85 artists', '45 upcoming shows'].join(sep) +
+          `${sep}This week in Phoenix →`
       )
+    })
+
+    // PSY-1623: a scene's own page not linking that scene's week was the most
+    // obviously missing edge in the crawl graph.
+    it('links the scene week page from the stat summary line', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene(),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+
+      expect(
+        screen.getByRole('link', { name: 'This week in Phoenix →' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+    })
+
+    // The stats are conditional on being non-zero; the week is not. A scene
+    // with nothing to count still has a week page, and it is the only page
+    // that would say so.
+    it('keeps the week link when there are no stats to show', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({
+          stats: {
+            venue_count: 0,
+            artist_count: 0,
+            upcoming_show_count: 0,
+            festival_count: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+
+      expect(
+        screen.getByRole('link', { name: 'This week in Phoenix →' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
     })
 
     it('renders the #scene-artists anchor the mobile graph teaser links to (PSY-1472)', () => {

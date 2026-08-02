@@ -96,6 +96,59 @@ export function parseCalendarDate(iso: string): Date {
   return new Date(y, (m ?? 1) - 1, d ?? 1)
 }
 
+/** `2026-07-27` from a `Date` read in its own local fields. */
+function toCalendarDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/**
+ * The Monday and Sunday bounding the week that CONTAINS `now` in `timeZone`.
+ *
+ * The scene-week pages get their bounds from the backend, which resolves them
+ * in each scene's own zone. Nothing carries those bounds for a list of scenes,
+ * so a surface that names one week across many cities has to derive it — and
+ * derive it in a stated zone, because "which week is it" changes at a different
+ * instant in Phoenix than in London.
+ *
+ * `en-CA` is not a locale preference: it is the only widely-supported
+ * short-date format that is already `YYYY-MM-DD`, so it converts an instant to
+ * a calendar date in an arbitrary zone without any date maths. The rest is
+ * plain local-field arithmetic on a local-midnight `Date`, which `Date`
+ * normalizes across month and year ends for us.
+ *
+ * `now` is a parameter rather than a `new Date()` inside, so tests can pin a
+ * week and so the caller is forced to own reading the clock — under
+ * `cacheComponents` that read is only legal at request time.
+ */
+export function currentWeekBounds(
+  now: Date,
+  timeZone: string,
+): { start: string; end: string } {
+  const todayInZone = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+
+  const today = parseCalendarDate(todayInZone)
+  // `getDay()` is Sunday-first; the week here is Monday-first, matching the ISO
+  // week the `/scenes/{slug}/week` pages serve.
+  const daysSinceMonday = (today.getDay() + 6) % 7
+  const start = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - daysSinceMonday,
+  )
+  const end = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate() + 6,
+  )
+  return { start: toCalendarDate(start), end: toCalendarDate(end) }
+}
+
 /** `JUL 27` — the shared stem of every uppercase date label here. */
 function monthDay(iso: string): string {
   const date = parseCalendarDate(iso)

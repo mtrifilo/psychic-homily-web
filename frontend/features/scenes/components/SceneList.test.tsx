@@ -39,7 +39,7 @@ const sampleData: SceneListResponse = {
       venue_count: 12,
       upcoming_show_count: 45,
       total_show_count: 200,
-      shows_this_week: 0,
+      shows_this_week: 23,
     },
     {
       city: 'Tucson',
@@ -129,6 +129,29 @@ describe('SceneList', () => {
       expect(screen.getByText('45 upcoming')).toBeInTheDocument()
       // Tucson has 0 upcoming — no upcoming label rendered.
       expect(screen.queryByText('0 upcoming')).not.toBeInTheDocument()
+    })
+
+    // PSY-1623: the week page has no other inbound link from this page, so the
+    // count doubles as the link to it — for the quiet scenes too, or the edge
+    // would come and go with the week's programming.
+    it('links every card to the scene week page', () => {
+      renderWithProviders(<SceneList />)
+
+      const phoenixWeek = screen.getByRole('link', { name: /23 shows this week/ })
+      expect(phoenixWeek).toHaveAttribute('href', '/scenes/phoenix-az/week')
+
+      const tucsonWeek = screen.getByRole('link', { name: /No shows this week/ })
+      expect(tucsonWeek).toHaveAttribute('href', '/scenes/tucson-az/week')
+    })
+
+    // Nesting the week link inside the card's own link would be invalid HTML —
+    // the parser lifts the inner anchor out, so what a crawler is handed stops
+    // matching what was written. The card link is stretched over the card with
+    // a pseudo-element instead.
+    it('keeps the two card links siblings rather than nested', () => {
+      const { container } = renderWithProviders(<SceneList />)
+
+      expect(container.querySelector('a a')).toBeNull()
     })
   })
 })
