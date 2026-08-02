@@ -1,6 +1,6 @@
 import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
-import type { ShowResponse } from '../types'
 
 /**
  * Copy for the show page's status stripe: the one typographic band at the top
@@ -11,9 +11,8 @@ import type { ShowResponse } from '../types'
  * component's job is one row of spans.
  *
  * Every segment is venue-local and derived from the show payload alone. The
- * only clock-dependent input is `lifecycle`, which the SERVER computes and
- * passes in, so the band renders identically on both sides of hydration and
- * never tells a reader in Berlin that a Phoenix show is on tonight.
+ * only clock-dependent input is `lifecycle`, computed once on the server; see
+ * `getShowLifecycleState` for why that boundary is where it is.
  */
 
 /**
@@ -26,40 +25,39 @@ import type { ShowResponse } from '../types'
  * A flat constant rather than a per-venue or per-genre curve on purpose: a
  * wrong-but-uniform estimate reads as the convention it is, while a
  * confidently-varying one reads as knowledge we do not have.
+ *
+ * KNOWN DIVERGENCE, do not silently "fix" it in either direction:
+ * `ShowAddToCalendar`'s `SHOW_DURATION_MS` is THREE hours from the show's
+ * START, mirroring the backend's `defaultShowDuration` so the two calendar
+ * export paths agree. This is FOUR hours from DOORS, which is the number the
+ * stripe copy was specified with. They can appear in one viewport and
+ * disagree. Reconciling them is a product call about what a show's assumed
+ * length is, not a refactor.
  */
 export const ESTIMATED_SHOW_LENGTH_HOURS = 4
 
+/**
+ * Everything the band needs, flat.
+ *
+ * Deliberately not a `ShowResponse`: a flat input is the whole test surface,
+ * and building a fifteen-field show fixture per case would bury what each case
+ * is actually about. The zone fields come from `showTimingInput`, which is the
+ * one place that decides which calendar a show is on.
+ */
 export interface ShowStatusStripeInput {
-  eventDate: string
+  /**
+   * Nullable like the rest, because it arrives over the wire: a TYPE is not a
+   * runtime guarantee, and the band's answer to an unreadable date is to say
+   * nothing rather than to crash the page it sits on.
+   */
+  eventDate: string | null | undefined
   doorsAt?: string | null
   musicAt?: string | null
   isCancelled: boolean
-  /** Venue-local timezone inputs, from {@link showStatusStripeZone}. */
   state?: string | null
   timezone?: string | null
   /** Server-computed. See the module comment. */
   lifecycle: ShowLifecycleState
-}
-
-/**
- * The timezone inputs for one show, resolved in ONE place.
- *
- * The server computes the lifecycle state and the client renders the copy; if
- * they disagreed about which zone the show is in, the band could say TONIGHT
- * above a date on the following day. Both call this.
- *
- * The venue's own `state` wins over the show's, because the venue is where the
- * show happens; a show row's `state` is denormalized and can lag an edit.
- */
-export function showStatusStripeZone(show: ShowResponse): {
-  state?: string | null
-  timezone?: string | null
-} {
-  const venue = show.venues?.[0]
-  return {
-    state: venue?.state ?? show.state,
-    timezone: venue?.timezone,
-  }
 }
 
 /** Milliseconds since the epoch, or `null` when the string is not a date. */
@@ -98,17 +96,6 @@ function formatStripeTime(instant: number, timeZone: string): string {
   return `${part('hour')}${minute === '00' ? '' : `:${minute}`}${part(
     'dayPeriod'
   ).toUpperCase()}`
-}
-
-/** "SAT" */
-function formatStripeWeekday(instant: number, timeZone: string): string {
-  return partsOf(instant, timeZone, { weekday: 'short' })('weekday').toUpperCase()
-}
-
-/** "AUG 15" */
-function formatStripeMonthDay(instant: number, timeZone: string): string {
-  const part = partsOf(instant, timeZone, { month: 'short', day: 'numeric' })
-  return `${part('month').toUpperCase()} ${part('day')}`
 }
 
 /** "14 JUL", the cancelled register, day before month, per the locked copy. */
@@ -190,9 +177,16 @@ export function buildShowStatusStripeSegments(
   // in the same register as TONIGHT are the whole statement. Music time is
   // dropped here on purpose: the doors time is the one a reader plans around
   // days out, and the full call belongs to the day itself.
-  return [
-    formatStripeWeekday(startedAt, timeZone),
-    formatStripeMonthDay(startedAt, timeZone),
-    ...doors,
-  ]
+  //
+  // The weekday and date come from `formatShowDateBadge`, the same helper the
+  // show CARD uses, so a listing row and the page it links to cannot render
+  // the same date two ways.
+  // Handed the instant this function already validated, not the raw field, so
+  // the shared helper is never the one deciding what an unparseable date means.
+  const { dayOfWeek, monthDay } = formatShowDateBadge(
+    new Date(startedAt).toISOString(),
+    input.state,
+    input.timezone
+  )
+  return [dayOfWeek, monthDay, ...doors]
 }

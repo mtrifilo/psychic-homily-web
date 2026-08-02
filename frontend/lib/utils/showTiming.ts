@@ -106,7 +106,12 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
  * this boundary.
  *
  * Carries the same guards, and the same known timezone limit, as `isShowPast`;
- * see its comment before using this for anything a reader sees.
+ * see its comment before using this for anything a reader sees. One of those
+ * guards needs restating here because this answer now drives COPY: an
+ * undateable show comes back `past`, a default inherited from a cache-window
+ * caller where "past" only meant "cache it longer". A surface that renders
+ * words must check the date itself rather than let that default put PAST SHOW
+ * over a show whose date nobody could read.
  */
 export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
 

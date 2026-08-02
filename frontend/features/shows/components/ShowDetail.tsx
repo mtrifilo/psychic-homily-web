@@ -33,13 +33,13 @@ interface ShowDetailProps {
   showId: string | number
   /**
    * Where the show sits on the venue's calendar, computed ON THE SERVER (see
-   * the show route) and threaded through to {@link ShowStatusStripe}.
+   * the show route) and passed through to {@link ShowStatusStripe}. A prop
+   * rather than a hook because this component runs on the client; see
+   * `getShowLifecycleState` for the boundary and why it is not the reader's.
    *
-   * A prop rather than a hook because this component runs on the client, and
-   * the answer must not depend on the reader's clock or change between render
-   * and hydration. Cancellation is NOT folded in here: that is a data flag the
-   * live query already tracks, so the stripe stays correct the moment an admin
-   * toggles it, while the clock half stays frozen at what the server saw.
+   * Cancellation is deliberately NOT folded in here. It is a data flag the
+   * live query already tracks, so the stripe follows an admin's toggle
+   * immediately while the clock half stays frozen at what the server saw.
    */
   lifecycle: ShowLifecycleState
 }

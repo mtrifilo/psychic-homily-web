@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildShowStatusStripeSegments,
-  showStatusStripeZone,
   ESTIMATED_SHOW_LENGTH_HOURS,
   type ShowStatusStripeInput,
 } from './showStatusStripeCopy'
-import type { ShowResponse } from '../types'
 
 /**
  * Every case here is written against a venue in a zone the test runner is not
@@ -201,53 +199,5 @@ describe('buildShowStatusStripeSegments', () => {
         input({ timezone: null, state: 'NY', doorsAt: '2026-04-16T02:00:00Z' })
       )
     ).toEqual(['WED', 'APR 15', 'DOORS 10PM'])
-  })
-})
-
-describe('showStatusStripeZone', () => {
-  function show(overrides: Partial<ShowResponse> = {}): ShowResponse {
-    return {
-      id: 1,
-      slug: 's',
-      title: 'T',
-      event_date: '2026-04-16T03:00:00Z',
-      status: 'approved',
-      state: 'AZ',
-      venues: [],
-      artists: [],
-      created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-01T00:00:00Z',
-      is_sold_out: false,
-      is_cancelled: false,
-      ...overrides,
-    }
-  }
-
-  it('prefers the venue the show happens at over the show row', () => {
-    expect(
-      showStatusStripeZone(
-        show({
-          state: 'AZ',
-          venues: [
-            {
-              id: 1,
-              slug: 'v',
-              name: 'V',
-              city: 'Chicago',
-              state: 'IL',
-              timezone: 'America/Chicago',
-              verified: true,
-            },
-          ],
-        })
-      )
-    ).toEqual({ state: 'IL', timezone: 'America/Chicago' })
-  })
-
-  it('falls back to the show state when there is no venue', () => {
-    expect(showStatusStripeZone(show())).toEqual({
-      state: 'AZ',
-      timezone: undefined,
-    })
   })
 })

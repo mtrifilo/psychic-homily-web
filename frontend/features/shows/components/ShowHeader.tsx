@@ -57,34 +57,10 @@ function SupportSetTypeLabel({ setType }: { setType: SetType }) {
 interface ShowHeaderProps {
   show: ShowResponse
   /**
-   * Action cluster rendered on the right side of the header (desktop) or
-   * below the artist/venue block (mobile). Typically a `<ShowActions />`.
+   * Action cluster rendered at the foot of the ticket block, under the price
+   * and ticket link, at every width. Typically a `<ShowActions />`.
    */
   actions?: React.ReactNode
-}
-
-/**
- * The reserved left column of the show page: a flyer at its native aspect
- * ratio, uncropped.
- *
- * A plain plate today. The flyer itself, its provenance caption and its report
- * affordance are the next wave's work, and drawing a dashed "image goes here"
- * box or a fake caption would be promising UI that does not exist. What this
- * DOES do is hold the column open so the two-column reading order is real and
- * reviewable now rather than arriving as a surprise reflow later.
- *
- * Its column is hidden below `md` (see the caller): a tall empty plate above
- * the bill would push every word of the show off a phone screen, and the
- * mock's two-column grammar only exists at desktop width anyway.
- */
-function ShowFlyerPlate() {
-  return (
-    <div
-      aria-hidden="true"
-      data-testid="show-flyer-plate"
-      className="aspect-[4/5] w-full rounded-sm border border-border/60 bg-muted/40"
-    />
-  )
 }
 
 /**
@@ -128,17 +104,24 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-8">
-      {/* SLOT: flyer plate (+ its provenance caption, a later wave). The whole
-          column is hidden below `md`, not just its contents: a display:none
-          grid item generates no row and no gap, so a phone gets the bill at
-          the top of the page rather than a screen of reserved plate. */}
-      <div className="hidden min-w-0 md:block">
-        <ShowFlyerPlate />
-      </div>
+      {/* SLOT: flyer plate. A plain plate at the mock's native aspect ratio:
+          the flyer itself, its provenance caption and its report affordance
+          are the next wave's, and a dashed "image goes here" box would be
+          promising UI that does not exist. It holds the column open so the
+          two-column reading order is real now rather than arriving as a
+          surprise reflow later.
+
+          Hidden below `md`, and hidden at the COLUMN so a display:none grid
+          item generates no row and no gap: a phone gets the bill at the top of
+          the page instead of a screen of reserved plate. */}
+      <div
+        aria-hidden="true"
+        data-testid="show-flyer-plate"
+        className="hidden aspect-[4/5] w-full rounded-sm border border-border/60 bg-muted/40 md:block"
+      />
 
       <div className="min-w-0">
-        {/* SLOT: header block. Date, bill, context. */}
-        {/* Date and Status Badges */}
+        {/* SLOT: header block. Date, bill, sold-out flag. */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-lg font-bold text-primary">
             {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}

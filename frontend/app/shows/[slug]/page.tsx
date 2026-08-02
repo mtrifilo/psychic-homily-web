@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { HydrationBoundary } from '@tanstack/react-query'
 import { connection } from 'next/server'
-import { ShowDetail, showStatusStripeZone } from '@/features/shows'
+import { ShowDetail, showTimingInput } from '@/features/shows'
 import type { ShowResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
@@ -120,11 +120,13 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
  * tree so the status stripe can say TONIGHT without ever consulting the
  * reader's own clock.
  *
- * Its own component, inside the page's `<Suspense>`, for one reason:
- * `await connection()`. Under `cacheComponents` a prerender may not read the
- * current time, and this is the only part of the page that has to. Confining
- * it here keeps the postponement to this subtree instead of opting the whole
- * route out of its prerendered shell.
+ * Its own component because of `await connection()`: under `cacheComponents` a
+ * prerender may not read the current time, and this is the only part of the
+ * page that has to. Isolating it costs nothing today, since this route has no
+ * `generateStaticParams` and its whole body already arrives in the postponed
+ * dynamic resume (measured, see the note in `next.config.ts`). It is the shape
+ * that stays correct if per-slug prerendering is ever added, and it keeps the
+ * one clock read in the page somewhere a reader will find it.
  *
  * `show` is passed down rather than refetched: `getShow` is `React.cache`d, so
  * a second call would be free, but two call sites is two chances for the
@@ -138,11 +140,12 @@ async function ShowDetailWithLifecycle({
   show: ShowResponse
 }) {
   await connection()
-  const lifecycle = getShowLifecycleState({
-    eventDate: show.event_date,
-    ...showStatusStripeZone(show),
-  })
-  return <ShowDetail showId={slug} lifecycle={lifecycle} />
+  return (
+    <ShowDetail
+      showId={slug}
+      lifecycle={getShowLifecycleState(showTimingInput(show))}
+    />
+  )
 }
 
 function ShowLoadingFallback() {
