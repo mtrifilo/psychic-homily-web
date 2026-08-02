@@ -41,6 +41,14 @@ export interface VenueResponse {
   state: string
   /** IANA timezone for rendering this show's time in venue-local time (PSY-985/986). Null until backfilled. */
   timezone?: string | null
+  /** Room capacity (PSY-1179/1682). Null when unknown. Not redacted for unverified venues. */
+  capacity?: number | null
+  /**
+   * The venue's HOUSE DEFAULT age rule (PSY-1682), free text ("all ages",
+   * "17+", "21+"). The show's own `age_requirement` is the PER-EVENT OVERRIDE
+   * and wins wherever both are set. Null means unknown, not "all ages".
+   */
+  age_policy?: string | null
   verified: boolean
 }
 

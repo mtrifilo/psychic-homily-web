@@ -110,13 +110,28 @@ type ShowResponse struct {
 
 // VenueResponse represents venue data in show responses
 type VenueResponse struct {
-	ID         uint    `json:"id"`
-	Slug       string  `json:"slug"`
-	Name       string  `json:"name"`
-	Address    *string `json:"address"`
-	City       string  `json:"city"`
-	State      string  `json:"state"`
-	Timezone   *string `json:"timezone"`     // IANA zone for rendering this show's time in venue-local time (PSY-985)
+	ID       uint    `json:"id"`
+	Slug     string  `json:"slug"`
+	Name     string  `json:"name"`
+	Address  *string `json:"address"`
+	City     string  `json:"city"`
+	State    string  `json:"state"`
+	Timezone *string `json:"timezone"` // IANA zone for rendering this show's time in venue-local time (PSY-985)
+	// Capacity and AgePolicy are venue facts a show consumer needs alongside the
+	// show itself, so they ride here rather than costing a second round trip to
+	// the venue endpoint. NOTE: no SHOW-page surface consumes them yet; that
+	// venue module is a later ticket and this carries the data for it. Capacity
+	// is already rendered elsewhere, from the venue endpoint, by the Atlas venue
+	// panel (see venuePanelIdentityLine), so neither field is dead weight.
+	//
+	// Both are nullable and neither is sensitive, so (as on VenueDetailResponse)
+	// they are served for unverified venues too, unlike Address above.
+	//
+	// AgePolicy is the venue's HOUSE DEFAULT. The show's own age_requirement is
+	// the per-event override and wins wherever both are set; this is the default
+	// it departs from. Null means unknown, NOT "all ages".
+	Capacity   *int    `json:"capacity"`
+	AgePolicy  *string `json:"age_policy"`
 	Verified   bool    `json:"verified"`     // Admin-verified as legitimate venue
 	IsNewVenue *bool   `json:"is_new_venue"` // True if venue was created during this show submission
 }
@@ -363,6 +378,22 @@ type ExportFrontmatter struct {
 // Venue types
 // ──────────────────────────────────────────────
 
+// MaxVenueAgePolicyLength is the maximum length, in CHARACTERS, accepted for a
+// venue's house-default age policy. It is the single source of truth for the
+// bound: the venues.age_policy column is VARCHAR(100), and every write path
+// (admin create, admin update, and the contributor suggest-edit queue) must
+// reject at this length rather than let Postgres raise 22001 mid-write.
+//
+// Characters, not bytes, is load-bearing. Postgres VARCHAR(n) counts
+// characters and huma's maxLength tag counts runes, so a byte-based check
+// would disagree with both: a 40-character CJK door rule is 120 bytes and
+// would be rejected by a byte check while the column accepts it happily.
+// Compare with utf8.RuneCountInString, never len().
+//
+// A door rule is a handful of words ("all ages", "18+ w/ guardian"), so this is
+// deliberately tighter than shows.age_requirement's VARCHAR(255).
+const MaxVenueAgePolicyLength = 100
+
 // CreateVenueRequest represents the data needed to create a new venue
 type CreateVenueRequest struct {
 	Name        string  `json:"name" validate:"required"`
@@ -372,6 +403,7 @@ type CreateVenueRequest struct {
 	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
 	Capacity    *int    `json:"capacity"`
+	AgePolicy   *string `json:"age_policy"` // House-default age rule, free text (PSY-1682)
 	Instagram   *string `json:"instagram"`
 	Facebook    *string `json:"facebook"`
 	Twitter     *string `json:"twitter"`
@@ -390,9 +422,10 @@ type CreateVenueRequest struct {
 //
 // Name/City/State map to NOT NULL columns and are written as-is (the handler
 // rejects empty values up front). The remaining optional string columns are
-// nullable, so Description and ImageURL normalize an empty string to SQL NULL
-// in the service (utils.NilIfEmpty). Address/Country/Zipcode and the social
-// fields preserve the prior behavior of writing the value through verbatim.
+// nullable, so Description, ImageURL and AgePolicy normalize an empty string to
+// SQL NULL in the service (utils.NilIfEmpty): that is how a caller CLEARS them.
+// Address/Country/Zipcode and the social fields preserve the prior behavior of
+// writing the value through verbatim.
 type UpdateVenueRequest struct {
 	Name        *string `json:"name"`
 	Address     *string `json:"address"`
@@ -401,6 +434,7 @@ type UpdateVenueRequest struct {
 	Country     *string `json:"country"`
 	Zipcode     *string `json:"zipcode"`
 	Capacity    *int    `json:"capacity"`
+	AgePolicy   *string `json:"age_policy"` // House-default age rule, free text (PSY-1682)
 	Description *string `json:"description"`
 	ImageURL    *string `json:"image_url"`
 	Instagram   *string `json:"instagram"`
@@ -433,7 +467,8 @@ type VenueDetailResponse struct {
 	GeocodePrecision *string        `json:"geocode_precision,omitempty"` // rooftop|interpolated|city
 	Timezone         *string        `json:"timezone"`                    // IANA zone resolved from location (PSY-985)
 	Zipcode          *string        `json:"zipcode"`
-	Capacity         *int           `json:"capacity"` // Venue capacity (PSY-1179); not redacted for unverified venues
+	Capacity         *int           `json:"capacity"`   // Venue capacity (PSY-1179); not redacted for unverified venues
+	AgePolicy        *string        `json:"age_policy"` // House-default age rule (PSY-1682); free text, not redacted
 	Description      *string        `json:"description,omitempty"`
 	ImageURL         *string        `json:"image_url"`    // Optional venue photo (PSY-521)
 	Verified         bool           `json:"verified"`     // Admin-verified as legitimate venue

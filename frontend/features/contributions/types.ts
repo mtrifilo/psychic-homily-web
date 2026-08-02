@@ -159,6 +159,13 @@ export interface EditableField {
   type: 'text' | 'textarea' | 'url'
   placeholder?: string
   group?: 'info' | 'social' | 'details'
+  /**
+   * Character cap for fields whose backing column is length-bounded. Rendered
+   * as the input's `maxLength` so the browser stops the user before a round
+   * trip that the server would 422 anyway. The server check is still the real
+   * gate: this is UX, not validation.
+   */
+  maxLength?: number
 }
 
 /**
@@ -321,6 +328,10 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
     { key: 'country', label: 'Country', type: 'text', group: 'info' },
     { key: 'zipcode', label: 'Zipcode', type: 'text', group: 'info' },
     { key: 'image_url', label: 'Image URL', type: 'url', placeholder: 'https://...', group: 'info' },
+    // PSY-1682: the venue's HOUSE DEFAULT age rule. A show's own age
+    // requirement is the per-event override and is edited on the show, not
+    // here. Free text so the room's real wording survives.
+    { key: 'age_policy', label: 'Age Policy', type: 'text', placeholder: 'All Ages, 17+, 21+', group: 'details', maxLength: 100 },
     { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
     { key: 'instagram', label: 'Instagram', type: 'url', placeholder: 'https://instagram.com/...', group: 'social' },
     { key: 'facebook', label: 'Facebook', type: 'url', placeholder: 'https://facebook.com/...', group: 'social' },

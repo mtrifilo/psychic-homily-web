@@ -314,14 +314,16 @@ func (s *SavedShowService) buildShowResponse(show *catalogm.Show, artistsByShow 
 			venueSlug = *venue.Slug
 		}
 		venues[i] = contracts.VenueResponse{
-			ID:       venue.ID,
-			Slug:     venueSlug,
-			Name:     venue.Name,
-			Address:  venue.Address,
-			City:     venue.City,
-			State:    venue.State,
-			Timezone: venue.Timezone,
-			Verified: venue.Verified,
+			ID:        venue.ID,
+			Slug:      venueSlug,
+			Name:      venue.Name,
+			Address:   venue.Address,
+			City:      venue.City,
+			State:     venue.State,
+			Timezone:  venue.Timezone,
+			Capacity:  venue.Capacity,
+			AgePolicy: venue.AgePolicy,
+			Verified:  venue.Verified,
 		}
 	}
 

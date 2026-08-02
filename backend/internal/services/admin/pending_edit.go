@@ -357,6 +357,17 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 	// columns are system-derived (not in the contributor allowlist), so we set
 	// them programmatically after the allowlist filter above.
 	if edit.EntityType == "venue" {
+		// The contribution flow bypasses VenueService, so the empty-to-NULL
+		// normalization that path applies to age_policy has to be repeated here
+		// or it simply does not happen for the flow that produces most values.
+		// Without it a contributor submitting "  " lands a present-but-blank
+		// policy (the exact state the column is meant to distinguish from NULL),
+		// and " 21+ " becomes a second bucket beside "21+".
+		if raw, ok := updates["age_policy"]; ok {
+			if s, isString := raw.(string); isString {
+				updates["age_policy"] = utils.NilIfBlank(s)
+			}
+		}
 		_, cityChanged := updates["city"]
 		_, stateChanged := updates["state"]
 		_, countryChanged := updates["country"]

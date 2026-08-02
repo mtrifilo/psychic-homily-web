@@ -193,6 +193,49 @@ func TestValidateFieldChangeValue_HostAnchorsSocialFields(t *testing.T) {
 }
 
 // ============================================================================
+// Bounded non-URL text fields on the suggest-edit path
+// ============================================================================
+
+// These cases guard the ONLY server-side check standing between a contributor
+// and a length-bounded venue column. Without it an over-length or non-string
+// value is accepted into pending_entity_edits and then fails at the column with
+// Postgres 22001 during a later ADMIN's approve request, which surfaces as an
+// opaque 500 on a pending row nobody can clear.
+func TestValidateFieldChangeValue_AgePolicyLengthAndType(t *testing.T) {
+	if err := ValidateFieldChangeValue(bg, "age_policy", "all ages"); err != nil {
+		t.Errorf("a normal age policy should pass, got: %v", err)
+	}
+
+	// nil is the clear-the-field gesture and the column is nullable.
+	if err := ValidateFieldChangeValue(bg, "age_policy", nil); err != nil {
+		t.Errorf("nil should pass (clear gesture), got: %v", err)
+	}
+	if err := ValidateFieldChangeValue(bg, "age_policy", ""); err != nil {
+		t.Errorf("empty string should pass (clear gesture), got: %v", err)
+	}
+
+	// Exactly at the bound passes; one past it is rejected at submit time.
+	testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "age_policy", strings.Repeat("a", 101)), 422)
+	if err := ValidateFieldChangeValue(bg, "age_policy", strings.Repeat("a", 100)); err != nil {
+		t.Errorf("exactly 100 characters should pass, got: %v", err)
+	}
+
+	// Runes, not bytes. 100 three-byte characters is 300 bytes but fits a
+	// VARCHAR(100); a byte-based check would wrongly reject it here while the
+	// create body's huma maxLength tag (which counts runes) accepted it.
+	if err := ValidateFieldChangeValue(bg, "age_policy", strings.Repeat("あ", 100)); err != nil {
+		t.Errorf("100 multibyte characters should pass, got: %v", err)
+	}
+	testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "age_policy", strings.Repeat("あ", 101)), 422)
+
+	// NewValue is `any` decoded from JSONB, so non-strings are reachable and
+	// would otherwise reach an untyped GORM Updates() map.
+	for _, bad := range []any{42, true, map[string]any{"x": 1}, []any{"a"}} {
+		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "age_policy", bad), 422)
+	}
+}
+
+// ============================================================================
 // ValidateFieldChangeValue (PSY-549)
 // ============================================================================
 

@@ -13,6 +13,7 @@ var VenueAllowedEditFields = map[string]bool{
 	"state":       true,
 	"country":     true,
 	"zipcode":     true,
+	"age_policy":  true, // House-default age rule, free text
 	"description": true,
 	"image_url":   true,
 	"instagram":   true,

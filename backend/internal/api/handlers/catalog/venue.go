@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
@@ -269,7 +270,10 @@ type AdminCreateVenueRequest struct {
 		Zipcode *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
 		// PSY-1179: capacity + description were silently dropped on create — the
 		// service contract + CLI sent them but this HTTP body omitted them.
-		Capacity    *int    `json:"capacity" required:"false" minimum:"0" doc:"Venue capacity"`
+		Capacity *int `json:"capacity" required:"false" minimum:"0" doc:"Venue capacity"`
+		// House-default age rule. Free text mirroring the show-level
+		// age_requirement vocabulary; the show's own value is the per-event override.
+		AgePolicy   *string `json:"age_policy" required:"false" doc:"House-default age policy, e.g. all ages, 17+, 21+" maxLength:"100"`
 		Description *string `json:"description" required:"false" doc:"Markdown description (max 5000 chars)" maxLength:"5000"`
 		Instagram   *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
 		Facebook    *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
@@ -309,6 +313,7 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 		Address:     req.Body.Address,
 		Zipcode:     req.Body.Zipcode,
 		Capacity:    req.Body.Capacity,
+		AgePolicy:   req.Body.AgePolicy,
 		Description: req.Body.Description,
 		Instagram:   req.Body.Instagram,
 		Facebook:    req.Body.Facebook,
@@ -370,6 +375,7 @@ type UpdateVenueRequest struct {
 		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country"`
 		Zipcode     *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
 		Capacity    *int    `json:"capacity,omitempty" required:"false" minimum:"0" doc:"Venue capacity"` // PSY-1179
+		AgePolicy   *string `json:"age_policy,omitempty" required:"false" doc:"House-default age policy, e.g. all ages, 17+, 21+ (max 100)"`
 		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
 		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
@@ -416,6 +422,16 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
 		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
 	}
+	// Bound the free-text age policy. Mirrors the Description check rather than
+	// the create body's schema tag, matching this handler's existing convention
+	// of validating body lengths inline. Counts RUNES so this agrees with both
+	// the column (VARCHAR counts characters) and the create body's maxLength
+	// tag (huma counts runes); len() would reject a legal CJK policy here that
+	// create accepts.
+	if req.Body.AgePolicy != nil && utf8.RuneCountInString(*req.Body.AgePolicy) > contracts.MaxVenueAgePolicyLength {
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("Age policy must be %d characters or fewer", contracts.MaxVenueAgePolicyLength))
+	}
 
 	// PSY-525 scheme check + PSY-1675 SSRF host guard (resolves DNS; see urlguard)
 	// for image_url; scheme + host anchor for the social URL fields.
@@ -453,6 +469,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		Country:     req.Body.Country,
 		Zipcode:     req.Body.Zipcode,
 		Capacity:    req.Body.Capacity,
+		AgePolicy:   req.Body.AgePolicy,
 		Description: req.Body.Description,
 		ImageURL:    req.Body.ImageURL,
 		Instagram:   req.Body.Instagram,

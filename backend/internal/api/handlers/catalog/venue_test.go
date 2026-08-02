@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -149,6 +150,81 @@ func TestUpdateVenueHandler_CarriesCapacity(t *testing.T) {
 	if gotReq == nil || gotReq.Capacity == nil || *gotReq.Capacity != 600 {
 		t.Errorf("capacity not forwarded to service: %+v", gotReq)
 	}
+}
+
+func TestUpdateVenueHandler_CarriesAgePolicy(t *testing.T) {
+	// Same defect class as the capacity regression above: the body struct and
+	// the handler->service mapping are two hand-maintained lists, and a field
+	// present in one but not the other is silently ignored rather than
+	// rejected. The service-layer tests cannot catch it because they call
+	// VenueService directly.
+	policy := "all ages"
+	var gotReq *contracts.UpdateVenueRequest
+	mock := &testhelpers.MockVenueService{
+		UpdateVenueFn: func(_ uint, req *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
+			gotReq = req
+			return &contracts.VenueDetailResponse{ID: 42}, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &UpdateVenueRequest{VenueID: "42"}
+	req.Body.AgePolicy = &policy
+
+	if _, err := h.UpdateVenueHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotReq == nil || gotReq.AgePolicy == nil || *gotReq.AgePolicy != "all ages" {
+		t.Errorf("age policy not forwarded to service: %+v", gotReq)
+	}
+}
+
+func TestUpdateVenueHandler_ForwardsClearedAgePolicy(t *testing.T) {
+	// An empty string is the CLEAR gesture, NOT "unset". The handler must
+	// forward the non-nil empty pointer so the service can normalize it to
+	// SQL NULL; swallowing it would make the policy unclearable.
+	empty := ""
+	var gotReq *contracts.UpdateVenueRequest
+	mock := &testhelpers.MockVenueService{
+		UpdateVenueFn: func(_ uint, req *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
+			gotReq = req
+			return &contracts.VenueDetailResponse{ID: 42}, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &UpdateVenueRequest{VenueID: "42"}
+	req.Body.AgePolicy = &empty
+
+	if _, err := h.UpdateVenueHandler(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotReq == nil || gotReq.AgePolicy == nil {
+		t.Fatalf("cleared age policy must reach the service as a non-nil empty string: %+v", gotReq)
+	}
+	if *gotReq.AgePolicy != "" {
+		t.Errorf("expected empty age policy, got %q", *gotReq.AgePolicy)
+	}
+}
+
+func TestUpdateVenueHandler_RejectsOverlongAgePolicy(t *testing.T) {
+	// The update body carries no maxLength schema tag (this handler validates
+	// body lengths inline, as it does for description), so the 422 is the only
+	// thing standing between a caller and the column's 100-char bound.
+	long := strings.Repeat("a", 101)
+	mock := &testhelpers.MockVenueService{
+		UpdateVenueFn: func(_ uint, _ *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
+			t.Error("service must not be called when the age policy is too long")
+			return &contracts.VenueDetailResponse{ID: 42}, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &UpdateVenueRequest{VenueID: "42"}
+	req.Body.AgePolicy = &long
+
+	_, err := h.UpdateVenueHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestDeleteVenueHandler_ZeroID(t *testing.T) {
@@ -326,6 +402,7 @@ func TestAdminCreateVenue_CarriesCapacityAndDescription(t *testing.T) {
 	// forwards both to the service.
 	capacity := 550
 	desc := "All-ages rock club."
+	policy := "all ages"
 	var gotReq *contracts.CreateVenueRequest
 	mock := &testhelpers.MockVenueService{
 		CreateVenueFn: func(req *contracts.CreateVenueRequest, _ bool) (*contracts.VenueDetailResponse, error) {
@@ -341,6 +418,7 @@ func TestAdminCreateVenue_CarriesCapacityAndDescription(t *testing.T) {
 	req.Body.State = "AZ"
 	req.Body.Capacity = &capacity
 	req.Body.Description = &desc
+	req.Body.AgePolicy = &policy
 
 	if _, err := h.AdminCreateVenueHandler(ctx, req); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -350,6 +428,10 @@ func TestAdminCreateVenue_CarriesCapacityAndDescription(t *testing.T) {
 	}
 	if gotReq.Description == nil || *gotReq.Description != "All-ages rock club." {
 		t.Errorf("description not forwarded to service: %+v", gotReq)
+	}
+	// Age policy joins the same forwarding list, and fails the same way.
+	if gotReq.AgePolicy == nil || *gotReq.AgePolicy != "all ages" {
+		t.Errorf("age policy not forwarded to service: %+v", gotReq)
 	}
 }
 

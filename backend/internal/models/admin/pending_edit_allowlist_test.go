@@ -19,6 +19,19 @@ func TestAllowedEditFields_KnownTypes(t *testing.T) {
 	}
 }
 
+// TestAllowedEditFields_VenueAgePolicyEditable pins the venue's house-default
+// age policy as a community-curated field. Dropping it from the allowlist would
+// not fail loudly: FilterAllowedFields would silently auto-reject every
+// submitted age-policy edit, so only this assertion catches the regression.
+//
+// Note this covers the Go side only. Keeping it in step with the frontend
+// EDITABLE_FIELDS.venue map is convention, not something any test enforces.
+func TestAllowedEditFields_VenueAgePolicyEditable(t *testing.T) {
+	fields, ok := AllowedEditFields(PendingEditEntityVenue)
+	assert.True(t, ok)
+	assert.Truef(t, fields["age_policy"], "age_policy must stay on the venue allowlist")
+}
+
 func TestAllowedEditFields_UnknownTypeReturnsFalse(t *testing.T) {
 	fields, ok := AllowedEditFields("show")
 	assert.False(t, ok)

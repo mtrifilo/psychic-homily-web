@@ -460,6 +460,56 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShow_Success() {
 	suite.Len(resp.Artists, 1)
 }
 
+// Show detail must carry capacity and the venue's house-default age policy on
+// its embedded venue, so a consumer does not need a second fetch of the venue
+// endpoint for two scalars.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_EmbeddedVenueCarriesCapacityAndAgePolicy() {
+	created := suite.createTestShow()
+	suite.Require().Len(created.Venues, 1)
+
+	// The drawer/admin write path is exercised elsewhere; here we only need the
+	// columns populated so the read path has something to surface.
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", created.Venues[0].ID).
+		Updates(map[string]interface{}{"capacity": 3600, "age_policy": "all ages"}).Error)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Require().NotNil(resp.Venues[0].Capacity)
+	suite.Equal(3600, *resp.Venues[0].Capacity)
+	suite.Require().NotNil(resp.Venues[0].AgePolicy)
+	suite.Equal("all ages", *resp.Venues[0].AgePolicy)
+}
+
+// Neither field is sensitive, so unlike Address they are served for unverified
+// venues too. Asserting this explicitly stops a future redaction sweep from
+// quietly folding them into the address gate.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShow_UnverifiedVenueStillCarriesCapacityAndAgePolicy() {
+	created := suite.createTestShow()
+	suite.Require().Len(created.Venues, 1)
+
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", created.Venues[0].ID).
+		Updates(map[string]interface{}{
+			"verified":   false,
+			"address":    "123 Secret St",
+			"capacity":   250,
+			"age_policy": "21+",
+		}).Error)
+
+	resp, err := suite.showService.GetShow(created.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Nil(resp.Venues[0].Address, "address stays redacted for unverified venues")
+	suite.Require().NotNil(resp.Venues[0].Capacity)
+	suite.Equal(250, *resp.Venues[0].Capacity)
+	suite.Require().NotNil(resp.Venues[0].AgePolicy)
+	suite.Equal("21+", *resp.Venues[0].AgePolicy)
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestGetShow_NotFound() {
 	resp, err := suite.showService.GetShow(99999)
 
@@ -815,6 +865,32 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_BasicFields() {
 	suite.Require().NoError(err)
 	suite.Equal("Updated Title", resp.Title)
 	suite.Equal("New description", *resp.Description)
+}
+
+// The show update response lazy-loads its venue associations through a
+// SECOND hand-maintained VenueResponse literal (loadShowVenueResponses), so a
+// contract field can be live on show detail and silently nil here. Pinning the
+// copy that a create/update response actually returns.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_ResponseVenueCarriesCapacityAndAgePolicy() {
+	created := suite.createTestShow()
+	suite.Require().Len(created.Venues, 1)
+
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", created.Venues[0].ID).
+		Updates(map[string]interface{}{"capacity": 1200, "age_policy": "all ages"}).Error)
+
+	// Venues intentionally omitted from the request, which is what routes the
+	// response through the lazy-load builder rather than associateVenues.
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Title: stringPtr("Updated Title"),
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Require().NotNil(resp.Venues[0].Capacity)
+	suite.Equal(1200, *resp.Venues[0].Capacity)
+	suite.Require().NotNil(resp.Venues[0].AgePolicy)
+	suite.Equal("all ages", *resp.Venues[0].AgePolicy)
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_EventDate_UTC() {

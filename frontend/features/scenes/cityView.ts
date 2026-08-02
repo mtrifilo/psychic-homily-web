@@ -622,9 +622,11 @@ export function formatPanelShowDate(
  * venues too, on the stated grounds that a room size is not sensitive.
  *
  * The mock also draws a neighborhood ("East Austin") and an age policy
- * ("21+ varies"). Neither is in the venue model, and inventing them is exactly
- * the fabrication the rail's disabled "All ages" chip already refuses to do,
- * so both segments are absent rather than guessed.
+ * ("21+ varies"). Neighborhood is still not in the venue model, and inventing
+ * it is exactly the fabrication this panel refuses to do, so that segment stays
+ * absent rather than guessed. Age policy IS now modelled (`Venue.age_policy`,
+ * the venue's house default) and is simply not rendered here yet: adding it is
+ * a deliberate design call about this line's density, not a data problem.
  */
 export function venuePanelIdentityLine(
   venue: Pick<Venue, 'address' | 'capacity' | 'city' | 'state'>,

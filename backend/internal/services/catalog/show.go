@@ -738,14 +738,25 @@ func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contra
 			if venue.Verified {
 				addr = venue.Address
 			}
+			// Slug was omitted here while both peer builders resolve it, so an
+			// update response carried venues[].slug == "" against a contract
+			// that declares it non-nullable, degrading venue links to plain
+			// text for consumers of that response.
+			venueSlug := ""
+			if venue.Slug != nil {
+				venueSlug = *venue.Slug
+			}
 			venueResponses = append(venueResponses, contracts.VenueResponse{
-				ID:       venue.ID,
-				Name:     venue.Name,
-				Address:  addr,
-				City:     venue.City,
-				State:    venue.State,
-				Timezone: venue.Timezone,
-				Verified: venue.Verified,
+				ID:        venue.ID,
+				Slug:      venueSlug,
+				Name:      venue.Name,
+				Address:   addr,
+				City:      venue.City,
+				State:     venue.State,
+				Timezone:  venue.Timezone,
+				Capacity:  venue.Capacity,
+				AgePolicy: venue.AgePolicy,
+				Verified:  venue.Verified,
 			})
 		}
 	}
@@ -1721,6 +1732,8 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			City:       venue.City,
 			State:      venue.State,
 			Timezone:   venue.Timezone,
+			Capacity:   venue.Capacity,
+			AgePolicy:  venue.AgePolicy,
 			Verified:   venue.Verified,
 			IsNewVenue: &isNewVenue,
 		})
@@ -1973,7 +1986,14 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 			City:     venue.City,
 			State:    venue.State,
 			Timezone: venue.Timezone,
-			Verified: venue.Verified,
+			// Carried so a show consumer does not need a second fetch of the
+			// venue endpoint for two scalars. Neither is sensitive, so unlike
+			// Address they are served for unverified venues too. See the
+			// VenueResponse contract for the house-default vs per-event
+			// distinction that governs AgePolicy.
+			Capacity:  venue.Capacity,
+			AgePolicy: venue.AgePolicy,
+			Verified:  venue.Verified,
 		}
 	}
 

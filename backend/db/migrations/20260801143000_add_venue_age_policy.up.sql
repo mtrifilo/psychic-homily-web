@@ -1,0 +1,29 @@
+-- PSY-1682: persist a venue's house-default age policy.
+--
+-- shows.age_requirement already carries the PER-EVENT rule ("21+" for one
+-- booking at an otherwise all-ages room). What was missing is the room's own
+-- standing policy, which is what a reader needs when a show carries no
+-- override, and what makes the override legible as an override.
+--
+-- Free text, borrowing the shows.age_requirement VOCABULARY, because the
+-- real-world phrasing is open ("all ages", "17+", "21+", "18+ w/ guardian") and
+-- an enum would force lossy coercion at ingest time on data we collect from
+-- humans. If a controlled vocabulary is wanted later it can be layered on top of
+-- the observed values.
+--
+-- VARCHAR(100) rather than TEXT because a door rule is a handful of words.
+-- Deliberately tighter than shows.age_requirement's VARCHAR(255): the two
+-- columns share a vocabulary, not a schema. The bound is declared once in Go as
+-- contracts.MaxVenueAgePolicyLength and enforced by every write path BEFORE the
+-- column sees the value, because a VARCHAR limit is a 22001 error tripwire, not
+-- a graceful backstop: for a contributor edit it would fire during a later
+-- ADMIN's approve request, stranding a pending row nobody can clear.
+--
+-- Nullable with no default and no backfill: unknown for every existing row.
+-- Population happens through the community edit flow (the venue suggest-edit
+-- allowlist) and the admin venue create/update endpoints. Note capacity is NOT
+-- a precedent for the contributor half: it is admin/ingest only. Adding a
+-- nullable column with no default is metadata-only in Postgres 11+, so no
+-- table rewrite.
+ALTER TABLE venues
+    ADD COLUMN age_policy VARCHAR(100);

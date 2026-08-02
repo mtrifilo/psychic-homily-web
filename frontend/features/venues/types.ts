@@ -43,6 +43,14 @@ export interface Venue {
    * is withheld.
    */
   capacity?: number | null
+  /**
+   * The venue's HOUSE DEFAULT age rule (PSY-1682), free text mirroring the
+   * show-level `age_requirement` vocabulary ("all ages", "17+", "21+"). A
+   * show's own `age_requirement` is the PER-EVENT OVERRIDE and always wins;
+   * this is the default it departs from. Null means unknown, not "all ages".
+   * Like capacity, not redacted for unverified venues.
+   */
+  age_policy?: string | null
   description?: string | null
   /** Optional venue photo URL (PSY-521). */
   image_url?: string | null
