@@ -10,6 +10,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
+import type { VenueShowsTimeFilter } from '@/features/venues/api'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters/CityFilters'
 import type {
@@ -140,7 +141,11 @@ export const useVenue = createNamedDetailHook<Venue, 'venueId'>(
   venueQueryKeys.detail,
 )
 
-export type TimeFilter = 'upcoming' | 'past' | 'all'
+/**
+ * Re-exported from `../api`, where the query key that consumes it lives.
+ * Kept under this name because every existing caller imports it from here.
+ */
+export type TimeFilter = VenueShowsTimeFilter
 
 interface UseVenueShowsOptions {
   venueId: string | number
@@ -163,19 +168,32 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
     timeFilter = 'upcoming',
   } = options
 
-  // Build query params
-  const params = new URLSearchParams()
-  if (timezone) params.set('timezone', timezone)
-  if (limit) params.set('limit', limit.toString())
-  if (timeFilter) params.set('time_filter', timeFilter)
+  // Resolved ONCE, because the URL and the cache key have to be built from the
+  // same values or they disagree about what is in the entry. A falsy limit or
+  // an empty timezone drops out of the URL and lets the backend default apply,
+  // so the key has to record that it was NOT sent rather than the argument the
+  // caller happened to pass — otherwise `limit: 0` and `limit: undefined` mint
+  // two entries for one identical request. Same rule the venues list hook
+  // above states for `metroRollup`: key on what was SENT.
+  const sentTimezone = timezone || undefined
+  const sentLimit = limit || undefined
 
-  const queryString = params.toString()
-  const endpoint = queryString
-    ? `${venueEndpoints.SHOWS(venueId)}?${queryString}`
-    : venueEndpoints.SHOWS(venueId)
+  const params = new URLSearchParams()
+  if (sentTimezone) params.set('timezone', sentTimezone)
+  if (sentLimit) params.set('limit', sentLimit.toString())
+  params.set('time_filter', timeFilter)
+
+  const endpoint = `${venueEndpoints.SHOWS(venueId)}?${params.toString()}`
 
   return useQuery({
-    queryKey: [...venueQueryKeys.shows(venueId), timeFilter],
+    // Keyed on the request, not just the venue: `limit` and `timezone` both
+    // change the response body, so callers asking different questions get
+    // different entries (PSY-1698).
+    queryKey: venueQueryKeys.showsPage(venueId, {
+      timeFilter,
+      limit: sentLimit,
+      timezone: sentTimezone,
+    }),
     queryFn: async (): Promise<VenueShowsResponse> => {
       return apiRequest<VenueShowsResponse>(endpoint, {
         method: 'GET',

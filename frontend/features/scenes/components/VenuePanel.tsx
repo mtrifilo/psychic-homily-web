@@ -37,11 +37,10 @@ import {
 } from '../cityView'
 
 // The venue page requests the same page from the same shared constants.
-// `venueQueryKeys.shows()` keys only on venue id + time filter — NOT on limit
-// or timezone — so a differently-parameterized request here would share a
-// cache entry with `VenueShowsList` and whichever landed first would silently
-// answer for both. The constants live beside the query key so the agreement
-// can't drift.
+// `venueQueryKeys.showsPage()` keys on limit and timezone (PSY-1698), so
+// matching those constants is what earns this panel a shared cache entry with
+// `VenueShowsList` — drift here no longer corrupts that entry, it just splits
+// it and costs a redundant fetch. The constants live beside the query key.
 
 interface VenuePanelProps {
   /** The selected venue, straight from the rail's already-fetched page. */
