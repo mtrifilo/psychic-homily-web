@@ -219,8 +219,9 @@ export function validateUrlField(value: string): string | null {
  * Declared once and spread into the field definition so the drawer, its tests,
  * and any future capacity control read the same pair. The coupling to the Go
  * constants is MANUAL: nothing enforces it across the language boundary, so a
- * change there has to be repeated here. The Go side pins its own two copies
- * (the huma schema tags) with `TestVenueCapacitySchemaTagsMatchContract`.
+ * change there has to be repeated here AND in `cli/src/commands/submit-venue.ts`,
+ * which carries a third copy. The Go side pins only its own two copies (the
+ * huma schema tags) with `TestVenueCapacitySchemaTagsMatchContract`.
  */
 export const VENUE_CAPACITY_BOUNDS = { min: 1, max: 200000 } as const
 

@@ -302,14 +302,18 @@ type AdminCreateVenueResponse struct {
 // are real (huma reads its own schema tags, unlike the inert `validate:"..."`
 // ones elsewhere in this package) but they only fire on a full huma round trip,
 // which every handler test in this package bypasses by calling the handler
-// directly. Below this point there is no backstop at all: VenueService assigns
-// req.Capacity into the update map unconditionally and the column has no CHECK.
-// An inline guard is the only form of this bound a test in this file can prove.
+// directly. Below this point there is no backstop: VenueService copies a
+// non-nil req.Capacity into the update map without inspecting it, and the
+// column has no CHECK constraint. An inline guard is the only form of this
+// bound a test in this file can prove.
 //
-// nil means "not supplied" on both bodies and passes through untouched. Note
-// that this makes capacity unclearable through the admin routes, unlike the
-// contributor path; that asymmetry predates this check and lives in the *int
-// body contract, not here.
+// nil means "not supplied" on both bodies and passes through untouched, so
+// these routes cannot express a CLEAR. That predates this check (a *int body
+// has never had a way to say NULL) but the bound narrows the workaround: an
+// admin used to be able to overwrite a bad capacity with 0, and now cannot.
+// The remedy is the edit drawer, which routes an admin's save through the
+// contributor auto-apply path and does clear to NULL. Giving these routes an
+// explicit clear gesture is a body-contract change and its own ticket.
 func validateCapacityBound(capacity *int) error {
 	if capacity == nil {
 		return nil

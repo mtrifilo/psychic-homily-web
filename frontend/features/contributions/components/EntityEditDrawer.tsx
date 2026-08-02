@@ -166,16 +166,18 @@ export function EntityEditDrawer({
   // PSY-599: validate constrained fields client-side so a malformed value
   // disables Submit and surfaces an inline hint, instead of forcing the user
   // through a server roundtrip that returns a confusing 422 banner. We only
-  // consider fields the user actually changed. Pre-existing bad values on the
-  // entity stay tolerated (the backend grandfathers them too).
+  // consider fields whose RAW input the user touched. Pre-existing bad values
+  // on the entity stay tolerated (the backend grandfathers them too).
+  //
+  // Raw input, not the converted value, is the right trigger here even though
+  // `changes` compares converted values: someone who typed "550abc" over "550"
+  // has changed nothing that can be sent, but they have earned an error message
+  // rather than a silently dead Submit button.
   const fieldErrors = useMemo(() => {
     const errors: Record<string, string> = {}
     for (const field of fields) {
       const currentVal = getValue(field.key)
       const originalVal = initialValues[field.key] ?? ''
-      // Only validate when the user has changed the field — otherwise a
-      // pre-existing non-conforming value on the entity would block edits to
-      // unrelated fields.
       if (currentVal === originalVal) continue
       const err = validateFieldValue(field, currentVal)
       if (err !== null) errors[field.key] = err
@@ -183,6 +185,16 @@ export function EntityEditDrawer({
     return errors
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues, initialValues, fields])
+
+  // One definition of "this field changed", shared by the label affordance and
+  // the payload. Deriving the indicator from the raw strings instead would let
+  // the drawer highlight a field blue, show no error, and still refuse to
+  // submit, with nothing on screen explaining why (typing a trailing space into
+  // a numeric field does exactly that).
+  const changedFieldKeys = useMemo(
+    () => new Set(changes.map((change) => change.field)),
+    [changes]
+  )
 
   const hasChanges = changes.length > 0
   const hasFieldErrors = Object.keys(fieldErrors).length > 0
@@ -306,8 +318,7 @@ export function EntityEditDrawer({
                 </h3>
                 {groupFields.map((field) => {
                   const value = getValue(field.key)
-                  const original = initialValues[field.key] ?? ''
-                  const isChanged = value !== original
+                  const isChanged = changedFieldKeys.has(field.key)
                   // PSY-599: the inline error is visible only after the user
                   // has touched the field. Defers the red until they've
                   // finished typing.
@@ -422,13 +433,15 @@ export function EntityEditDrawer({
                               {String(change.old_value)}
                             </div>
                           )}
-                          {change.new_value !== null && change.new_value !== undefined && (
+                          {change.new_value !== null && change.new_value !== undefined ? (
                             <div className="text-green-400">{String(change.new_value)}</div>
+                          ) : (
+                            // A null new value IS the clear gesture, whatever the
+                            // old value was. Requiring BOTH to be null made this
+                            // unreachable, so clearing a field rendered as a bare
+                            // strikethrough that reads like an unfinished edit.
+                            <span className="text-muted-foreground italic">cleared</span>
                           )}
-                          {(change.old_value === null || change.old_value === undefined) &&
-                            (change.new_value === null || change.new_value === undefined) && (
-                              <span className="text-muted-foreground italic">cleared</span>
-                            )}
                         </div>
                       </div>
                     )

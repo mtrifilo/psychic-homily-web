@@ -197,6 +197,34 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SetsCapacity() {
 	suite.Equal(800, *updated.Capacity)
 }
 
+// VenueService does NOT bound capacity, and this pins that on purpose.
+//
+// The range (contracts.MinVenueCapacity..MaxVenueCapacity) is enforced at the
+// two admin handlers and at the contributor suggest-edit gate, which is the
+// boundary-of-trust convention this codebase follows. The service writes what
+// it is given, and the column has no CHECK constraint, so those boundary guards
+// are the whole of the enforcement.
+//
+// The test exists so that the next person to reason about capacity does not
+// assume a backstop that is not there: if this ever starts failing because the
+// service began rejecting values, the handler guards can be reconsidered, and
+// until then removing one of them silently opens the column.
+func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_DoesNotBoundCapacity() {
+	created, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name: "Unbounded Room", City: "Tempe", State: "AZ",
+	}, true)
+	suite.Require().NoError(err)
+
+	updated, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		Capacity: intPtr(0),
+	})
+
+	suite.Require().NoError(err, "the service layer applies no range policy")
+	suite.Require().NotNil(updated.Capacity)
+	suite.Equal(0, *updated.Capacity,
+		"capacity bounds live at the API boundary, not here; see validateCapacityBound")
+}
+
 // PSY-1682: the venue's house-default age policy round-trips through create.
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_CarriesAgePolicy() {
 	resp, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{

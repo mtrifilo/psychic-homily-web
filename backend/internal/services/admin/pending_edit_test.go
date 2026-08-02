@@ -33,47 +33,65 @@ func TestIsValidPendingEditEntityType(t *testing.T) {
 	assert.False(t, adminm.IsValidPendingEditEntityType("comment"))
 }
 
-// normalizeCapacityUpdate is the last gate before an untyped Updates() writes a
-// contributor-supplied number into an integer column, so it is unit-tested
-// independently of the database-backed approval flow below.
-func TestNormalizeCapacityUpdate(t *testing.T) {
+// NarrowNumericUpdates is the last gate before an untyped Updates() writes a
+// stored JSON number into an integer column, on BOTH the approve path and the
+// rollback path, so it is unit-tested independently of the database-backed
+// flows below.
+func TestNarrowNumericUpdates(t *testing.T) {
 	// Round-tripping through JSON is the real shape: field_changes is JSONB, so
-	// every number comes back out of the queue as float64, never as the int the
-	// submitter's client sent.
-	got, err := normalizeCapacityUpdate(float64(550))
-	assert.NoError(t, err)
-	assert.NotNil(t, got)
-	assert.Equal(t, 550, *got)
+	// every number comes back out as float64, never as the int a client sent.
+	updates := map[string]interface{}{"capacity": float64(550), "name": "Crescent"}
+	assert.NoError(t, NarrowNumericUpdates(updates))
+	narrowed, ok := updates["capacity"].(*int)
+	assert.True(t, ok, "capacity must be narrowed to *int, got %T", updates["capacity"])
+	assert.Equal(t, 550, *narrowed)
+	// Unregistered fields are left exactly as they were.
+	assert.Equal(t, "Crescent", updates["name"])
 
-	// nil is the clear gesture and must reach the column as NULL, which means a
-	// typed nil pointer, not a value.
-	got, err = normalizeCapacityUpdate(nil)
-	assert.NoError(t, err)
-	assert.Nil(t, got)
+	// nil is the clear gesture and must reach the column as SQL NULL, which
+	// means a TYPED nil pointer, not a bare interface nil.
+	updates = map[string]interface{}{"capacity": nil}
+	assert.NoError(t, NarrowNumericUpdates(updates))
+	typedNil, ok := updates["capacity"].(*int)
+	assert.True(t, ok, "a cleared capacity must stay a typed *int")
+	assert.Nil(t, typedNil)
 
-	// Both bounds are inclusive.
-	for _, ok := range []float64{contracts.MinVenueCapacity, contracts.MaxVenueCapacity} {
-		got, err = normalizeCapacityUpdate(ok)
-		assert.NoErrorf(t, err, "capacity %v is on the bound", ok)
-		assert.NotNil(t, got)
+	// An absent field is not invented.
+	updates = map[string]interface{}{"name": "Crescent"}
+	assert.NoError(t, NarrowNumericUpdates(updates))
+	_, present := updates["capacity"]
+	assert.False(t, present)
+
+	// Narrowing is a TYPE fix, so it does not apply the domain range: rollback
+	// restores historical values that may predate a bound.
+	for _, outOfRange := range []float64{0, -1, contracts.MaxVenueCapacity + 1} {
+		updates = map[string]interface{}{"capacity": outOfRange}
+		assert.NoErrorf(t, NarrowNumericUpdates(updates), "%v is out of range but narrowable", outOfRange)
 	}
 
-	// Everything the suggest-edit validator already rejects is rejected here
-	// too: rows can reach pending_entity_edits from outside that handler, and a
-	// value that is not a capacity must not be written as one.
-	for _, bad := range []any{
-		float64(0),
-		float64(-1),
-		float64(contracts.MaxVenueCapacity + 1),
-		550.7,
-		"550",
-		true,
-		map[string]any{"x": 1},
-	} {
-		got, err = normalizeCapacityUpdate(bad)
-		assert.Errorf(t, err, "capacity %#v must be rejected", bad)
-		assert.Nil(t, got)
+	// A value with no faithful narrowing is an error rather than a silent write.
+	for _, bad := range []any{550.7, "550", true, map[string]any{"x": 1}} {
+		updates = map[string]interface{}{"capacity": bad}
+		assert.Errorf(t, NarrowNumericUpdates(updates), "capacity %#v must be rejected", bad)
 	}
+}
+
+// checkNumericUpdateBounds is the policy half, applied only where NEW
+// contributor input is accepted.
+func TestCheckNumericUpdateBounds(t *testing.T) {
+	inRange := func(v int) map[string]interface{} { return map[string]interface{}{"capacity": &v} }
+
+	for _, ok := range []int{contracts.MinVenueCapacity, contracts.MaxVenueCapacity, 550} {
+		assert.NoErrorf(t, checkNumericUpdateBounds(inRange(ok)), "capacity %d is legal", ok)
+	}
+	for _, bad := range []int{0, -1, contracts.MaxVenueCapacity + 1} {
+		assert.Errorf(t, checkNumericUpdateBounds(inRange(bad)), "capacity %d must be rejected", bad)
+	}
+
+	// The clear gesture is not a range violation.
+	assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{"capacity": (*int)(nil)}))
+	// Neither is an absent field.
+	assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{"name": "Crescent"}))
 }
 
 // =============================================================================
@@ -608,6 +626,15 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCap
 	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
 	s.Require().NotNil(updated.Capacity)
 	s.Equal(550, *updated.Capacity)
+
+	// The revision is what the History UI diffs, so the approval has to leave
+	// one carrying the capacity change, not just mutate the column.
+	var revisionJSON string
+	s.Require().NoError(s.db.Raw(
+		"SELECT field_changes::text FROM revisions WHERE entity_type = 'venue' AND entity_id = ? ORDER BY id DESC LIMIT 1",
+		venue.ID).Scan(&revisionJSON).Error)
+	s.Contains(revisionJSON, `"capacity"`, "the approval must record a capacity revision")
+	s.Contains(revisionJSON, "550")
 
 	cleared, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,

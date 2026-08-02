@@ -229,12 +229,15 @@ func TestUpdateVenueHandler_RejectsOverlongAgePolicy(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
-// TestUpdateVenueHandler_RejectsOutOfRangeCapacity and its create-side twin
-// prove the bound BEHAVIORALLY. The huma minimum/maximum tags on both bodies
-// are real, but they only fire on a full huma round trip, and every handler
-// test in this package calls the handler directly. Without the inline guard
-// these tests exercise, the tags would be the only enforcement and nothing here
-// could tell whether they still worked.
+// TestUpdateVenueHandler_RejectsOutOfRangeCapacity and its create-side twin are
+// the two tests that prove the bound BEHAVIORALLY. The huma minimum/maximum
+// tags on both bodies are real, but they only fire on a full huma round trip,
+// and every handler test in this package calls the handler directly. Without
+// the inline guard these two exercise, the tags would be the only enforcement
+// and nothing here could tell whether they still worked.
+//
+// TestVenueHandlers_AcceptCapacityOnBothBounds below is NOT one of them: it is a
+// no-overshoot guard and passes with the feature removed.
 func TestUpdateVenueHandler_RejectsOutOfRangeCapacity(t *testing.T) {
 	for _, bad := range []int{0, -1, contracts.MaxVenueCapacity + 1} {
 		t.Run(fmt.Sprintf("capacity_%d", bad), func(t *testing.T) {

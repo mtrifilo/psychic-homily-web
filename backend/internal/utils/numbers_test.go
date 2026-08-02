@@ -35,9 +35,10 @@ func TestWholeNumber_AcceptsIntAndIntegralFloat(t *testing.T) {
 }
 
 func TestWholeNumber_RejectsNonWholeNumbers(t *testing.T) {
-	// A fraction must not be accepted: Postgres applies an assignment cast and
-	// ROUNDS a float into an integer column, so 550.7 would silently become
-	// 551 without this gate.
+	// A fraction must not be accepted. Measured through the driver, an
+	// unnarrowed 550.7 is stored as 550 with no error raised anywhere, so
+	// without this gate the column silently gets a value nobody typed. See the
+	// WholeNumber doc comment for the full measurement table.
 	cases := []struct {
 		name  string
 		value any

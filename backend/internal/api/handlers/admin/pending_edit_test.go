@@ -119,8 +119,9 @@ func TestSuggestEdit_VenueDisallowedField(t *testing.T) {
 // Capacity IS an allowed venue field, so the field-name allowlist waves it
 // through and the VALUE gate is the only thing left. That gate matters more
 // here than for any text field: nothing below it objects to a bad numeric
-// value. The driver stores a string "3600" as 3600 and 3600.7 as 3600 without
-// error, so a value this handler accepts is a value that gets written.
+// value: a numeric string or a fraction is accepted and coerced with no error
+// at any layer (measurements in the utils.WholeNumber doc comment), so a value
+// this handler accepts is a value that gets written.
 //
 // Asserting through the handler (not just ValidateFieldChangeValue) is the
 // point: on the trusted-tier branch an approve failure is logged and the

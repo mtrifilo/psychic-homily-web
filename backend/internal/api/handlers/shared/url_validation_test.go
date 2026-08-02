@@ -246,11 +246,11 @@ func TestValidateFieldChangeValue_AgePolicyLengthAndType(t *testing.T) {
 // server-side check between a contributor and an integer column that
 // ApprovePendingEdit writes through an untyped Updates().
 //
-// The gate matters because the layers below it do NOT complain. Measured
-// against Postgres through the real pipeline: the driver stores the string
-// "1985" as 1985 and stores 1990.7 as 1990, with no error at any layer. So the
-// wrong value lands silently rather than failing loudly, and only these
-// assertions stand between a contributor and a capacity nobody typed.
+// The gate matters because the layers below it do NOT complain: an unnarrowed
+// numeric string or fraction is accepted and coerced with no error at any layer
+// (measurements in the utils.WholeNumber doc comment). The wrong value lands
+// silently rather than failing loudly, so only these assertions stand between a
+// contributor and a capacity nobody typed.
 func TestValidateFieldChangeValue_CapacityTypeAndRange(t *testing.T) {
 	// The wire shape: encoding/json decodes every JSON number into an
 	// interface{} as float64, so that is what actually arrives here.
@@ -287,8 +287,8 @@ func TestValidateFieldChangeValue_CapacityTypeAndRange(t *testing.T) {
 		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "capacity", bad), 422)
 	}
 
-	// A fraction is rejected rather than rounded. Postgres would happily make
-	// 550.7 into 551, a capacity nobody typed.
+	// A fraction is rejected rather than silently coerced: unnarrowed, 550.7
+	// reaches the column as 550 (measured; see the utils.WholeNumber doc).
 	testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "capacity", 550.7), 422)
 
 	// Wrong types, including a numeric STRING. The column is an integer, so the

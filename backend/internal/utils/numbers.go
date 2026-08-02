@@ -22,11 +22,22 @@ import "math"
 // than silently coerced, which is the right failure for a value headed into an
 // untyped SQL update.
 //
-// Two rejections are load-bearing rather than fussy:
+// MEASURED BEHAVIOR of the layers underneath, which is the whole reason this
+// exists. Writing an unnarrowed value into an integer column through GORM's
+// untyped Updates() raises NO error at any layer:
 //
-//   - Fractional values. Writing a float to an integer column raises NO error
-//     anywhere in the stack; measured, 1990.7 lands as 1990. A value the
-//     contributor never typed, stored silently, is worse than a rejection.
+//	Updates(550.7)  -> stored 550     Updates(549.5) -> stored 549
+//	Updates(1990.7) -> stored 1990    Updates("1985") -> stored 1985
+//
+// So a float is TRUNCATED, not rounded, and a numeric string is accepted
+// outright. (A bare SQL cast disagrees: SELECT 550.7::int is 551. The driver
+// path is what matters here, and it truncates.) Either way the result is a
+// value nobody chose, written silently, in a column nobody re-reads. This is
+// the single place that statement lives; other call sites point here.
+//
+// Two rejections follow from it:
+//
+//   - Fractional values, per the measurements above.
 //   - Values outside the int range. Converting an out-of-range float64 to int
 //     is implementation-defined in Go, so the check has to happen before the
 //     conversion, not after.

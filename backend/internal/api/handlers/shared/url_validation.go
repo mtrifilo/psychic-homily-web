@@ -92,43 +92,10 @@ var boundedTextFieldSpecs = map[string]urlFieldSpec{
 	"age_policy": {displayName: "Age policy", maxLength: contracts.MaxVenueAgePolicyLength},
 }
 
-// boundedIntFieldSpec describes a WHOLE-NUMBER field reachable through the
-// contributor suggest-edit queue, with the inclusive range its column accepts.
-type boundedIntFieldSpec struct {
-	displayName string
-	min         int
-	max         int
-}
-
-// boundedIntFieldSpecs is the numeric counterpart of boundedTextFieldSpecs: the
-// integer-backed fields whose suggest-edit value must be range- and
-// type-checked before it can be queued.
-//
-// It exists for the same reason the text map does. ApprovePendingEdit feeds
-// field values into an untyped Updates(), so whatever this validator lets past
-// is applied by a LATER admin's approve request with no further inspection.
-//
-// The failure it prevents is SILENT, which is what makes it worth having.
-// Measured against Postgres through the real pipeline (see the PSY-1694 PR):
-// the driver accepts a JSON string "1985" for an integer column and stores
-// 1985, and accepts 1990.7 and stores 1990. Neither raises an error at any
-// layer. So an unchecked numeric field does not fail loudly the way an
-// over-length string does; it lands a value the contributor never typed, in a
-// column nobody re-reads.
-//
-// KNOWN SIBLINGS, deliberately not covered here: labels.founded_year and
-// releases.release_year are also *int columns on contributor allowlists (see
-// label_allowlist.go / release_allowlist.go), and the drawer submits both as
-// TEXT. They have the same exposure and want their own ticket, because their
-// sane bounds are a product question this change has no answer for. Capacity is
-// the only numeric field the edit drawer submits AS a number.
-var boundedIntFieldSpecs = map[string]boundedIntFieldSpec{
-	"capacity": {
-		displayName: "Capacity",
-		min:         contracts.MinVenueCapacity,
-		max:         contracts.MaxVenueCapacity,
-	},
-}
+// The whole-number counterpart of boundedTextFieldSpecs lives in
+// contracts.NumericEditFieldBounds, because the approve path needs the same
+// registry and cannot import this package. See utils.WholeNumber for what the
+// layers underneath do with an unchecked numeric value: they accept it silently.
 
 // ValidateImageURL applies the http/https scheme check AND the SSRF host guard
 // to an optional image URL. Empty strings pass through so callers that allow
@@ -301,8 +268,8 @@ func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) 
 	if spec, ok := boundedTextFieldSpecs[fieldName]; ok {
 		return validateBoundedText(spec, value)
 	}
-	if spec, ok := boundedIntFieldSpecs[fieldName]; ok {
-		return validateBoundedInt(spec, value)
+	if bounds, ok := contracts.NumericEditFieldBounds[fieldName]; ok {
+		return validateBoundedInt(bounds, value)
 	}
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok {
@@ -370,9 +337,10 @@ func validateBoundedText(spec urlFieldSpec, value any) error {
 // Like validateBoundedText, the type check is the load-bearing half:
 // FieldChange.NewValue is `any` decoded from JSONB, so a caller can put a
 // string, a bool, an object or a fraction where a count belongs, and
-// ApprovePendingEdit assigns it straight into an untyped Updates(). Measured:
-// the driver stores "3600" as 3600 and 3600.7 as 3600 without complaint, so
-// this is the only layer that can tell those apart from a real capacity.
+// ApprovePendingEdit assigns it straight into an untyped Updates(). The layers
+// below do not object to any of that (see utils.WholeNumber for the measured
+// behavior), so this is the only place that can tell a bad value from a real
+// capacity while someone is still around to fix it.
 //
 // nil passes: it is the clear-the-field gesture, and the column is nullable.
 // A numeric STRING ("3600") is rejected on purpose rather than parsed. The
@@ -380,7 +348,7 @@ func validateBoundedText(spec urlFieldSpec, value any) error {
 // would leave two encodings of the same edit in pending_entity_edits and in
 // revisions.field_changes, and the difference would surface later as a
 // rendering or comparison bug rather than here as a 422.
-func validateBoundedInt(spec boundedIntFieldSpec, value any) error {
+func validateBoundedInt(bounds contracts.NumericEditBounds, value any) error {
 	if value == nil {
 		return nil
 	}
@@ -389,24 +357,24 @@ func validateBoundedInt(spec boundedIntFieldSpec, value any) error {
 		// A finite integral float that WholeNumber still refuses is one too
 		// large to hold in an int. Telling that caller "must be a whole number"
 		// would be false: 1e19 is a whole number, it is just absurd for this
-		// field. Every domain ceiling here is many orders of magnitude below
-		// MaxInt, so out-of-int necessarily means out-of-range.
+		// field. Every ceiling in the registry is many orders of magnitude
+		// below MaxInt, so out-of-int necessarily means out-of-range.
 		if f, isFloat := value.(float64); isFloat && !math.IsInf(f, 0) && f == math.Trunc(f) {
-			return outOfRangeError(spec)
+			return outOfRangeError(bounds)
 		}
 		return huma.Error422UnprocessableEntity(
-			fmt.Sprintf("%s must be a whole number", spec.displayName),
+			fmt.Sprintf("%s must be a whole number", bounds.DisplayName),
 		)
 	}
-	if n < spec.min || n > spec.max {
-		return outOfRangeError(spec)
+	if n < bounds.Min || n > bounds.Max {
+		return outOfRangeError(bounds)
 	}
 	return nil
 }
 
-func outOfRangeError(spec boundedIntFieldSpec) error {
+func outOfRangeError(bounds contracts.NumericEditBounds) error {
 	return huma.Error422UnprocessableEntity(
-		fmt.Sprintf("%s must be between %d and %d", spec.displayName, spec.min, spec.max),
+		fmt.Sprintf("%s must be between %d and %d", bounds.DisplayName, bounds.Min, bounds.Max),
 	)
 }
 

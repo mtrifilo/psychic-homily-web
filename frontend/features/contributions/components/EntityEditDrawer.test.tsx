@@ -387,6 +387,31 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
     expect(getSubmitButton()).toBeDisabled()
   })
 
+  it('labels a cosmetic numeric edit as unchanged, so Submit is never silently dead', () => {
+    // The "(changed)" affordance and the payload must agree. Deriving the label
+    // from the raw string instead would paint the field blue, show no error,
+    // and still refuse to submit with nothing on screen explaining why.
+    renderWithProviders(
+      <EntityEditDrawer {...venueProps} entity={{ name: 'Crescent Ballroom', capacity: 550 }} />
+    )
+
+    fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: '550 ' } })
+
+    expect(screen.queryByText('(changed)')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('edit-capacity-error')).not.toBeInTheDocument()
+  })
+
+  it('names the clear gesture in the preview instead of showing a bare strikethrough', () => {
+    renderWithProviders(
+      <EntityEditDrawer {...venueProps} entity={{ name: 'Crescent Ballroom', capacity: 550 }} />
+    )
+
+    fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: '' } })
+
+    expect(screen.getByText('550')).toBeInTheDocument()
+    expect(screen.getByText('cleared')).toBeInTheDocument()
+  })
+
   it('files no change when whitespace is typed into an already empty capacity', () => {
     // Both sides convert to null, so this clears nothing and must not reach
     // the review queue as a spurious "cleared".

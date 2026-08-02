@@ -419,10 +419,17 @@ const MaxVenueAgePolicyLength = 100
 // a *int where nil means "not supplied", so they cannot express a clear at all.
 // That asymmetry lives in the body contracts, not here.
 //
-// The frontend repeats these numbers in VENUE_CAPACITY_BOUNDS
-// (frontend/features/contributions/types.ts) to pre-validate the edit drawer.
-// Nothing enforces that across the language boundary, so changing either
-// constant means changing that pair too.
+// FOUR other copies of these numbers exist and only two are pinned by a test.
+// Changing either constant means changing all of them:
+//   - the huma minimum/maximum tags on both admin venue bodies
+//     (handlers/catalog/venue.go) -- pinned by TestVenueCapacitySchemaTagsMatchContract
+//   - VENUE_CAPACITY_BOUNDS in frontend/features/contributions/types.ts
+//     (pre-validates the edit drawer) -- NOT pinned
+//   - VENUE_CAPACITY_MIN/MAX in cli/src/commands/submit-venue.ts
+//     (drops an out-of-range ingest capacity instead of failing the venue)
+//     -- NOT pinned
+//
+// Nothing enforces the two TypeScript copies across the language boundary.
 //
 // Superseding an earlier note: the age_policy migration
 // (20260801143000_add_venue_age_policy.up.sql) says capacity is "admin/ingest
@@ -447,6 +454,32 @@ const (
 	MinVenueCapacity = 1
 	MaxVenueCapacity = 200000
 )
+
+// NumericEditBounds is the accepted range for one whole-number column that the
+// contributor pending-edit pipeline can write.
+type NumericEditBounds struct {
+	// DisplayName is the user-facing field name in a validation message.
+	DisplayName string
+	Min         int
+	Max         int
+}
+
+// NumericEditFieldBounds is the registry both halves of the pending-edit
+// pipeline read: the suggest-edit validator rejects out-of-range values at
+// submit, and the approve path narrows the surviving JSONB float64 to an int
+// before it reaches an untyped Updates().
+//
+// It exists as one map rather than two hand-written branches so those halves
+// cannot drift. Adding a field here gives it BOTH gates; adding it to only one
+// of two hardcoded call sites would give it neither reliably.
+//
+// NOT here, and unguarded today: labels.founded_year and releases.release_year
+// are *int columns on contributor allowlists whose drawer fields submit TEXT.
+// Adding them means choosing sane year bounds, which is a product question, so
+// they want their own ticket rather than a guess here.
+var NumericEditFieldBounds = map[string]NumericEditBounds{
+	"capacity": {DisplayName: "Capacity", Min: MinVenueCapacity, Max: MaxVenueCapacity},
+}
 
 // CreateVenueRequest represents the data needed to create a new venue
 type CreateVenueRequest struct {

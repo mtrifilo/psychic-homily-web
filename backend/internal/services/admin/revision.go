@@ -177,6 +177,26 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	tableName := revision.EntityType + "s" // artist -> artists, show -> shows, etc.
 	updates["updated_at"] = time.Now()
 
+	// Old values come back out of revisions.field_changes as JSONB, so a number
+	// is a float64 here just as it is on the approve path. Writing that to an
+	// integer column succeeds and truncates rather than failing, so a rollback
+	// would quietly restore a DIFFERENT value than the one being undone.
+	//
+	// Narrowing only: no range check. This restores a value the system already
+	// stored, and history can hold values that predate a bound, so refusing them
+	// would break undo for precisely the rows most likely to need it.
+	//
+	// SEPARATE, PRE-EXISTING, not fixed here: revisiondiff flattens a nil *int
+	// to 0 when it records a diff (derefInt), so an ADMIN edit that set a
+	// previously-NULL integer column writes old_value 0, and rolling it back
+	// restores 0 rather than NULL. Contributor edits are unaffected because
+	// their revisions are recorded from the raw field_changes, which carry a
+	// true null. Fixing that means teaching revisiondiff to emit null, which
+	// changes the shape of every historical *int diff.
+	if err := NarrowNumericUpdates(updates); err != nil {
+		return err
+	}
+
 	result := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
 	if result.Error != nil {
 		return fmt.Errorf("failed to apply rollback: %w", result.Error)
