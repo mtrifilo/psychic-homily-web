@@ -85,8 +85,8 @@ func (Venue) TableName() string {
 	return "venues"
 }
 
-// PublicAddress is THE street-address privacy gate, and the only sanctioned way
-// to move Address from a venue row into anything a client can read.
+// PublicAddress is THE street-address privacy gate: the way Address moves from
+// a venue row into any payload a non-admin client can read.
 //
 // An unverified venue is frequently a DIY / house show at somebody's home, so
 // its street address must not be published before a human has reviewed the row.
@@ -105,6 +105,12 @@ func (Venue) TableName() string {
 // covered here: they are served by exactly one builder (buildVenueResponse) and
 // the coordinates take an extra freshness condition, so they stay where their
 // single caller can see the whole rule at once.
+//
+// Two readers deliberately bypass this and serve the raw column, so a caller
+// found doing so is not automatically a bug: the admin moderation queue
+// (VenueService.GetUnverifiedVenues), which exists to show a human the address
+// they are being asked to verify, and the markdown export, whose route is
+// registered only under ENVIRONMENT=development plus an admin bulk endpoint.
 func (v *Venue) PublicAddress() *string {
 	if v == nil || !v.Verified {
 		return nil

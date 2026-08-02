@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -450,6 +451,62 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_Invalid() {
 	_, err := suite.svc.ValidateCalendarToken("phcal_nonexistent_token")
 	suite.Error(err)
 	suite.Contains(err.Error(), "invalid calendar token")
+}
+
+// The ICS feed is the worst place for an unverified venue's street address to
+// surface: the URL carries a bearer token instead of a session, so anyone
+// holding the link can fetch it, and an ICS LOCATION is copied onto the
+// subscriber's device where a later redaction can never reach it.
+//
+// This wires the REAL SavedShowService rather than the suite's mock, because
+// the redaction lives in that service's response builder and the whole point of
+// the test is that this feed inherits it. The peer tests above deliberately mock
+// that dependency to isolate ICS formatting; a mock here would assert nothing.
+func (suite *CalendarIntegrationTestSuite) TestGenerateICSFeed_OmitsUnverifiedVenueAddress() {
+	user := suite.createTestUser(true)
+
+	venue := &catalogm.Venue{
+		Name:     "The Basement",
+		City:     "Phoenix",
+		State:    "AZ",
+		Address:  stringPtr("1234 Secret St"),
+		Verified: false,
+	}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+
+	show := &catalogm.Show{
+		Title:       "House Show",
+		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+
+	savedShows := NewSavedShowService(suite.db)
+	suite.Require().NoError(savedShows.SaveShow(user.ID, show.ID))
+	realSvc := NewCalendarService(suite.db, savedShows)
+
+	data, err := realSvc.GenerateICSFeed(user.ID, "https://psychichomily.com")
+	suite.Require().NoError(err)
+
+	feed := string(data)
+	suite.Require().Contains(feed, "House Show", "feed must contain the show, or the assertion below is vacuous")
+	suite.NotContains(feed, "1234 Secret St", "unverified venue address must not reach the ICS feed")
+	// The venue is still named and placed, so redaction is not gutting LOCATION.
+	suite.Contains(feed, "The Basement")
+
+	// Same venue, now verified: the address is legitimate and must come through,
+	// proving the feed is gated on verification rather than dropping addresses.
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", venue.ID).Update("verified", true).Error)
+
+	verifiedSvc := NewCalendarService(suite.db, NewSavedShowService(suite.db))
+	data, err = verifiedSvc.GenerateICSFeed(user.ID, "https://psychichomily.com")
+	suite.Require().NoError(err)
+	suite.Contains(string(data), "1234 Secret St", "verified venue address must still be served")
 }
 
 func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUser() {
