@@ -27,9 +27,10 @@ const day = (over: Partial<SceneDayResponse> = {}): SceneDayResponse =>
 
 /**
  * The `<head>` carries three product decisions that live nowhere else: the
- * query-language title, the canonical pointing at the dated permalink, and the
- * noindex on a night with nothing on it. Nothing else in the suite touches
- * them, so without this file any of the three can be reworded silently.
+ * query-language title, the split canonical (rolling /tonight names the WEEK
+ * permalink, a dated permalink names itself), and the noindex on a night with
+ * nothing on it. Nothing else in the suite touches them, so without this file
+ * any of the three can be reworded silently.
  */
 describe('buildSceneDayMetadata', () => {
   beforeEach(() => {
@@ -79,20 +80,74 @@ describe('buildSceneDayMetadata', () => {
     expect(meta.description).not.toMatch(/no shows in/i)
   })
 
-  // The rolling URL's content changes every night, so pointing search engines
-  // at it would leave every indexed snippet describing a night that has passed.
-  it('points the canonical at the DATED permalink from both routes', async () => {
+  // The rolling URL's content changes every night, so it cannot be its own
+  // canonical; the dated permalink it used to name is in no sitemap. The week
+  // permalink is the only stable URL we actually announce.
+  it('points the rolling /tonight canonical at the WEEK permalink', async () => {
     fetchSceneDay.mockResolvedValue(day())
-    const rolling = await buildSceneDayMetadata('phoenix-az')
 
+    const meta = await buildSceneDayMetadata('phoenix-az')
+
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/2026-W31'
+    )
+    // og:url must not contradict the canonical tag.
+    expect(meta.openGraph?.url).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/2026-W31'
+    )
+  })
+
+  // A dated permalink is a permanent URL naming ONE night. Folding it into the
+  // week would erase the night it names.
+  it('leaves the DATED permalink as its own canonical', async () => {
     fetchSceneDay.mockResolvedValue(day({ is_tonight: false }))
-    const dated = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
 
-    for (const meta of [rolling, dated]) {
-      expect(meta.alternates?.canonical).toBe(
-        'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
-      )
-    }
+    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
+
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
+    )
+    expect(meta.openGraph?.url).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
+    )
+  })
+
+  // A dated permalink for TODAY still self-canonicalizes. `is_tonight` is true
+  // for it, so anything keying off that flag instead of the absent `date`
+  // argument would silently collapse every same-day permalink into the week.
+  it('self-canonicalizes a dated permalink even when it IS tonight', async () => {
+    fetchSceneDay.mockResolvedValue(day({ is_tonight: true }))
+
+    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
+
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
+    )
+  })
+
+  // THE BOUNDARY CASE. Read at 01:30 on Monday 2026-08-03, the backend's 6am
+  // night boundary still answers Sunday 2026-08-02, and Sunday is the LAST day
+  // of 2026-W31 while that Monday already opens 2026-W32. The canonical must
+  // follow the payload's `iso_week`, not a week derived from a clock on this
+  // side, which would send the reader a week forward on exactly this night.
+  it('uses the payload iso_week when tonight falls in the PREVIOUS ISO week', async () => {
+    fetchSceneDay.mockResolvedValue(
+      day({
+        date: '2026-08-02',
+        iso_week: '2026-W31',
+        prev_date: '2026-08-01',
+        next_date: '2026-08-03',
+        is_tonight: true,
+      })
+    )
+
+    const meta = await buildSceneDayMetadata('phoenix-az')
+
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/scenes/phoenix-az/2026-W31'
+    )
+    // The week a wall clock on this side would have produced at 01:30 Monday.
+    expect(meta.alternates?.canonical).not.toContain('2026-W32')
   })
 
   // Thin content — real, worth serving, worth linking out of, not worth an
@@ -104,11 +159,16 @@ describe('buildSceneDayMetadata', () => {
     const meta = await buildSceneDayMetadata('phoenix-az')
 
     expect(meta.robots).toEqual({ index: false, follow: true })
-    // The canonical still points at the permalink, so the noindex applies to
-    // one URL rather than orphaning the date.
-    expect(meta.alternates?.canonical).toBe(
-      'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
-    )
+  })
+
+  // The thin-content noindex is a property of the NIGHT, not of the route, so
+  // the dated permalink for a quiet night carries it too.
+  it('noindexes a quiet night on the dated permalink as well', async () => {
+    fetchSceneDay.mockResolvedValue(day({ shows: [], show_count: 0, is_tonight: false }))
+
+    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
+
+    expect(meta.robots).toEqual({ index: false, follow: true })
   })
 
   it('leaves a night that has shows indexable', async () => {

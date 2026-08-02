@@ -55,11 +55,28 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   const title = dayTitle(day)
   const description = dayDescription(day)
 
-  // The DATED permalink is the canonical URL even when this renders at the
-  // rolling /tonight URL: that URL's content changes every night, so pointing
-  // search engines at it would leave every indexed snippet describing a night
-  // that has passed.
-  const canonical = `${SITE_URL}/scenes/${day.slug}/${day.date}`
+  // The rolling /tonight URL canonicalizes to the scene's WEEK permalink; a
+  // DATED permalink stays its own canonical.
+  //
+  // /tonight cannot be its own canonical, because its content changes every
+  // night and an indexed snippet would describe a night that has passed. It
+  // used to name the dated permalink instead, but day permalinks appear in no
+  // sitemap, so that aimed crawlers at a URL we never announce. The week
+  // permalink is both stable and announced, so it is the page that can hold
+  // whatever ranking this night earns.
+  //
+  // `day.iso_week` comes from the PAYLOAD and is never derived here. "Tonight"
+  // is resolved by the backend in the scene's timezone against a 6am night
+  // boundary, so at 01:30 on a Monday tonight is still Sunday, the last day of
+  // the PREVIOUS ISO week. A week computed from a clock on this side would skip
+  // the scene forward a week on exactly that boundary.
+  //
+  // The dated permalink keeps pointing at itself: it is a permanent URL naming
+  // one night, and folding it into the week would erase the night it names.
+  const isRollingTonight = date === undefined
+  const canonical = isRollingTonight
+    ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
+    : `${SITE_URL}/scenes/${day.slug}/${day.date}`
 
   // A night with nothing on it is thin content — real, worth serving, worth
   // linking out of, not worth an index entry. `follow` stays on precisely
@@ -75,6 +92,10 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
     openGraph: {
       title,
       description,
+      // Deliberately the same URL as the canonical tag, which means /tonight
+      // declares the WEEK permalink here too. An og:url that disagreed with
+      // rel=canonical would hand unfurlers and crawlers two different answers
+      // to the question this change exists to settle.
       url: canonical,
       type: 'website',
       // Set explicitly to suppress the `opengraph-image` in the `[period]`
