@@ -1,35 +1,22 @@
 package catalog
 
-// Catalog-wide label hubs (PSY-1722), on the SceneService Postgres suite: the
-// same builder GetSceneGraph uses, driven over every artist in the catalog
-// instead of one metro's roster.
+// Catalog-wide label hubs on the SceneService Postgres suite: the same builder
+// GetSceneGraph uses, driven over every artist in the catalog instead of one
+// metro's roster.
 //
-// The rules themselves are pinned by the pure fixtures in label_hubs_test.go.
-// What only a database can show is here: that the same rows produce a hub at
-// catalog scope and no hub at scene scope, that the label columns survive the
-// round trip into the hub node, and that spokes land on real seeded artists.
-// The three headline outcomes are re-asserted against real rows because they
-// are what the ticket's acceptance criteria ask to see at global scope.
+// The rules are pinned by the pure fixtures in label_hubs_test.go. What needs a
+// database is here, and it is deliberately narrow: that widening the artist set
+// turns the SAME stored rows from no-hub into a hub (the scope change itself),
+// that a narrower node set than the read is bounded by the set and not by the
+// SQL, that the ORDER BY tiebreaker survives two same-named labels, and that
+// the label columns round-trip into the hub node. The headline outcomes are
+// re-asserted here against real rows rather than fixtures because a hub over a
+// roster spanning three metros is the thing the overview map exists to draw.
 
 import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
-
-// seedLabelMemberships creates a label and puts every artist on it. It is the
-// membership primitive seedLabelWithRoster builds on: hubs are derived from the
-// artist_labels fact table, so a test that only needs memberships should not
-// have to write the `shared_label` clique too.
-func (suite *SceneServiceIntegrationTestSuite) seedLabelMemberships(
-	label *catalogm.Label, artists []*catalogm.Artist,
-) {
-	suite.Require().NoError(suite.db.Create(label).Error)
-	for _, a := range artists {
-		suite.Require().NoError(suite.db.Create(&catalogm.ArtistLabel{
-			ArtistID: a.ID, LabelID: label.ID,
-		}).Error)
-	}
-}
 
 // catalogArtistIDs is the catalog-wide artist set — every artist a global
 // consumer would draw, and so the bound on its roster read.
@@ -139,4 +126,49 @@ func (suite *SceneServiceIntegrationTestSuite) TestGlobalLabelHubs_CollapseRoste
 	suite.Empty(phoenixHubs.Nodes,
 		"12XU is a 2-artist overlap inside one metro, so it stays pairwise there")
 	suite.False(phoenixHubs.replacesSharedLabelEdge(phx1.ID, phx2.ID))
+
+	// The BUILDER, not the SQL, is what bounds scope. Hand it the catalog-wide
+	// rows against a narrower node set and the same rows must produce the scene
+	// answer — this is the only assertion here that fails if the in-set filter
+	// is deleted, since every other call feeds it rows the WHERE already
+	// bounded.
+	narrowHubs, err := buildLabelHubs(rows, phoenixSet)
+	suite.Require().NoError(err)
+	suite.Empty(narrowHubs.Nodes,
+		"rows for out-of-set artists must not count toward the threshold")
+	suite.Empty(narrowHubs.Spokes,
+		"no spoke may point at a node the payload does not contain")
+	suite.False(narrowHubs.replacesSharedLabelEdge(phx1.ID, phx2.ID))
+}
+
+// `labels.name` carries no unique constraint, so `l.id` is the ORDER BY term
+// that keeps two same-named labels in a fixed order — and hub node order is
+// first-seen row order. Without the tiebreaker the overview map would reshuffle
+// between two identical reads.
+func (suite *SceneServiceIntegrationTestSuite) TestQueryLabelRosters_OrdersSameNamedLabelsByID() {
+	a := suite.createArtist("Ordering Band A")
+	b := suite.createArtist("Ordering Band B")
+
+	// Same name, different slugs — legal, and the case the tiebreaker exists
+	// for. Created in reverse ID order relative to nothing in particular; the
+	// assertion is that the read imposes ID order regardless.
+	first := &catalogm.Label{Name: "Twin Records", Slug: stringPtr("twin-records-one")}
+	second := &catalogm.Label{Name: "Twin Records", Slug: stringPtr("twin-records-two")}
+	suite.seedLabelMemberships(first, []*catalogm.Artist{a})
+	suite.seedLabelMemberships(second, []*catalogm.Artist{b})
+	suite.Require().Less(first.ID, second.ID)
+
+	rows, err := queryLabelRosters(suite.db, []uint{a.ID, b.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(rows, 2)
+	suite.Equal(first.ID, rows[0].LabelID, "same-named labels order by id, not arbitrarily")
+	suite.Equal(second.ID, rows[1].LabelID)
+}
+
+// An empty artist set is a caller bug, not an empty scope: answering it with no
+// rows would hand buildLabelHubs the one input its own guard cannot detect.
+func (suite *SceneServiceIntegrationTestSuite) TestQueryLabelRosters_RefusesEmptyArtistSet() {
+	rows, err := queryLabelRosters(suite.db, nil)
+	suite.Require().Error(err)
+	suite.Empty(rows)
 }

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"testing"
 
 	"psychic-homily-backend/internal/services/contracts"
@@ -39,10 +40,12 @@ func artistIDsFromRows(rows []labelRosterRow) []uint {
 	return ids
 }
 
-// mustBuildHubs is the ordinary build: every roster artist is in the payload.
-// Tests that deliberately mismatch the two, or that expect a refusal, call
-// buildLabelHubs directly so the mismatch is visible at the call site.
-func mustBuildHubs(t *testing.T, rows []labelRosterRow) labelHubs {
+// mustBuildHubsForEveryRosterArtist builds with the artist set that makes the
+// in-set filter a no-op: every artist carrying a row is in the payload. The name
+// is long on purpose — the artist set is the load-bearing argument, so a test
+// using this helper is asserting a rule OTHER than in-set bounding. Tests that
+// mismatch the two, or that expect a refusal, call buildLabelHubs directly.
+func mustBuildHubsForEveryRosterArtist(t *testing.T, rows []labelRosterRow) labelHubs {
 	t.Helper()
 	hubs, err := buildLabelHubs(rows, artistIDsFromRows(rows))
 	if err != nil {
@@ -86,7 +89,7 @@ func TestBuildLabelHubs_ThresholdBoundary(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			hubs := mustBuildHubs(t, tc.rows)
+			hubs := mustBuildHubsForEveryRosterArtist(t, tc.rows)
 			if len(hubs.Nodes) != tc.wantHubs {
 				t.Errorf("hub nodes: got %d, want %d", len(hubs.Nodes), tc.wantHubs)
 			}
@@ -111,7 +114,7 @@ func TestBuildLabelHubs_CollapsesCliqueToSpokes(t *testing.T) {
 		rows = append(rows, rosterRow(7, "12XU", 100+i))
 	}
 
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 	if len(hubs.Nodes) != 1 {
 		t.Fatalf("hub nodes: got %d, want 1", len(hubs.Nodes))
 	}
@@ -133,7 +136,7 @@ func TestBuildLabelHubs_HubNodeShape(t *testing.T) {
 		{LabelID: 7, Name: "12XU", Slug: &slug, City: &city, State: &state, Country: &country, ArtistID: 12},
 	}
 
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 	hub := hubs.Nodes[0]
 
 	if hub.EntityType != contracts.SceneNodeKindLabel {
@@ -169,6 +172,24 @@ func TestBuildLabelHubs_HubNodeShape(t *testing.T) {
 		if spoke.IsCrossCluster {
 			t.Error("spokes must not be flagged cross-cluster")
 		}
+		// Membership is binary, so every spoke carries the same weight rather
+		// than implying a magnitude the data does not have.
+		if spoke.Score != 1 {
+			t.Errorf("spoke score: got %v, want 1 (membership is uniform)", spoke.Score)
+		}
+		// The frontend's edge grammar reads label_name off the spoke, and
+		// roster_size is the IN-SET roster — the count the payload can draw,
+		// not the label's catalog-wide roster.
+		detail, ok := spoke.Detail.(map[string]any)
+		if !ok {
+			t.Fatalf("spoke detail: got %T, want map[string]any", spoke.Detail)
+		}
+		if detail["label_name"] != "12XU" {
+			t.Errorf("spoke detail label_name: got %v, want %q", detail["label_name"], "12XU")
+		}
+		if detail["roster_size"] != len(rows) {
+			t.Errorf("spoke detail roster_size: got %v, want %d (in-set roster)", detail["roster_size"], len(rows))
+		}
 	}
 }
 
@@ -202,7 +223,7 @@ func TestReplacesSharedLabelEdge(t *testing.T) {
 		rosterRow(2, "Small Records", 10),
 		rosterRow(2, "Small Records", 30),
 	}
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 
 	tests := []struct {
 		name           string
@@ -235,13 +256,57 @@ func TestReplacesSharedLabelEdge_MixedHubbedAndSmallLabel(t *testing.T) {
 		rosterRow(2, "Small Records", 10),
 		rosterRow(2, "Small Records", 11),
 	}
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 	if hubs.replacesSharedLabelEdge(10, 11) {
 		t.Error("pair sharing an un-hubbed label too must keep its pairwise edge")
 	}
 	// The pair that shares only the hubbed label is still replaced.
 	if !hubs.replacesSharedLabelEdge(11, 12) {
 		t.Error("pair sharing only the hubbed label should be replaced")
+	}
+}
+
+// Hub and spoke ordering must follow the caller's row order, not Go map
+// iteration. Both doc comments call this a contract, and nothing else can catch
+// a regression: ranging the label map directly instead of the first-seen `order`
+// slice still produces a correct-looking payload, but reshuffles hub nodes
+// between two identical requests and the canvas re-lays-out under the user.
+func TestBuildLabelHubs_OrderingFollowsRowOrder(t *testing.T) {
+	// Query order is label name ascending, then artist ID; label IDs are
+	// deliberately NOT in name order so a map-ordered build cannot coincide.
+	rows := []labelRosterRow{
+		rosterRow(9, "Alpha Records", 30),
+		rosterRow(9, "Alpha Records", 31),
+		rosterRow(9, "Alpha Records", 32),
+		rosterRow(4, "Beta Records", 10),
+		rosterRow(4, "Beta Records", 11),
+		rosterRow(4, "Beta Records", 12),
+		rosterRow(7, "Gamma Records", 20),
+		rosterRow(7, "Gamma Records", 21),
+		rosterRow(7, "Gamma Records", 22),
+	}
+	wantHubs := []string{"Alpha Records", "Beta Records", "Gamma Records"}
+	wantSpokeTargets := []uint{30, 31, 32, 10, 11, 12, 20, 21, 22}
+
+	// Repeat: a single build can match by luck when map iteration is involved.
+	for attempt := 0; attempt < 8; attempt++ {
+		hubs := mustBuildHubsForEveryRosterArtist(t, rows)
+
+		gotHubs := make([]string, 0, len(hubs.Nodes))
+		for _, n := range hubs.Nodes {
+			gotHubs = append(gotHubs, n.Name)
+		}
+		if !slices.Equal(gotHubs, wantHubs) {
+			t.Fatalf("hub order: got %v, want %v", gotHubs, wantHubs)
+		}
+
+		gotTargets := make([]uint, 0, len(hubs.Spokes))
+		for _, s := range hubs.Spokes {
+			gotTargets = append(gotTargets, s.TargetID)
+		}
+		if !slices.Equal(gotTargets, wantSpokeTargets) {
+			t.Fatalf("spoke order: got %v, want %v", gotTargets, wantSpokeTargets)
+		}
 	}
 }
 
@@ -256,7 +321,7 @@ func TestBuildLabelHubs_MultiLabelArtistGetsSpokePerHub(t *testing.T) {
 		rosterRow(2, "Beta Records", 20),
 		rosterRow(2, "Beta Records", 21),
 	}
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 	if len(hubs.Nodes) != 2 {
 		t.Fatalf("hub nodes: got %d, want 2", len(hubs.Nodes))
 	}
@@ -272,6 +337,10 @@ func TestBuildLabelHubs_MultiLabelArtistGetsSpokePerHub(t *testing.T) {
 	}
 }
 
+// Nothing in, nothing out — and NOT an error. This is the one shape where an
+// empty artist set is legitimate rather than a caller bug: there are no rows to
+// misattribute, so there is no wrong answer to hide. Rows WITH an empty set are
+// the error case, covered by TestBuildLabelHubs_RefusesRowsWithoutArtistSet.
 func TestBuildLabelHubs_EmptyInput(t *testing.T) {
 	hubs, err := buildLabelHubs(nil, nil)
 	if err != nil {
@@ -300,7 +369,7 @@ func TestReplacesSharedLabelEdge_SlugLessLabelKeepsEdge(t *testing.T) {
 		sluglessRosterRow(2, "Unlinkable Records", 11),
 	}
 
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 	if len(hubs.Nodes) != 1 {
 		t.Fatalf("only the slugged label may hub: got %d hubs", len(hubs.Nodes))
 	}
@@ -320,7 +389,7 @@ func TestBuildLabelHubs_SlugLessLabelNeverHubs(t *testing.T) {
 		sluglessRosterRow(5, "No Slug Records", 11),
 		sluglessRosterRow(5, "No Slug Records", 12),
 	}
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 	if len(hubs.Nodes) != 0 || len(hubs.Spokes) != 0 {
 		t.Errorf("slug-less label must not hub: got %d nodes / %d spokes", len(hubs.Nodes), len(hubs.Spokes))
 	}
@@ -350,8 +419,50 @@ func TestBuildLabelHubs_RefusesCollisionFromArtistWithoutLabels(t *testing.T) {
 	}
 }
 
+// A repeated (artist, label) row must count once. artist_labels' composite PK
+// rules this out today, but the roster read is documented as swappable and the
+// obvious wider join in this schema (through release_labels) fans out per
+// release — which would otherwise push a 2-artist label over the threshold and
+// emit duplicate spokes for a roster it misreports.
+func TestBuildLabelHubs_CountsRepeatedMembershipOnce(t *testing.T) {
+	rows := []labelRosterRow{
+		rosterRow(1, "Fanned Records", 10),
+		rosterRow(1, "Fanned Records", 10),
+		rosterRow(1, "Fanned Records", 11),
+		rosterRow(1, "Fanned Records", 11),
+	}
+
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
+	if len(hubs.Nodes) != 0 || len(hubs.Spokes) != 0 {
+		t.Fatalf("4 rows for a 2-artist roster must stay below threshold: got %d nodes / %d spokes",
+			len(hubs.Nodes), len(hubs.Spokes))
+	}
+	if hubs.replacesSharedLabelEdge(10, 11) {
+		t.Error("with no hub, the pairwise edge must survive")
+	}
+
+	// And with a genuine 3-artist roster, duplicates must not inflate spokes.
+	rows = append(rows, rosterRow(1, "Fanned Records", 12), rosterRow(1, "Fanned Records", 12))
+	hubs = mustBuildHubsForEveryRosterArtist(t, rows)
+	if len(hubs.Nodes) != 1 {
+		t.Fatalf("hub nodes: got %d, want 1", len(hubs.Nodes))
+	}
+	if len(hubs.Spokes) != 3 {
+		t.Errorf("spokes: got %d, want 3 (one per distinct artist)", len(hubs.Spokes))
+	}
+	for _, s := range hubs.Spokes {
+		detail, ok := s.Detail.(map[string]any)
+		if !ok {
+			t.Fatalf("spoke detail: got %T", s.Detail)
+		}
+		if detail["roster_size"] != 3 {
+			t.Errorf("roster_size: got %v, want 3 (distinct artists)", detail["roster_size"])
+		}
+	}
+}
+
 // =============================================================================
-// GLOBAL SCOPE (PSY-1722)
+// CATALOG-WIDE SCOPE
 // =============================================================================
 
 // The catalog-wide roster size, exhaustively. 12XU's roster across the whole
@@ -371,7 +482,7 @@ func TestBuildLabelHubs_GlobalRosterReplacesEveryPair(t *testing.T) {
 		rows = append(rows, rosterRow(1, "12XU", artistID))
 	}
 
-	hubs := mustBuildHubs(t, rows)
+	hubs := mustBuildHubsForEveryRosterArtist(t, rows)
 	if len(hubs.Nodes) != 1 {
 		t.Fatalf("hub nodes: got %d, want 1", len(hubs.Nodes))
 	}

@@ -18,9 +18,11 @@ import (
 // single label (12XU, 25 in-scene artists) at ~0.017 normalized weight each —
 // the force layout collapses that into an unreadable ball and label
 // collision-culling leaves 3 of 25 names visible. The same shape appears on NYC
-// (104/106) and LA (76/83), and it worsens as the artist set widens: 12XU's
-// roster across the whole catalog is 59 artists, or 1,711 pairwise edges,
-// carrying one fact.
+// (104/106) and LA (76/83), and it worsens as the artist set widens: when the
+// overview map was designed, 12XU's roster across the whole catalog was 59
+// artists, or 1,711 pairwise edges, carrying one fact. (All of these are
+// point-in-time observations of live data, kept for the shape they show, not as
+// values anything asserts against.)
 //
 // "n artists are on this label" is ONE fact, so it is encoded as one hub node
 // with n membership spokes instead of C(n,2) pairwise similarity claims.
@@ -34,16 +36,23 @@ import (
 //
 // SCOPE: the builder is scope-agnostic. It takes the artist set a payload will
 // contain plus that set's membership rows, and every rule is evaluated against
-// artists IN THAT SET — GetSceneGraph passes one metro's roster, a catalog-wide
-// consumer passes the whole artist set. Roster size is deliberately about what
-// the payload can DRAW, not the label's worldwide roster: a label with 40
-// artists in the catalog and 2 in this metro is a 2-artist overlap in a scene
-// graph, and a hub only in a catalog-wide one.
+// artists IN THAT SET — GetSceneGraph passes one metro's roster, and the nightly
+// overview-snapshot job passes the artist set of the whole map. Roster size is
+// deliberately about what the payload can DRAW, not the label's worldwide
+// roster: a label with 40 artists in the catalog and 2 in this metro is a
+// 2-artist overlap in a scene graph, and a hub only in a catalog-wide one.
+//
+// The emitted nodes and links are `contracts.SceneGraph*` types. That naming is
+// historical — the scene graph was the first payload to carry hubs — and is not
+// a scope claim. A second consumer either reuses those types or maps them; it
+// does not need its own builder.
 
 const (
 	// labelHubMinRoster is the in-set roster size at which a label collapses
-	// into a hub. 3 is the smallest clique (C(3,2) = 3 edges), so every label
-	// clique the payload can contain is covered.
+	// into a hub. 3 is the smallest roster where a hub is a saving: it turns 3
+	// pairwise edges into 1 node and 3 spokes, and the saving only grows from
+	// there. A 2-artist roster is a clique too, but deliberately keeps its one
+	// pairwise edge — a hub there would add a node to say strictly less.
 	labelHubMinRoster = 3
 
 	// labelHubNodeIDOffset namespaces label hub node IDs away from artist IDs,
@@ -60,7 +69,8 @@ const (
 // the lookups its caller needs to drop the pairwise `shared_label` edges the
 // hubs replace.
 type labelHubs struct {
-	// Nodes are the emitted hub nodes, in rosterRows order.
+	// Nodes are the emitted hub nodes, in first-seen-label order over the
+	// in-set rows (so: rosterRows order, minus the labels that did not qualify).
 	Nodes []contracts.SceneGraphNode
 	// Spokes are the membership edges, one per (hub, in-set roster artist).
 	Spokes []contracts.SceneGraphLink
@@ -82,17 +92,28 @@ type labelRosterRow struct {
 	ArtistID uint    `gorm:"column:artist_id"`
 }
 
-// queryLabelRosters loads the membership rows for an artist set. The ordering
-// is part of the contract: buildLabelHubs emits hubs in first-seen label order,
-// so a stable SQL order is what makes node and link ordering stable across
-// requests.
+// queryLabelRosters loads the membership rows for an artist set.
 //
-// The read is bounded by the artist set at every scope. A catalog-wide consumer
-// passes every artist it will draw rather than dropping the bound, because the
-// builder can only count and spoke artists the payload contains — an unbounded
-// read would fetch rows it must then discard. buildLabelHubs discards them
-// safely either way, so a consumer that measures the bounded read to be the
-// worse plan can swap in a wider one without changing the rules.
+// ALL THREE ORDER BY terms are load-bearing, and a caller writing its own read
+// must reproduce them. buildLabelHubs emits hubs in first-seen label order, so
+// this ordering is what makes node and link order stable between two identical
+// requests — an unstable order re-lays-out the canvas under the user. `l.name`
+// alone is NOT enough: `labels.name` carries no unique constraint (only `slug`
+// does), so `l.id` is the tiebreaker that keeps two same-named labels in a fixed
+// order. `al.artist_id` does the same for spokes within a roster.
+//
+// SCOPE IS THE ARTIST SET, NOT THIS READ. A caller may fetch rosters more
+// broadly than its node set — buildLabelHubs discards out-of-set rows — so this
+// bound is an efficiency choice, not a correctness one, and a consumer may
+// replace it. What it may NOT do is pass the builder a node set narrower than
+// the payload it will render; see buildLabelHubs.
+//
+// Sizing here is UNMEASURED. The artist set lands in a single `IN` list, and pgx
+// caps a bind message at 65535 parameters; the catalog held ~4,700 artists when
+// this was written, roughly 14x under that ceiling, but neither the returned row
+// count at catalog scope nor the plan has been profiled. A consumer that
+// outgrows the ceiling chunks the set (see community_detection.go for the
+// batching precedent) or drops the bound.
 //
 // Slug-less labels ARE selected, even though they can never become hubs (a
 // hub's payoff is opening the label's page, and an unlinkable hub would occupy
@@ -103,8 +124,13 @@ type labelRosterRow struct {
 // relationship, the exact outcome the below-threshold keep-rule exists to
 // prevent.
 func queryLabelRosters(db *gorm.DB, artistIDs []uint) ([]labelRosterRow, error) {
+	// Refuse rather than returning no rows. An empty artist set is a caller
+	// bug at every scope (GetSceneGraph returns before here when its roster is
+	// empty), and answering it with `nil, nil` would hand buildLabelHubs the
+	// one input its own empty-set guard cannot see — the two would then agree
+	// on a hub-less payload with no error anywhere.
 	if len(artistIDs) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("label roster query needs a non-empty artist set")
 	}
 	var rows []labelRosterRow
 	err := db.Table("artist_labels AS al").
@@ -122,7 +148,8 @@ func queryLabelRosters(db *gorm.DB, artistIDs []uint) ([]labelRosterRow, error) 
 // buildLabelHubs groups membership rows into hubs for artistIDs — the artist set
 // the payload will contain.
 //
-// Callers must pass their FULL artist set, which does two jobs:
+// artistIDs must be EXACTLY the artist set the payload will render — every
+// artist in it, and no artist that is not. It does two jobs:
 //
 //  1. Every rule is evaluated in-set. Roster rows for artists outside the set
 //     are ignored, so a caller whose roster read is broader than its node set
@@ -132,6 +159,15 @@ func queryLabelRosters(db *gorm.DB, artistIDs []uint) ([]labelRosterRow, error) 
 //     carrying label rows: an artist with no memberships never reaches
 //     rosterRows, so a roster-only check would let hubs mint IDs in the
 //     colliding range while claiming to refuse.
+//
+// PASSING TOO FEW ARTISTS IS SILENTLY WRONG, and nothing here can detect it.
+// Job 1 makes an over-broad ROSTER READ safe, not an under-complete ARTIST SET:
+// a set missing artists the payload actually renders drops labels back under
+// labelHubMinRoster, so their cliques survive as pairwise edges, spoke
+// `roster_size` understates the roster, and the result looks like a scope that
+// legitimately has fewer hubs. A consumer whose node set is derived (a
+// backbone-filtered or otherwise pruned graph) must build artistIDs from the
+// nodes it will actually emit, and must do so AFTER the pruning, not before.
 //
 // Two conditions return an error rather than degrading silently, because both
 // would otherwise produce a plausible-looking empty or colliding build:
@@ -169,10 +205,6 @@ func buildLabelHubs(rosterRows []labelRosterRow, artistIDs []uint) (labelHubs, e
 		inSet[id] = struct{}{}
 	}
 
-	if len(rosterRows) == 0 {
-		return out, nil
-	}
-
 	// Roster accumulation preserves first-seen label order so the emitted hub
 	// nodes inherit the caller's deterministic ordering. Both collections are
 	// keyed by LABEL, so they are left unsized rather than hinted at the row
@@ -190,10 +222,21 @@ func buildLabelHubs(rosterRows []labelRosterRow, artistIDs []uint) (labelHubs, e
 			continue
 		}
 
-		if out.labelsByArtist[r.ArtistID] == nil {
-			out.labelsByArtist[r.ArtistID] = make(map[uint]struct{})
+		labels := out.labelsByArtist[r.ArtistID]
+		if labels == nil {
+			labels = make(map[uint]struct{})
+			out.labelsByArtist[r.ArtistID] = labels
 		}
-		out.labelsByArtist[r.ArtistID][r.LabelID] = struct{}{}
+		// Count each membership once. artist_labels' composite PK makes a
+		// repeated (artist, label) impossible today, but the roster read is
+		// explicitly swappable, and the obvious way to widen it in this schema
+		// (through release_labels) fans out per release. Without this, four
+		// rows for a 2-artist label would clear labelHubMinRoster and mint a
+		// hub that misrepresents a roster it also duplicates spokes for.
+		if _, counted := labels[r.LabelID]; counted {
+			continue
+		}
+		labels[r.LabelID] = struct{}{}
 
 		entry, ok := byLabel[r.LabelID]
 		if !ok {
