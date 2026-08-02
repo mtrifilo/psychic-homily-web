@@ -906,8 +906,6 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 // breaking change for every caller; frontend call sites are cleaned up in
 // PSY-1698. Do not add new callers that pass a meaningful value.
 func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
-	_ = timezone // see the deprecation note above
-
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -923,7 +921,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 
 	// Partition on each show's own venue-local calendar day. The fragment is
 	// empty for "all", and only then is the timezone lateral unnecessary.
-	dateCondition := showVenueLocalDateCondition(timeFilter)
+	dateCondition := shared.VenueLocalDateCondition(timeFilter)
 
 	var orderDirection string
 	if timeFilter == "past" {
@@ -944,7 +942,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 			Joins("JOIN shows ON show_artists.show_id = shows.id").
 			Where("show_artists.artist_id = ? AND shows.status = ?", artistID, catalogm.ShowStatusApproved)
 		if dateCondition != "" {
-			q = q.Joins(showVenueTZJoin).Where(dateCondition)
+			q = q.Joins(shared.VenueTZJoin).Where(dateCondition)
 		}
 		return q
 	}
@@ -1073,25 +1071,26 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 // (PSY-1352). Unlike GetShowsForArtist it skips the redundant existence check
 // (the caller already resolved the artist), the discarded total COUNT, and the
 // full-bill preload the card never renders — ~3 queries instead of ~9.
+//
+// It must agree with GetShowsForArtist about what "upcoming" means, or the card
+// names a show the artist page has already filed under Past, so both draw the
+// boundary through shared.VenueLocalDateCondition. That agreement is the reason
+// the timezone parameter below is inert: see GetShowsForArtist's note.
 func (s *ArtistService) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
+
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		loc = time.UTC
-	}
-	now := time.Now().In(loc)
-	startOfTodayUTC := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).UTC()
-
 	// Soonest upcoming approved show the artist is on, in one query (join +
 	// order + implicit LIMIT 1). No existence check, no COUNT, no bill preload.
 	var show catalogm.Show
-	err = s.db.
+	err := s.db.
 		Joins("JOIN show_artists ON show_artists.show_id = shows.id").
-		Where("show_artists.artist_id = ? AND shows.status = ? AND shows.event_date >= ?",
-			artistID, catalogm.ShowStatusApproved, startOfTodayUTC).
+		Joins(shared.VenueTZJoin).
+		Where("show_artists.artist_id = ? AND shows.status = ?",
+			artistID, catalogm.ShowStatusApproved).
+		Where(shared.VenueLocalDateCondition("upcoming")).
 		// Explicit shows.id tiebreak so a same-event_date tie is deterministic
 		// AND matches GetShowsForArtist (PSY-1352). (First would also append the
 		// pk, but stating it keeps the two paths' intent visibly identical.)

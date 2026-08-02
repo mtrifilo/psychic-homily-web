@@ -1035,9 +1035,13 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	return responses, total, nil
 }
 
-// GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue.
-// Only returns approved shows with event_date >= today in the specified timezone.
-// Deprecated: Use GetShowsForVenue with timeFilter="upcoming" instead.
+// GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue: those
+// whose venue-local calendar day has not passed. Only returns approved shows.
+//
+// Deprecated: use GetShowsForVenue with timeFilter="upcoming" instead. This has
+// no callers left in the repo and survives only on the VenueServiceInterface;
+// delete both when that interface is next touched. Its timezone parameter is
+// inert for the same reason GetShowsForVenue's is.
 func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*contracts.VenueShowResponse, int64, error) {
 	return s.GetShowsForVenue(venueID, timezone, limit, "upcoming")
 }
@@ -1057,8 +1061,6 @@ func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, l
 // breaking change for every caller; frontend call sites are cleaned up in
 // PSY-1698. Do not add new callers that pass a meaningful value.
 func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error) {
-	_ = timezone // see the deprecation note above
-
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -1074,7 +1076,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 
 	// Partition on each show's own venue-local calendar day. The fragment is
 	// empty for "all", and only then is the timezone lateral unnecessary.
-	dateCondition := showVenueLocalDateCondition(timeFilter)
+	dateCondition := shared.VenueLocalDateCondition(timeFilter)
 
 	var orderDirection string
 	if timeFilter == "past" {
@@ -1090,7 +1092,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 			Joins("JOIN shows ON show_venues.show_id = shows.id").
 			Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
 		if dateCondition != "" {
-			q = q.Joins(showVenueTZJoin).Where(dateCondition)
+			q = q.Joins(shared.VenueTZJoin).Where(dateCondition)
 		}
 		return q
 	}

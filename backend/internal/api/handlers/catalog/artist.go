@@ -259,8 +259,6 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 		artistID = artist.ID
 	}
 
-	// req.Timezone is forwarded unchanged and ignored by the service: the split
-	// is venue-local now. See GetShowsForArtist's deprecation note.
 	shows, total, err := h.artistService.GetShowsForArtist(artistID, req.Timezone, limit, timeFilter)
 	if err != nil {
 		var artistErr *apperrors.ArtistError

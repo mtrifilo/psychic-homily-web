@@ -211,8 +211,6 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 		venueID = venue.ID
 	}
 
-	// req.Timezone is forwarded unchanged and ignored by the service: the split
-	// is venue-local now. See GetShowsForVenue's deprecation note.
 	shows, total, err := h.venueService.GetShowsForVenue(venueID, req.Timezone, limit, timeFilter)
 	if err != nil {
 		var venueErr *apperrors.VenueError
