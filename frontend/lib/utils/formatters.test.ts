@@ -9,6 +9,7 @@ import {
   formatAdminTime,
   formatShortDate,
   formatTimestamp,
+  isShowTimezoneResolved,
 } from './formatters'
 
 // Mock timeUtils to control timezone behavior deterministically
@@ -21,6 +22,8 @@ vi.mock('./timeUtils', () => ({
     }
     return map[state.toUpperCase()] || 'America/Phoenix'
   },
+  hasTimezoneForState: (state?: string | null) =>
+    !!state && ['AZ', 'CA', 'NY'].includes(state.toUpperCase()),
   formatDateInTimezone: (dateStr: string, tz: string) =>
     new Date(dateStr).toLocaleString('en-US', {
       weekday: 'short',
@@ -128,6 +131,34 @@ describe('venue timezone preference (PSY-986)', () => {
 
   it('falls back to the state map when the venue timezone is malformed (no crash)', () => {
     expect(formatShowTime(boundaryUtc, 'AZ', 'Not/AZone')).toBe('10:30 PM')
+  })
+})
+
+describe('isShowTimezoneResolved', () => {
+  // The point of the predicate: tell a zone we know from the Arizona default
+  // that `resolveShowTimezone` hands back for everything it does not.
+  it('is true for a venue carrying its own valid timezone', () => {
+    expect(isShowTimezoneResolved(null, 'Asia/Tokyo')).toBe(true)
+  })
+
+  it('is true for a US state the map knows, with no venue timezone', () => {
+    expect(isShowTimezoneResolved('NY', null)).toBe(true)
+  })
+
+  it('is false for a region the map does not know', () => {
+    expect(isShowTimezoneResolved('Tokyo', null)).toBe(false)
+    expect(isShowTimezoneResolved(null, null)).toBe(false)
+  })
+
+  // A malformed zone is not knowledge, and `resolveShowTimezone` discards it
+  // too. Both must agree, or a caller would print a time from the fallback
+  // believing it had a real one.
+  it('is false for a malformed timezone with no usable state', () => {
+    expect(isShowTimezoneResolved('Tokyo', 'Not/AZone')).toBe(false)
+  })
+
+  it('accepts a known state even when the timezone is malformed', () => {
+    expect(isShowTimezoneResolved('AZ', 'Not/AZone')).toBe(true)
   })
 })
 

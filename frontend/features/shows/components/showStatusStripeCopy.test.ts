@@ -75,12 +75,14 @@ describe('buildShowStatusStripeSegments', () => {
       ).toEqual(['TONIGHT', 'DOORS 7PM', 'MUSIC 8PM', 'ENDS ~11PM (EST.)'])
     })
 
-    it('drops the estimated end with the doors time it is derived from', () => {
+    // The times line is one statement hanging off doors. Half of it is not a
+    // smaller version of it.
+    it('drops the whole times line when only a music time is announced', () => {
       expect(
         buildShowStatusStripeSegments(
           input({ lifecycle: 'today', musicAt: '2026-04-16T03:00:00Z' })
         )
-      ).toEqual(['TONIGHT', 'MUSIC 8PM'])
+      ).toEqual(['TONIGHT'])
     })
 
     it('is the bare word when nothing but the date is known', () => {
@@ -187,17 +189,76 @@ describe('buildShowStatusStripeSegments', () => {
         )
       ).toEqual(['TONIGHT'])
     })
+
+    // The band the stripe replaced was a destructive alert that named the
+    // cancellation with no date at all. A show we cannot date is still
+    // cancelled, and that is the one fact on this page a reader must not miss.
+    it('still announces a cancellation for an undateable show', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({ eventDate: null, isCancelled: true })
+        )
+      ).toEqual(['CANCELLED'])
+    })
   })
 
-  // A venue with no `timezone` falls back to the US state map, which defaults
-  // to Phoenix for anything it does not know. That fallback is wrong for
-  // non-US venues and is tracked separately; pinned here so a change to it is
-  // a deliberate one.
-  it('falls back to the state map when the venue has no timezone', () => {
-    expect(
-      buildShowStatusStripeSegments(
-        input({ timezone: null, state: 'NY', doorsAt: '2026-04-16T02:00:00Z' })
-      )
-    ).toEqual(['WED', 'APR 15', 'DOORS 10PM'])
+  describe('when the venue timezone is only a guess', () => {
+    // A US venue with no resolved `timezone` still has a state the map knows,
+    // so it keeps its clock.
+    it('uses the state map for a US venue with no timezone', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({ timezone: null, state: 'NY', doorsAt: '2026-04-16T02:00:00Z' })
+        )
+      ).toEqual(['WED', 'APR 15', 'DOORS 10PM'])
+    })
+
+    // Outside that map the zone silently becomes Arizona's, which is what put
+    // "DOORS 3AM" on a 7 PM Tokyo show. The band says the date and stops.
+    it('prints the date alone for a venue the state map does not know', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({
+            timezone: null,
+            state: 'Tokyo',
+            eventDate: '2026-04-16T10:00:00Z',
+            doorsAt: '2026-04-16T09:00:00Z',
+            musicAt: '2026-04-16T10:00:00Z',
+          })
+        )
+      ).toEqual(['THU', 'APR 16'])
+    })
+
+    // Including the same-day claim: TONIGHT on a guessed clock stayed true for
+    // most of a day after the room emptied.
+    it('does not say TONIGHT on a guessed clock', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({
+            timezone: null,
+            state: null,
+            lifecycle: 'today',
+            eventDate: '2026-04-16T10:00:00Z',
+            doorsAt: '2026-04-16T09:00:00Z',
+          })
+        )
+      ).toEqual(['THU', 'APR 16'])
+    })
+
+    // A resolved venue timezone is enough on its own; the state is only ever
+    // the fallback.
+    it('keeps the clock when the venue carries its own timezone', () => {
+      expect(
+        buildShowStatusStripeSegments(
+          input({
+            timezone: 'Asia/Tokyo',
+            state: 'Tokyo',
+            lifecycle: 'today',
+            eventDate: '2026-04-16T10:00:00Z',
+            doorsAt: '2026-04-16T09:00:00Z',
+          })
+        )
+      ).toEqual(['TONIGHT', 'DOORS 6PM', 'ENDS ~10PM (EST.)'])
+    })
   })
 })

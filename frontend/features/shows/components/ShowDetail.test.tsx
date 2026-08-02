@@ -425,11 +425,13 @@ describe('ShowDetail', () => {
       expect(screen.getByTestId('report-button')).toBeInTheDocument()
     })
 
-    // Tags and attribution moved out of the header and into the page footer
-    // with the mock's module order: above the fold belongs to the bill.
-    it('renders EntityTagList in the footer, not the header slot', () => {
+    // Tags and attribution moved out of the header and into the provenance
+    // footer with the mock's module order: above the fold belongs to the bill.
+    // Asserted against the footer itself, not merely "somewhere in the content
+    // slot", so moving them back above the embeds fails here.
+    it('renders EntityTagList in the provenance footer, not the header', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByTestId('content-slot')).toContainElement(
+      expect(screen.getByTestId('show-provenance-footer')).toContainElement(
         screen.getByTestId('entity-tag-list')
       )
       expect(screen.getByTestId('header-slot')).not.toContainElement(
@@ -437,12 +439,21 @@ describe('ShowDetail', () => {
       )
     })
 
+    // Position is the whole design claim: one band, at the very top, in every
+    // state, so nothing below it moves. Containment alone would still pass with
+    // the band buried under the comment thread.
     it('renders the status stripe above the layout with venue-local copy', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      const stripe = screen.getByTestId('show-status-stripe')
       // 2026-04-15T20:00:00Z is 1 PM Wed Apr 15 in Phoenix.
-      expect(screen.getByTestId('show-status-stripe')).toHaveTextContent(
-        /WED.*APR 15/
-      )
+      expect(stripe).toHaveTextContent(/WED.*APR 15/)
+
+      const layout = screen.getByTestId('entity-layout')
+      expect(layout).not.toContainElement(stripe)
+      expect(
+        stripe.compareDocumentPosition(layout) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
     })
 
     it('renders EntityCollections, FieldNotes, and CommentThread as content siblings', () => {
@@ -559,9 +570,9 @@ describe('ShowDetail', () => {
     // PSY-563 put AttributionLine in the header slot; the show page moves it
     // to the provenance footer with the tags. The other five detail pages are
     // unchanged.
-    it('renders AttributionLine in the footer', () => {
+    it('renders AttributionLine in the provenance footer', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByTestId('content-slot')).toContainElement(
+      expect(screen.getByTestId('show-provenance-footer')).toContainElement(
         screen.getByTestId('attribution-line')
       )
     })

@@ -22,6 +22,15 @@ vi.mock('next/navigation', () => ({
 // metadata + JSON-LD + notFound wiring, not ShowDetail.
 vi.mock('@/features/shows', () => ({
   ShowDetail: (): null => null,
+  // The page also reads the show's timezone inputs to compute the status
+  // stripe's lifecycle. Stubbed rather than omitted so the first test that
+  // renders the page's dynamic subtree fails on its own terms instead of on a
+  // missing mock export.
+  showTimingInput: (show: { event_date: string }) => ({
+    eventDate: show.event_date,
+    state: null,
+    timezone: null,
+  }),
 }))
 
 import ShowPage, { generateMetadata } from './page'

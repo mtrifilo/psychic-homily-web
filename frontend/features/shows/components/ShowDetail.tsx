@@ -268,9 +268,21 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
 
         {/* Tags and provenance footer. Both were in the header slot, above the
             fold, competing with the bill for the first thing a reader sees.
-            The mock puts them last, where a newspaper puts its byline: still
-            reachable, no longer the headline. */}
-        <footer className="mt-8 border-t border-border/60 pt-4">
+            The mock puts them after the page's own modules, where a newspaper
+            puts its byline: still reachable, no longer the headline. History
+            and Discussion still render below this, outside the layout, exactly
+            as they do on every other detail page.
+
+            This makes the show page the ONLY one of the six detail pages with
+            them down here; artist / venue / release / label / festival still
+            carry both in the header. That asymmetry is the show mock, not an
+            oversight, so a consistency sweep should move the other five rather
+            than move this one back.
+
+            A `div`, not a `footer`: there is no `article` or `section` between
+            here and `body`, so a `footer` element would publish a second
+            `contentinfo` landmark alongside the site footer. */}
+        <div className="mt-8 border-t border-border/60 pt-4" data-testid="show-provenance-footer">
           <EntityTagList
             entityType="show"
             entityId={show.id}
@@ -280,7 +292,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
               artist/venue/release/label/festival detail pages. Renders nothing
               until at least one revision exists. */}
           <AttributionLine entityType="show" entityId={show.id} />
-        </footer>
+        </div>
       </EntityDetailLayout>
 
       {/* History + Discussion — rendered as siblings below the layout. The

@@ -121,8 +121,10 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
  * reader's own clock.
  *
  * Its own component because of `await connection()`: under `cacheComponents` a
- * prerender may not read the current time, and this is the only part of the
- * page that has to. Isolating it costs nothing today, since this route has no
+ * prerender may not read the current time. (The JSON-LD offer gate below reads
+ * it too, through `hasShowStarted`'s default `now`; that call sits in the page
+ * body, which never executes during the fallback-shell prerender because it
+ * awaits `params` first.) Isolating it costs nothing today, since this route has no
  * `generateStaticParams` and its whole body already arrives in the postponed
  * dynamic resume (measured, see the note in `next.config.ts`). It is the shape
  * that stays correct if per-slug prerendering is ever added, and it keeps the

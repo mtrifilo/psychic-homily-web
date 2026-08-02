@@ -41,8 +41,38 @@ describe('ShowStatusStripe', () => {
       />
     )
     expect(screen.getByTestId('show-status-stripe').textContent).toBe(
-      'TONIGHT·DOORS 7PM·ENDS ~11PM (EST.)'
+      'TONIGHT· DOORS 7PM· ENDS ~11PM (EST.)'
     )
+  })
+
+  // The middot is decorative and hidden from assistive tech, so the spacing
+  // around it is the only thing keeping the segments from being announced as
+  // one run-on word ("TONIGHTDOORS 7PM").
+  it('leaves a word boundary between segments for a screen reader', () => {
+    render(
+      <ShowStatusStripe
+        show={makeShow({ doors_at: '2026-04-16T02:00:00Z' })}
+        lifecycle="today"
+      />
+    )
+    const stripe = screen.getByTestId('show-status-stripe')
+    const spoken = Array.from(stripe.querySelectorAll('[aria-hidden="true"]'))
+      .reduce(
+        (text, hidden) => text.replace(hidden.textContent ?? '', ''),
+        stripe.textContent ?? ''
+      )
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(spoken).toBe('TONIGHT DOORS 7PM ENDS ~11PM (EST.)')
+  })
+
+  // An admin marking a show cancelled rewrites this band in place, with no
+  // navigation, so assistive tech needs it to be a live region.
+  it('is a polite live region so an in-place state change is announced', () => {
+    render(<ShowStatusStripe show={makeShow()} lifecycle="upcoming" />)
+    const stripe = screen.getByTestId('show-status-stripe')
+    expect(stripe).toHaveAttribute('role', 'status')
+    expect(stripe).toHaveAttribute('aria-live', 'polite')
   })
 
   it('renders nothing when the show has no readable date', () => {
@@ -52,14 +82,18 @@ describe('ShowStatusStripe', () => {
     expect(screen.queryByTestId('show-status-stripe')).not.toBeInTheDocument()
   })
 
-  // The band is one row of type in every state, so nothing below it moves when
-  // a show crosses from upcoming to tonight to past.
-  it('keeps one band, one position, in every state', () => {
+  // The band is one row of type in every state, reserving the same height, so
+  // nothing below it moves when a show crosses from upcoming to tonight to
+  // past. `min-h-11` is the mechanism; assert it rather than the rendered
+  // height, which jsdom does not compute.
+  it('reserves the same height in every state', () => {
     for (const lifecycle of ['upcoming', 'today', 'past'] as const) {
       const { unmount } = render(
         <ShowStatusStripe show={makeShow()} lifecycle={lifecycle} />
       )
-      expect(screen.getAllByTestId('show-status-stripe')).toHaveLength(1)
+      const bands = screen.getAllByTestId('show-status-stripe')
+      expect(bands).toHaveLength(1)
+      expect(bands[0].firstElementChild).toHaveClass('min-h-11')
       unmount()
     }
   })

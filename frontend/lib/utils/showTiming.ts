@@ -86,6 +86,8 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
   return Number.isFinite(at) ? at : null
 }
 
+export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
+
 /**
  * Where a show sits on the venue's own calendar: yesterday or earlier, today,
  * or a later day.
@@ -112,9 +114,12 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
  * caller where "past" only meant "cache it longer". A surface that renders
  * words must check the date itself rather than let that default put PAST SHOW
  * over a show whose date nobody could read.
+ *
+ * `today` means the venue's calendar day, not the evening: a 2 PM matinee is
+ * `today` from midnight, and a surface whose word for this state is TONIGHT
+ * will say TONIGHT about it. That is a copy question for the surface, which
+ * has the show's own doors time to answer it with.
  */
-export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
-
 export function getShowLifecycleState(
   show: ShowTimingInput,
   now: Date = new Date()

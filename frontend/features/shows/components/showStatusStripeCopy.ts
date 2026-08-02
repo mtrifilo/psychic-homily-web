@@ -1,4 +1,7 @@
-import { resolveShowTimezone } from '@/lib/utils/formatters'
+import {
+  isShowTimezoneResolved,
+  resolveShowTimezone,
+} from '@/lib/utils/formatters'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 
@@ -120,14 +123,15 @@ function formatStripeFullDate(instant: number, timeZone: string): string {
 /**
  * The stripe's segments, in order, to be joined by a middot.
  *
- * Returns `[]` when the show has no readable date, and the band renders
- * nothing at all rather than an empty stamp. Callers must not substitute a
- * default: inventing a date for a show whose date we cannot read is the one
- * outcome worse than saying nothing.
+ * Returns `[]` when the show has no readable date and is not cancelled, and
+ * the band renders nothing at all rather than an empty stamp. Callers must not
+ * substitute a default: inventing a date for a show whose date we cannot read
+ * is the one outcome worse than saying nothing.
  *
  * The state order is a precedence, not a switch: a cancelled show is cancelled
- * whether it was tonight or last year, so that test comes first. Only states
- * the payload can actually support are here. `shows.status`
+ * whether it was tonight or last year, and whether or not its date parses, so
+ * that test comes first. Only states the payload can actually support are
+ * here. `shows.status`
  * (pending/approved/rejected/private) is a MODERATION field, not a lifecycle
  * one, and postponed/moved have no column to read. Do not infer them.
  */
@@ -135,15 +139,32 @@ export function buildShowStatusStripeSegments(
   input: ShowStatusStripeInput
 ): string[] {
   const startedAt = instantMs(input.eventDate)
+  const timeZone = resolveShowTimezone(input.state, input.timezone)
+
+  // Before the date guard, deliberately. A cancellation is the one thing on
+  // this page a reader must not miss, and it is knowable without a readable
+  // date; the band the cancellation replaced said so with no date at all.
+  if (input.isCancelled) {
+    return startedAt === null
+      ? ['CANCELLED']
+      : ['CANCELLED', formatStripeDayMonth(startedAt, timeZone)]
+  }
+
   if (startedAt === null) return []
 
-  const timeZone = resolveShowTimezone(input.state, input.timezone)
-  const doorsAt = instantMs(input.doorsAt)
-  const musicAt = instantMs(input.musicAt)
+  // A venue with no resolved `timezone` outside the US state map is judged on
+  // Arizona's clock, which can be many hours and a calendar day out. This band
+  // then says the two things that fallback is least able to support: an hour,
+  // and the word TONIGHT. So when the zone is a guess, the band prints the date
+  // and stops. The date can still be a day off at the edges, but it is one
+  // claim instead of four, and it never puts DOORS 3AM on a 7 PM Tokyo show.
+  //
+  // This does NOT fix the fallback, which is tracked separately. It declines to
+  // build on it.
+  const zoneIsKnown = isShowTimezoneResolved(input.state, input.timezone)
 
-  if (input.isCancelled) {
-    return ['CANCELLED', formatStripeDayMonth(startedAt, timeZone)]
-  }
+  const doorsAt = zoneIsKnown ? instantMs(input.doorsAt) : null
+  const musicAt = zoneIsKnown ? instantMs(input.musicAt) : null
 
   if (input.lifecycle === 'past') {
     // The mock's tail ("SETLIST + RECORDINGS BELOW") is deliberately absent:
@@ -152,41 +173,59 @@ export function buildShowStatusStripeSegments(
     return ['PAST SHOW', formatStripeFullDate(startedAt, timeZone)]
   }
 
-  const doors =
-    doorsAt === null ? [] : [`DOORS ${formatStripeTime(doorsAt, timeZone)}`]
+  // The whole times line hangs off `doors_at`. A show with only a music time
+  // announced degrades to the date alone rather than half a schedule: the
+  // announced-times line is one statement, and doors is the part of it a
+  // reader plans around. Surfacing a lone music time is a copy decision that
+  // has not been made.
+  if (doorsAt === null) {
+    // TONIGHT is a same-day claim, so it needs the same-day clock to be real.
+    return input.lifecycle === 'today' && zoneIsKnown
+      ? ['TONIGHT']
+      : upcomingDateSegments(startedAt, input)
+  }
+
+  const doors = `DOORS ${formatStripeTime(doorsAt, timeZone)}`
 
   if (input.lifecycle === 'today') {
     const music =
       musicAt === null ? [] : [`MUSIC ${formatStripeTime(musicAt, timeZone)}`]
-    const ends =
-      doorsAt === null
-        ? []
-        : // Added to the INSTANT, then formatted in the venue's zone, so a show
-          // running across a DST jump ends at the wall-clock time the venue
-          // will actually read.
-          [
-            `ENDS ~${formatStripeTime(
-              doorsAt + ESTIMATED_SHOW_LENGTH_HOURS * 60 * 60 * 1000,
-              timeZone
-            )} (EST.)`,
-          ]
-    return ['TONIGHT', ...doors, ...music, ...ends]
+    // Added to the INSTANT, then formatted in the venue's zone, so a show
+    // running across a DST jump ends at the wall-clock time the venue will
+    // actually read. Guarded because the sum, unlike every other instant here,
+    // has not been through `instantMs`: a `doors_at` near the maximum time
+    // value would overflow it and throw out of `Intl`.
+    const endsAt = doorsAt + ESTIMATED_SHOW_LENGTH_HOURS * 60 * 60 * 1000
+    const ends = Number.isFinite(new Date(endsAt).getTime())
+      ? [`ENDS ~${formatStripeTime(endsAt, timeZone)} (EST.)`]
+      : []
+    return ['TONIGHT', doors, ...music, ...ends]
   }
 
   // Plain upcoming. No countdown and no "UPCOMING" label: the weekday and date
-  // in the same register as TONIGHT are the whole statement. Music time is
-  // dropped here on purpose: the doors time is the one a reader plans around
-  // days out, and the full call belongs to the day itself.
-  //
-  // The weekday and date come from `formatShowDateBadge`, the same helper the
-  // show CARD uses, so a listing row and the page it links to cannot render
-  // the same date two ways.
-  // Handed the instant this function already validated, not the raw field, so
-  // the shared helper is never the one deciding what an unparseable date means.
+  // in the same register as TONIGHT are the whole statement. The music time is
+  // dropped days out on purpose; the full call belongs to the day itself.
+  return [...upcomingDateSegments(startedAt, input), doors]
+}
+
+/**
+ * "SAT", "AUG 15": the plain-upcoming date, and the fallback whenever a state
+ * has nothing more to say.
+ *
+ * Both parts come from `formatShowDateBadge`, the helper the show CARD already
+ * uses, so a listing row and the page it links to cannot render one date two
+ * ways. It is handed the instant this module already validated rather than the
+ * raw field, so the shared helper is never the one deciding what an
+ * unparseable date means.
+ */
+function upcomingDateSegments(
+  startedAt: number,
+  input: ShowStatusStripeInput
+): string[] {
   const { dayOfWeek, monthDay } = formatShowDateBadge(
     new Date(startedAt).toISOString(),
     input.state,
     input.timezone
   )
-  return [dayOfWeek, monthDay, ...doors]
+  return [dayOfWeek, monthDay]
 }

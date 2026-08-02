@@ -62,6 +62,47 @@ function supportLineText(): string {
   return marker.parentElement?.textContent ?? ''
 }
 
+describe('ShowHeader layout', () => {
+  // The flyer column is the left half of the mock's grid. It holds itself open
+  // before the flyer wave fills it, so the two-column reading order does not
+  // arrive later as a reflow.
+  it('reserves the flyer column, hidden on small screens', () => {
+    render(<ShowHeader show={makeShow()} />)
+    const plate = screen.getByTestId('show-flyer-plate')
+    expect(plate).toHaveClass('hidden', 'md:block')
+    // Decorative: an empty plate has nothing to announce.
+    expect(plate).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  // The venue is where the show happens, so its state decides the calendar the
+  // date is read on. The status stripe resolves the zone the same way; a header
+  // that used the denormalized show row could print a different day inches
+  // away from the band.
+  it('dates the show on the venue calendar, not the show row', () => {
+    const show = makeShow({
+      // 12:30 AM Aug 15 in Chicago, still 10:30 PM Aug 14 in Phoenix. The
+      // venue has no resolved timezone, so the state is what decides.
+      event_date: '2026-08-15T05:30:00Z',
+      state: 'AZ',
+      venues: [
+        {
+          id: 1,
+          slug: 'the-venue',
+          name: 'The Venue',
+          city: 'Chicago',
+          state: 'IL',
+          verified: true,
+        },
+      ],
+    })
+
+    render(<ShowHeader show={show} />)
+
+    expect(screen.getByText(/Sat, Aug 15/)).toBeInTheDocument()
+    expect(screen.queryByText(/Fri, Aug 14/)).not.toBeInTheDocument()
+  })
+})
+
 describe('ShowHeader bill rendering', () => {
   describe('bill order', () => {
     it('renders support artists in position order, not API array order', () => {

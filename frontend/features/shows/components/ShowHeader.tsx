@@ -5,6 +5,7 @@ import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
+import { showTimingInput } from '../utils'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 /**
@@ -84,6 +85,10 @@ interface ShowHeaderProps {
  */
 export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const venue = show.venues[0]
+  // The same zone the status stripe above this block is judged on. They render
+  // a few hundred pixels apart, so a page that resolved the venue's calendar
+  // two ways could print two different dates in one screenshot.
+  const timing = showTimingInput(show)
   // Sort the whole bill first so every downstream slice — including the
   // `artists[0]` / `artists.slice(1)` fallback below — is position-ordered.
   const artists = [...show.artists].sort(byBillPosition)
@@ -124,7 +129,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
         {/* SLOT: header block. Date, bill, sold-out flag. */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-lg font-bold text-primary">
-            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
+            {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>
           {show.is_sold_out && (
             <Badge
@@ -231,13 +236,17 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
         {/* SLOT: ticket and action block. The when/what-it-costs line and
             every verb a reader can act on, together in one band under the
             venue, as the mock has them. The action cluster used to float in a
-            right-hand column of the header; it was moved, not rewired, so the
-            calendar/save coupling it carries is untouched. */}
+            right-hand column of the header and was moved, not rewired.
+
+            Two components in here share state: `ShowAddToCalendar` in the meta
+            row below saves the show as a side effect and dedupes against the
+            `SaveButton` inside `actions` through the shared query key. They now
+            render three rows apart. Move either one and check the other. */}
         <div className="mt-4 border-t border-border/60 pt-4">
           {/* The calendar affordance sits here with the when-info (event-page
               convention), not in the social action cluster. */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span>{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}</span>
+            <span>{formatShowTime(show.event_date, timing.state, timing.timezone)}</span>
             {show.price != null && <span>{formatPrice(show.price)}</span>}
             {show.age_requirement && <span>{show.age_requirement}</span>}
             <ShowAddToCalendar show={show} />
@@ -268,9 +277,10 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
         </div>
 
         {/* SLOT: attendance. Going / interested / "I was there" counts land
-            here, between the actions and the fold. Deliberately empty: the
-            counts are designed but not built, and reserving visible blank
-            space for them would read as a broken module. */}
+            here, under the actions and above the description. Deliberately
+            empty: the counts are designed but not built, and reserving visible
+            blank space for them would read as a broken module. Nothing enforces
+            this position, so treat it as the intent it is, not a guarantee. */}
 
         {/* Description */}
         {show.description && (

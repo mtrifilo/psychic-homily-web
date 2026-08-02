@@ -30,7 +30,10 @@ interface ShowStatusStripeProps {
  * `min-h-11` rather than a hard height so the longest state (TONIGHT with
  * doors, music and the estimated end) can wrap on a narrow screen instead of
  * clipping. The band is server-rendered from server-computed state, so its
- * height is settled before hydration either way.
+ * height is settled before hydration. That rests on the route seeding the show
+ * into the query cache (`prefetchEntity`); without that seed `ShowDetail`
+ * would paint its spinner first and the band would arrive at hydration and
+ * shove the page.
  */
 export function ShowStatusStripe({ show, lifecycle }: ShowStatusStripeProps) {
   const segments = buildShowStatusStripeSegments({
@@ -45,6 +48,13 @@ export function ShowStatusStripe({ show, lifecycle }: ShowStatusStripeProps) {
 
   return (
     <div
+      // A live region because this text changes under a reader: an admin
+      // marking a show cancelled swaps the band's whole statement without
+      // navigating, and the destructive alert this replaced announced itself
+      // (`role="alert"`) when it appeared. Polite, not assertive: it is a
+      // status line, not an interruption.
+      role="status"
+      aria-live="polite"
       data-testid="show-status-stripe"
       className="w-full bg-foreground text-background"
     >
@@ -53,13 +63,18 @@ export function ShowStatusStripe({ show, lifecycle }: ShowStatusStripeProps) {
           // The separator is bonded to the segment that FOLLOWS it rather than
           // being a sibling, so a wrap can never strand a middot at the end of
           // a line with nothing after it.
+          //
+          // The middot is decorative and hidden, which is why the leading space
+          // is a real character in the text: without it the accessible name
+          // runs the segments together as "TONIGHTDOORS 7PM". The space is a
+          // whitespace-only child of a flex container, so it costs no layout.
           <span key={segment} className="flex items-center gap-x-3">
             {index > 0 && (
               <span aria-hidden="true" className="text-background/50">
                 &middot;
               </span>
             )}
-            {segment}
+            {index > 0 ? ` ${segment}` : segment}
           </span>
         ))}
       </EntityDetailContainer>
