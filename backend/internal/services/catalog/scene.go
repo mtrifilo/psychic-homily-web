@@ -1335,25 +1335,27 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	}
 
 	// 5a. Collapse label rosters into hub nodes (PSY-1530). A label with
-	// sceneLabelHubMinRoster+ in-scene artists arrives from
+	// labelHubMinRoster+ in-scene artists arrives from
 	// DeriveSharedLabels as a complete C(n,2) clique; one hub plus n
-	// membership spokes carries the same fact in a drawable shape. Hub
+	// membership spokes carries the same fact in a drawable shape. The builder
+	// is scope-agnostic, so this is the scene scope of it: the in-scene roster
+	// is both the artist set and the bound on the membership read. Hub
 	// failure is non-fatal: the scene graph still renders as pairwise edges
 	// (today's behavior) rather than 500ing on a decorative layer.
-	var labelHubs sceneLabelHubs
+	var hubs labelHubs
 	// Hubs are a projection of shared_label, so a filter that excludes that
 	// type must exclude the hubs too — otherwise a caller who asked not to see
 	// label edges still gets hubs whose spokes they excluded.
 	if !noEdgesByFilter && slices.Contains(resolvedTypes, catalogm.RelationshipTypeSharedLabel) {
-		rosterRows, err := querySceneLabelRosters(s.db, artistIDs)
+		rosterRows, err := queryLabelRostersForArtists(s.db, artistIDs)
 		if err != nil {
 			slog.Error("scene graph: label roster query failed; falling back to pairwise label edges",
 				"scene", resp.Scene.Slug, "error", err)
-		} else if hubs, err := buildSceneLabelHubs(rosterRows, artistIDs); err != nil {
+		} else if built, err := buildLabelHubs(rosterRows, artistIDs); err != nil {
 			slog.Error("scene graph: label hubs skipped",
 				"scene", resp.Scene.Slug, "error", err)
 		} else {
-			labelHubs = hubs
+			hubs = built
 		}
 	}
 
@@ -1363,7 +1365,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	connected := make(map[uint]bool, len(rows))
 	for _, l := range links {
 		if l.RelationshipType == catalogm.RelationshipTypeSharedLabel &&
-			labelHubs.replacesSharedLabelEdge(l.SourceArtistID, l.TargetArtistID) {
+			hubs.replacesSharedLabelEdge(l.SourceArtistID, l.TargetArtistID) {
 			continue
 		}
 
@@ -1391,7 +1393,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 	// 6a. Append the membership spokes. A roster artist reached only by a spoke
 	// is connected — it anchors to its hub, so it must not also land on the
 	// not-yet-connected shelf.
-	for _, spoke := range labelHubs.Spokes {
+	for _, spoke := range hubs.Spokes {
 		resp.Links = append(resp.Links, spoke)
 		connected[spoke.TargetID] = true
 	}
@@ -1428,8 +1430,8 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string, cluster
 
 	// 7a. Append label hub nodes after the artists so the artist ordering the
 	// existing consumers rely on is untouched.
-	resp.Nodes = append(resp.Nodes, labelHubs.Nodes...)
-	resp.Scene.LabelCount = len(labelHubs.Nodes)
+	resp.Nodes = append(resp.Nodes, hubs.Nodes...)
+	resp.Scene.LabelCount = len(hubs.Nodes)
 
 	return resp, nil
 }
