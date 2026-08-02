@@ -1116,14 +1116,38 @@ func (h *RadioHandler) AdminDeleteRadioStationHandler(ctx context.Context, req *
 const maxRadioShowImageURLLength = 500
 
 // validateRadioShowImageURL applies the length cap and then the shared
-// scheme + SSRF host guard to a radio show's optional image_url, so the create
-// and update paths cannot drift apart on it (PSY-1692).
+// scheme + SSRF host guard to a radio show's optional image_url, so the two
+// admin writers judge a value by the same rules.
+//
+// WHEN they run it differs on purpose: create validates every time, update only
+// when the request changes the value (see radioShowStoredImageURLDiffers).
 func validateRadioShowImageURL(ctx context.Context, imageURL *string) error {
 	if imageURL != nil && len(*imageURL) > maxRadioShowImageURLLength {
 		return huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Image URL must be %d characters or fewer", maxRadioShowImageURLLength))
 	}
 	return shared.ValidateImageURL(ctx, imageURL)
+}
+
+// radioShowStoredImageURLDiffers READS the show and reports whether the
+// submitted image_url differs from the one already in the column. True is the
+// answer that makes the caller validate, so every uncertainty maps to true: no
+// stored value, no such show, a failed read.
+//
+// The comparison is byte-exact, and that is the property the skip rests on.
+// Byte-equal means the validator would receive the exact same input it received
+// when this value was last written, so "equal but validates differently" cannot
+// happen. Normalizing first (case-folding the host, dropping a trailing dot,
+// decoding percent-escapes) would break that: it admits pairs that a resolver
+// treats alike but that are not the same stored bytes, and every pair in that
+// wider set skips the guard. Byte-exact can only err toward validating too
+// often, which costs one DNS lookup on a rare admin write.
+func (h *RadioHandler) radioShowStoredImageURLDiffers(showID uint, requested string) bool {
+	show, err := h.showReader.GetShow(showID)
+	if err != nil || show == nil || show.ImageURL == nil {
+		return true
+	}
+	return *show.ImageURL != requested
 }
 
 // ============================================================================
@@ -1264,9 +1288,34 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 
 	user := middleware.GetUserFromContext(ctx)
 
-	// PSY-1692: same guard as the create path; see the note there.
-	if err := validateRadioShowImageURL(ctx, req.Body.ImageURL); err != nil {
-		return nil, err
+	// The same guard the create path runs, but only when this request actually
+	// CHANGES image_url. The admin form re-sends the stored value on every save,
+	// so validating unconditionally means one stored value that no longer clears
+	// the guard - written before the guard existed, or on a host since re-pointed
+	// inward - rejects EVERY later edit of that show, including title-only ones,
+	// naming a field the admin never meant to touch. The only way out is to
+	// overwrite the image with a good URL, which nothing in the error suggests.
+	// The doors/music order check on the show update path is gated for the same
+	// reason: a stored bad value must never reject unrelated edits.
+	//
+	// A changed value validates exactly as it did before, cancellation posture
+	// included: urlguard detaches from the caller's context itself, so a
+	// cancelled request still resolves.
+	//
+	// Two things this does NOT do. It does not clean up stored values: the radio
+	// importer writes provider-supplied image_url with no guard at all, so
+	// unclassified values keep arriving by that door, and closing it is the real
+	// fix. And it does not rescue a stored value with surrounding whitespace,
+	// because the form trims before sending, so that spelling never round-trips
+	// byte-exact and the row stays locked.
+	//
+	// The sibling admin updaters (show, venue, label) still validate image_url
+	// unconditionally and carry the same latent lockout. Radio diverging first is
+	// deliberate: this is the path the failure was found on.
+	if req.Body.ImageURL != nil && h.radioShowStoredImageURLDiffers(req.ShowID, *req.Body.ImageURL) {
+		if err := validateRadioShowImageURL(ctx, req.Body.ImageURL); err != nil {
+			return nil, err
+		}
 	}
 
 	serviceReq := &contracts.UpdateRadioShowRequest{
