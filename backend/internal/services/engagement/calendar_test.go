@@ -253,6 +253,48 @@ func TestGenerateICSFeed_FallbackToID(t *testing.T) {
 	assert.Contains(t, string(data), "https://psychichomily.com/shows/42")
 }
 
+// The personal feed shares its per-event assembly with the per-show download,
+// so it inherits that surface's naming rule and STATUS. Asserted here and not
+// only on the helper, because the three surfaces emit the same UID per show:
+// if this feed ever stopped agreeing with the others on an event's name, a
+// subscriber to two of them would watch the title flip.
+func TestGenerateICSFeed_NamesUntitledShowAfterBillAndConfirmsStatus(t *testing.T) {
+	show := func(mutate func(*contracts.ShowResponse)) []*contracts.SavedShowResponse {
+		s := contracts.ShowResponse{
+			ID:        9,
+			Slug:      "untitled-show",
+			EventDate: time.Now().Add(24 * time.Hour),
+			Status:    "approved",
+			Venues:    []contracts.VenueResponse{{ID: 1, Name: "The Rebel Lounge", City: "Phoenix", State: "AZ"}},
+			Artists:   []contracts.ArtistResponse{{ID: 1, Name: "AJJ"}, {ID: 2, Name: "Calexico"}},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		if mutate != nil {
+			mutate(&s)
+		}
+		return []*contracts.SavedShowResponse{{ShowResponse: s}}
+	}
+	render := func(shows []*contracts.SavedShowResponse) string {
+		svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: &mockSavedShowSvc{shows: shows, total: 1}}
+		data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+		require.NoError(t, err)
+		return string(data)
+	}
+
+	titled := render(show(func(s *contracts.ShowResponse) { s.Title = "Desert Doom Night" }))
+	assert.Contains(t, unfoldICS(titled), "SUMMARY:Desert Doom Night")
+	assert.Contains(t, unfoldICS(titled), "STATUS:CONFIRMED",
+		"an uncancelled event carries the machine-readable confirmed status")
+
+	untitled := render(show(nil))
+	assert.Contains(t, unfoldICS(untitled), "SUMMARY:AJJ\\, Calexico",
+		"an untitled show is named after its bill, as on the other calendar surfaces")
+
+	bare := render(show(func(s *contracts.ShowResponse) { s.Artists = nil }))
+	assert.Contains(t, unfoldICS(bare), "SUMMARY:Show at The Rebel Lounge")
+}
+
 // icsContentLines unfolds the feed and splits it into RFC 5545 content lines,
 // so a test can count REAL properties instead of substring-matching wire bytes.
 // Folding (CRLF + one space/tab) can split a property name away from its value,
@@ -309,8 +351,12 @@ func TestGenerateICSFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T)
 	mockShows := []*contracts.SavedShowResponse{
 		{
 			ShowResponse: contracts.ShowResponse{
-				ID:        7,
-				Slug:      "hostile-show",
+				ID: 7,
+				// URL is the one property golang-ical does not escape at all: it
+				// types the value as a URI and writes it verbatim. Slugs are
+				// server-generated today and cannot carry a control character,
+				// so this pins the chokepoint rather than a live hole.
+				Slug:      "hostile-show\r\nX-SLUG-FORGED:yes",
 				Title:     "Gig\r\nSUMMARY:Hijacked\r\nDTSTART:19700101T000000Z",
 				EventDate: time.Now().Add(24 * time.Hour),
 				Status:    "approved",
@@ -342,12 +388,6 @@ func TestGenerateICSFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T)
 	require.NoError(t, err)
 	out := string(data)
 
-	// No bare CR may survive outside line endings. Written this way rather than
-	// as a plain NotContains so the assertion holds whichever line ending the
-	// serializer is configured with.
-	assert.NotContains(t, strings.ReplaceAll(out, "\r\n", ""), "\r",
-		"no raw carriage returns may survive into the payload")
-
 	parsed, err := ics.ParseCalendar(strings.NewReader(out))
 	require.NoError(t, err, "hostile text must still produce a parseable calendar")
 	require.Len(t, parsed.Events(), 1)
@@ -359,13 +399,24 @@ func TestGenerateICSFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T)
 	all := icsContentLines(out)
 	eventLines := icsEventLines(t, out)
 
+	// No CR may survive INSIDE a content line. Asserted per line rather than
+	// over the whole payload so it stays strict if the serializer is ever
+	// switched to the RFC's CRLF line endings: a whole-payload check would have
+	// to strip "\r\n" first, and that strip would also swallow an injected CR
+	// that happened to be followed by a LF.
+	for _, line := range all {
+		assert.NotContains(t, line, "\r", "no raw carriage return may survive inside a content line")
+	}
+
 	assert.Equal(t, 1, countICSProperty(eventLines, "SUMMARY"), "injected text must not add a second SUMMARY")
 	assert.Equal(t, 1, countICSProperty(eventLines, "DTSTART"), "injected text must not add a second DTSTART")
 	assert.Equal(t, 1, countICSProperty(eventLines, "LOCATION"))
 	assert.Equal(t, 1, countICSProperty(eventLines, "DESCRIPTION"))
+	assert.Equal(t, 1, countICSProperty(eventLines, "URL"), "injected text must not add a second URL")
 	assert.Equal(t, 0, countICSProperty(all, "X-FORGED-VENUE"), "a venue name must not add a property")
 	assert.Equal(t, 0, countICSProperty(all, "X-FORGED-ADDRESS"), "a venue address must not add a property")
 	assert.Equal(t, 0, countICSProperty(all, "X-FORGED-AGES"), "an age requirement must not add a property")
+	assert.Equal(t, 0, countICSProperty(all, "X-SLUG-FORGED"), "a slug must not add a property through the unescaped URL value")
 	assert.Equal(t, 0, countICSProperty(all, "ATTENDEE"), "an artist name must not add an attendee")
 	assert.Equal(t, 0, countICSProperty(all, "ORGANIZER"), "a bare CR in an artist name must not add an organizer")
 
@@ -383,18 +434,20 @@ func TestGenerateICSFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T)
 	assert.Nil(t, event.GetProperty(ics.ComponentPropertyOrganizer))
 }
 
-// U+2028 / U+2029 are line separators to a JavaScript parser but ordinary
-// multi-byte characters to an iCalendar one, which delimits content lines on
-// CRLF alone. They must therefore be preserved as inert text rather than
-// stripped: mangling them would corrupt legitimate non-ASCII names for no
-// safety gain.
-func TestGenerateICSFeed_UnicodeLineSeparatorsStayInert(t *testing.T) {
+// NEL (U+0085), LS (U+2028) and PS (U+2029) are not content-line delimiters to
+// a conformant iCalendar parser, which splits on CRLF alone, so they reach the
+// wire as ordinary text unless something removes them. Plenty of consumers are
+// not conformant: anything that decodes the payload to a string and splits on
+// its platform's notion of a line break (Python's str.splitlines, a Java regex
+// `\R`) treats all three as breaks. No legitimate name contains one, so they
+// are stripped rather than escaped or preserved.
+func TestGenerateICSFeed_StripsUnicodeLineSeparators(t *testing.T) {
 	mockShows := []*contracts.SavedShowResponse{
 		{
 			ShowResponse: contracts.ShowResponse{
 				ID:        8,
 				Slug:      "unicode-show",
-				Title:     "Gig\u2028X-FORGED-U2028:yes\u2029X-FORGED-U2029:yes",
+				Title:     "Gig\u2028X-FORGED-LS:yes\u2029X-FORGED-PS:yes\u0085X-FORGED-NEL:yes",
 				EventDate: time.Now().Add(24 * time.Hour),
 				Status:    "approved",
 				CreatedAt: time.Now(),
@@ -408,15 +461,17 @@ func TestGenerateICSFeed_UnicodeLineSeparatorsStayInert(t *testing.T) {
 	require.NoError(t, err)
 	out := string(data)
 
+	for _, sep := range []string{"\u0085", "\u2028", "\u2029"} {
+		assert.NotContains(t, out, sep, "no Unicode line separator may reach the payload")
+	}
 	assert.Equal(t, 1, countICSProperty(icsEventLines(t, out), "SUMMARY"))
-	assert.Equal(t, 0, countICSProperty(icsContentLines(out), "X-FORGED-U2028"))
-	assert.Equal(t, 0, countICSProperty(icsContentLines(out), "X-FORGED-U2029"))
 
 	parsed, err := ics.ParseCalendar(strings.NewReader(out))
 	require.NoError(t, err)
 	require.Len(t, parsed.Events(), 1)
-	assert.Equal(t, "Gig\u2028X-FORGED-U2028:yes\u2029X-FORGED-U2029:yes",
-		parsed.Events()[0].GetProperty(ics.ComponentPropertySummary).Value)
+	assert.Equal(t, "GigX-FORGED-LS:yesX-FORGED-PS:yesX-FORGED-NEL:yes",
+		parsed.Events()[0].GetProperty(ics.ComponentPropertySummary).Value,
+		"the separators are dropped and the surrounding text stays inert")
 }
 
 // =============================================================================

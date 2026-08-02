@@ -15,12 +15,15 @@ import (
 // A PUBLIC single-show iCalendar download — the one-shot "Add to calendar"
 // export for one event, as opposed to the venue feed's live subscription.
 //
-// It lives next to venue_calendar.go so the two surfaces share event identity
+// It lives next to venue_calendar.go so the surfaces share event identity
 // (showEventUID), revisioning (showSequence), naming (applyEventSummaryAndStatus),
 // venue-local time anchoring (setVenueLocalEventTimes) and text sanitization
 // (sanitizeICSText). The same show exported here and reached through the venue
-// feed MUST be the same event to a calendar client, or an attendee who used
-// both ends up with duplicates.
+// feed or the personal saved-shows feed MUST be the same event to a calendar
+// client, or an attendee who used more than one ends up with duplicates.
+//
+// applyShowEventContent below is the per-event body this download shares with
+// the personal feed, which reads the same response shape.
 //
 // Deliberately NOT shared with the venue feed: caching. The feed is polled by
 // calendar clients on a schedule; this document is fetched once per human
@@ -103,6 +106,31 @@ func buildShowEventCalendar(show *contracts.ShowResponse, frontendURL string) []
 	event.SetModifiedAt(show.UpdatedAt)
 	event.SetSequence(showSequence(show.CreatedAt, show.UpdatedAt))
 
+	applyShowEventContent(event, show, frontendURL)
+
+	// RFC 5545 3.1 mandates CRLF; golang-ical defaults to bare LF.
+	return []byte(cal.Serialize(ics.WithNewLine("\r\n")))
+}
+
+// applyShowEventContent writes the venue-local times, name, status, location,
+// description and link for one show onto an event.
+//
+// It is the whole per-event body for both response-shaped calendar surfaces:
+// this per-show download and the personal saved-shows feed. Sharing the
+// SEQUENCE of calls, not just the individual helpers, is the point. All three
+// calendar surfaces emit the same UID for a show, so the same show reached
+// through two of them must be the same event to a client, and an assembly step
+// added to one copy but not the other is exactly how that drifts. The venue
+// feed reads model-shaped shows and so keeps its own loop body.
+//
+// Every community-editable value here passes through sanitizeICSText, directly
+// or via the helper it calls. See that function's doc for why that is a
+// correctness requirement rather than hygiene.
+//
+// The caller is responsible for the address gating that produced show.Venues:
+// an unverified venue must arrive with a nil Address, because an ICS LOCATION
+// is copied onto the attendee's device.
+func applyShowEventContent(event *ics.VEvent, show *contracts.ShowResponse, frontendURL string) {
 	artistNames := make([]string, 0, len(show.Artists))
 	for _, artist := range show.Artists {
 		artistNames = append(artistNames, artist.Name)
@@ -131,7 +159,4 @@ func buildShowEventCalendar(show *contracts.ShowResponse, frontendURL string) []
 	if showURL != "" {
 		event.SetURL(showURL)
 	}
-
-	// RFC 5545 3.1 mandates CRLF; golang-ical defaults to bare LF.
-	return []byte(cal.Serialize(ics.WithNewLine("\r\n")))
 }
