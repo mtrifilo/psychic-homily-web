@@ -33,6 +33,49 @@ func TestIsValidPendingEditEntityType(t *testing.T) {
 	assert.False(t, adminm.IsValidPendingEditEntityType("comment"))
 }
 
+// normalizeCapacityUpdate is the last gate before an untyped Updates() writes a
+// contributor-supplied number into an integer column, so it is unit-tested
+// independently of the database-backed approval flow below.
+func TestNormalizeCapacityUpdate(t *testing.T) {
+	// Round-tripping through JSON is the real shape: field_changes is JSONB, so
+	// every number comes back out of the queue as float64, never as the int the
+	// submitter's client sent.
+	got, err := normalizeCapacityUpdate(float64(550))
+	assert.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Equal(t, 550, *got)
+
+	// nil is the clear gesture and must reach the column as NULL, which means a
+	// typed nil pointer, not a value.
+	got, err = normalizeCapacityUpdate(nil)
+	assert.NoError(t, err)
+	assert.Nil(t, got)
+
+	// Both bounds are inclusive.
+	for _, ok := range []float64{contracts.MinVenueCapacity, contracts.MaxVenueCapacity} {
+		got, err = normalizeCapacityUpdate(ok)
+		assert.NoErrorf(t, err, "capacity %v is on the bound", ok)
+		assert.NotNil(t, got)
+	}
+
+	// Everything the suggest-edit validator already rejects is rejected here
+	// too: rows can reach pending_entity_edits from outside that handler, and a
+	// value that is not a capacity must not be written as one.
+	for _, bad := range []any{
+		float64(0),
+		float64(-1),
+		float64(contracts.MaxVenueCapacity + 1),
+		550.7,
+		"550",
+		true,
+		map[string]any{"x": 1},
+	} {
+		got, err = normalizeCapacityUpdate(bad)
+		assert.Errorf(t, err, "capacity %#v must be rejected", bad)
+		assert.Nil(t, got)
+	}
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
@@ -541,6 +584,71 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAge
 
 	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
 	s.Nil(updated.AgePolicy, "whitespace-only contributor value must clear to NULL")
+}
+
+// Capacity is the only numeric field a contributor can edit, so approving one
+// is the only place the pipeline has to narrow a JSONB number to an integer
+// column. Pins the full round trip: submit → JSONB → approve → *int in the
+// column, and the clear gesture landing as NULL rather than as 0.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCapacitySetsAndClears() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Capacity Venue")
+
+	set, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: 550}},
+		Summary: "counted the room",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(set.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	var updated catalogm.Venue
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Require().NotNil(updated.Capacity)
+	s.Equal(550, *updated.Capacity)
+
+	cleared, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: nil}},
+		Summary: "the number was wrong, we do not know it",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(cleared.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Nil(updated.Capacity, "clearing capacity must store NULL, not 0")
+}
+
+// A capacity outside the accepted range cannot be applied. The suggest-edit
+// handler rejects it at submit, so reaching approval means the row arrived from
+// somewhere else; the entity must be left untouched rather than take the value.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsOutOfRangeCapacity() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Out Of Range Venue")
+
+	edit, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{{Field: "capacity", NewValue: 0}},
+		Summary: "zero is not a capacity",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(edit.ID, reviewer.ID)
+	s.Require().Error(err)
+
+	var untouched catalogm.Venue
+	s.Require().NoError(s.db.First(&untouched, venue.ID).Error)
+	s.Nil(untouched.Capacity, "a rejected capacity must not reach the column")
+
+	// The edit stays pending so an admin can reject it with a real reason
+	// instead of it vanishing behind a failed approval.
+	var row adminm.PendingEntityEdit
+	s.Require().NoError(s.db.First(&row, edit.ID).Error)
+	s.Equal(adminm.PendingEditStatusPending, row.Status)
 }
 
 // TestApprovePendingEdit_VenueLocationReGeocodes verifies PSY-985: approving a

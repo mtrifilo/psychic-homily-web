@@ -279,6 +279,36 @@ func updatedString(updates map[string]interface{}, key, fallback string) string 
 	return fallback
 }
 
+// normalizeCapacityUpdate converts a venue capacity carried by a pending edit
+// into the value that should be written to the column: a *int for a set, a
+// typed nil for a clear.
+//
+// The range is re-checked here even though the suggest-edit handler already
+// rejected out-of-range values at submit time. This is the same defence-in-depth
+// posture as FilterAllowedFields directly above: rows can reach
+// pending_entity_edits from outside that handler, and this function is the last
+// point before an untyped Updates() that can still tell a capacity from
+// garbage.
+//
+// A bad value returns an invalid-request error (422) rather than an internal
+// one, because the actionable fact is the value, not a fault in the server. The
+// pending row is left pending so an admin can reject it with a real reason
+// instead of the edit vanishing into a 500 nobody can clear.
+func normalizeCapacityUpdate(raw any) (*int, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	n, ok := utils.WholeNumber(raw)
+	if !ok {
+		return nil, apperrors.ErrPendingEditInvalidRequest("capacity must be a whole number")
+	}
+	if n < contracts.MinVenueCapacity || n > contracts.MaxVenueCapacity {
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf(
+			"capacity must be between %d and %d", contracts.MinVenueCapacity, contracts.MaxVenueCapacity))
+	}
+	return &n, nil
+}
+
 // ApprovePendingEdit approves a pending edit, applying changes to the entity
 // and recording a revision.
 func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
@@ -367,6 +397,18 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 			if s, isString := raw.(string); isString {
 				updates["age_policy"] = utils.NilIfBlank(s)
 			}
+		}
+		// capacity is the one NUMERIC field on a contributor allowlist, and the
+		// only one whose stored JSONB value cannot go into Updates() as-is: it
+		// comes back from the queue as float64, which GORM would hand Postgres
+		// as a float8 for an integer column. Narrow it to *int (or NULL for the
+		// clear gesture) so the type reaching the driver is the column's type.
+		if raw, ok := updates["capacity"]; ok {
+			capacity, err := normalizeCapacityUpdate(raw)
+			if err != nil {
+				return nil, err
+			}
+			updates["capacity"] = capacity
 		}
 		_, cityChanged := updates["city"]
 		_, stateChanged := updates["state"]

@@ -3,6 +3,8 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -225,6 +227,37 @@ func TestUpdateVenueHandler_RejectsOverlongAgePolicy(t *testing.T) {
 
 	_, err := h.UpdateVenueHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// TestVenueCapacitySchemaTagsMatchContract closes the drift class the bound
+// otherwise invites: huma schema tags take string LITERALS, so the admin
+// create/update bodies cannot reference contracts.MinVenueCapacity /
+// MaxVenueCapacity directly the way the contributor suggest-edit path does.
+// Without this test, moving the constant would leave the two admin routes
+// enforcing the old range and disagreeing with the contributor route about what
+// a legal capacity is.
+func TestVenueCapacitySchemaTagsMatchContract(t *testing.T) {
+	wantMin := strconv.Itoa(contracts.MinVenueCapacity)
+	wantMax := strconv.Itoa(contracts.MaxVenueCapacity)
+
+	bodies := map[string]reflect.Type{
+		"AdminCreateVenueRequest": reflect.TypeOf(AdminCreateVenueRequest{}.Body),
+		"UpdateVenueRequest":      reflect.TypeOf(UpdateVenueRequest{}.Body),
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			field, ok := body.FieldByName("Capacity")
+			if !ok {
+				t.Fatalf("%s has no Capacity field", name)
+			}
+			if got := field.Tag.Get("minimum"); got != wantMin {
+				t.Errorf("%s.Capacity minimum tag = %q, want %q", name, got, wantMin)
+			}
+			if got := field.Tag.Get("maximum"); got != wantMax {
+				t.Errorf("%s.Capacity maximum tag = %q, want %q", name, got, wantMax)
+			}
+		})
+	}
 }
 
 func TestDeleteVenueHandler_ZeroID(t *testing.T) {

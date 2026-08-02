@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils/urlguard"
 )
 
@@ -232,6 +234,64 @@ func TestValidateFieldChangeValue_AgePolicyLengthAndType(t *testing.T) {
 	// would otherwise reach an untyped GORM Updates() map.
 	for _, bad := range []any{42, true, map[string]any{"x": 1}, []any{"a"}} {
 		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "age_policy", bad), 422)
+	}
+}
+
+// ============================================================================
+// Bounded whole-number fields on the suggest-edit path
+// ============================================================================
+
+// capacity is the only NUMERIC field on any contributor allowlist, so it is the
+// only one whose suggest-edit value is not a string. These cases guard the sole
+// server-side check between a contributor and an integer column that
+// ApprovePendingEdit writes through an untyped Updates(): a wrong TYPE reaches
+// Postgres as a cast error on a later ADMIN's approve request, and a FRACTION
+// would be silently rounded into the column by an assignment cast.
+func TestValidateFieldChangeValue_CapacityTypeAndRange(t *testing.T) {
+	// The wire shape: encoding/json decodes every JSON number into an
+	// interface{} as float64, so that is what actually arrives here.
+	if err := ValidateFieldChangeValue(bg, "capacity", float64(550)); err != nil {
+		t.Errorf("a normal capacity should pass, got: %v", err)
+	}
+	// A plain int is reachable from internal callers and tests.
+	if err := ValidateFieldChangeValue(bg, "capacity", 550); err != nil {
+		t.Errorf("an int capacity should pass, got: %v", err)
+	}
+
+	// nil is the clear-the-field gesture and the column is nullable.
+	if err := ValidateFieldChangeValue(bg, "capacity", nil); err != nil {
+		t.Errorf("nil should pass (clear gesture), got: %v", err)
+	}
+
+	// Both bounds are inclusive; one step outside either is rejected at submit.
+	for _, ok := range []any{
+		float64(contracts.MinVenueCapacity),
+		float64(contracts.MaxVenueCapacity),
+	} {
+		if err := ValidateFieldChangeValue(bg, "capacity", ok); err != nil {
+			t.Errorf("capacity %v is on the bound and should pass, got: %v", ok, err)
+		}
+	}
+	for _, bad := range []any{
+		float64(0),                              // zero: NULL already means "unknown"
+		float64(-1),                             // negative
+		float64(contracts.MaxVenueCapacity + 1), // one past the ceiling
+		float64(1e18),                           // absurd but finite
+		math.Inf(1),                             // only reachable from a hand-built value
+		math.NaN(),                              // ditto
+	} {
+		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "capacity", bad), 422)
+	}
+
+	// A fraction is rejected rather than rounded. Postgres would happily make
+	// 550.7 into 551, a capacity nobody typed.
+	testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "capacity", 550.7), 422)
+
+	// Wrong types, including a numeric STRING. The column is an integer, so the
+	// wire type has to be a number; parsing "550" here would leave two
+	// encodings of one edit in pending_entity_edits and revisions.field_changes.
+	for _, bad := range []any{"550", "", "many", true, map[string]any{"x": 1}, []any{1}} {
+		testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, "capacity", bad), 422)
 	}
 }
 

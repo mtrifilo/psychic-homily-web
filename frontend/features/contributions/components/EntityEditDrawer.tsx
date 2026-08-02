@@ -18,7 +18,7 @@ import { StatusBanner } from '@/components/shared'
 import { useSuggestEdit } from '../hooks/useSuggestEdit'
 import { useShowEdit } from '../hooks/useShowEdit'
 import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
-import { EDITABLE_FIELDS, validateUrlField } from '../types'
+import { EDITABLE_FIELDS, fieldChangeValue, validateFieldValue } from '../types'
 
 /** Extracts a field value from an entity object, handling nested social fields. */
 function getEntityFieldValue(entity: Record<string, unknown>, field: string): string {
@@ -79,10 +79,10 @@ export function EntityEditDrawer({
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [summary, setSummary] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  // PSY-599: track which URL fields the user has interacted with so we
+  // PSY-599: track which validated fields the user has interacted with so we
   // defer the inline error until they've had a chance to finish typing.
   // Mirrors the touched-state pattern in `CollectionDetail` (PSY-371).
-  const [touchedUrlFields, setTouchedUrlFields] = useState<Record<string, boolean>>({})
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({})
 
   // Initialize form values when drawer opens
   const initialValues = useMemo(() => {
@@ -102,7 +102,7 @@ export function EntityEditDrawer({
       setFormValues({})
       setSummary('')
       setSubmitted(false)
-      setTouchedUrlFields({})
+      setTouchedFields({})
       // Reset both — only one is "live" but resetting both is safe
       // and keeps state clean if the parent ever switches entityType
       // on this same drawer instance (unlikely but defensible).
@@ -143,10 +143,13 @@ export function EntityEditDrawer({
       const currentVal = getValue(field.key)
       const originalVal = initialValues[field.key] ?? ''
       if (currentVal !== originalVal) {
+        // `fieldChangeValue` is what makes a numeric field submit a JSON
+        // number rather than the string the input holds, while keeping the
+        // empty-means-null gesture identical for every type.
         result.push({
           field: field.key,
-          old_value: originalVal || null,
-          new_value: currentVal || null,
+          old_value: fieldChangeValue(field, originalVal),
+          new_value: fieldChangeValue(field, currentVal),
         })
       }
     }
@@ -154,22 +157,21 @@ export function EntityEditDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues, initialValues, fields])
 
-  // PSY-599: validate URL fields client-side so a malformed value disables
-  // Submit and surfaces an inline hint, instead of forcing the user through
-  // a server roundtrip that returns a confusing 422 banner. We only consider
-  // fields the user actually changed — pre-existing bad values on the
+  // PSY-599: validate constrained fields client-side so a malformed value
+  // disables Submit and surfaces an inline hint, instead of forcing the user
+  // through a server roundtrip that returns a confusing 422 banner. We only
+  // consider fields the user actually changed — pre-existing bad values on the
   // entity stay tolerated (the backend grandfathers them too).
-  const urlFieldErrors = useMemo(() => {
+  const fieldErrors = useMemo(() => {
     const errors: Record<string, string> = {}
     for (const field of fields) {
-      if (field.type !== 'url') continue
       const currentVal = getValue(field.key)
       const originalVal = initialValues[field.key] ?? ''
       // Only validate when the user has changed the field — otherwise a
-      // pre-existing non-conforming URL on the entity would block edits to
+      // pre-existing non-conforming value on the entity would block edits to
       // unrelated fields.
       if (currentVal === originalVal) continue
-      const err = validateUrlField(currentVal)
+      const err = validateFieldValue(field, currentVal)
       if (err !== null) errors[field.key] = err
     }
     return errors
@@ -177,10 +179,10 @@ export function EntityEditDrawer({
   }, [formValues, initialValues, fields])
 
   const hasChanges = changes.length > 0
-  const hasUrlErrors = Object.keys(urlFieldErrors).length > 0
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0
   const canSubmit =
     hasChanges &&
-    !hasUrlErrors &&
+    !hasFieldErrors &&
     summary.trim().length > 0 &&
     !editMutation.isPending
 
@@ -300,13 +302,16 @@ export function EntityEditDrawer({
                   const value = getValue(field.key)
                   const original = initialValues[field.key] ?? ''
                   const isChanged = value !== original
-                  // PSY-599: inline URL error visible only after the user
-                  // has touched the field (or attempted submit). Defers
-                  // the red until they've finished typing.
-                  const urlError = urlFieldErrors[field.key]
-                  const isUrlTouched = touchedUrlFields[field.key] === true
-                  const showUrlError = field.type === 'url' && isUrlTouched && urlError !== undefined
+                  // PSY-599: the inline error is visible only after the user
+                  // has touched the field. Defers the red until they've
+                  // finished typing.
+                  const fieldError = fieldErrors[field.key]
+                  const isTouched = touchedFields[field.key] === true
+                  const showFieldError = isTouched && fieldError !== undefined
                   const errorId = `edit-${field.key}-error`
+                  // Only validated types carry the touched/error affordance,
+                  // so plain text and textarea keep their current behavior.
+                  const isValidated = field.type === 'url' || field.type === 'number'
 
                   return (
                     <div key={field.key} className="space-y-1.5">
@@ -331,42 +336,53 @@ export function EntityEditDrawer({
                       ) : (
                         <Input
                           id={`edit-${field.key}`}
+                          // Numeric fields stay type="text" with a numeric
+                          // inputMode: type="number" hands back "" for any
+                          // value the browser considers invalid, which would
+                          // make a typo indistinguishable from the clear
+                          // gesture on a field where clearing means NULL.
                           type={field.type === 'url' ? 'url' : 'text'}
-                          inputMode={field.type === 'url' ? 'url' : undefined}
+                          inputMode={
+                            field.type === 'url'
+                              ? 'url'
+                              : field.type === 'number'
+                                ? 'numeric'
+                                : undefined
+                          }
                           value={value}
                           onChange={(e) => {
                             setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                            if (field.type === 'url') {
-                              setTouchedUrlFields((prev) => ({ ...prev, [field.key]: true }))
+                            if (isValidated) {
+                              setTouchedFields((prev) => ({ ...prev, [field.key]: true }))
                             }
                           }}
                           onBlur={() => {
-                            if (field.type === 'url') {
-                              setTouchedUrlFields((prev) => ({ ...prev, [field.key]: true }))
+                            if (isValidated) {
+                              setTouchedFields((prev) => ({ ...prev, [field.key]: true }))
                             }
                           }}
                           placeholder={field.placeholder}
                           maxLength={field.maxLength}
                           className={
-                            showUrlError
+                            showFieldError
                               ? 'border-red-800'
                               : isChanged
                                 ? 'border-blue-800'
                                 : ''
                           }
-                          aria-invalid={showUrlError ? true : undefined}
-                          aria-describedby={showUrlError ? errorId : undefined}
+                          aria-invalid={showFieldError ? true : undefined}
+                          aria-describedby={showFieldError ? errorId : undefined}
                           data-testid={`edit-${field.key}-input`}
                         />
                       )}
-                      {showUrlError && (
+                      {showFieldError && (
                         <p
                           id={errorId}
                           className="text-xs text-red-400"
                           role="alert"
                           data-testid={`edit-${field.key}-error`}
                         >
-                          {urlError}
+                          {fieldError}
                         </p>
                       )}
                     </div>
@@ -388,21 +404,25 @@ export function EntityEditDrawer({
                       <div key={change.field} className="mb-2 last:mb-0">
                         <span className="font-medium">{fieldDef?.label ?? change.field}:</span>
                         <div className="ml-2">
-                          {/* old_value/new_value are `unknown` (the field
-                              type is intentionally generic). The
-                              `Boolean(...)` guards keep the JSX
-                              expression's type narrowed to ReactNode. */}
-                          {Boolean(change.old_value) && (
+                          {/* old_value/new_value are `unknown` (the field type
+                              is intentionally generic), so each is narrowed to
+                              a ReactNode before rendering. Tested against null
+                              rather than for truthiness: a numeric field can
+                              legitimately carry a falsy value, and rendering
+                              that as "cleared" would misreport the edit. Only
+                              null is the clear gesture. */}
+                          {change.old_value !== null && change.old_value !== undefined && (
                             <div className="text-red-400 line-through">
                               {String(change.old_value)}
                             </div>
                           )}
-                          {Boolean(change.new_value) && (
+                          {change.new_value !== null && change.new_value !== undefined && (
                             <div className="text-green-400">{String(change.new_value)}</div>
                           )}
-                          {!change.old_value && !change.new_value && (
-                            <span className="text-muted-foreground italic">cleared</span>
-                          )}
+                          {(change.old_value === null || change.old_value === undefined) &&
+                            (change.new_value === null || change.new_value === undefined) && (
+                              <span className="text-muted-foreground italic">cleared</span>
+                            )}
                         </div>
                       </div>
                     )

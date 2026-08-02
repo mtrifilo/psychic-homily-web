@@ -156,7 +156,12 @@ export interface SuggestEditRequest {
 export interface EditableField {
   key: string
   label: string
-  type: 'text' | 'textarea' | 'url'
+  /**
+   * `number` fields are submitted as a JSON number (or `null` when cleared),
+   * not as the string the input holds. Every other type submits its string
+   * verbatim. See `fieldChangeValue`.
+   */
+  type: 'text' | 'textarea' | 'url' | 'number'
   placeholder?: string
   group?: 'info' | 'social' | 'details'
   /**
@@ -166,6 +171,9 @@ export interface EditableField {
    * gate: this is UX, not validation.
    */
   maxLength?: number
+  /** Inclusive bounds for `type: 'number'` fields. Mirrors the server range. */
+  min?: number
+  max?: number
 }
 
 /**
@@ -202,6 +210,98 @@ export function validateUrlField(value: string): string | null {
   }
 
   return null
+}
+
+/**
+ * Optional-digits grammar for `type: 'number'` fields: an optional sign then
+ * digits, nothing else.
+ *
+ * Deliberately stricter than `Number()`, which accepts forms nobody types into
+ * a capacity box and which would then be stored as a number the user never
+ * wrote: `Number('0x10')` is 16 and `Number('1e3')` is 1000. `parseInt` is
+ * worse still — `parseInt('3600abc')` returns 3600. A leading `-` is matched so
+ * a negative reads as an out-of-range value ("must be at least 1") rather than
+ * as gibberish.
+ */
+const WHOLE_NUMBER_PATTERN = /^[+-]?\d+$/
+
+/** Parses a drawer input as a whole number, or null when it is not one. */
+function parseWholeNumber(value: string): number | null {
+  const trimmed = value.trim()
+  if (!WHOLE_NUMBER_PATTERN.test(trimmed)) return null
+  const parsed = Number(trimmed)
+  return Number.isSafeInteger(parsed) ? parsed : null
+}
+
+/**
+ * Client-side pre-validator for the drawer's `type: 'number'` fields.
+ *
+ * Returns null for valid input, or a short user-facing error string. Empty
+ * input is valid because empty means "clear the field" — the server stores
+ * NULL rather than a zero.
+ *
+ * Mirrors the backend rule in `validateBoundedInt`
+ * (`backend/internal/api/handlers/shared/url_validation.go`): whole numbers
+ * only, within the field's inclusive range.
+ *
+ * Server-side validation remains the source of truth; this is purely UX, the
+ * same way `validateUrlField` is.
+ */
+export function validateNumberField(
+  value: string,
+  bounds: { min?: number; max?: number } = {}
+): string | null {
+  if (value.trim().length === 0) return null
+
+  const parsed = parseWholeNumber(value)
+  if (parsed === null) return 'Enter a whole number.'
+
+  const { min, max } = bounds
+  if (min !== undefined && max !== undefined && (parsed < min || parsed > max)) {
+    return `Enter a number between ${min.toLocaleString()} and ${max.toLocaleString()}.`
+  }
+  if (min !== undefined && parsed < min) return `Enter a number of at least ${min.toLocaleString()}.`
+  if (max !== undefined && parsed > max) return `Enter a number of at most ${max.toLocaleString()}.`
+
+  return null
+}
+
+/**
+ * Validation dispatch for one drawer field. Keeps the drawer from having to
+ * know which validator belongs to which field type, so adding a validated type
+ * is a change here rather than a new branch in the component.
+ */
+export function validateFieldValue(field: EditableField, value: string): string | null {
+  switch (field.type) {
+    case 'url':
+      return validateUrlField(value)
+    case 'number':
+      return validateNumberField(value, { min: field.min, max: field.max })
+    default:
+      return null
+  }
+}
+
+/**
+ * Converts a drawer input's string into the value that goes on the wire for
+ * that field.
+ *
+ * Empty is `null` for every type: the drawer's clear gesture has to reach the
+ * column as SQL NULL, not as `''` or `0`. `type: 'number'` fields send an
+ * actual JSON number, because their column is an integer and the backend
+ * rejects a numeric string on purpose rather than parsing it (one encoding for
+ * one edit, in both `pending_entity_edits` and `revisions.field_changes`).
+ *
+ * A value that fails `validateFieldValue` is passed through unconverted. That
+ * case cannot submit — Submit is disabled while any field has an error — so
+ * coercing it would only invent a number the user did not type.
+ */
+export function fieldChangeValue(field: EditableField, value: string): string | number | null {
+  // Non-numeric fields keep their long-standing behavior verbatim: the raw
+  // string, or null when it is empty.
+  if (field.type !== 'number') return value || null
+  if (value.trim().length === 0) return null
+  return parseWholeNumber(value) ?? value
 }
 
 export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection' | 'release' | 'label'
@@ -332,6 +432,11 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
     // requirement is the per-event override and is edited on the show, not
     // here. Free text so the room's real wording survives.
     { key: 'age_policy', label: 'Age Policy', type: 'text', placeholder: 'All Ages, 17+, 21+', group: 'details', maxLength: 100 },
+    // Room capacity. The only numeric field in this map, so it is the only one
+    // whose change is submitted as a JSON number instead of a string. Bounds
+    // mirror contracts.MinVenueCapacity / MaxVenueCapacity; the server is the
+    // real gate and these just stop the round trip.
+    { key: 'capacity', label: 'Capacity', type: 'number', placeholder: 'e.g. 550', group: 'details', min: 1, max: 200000 },
     { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
     { key: 'instagram', label: 'Instagram', type: 'url', placeholder: 'https://instagram.com/...', group: 'social' },
     { key: 'facebook', label: 'Facebook', type: 'url', placeholder: 'https://facebook.com/...', group: 'social' },

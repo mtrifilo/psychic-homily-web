@@ -409,6 +409,30 @@ type ExportFrontmatter struct {
 // deliberately tighter than shows.age_requirement's VARCHAR(255).
 const MaxVenueAgePolicyLength = 100
 
+// MinVenueCapacity and MaxVenueCapacity bound venues.capacity on every write
+// path: admin create, admin update, and the contributor suggest-edit queue.
+// They are the single source of truth for the range, so the three surfaces
+// cannot drift into disagreeing about what a legal capacity is.
+//
+// The floor is 1, not 0. NULL already means "we do not know this room's
+// capacity"; a stored 0 would be a second way to say the same thing, and one
+// that reads downstream as a known fact ("this room holds nobody"). Negative
+// values are nonsense for the same reason.
+//
+// The ceiling is deliberately generous rather than tight. The largest stadium
+// on earth seats roughly 130,000, so 200,000 admits any real room while still
+// catching the failure this bound exists for: a typo or a scraped garbage
+// number landing as a capacity nobody notices. It is a sanity rail, not a
+// domain claim about how big a venue can be.
+//
+// Callers must range-check BEFORE narrowing a JSON number to int: values
+// arriving through the pending-edit queue are float64, and converting an
+// out-of-range float64 to int is implementation-defined in Go.
+const (
+	MinVenueCapacity = 1
+	MaxVenueCapacity = 200000
+)
+
 // CreateVenueRequest represents the data needed to create a new venue
 type CreateVenueRequest struct {
 	Name        string  `json:"name" validate:"required"`

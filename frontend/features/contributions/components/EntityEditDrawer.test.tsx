@@ -239,3 +239,119 @@ describe('EntityEditDrawer venue age policy (PSY-1682)', () => {
     ])
   })
 })
+
+// PSY-1694: room capacity is the drawer's first NUMERIC field, so it is the
+// first one whose change is submitted as a JSON number rather than as the
+// string the input holds. The column is an integer and NULL is how "we do not
+// know" is stored, which makes both the coercion and the clear gesture
+// load-bearing rather than cosmetic.
+describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
+  const venueProps = {
+    open: true,
+    onOpenChange: vi.fn(),
+    entityType: 'venue' as const,
+    entityId: 7,
+    entityName: 'Crescent Ballroom',
+    entity: { name: 'Crescent Ballroom', capacity: null } as Record<string, unknown>,
+    canEditDirectly: false,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function fillSummary(text = 'Confirmed the room capacity with the venue') {
+    fireEvent.change(screen.getByLabelText(/Why are you making this change/), {
+      target: { value: text },
+    })
+  }
+
+  function getSubmitButton() {
+    return screen.getByRole('button', { name: /Submit for Review/i })
+  }
+
+  it('exposes a Capacity input on the venue drawer', () => {
+    renderWithProviders(<EntityEditDrawer {...venueProps} />)
+
+    const input = screen.getByTestId('edit-capacity-input')
+    expect(input).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Capacity$/)).toBeInTheDocument()
+    // Kept as type="text" with a numeric inputMode: type="number" reports ""
+    // for anything the browser considers invalid, which would make a typo
+    // indistinguishable from the clear gesture on a field where clearing
+    // means NULL.
+    expect(input).toHaveAttribute('type', 'text')
+    expect(input).toHaveAttribute('inputmode', 'numeric')
+  })
+
+  it('pre-fills the existing capacity as a string and submits it as a number', () => {
+    renderWithProviders(
+      <EntityEditDrawer {...venueProps} entity={{ name: 'Crescent Ballroom', capacity: 550 }} />
+    )
+
+    const input = screen.getByTestId('edit-capacity-input') as HTMLInputElement
+    expect(input.value).toBe('550')
+
+    fireEvent.change(input, { target: { value: '3600' } })
+    fillSummary()
+    fireEvent.click(getSubmitButton())
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    const payload = mockMutate.mock.calls[0][0]
+    expect(payload.entityType).toBe('venue')
+    // Numbers on the wire, not strings: the backend rejects a numeric string
+    // for this field rather than parsing it.
+    expect(payload.changes).toEqual([{ field: 'capacity', old_value: 550, new_value: 3600 }])
+  })
+
+  it('sends new_value null when an existing capacity is cleared', () => {
+    // The clear gesture must reach the column as NULL. A 0 would read
+    // downstream as a known capacity of zero.
+    renderWithProviders(
+      <EntityEditDrawer {...venueProps} entity={{ name: 'Crescent Ballroom', capacity: 550 }} />
+    )
+
+    fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: '' } })
+    fillSummary('The published number turned out to be wrong')
+    fireEvent.click(getSubmitButton())
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(mockMutate.mock.calls[0][0].changes).toEqual([
+      { field: 'capacity', old_value: 550, new_value: null },
+    ])
+  })
+
+  it('blocks Submit and shows an inline error for zero, negatives and fractions', () => {
+    renderWithProviders(<EntityEditDrawer {...venueProps} />)
+    fillSummary()
+
+    const input = screen.getByTestId('edit-capacity-input')
+    for (const bad of ['0', '-40', '550.5', '200001', 'lots']) {
+      fireEvent.change(input, { target: { value: bad } })
+      expect(getSubmitButton()).toBeDisabled()
+      expect(screen.getByTestId('edit-capacity-error')).toBeInTheDocument()
+      expect(input).toHaveAttribute('aria-invalid', 'true')
+    }
+
+    // A legal value clears the block.
+    fireEvent.change(input, { target: { value: '550' } })
+    expect(getSubmitButton()).toBeEnabled()
+    expect(screen.queryByTestId('edit-capacity-error')).not.toBeInTheDocument()
+  })
+
+  it('does not block edits to other fields when capacity is untouched', () => {
+    // A pre-existing out-of-range capacity (from ingest, say) must not hold the
+    // whole drawer hostage, matching how pre-existing bad URLs are tolerated.
+    renderWithProviders(
+      <EntityEditDrawer {...venueProps} entity={{ name: 'Crescent Ballroom', capacity: 0 }} />
+    )
+
+    fillSummary('Fix the venue name')
+    fireEvent.change(screen.getByLabelText(/^Name$/), {
+      target: { value: 'Crescent Ballroom PHX' },
+    })
+
+    expect(getSubmitButton()).toBeEnabled()
+    expect(screen.queryByTestId('edit-capacity-error')).not.toBeInTheDocument()
+  })
+})

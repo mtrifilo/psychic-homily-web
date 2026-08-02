@@ -91,6 +91,33 @@ var boundedTextFieldSpecs = map[string]urlFieldSpec{
 	"age_policy": {displayName: "Age policy", maxLength: contracts.MaxVenueAgePolicyLength},
 }
 
+// boundedIntFieldSpec describes a WHOLE-NUMBER field reachable through the
+// contributor suggest-edit queue, with the inclusive range its column accepts.
+type boundedIntFieldSpec struct {
+	displayName string
+	min         int
+	max         int
+}
+
+// boundedIntFieldSpecs is the numeric counterpart of boundedTextFieldSpecs.
+// Everything else on every contributor allowlist is text, so this map is the
+// one place that knows a suggest-edit value may legitimately not be a string.
+//
+// It exists for the same reason the text map does: ApprovePendingEdit feeds
+// field values into an untyped Updates(), so anything this validator lets past
+// fails at the DRIVER during a later admin's approve request rather than at the
+// contributor's submit request. For a numeric column the failure modes are
+// worse than an over-long string, because a wrong TYPE (a string, an object, a
+// bool) reaches Postgres as a cast error rather than a length error, and a
+// fractional value would be silently rounded by an assignment cast.
+var boundedIntFieldSpecs = map[string]boundedIntFieldSpec{
+	"capacity": {
+		displayName: "Capacity",
+		min:         contracts.MinVenueCapacity,
+		max:         contracts.MaxVenueCapacity,
+	},
+}
+
 // ValidateImageURL applies the http/https scheme check AND the SSRF host guard
 // to an optional image URL. Empty strings pass through so callers that allow
 // "clear via empty string" semantics keep working.
@@ -262,6 +289,9 @@ func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) 
 	if spec, ok := boundedTextFieldSpecs[fieldName]; ok {
 		return validateBoundedText(spec, value)
 	}
+	if spec, ok := boundedIntFieldSpecs[fieldName]; ok {
+		return validateBoundedInt(spec, value)
+	}
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok {
 		return nil
@@ -317,6 +347,40 @@ func validateBoundedText(spec urlFieldSpec, value any) error {
 	if utf8.RuneCountInString(s) > spec.maxLength {
 		return huma.Error422UnprocessableEntity(
 			fmt.Sprintf("%s must be %d characters or fewer", spec.displayName, spec.maxLength),
+		)
+	}
+	return nil
+}
+
+// validateBoundedInt enforces the type and range contract for a whole-number
+// field arriving through the suggest-edit queue.
+//
+// Like validateBoundedText, the type check is the load-bearing half:
+// FieldChange.NewValue is `any` decoded from JSONB, so a caller can put a
+// string, a bool, an object or a fraction where a count belongs, and
+// ApprovePendingEdit assigns it straight into an untyped Updates(). A string
+// would reach Postgres as a cast error on an ADMIN's approve request; a
+// fraction would be rounded into the column without anyone noticing.
+//
+// nil passes: it is the clear-the-field gesture, and the column is nullable.
+// A numeric STRING ("3600") is rejected on purpose rather than parsed. The
+// column is an integer, so the wire type should be a number; accepting both
+// would leave two encodings of the same edit in pending_entity_edits and in
+// revisions.field_changes, and the difference would surface later as a
+// rendering or comparison bug rather than here as a 422.
+func validateBoundedInt(spec boundedIntFieldSpec, value any) error {
+	if value == nil {
+		return nil
+	}
+	n, ok := utils.WholeNumber(value)
+	if !ok {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s must be a whole number", spec.displayName),
+		)
+	}
+	if n < spec.min || n > spec.max {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s must be between %d and %d", spec.displayName, spec.min, spec.max),
 		)
 	}
 	return nil

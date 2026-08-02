@@ -270,7 +270,10 @@ type AdminCreateVenueRequest struct {
 		Zipcode *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
 		// PSY-1179: capacity + description were silently dropped on create — the
 		// service contract + CLI sent them but this HTTP body omitted them.
-		Capacity *int `json:"capacity" required:"false" minimum:"0" doc:"Venue capacity"`
+		// Bounds mirror contracts.MinVenueCapacity / MaxVenueCapacity, which the
+		// contributor suggest-edit queue enforces too. Tag values must be
+		// literals, so TestVenueCapacitySchemaTagsMatchContract pins them.
+		Capacity *int `json:"capacity" required:"false" minimum:"1" maximum:"200000" doc:"Venue capacity"`
 		// House-default age rule. Free text mirroring the show-level
 		// age_requirement vocabulary; the show's own value is the per-event override.
 		AgePolicy   *string `json:"age_policy" required:"false" doc:"House-default age policy, e.g. all ages, 17+, 21+" maxLength:"100"`
@@ -374,7 +377,7 @@ type UpdateVenueRequest struct {
 		State       *string `json:"state,omitempty" required:"false" doc:"Venue state"`
 		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country"`
 		Zipcode     *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
-		Capacity    *int    `json:"capacity,omitempty" required:"false" minimum:"0" doc:"Venue capacity"` // PSY-1179
+		Capacity    *int    `json:"capacity,omitempty" required:"false" minimum:"1" maximum:"200000" doc:"Venue capacity"`
 		AgePolicy   *string `json:"age_policy,omitempty" required:"false" doc:"House-default age policy, e.g. all ages, 17+, 21+ (max 100)"`
 		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
