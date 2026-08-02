@@ -429,9 +429,15 @@ func venueLocation(venue *contracts.VenueDetailResponse) *time.Location {
 	return utils.EventLocation(venue.Timezone, venue.State)
 }
 
-// formatEventLocation builds the LOCATION string. Takes primitives so every
-// venue shape (model, response, detail response) shares one copy — the shapes
-// whose addresses are already redacted for unverified venues upstream.
+// formatEventLocation builds the LOCATION string. Takes primitives so the
+// venue RESPONSE shapes (VenueResponse, VenueDetailResponse) share one copy.
+//
+// The address argument MUST already be gated: pass it from one of those
+// response types, or from Venue.PublicAddress. Never pass a raw
+// catalogm.Venue.Address. An unverified venue is routinely a house show, and an
+// ICS LOCATION is copied onto the subscriber's device, so a leak here outlives
+// any later redaction. Both public feeds and the bearer-token personal feed
+// reach this function, so there is no caller for which the raw column is safe.
 func formatEventLocation(name string, address *string, city, state string) string {
 	parts := []string{name}
 	if address != nil && strings.TrimSpace(*address) != "" {

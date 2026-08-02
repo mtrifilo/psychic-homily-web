@@ -781,14 +781,12 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 	if venue.Slug != nil {
 		slug = *venue.Slug
 	}
-	// Hide address and zipcode for unverified venues. Address goes through the
-	// shared gate (Venue.PublicAddress); zipcode stays inline because this is
-	// its only producer.
+	// Hide address and zipcode for unverified venues. Both go through the shared
+	// gate so a later change to the rule cannot land on one and miss the other,
+	// which would leave this response self-contradicting (a zipcode narrowing
+	// down the house whose street address we just withheld).
 	address := venue.PublicAddress()
-	var zipcode *string
-	if venue.Verified {
-		zipcode = venue.Zipcode
-	}
+	zipcode := venue.PublicZipcode()
 	// Street-precise coordinates (PSY-1536) follow the same privacy gate as
 	// address/zipcode: VERIFIED venues only, so DIY/house venues are never
 	// street-mapped before human review. The freshness check additionally

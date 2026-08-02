@@ -330,6 +330,16 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		event.SetURL(showURL)
 	}
 
+	// KNOWN DIVERGENCE from the two sibling feeds, noticed and deliberately left
+	// for its own change rather than silently carried: show_calendar.go and
+	// venue_calendar.go both pass every community-editable value through
+	// sanitizeICSText, set DTSTAMP on each VEVENT, and serialize with
+	// ics.WithNewLine("\r\n"). This feed does none of the three. The sanitize gap
+	// is the one that matters — golang-ical's TEXT escaper does not escape CR, so
+	// a contributor-editable name carrying one can forge a calendar property in a
+	// subscriber's client (see sanitizeICSText's own doc). Closing these changes
+	// the feed's bytes and therefore its ETag and cache behavior, so it needs its
+	// own tests; it is not a drive-by.
 	data := []byte(cal.Serialize())
 	cachedCopy := make([]byte, len(data))
 	copy(cachedCopy, data)
@@ -346,9 +356,8 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 // SavedShowService.GetUserSavedShows, whose venue builder applies
 // Venue.PublicAddress, so an unverified venue arrives with a nil Address. That
 // is load-bearing rather than incidental — the feed URL carries a bearer token
-// instead of a session, so anyone holding the link reads it, and an ICS
-// LOCATION is copied onto the subscriber's device where a later redaction
-// cannot reach it. Do not build this string from a venue model directly.
+// instead of a session, so anyone holding the link reads it. See
+// formatEventLocation for the rule that binds every caller.
 func formatVenueLocation(venue contracts.VenueResponse) string {
 	return formatEventLocation(venue.Name, venue.Address, venue.City, venue.State)
 }

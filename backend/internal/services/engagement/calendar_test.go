@@ -453,6 +453,18 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_Invalid() {
 	suite.Contains(err.Error(), "invalid calendar token")
 }
 
+// unfoldICS reverses RFC 5545 3.1 line folding so a test can search the feed's
+// VALUES rather than its wire bytes. A property longer than 75 octets is split
+// across lines with CRLF plus one leading space or tab, which silently defeats a
+// plain substring assertion — a privacy test that greps for an address it must
+// NOT find would pass while the address is sitting in the payload, folded.
+func unfoldICS(feed string) string {
+	unfolded := strings.ReplaceAll(feed, "\r\n ", "")
+	unfolded = strings.ReplaceAll(unfolded, "\r\n\t", "")
+	unfolded = strings.ReplaceAll(unfolded, "\n ", "")
+	return strings.ReplaceAll(unfolded, "\n\t", "")
+}
+
 // The ICS feed is the worst place for an unverified venue's street address to
 // surface: the URL carries a bearer token instead of a session, so anyone
 // holding the link can fetch it, and an ICS LOCATION is copied onto the
@@ -465,8 +477,16 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_Invalid() {
 func (suite *CalendarIntegrationTestSuite) TestGenerateICSFeed_OmitsUnverifiedVenueAddress() {
 	user := suite.createTestUser(true)
 
+	// Deliberately long enough that LOCATION exceeds RFC 5545's 75-octet line
+	// limit and the serializer FOLDS it. With this fixture the break lands
+	// INSIDE the street address, emitting `...Center\, 1234` / `  Secret St\,
+	// Phoenix\, AZ`, so a plain strings.Contains(feed, "1234 Secret St") over
+	// LOCATION is false even when the address is fully published. A negative
+	// privacy assertion is exactly the kind that fails open under that, so every
+	// assertion below runs on the unfolded text. A short venue name would leave
+	// this unexercised and the guard would rot without anything noticing.
 	venue := &catalogm.Venue{
-		Name:     "The Basement",
+		Name:     "The Basement Annex Performance Hall and Recreation Center",
 		City:     "Phoenix",
 		State:    "AZ",
 		Address:  stringPtr("1234 Secret St"),
@@ -487,26 +507,29 @@ func (suite *CalendarIntegrationTestSuite) TestGenerateICSFeed_OmitsUnverifiedVe
 
 	savedShows := NewSavedShowService(suite.db)
 	suite.Require().NoError(savedShows.SaveShow(user.ID, show.ID))
-	realSvc := NewCalendarService(suite.db, savedShows)
+	svc := NewCalendarService(suite.db, savedShows)
 
-	data, err := realSvc.GenerateICSFeed(user.ID, "https://psychichomily.com")
+	data, err := svc.GenerateICSFeed(user.ID, "https://psychichomily.com")
 	suite.Require().NoError(err)
 
-	feed := string(data)
+	feed := unfoldICS(string(data))
 	suite.Require().Contains(feed, "House Show", "feed must contain the show, or the assertion below is vacuous")
 	suite.NotContains(feed, "1234 Secret St", "unverified venue address must not reach the ICS feed")
 	// The venue is still named and placed, so redaction is not gutting LOCATION.
-	suite.Contains(feed, "The Basement")
+	suite.Contains(feed, "The Basement Annex")
 
 	// Same venue, now verified: the address is legitimate and must come through,
 	// proving the feed is gated on verification rather than dropping addresses.
 	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
 		Where("id = ?", venue.ID).Update("verified", true).Error)
+	// The ICS payload is cached per user for icsFeedCacheTTL, so without this the
+	// second read would replay the pre-verification bytes and the assertion below
+	// would fail pointing at the redaction logic rather than at the cache.
+	svc.invalidateFeedCache(user.ID)
 
-	verifiedSvc := NewCalendarService(suite.db, NewSavedShowService(suite.db))
-	data, err = verifiedSvc.GenerateICSFeed(user.ID, "https://psychichomily.com")
+	data, err = svc.GenerateICSFeed(user.ID, "https://psychichomily.com")
 	suite.Require().NoError(err)
-	suite.Contains(string(data), "1234 Secret St", "verified venue address must still be served")
+	suite.Contains(unfoldICS(string(data)), "1234 Secret St", "verified venue address must still be served")
 }
 
 func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUser() {

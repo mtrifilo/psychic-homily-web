@@ -34,8 +34,12 @@ func TestVenuePublicAddress(t *testing.T) {
 			want:  nil,
 		},
 		{
-			// A builder iterating a nil-able relation must not panic its way
-			// into skipping the gate.
+			// No venue relation in this package is a pointer today, so this
+			// branch is unreachable rather than load-bearing. It is pinned
+			// because a privacy gate is the wrong place to answer a nil
+			// receiver with a panic that a caller might recover, or with an
+			// address: whatever a future pointer-shaped relation does here, it
+			// must fail closed.
 			name:  "nil venue withholds",
 			venue: nil,
 			want:  nil,
