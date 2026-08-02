@@ -54,6 +54,8 @@ expect() {
 
 # Reset the fixture to: main holding one legacy sequential migration plus one
 # merged timestamp migration, with a fresh branch checked out on top.
+# Pass --legacy-only as a second argument to leave the timestamp migration off
+# main, which is the "nothing to compare against" fail-closed case.
 reset_fixture() {
   CASE="$1"
   rm -rf "$FIXTURE"
@@ -63,7 +65,9 @@ reset_fixture() {
   g config user.email test@example.com
   g config user.name "Migration Gate Test"
   add_migration "000078_legacy_sequential"
-  add_migration "20260801000000_merged_baseline"
+  if [ "${2:-}" != "--legacy-only" ]; then
+    add_migration "20260801000000_merged_baseline"
+  fi
   g add -A
   g commit -m baseline
   g checkout -b feature
@@ -131,6 +135,24 @@ reset_fixture "non-sql file in the migrations dir is ignored"
 printf 'notes\n' >"$FIXTURE/backend/db/migrations/README.md"
 g add -A && g commit -m "docs"
 expect 0 "no new migration files added"
+
+# Fail-closed cases: when the gate cannot see what it is comparing against it
+# must go RED, never quietly green.
+reset_fixture "nothing to compare against fails closed" --legacy-only
+add_migration "20260901000000_add_column"
+g add -A && g commit -m "forward stamp on an unusable base"
+expect 1 "no timestamp-format migrations found"
+
+CASE="missing base ref fails closed"
+missing_out="$(bash "$FIXTURE/scripts/check_migration_timestamps.sh" origin/main 2>&1)"
+missing_code=$?
+if [ "$missing_code" -eq 1 ] && printf '%s' "$missing_out" | grep -qF "not found in this repository"; then
+  echo "ok   [$CASE]"
+else
+  echo "FAIL [$CASE]: exit $missing_code"
+  printf '%s\n' "$missing_out" | sed 's/^/    /'
+  FAILURES=$((FAILURES + 1))
+fi
 
 if [ "$FAILURES" -ne 0 ]; then
   echo ""

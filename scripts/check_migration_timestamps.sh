@@ -38,6 +38,9 @@
 #     timestamp format by convention.
 
 set -euo pipefail
+# No globbing: filenames flow through unquoted word-splitting below, and a
+# stray glob metacharacter in a path must not expand against the working tree.
+set -f
 
 BASE_REF="${1:-origin/main}"
 MIGRATIONS_PATH="backend/db/migrations"
@@ -53,17 +56,36 @@ if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
 fi
 
 # --- 1. newest migration timestamp already merged on the base ref ------------
-BASE_MAX="$(git ls-tree -r --name-only "$BASE_REF" -- "$MIGRATIONS_PATH" \
+# Every git invocation below is checked, and an empty result is treated as a
+# broken assumption rather than "nothing to compare against": a fail-open gate
+# is worse than no gate, because it looks green.
+if ! BASE_TREE="$(git ls-tree -r --name-only "$BASE_REF" -- "$MIGRATIONS_PATH")"; then
+  echo "ERROR: could not list $MIGRATIONS_PATH on $BASE_REF." >&2
+  exit 1
+fi
+
+BASE_MAX="$(printf '%s\n' "$BASE_TREE" \
             | sed -E 's|.*/||' \
             | grep -oE '^[0-9]{14}_' \
             | tr -d '_' \
             | sort -n \
             | tail -1 || true)"
 
+if [ -z "$BASE_MAX" ]; then
+  echo "ERROR: no timestamp-format migrations found in $MIGRATIONS_PATH on $BASE_REF." >&2
+  echo "       There is nothing to compare new migrations against, so this gate" >&2
+  echo "       cannot do its job. Check the ref and the migrations path." >&2
+  exit 1
+fi
+
 # --- 2. migration files this branch ADDS on top of the base ------------------
-ADDED="$(git diff --name-only --diff-filter=A --no-renames \
-           "$BASE_REF" HEAD -- "$MIGRATIONS_PATH" \
-         | grep -E '\.sql$' || true)"
+if ! HEAD_DIFF="$(git diff --name-only --diff-filter=A --no-renames \
+                    "$BASE_REF" HEAD -- "$MIGRATIONS_PATH")"; then
+  echo "ERROR: could not diff HEAD against $BASE_REF." >&2
+  exit 1
+fi
+
+ADDED="$(printf '%s\n' "$HEAD_DIFF" | grep -E '\.sql$' || true)"
 
 if [ -z "$ADDED" ]; then
   echo "OK: no new migration files added against $BASE_REF."
@@ -81,13 +103,13 @@ for f in $ADDED; do
     continue
   fi
   stamp="${base_name%%_*}"
-  if [ -n "$BASE_MAX" ] && [ "$((10#$stamp))" -le "$((10#$BASE_MAX))" ]; then
+  if [ "$((10#$stamp))" -le "$((10#$BASE_MAX))" ]; then
     BACKDATED="$BACKDATED $f"
   fi
 done
 
 if [ -z "$BAD_FORMAT" ] && [ -z "$BACKDATED" ]; then
-  echo "OK: all new migrations are stamped ahead of $BASE_REF (newest merged: ${BASE_MAX:-none})."
+  echo "OK: all new migrations are stamped ahead of $BASE_REF (newest merged: $BASE_MAX)."
   for f in $ADDED; do echo "  $f"; done
   exit 0
 fi
@@ -96,7 +118,7 @@ fi
 # Suggested replacement stamp: now (UTC), or merged-max plus one if the clock
 # somehow trails the newest merged migration.
 NEW_STAMP="$(date -u +%Y%m%d%H%M%S)"
-if [ -n "$BASE_MAX" ] && [ "$((10#$NEW_STAMP))" -le "$((10#$BASE_MAX))" ]; then
+if [ "$((10#$NEW_STAMP))" -le "$((10#$BASE_MAX))" ]; then
   NEW_STAMP="$((10#$BASE_MAX + 1))"
 fi
 
