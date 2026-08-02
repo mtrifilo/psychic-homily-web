@@ -15,10 +15,11 @@ import type { ShowResponse } from './types'
  * this only ever matters for a venue with no resolved `timezone`, since
  * `resolveShowTimezone` consults `state` only as a fallback.
  *
- * Not the repo-wide rule yet: `ShowHeader`, `ShowCard` and the library pages
- * still pass `show.state` with the venue's timezone, which differs from this
- * for a zone-less venue whose state disagrees with its show row. Converging
- * them is a follow-up, not this ticket.
+ * Not the repo-wide rule yet. The show PAGE uses it throughout, but `ShowCard`
+ * and the artist / venue list rows still pass `show.state` alongside the
+ * venue's timezone, which differs from this for a zone-less venue whose state
+ * disagrees with its show row. That is the same class of bug this exists to
+ * prevent, one surface out; converging them is a follow-up, not this ticket.
  */
 export function showTimingInput(show: ShowResponse): ShowTimingInput {
   const venue = show.venues?.[0]
