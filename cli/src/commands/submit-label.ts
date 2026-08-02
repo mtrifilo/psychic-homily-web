@@ -359,7 +359,9 @@ export async function runSubmitLabel(
     artistErrors = artistResults.filter((r) => r.action === "error").length;
   }
 
+  // `process.exitCode`, not `process.exit()`: entities written before a failure
+  // still need their ISR revalidation flushed at the end of the run (PSY-1691).
   if (result.errors > 0 || artistErrors > 0) {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

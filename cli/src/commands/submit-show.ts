@@ -482,8 +482,10 @@ export async function runSubmitShow(
   const result = await submitShows(client, jsonStr, confirm);
 
   const hasDuplicates = result.plans.some((p) => p.duplicate?.isDuplicate);
+  // `process.exitCode`, not `process.exit()`: shows written before a failure
+  // still need their ISR revalidation flushed at the end of the run (PSY-1691).
   if (result.failed > 0 || (result.created === 0 && confirm && !hasDuplicates)) {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 

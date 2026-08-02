@@ -71,7 +71,12 @@ Set these in **Project Settings → Environment Variables**:
 | `NEXT_PUBLIC_API_URL` | `https://api.psychichomily.com` |
 | `BACKEND_URL` | `https://api.psychichomily.com` |
 | `ANTHROPIC_API_KEY` | Your API key |
-| `INTERNAL_API_SECRET` | Generate a secure secret |
+| `INTERNAL_API_SECRET` | Generate a secure secret (>=32 chars) |
+
+`INTERNAL_API_SECRET` must be the SAME value the Go backend has: it is the
+shared secret for `POST /api/internal/revalidate`, which out-of-band writers
+(the `ph` ingest CLI) call to refresh ISR pages they changed. Without it that
+endpoint answers 401 to everyone and ingested changes stay cached.
 
 #### Preview Environment (for staging via `main` branch)
 

@@ -464,9 +464,11 @@ export async function runShowAddArtist(
 
   const results = await addArtistsToShow(showId, artists, env, !!options.confirm);
 
+  // `process.exitCode`, not `process.exit()`: bill edits written before a
+  // failure still need their ISR revalidation flushed at end of run (PSY-1691).
   const hasErrors = results.some((r) => r.action === "error");
   if (hasErrors) {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
@@ -481,7 +483,8 @@ export async function runShowRemoveArtist(
 ): Promise<void> {
   const result = await removeArtistFromShow(showId, artistRef, env, confirm);
 
+  // `process.exitCode`, not `process.exit()`: see runShowAddArtist (PSY-1691).
   if (result.action === "error") {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
