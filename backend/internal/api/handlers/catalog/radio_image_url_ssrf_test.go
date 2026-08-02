@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -22,11 +23,23 @@ import (
 // internal URL turns into an outbound request from our infrastructure regardless
 // of who typed it.
 
+// hostileRadioImageURL is a NAME the package TestMain's resolver maps to cloud
+// metadata, not a literal. A literal is refused without any lookup, so only a
+// name proves that the resolution step actually ran (or, where a test asserts a
+// value is let through, that skipping it was a real skip).
+const hostileRadioImageURL = "https://rebind.example.test/x.jpg"
+
 // TestAdminCreateRadioShow_RejectsSSRFImageURL: POST /admin/radio-stations/{id}/shows.
+// Create has no stored value to compare against, so it validates every time and
+// must never go looking for one.
 func TestAdminCreateRadioShow_RejectsSSRFImageURL(t *testing.T) {
 	for _, c := range ssrfImageURLs {
 		t.Run(c.name, func(t *testing.T) {
 			mock := &testhelpers.MockRadioService{
+				GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
+					t.Fatal("create must not consult a stored value")
+					return nil, nil
+				},
 				CreateShowFn: func(uint, *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
 					t.Fatal("the radio service must NOT be reached with an SSRF image_url")
 					return nil, nil
@@ -44,10 +57,16 @@ func TestAdminCreateRadioShow_RejectsSSRFImageURL(t *testing.T) {
 }
 
 // TestAdminUpdateRadioShow_RejectsSSRFImageURL: PUT /admin/radio-shows/{id}.
+// The row already holds an unrelated public image, so every corpus value is a
+// CHANGE - which is the only case the update path validates.
 func TestAdminUpdateRadioShow_RejectsSSRFImageURL(t *testing.T) {
+	stored := "https://example.com/old-art.jpg"
 	for _, c := range ssrfImageURLs {
 		t.Run(c.name, func(t *testing.T) {
 			mock := &testhelpers.MockRadioService{
+				GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
+					return &contracts.RadioShowDetailResponse{ID: 1, ImageURL: &stored}, nil
+				},
 				UpdateShowFn: func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
 					t.Fatal("the radio service must NOT be reached with an SSRF image_url")
 					return nil, nil
@@ -87,10 +106,6 @@ func (cancelAwareResolver) LookupIPAddr(ctx context.Context, _ string) ([]net.IP
 // same hole cannot reopen on any other caller. Verified non-vacuous: dropping
 // the context.WithoutCancel there makes both subtests fail.
 func TestAdminRadioShowWrites_GuardSurvivesCancelledContext(t *testing.T) {
-	// A NAME, not a literal. A literal is refused without any lookup and so
-	// would pass this test even with the guard downgraded.
-	const hostile = "https://rebind.example.test/x.jpg"
-
 	// The package TestMain installs a MapResolver, which answers from a map and
 	// never looks at ctx. Asserting cancellation through it would pass whether or
 	// not the guard detaches, so swap in one that honours ctx the way
@@ -112,7 +127,7 @@ func TestAdminRadioShowWrites_GuardSurvivesCancelledContext(t *testing.T) {
 		}
 		req := &AdminCreateRadioShowRequest{StationID: 1}
 		req.Body.Name = "Morning Show"
-		value := hostile
+		value := hostileRadioImageURL
 		req.Body.ImageURL = &value
 		_, err := testRadioHandler(mock).AdminCreateRadioShowHandler(cancelledCtx(), req)
 		testhelpers.AssertHumaError(t, err, 422)
@@ -126,7 +141,7 @@ func TestAdminRadioShowWrites_GuardSurvivesCancelledContext(t *testing.T) {
 			},
 		}
 		req := &AdminUpdateRadioShowRequest{ShowID: 1}
-		value := hostile
+		value := hostileRadioImageURL
 		req.Body.ImageURL = &value
 		_, err := testRadioHandler(mock).AdminUpdateRadioShowHandler(cancelledCtx(), req)
 		testhelpers.AssertHumaError(t, err, 422)
@@ -154,8 +169,15 @@ func TestAdminRadioShowWrites_RejectOverlongImageURL(t *testing.T) {
 		testhelpers.AssertHumaError(t, err, 422)
 	})
 
+	// The row holds a different, short value, so the over-long one is a CHANGE.
+	// Without the stub this would pass through the fail-closed branch instead and
+	// never exercise the changed-value path the cap now lives behind.
 	t.Run("update", func(t *testing.T) {
+		stored := "https://example.com/old-art.jpg"
 		mock := &testhelpers.MockRadioService{
+			GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
+				return &contracts.RadioShowDetailResponse{ID: 1, ImageURL: &stored}, nil
+			},
 			UpdateShowFn: func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
 				t.Fatal("the radio service must NOT be reached with an over-long image_url")
 				return nil, nil
@@ -195,30 +217,6 @@ func TestAdminRadioShowWrites_AcceptPublicImageURL(t *testing.T) {
 		}
 	})
 
-	t.Run("update that re-sends the stored public image", func(t *testing.T) {
-		reached := false
-		stored := art
-		mock := &testhelpers.MockRadioService{
-			GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
-				return &contracts.RadioShowDetailResponse{ID: 7, ImageURL: &stored}, nil
-			},
-			UpdateShowFn: func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
-				reached = true
-				return &contracts.RadioShowDetailResponse{ID: 7}, nil
-			},
-		}
-		req := &AdminUpdateRadioShowRequest{ShowID: 7}
-		value := art
-		req.Body.ImageURL = &value
-
-		if _, err := testRadioHandler(mock).AdminUpdateRadioShowHandler(radioAdminCtx(), req); err != nil {
-			t.Fatalf("re-sending an unchanged public image must still apply, got: %v", err)
-		}
-		if !reached {
-			t.Error("expected the update to reach the radio service")
-		}
-	})
-
 	t.Run("update with no image at all", func(t *testing.T) {
 		reached := false
 		mock := &testhelpers.MockRadioService{
@@ -242,23 +240,22 @@ func TestAdminRadioShowWrites_AcceptPublicImageURL(t *testing.T) {
 
 // The admin radio-show form re-sends image_url on every save, so a stored value
 // that no longer clears the guard would 422 every later edit of that show if the
-// guard ran unconditionally. The tests below pin the only-validate-when-changed
-// rule: unchanged passes through untouched, changed validates exactly as before.
-
-// legacyBadRadioImageURL is a value the guard refuses today but that is already
-// sitting in a row: a NAME the package TestMain's resolver maps to cloud
-// metadata. A literal would be refused without any lookup, so the name is the
-// case that proves a skip is a real skip and not an accident of resolution.
-const legacyBadRadioImageURL = "https://rebind.example.test/x.jpg"
+// guard ran unconditionally. The rest of this file pins the only-validate-when-
+// changed rule from both sides.
 
 // TestAdminUpdateRadioShow_UnchangedBadImageURLDoesNotBlockOtherEdits is the
 // regression: a title-only edit that re-sends the stored (guard-failing) value
 // byte for byte must reach the service.
 func TestAdminUpdateRadioShow_UnchangedBadImageURLDoesNotBlockOtherEdits(t *testing.T) {
 	reached := false
-	stored := legacyBadRadioImageURL
+	stored := hostileRadioImageURL
 	mock := &testhelpers.MockRadioService{
-		GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
+		GetShowFn: func(showID uint) (*contracts.RadioShowDetailResponse, error) {
+			// The stored value must be read for the show being edited, not some
+			// other row; a mismatched ID would compare against the wrong string.
+			if showID != 7 {
+				t.Errorf("stored value read for show %d, want 7", showID)
+			}
 			return &contracts.RadioShowDetailResponse{ID: 7, ImageURL: &stored}, nil
 		},
 		UpdateShowFn: func(_ uint, serviceReq *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
@@ -272,7 +269,7 @@ func TestAdminUpdateRadioShow_UnchangedBadImageURLDoesNotBlockOtherEdits(t *test
 	req := &AdminUpdateRadioShowRequest{ShowID: 7}
 	name := "Renamed"
 	req.Body.Name = &name
-	resent := legacyBadRadioImageURL
+	resent := hostileRadioImageURL
 	req.Body.ImageURL = &resent
 
 	if _, err := testRadioHandler(mock).AdminUpdateRadioShowHandler(radioAdminCtx(), req); err != nil {
@@ -280,32 +277,6 @@ func TestAdminUpdateRadioShow_UnchangedBadImageURLDoesNotBlockOtherEdits(t *test
 	}
 	if !reached {
 		t.Error("expected the update to reach the radio service")
-	}
-}
-
-// TestAdminUpdateRadioShow_ChangedImageURLStillValidates: the skip is keyed on
-// the value being identical, not on the field being present. Replacing a stored
-// value with a hostile one is a change and must still be refused.
-func TestAdminUpdateRadioShow_ChangedImageURLStillValidates(t *testing.T) {
-	stored := "https://example.com/old-art.jpg"
-	mock := &testhelpers.MockRadioService{
-		GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
-			return &contracts.RadioShowDetailResponse{ID: 7, ImageURL: &stored}, nil
-		},
-		UpdateShowFn: func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
-			t.Fatal("a CHANGED image_url must not reach the radio service unvalidated")
-			return nil, nil
-		},
-	}
-	for _, c := range ssrfImageURLs {
-		t.Run(c.name, func(t *testing.T) {
-			req := &AdminUpdateRadioShowRequest{ShowID: 7}
-			value := c.value
-			req.Body.ImageURL = &value
-
-			_, err := testRadioHandler(mock).AdminUpdateRadioShowHandler(radioAdminCtx(), req)
-			testhelpers.AssertHumaError(t, err, 422)
-		})
 	}
 }
 
@@ -323,7 +294,7 @@ func TestAdminUpdateRadioShow_UnchangedComparisonIsByteExact(t *testing.T) {
 	}
 	for name, variant := range variants {
 		t.Run(name, func(t *testing.T) {
-			stored := legacyBadRadioImageURL
+			stored := hostileRadioImageURL
 			mock := &testhelpers.MockRadioService{
 				GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
 					return &contracts.RadioShowDetailResponse{ID: 7, ImageURL: &stored}, nil
@@ -343,59 +314,70 @@ func TestAdminUpdateRadioShow_UnchangedComparisonIsByteExact(t *testing.T) {
 	}
 }
 
-// TestAdminUpdateRadioShow_ClearingBadImageURLIsAllowed: clearing is the
-// in-product way out of a stored bad value, so it must go through. The form
-// sends JSON null for an emptied field; an empty string is the other spelling.
-func TestAdminUpdateRadioShow_ClearingBadImageURLIsAllowed(t *testing.T) {
-	empty := ""
-	for name, cleared := range map[string]*string{
-		"omitted (JSON null)": nil,
-		"empty string":        &empty,
+// TestAdminUpdateRadioShow_UnreadableStoredValueStillValidates pins the
+// fail-closed half: when the stored value cannot be read, the skip must not
+// happen. Otherwise a caller who can make that read fail gets an unguarded
+// write, which is a worse hole than the one this rule closes.
+func TestAdminUpdateRadioShow_UnreadableStoredValueStillValidates(t *testing.T) {
+	for name, getShow := range map[string]func(uint) (*contracts.RadioShowDetailResponse, error){
+		"read fails":   func(uint) (*contracts.RadioShowDetailResponse, error) { return nil, errors.New("db down") },
+		"no such show": func(uint) (*contracts.RadioShowDetailResponse, error) { return nil, nil },
+		"no stored value": func(uint) (*contracts.RadioShowDetailResponse, error) {
+			return &contracts.RadioShowDetailResponse{ID: 7}, nil
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			reached := false
-			stored := legacyBadRadioImageURL
 			mock := &testhelpers.MockRadioService{
-				GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
-					return &contracts.RadioShowDetailResponse{ID: 7, ImageURL: &stored}, nil
-				},
+				GetShowFn: getShow,
 				UpdateShowFn: func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
-					reached = true
-					return &contracts.RadioShowDetailResponse{ID: 7}, nil
+					t.Fatal("an unreadable stored value must not skip the guard")
+					return nil, nil
 				},
 			}
 			req := &AdminUpdateRadioShowRequest{ShowID: 7}
-			req.Body.ImageURL = cleared
+			value := hostileRadioImageURL
+			req.Body.ImageURL = &value
 
-			if _, err := testRadioHandler(mock).AdminUpdateRadioShowHandler(radioAdminCtx(), req); err != nil {
-				t.Fatalf("clearing a stored guard-failing image_url must apply, got: %v", err)
-			}
-			if !reached {
-				t.Error("expected the update to reach the radio service")
-			}
+			_, err := testRadioHandler(mock).AdminUpdateRadioShowHandler(radioAdminCtx(), req)
+			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
 }
 
-// TestAdminCreateRadioShow_AlwaysValidatesImageURL: create has no stored value
-// to compare against, so the only-validate-when-changed rule must not have
-// loosened it, and it must not go looking for one either.
-func TestAdminCreateRadioShow_AlwaysValidatesImageURL(t *testing.T) {
+// TestAdminUpdateRadioShow_ClearingStoredBadImageURLReachesTheService: an empty
+// string is the spelling that actually clears the column, and the guard must let
+// it through - otherwise a row whose stored value the guard now refuses could
+// never be emptied.
+//
+// The admin form does NOT send this spelling today: it sends JSON null for an
+// emptied field, and the service writes image_url only when the pointer is
+// non-nil (services/catalog/radio.go UpdateShow), so emptying the field in the
+// UI is a silent no-op that leaves the bad value in place. That is a pre-existing
+// bug in the form, out of scope here; the in-product way out on this path is to
+// overwrite with a good URL, which validates and applies.
+func TestAdminUpdateRadioShow_ClearingStoredBadImageURLReachesTheService(t *testing.T) {
+	written := false
+	stored := hostileRadioImageURL
 	mock := &testhelpers.MockRadioService{
 		GetShowFn: func(uint) (*contracts.RadioShowDetailResponse, error) {
-			t.Fatal("create must not consult a stored value")
-			return nil, nil
+			return &contracts.RadioShowDetailResponse{ID: 7, ImageURL: &stored}, nil
 		},
-		CreateShowFn: func(uint, *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
-			t.Fatal("the radio service must NOT be reached with an SSRF image_url on create")
-			return nil, nil
+		UpdateShowFn: func(_ uint, serviceReq *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+			written = true
+			if serviceReq.ImageURL == nil || *serviceReq.ImageURL != "" {
+				t.Errorf("the empty value must reach the service verbatim, got %v", serviceReq.ImageURL)
+			}
+			return &contracts.RadioShowDetailResponse{ID: 7}, nil
 		},
 	}
-	req := &AdminCreateRadioShowRequest{StationID: 1}
-	req.Body.Name = "Morning Show"
-	value := legacyBadRadioImageURL
-	req.Body.ImageURL = &value
+	req := &AdminUpdateRadioShowRequest{ShowID: 7}
+	empty := ""
+	req.Body.ImageURL = &empty
 
-	_, err := testRadioHandler(mock).AdminCreateRadioShowHandler(radioAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
+	if _, err := testRadioHandler(mock).AdminUpdateRadioShowHandler(radioAdminCtx(), req); err != nil {
+		t.Fatalf("clearing a stored guard-failing image_url must apply, got: %v", err)
+	}
+	if !written {
+		t.Error("expected the clear to reach the radio service")
+	}
 }
