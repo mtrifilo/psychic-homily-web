@@ -161,6 +161,21 @@ func (suite *SceneServiceIntegrationTestSuite) createArtistInNullMetro(name, cit
 	return artist
 }
 
+// seedLabelMemberships creates a label and puts every artist on it. It is the
+// membership primitive seedLabelWithRoster builds on: label hubs are derived
+// from the artist_labels fact table, so a test that only needs memberships
+// should not have to write the `shared_label` clique too.
+func (suite *SceneServiceIntegrationTestSuite) seedLabelMemberships(
+	label *catalogm.Label, artists []*catalogm.Artist,
+) {
+	suite.Require().NoError(suite.db.Create(label).Error)
+	for _, a := range artists {
+		suite.Require().NoError(suite.db.Create(&catalogm.ArtistLabel{
+			ArtistID: a.ID, LabelID: label.ID,
+		}).Error)
+	}
+}
+
 func (suite *SceneServiceIntegrationTestSuite) createUser() *authm.User {
 	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("scene-user-%d@test.com", time.Now().UnixNano())),

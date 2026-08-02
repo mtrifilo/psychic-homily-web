@@ -1335,7 +1335,8 @@ const (
 )
 
 // SceneEdgeTypeOnLabel is the membership edge between a label hub node and one
-// of its in-scene roster artists. It replaces the C(n,2) pairwise
+// of its roster artists inside the artist set being drawn. It replaces the
+// C(n,2) pairwise
 // `shared_label` clique a roster would otherwise contribute: n spokes carry the
 // same fact ("these artists share this label") in a shape the layout can draw.
 //
@@ -1345,11 +1346,14 @@ const (
 const SceneEdgeTypeOnLabel = "on_label"
 
 // SceneGraphNode represents one node in the scene graph: an artist, or a label
-// hub standing in for its in-scene roster.
+// hub standing in for the part of its roster the payload contains. These types
+// are named for the scene graph because it was the first payload to carry hubs;
+// the hub builder itself is scope-agnostic.
 type SceneGraphNode struct {
 	// ID is the artist ID for artist nodes. Label hubs are offset into a
 	// reserved range so both kinds can share this single numeric node-ID space
-	// (see sceneLabelNodeIDOffset) — pair it with EntityType before treating it
+	// (see labelHubNodeIDOffset in services/catalog/label_hubs.go) — pair it
+	// with EntityType before treating it
 	// as a database key.
 	ID uint `json:"id"`
 	// EntityType is one of the SceneNodeKind* constants. Always populated.
