@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -62,16 +62,234 @@ function supportLineText(): string {
   return marker.parentElement?.textContent ?? ''
 }
 
+/** The grid that decides whether the flyer column exists at all. */
+function layoutGrid(): HTMLElement {
+  const grid = screen.getByRole('heading', { level: 1 }).closest('.grid')
+  if (!grid) throw new Error('layout grid not found')
+  return grid as HTMLElement
+}
+
+const TWO_COLUMN_CLASS = 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]'
+
 describe('ShowHeader layout', () => {
-  // The flyer column is the left half of the mock's grid. It holds itself open
-  // before the flyer wave fills it, so the two-column reading order does not
-  // arrive later as a reflow.
-  it('reserves the flyer column, hidden on small screens', () => {
-    render(<ShowHeader show={makeShow()} />)
+  // The locked decision: no flyer means no reserved gutter. The earlier
+  // always-on placeholder promised an image that was never coming.
+  it('collapses to one full-width column when the show has no flyer', () => {
+    render(<ShowHeader show={makeShow({ image_url: null })} />)
+
+    expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
+    expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
+  })
+
+  it('renders the flyer beside the bill when the show has one', () => {
+    render(
+      <ShowHeader
+        show={makeShow({ image_url: 'https://flyers.example/poster.jpg' })}
+      />
+    )
+
+    expect(screen.getByTestId('show-flyer-image')).toHaveAttribute(
+      'src',
+      'https://flyers.example/poster.jpg'
+    )
+    expect(layoutGrid()).toHaveClass(TWO_COLUMN_CLASS)
+  })
+
+  // The plate is last in the DOM so a phone gets the bill before the poster
+  // and a screen reader hears the content before the supplement. Desktop puts
+  // it back in the mock's left column with `order`, not with markup order.
+  it('reads after the bill in the document and renders left of it on desktop', () => {
+    render(
+      <ShowHeader
+        show={makeShow({ image_url: 'https://flyers.example/poster.jpg' })}
+      />
+    )
+
     const plate = screen.getByTestId('show-flyer-plate')
-    expect(plate).toHaveClass('hidden', 'md:block')
-    // Decorative: an empty plate has nothing to announce.
-    expect(plate).toHaveAttribute('aria-hidden', 'true')
+    expect(plate).toHaveClass('md:order-first')
+    expect(
+      screen.getByRole('heading', { level: 1 }).compareDocumentPosition(plate) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  // The backend stores `image_url` untrimmed, so the padded form genuinely
+  // reaches the client; the rendered src is the normalised URL, not the input.
+  it('normalises a padded flyer url instead of putting whitespace in the src', () => {
+    render(
+      <ShowHeader
+        show={makeShow({ image_url: '  https://flyers.example/poster.jpg  ' })}
+      />
+    )
+
+    expect(screen.getByTestId('show-flyer-image')).toHaveAttribute(
+      'src',
+      'https://flyers.example/poster.jpg'
+    )
+  })
+
+  // `image_url` is writable by any email-verified submitter, so an unusable
+  // value must collapse the column rather than emit an <img src> built from it.
+  it.each([
+    ['a whitespace-only url', '   '],
+    ['a relative path', '/uploads/flyer.jpg'],
+    ['a non-http scheme', 'data:image/png;base64,AAAA'],
+    ['an unparseable value', 'not a url at all'],
+  ])('collapses the column for %s', (_label, imageUrl) => {
+    render(<ShowHeader show={makeShow({ image_url: imageUrl })} />)
+
+    expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
+    expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
+  })
+
+  // A dead hotlink is the same situation as no flyer: collapse, rather than
+  // leave a broken-image glyph in a reserved 18rem gutter.
+  it('collapses the column when the flyer fails to load', () => {
+    render(
+      <ShowHeader
+        show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
+      />
+    )
+
+    fireEvent.error(screen.getByTestId('show-flyer-image'))
+
+    expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
+    expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
+  })
+
+  // The page is server-rendered, so a dead hotlink can 404 while the HTML is
+  // still parsing, before React attaches its onError handler. Verified in a
+  // browser against a 404 flyer: without the mount-time check the column
+  // stayed reserved and the bill sat in the second column beside a blank
+  // gutter, because that error event was fired at nobody.
+  it('collapses the column for a flyer that already failed before hydration', () => {
+    const complete = vi
+      .spyOn(HTMLImageElement.prototype, 'complete', 'get')
+      .mockReturnValue(true)
+    const naturalWidth = vi
+      .spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get')
+      .mockReturnValue(0)
+
+    try {
+      render(
+        <ShowHeader
+          show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
+        />
+      )
+
+      expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
+      expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
+    } finally {
+      complete.mockRestore()
+      naturalWidth.mockRestore()
+    }
+  })
+
+  // An admin can fix a bad `image_url` from the edit drawer on this very page.
+  // The failure is keyed to the URL that failed, so a new one is not suppressed.
+  it('shows a replacement flyer after the previous one failed', () => {
+    const { rerender } = render(
+      <ShowHeader
+        show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
+      />
+    )
+    fireEvent.error(screen.getByTestId('show-flyer-image'))
+
+    rerender(
+      <ShowHeader
+        show={makeShow({ image_url: 'https://flyers.example/fixed.jpg' })}
+      />
+    )
+
+    expect(screen.getByTestId('show-flyer-image')).toHaveAttribute(
+      'src',
+      'https://flyers.example/fixed.jpg'
+    )
+  })
+
+  // The only provenance a show row carries is the venue slug a discovery run
+  // scraped the listing from; the credit prints that venue's display NAME.
+  it('credits the venue the listing was scraped from', () => {
+    render(
+      <ShowHeader
+        show={makeShow({
+          image_url: 'https://flyers.example/poster.jpg',
+          source_venue: 'the-venue',
+        })}
+      />
+    )
+
+    expect(screen.getByTestId('show-flyer-credit')).toHaveTextContent(
+      'flyer via The Venue'
+    )
+  })
+
+  it.each([
+    ['a user-submitted show with no source', undefined],
+    ['a source venue that matches nothing on the show', 'some-other-venue'],
+  ])('credits nobody for %s', (_label, sourceVenue) => {
+    render(
+      <ShowHeader
+        show={makeShow({
+          image_url: 'https://flyers.example/poster.jpg',
+          source_venue: sourceVenue,
+        })}
+      />
+    )
+
+    expect(screen.queryByTestId('show-flyer-credit')).not.toBeInTheDocument()
+  })
+
+  // A matched venue whose name is blank credits nobody rather than printing
+  // "flyer via " with nothing after it.
+  it('credits nobody when the matched venue has a blank name', () => {
+    render(
+      <ShowHeader
+        show={makeShow({
+          image_url: 'https://flyers.example/poster.jpg',
+          source_venue: 'the-venue',
+          venues: [
+            {
+              id: 1,
+              slug: 'the-venue',
+              name: '   ',
+              city: 'Phoenix',
+              state: 'AZ',
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    expect(screen.queryByTestId('show-flyer-credit')).not.toBeInTheDocument()
+  })
+
+  // The venue line goes through the same location helper as the bill above it.
+  // The hand-written template it replaced printed "Phoenix, " for a venue with
+  // no state.
+  it('renders a stateless venue location without a trailing comma', () => {
+    render(
+      <ShowHeader
+        show={makeShow({
+          venues: [
+            {
+              id: 1,
+              slug: 'the-venue',
+              name: 'The Venue',
+              city: 'Berlin',
+              state: '',
+              verified: true,
+            },
+          ],
+        })}
+      />
+    )
+
+    expect(screen.getByTestId('venue-location')).toHaveTextContent('Berlin')
+    expect(
+      screen.getByTestId('venue-location').textContent?.trim()
+    ).toBe('Berlin')
   })
 
   // The venue is where the show happens, so its state decides the calendar the
@@ -181,35 +399,309 @@ describe('ShowHeader bill rendering', () => {
     })
   })
 
-  describe('set_type annotations', () => {
-    // `opener` is the backend's default for every non-headliner, not a
-    // distinguishing role, so annotating it would mark nearly every support
-    // act. Locked in so it is not "fixed" back the other way by accident.
-    it('leaves openers unannotated', () => {
+  describe('label and hometown annotations', () => {
+    /** The headliner line, read as flat text. */
+    function headlineText(): string {
+      return screen.getByRole('heading', { level: 1 }).textContent ?? ''
+    }
+
+    it('annotates the headliner with its labels and hometown', () => {
       const show = makeShow({
         artists: [
-          makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
-          makeArtist({ id: 2, name: 'The Opener', slug: 'the-opener', set_type: 'opener', position: 1 }),
+          makeArtist({
+            id: 1,
+            name: 'Modest Mouse',
+            slug: 'modest-mouse',
+            set_type: 'headliner',
+            position: 0,
+            city: 'Issaquah',
+            state: 'WA',
+            country: 'USA',
+            labels: [{ id: 10, name: 'Epic', slug: 'epic' }],
+          }),
         ],
       })
 
       render(<ShowHeader show={show} />)
 
-      expect(screen.queryByText('(opener)')).not.toBeInTheDocument()
-      expect(supportLineText()).toContain('The Opener')
+      // Exact, so the mock's locked SEQUENCE is pinned: name, then labels,
+      // then hometown, with nothing interposed.
+      expect(headlineText()).toBe('Modest Mouse on [Epic] from Issaquah, WA')
+      // Locked location rule: the country is suppressed for a US state.
+      expect(headlineText()).not.toContain('USA')
+      // The accessible name is the assertion that actually pins the a11y
+      // decisions: it honours `aria-hidden` (so the brackets vanish) and keeps
+      // `sr-only` (so the connectives stay). Deleting either would leave the
+      // textContent assertion above green.
+      expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName(
+        'Modest Mouse on Epic from Issaquah, WA'
+      )
+      expect(screen.getByRole('link', { name: 'Epic' })).toHaveAttribute(
+        'href',
+        '/labels/epic'
+      )
     })
 
-    it('annotates special guests', () => {
+    // Two labels are ONE fact about one band, so they share one bracket pair
+    // with a middot between them, not a bracket each.
+    it('renders multiple labels middot-separated inside a single bracket', () => {
       const show = makeShow({
         artists: [
           makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
-          makeArtist({ id: 2, name: 'The Guest', slug: 'guest', set_type: 'special_guest', position: 1 }),
+          makeArtist({
+            id: 2,
+            name: 'Califone',
+            slug: 'califone',
+            position: 1,
+            city: 'Chicago',
+            state: 'IL',
+            labels: [
+              { id: 20, name: 'Jealous Butcher', slug: 'jealous-butcher' },
+              { id: 21, name: 'Dead Oceans', slug: 'dead-oceans' },
+            ],
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(supportLineText()).toContain(
+        '[Jealous Butcher · Dead Oceans]'
+      )
+      expect(supportLineText()).toContain('Chicago, IL')
+      expect(
+        screen.getByRole('link', { name: 'Dead Oceans' })
+      ).toHaveAttribute('href', '/labels/dead-oceans')
+    })
+
+    // A co-headline bill runs two annotated names through one heading. The
+    // bullet between them is decoration and must not be announced, while the
+    // spaces around it must survive.
+    it('annotates every headliner on a co-headline bill', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'First Name',
+            slug: 'first',
+            set_type: 'headliner',
+            position: 0,
+            city: 'Chicago',
+            state: 'IL',
+            labels: [{ id: 10, name: 'Label One', slug: 'label-one' }],
+          }),
+          makeArtist({
+            id: 2,
+            name: 'Second Name',
+            slug: 'second',
+            set_type: 'headliner',
+            position: 1,
+            city: 'Melbourne',
+            country: 'Australia',
+            labels: [{ id: 11, name: 'Label Two', slug: 'label-two' }],
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      // textContent ignores aria-hidden, so the bullet is in this string; what
+      // matters is that the SPACES around it are their own text nodes, outside
+      // the hidden span, and that the span itself is hidden.
+      expect(headlineText()).toBe(
+        'First Name on [Label One] from Chicago, IL • ' +
+          'Second Name on [Label Two] from Melbourne, Australia'
+      )
+      expect(screen.getByText('•')).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.getByRole('link', { name: 'Label Two' })).toHaveAttribute(
+        'href',
+        '/labels/label-two'
+      )
+    })
+
+    it('renders an unsigned artist with no brackets at all', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'No Label Band',
+            slug: 'no-label',
+            set_type: 'headliner',
+            position: 0,
+            city: 'Phoenix',
+            state: 'AZ',
+            labels: [],
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(headlineText()).toBe('No Label Band from Phoenix, AZ')
+    })
+
+    // The list endpoints omit the key entirely (absent means "not looked up").
+    it('renders no brackets when labels were never looked up', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({ id: 1, name: 'Unknown Signing', slug: 'unknown', set_type: 'headliner', position: 0 }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(headlineText()).toBe('Unknown Signing')
+    })
+
+    // `labels.slug` is nullable in the database and flattened to "" on the
+    // wire; linking it would build a link to `/labels/`.
+    it('renders a label with no slug as plain text', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Top Bill',
+            slug: 'top',
+            set_type: 'headliner',
+            position: 0,
+            labels: [{ id: 30, name: 'Unslugged Records', slug: '' }],
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      // Also the labels-without-hometown case: pins the spacing when
+      // BillLabels is the last thing on the line.
+      expect(headlineText()).toBe('Top Bill on [Unslugged Records]')
+      expect(
+        screen.queryByRole('link', { name: 'Unslugged Records' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('keeps the country for an artist outside the US', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Rolling Blackouts',
+            slug: 'rbcf',
+            set_type: 'headliner',
+            position: 0,
+            city: 'Melbourne',
+            country: 'Australia',
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(headlineText()).toBe('Rolling Blackouts from Melbourne, Australia')
+    })
+
+    // `formatLocation`'s placeholder is designed to stand alone in a location
+    // field, not to be read mid-line as part of the bill.
+    it('prints no placeholder when an artist has no placeable location', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Placeless',
+            slug: 'placeless',
+            set_type: 'headliner',
+            position: 0,
+            city: null,
+            state: null,
+            country: null,
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(headlineText()).toBe('Placeless')
+    })
+
+    // The drop is decided on the PARTS. A string comparison against the
+    // formatter's placeholder would also silence a band whose city is
+    // literally that placeholder, which is what an extraction run writes when
+    // it does not know.
+    it('still prints a hometown for a city named like the unknown placeholder', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({
+            id: 1,
+            name: 'Edge Case',
+            slug: 'edge-case',
+            set_type: 'headliner',
+            position: 0,
+            city: 'Location Unknown',
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(headlineText()).toBe('Edge Case from Location Unknown')
+    })
+  })
+
+  describe('set_type annotations', () => {
+    // The locked mock renders NO role labels on the bill: support acts are
+    // `w/` lines and nothing more. `set_type` is curated and authoritative
+    // since PSY-1673, so the data exists and adding annotations is now a
+    // DESIGN decision rather than a data-quality one. This table is what makes
+    // that decision cost a failing test instead of a one-line map entry.
+    it.each([
+      ['opener', 'opener'],
+      ['direct_support', 'direct_support'],
+      ['dj', 'dj'],
+      ['performer', 'performer'],
+    ])('leaves a %s unannotated', (_label, setType) => {
+      const show = makeShow({
+        artists: [
+          makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
+          makeArtist({
+            id: 2,
+            name: 'The Support',
+            slug: 'the-support',
+            set_type: setType as SetType,
+            position: 1,
+          }),
+        ],
+      })
+
+      render(<ShowHeader show={show} />)
+
+      expect(supportLineText()).toBe('w/ The Support')
+    })
+
+    // The one exception, and it predates the mock. Kept because removing a
+    // shipped annotation is as much a design change as adding one, but pinned
+    // LAST on the line so the mock's name-labels-hometown sequence survives.
+    it('annotates special guests, after the labels and hometown', () => {
+      const show = makeShow({
+        artists: [
+          makeArtist({ id: 1, name: 'Top Bill', slug: 'top', set_type: 'headliner', position: 0 }),
+          makeArtist({
+            id: 2,
+            name: 'The Guest',
+            slug: 'guest',
+            set_type: 'special_guest',
+            position: 1,
+            city: 'Chicago',
+            state: 'IL',
+            labels: [{ id: 40, name: 'Dead Oceans', slug: 'dead-oceans' }],
+          }),
         ],
       })
 
       render(<ShowHeader show={show} />)
 
       expect(screen.getByText('(special guest)')).toBeInTheDocument()
+      expect(supportLineText()).toBe(
+        'w/ The Guest on [Dead Oceans] from Chicago, IL (special guest)'
+      )
     })
 
     // `set_type` is a bare string on the wire over an unconstrained VARCHAR

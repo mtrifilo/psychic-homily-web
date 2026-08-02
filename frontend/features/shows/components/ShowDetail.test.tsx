@@ -319,9 +319,14 @@ describe('ShowDetail', () => {
       expect(link).toHaveAttribute('href', '/venues/the-venue')
     })
 
+    // Scoped to the venue block on purpose: the bill above it prints each
+    // act's hometown, and the fixture artists are from Phoenix too, so a bare
+    // text query would match either module.
     it('renders venue location', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
+      expect(screen.getByTestId('venue-location')).toHaveTextContent(
+        'Phoenix, AZ'
+      )
     })
 
     // The street address is what people paste into a maps app, and for DIY
@@ -354,7 +359,9 @@ describe('ShowDetail', () => {
     it('omits the address line when the venue has no address', () => {
       // The default fixture venue carries no `address`.
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument()
+      expect(screen.getByTestId('venue-location')).toHaveTextContent(
+        'Phoenix, AZ'
+      )
       expect(screen.queryByTestId('venue-address')).not.toBeInTheDocument()
     })
 

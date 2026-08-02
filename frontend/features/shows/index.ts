@@ -6,6 +6,7 @@ export { showEndpoints, showQueryKeys } from './api'
 // Types
 export type {
   ShowArtistSocials,
+  ShowArtistLabel,
   SetType,
   ArtistResponse,
   VenueResponse,
