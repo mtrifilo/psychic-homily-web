@@ -45,7 +45,7 @@ const maxGraphCardLabels = 5
 
 type GetArtistGraphCardRequest struct {
 	ArtistID string `path:"artist_id" doc:"Artist ID or slug" example:"42"`
-	Timezone string `query:"timezone" required:"false" doc:"Timezone for the next-show date filter" example:"America/Phoenix"`
+	Timezone string `query:"timezone" required:"false" doc:"Deprecated and ignored. The next-show cutoff is made in the show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only." example:"America/Phoenix"`
 }
 
 type GetArtistGraphCardResponse struct {
@@ -81,11 +81,6 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 		return nil, huma.Error500InternalServerError("Failed to fetch artist")
 	}
 
-	timezone := req.Timezone
-	if timezone == "" {
-		timezone = "UTC"
-	}
-
 	card := contracts.ArtistGraphCard{
 		ID:    artist.ID,
 		Name:  artist.Name,
@@ -101,7 +96,7 @@ func (h *ArtistGraphCardHandler) GetArtistGraphCardHandler(ctx context.Context, 
 
 	// Next upcoming show — the lean single-show read (no discarded COUNT, no
 	// bill preload) instead of GetShowsForArtist (PSY-1352).
-	show, err := h.artistService.GetNextShowForArtist(artist.ID, timezone)
+	show, err := h.artistService.GetNextShowForArtist(artist.ID, req.Timezone)
 	if err != nil {
 		logger.FromContext(ctx).Warn("graph-card: next-show lookup failed", "artist_id", artist.ID, "error", err)
 	} else if show != nil {

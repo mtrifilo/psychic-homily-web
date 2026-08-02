@@ -1035,16 +1035,33 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	return responses, total, nil
 }
 
-// GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue.
-// Only returns approved shows with event_date >= today in the specified timezone.
-// Deprecated: Use GetShowsForVenue with timeFilter="upcoming" instead.
+// GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue: those
+// whose venue-local calendar day has not passed. Only returns approved shows.
+//
+// Deprecated: use GetShowsForVenue with timeFilter="upcoming" instead. This has
+// no callers left in the repo and survives only on the VenueServiceInterface;
+// delete both when that interface is next touched. Its timezone parameter is
+// inert for the same reason GetShowsForVenue's is.
 func (s *VenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*contracts.VenueShowResponse, int64, error) {
 	return s.GetShowsForVenue(venueID, timezone, limit, "upcoming")
 }
 
 // GetShowsForVenue retrieves shows at a specific venue with time filtering.
-// timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"
-// Only returns approved shows.
+// timeFilter can be: "upcoming", "past", or "all". Only returns approved shows.
+//
+// "today" is the show's OWN primary-venue calendar day (shared.VenueTZJoin)
+// rather than this venue's. Identical for every single-venue show, and
+// deliberate for the rest: one show gets one venue-local date, so it cannot read
+// "upcoming" here and "past" on the artist page. The venue ICS feed
+// (engagement/venue_calendar.go) still uses the QUERIED venue's zone and can
+// therefore still disagree for a multi-venue show — see shared's header note.
+// limit and total both apply to the venue-local partition.
+//
+// Deprecated parameter: timezone is accepted and ignored. It used to set the
+// boundary from the CALLER's zone, which made the same show upcoming for one
+// reader and past for another. Kept in the signature because removing it is a
+// breaking change for every caller; frontend call sites are cleaned up in
+// PSY-1698. Do not add new callers that pass a meaningful value.
 func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -1059,54 +1076,47 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 		return nil, 0, fmt.Errorf("failed to get venue: %w", err)
 	}
 
-	// Load timezone, default to UTC
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		loc = time.UTC
-	}
+	// Partition on each show's own venue-local calendar day. The fragment is
+	// empty for "all", and only then is the timezone lateral unnecessary.
+	dateCondition := shared.VenueLocalDateCondition(timeFilter)
 
-	// Get start of today in the user's timezone, then convert to UTC for query
-	now := time.Now().In(loc)
-	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	startOfTodayUTC := startOfToday.UTC()
-
-	// Apply time filter
-	var dateCondition string
 	var orderDirection string
-	switch timeFilter {
-	case "past":
-		dateCondition = "shows.event_date < ?"
+	if timeFilter == "past" {
 		orderDirection = "shows.event_date DESC" // Most recent past shows first
-	case "all":
-		dateCondition = "" // No date filter
-		orderDirection = "shows.event_date ASC"
-	default: // "upcoming"
-		dateCondition = "shows.event_date >= ?"
+	} else {
 		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
+	}
+	// Deterministic tiebreak on equal event_date, matching GetShowsForArtist
+	// (PSY-1352): without it the Pluck below and the Find that re-orders the
+	// same ids are each free to break a tie differently, so a venue with two
+	// shows on one date could return them in one order and page them in another.
+	orderDirection += ", shows.id ASC"
+
+	// Fresh builder per query: GORM builders accumulate clauses, so the count
+	// and the id page must not share one.
+	baseQuery := func() *gorm.DB {
+		q := s.db.Table("show_venues").
+			Joins("JOIN shows ON show_venues.show_id = shows.id").
+			Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
+		if dateCondition != "" {
+			q = q.Joins(shared.VenueTZJoin).Where(dateCondition)
+		}
+		return q
 	}
 
 	// Count total shows matching the filter
 	var total int64
-	countQuery := s.db.Table("show_venues").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
-	if dateCondition != "" {
-		countQuery = countQuery.Where(dateCondition, startOfTodayUTC)
-	}
-	if err := countQuery.Count(&total).Error; err != nil {
+	if err := baseQuery().Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
 	}
 
 	// Get show IDs with limit
 	var showIDs []uint
-	showQuery := s.db.Table("show_venues").
+	if err := baseQuery().
 		Select("show_venues.show_id").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
-	if dateCondition != "" {
-		showQuery = showQuery.Where(dateCondition, startOfTodayUTC)
-	}
-	if err := showQuery.Order(orderDirection).Limit(limit).Pluck("show_venues.show_id", &showIDs).Error; err != nil {
+		Order(orderDirection).
+		Limit(limit).
+		Pluck("show_venues.show_id", &showIDs).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get show IDs: %w", err)
 	}
 

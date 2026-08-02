@@ -108,6 +108,7 @@ type ServiceContainer struct {
 	ArtistLinksSweep       *enrich.ArtistLinksSweep
 	ReleaseLinksSweep      *enrich.ReleaseLinksSweep
 	StreetGeocodeSweep     *catalog.StreetGeocodeSweep
+	VenueTimezoneSweep     *catalog.VenueTimezoneSweep
 	ImageEnrichOutbox      *imageenrich.ImageEnrichOutboxPoller
 	AutoPromotion          *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
@@ -247,6 +248,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// uses (NewVenueService wires it) — the OSM 1 req/s budget lives on the
 	// client, so a second instance would double the process's request rate.
 	streetGeocodeSweep := catalog.NewStreetGeocodeSweep(database, geo.DefaultNominatim())
+	venueTimezoneSweep := catalog.NewVenueTimezoneSweep(database)
 
 	// PSY-1316: release-links sweep (Phase A). Same shared mbClient (PSY-1208);
 	// auto-applies fill-when-empty via ReleaseService.AddExternalLinkWithSource
@@ -361,6 +363,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ArtistLinksSweep:       artistLinksSweep,
 		ReleaseLinksSweep:      releaseLinksSweep,
 		StreetGeocodeSweep:     streetGeocodeSweep,
+		VenueTimezoneSweep:     venueTimezoneSweep,
 		AutoPromotion:          adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest:       engagement.NewCollectionDigestService(database, email, cfg),
 		SceneDigest:            engagement.NewSceneDigestService(database, email, sceneSvc, cfg),

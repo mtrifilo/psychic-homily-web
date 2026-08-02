@@ -27,6 +27,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/catalog"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
@@ -289,6 +290,7 @@ func main() {
 		artistLinksSweepCancel       context.CancelFunc
 		releaseLinksSweepCancel      context.CancelFunc
 		streetGeocodeSweepCancel     context.CancelFunc
+		venueTimezoneSweepCancel     context.CancelFunc
 		sweepHealthCheckCancel       context.CancelFunc
 	)
 
@@ -459,6 +461,27 @@ func main() {
 		log.Printf("DISABLE_STREET_GEOCODE_SWEEP=1: skipping street geocode sweep startup")
 	}
 
+	// Start venue-timezone integrity sweep (PSY-1695: re-validate stored venue
+	// zones against the live pg_timezone_names and NULL the casualties). This is
+	// the second layer under the show-list partition, which reads the column
+	// straight into AT TIME ZONE with no per-row validation because validating
+	// there cost 8.1s on a 20k-show venue; the write gate (PSY-1707) is layer
+	// one, and this catches the drift a point-in-time gate cannot — the zone
+	// catalog is a property of the server's tzdata packaging and changes under
+	// image bumps and Postgres upgrades.
+	//
+	// Opt-in ENABLE_*, not default-on DISABLE_*: it writes NULLs over
+	// operator-visible data on a schedule, so switching it on in an environment
+	// should be a deliberate act rather than something that arrives with a
+	// deploy.
+	if os.Getenv(catalog.EnableVenueTimezoneSweepEnvVar) == "1" {
+		var venueTimezoneSweepCtx context.Context
+		venueTimezoneSweepCtx, venueTimezoneSweepCancel = context.WithCancel(context.Background())
+		sc.VenueTimezoneSweep.Start(venueTimezoneSweepCtx)
+	} else {
+		log.Printf("%s is not 1: skipping venue timezone sweep startup", catalog.EnableVenueTimezoneSweepEnvVar)
+	}
+
 	// Start sweep health check (PSY-1612: reports background loops that have
 	// stopped running). Default ON — this is the monitoring that would have caught
 	// PSY-1606's seven silently-dead sweeps in days instead of weeks, so it should
@@ -573,6 +596,10 @@ func main() {
 	if streetGeocodeSweepCancel != nil {
 		streetGeocodeSweepCancel()
 		sc.StreetGeocodeSweep.Stop()
+	}
+	if venueTimezoneSweepCancel != nil {
+		venueTimezoneSweepCancel()
+		sc.VenueTimezoneSweep.Stop()
 	}
 	if sweepHealthCheckCancel != nil {
 		sweepHealthCheckCancel()

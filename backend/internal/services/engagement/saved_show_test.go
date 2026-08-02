@@ -614,8 +614,11 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_VenueTZ
 }
 
 // A venue without a geocoded timezone (and a show with no venue at all) must
-// still classify — degrading to UTC — rather than error or vanish. The 48h
-// margins keep the assertions true under any fallback zone.
+// still classify rather than error or vanish. The 48h margins keep the
+// assertions true under any fallback zone, which is why this one survived
+// PSY-1695 changing that fallback from UTC to the US state map
+// (shared.VenueLocalDateCondition); TestGetUserSavedShows_NullTimezoneUsesStateMap
+// below is the test that actually pins WHICH zone.
 func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_FilterTimezoneFallback() {
 	user := suite.createTestUser()
 	nullTZShow := suite.createShowAt("Null TZ Show", user.ID, time.Now().UTC().Add(48*time.Hour), nil)
@@ -754,4 +757,42 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetSavedShowIDs_NoneMatch
 
 	suite.Require().NoError(err)
 	suite.False(result[show.ID])
+}
+
+// PSY-1695 moved the saved-shows fallback for a venue with no geocoded timezone
+// from UTC to utils.EventLocation's US state map, so this list agrees with the
+// artist page, the venue page, and the show page about the same show. Pinned
+// with a sub-24h margin, because the ±48h fixtures above pass under either rule.
+func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_NullTimezoneUsesStateMap() {
+	user := suite.createTestUser()
+
+	// 23:00 yesterday in Honolulu is 09:00 TODAY in UTC: past on Hawaii's
+	// calendar, still today's date under the old UTC fallback.
+	loc, err := time.LoadLocation("Pacific/Honolulu")
+	suite.Require().NoError(err)
+	day := time.Now().In(loc).AddDate(0, 0, -1)
+	at := time.Date(day.Year(), day.Month(), day.Day(), 23, 0, 0, 0, loc)
+	suite.Require().NotEqual(at.UTC().Format("2006-01-02"), at.In(loc).Format("2006-01-02"))
+
+	venue := &catalogm.Venue{Name: "HI No Zone Room", City: "Honolulu", State: "HI"}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+	suite.Require().Nil(venue.Timezone)
+
+	show := &catalogm.Show{
+		Title:       "Saved HI Show",
+		EventDate:   at,
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
+
+	_, pastTotal, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "past")
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), pastTotal, "a NULL venue zone must resolve through the state map, not UTC")
+
+	_, upcomingTotal, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0, "upcoming")
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), upcomingTotal)
 }

@@ -11,6 +11,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // ChartsService computes top charts / trending content from engagement signals.
@@ -308,14 +309,7 @@ const (
 // venue-ATTRIBUTING chart queries must build through this so the pick rule
 // can't drift between surfaces.
 func primaryVenueLateralSQL(cols, showIDExpr string) string {
-	return `(
-			SELECT ` + cols + `
-			FROM show_venues sv
-			JOIN venues iv ON iv.id = sv.venue_id
-			WHERE sv.show_id = ` + showIDExpr + `
-			ORDER BY sv.venue_id ASC
-			LIMIT 1
-		)`
+	return shared.PrimaryVenueLateralSQL(cols, showIDExpr)
 }
 
 // mostAnticipatedHorizon returns the shared upcoming-horizon bounds for the

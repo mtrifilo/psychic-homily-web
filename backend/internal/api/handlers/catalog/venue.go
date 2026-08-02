@@ -168,7 +168,7 @@ func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest
 // GetVenueShowsRequest represents the request parameters for getting shows at a venue
 type GetVenueShowsRequest struct {
 	VenueID    string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
-	Timezone   string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
+	Timezone   string `query:"timezone" doc:"Deprecated and ignored. The upcoming/past split is made in each show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only." example:"America/Phoenix"`
 	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"200" doc:"Maximum number of shows to return (max 200)"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
 }
@@ -187,11 +187,6 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 	limit := req.Limit
 	if limit == 0 {
 		limit = 20
-	}
-
-	timezone := req.Timezone
-	if timezone == "" {
-		timezone = "UTC"
 	}
 
 	timeFilter := req.TimeFilter
@@ -216,7 +211,7 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 		venueID = venue.ID
 	}
 
-	shows, total, err := h.venueService.GetShowsForVenue(venueID, timezone, limit, timeFilter)
+	shows, total, err := h.venueService.GetShowsForVenue(venueID, req.Timezone, limit, timeFilter)
 	if err != nil {
 		var venueErr *apperrors.VenueError
 		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {

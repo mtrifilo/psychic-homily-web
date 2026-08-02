@@ -12,6 +12,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // SavedShowService handles saved show business logic
@@ -81,37 +82,6 @@ type savedShowRef struct {
 	SavedAt time.Time
 }
 
-// savedShowVenueTZJoin resolves each saved show's venue-local IANA zone for the
-// upcoming/past partition. The first venue (lowest venue_id) decides the zone,
-// mirroring the "first venue" convention the calendar/reminder renderers use.
-// The pg_timezone_names lookup + COALESCE('UTC') follows the radio precedent
-// (catalog.stationLocalToday): a NULL, blank, or malformed stored zone degrades
-// to UTC instead of erroring the whole query. Shows with no venue keep the
-// LEFT LATERAL row NULL, so the conditions below COALESCE once more.
-const savedShowVenueTZJoin = `LEFT JOIN LATERAL (
-	SELECT COALESCE(
-		(SELECT name FROM pg_timezone_names
-		 WHERE lower(name) = lower(btrim(v.timezone, E' \t\n\r'))),
-		'UTC') AS name
-	FROM show_venues sv
-	JOIN venues v ON v.id = sv.venue_id
-	WHERE sv.show_id = shows.id
-	ORDER BY sv.venue_id
-	LIMIT 1
-) venue_tz ON true`
-
-// savedShowVenueLocalDateSQL is the show's calendar date in the venue's local
-// zone. event_date is TIMESTAMPTZ (migration 000028), so a single AT TIME ZONE
-// shifts the instant into the venue's wall clock before the ::date cast —
-// matching how the calendar and reminder services render it with
-// time.Time.In(venueZone).
-const savedShowVenueLocalDateSQL = `(shows.event_date AT TIME ZONE COALESCE(venue_tz.name, 'UTC'))::date`
-
-// savedShowVenueLocalTodaySQL is "today" on the venue's local calendar. A show
-// graduates from upcoming to past when this date passes its venue-local event
-// date — i.e. at venue-local midnight, not at the event's start instant.
-const savedShowVenueLocalTodaySQL = `(now() AT TIME ZONE COALESCE(venue_tz.name, 'UTC'))::date`
-
 // GetUserSavedShows retrieves shows saved by a user.
 //
 // timeFilter selects the partition and ordering:
@@ -159,25 +129,30 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int, tim
 // pages over bookmarks and then fetches shows), the date partition has to live
 // on the shows side of the join, so this pages over shows joined to bookmarks.
 func (s *SavedShowService) savedShowPageByEventDate(userID uint, limit, offset int, timeFilter string) ([]savedShowRef, int64, error) {
-	var dateCondition, order string
-	switch timeFilter {
-	case "past":
-		dateCondition = savedShowVenueLocalDateSQL + " < " + savedShowVenueLocalTodaySQL
+	// The venue-local boundary itself is shared.VenueLocalDateCondition, so this
+	// list, the artist page and the venue page cannot disagree about whether a
+	// given show is still upcoming.
+	dateCondition := shared.VenueLocalDateCondition(timeFilter)
+	order := "shows.event_date ASC, shows.id ASC"
+	if timeFilter == "past" {
 		order = "shows.event_date DESC, shows.id DESC"
-	default: // "upcoming"
-		dateCondition = savedShowVenueLocalDateSQL + " >= " + savedShowVenueLocalTodaySQL
-		order = "shows.event_date ASC, shows.id ASC"
 	}
 
 	// Fresh builder per query: GORM builders accumulate clauses, so Count and
 	// Find must not share one.
 	baseQuery := func() *gorm.DB {
-		return s.db.Table("user_bookmarks").
+		q := s.db.Table("user_bookmarks").
 			Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
-			Joins(savedShowVenueTZJoin).
 			Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action = ?",
-				userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave).
-			Where(dateCondition)
+				userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave)
+		// Guarded rather than applied unconditionally: GORM silently DROPS an
+		// empty Where, so routing "all" in here would return every saved show
+		// with no error and an unpartitioned total. Only the caller's upstream
+		// validation stops that today.
+		if dateCondition != "" {
+			q = q.Joins(shared.VenueTZJoin).Where(dateCondition)
+		}
+		return q
 	}
 
 	var total int64
