@@ -10,6 +10,7 @@ import {
   extractedVenueToSelected,
   toArtistPayloads,
   toSetType,
+  resolveFormSetType,
   DEFAULT_SET_TYPE,
   SET_TYPE_OPTIONS,
   SET_TYPE_VALUES,
@@ -689,5 +690,38 @@ describe('toArtistPayloads', () => {
       set_type: 'direct_support',
       instagram_handle: '@newact',
     })
+  })
+})
+
+
+// --- resolveFormSetType (PSY-1673) ---
+
+describe('resolveFormSetType', () => {
+  it('prefers a curated set_type over the legacy flag', () => {
+    expect(
+      resolveFormSetType({ set_type: 'opener', is_headliner: true })
+    ).toBe('opener')
+  })
+
+  it('falls back to the headliner flag when no slot was stated', () => {
+    expect(resolveFormSetType({ is_headliner: true })).toBe('headliner')
+    expect(resolveFormSetType({ set_type: '', is_headliner: true })).toBe(
+      'headliner'
+    )
+  })
+
+  it('resolves to the neutral default with no signal at all', () => {
+    // Never 'opener': absence of a stated slot is not evidence of one.
+    expect(resolveFormSetType({})).toBe(DEFAULT_SET_TYPE)
+    expect(resolveFormSetType({ is_headliner: false })).toBe(DEFAULT_SET_TYPE)
+    expect(resolveFormSetType({ set_type: null, is_headliner: null })).toBe(
+      DEFAULT_SET_TYPE
+    )
+  })
+
+  it('coerces an unrecognized set_type rather than passing it through', () => {
+    expect(
+      resolveFormSetType({ set_type: 'co_headliner', is_headliner: true })
+    ).toBe(DEFAULT_SET_TYPE)
   })
 })

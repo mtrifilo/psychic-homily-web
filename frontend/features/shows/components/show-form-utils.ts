@@ -47,8 +47,27 @@ export const DEFAULT_SET_TYPE: SetType = 'performer'
  * stale client can give.
  */
 export function toSetType(value: string | null | undefined): SetType {
-  const match = SET_TYPE_OPTIONS.find(option => option.value === value)
-  return match ? match.value : DEFAULT_SET_TYPE
+  return SET_TYPE_VALUES.find(known => known === value) ?? DEFAULT_SET_TYPE
+}
+
+/**
+ * Resolve the bill role for an inbound record that may carry either signal.
+ *
+ * The same precedence the backend applies when writing the row: a curated
+ * set_type wins, the legacy is_headliner flag decides only in its absence, and
+ * anything else is the neutral default. Named rather than inlined so the one
+ * caller that needs it today (the AI-extraction merge) and any future importer
+ * share a ladder instead of each carrying a private copy.
+ *
+ * Note it never infers a headliner from list position: that inference belongs
+ * to the write path, which knows the whole bill.
+ */
+export function resolveFormSetType(source: {
+  set_type?: string | null
+  is_headliner?: boolean | null
+}): SetType {
+  if (source.set_type) return toSetType(source.set_type)
+  return source.is_headliner ? 'headliner' : DEFAULT_SET_TYPE
 }
 
 export interface FormArtist {
@@ -262,15 +281,10 @@ export function mergeExtraction(
     merged.artists = extraction.artists.map(a =>
       makeFormArtist({
         // The extraction endpoint normalizes set_type to the vocabulary and
-        // leaves it empty when the flyer did not state a slot. Prefer it, and
-        // fall back to the headliner flag rather than inventing a support
-        // role for everything below the top line.
+        // leaves it empty when the flyer did not state a slot, so the headliner
+        // flag is the fallback rather than an invented support role.
         name: a.matched_name || a.name,
-        set_type: a.set_type
-          ? toSetType(a.set_type)
-          : a.is_headliner
-            ? 'headliner'
-            : DEFAULT_SET_TYPE,
+        set_type: resolveFormSetType(a),
         matched_id: a.matched_id,
         instagram_handle: a.matched_id ? undefined : a.instagram_handle,
       })

@@ -250,47 +250,6 @@ func TestSplitAndTrim_NoSeparator(t *testing.T) {
 }
 
 // =============================================================================
-// UNIT TESTS — normalizeSetType
-// =============================================================================
-
-func TestNormalizeSetType(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"headliner", "headliner"},
-		{"Headliner", "headliner"},
-		{"HEADLINER", "headliner"},
-		// PSY-1673: the prompt emits "support" only for an act the source
-		// billed under "w/" or "with", which IS the direct support slot.
-		{"support", "direct_support"},
-		{"Support", "direct_support"},
-		{"direct_support", "direct_support"},
-		{"opener", "opener"},
-		{"special_guest", "special_guest"},
-		{"performer", "performer"},
-		// dj is a first-class slot now, no longer flattened into performer.
-		{"dj", "dj"},
-		{"DJ", "dj"},
-		// The vocabulary has no host role, so hosting stays unmapped rather
-		// than being lossily recorded as a performer. Callers default it.
-		{"host", ""},
-		{"Host", ""},
-		{"", ""},                       // empty returns empty
-		{"unknown", ""},                // unknown returns empty
-		{"  headliner  ", "headliner"}, // whitespace trimmed
-		{"  support ", "direct_support"},
-	}
-
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("input_%s", tt.input), func(t *testing.T) {
-			result := normalizeSetType(tt.input)
-			assert.Equal(t, tt.expected, result, "normalizeSetType(%q)", tt.input)
-		})
-	}
-}
-
-// =============================================================================
 // testVenueFinderCreator — lightweight impl of venueFinderCreator for tests
 // =============================================================================
 

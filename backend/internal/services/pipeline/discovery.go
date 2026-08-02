@@ -210,7 +210,7 @@ func (s *DiscoveryService) resolveHeadlinerName(event *contracts.DiscoveredEvent
 	if len(event.BillingArtists) > 0 {
 		// Look for an explicit headliner
 		for _, ba := range event.BillingArtists {
-			if normalizeSetType(ba.SetType) == "headliner" {
+			if contracts.NormalizeSetType(ba.SetType) == contracts.SetTypeHeadliner {
 				return ba.Name
 			}
 		}
@@ -473,7 +473,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			// billing order, not evidence that acts two through four were the
 			// openers, and stamping a role on that inference is what made this
 			// column unreadable before PSY-1673.
-			setType := normalizeSetType(entry.SetType)
+			setType := contracts.NormalizeSetType(entry.SetType)
 			if setType == "" {
 				if idx == 0 {
 					setType = contracts.SetTypeHeadliner
@@ -782,17 +782,6 @@ func parsePriceString(s string) *float64 {
 		return nil
 	}
 	return &val
-}
-
-// normalizeSetType maps an AI-extracted set_type onto the curated vocabulary.
-// Thin delegation to contracts.NormalizeSetType, which owns the mapping table
-// and the reasoning behind each row; kept as a package-local name because the
-// pipeline reads better without the qualifier at the call site.
-//
-// Returns "" for anything unmappable, which the caller must answer with
-// contracts.SetTypeDefault rather than a guessed role.
-func normalizeSetType(setType string) string {
-	return contracts.NormalizeSetType(setType)
 }
 
 // splitAndTrim splits a string by separator and trims whitespace from each part

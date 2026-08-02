@@ -458,11 +458,11 @@ export function ShowForm({
                             field.handleChange(toSetType(value))
                           }
                         >
-                          <SelectTrigger
-                            id={field.name}
-                            className="w-full"
-                            aria-label={`Bill role for artist ${index + 1}`}
-                          >
+                          {/* Named by the visible <Label> alone. An extra
+                              aria-label would override it with text the user
+                              cannot see, breaking WCAG 2.5.3 (Label in Name)
+                              for anyone driving this by voice. */}
+                          <SelectTrigger id={field.name} className="w-full">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>

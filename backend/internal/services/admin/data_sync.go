@@ -181,7 +181,7 @@ func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*cont
 		for _, artist := range show.Artists {
 			// Find position info from showArtistMap
 			position := 0
-			setType := "performer"
+			setType := contracts.SetTypeDefault
 			for _, sa := range showArtistMap[show.ID] {
 				if sa.ArtistID == artist.ID {
 					position = sa.Position
@@ -705,12 +705,23 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			}
 			artist := *foundArtist
 
-			// Create show-artist association
+			// Create show-artist association.
+			//
+			// The set_type is normalized rather than trusted: this is the one
+			// write path that reaches show_artists without passing the show
+			// service's validator or the OpenAPI enum, and the payload is an
+			// export file from another environment that may predate the
+			// vocabulary. Anything unmappable becomes the neutral default, so
+			// a stale export cannot seed a role nobody asserted.
+			syncSetType := contracts.NormalizeSetType(exportedArtist.SetType)
+			if syncSetType == "" {
+				syncSetType = contracts.SetTypeDefault
+			}
 			showArtist := catalogm.ShowArtist{
 				ShowID:    newShow.ID,
 				ArtistID:  artist.ID,
 				Position:  exportedArtist.Position,
-				SetType:   exportedArtist.SetType,
+				SetType:   syncSetType,
 				EventDate: &syncEventDate,
 				VenueID:   primaryVenueID,
 			}

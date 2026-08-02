@@ -792,13 +792,13 @@ describe('ShowForm: bill role selector', () => {
     renderWithProviders(<ShowForm mode="create" />)
 
     expect(
-      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+      screen.getByRole('combobox', { name: 'Bill role 1' })
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /add another artist/i }))
 
     expect(
-      await screen.findByRole('combobox', { name: 'Bill role for artist 2' })
+      await screen.findByRole('combobox', { name: 'Bill role 2' })
     ).toBeInTheDocument()
   })
 
@@ -807,14 +807,14 @@ describe('ShowForm: bill role selector', () => {
     renderWithProviders(<ShowForm mode="create" />)
 
     expect(
-      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+      screen.getByRole('combobox', { name: 'Bill role 1' })
     ).toHaveTextContent('Headliner')
 
     await user.click(screen.getByRole('button', { name: /add another artist/i }))
 
     // NOT "Opener" -- nobody has said what slot this act plays.
     expect(
-      await screen.findByRole('combobox', { name: 'Bill role for artist 2' })
+      await screen.findByRole('combobox', { name: 'Bill role 2' })
     ).toHaveTextContent('Performer (slot unknown)')
   })
 
@@ -823,7 +823,7 @@ describe('ShowForm: bill role selector', () => {
     renderWithProviders(<ShowForm mode="create" />)
 
     await user.click(
-      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+      screen.getByRole('combobox', { name: 'Bill role 1' })
     )
 
     for (const option of SET_TYPE_OPTIONS) {
@@ -854,7 +854,7 @@ describe('ShowForm: bill role selector', () => {
       fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, futureDate())
 
       await user.click(
-        screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+        screen.getByRole('combobox', { name: 'Bill role 1' })
       )
       await user.click(
         await screen.findByRole('option', { name: option.label })
@@ -905,10 +905,10 @@ describe('ShowForm: bill role selector', () => {
     )
 
     expect(
-      await screen.findByRole('combobox', { name: 'Bill role for artist 1' })
+      await screen.findByRole('combobox', { name: 'Bill role 1' })
     ).toHaveTextContent('Headliner')
     expect(
-      screen.getByRole('combobox', { name: 'Bill role for artist 2' })
+      screen.getByRole('combobox', { name: 'Bill role 2' })
     ).toHaveTextContent('Direct support')
   })
 
@@ -920,7 +920,7 @@ describe('ShowForm: bill role selector', () => {
     renderWithProviders(<ShowForm mode="edit" initialData={makeShow()} />)
 
     await user.click(
-      screen.getByRole('combobox', { name: 'Bill role for artist 1' })
+      screen.getByRole('combobox', { name: 'Bill role 1' })
     )
     await user.click(await screen.findByRole('option', { name: 'DJ' }))
 

@@ -1810,10 +1810,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 // the single place that decides whether a stated role is acceptable, so this
 // helper cannot quietly turn a rejected value into an accepted one.
 func curatedSetType(a contracts.CreateShowArtist) string {
-	if a.SetType == nil {
-		return ""
-	}
-	return strings.TrimSpace(*a.SetType)
+	return strings.TrimSpace(derefString(a.SetType))
 }
 
 // validateShowArtistSetTypes rejects any entry whose curated set_type is
@@ -1836,15 +1833,21 @@ func validateShowArtistSetTypes(artists []contracts.CreateShowArtist) error {
 	return nil
 }
 
-// requestsHeadlinerSlot reports whether a request entry explicitly asks for
-// the top-of-bill slot, by either signal. Reads set_type first because it is
-// authoritative, so a caller that sends only set_type is still seen by the
-// duplicate-headliner pre-check.
+// positionUnspecified disables resolveArtistRole's position-0 fallback, so it
+// answers "what did the caller EXPLICITLY ask for" rather than "what will this
+// row end up as". Any non-zero position would do; naming it says why.
+const positionUnspecified = -1
+
+// requestsHeadlinerSlot reports whether a request entry explicitly asks for the
+// top-of-bill slot, by either signal, so a caller that sends only set_type is
+// still seen by the duplicate-headliner pre-check.
+//
+// Defined in terms of resolveArtistRole rather than repeating its precedence:
+// the pre-check and the write must agree on who the headliner is, and two
+// copies of the ladder could drift apart without any test noticing.
 func requestsHeadlinerSlot(a contracts.CreateShowArtist) bool {
-	if value := curatedSetType(a); value != "" {
-		return value == contracts.SetTypeHeadliner
-	}
-	return a.IsHeadliner != nil && *a.IsHeadliner
+	_, isHeadliner := resolveArtistRole(a, positionUnspecified)
+	return isHeadliner
 }
 
 // resolveArtistRole decides the (set_type, is_headliner) pair written for one
@@ -2706,10 +2709,16 @@ func (s *ShowService) ConfirmShowImport(content []byte, isAdmin bool) (*contract
 	// whole file on one stale label.
 	var requestArtists []contracts.CreateShowArtist
 	for _, artistData := range parsed.Frontmatter.Artists {
-		isHeadliner := artistData.SetType == contracts.SetTypeHeadliner
+		// is_headliner is pinned false for every entry, and that false is the
+		// only part still doing work: a curated set_type below already decides
+		// the slot and outranks the flag. Pinning it suppresses the position-0
+		// headliner inference, because an export that stated ANY label -- even
+		// one the vocabulary cannot map -- has already described the bill, and
+		// first-in-file is not a second opinion.
+		noPositionInference := false
 		entry := contracts.CreateShowArtist{
 			Name:        artistData.Name,
-			IsHeadliner: &isHeadliner,
+			IsHeadliner: &noPositionInference,
 		}
 		if normalized := contracts.NormalizeSetType(artistData.SetType); normalized != "" {
 			entry.SetType = &normalized
