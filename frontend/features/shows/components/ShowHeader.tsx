@@ -64,11 +64,42 @@ interface ShowHeaderProps {
 }
 
 /**
+ * The reserved left column of the show page: a flyer at its native aspect
+ * ratio, uncropped.
+ *
+ * A plain plate today. The flyer itself, its provenance caption and its report
+ * affordance are the next wave's work, and drawing a dashed "image goes here"
+ * box or a fake caption would be promising UI that does not exist. What this
+ * DOES do is hold the column open so the two-column reading order is real and
+ * reviewable now rather than arriving as a surprise reflow later.
+ *
+ * Its column is hidden below `md` (see the caller): a tall empty plate above
+ * the bill would push every word of the show off a phone screen, and the
+ * mock's two-column grammar only exists at desktop width anyway.
+ */
+function ShowFlyerPlate() {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="show-flyer-plate"
+      className="aspect-[4/5] w-full rounded-sm border border-border/60 bg-muted/40"
+    />
+  )
+}
+
+/**
  * ShowDetail-specific header block. Owns the bill-position artist rendering
  * (headliners as h1, support as "w/ ..." row), venue prominence block
  * (name link + MapPin + "see more shows at {venue}" link), date + sold-out
  * badge row, show meta row (time / price / age), ticket URL CTA, and
  * description paragraph.
+ *
+ * Laid out as the mock's two columns: the flyer plate on the left, and on the
+ * right the module slots in reading order (header block, venue, ticket and
+ * actions, attendance). The slots are marked in the markup because their
+ * ORDER is the design decision; what goes inside each one is still being
+ * filled in wave by wave, and a later wave should have somewhere obvious to
+ * put its module rather than choosing a new position for it.
  *
  * This intentionally diverges from the generic `EntityHeader` — the bill
  * position semantics (`set_type`) and the co-primary venue entity don't
@@ -96,8 +127,17 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const effectiveSupport = headliners.length > 0 ? support : artists.slice(1)
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-      <div className="flex-1 min-w-0">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-8">
+      {/* SLOT: flyer plate (+ its provenance caption, a later wave). The whole
+          column is hidden below `md`, not just its contents: a display:none
+          grid item generates no row and no gap, so a phone gets the bill at
+          the top of the page rather than a screen of reserved plate. */}
+      <div className="hidden min-w-0 md:block">
+        <ShowFlyerPlate />
+      </div>
+
+      <div className="min-w-0">
+        {/* SLOT: header block. Date, bill, context. */}
         {/* Date and Status Badges */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-lg font-bold text-primary">
@@ -160,9 +200,11 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           </div>
         )}
 
-        {/* Venue and Location */}
+        {/* SLOT: venue module. Refined by the venue-module wave; today it is
+            the name link, city/state, street address and the "more shows at"
+            link that already lived here. */}
         {venue && (
-          <div className="mt-2">
+          <div className="mt-4">
             {venue.slug ? (
               <Link
                 href={`/venues/${venue.slug}`}
@@ -203,46 +245,55 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           </div>
         )}
 
-        {/* Show Details. The calendar affordance sits here with the when-info
-            (event-page convention), not in the social action cluster. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-3">
-          <span>{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}</span>
-          {show.price != null && <span>{formatPrice(show.price)}</span>}
-          {show.age_requirement && <span>{show.age_requirement}</span>}
-          <ShowAddToCalendar show={show} />
+        {/* SLOT: ticket and action block. The when/what-it-costs line and
+            every verb a reader can act on, together in one band under the
+            venue, as the mock has them. The action cluster used to float in a
+            right-hand column of the header; it was moved, not rewired, so the
+            calendar/save coupling it carries is untouched. */}
+        <div className="mt-4 border-t border-border/60 pt-4">
+          {/* The calendar affordance sits here with the when-info (event-page
+              convention), not in the social action cluster. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            <span>{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}</span>
+            {show.price != null && <span>{formatPrice(show.price)}</span>}
+            {show.age_requirement && <span>{show.age_requirement}</span>}
+            <ShowAddToCalendar show={show} />
+          </div>
+
+          {/* Ticket URL */}
+          {show.ticket_url && (
+            <div className="mt-3">
+              <a
+                href={
+                  show.ticket_url.startsWith('http')
+                    ? show.ticket_url
+                    : `https://${show.ticket_url}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                Buy Tickets
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          )}
+
+          {actions && (
+            <div className="mt-3 flex flex-col items-start gap-2">{actions}</div>
+          )}
         </div>
 
-        {/* Ticket URL */}
-        {show.ticket_url && (
-          <div className="mt-3">
-            <a
-              href={
-                show.ticket_url.startsWith('http')
-                  ? show.ticket_url
-                  : `https://${show.ticket_url}`
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-            >
-              Buy Tickets
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          </div>
-        )}
+        {/* SLOT: attendance. Going / interested / "I was there" counts land
+            here, between the actions and the fold. Deliberately empty: the
+            counts are designed but not built, and reserving visible blank
+            space for them would read as a broken module. */}
 
         {/* Description */}
         {show.description && (
           <p className="mt-4 text-muted-foreground">{show.description}</p>
         )}
       </div>
-
-      {/* Action cluster (save + collect + report + admin status toggles) */}
-      {actions && (
-        <div className="flex flex-col items-start sm:items-end gap-2 sm:shrink-0">
-          {actions}
-        </div>
-      )}
     </div>
   )
 }

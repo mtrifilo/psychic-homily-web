@@ -3,14 +3,16 @@ import { resolveShowTimezone } from './formatters'
 /**
  * Where a show sits relative to now, answered once.
  *
- * Two questions, two exports, because the surfaces asking are not asking the
- * same thing and collapsing them is how this went wrong before:
+ * Two questions, because the surfaces asking are not asking the same thing and
+ * collapsing them is how this went wrong before:
  *
  * - "Can a reader still BUY this?" is a question about the start instant.
  *   Doors open once, at one moment, everywhere in the world.
  * - "Is this still a live LISTING?" is a question about the venue's calendar
  *   day. A show is over when it is over WHERE IT HAPPENED, not when the
- *   reader's clock rolls over.
+ *   reader's clock rolls over. `getShowLifecycleState` answers it in three
+ *   parts and `isShowPast` collapses that to a boolean; they are one boundary
+ *   with two shapes, not two boundaries.
  *
  * Pick by the claim being made, not by which reads better. An `Offer` is the
  * first kind; a cache lifetime is the second.
@@ -85,6 +87,46 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
 }
 
 /**
+ * Where a show sits on the venue's own calendar: yesterday or earlier, today,
+ * or a later day.
+ *
+ * The three-way answer `isShowPast` cannot give. A status line that only knows
+ * past-or-not has to ask a second question to tell "tonight" from "in three
+ * weeks", and every caller that asks it separately picks its own boundary. This
+ * is the one boundary: the venue's calendar day.
+ *
+ * `today` deliberately spans the WHOLE venue-local day, so a show whose doors
+ * opened two hours ago is still `today` until venue-local midnight. That is the
+ * same edge `isShowPast` draws, and it is NOT the edge `hasShowStarted` draws:
+ * between the start instant and local midnight a listing still reads as
+ * tonight's while its ticket offer is already withdrawn. Both are correct for
+ * what they claim, and a surface that mixes them is what this comment exists to
+ * prevent. If a reader must not be told "tonight" once the band is on stage,
+ * that is a copy decision to be made against `hasShowStarted`, not a change to
+ * this boundary.
+ *
+ * Carries the same guards, and the same known timezone limit, as `isShowPast`;
+ * see its comment before using this for anything a reader sees.
+ */
+export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
+
+export function getShowLifecycleState(
+  show: ShowTimingInput,
+  now: Date = new Date()
+): ShowLifecycleState {
+  const startedAt = startInstantMs(show.eventDate)
+  if (startedAt === null) return 'past'
+  const readAt = now.getTime()
+  if (!Number.isFinite(readAt)) return 'upcoming'
+  const timeZone = resolveShowTimezone(show.state, show.timezone)
+  const showDay = venueLocalDayOrdinal(startedAt, timeZone)
+  const today = venueLocalDayOrdinal(readAt, timeZone)
+  if (today > showDay) return 'past'
+  if (today === showDay) return 'today'
+  return 'upcoming'
+}
+
+/**
  * Whether the show's calendar day has ended in the venue's own timezone.
  *
  * The boundary is venue-local midnight, not the start instant: a show that
@@ -116,15 +158,10 @@ function startInstantMs(eventDate: string | null | undefined): number | null {
  * input and so tests do not depend on the wall clock.
  */
 export function isShowPast(show: ShowTimingInput, now: Date = new Date()): boolean {
-  const startedAt = startInstantMs(show.eventDate)
-  if (startedAt === null) return true
-  const readAt = now.getTime()
-  if (!Number.isFinite(readAt)) return false
-  const timeZone = resolveShowTimezone(show.state, show.timezone)
-  return (
-    venueLocalDayOrdinal(readAt, timeZone) >
-    venueLocalDayOrdinal(startedAt, timeZone)
-  )
+  // Expressed through the three-way answer rather than alongside it: two
+  // functions deciding the same midnight independently is exactly how they
+  // drift apart, and the guards above are the subtle half.
+  return getShowLifecycleState(show, now) === 'past'
 }
 
 /**

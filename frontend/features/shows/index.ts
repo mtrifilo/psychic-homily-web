@@ -96,6 +96,8 @@ export { dedupArtistShows, dedupVenueShows } from './utils'
 // Components
 export {
   ShowDetail,
+  ShowStatusStripe,
+  showStatusStripeZone,
   ShowCard,
   ShowForm,
   ShowList,

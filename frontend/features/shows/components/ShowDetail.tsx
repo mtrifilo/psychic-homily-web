@@ -22,14 +22,26 @@ import {
   useEntitySaveSuccessBanner,
   AttributionLine,
 } from '@/features/contributions'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowHeader } from './ShowHeader'
 import { ShowActions } from './ShowActions'
+import { ShowStatusStripe } from './ShowStatusStripe'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 
 interface ShowDetailProps {
   showId: string | number
+  /**
+   * Where the show sits on the venue's calendar, computed ON THE SERVER (see
+   * the show route) and threaded through to {@link ShowStatusStripe}.
+   *
+   * A prop rather than a hook because this component runs on the client, and
+   * the answer must not depend on the reader's clock or change between render
+   * and hydration. Cancellation is NOT folded in here: that is a data flag the
+   * live query already tracks, so the stripe stays correct the moment an admin
+   * toggles it, while the clock half stays frozen at what the server saw.
+   */
+  lifecycle: ShowLifecycleState
 }
 
 function artistHasMusic(artist: ArtistResponse): boolean {
@@ -40,7 +52,7 @@ function artistHasMusic(artist: ArtistResponse): boolean {
   )
 }
 
-export function ShowDetail({ showId }: ShowDetailProps) {
+export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
   const queryClient = useQueryClient()
   const { data: show, isLoading, error } = useShow(showId)
   const { isAuthenticated, user } = useAuthContext()
@@ -150,17 +162,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   return (
     <>
-      {/* Cancelled Alert Banner — rendered above the layout so it stays
-          above the fold even when the header gets tall. */}
-      {show.is_cancelled && (
-        <div className="container max-w-6xl mx-auto px-4 pt-6">
-          <Alert variant="destructive">
-            <AlertDescription className="font-semibold">
-              This show has been cancelled.
-            </AlertDescription>
-          </Alert>
-        </div>
-      )}
+      {/* The status stripe is the page's first line in every state, including
+          cancellation. It replaces the destructive Alert that used to sit
+          here: the same fact, said once, in the one place a reader has learned
+          to look, instead of twice within a screen of itself. */}
+      <ShowStatusStripe show={show} lifecycle={lifecycle} />
 
       <EntityDetailLayout
         fallback={{ href: '/shows', label: 'Shows' }}
@@ -171,36 +177,25 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           ) : undefined
         }
         header={
-          <>
-            <ShowHeader
-              show={show}
-              actions={
-                <ShowActions
-                  show={show}
-                  showTitle={showTitle}
-                  isAdmin={isAdmin}
-                  canDelete={canDelete}
-                  canManageStatus={canManageStatus}
-                  isEditing={isEditing}
-                  onToggleEdit={() => setIsEditing(!isEditing)}
-                  onOpenDelete={() => setIsDeleteDialogOpen(true)}
-                  onToggleSoldOut={handleToggleSoldOut}
-                  onToggleCancelled={handleToggleCancelled}
-                  isSoldOutPending={setSoldOutMutation.isPending}
-                  isCancelledPending={setCancelledMutation.isPending}
-                />
-              }
-            />
-            {/* PSY-563: "Last edited by …" attribution row directly under the
-                title, mirroring artist/venue/release/label/festival detail
-                pages. Renders nothing until at least one revision exists. */}
-            <AttributionLine entityType="show" entityId={show.id} />
-            <EntityTagList
-              entityType="show"
-              entityId={show.id}
-              isAuthenticated={isAuthenticated}
-            />
-          </>
+          <ShowHeader
+            show={show}
+            actions={
+              <ShowActions
+                show={show}
+                showTitle={showTitle}
+                isAdmin={isAdmin}
+                canDelete={canDelete}
+                canManageStatus={canManageStatus}
+                isEditing={isEditing}
+                onToggleEdit={() => setIsEditing(!isEditing)}
+                onOpenDelete={() => setIsDeleteDialogOpen(true)}
+                onToggleSoldOut={handleToggleSoldOut}
+                onToggleCancelled={handleToggleCancelled}
+                isSoldOutPending={setSoldOutMutation.isPending}
+                isCancelledPending={setCancelledMutation.isPending}
+              />
+            }
+          />
         }
       >
         {/* Page-level "Changes saved" banner. Mirrors the artist / venue /
@@ -266,6 +261,26 @@ export function ShowDetail({ showId }: ShowDetailProps) {
             artists={artists.map(a => ({ id: a.id, name: a.name }))}
           />
         </section>
+
+        {/* SLOT: rails row. The "also tonight in this city" and "more at this
+            venue" columns sit here, below the embeds and above the footer.
+            Neither is built; a later wave fills the slot. */}
+
+        {/* Tags and provenance footer. Both were in the header slot, above the
+            fold, competing with the bill for the first thing a reader sees.
+            The mock puts them last, where a newspaper puts its byline: still
+            reachable, no longer the headline. */}
+        <footer className="mt-8 border-t border-border/60 pt-4">
+          <EntityTagList
+            entityType="show"
+            entityId={show.id}
+            isAuthenticated={isAuthenticated}
+          />
+          {/* PSY-563: "Last edited by …" attribution row, mirroring
+              artist/venue/release/label/festival detail pages. Renders nothing
+              until at least one revision exists. */}
+          <AttributionLine entityType="show" entityId={show.id} />
+        </footer>
       </EntityDetailLayout>
 
       {/* History + Discussion — rendered as siblings below the layout. The

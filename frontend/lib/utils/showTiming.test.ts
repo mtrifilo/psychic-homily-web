@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { isShowPast, hasShowStarted } from './showTiming'
+import {
+  getShowLifecycleState,
+  isShowPast,
+  hasShowStarted,
+} from './showTiming'
 
 /**
  * `isShowPast`'s boundary is venue-local midnight, so its cases are written as
@@ -217,5 +221,86 @@ describe('hasShowStarted', () => {
     ['a non-date string', 'n/a'],
   ])('counts a show with %s for its start as already started', (_label, value) => {
     expect(hasShowStarted(value)).toBe(true)
+  })
+})
+
+describe('getShowLifecycleState', () => {
+  const SHOW = { eventDate: '2026-03-15T03:00:00Z', ...PHOENIX } // 20:00 Mar 14
+
+  it('is upcoming on an earlier venue-local day', () => {
+    expect(getShowLifecycleState(SHOW, new Date('2026-03-14T06:59:00Z'))).toBe(
+      'upcoming'
+    )
+  })
+
+  it('is today from the first minute of the venue-local day', () => {
+    // 00:00 Mar 14 Phoenix, twenty hours before doors.
+    expect(getShowLifecycleState(SHOW, new Date('2026-03-14T07:00:00Z'))).toBe(
+      'today'
+    )
+  })
+
+  // The boundary the status stripe had to pick: the band is on stage, the
+  // ticket offer is already withdrawn, and the listing still reads as
+  // tonight's.
+  it('is still today mid-show, when hasShowStarted has already flipped', () => {
+    const midShow = new Date('2026-03-15T05:00:00Z') // 22:00 Mar 14 Phoenix
+    expect(getShowLifecycleState(SHOW, midShow)).toBe('today')
+    expect(hasShowStarted(SHOW.eventDate, midShow)).toBe(true)
+  })
+
+  it('flips to past exactly at venue-local midnight', () => {
+    const midnight = Date.parse('2026-03-15T07:00:00Z') // 00:00 Mar 15 Phoenix
+    expect(getShowLifecycleState(SHOW, new Date(midnight - 1))).toBe('today')
+    expect(getShowLifecycleState(SHOW, new Date(midnight))).toBe('past')
+  })
+
+  // A reader in Auckland is a day ahead of Phoenix. The show is tonight where
+  // it happens, which is the only calendar that matters.
+  it('answers on the venue calendar, not the reader clock', () => {
+    // 16:00 Mar 15 Auckland is 20:00 Mar 14 Phoenix: doors.
+    expect(getShowLifecycleState(SHOW, new Date('2026-03-15T03:00:00Z'))).toBe(
+      'today'
+    )
+  })
+
+  it('agrees with isShowPast on every side of the boundary', () => {
+    for (const at of [
+      '2026-03-13T12:00:00Z',
+      '2026-03-14T07:00:00Z',
+      '2026-03-15T06:59:59Z',
+      '2026-03-15T07:00:00Z',
+      '2026-03-20T00:00:00Z',
+    ]) {
+      const now = new Date(at)
+      expect(getShowLifecycleState(SHOW, now) === 'past').toBe(
+        isShowPast(SHOW, now)
+      )
+    }
+  })
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['a non-date string', 'n/a'],
+  ])('counts a show with %s for its start as past', (_label, value) => {
+    expect(getShowLifecycleState({ eventDate: value, ...PHOENIX })).toBe('past')
+  })
+
+  it('does not claim a show is past when the clock itself is unreadable', () => {
+    expect(getShowLifecycleState(SHOW, new Date(NaN))).toBe('upcoming')
+  })
+
+  // Berlin at 20:00 is noon in Phoenix, so a zone-less Berlin venue happens to
+  // agree here. Pinned to document the fallback, not to bless it: see the
+  // KNOWN LIMIT note on `isShowPast`.
+  it('judges a zone-less non-US venue on the state-map fallback', () => {
+    expect(
+      getShowLifecycleState(
+        { eventDate: '2026-03-15T19:00:00Z', state: null, timezone: null },
+        new Date('2026-03-15T20:00:00Z')
+      )
+    ).toBe('today')
   })
 })

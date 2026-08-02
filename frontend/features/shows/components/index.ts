@@ -1,5 +1,12 @@
 export { ShowDetail } from './ShowDetail'
 export { ShowHeader } from './ShowHeader'
+export { ShowStatusStripe } from './ShowStatusStripe'
+export {
+  buildShowStatusStripeSegments,
+  showStatusStripeZone,
+  ESTIMATED_SHOW_LENGTH_HOURS,
+} from './showStatusStripeCopy'
+export type { ShowStatusStripeInput } from './showStatusStripeCopy'
 export { ShowActions } from './ShowActions'
 export { ShowCard } from './ShowCard'
 export type { ShowCardDensity, ShowCardProps } from './ShowCard'
