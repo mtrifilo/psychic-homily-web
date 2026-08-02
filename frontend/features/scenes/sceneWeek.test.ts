@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   countShows,
+  currentWeekBounds,
   formatDayHeading,
   formatShowCountLine,
   formatWeekRange,
@@ -37,6 +38,59 @@ describe('formatDayHeading', () => {
   it('does not drift across a month boundary', () => {
     expect(formatDayHeading('2026-08-01')).toBe('SAT AUG 1')
     expect(formatDayHeading('2026-07-31')).toBe('FRI JUL 31')
+  })
+})
+
+describe('currentWeekBounds', () => {
+  // 2026-08-02T05:00Z is Sunday in UTC but still SATURDAY the 1st in Phoenix
+  // (UTC-7). The two zones therefore disagree about which day it is, and on
+  // this instant they still agree about the WEEK — the interesting case is the
+  // one below, where they do not.
+  it('reads the calendar date in the zone it is given', () => {
+    const instant = new Date('2026-08-02T05:00:00Z')
+
+    expect(currentWeekBounds(instant, 'UTC')).toEqual({
+      start: '2026-07-27',
+      end: '2026-08-02',
+    })
+    expect(currentWeekBounds(instant, 'America/Phoenix')).toEqual({
+      start: '2026-07-27',
+      end: '2026-08-02',
+    })
+  })
+
+  // Monday 00:30 UTC is still Sunday evening on the US west coast, so the two
+  // zones are in different weeks. Deriving the week without naming a zone would
+  // pick one of these by accident.
+  it('puts zones on opposite sides of the Monday boundary in different weeks', () => {
+    const instant = new Date('2026-08-03T00:30:00Z')
+
+    expect(currentWeekBounds(instant, 'UTC')).toEqual({
+      start: '2026-08-03',
+      end: '2026-08-09',
+    })
+    expect(currentWeekBounds(instant, 'America/Los_Angeles')).toEqual({
+      start: '2026-07-27',
+      end: '2026-08-02',
+    })
+  })
+
+  it('treats Monday as the first day and Sunday as the last', () => {
+    expect(currentWeekBounds(new Date('2026-07-27T12:00:00Z'), 'UTC')).toEqual({
+      start: '2026-07-27',
+      end: '2026-08-02',
+    })
+    expect(currentWeekBounds(new Date('2026-08-02T12:00:00Z'), 'UTC')).toEqual({
+      start: '2026-07-27',
+      end: '2026-08-02',
+    })
+  })
+
+  it('does not drift across a year boundary', () => {
+    expect(currentWeekBounds(new Date('2027-01-01T12:00:00Z'), 'UTC')).toEqual({
+      start: '2026-12-28',
+      end: '2027-01-03',
+    })
   })
 })
 

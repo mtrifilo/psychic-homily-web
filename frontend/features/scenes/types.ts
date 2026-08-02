@@ -16,8 +16,14 @@ export interface SceneListItem {
   upcoming_show_count: number
   total_show_count: number
   // The ≤7-day slice of upcoming_show_count (PSY-1309) — drives the globe's
-  // "happening this week" pulse treatment.
+  // "happening this week" pulse treatment. A ROLLING window from now, so it is
+  // NOT the number /scenes/{slug}/week prints; anything rendered beside a link
+  // to that page uses shows_calendar_week instead.
   shows_this_week: number
+  // The scene's Monday-to-Sunday total, resolved in its OWN venue timezone —
+  // exactly what its /scenes/{slug}/week page reports (PSY-1623). The only
+  // count safe to show next to a link to that page.
+  shows_calendar_week: number
   // Geocoded city centroid for the /atlas map (PSY-1212). Absent (undefined)
   // or null when the geocoder couldn't place the city — such scenes can't be
   // plotted on the globe.

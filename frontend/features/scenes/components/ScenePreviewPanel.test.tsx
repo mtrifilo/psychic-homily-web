@@ -65,6 +65,7 @@ const scene: SceneListItem = {
   upcoming_show_count: 283,
   total_show_count: 337,
   shows_this_week: 0,
+  shows_calendar_week: 0,
   latitude: 41.88,
   longitude: -87.63,
 }

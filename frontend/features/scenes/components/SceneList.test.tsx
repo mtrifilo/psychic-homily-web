@@ -30,6 +30,10 @@ vi.mock('../hooks', () => ({
 
 import { SceneList } from './SceneList'
 
+// The two week fields disagree on BOTH scenes, deliberately. The card's count
+// and its mute decision belong to `shows_calendar_week` — the window the linked
+// page serves — and Tucson is the case that proves it: busy in the rolling
+// seven days, empty in the calendar week its link opens.
 const sampleData: SceneListResponse = {
   scenes: [
     {
@@ -39,7 +43,8 @@ const sampleData: SceneListResponse = {
       venue_count: 12,
       upcoming_show_count: 45,
       total_show_count: 200,
-      shows_this_week: 0,
+      shows_this_week: 23,
+      shows_calendar_week: 31,
     },
     {
       city: 'Tucson',
@@ -48,7 +53,8 @@ const sampleData: SceneListResponse = {
       venue_count: 1,
       upcoming_show_count: 0,
       total_show_count: 1,
-      shows_this_week: 0,
+      shows_this_week: 5,
+      shows_calendar_week: 0,
     },
   ],
   count: 2,
@@ -107,10 +113,15 @@ describe('SceneList', () => {
       expect(screen.getByText('Phoenix, AZ')).toBeInTheDocument()
       expect(screen.getByText('Tucson, AZ')).toBeInTheDocument()
 
-      const phoenixLink = screen.getByText('Phoenix, AZ').closest('a')!
-      expect(phoenixLink).toHaveAttribute('href', '/scenes/phoenix-az')
-      const tucsonLink = screen.getByText('Tucson, AZ').closest('a')!
-      expect(tucsonLink).toHaveAttribute('href', '/scenes/tucson-az')
+      // The card's link is an overlay covering the card rather than a wrapper
+      // around it, so it is addressed by its accessible name, not by the title
+      // text it sits over.
+      expect(
+        screen.getByRole('link', { name: 'Phoenix, AZ' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az')
+      expect(
+        screen.getByRole('link', { name: 'Tucson, AZ' })
+      ).toHaveAttribute('href', '/scenes/tucson-az')
     })
 
     it('pluralizes venue and show counts', () => {
@@ -129,6 +140,65 @@ describe('SceneList', () => {
       expect(screen.getByText('45 upcoming')).toBeInTheDocument()
       // Tucson has 0 upcoming — no upcoming label rendered.
       expect(screen.queryByText('0 upcoming')).not.toBeInTheDocument()
+    })
+
+    // PSY-1623: the week page has no other inbound link from this page, so the
+    // count doubles as the link to it — for the quiet scenes too, or the edge
+    // would come and go with the week's programming.
+    it('links every card to the scene week page', () => {
+      renderWithProviders(<SceneList />)
+
+      expect(
+        screen.getByRole('link', { name: 'Phoenix, AZ, 31 shows this week' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+      expect(
+        screen.getByRole('link', { name: 'Tucson, AZ, No shows this week' })
+      ).toHaveAttribute('href', '/scenes/tucson-az/week')
+    })
+
+    // A quiet week puts the same four words on every card, so the city has to
+    // be in the accessible name or a links list offers a dozen identical
+    // entries pointing at a dozen different pages.
+    it('names the city in the week link, not just the count', () => {
+      renderWithProviders(<SceneList />)
+
+      const names = screen
+        .getAllByRole('link')
+        .map(link => link.getAttribute('aria-label') ?? link.textContent)
+
+      expect(new Set(names).size).toBe(names.length)
+    })
+
+    // Same reason the /shows block mutes its zero rows: always linking the
+    // quiet scenes is only free if emptiness is not the loudest thing on the
+    // card.
+    //
+    // Tucson is muted on a NONZERO `shows_this_week`, which is the assertion
+    // that pins the mute to the calendar week: "quiet" has to mean the linked
+    // page is empty, not that the next seven days happen to be.
+    it('drops the accent on a quiet scene without dropping the link', () => {
+      renderWithProviders(<SceneList />)
+
+      const tucson = screen.getByRole('link', {
+        name: 'Tucson, AZ, No shows this week',
+      })
+      expect(tucson).toHaveClass('text-muted-foreground')
+      expect(tucson).not.toHaveClass('text-primary')
+
+      const phoenix = screen.getByRole('link', {
+        name: 'Phoenix, AZ, 31 shows this week',
+      })
+      expect(phoenix).toHaveClass('text-primary')
+    })
+
+    // Nesting the week link inside the card's own link would be invalid HTML —
+    // the parser lifts the inner anchor out, so what a crawler is handed stops
+    // matching what was written. The card link is stretched over the card with
+    // a pseudo-element instead.
+    it('keeps the two card links siblings rather than nested', () => {
+      const { container } = renderWithProviders(<SceneList />)
+
+      expect(container.querySelector('a a')).toBeNull()
     })
   })
 })

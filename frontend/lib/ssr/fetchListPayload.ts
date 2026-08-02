@@ -61,6 +61,16 @@ interface FetchListPayloadOptions {
   service: string
   /** Override only with the reason written down at the call site. */
   timeoutMs?: number
+  /**
+   * Data Cache lifetime, seconds. Override only with the reason written down
+   * at the call site.
+   *
+   * The default suits a payload whose staleness degrades gradually. A payload
+   * scoped to a CALENDAR PERIOD does not: at the period's boundary it stops
+   * being slightly old and starts being about the wrong period. Such a caller
+   * shortens this to bound that window.
+   */
+  revalidateSeconds?: number
   /** Injection seam for tests; production always uses the global `fetch`. */
   fetchImpl?: typeof fetch
 }
@@ -95,11 +105,12 @@ export async function fetchListPayload<T>({
   collection,
   service,
   timeoutMs = FIRST_SCREEN_FETCH_TIMEOUT_MS,
+  revalidateSeconds = FIRST_SCREEN_REVALIDATE_SECONDS,
   fetchImpl = fetch,
 }: FetchListPayloadOptions): Promise<T | null> {
   try {
     const res = await fetchImpl(url, {
-      next: { revalidate: FIRST_SCREEN_REVALIDATE_SECONDS },
+      next: { revalidate: revalidateSeconds },
       signal: createBuildTimeApiSignal(timeoutMs),
     })
 

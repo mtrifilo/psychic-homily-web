@@ -11,8 +11,10 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/utils"
 )
 
 // seedMetro resolves a (city, state) to its CBSA code for test fixtures, mirroring
@@ -334,6 +336,138 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeek() {
 	suite.Require().Len(scenes, 1)
 	suite.Equal(2, scenes[0].ShowsThisWeek, "only the two <7d shows count")
 	suite.Equal(5, scenes[0].UpcomingShowCount, "this-week shows are also upcoming")
+}
+
+// The invariant PSY-1623 exists for: a count shown NEXT TO a link to
+// /scenes/{slug}/week must be that page's own total. Asserting the two service
+// calls against each other is what keeps them tied — a fixed expected number
+// would let both drift together.
+//
+// Bounds come from sceneCalendarWeekWindow rather than from `now` plus an
+// offset: the boundary cases (a Monday show, a Sunday-night show) are the ones
+// that separate a calendar week from a rolling one, and they can only be
+// addressed relative to the week's own edges.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsCalendarWeekMatchesWeekPage() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	a := suite.createArtist("Calendar Band")
+
+	// No seeded venue carries a timezone, so the scene resolves its week in the
+	// state map's zone — the same fallback the week page takes.
+	loc := utils.EventLocation(nil, "AZ")
+	start, end := sceneCalendarWeekWindow(time.Now(), loc)
+
+	// Both edges of the week, inclusive-start and exclusive-end.
+	suite.createApprovedShow("Monday night", v1.ID, a.ID, user.ID, start.Add(20*time.Hour))
+	suite.createApprovedShow("Sunday night", v2.ID, a.ID, user.ID, end.Add(-2*time.Hour))
+	// Just outside each edge — the shows a rolling window would smear in.
+	suite.createApprovedShow("Last Sunday", v1.ID, a.ID, user.ID, start.Add(-2*time.Hour))
+	suite.createApprovedShow("Next Monday", v2.ID, a.ID, user.ID, end.Add(2*time.Hour))
+	suite.createApprovedShow("Next month", v1.ID, a.ID, user.ID, end.AddDate(0, 0, 20))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Equal(2, scenes[0].ShowsCalendarWeek, "only the Monday and Sunday shows sit inside the calendar week")
+
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+	suite.Equal(week.ShowCount, scenes[0].ShowsCalendarWeek,
+		"the list count IS the week page's total, or the link lies about where it goes")
+}
+
+// Every scene gets its OWN Monday. A single window applied across the list
+// would be right for whichever zone it was derived in and wrong for the rest,
+// which is the bug the shared /shows heading still carries by design.
+//
+// The New York show is placed one hour into New York's Monday — before Phoenix's
+// Monday has started, and before UTC's has finished. It counts for New York and
+// for nobody else, so a global window fails this test in either direction.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsCalendarWeekIsPerSceneTimezone() {
+	user := suite.createUser()
+	phx1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	phx2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	ny1 := suite.createVerifiedVenue("Bowery Ballroom", "New York", "NY")
+	ny2 := suite.createVerifiedVenue("Union Pool", "New York", "NY")
+	phxBand := suite.createArtist("Desert Band")
+	nyBand := suite.createArtistIn("Borough Band", "New York", "NY")
+
+	now := time.Now()
+	phxStart, _ := sceneCalendarWeekWindow(now, utils.EventLocation(nil, "AZ"))
+	nyStart, _ := sceneCalendarWeekWindow(now, utils.EventLocation(nil, "NY"))
+	// For the ~3 hours each Monday between New York's midnight and Phoenix's,
+	// the two zones are in DIFFERENT ISO weeks, so their starts sit a week apart
+	// rather than three hours and the boundary gap this test aims at does not
+	// exist. Skipping is the honest response; asserting would fail CI for three
+	// hours every week, and pinning the clock would mean threading one through
+	// ListScenes for this test alone. The sibling tests below carry the
+	// list-equals-page invariant in that window.
+	if !nyStart.Before(phxStart) {
+		suite.T().Skipf(
+			"New York (%s) has rolled into the next ISO week ahead of Phoenix (%s); no boundary gap to test",
+			nyStart.Format(time.RFC3339), phxStart.Format(time.RFC3339))
+	}
+
+	// Three shows per scene clears the listing threshold; the counted ones sit
+	// one hour into each scene's own Monday.
+	suite.createApprovedShow("PHX Monday", phx1.ID, phxBand.ID, user.ID, phxStart.Add(time.Hour))
+	// The mirror of the New York case, an hour BEFORE Phoenix's Monday: already
+	// Monday in UTC, still last week in Phoenix. Between them the two shows rule
+	// out every fixed zone, not just the western ones.
+	suite.createApprovedShow("PHX last Sunday", phx2.ID, phxBand.ID, user.ID, phxStart.Add(-time.Hour))
+	suite.createApprovedShow("PHX later 1", phx2.ID, phxBand.ID, user.ID, phxStart.AddDate(0, 0, 30))
+	suite.createApprovedShow("PHX later 2", phx1.ID, phxBand.ID, user.ID, phxStart.AddDate(0, 0, 31))
+	suite.createApprovedShow("NY Monday", ny1.ID, nyBand.ID, user.ID, nyStart.Add(time.Hour))
+	suite.createApprovedShow("NY later 1", ny2.ID, nyBand.ID, user.ID, nyStart.AddDate(0, 0, 30))
+	suite.createApprovedShow("NY later 2", ny1.ID, nyBand.ID, user.ID, nyStart.AddDate(0, 0, 31))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+
+	// Keyed by state, not by slug: a metro scene lists under its CBSA's
+	// PRINCIPAL city, which is "New York City" rather than the "New York" the
+	// venues were seeded with. Asserting on a guessed slug would test the geo
+	// dataset's naming instead of the count.
+	byState := make(map[string]*contracts.SceneListResponse, len(scenes))
+	for _, sc := range scenes {
+		byState[sc.State] = sc
+	}
+	suite.Require().Contains(byState, "AZ")
+	suite.Require().Contains(byState, "NY")
+	suite.Equal(1, byState["AZ"].ShowsCalendarWeek, "the Phoenix show sits in Phoenix's week")
+	suite.Equal(1, byState["NY"].ShowsCalendarWeek,
+		"the New York show sits in New York's week, which opened three hours earlier")
+
+	for _, sc := range scenes {
+		week, wErr := suite.sceneService.GetSceneWeek(sc.City, sc.State, "")
+		suite.Require().NoError(wErr)
+		suite.Equal(week.ShowCount, sc.ShowsCalendarWeek, "%s must agree with its own week page", sc.Slug)
+	}
+}
+
+// A quiet scene reports 0 rather than dropping out of the map, because the
+// caller mutes a week link on exactly that value — a scene missing from the
+// count query must not be indistinguishable from a scene with shows.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsCalendarWeekIsZeroForAQuietWeek() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
+	a := suite.createArtist("Quiet Band")
+
+	_, end := sceneCalendarWeekWindow(time.Now(), utils.EventLocation(nil, "AZ"))
+	suite.createApprovedShow("Later 1", v1.ID, a.ID, user.ID, end.AddDate(0, 0, 10))
+	suite.createApprovedShow("Later 2", v2.ID, a.ID, user.ID, end.AddDate(0, 0, 11))
+	suite.createApprovedShow("Later 3", v1.ID, a.ID, user.ID, end.AddDate(0, 0, 12))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1)
+	suite.Equal(0, scenes[0].ShowsCalendarWeek)
+
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+	suite.Equal(week.ShowCount, scenes[0].ShowsCalendarWeek)
 }
 
 // TestGetSceneUpcomingShows (PSY-1309): soonest-first within the window,

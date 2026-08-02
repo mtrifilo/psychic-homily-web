@@ -320,6 +320,39 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		genresByScene = nil
 	}
 
+	// Each scene's OWN Monday-Sunday week, in its own venue timezone — the
+	// number its /scenes/{slug}/week page will print (PSY-1623). It cannot ride
+	// along in the grouped query above, whose window is a single pair of bind
+	// args: this one needs a different Monday per scene.
+	//
+	// FAILS CLOSED, unlike the genre tint above it, and the trade is not free:
+	// GET /scenes also feeds the Atlas globe, the home scene graph and the
+	// scenes list, none of which read this field, so an error here takes those
+	// down too. Serving zeros instead would mute every live scene's week link
+	// and understate every busy city — a confident wrong answer, which is the
+	// exact failure this field was added to remove, and it would reach the
+	// reader looking like fact rather than like an outage. The two queries also
+	// share a connection, so a failure here strongly predicts the grouped query
+	// above was about to fail anyway. If that balance ever needs revisiting, the
+	// answer is a nullable field the two week-link surfaces can drop a count
+	// for, NOT a silent zero.
+	targets := make([]sceneCalendarWeekTarget, 0, len(groups))
+	for i := range groups {
+		// The DISPLAY state, not the group's MIN(state): a multi-state metro
+		// (Chicago spans IL/IN/WI) would otherwise back its timezone fallback
+		// with a neighbouring state's zone. The week page resolves its fallback
+		// from the principal city's state, so this must too.
+		_, displayState := metroDisplayIdentity(groups[i].Metro, groups[i].City, groups[i].State)
+		targets = append(targets, sceneCalendarWeekTarget{
+			key:   sceneKeyForGroup(groups[i].Metro, groups[i].City, groups[i].State),
+			state: displayState,
+		})
+	}
+	calendarWeekByScene, err := s.sceneCalendarWeekCounts(now, targets)
+	if err != nil {
+		return nil, err
+	}
+
 	for i := range groups {
 		g := &groups[i]
 
@@ -348,12 +381,10 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			lat, lng, _ = geo.LookupPointers(s.geocoder, city, state, "")
 		}
 
-		// Match the genre aggregation on the SAME key the venue groups use: the CBSA
-		// for a metro scene, else the lower/trimmed city|state of a fallback scene.
-		sceneKey := g.Metro
-		if sceneKey == "" {
-			sceneKey = strings.ToLower(strings.TrimSpace(g.City)) + "|" + strings.ToLower(strings.TrimSpace(g.State))
-		}
+		// Match the batched genre + calendar-week aggregations on the SAME key
+		// the venue groups use: the CBSA for a metro scene, else the
+		// lower/trimmed city|state of a fallback scene.
+		sceneKey := sceneKeyForGroup(g.Metro, g.City, g.State)
 
 		results = append(results, &contracts.SceneListResponse{
 			City:              city,
@@ -363,6 +394,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			UpcomingShowCount: g.UpcomingCount,
 			TotalShowCount:    g.ShowCount,
 			ShowsThisWeek:     g.ThisWeekCount,
+			ShowsCalendarWeek: calendarWeekByScene[sceneKey],
 			Latitude:          lat,
 			Longitude:         lng,
 			DominantGenre:     dominantGenreFamily(genresByScene[sceneKey]),
@@ -995,6 +1027,20 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 	}
 
 	return result.City, result.State, nil
+}
+
+// sceneKeyForGroup is the Go-side spelling of sceneGroupKeySQL: the CBSA metro
+// of a scene's venue group, else its lower/trimmed city|state fallback.
+//
+// Two batched lookups (the genre distribution and the calendar-week counts) key
+// their results by that SQL expression, so anything matching a Go-side group to
+// one of those maps has to build the key identically. One function, so a change
+// to the SQL identity has one Go counterpart to change with it.
+func sceneKeyForGroup(metro, city, state string) string {
+	if metro != "" {
+		return metro
+	}
+	return strings.ToLower(strings.TrimSpace(city)) + "|" + strings.ToLower(strings.TrimSpace(state))
 }
 
 // metroDisplayIdentity resolves a scene's DISPLAY (city, state): the metro's

@@ -1,5 +1,19 @@
 import { Suspense, cache } from 'react'
+import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
+// Imported by path rather than through the `@/features/scenes` barrel, which
+// is a surface of client components (`SceneList`, `SceneDetailView`, the Atlas
+// globe). This is a server component that needs none of them, and the sibling
+// page-level scene components — `SceneWeekView`, `SceneDayView` — are imported
+// by path for the same reason. NOTE: this is not a claim that the barrel would
+// ship maplibre or the force graph to this route; both are already behind
+// `next/dynamic` in their own chunks.
+import { ThisWeekByCity } from '@/features/scenes/components/ThisWeekByCity'
+import {
+  currentWeekBounds,
+  SCENE_WEEK_INDEX_TIMEZONE,
+} from '@/features/scenes/sceneWeek'
+import type { SceneListResponse } from '@/features/scenes/types'
 import { ShowList, ShowListSkeleton } from '@/features/shows'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
@@ -9,6 +23,7 @@ import {
 } from '@/features/shows/api'
 import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
+import { API_ENDPOINTS } from '@/lib/api'
 import { API_BASE_URL } from '@/lib/api-base'
 import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
@@ -154,6 +169,71 @@ async function HydratedShowList() {
   )
 }
 
+/**
+ * How long the by-city block's scene payload stays warm.
+ *
+ * A minute, against the hour every other first-screen fetch takes, because this
+ * payload is scoped to a CALENDAR WEEK rather than to "recent". At any moment
+ * except the Monday rollover the two behave the same; at the rollover a stale
+ * entry stops being slightly old and starts describing the WRONG WEEK — every
+ * row reporting last week's total beside a link that now serves this week's,
+ * under a heading naming this week. That is the same lie this ticket removed
+ * from the counts themselves, so it is not one to reintroduce through the cache.
+ *
+ * A minute is a bound, not a fix: the block can still be one minute wrong at the
+ * boundary. Fixing it outright means serving the bounds alongside the counts and
+ * rendering the heading from the payload, which is a design change (per-row
+ * ranges) rather than a data one. `/scenes` is a small, cheap, unpaginated
+ * response, so 60 refreshes an hour on one route is not a load concern.
+ */
+const SCENE_WEEK_INDEX_REVALIDATE_SECONDS = 60
+
+/**
+ * The scene-week index under the show list (PSY-1623).
+ *
+ * `/scenes/{slug}/week` is the best server-rendered answer this site has to
+ * "what is on in my city this week", and before this block nothing linked to
+ * it — not `/shows`, not `/scenes`, not even a scene's own page. `/shows` is
+ * where a crawler following the top nav lands, so it is the edge that matters.
+ *
+ * Request-time rather than prerendered, and not by choice: naming the current
+ * week means reading the clock, which `cacheComponents` refuses in a
+ * prerenderable scope for the same reason it refuses a baked timestamp — a
+ * cached shell would go on advertising last week's dates. `connection()` moves
+ * this subtree into the dynamic resume, where the read is legitimate. It is
+ * still one HTTP response, so the links are in the HTML a `curl` receives. The
+ * payload underneath is Data-Cached, so this is a request-time render rather
+ * than a request-time fetch, and the page already streams a subtree anyway.
+ *
+ * A failed fetch renders nothing. The block is supplementary to the list above
+ * it, and `fetchListPayload` returns `null` precisely so a caller can drop a
+ * section instead of turning an API blip into an error page.
+ */
+export function getScenesForWeekIndex(): Promise<SceneListResponse | null> {
+  return fetchListPayload<SceneListResponse>({
+    url: API_ENDPOINTS.SCENES.LIST,
+    collection: 'scenes',
+    service: 'shows-this-week-by-city',
+    revalidateSeconds: SCENE_WEEK_INDEX_REVALIDATE_SECONDS,
+  })
+}
+
+async function HydratedThisWeekByCity() {
+  await connection()
+
+  const payload = await getScenesForWeekIndex()
+
+  if (!payload?.scenes?.length) {
+    return null
+  }
+
+  const { start, end } = currentWeekBounds(new Date(), SCENE_WEEK_INDEX_TIMEZONE)
+
+  return (
+    <ThisWeekByCity scenes={payload.scenes} weekStart={start} weekEnd={end} />
+  )
+}
+
 export default async function ShowsPage() {
   const shows = await getUpcomingShows()
 
@@ -181,6 +261,13 @@ export default async function ShowsPage() {
         <h1 className="text-3xl font-bold text-center mb-8 leading-9">Upcoming Shows</h1>
         <Suspense fallback={<ShowListSkeleton />}>
           <HydratedShowList />
+        </Suspense>
+        {/* No fallback: the block carries no reader-facing state worth
+            reserving space for, and a placeholder that resolves to `null` on a
+            failed fetch would be a shape that promises content it may not
+            have. */}
+        <Suspense fallback={null}>
+          <HydratedThisWeekByCity />
         </Suspense>
       </div>
     </>

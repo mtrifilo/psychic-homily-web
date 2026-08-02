@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
 
-import { UPCOMING_SHOWS_LIMIT, getUpcomingShows } from './page'
+import { UPCOMING_SHOWS_LIMIT, getScenesForWeekIndex, getUpcomingShows } from './page'
 
 // The bound here was implicit — no `limit` was sent, so the endpoint's
 // `default:"50"` applied silently. Asserting it keeps the number a decision
@@ -51,5 +51,52 @@ describe('getUpcomingShows', () => {
     fetchListPayload.mockResolvedValue(null)
 
     await expect(getUpcomingShows()).resolves.toEqual([])
+  })
+})
+
+// PSY-1623: the by-city block is the only inbound link `/shows` gives the
+// scene-week pages. `HydratedThisWeekByCity` is a server component and cannot
+// be called from here, so the fetch it delegates to is what this pins: the
+// endpoint, the collection guard, and the Sentry tag that would name it in an
+// outage.
+describe('getScenesForWeekIndex', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('asks for the whole scene list, guarded on the scenes collection', async () => {
+    const scenes = [{ slug: 'phoenix-az', shows_calendar_week: 22 }]
+    fetchListPayload.mockResolvedValue({ scenes, count: 1 })
+
+    await expect(getScenesForWeekIndex()).resolves.toEqual({ scenes, count: 1 })
+    expect(fetchListPayload).toHaveBeenCalledWith({
+      url: expect.stringMatching(/\/scenes$/),
+      collection: 'scenes',
+      service: 'shows-this-week-by-city',
+      revalidateSeconds: expect.any(Number),
+    })
+  })
+
+  // The counts in this payload describe a CALENDAR WEEK, so a stale entry does
+  // not read as slightly old at the Monday rollover — it reads as the wrong
+  // week, beside a heading naming the right one. The default hour is therefore
+  // wrong here on purpose, and asserting the direction (rather than the literal
+  // 60) keeps the test about the reason instead of the number.
+  it('holds the payload far shorter than the default first-screen hour', async () => {
+    fetchListPayload.mockResolvedValue({ scenes: [], count: 0 })
+
+    await getScenesForWeekIndex()
+
+    const { revalidateSeconds } = fetchListPayload.mock.calls[0][0]
+    expect(revalidateSeconds).toBeLessThanOrEqual(60)
+    expect(revalidateSeconds).toBeGreaterThan(0)
+  })
+
+  // A failed fetch drops the block rather than throwing: it is supplementary to
+  // the list above it, and an API blip should not become an error page.
+  it('passes the failure through as null for the caller to drop', async () => {
+    fetchListPayload.mockResolvedValue(null)
+
+    await expect(getScenesForWeekIndex()).resolves.toBeNull()
   })
 })

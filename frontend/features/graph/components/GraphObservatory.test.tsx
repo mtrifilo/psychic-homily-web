@@ -514,9 +514,9 @@ describe('GraphObservatory', () => {
     const dinersGraph = graphs.get(1)!
     graphs.set(1, { center: dinersGraph.center, nodes: [], links: [] })
     scenesState.scenes = [
-      { city: 'Phoenix', state: 'AZ', slug: 'phoenix-az', venue_count: 5, upcoming_show_count: 9, total_show_count: 90, shows_this_week: 2 },
-      { city: 'Tucson', state: 'AZ', slug: 'tucson-az', venue_count: 3, upcoming_show_count: 4, total_show_count: 40, shows_this_week: 1 },
-      { city: 'Portland', state: 'OR', slug: 'portland-or', venue_count: 4, upcoming_show_count: 20, total_show_count: 200, shows_this_week: 3 },
+      { city: 'Phoenix', state: 'AZ', slug: 'phoenix-az', venue_count: 5, upcoming_show_count: 9, total_show_count: 90, shows_this_week: 2, shows_calendar_week: 2 },
+      { city: 'Tucson', state: 'AZ', slug: 'tucson-az', venue_count: 3, upcoming_show_count: 4, total_show_count: 40, shows_this_week: 1, shows_calendar_week: 1 },
+      { city: 'Portland', state: 'OR', slug: 'portland-or', venue_count: 4, upcoming_show_count: 20, total_show_count: 200, shows_this_week: 3, shows_calendar_week: 3 },
     ]
 
     try {

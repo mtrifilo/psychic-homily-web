@@ -941,7 +941,30 @@ type SceneListResponse struct {
 	// ShowsThisWeek is the ≤7-day slice of UpcomingShowCount (PSY-1309) — the
 	// "happening this week" signal that drives the Atlas globe's pulse
 	// treatment. Same scene scoping as the other counts.
+	//
+	// A ROLLING window: [now, now+7d) in UTC. It is NOT the week any
+	// /scenes/{slug}/week page serves, and the two disagree by a lot midweek —
+	// use ShowsCalendarWeek for anything that LINKS to that page.
 	ShowsThisWeek int `json:"shows_this_week"`
+	// ShowsCalendarWeek is the count of shows the scene's
+	// /scenes/{slug}/week page reports for the CURRENT week: the Monday-Sunday
+	// window resolved in the scene's OWN venue timezone, not a rolling
+	// seven days and not the caller's zone.
+	//
+	// It exists because a surface that shows a number NEXT TO a link to that
+	// page has to show that page's number. Chicago read 76 from ShowsThisWeek
+	// and 96 on its week page on 2026-08-02; a reader following the link would
+	// have caught the site lying. Both fields ship because they answer
+	// different questions — the Atlas pulse wants "is anything on soon", a
+	// week link wants "how many are on that page".
+	//
+	// COUNTED OVER A DIFFERENT VENUE POPULATION from every other field here:
+	// the week page includes unverified venues, and this matches it, while
+	// VenueCount/TotalShowCount/UpcomingShowCount/ShowsThisWeek are
+	// verified-only. A scene with unverified rooms can read "3 shows" and
+	// "17 shows this week" on one card. That is the cost of the link telling
+	// the truth; see sceneCalendarWeekCounts before "fixing" it.
+	ShowsCalendarWeek int `json:"shows_calendar_week"`
 	// Latitude/Longitude position the scene on the geographic-discovery map
 	// (PSY-1212): the metro principal city's centroid (or the fallback city's,
 	// geocoded the same way as ShowCityResponse — PSY-985/PSY-981), so a scene

@@ -10,6 +10,7 @@ function scene(overrides: Partial<SceneListItem> & { slug: string }): SceneListI
     upcoming_show_count: 0,
     total_show_count: 10,
     shows_this_week: 0,
+    shows_calendar_week: 0,
     ...overrides,
   }
 }

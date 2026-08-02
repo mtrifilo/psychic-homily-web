@@ -286,3 +286,91 @@ func TestWeekHasEnded_AcrossISOYearRollover(t *testing.T) {
 		t.Error("2026-W53 should be over once 2027-W01 has opened")
 	}
 }
+
+// The window a list count is measured over must be the window the week page
+// serves, so this pins BOTH ends rather than trusting the helper to have picked
+// the right Monday on its own.
+func TestSceneCalendarWeekWindow(t *testing.T) {
+	chicago, err := time.LoadLocation("America/Chicago")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		now   time.Time
+		start time.Time
+	}{
+		{
+			name:  "midweek",
+			now:   time.Date(2026, 7, 30, 14, 0, 0, 0, chicago),
+			start: time.Date(2026, 7, 27, 0, 0, 0, 0, chicago),
+		},
+		{
+			name:  "the Monday itself is its own week's first instant",
+			now:   time.Date(2026, 7, 27, 0, 0, 0, 0, chicago),
+			start: time.Date(2026, 7, 27, 0, 0, 0, 0, chicago),
+		},
+		{
+			name:  "the closing Sunday still belongs to the week it ends",
+			now:   time.Date(2026, 8, 2, 23, 59, 59, 0, chicago),
+			start: time.Date(2026, 7, 27, 0, 0, 0, 0, chicago),
+		},
+		{
+			// ISO week 1 of 2026 opens in the previous CALENDAR year, which is
+			// the case a naive "year + week number" implementation gets wrong.
+			name:  "an ISO week opening in the previous calendar year",
+			now:   time.Date(2025, 12, 31, 12, 0, 0, 0, chicago),
+			start: time.Date(2025, 12, 29, 0, 0, 0, 0, chicago),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			start, end := sceneCalendarWeekWindow(tc.now, chicago)
+			if !start.Equal(tc.start) {
+				t.Errorf("start = %s, want %s", start, tc.start)
+			}
+			if want := tc.start.AddDate(0, 0, 7); !end.Equal(want) {
+				t.Errorf("end = %s, want %s", end, want)
+			}
+			if start.After(tc.now) || !end.After(tc.now) {
+				t.Errorf("window [%s, %s) does not contain now=%s", start, end, tc.now)
+			}
+		})
+	}
+}
+
+// A week is seven CALENDAR days, not 168 hours: the spring-forward week is 167
+// hours long and must still end at local midnight, or a scene in that zone would
+// count an hour of the following Monday as part of the week it links to.
+func TestSceneCalendarWeekWindow_AcrossDSTTransition(t *testing.T) {
+	chicago, err := time.LoadLocation("America/Chicago")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	// US DST began 2026-03-08, inside the week opening 2026-03-02.
+	start, end := sceneCalendarWeekWindow(time.Date(2026, 3, 4, 12, 0, 0, 0, chicago), chicago)
+
+	wantEnd := time.Date(2026, 3, 9, 0, 0, 0, 0, chicago)
+	if !end.Equal(wantEnd) {
+		t.Errorf("end = %s, want local midnight %s", end, wantEnd)
+	}
+	if got := end.Sub(start); got != 167*time.Hour {
+		t.Errorf("spring-forward week spans %s, want 167h", got)
+	}
+}
+
+// A nil location is a caller bug, not a reason to panic partway through a list:
+// an unresolvable scene timezone must still yield a usable window.
+func TestSceneCalendarWeekWindow_NilLocationFallsBackToUTC(t *testing.T) {
+	now := time.Date(2026, 7, 30, 14, 0, 0, 0, time.UTC)
+	start, end := sceneCalendarWeekWindow(now, nil)
+
+	if want := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC); !start.Equal(want) {
+		t.Errorf("start = %s, want %s", start, want)
+	}
+	if want := start.AddDate(0, 0, 7); !end.Equal(want) {
+		t.Errorf("end = %s, want %s", end, want)
+	}
+}

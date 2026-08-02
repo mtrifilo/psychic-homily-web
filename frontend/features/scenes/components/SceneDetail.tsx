@@ -172,11 +172,37 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
             <SceneNotifyModeToggle slug={slug} />
           </div>
         </div>
-        {statParts.length > 0 && (
-          <p className="text-muted-foreground mt-1">
-            {statParts.join(' \u00B7 ')}
-          </p>
-        )}
+        {/* The stats line carries the week link (PSY-1623). `/scenes/{slug}/week`
+            had no inbound link from anywhere, including from here. A scene's
+            own page not pointing at that scene's week was the most obviously
+            missing edge in the site's crawl graph. It renders unconditionally,
+            unlike the stats beside it: a scene with no countable stats still
+            has a week.
+
+            `scene.slug`, NOT the route param. A metro member slug resolves to
+            its principal city, so `/scenes/mesa-az` renders the Phoenix scene;
+            building the href from the requested spelling would mint a second
+            URL for a week page that already has one, which is the opposite of
+            what this ticket is for. The backend canonicalizes the slug it
+            returns precisely so callers do not have to guess.
+
+            NO COUNT ON THIS LINK, deliberately. The scene-detail payload has no
+            calendar-week field — only `GET /scenes` carries
+            `shows_calendar_week` — and the number sitting to its left across
+            the `·` is `upcoming_show_count`, which spans every future show, not
+            this week's. Reaching for that to "finish the pattern" would put a
+            count of 283 against a page that says 96, which is the exact defect
+            PSY-1623 removed from the other two surfaces. Add the field to the
+            detail payload first, or leave the link countless. */}
+        <p className="text-muted-foreground mt-1">
+          {statParts.length > 0 && `${statParts.join(' \u00B7 ')} \u00B7 `}
+          <Link
+            href={`/scenes/${scene.slug}/week`}
+            className="text-primary underline underline-offset-2 hover:no-underline"
+          >
+            This week in {scene.city} <span aria-hidden="true">→</span>
+          </Link>
+        </p>
         {scene.description && (
           <p className="text-muted-foreground mt-3 max-w-2xl">
             {scene.description}

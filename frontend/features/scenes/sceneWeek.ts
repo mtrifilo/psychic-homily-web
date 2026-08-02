@@ -65,12 +65,19 @@ export function resolveRequestedWeek(segment: string | undefined): string | unde
 }
 
 /**
- * The card's count line.
+ * A show count as a sentence, optionally suffixed "this week".
  *
- * "this week" is only true of the rolling week. An archived card carries its
- * date range directly above this line, so dropping the phrase reads correctly
- * for a week shared months later rather than claiming to be current. A quiet
- * week says so in words — `0 shows` is a bad thing to post.
+ * WHICH week is the CALLER's to know — this function only spells the phrase.
+ * Every caller now passes a Monday-to-Sunday total in the scene's own timezone:
+ * the share card reads it off the week payload, the scene cards and the
+ * `/shows` by-city index read `shows_calendar_week` from `GET /scenes`. The
+ * rolling `shows_this_week` is a different seven days and must not be spelled
+ * with these words next to a link to a week page.
+ *
+ * The suffix is dropped for an archived share card, which carries its date
+ * range directly above this line: that reads correctly for a week shared months
+ * later rather than claiming to be current. A quiet week says so in words —
+ * `0 shows` is a bad thing to post.
  */
 export function formatShowCountLine(total: number, isCurrentWeek: boolean): string {
   const period = isCurrentWeek ? ' this week' : ''
@@ -94,6 +101,92 @@ export function formatShowCountLine(total: number, isCurrentWeek: boolean): stri
 export function parseCalendarDate(iso: string): Date {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, (m ?? 1) - 1, d ?? 1)
+}
+
+/**
+ * The zone the cross-city week index names its week in.
+ *
+ * It holds the same value as `lib/canonicalTimezone.ts`'s
+ * `CANONICAL_FIRST_SCREEN_TIMEZONE` and is deliberately NOT that constant.
+ * That one places the start-of-today boundary for `GET /shows/upcoming`, and
+ * its safety argument is specific to that question: everything the boundary
+ * excludes has already started, so it cannot hide an upcoming show from anyone.
+ * None of that reasoning transfers to picking which Monday a heading names. Its
+ * own docstring also says PSY-1678 retires it along with the `timezone`
+ * parameter, and whoever does that must not silently take this surface with it.
+ *
+ * A single zone is a compromise here, not a correct answer. The per-row counts
+ * are each scene's own calendar week, exact against the page the row links to
+ * (`shows_calendar_week`, PSY-1623); this heading is not, because the approved
+ * mock puts one range above every row. The scene-week pages resolve "current
+ * week" in each scene's OWN venue timezone, so for a few hours after Monday
+ * midnight a scene east of this zone has already turned over while this label
+ * still names the previous week — its count and its destination agree with each
+ * other, and only the shared heading above them is stale.
+ *
+ * It is not the block's only approximation: the counts also reach the page
+ * through a cache while this label is derived from a live clock, so they can lag
+ * it at the rollover (see `ThisWeekByCity`).
+ *
+ * Fixing either properly means per-row ranges, which is a design change rather
+ * than a data one: `GET /scenes` would also have to publish each scene's bounds,
+ * and the heading would be read off the payload instead of the clock.
+ */
+export const SCENE_WEEK_INDEX_TIMEZONE = 'America/Los_Angeles'
+
+/** `2026-07-27` from a `Date` read in its own local fields. */
+function toCalendarDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/**
+ * The Monday and Sunday bounding the week that CONTAINS `now` in `timeZone`.
+ *
+ * The scene-week pages get their bounds from the backend, which resolves them
+ * in each scene's own zone. Nothing carries those bounds for a list of scenes,
+ * so a surface that names one week across many cities has to derive it — and
+ * derive it in a stated zone, because "which week is it" changes at a different
+ * instant in Phoenix than in London.
+ *
+ * `formatToParts` reads the year, month and day the zone is currently on
+ * without any date maths, and without depending on how a locale happens to
+ * order a short date (`lib/utils/timeUtils.ts` and `lib/utils/showTiming.ts`
+ * take the same route to the same question). The rest is plain local-field
+ * arithmetic on a local-midnight `Date`, which `Date` normalizes across month
+ * and year ends for us.
+ *
+ * `now` is a parameter rather than a `new Date()` inside, so tests can pin a
+ * week and so the caller is forced to own reading the clock. Under
+ * `cacheComponents` that read is only legal at request time.
+ */
+export function currentWeekBounds(
+  now: Date,
+  timeZone: string,
+): { start: string; end: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+  const field = (type: string) => Number(parts.find(p => p.type === type)?.value)
+
+  const today = new Date(field('year'), field('month') - 1, field('day'))
+  // `getDay()` is Sunday-first; the week here is Monday-first, matching the ISO
+  // week the `/scenes/{slug}/week` pages serve.
+  const daysSinceMonday = (today.getDay() + 6) % 7
+  const start = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - daysSinceMonday,
+  )
+  const end = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate() + 6,
+  )
+  return { start: toCalendarDate(start), end: toCalendarDate(end) }
 }
 
 /** `JUL 27` — the shared stem of every uppercase date label here. */
