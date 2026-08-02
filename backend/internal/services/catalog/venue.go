@@ -58,12 +58,17 @@ func (s *VenueService) WithAddressGeocoder(ag geo.AddressGeocoder) *VenueService
 // network, never errors). A miss leaves the fields nil so display falls back to
 // the legacy state->timezone map — no regression. (PSY-985; metro PSY-1255 step B)
 //
-// This is the ONLY place venues.timezone is assigned, on both the create and the
-// update path, which is what makes it the right place to hold the write-boundary
-// invariant PSY-1707 establishes: whatever lands in that column is a name
-// Postgres itself recognizes. Readers (the venue-local show-list partition, the
-// ICS feed, reminder rendering) resolve it with AT TIME ZONE, which does not
-// degrade gracefully — an unknown name raises and takes the query down.
+// Holds the PSY-1707 write-boundary invariant for the three paths that run
+// through it — CreateVenue, UpdateVenue and FindOrCreateVenue: whatever lands in
+// venues.timezone is a name Postgres itself recognizes. Readers (the venue-local
+// show-list partition, the ICS feed, reminder rendering) resolve it with
+// AT TIME ZONE, which does not degrade gracefully — an unknown name raises and
+// takes the query down.
+//
+// It is NOT the only writer of that column, so a new write path does not inherit
+// this for free. The others each hold the invariant themselves via the admin
+// package twin: admin.ApprovePendingEdit, data_sync's importVenue and importShow,
+// and catalog.backfillVenuePass (the CLI). Adding a fifth means adding the call.
 func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	country := ""
 	if v.Country != nil {

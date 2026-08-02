@@ -19,13 +19,27 @@
 --    stored exactly as pg_timezone_names spells it ("america/phoenix",
 --    " America/Phoenix "). Matching stays case-insensitive at read time, but
 --    storing the canonical form keeps equality comparisons honest.
+-- A correlated subquery with an explicit ORDER BY, not a join to
+-- pg_timezone_names. UPDATE ... FROM picks an arbitrary row when the join
+-- matches more than one, and "lower(name) is unique" is a property of the host
+-- OS tzdata, not something this migration can assume. It holds on the current
+-- image (verified: zero rows from
+-- `SELECT lower(name) FROM pg_timezone_names GROUP BY 1 HAVING count(*) > 1`),
+-- but a silent arbitrary pick is not a thing to leave in a migration.
 UPDATE venues v
-SET timezone = t.name
-FROM pg_timezone_names t
+SET timezone = (
+  SELECT t.name FROM pg_timezone_names t
+  WHERE lower(t.name) = lower(btrim(v.timezone))
+  ORDER BY t.name
+  LIMIT 1
+)
 WHERE v.timezone IS NOT NULL
   AND btrim(v.timezone) <> ''
-  AND lower(t.name) = lower(btrim(v.timezone))
-  AND t.name <> v.timezone;
+  AND EXISTS (
+    SELECT 1 FROM pg_timezone_names t
+    WHERE lower(t.name) = lower(btrim(v.timezone))
+      AND t.name <> v.timezone
+  );
 
 -- 2. NULL anything Postgres cannot resolve at all, including blank strings.
 --    NULL is the shape every reader already handles -- it is what a geocode
