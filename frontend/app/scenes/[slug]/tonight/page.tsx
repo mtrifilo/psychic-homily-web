@@ -13,9 +13,9 @@ interface PageProps {
 /**
  * `/scenes/{slug}/tonight` — the scene's current night.
  *
- * The URL people type. Its canonical tag points at the dated permalink (see
- * buildSceneDayMetadata), because this URL's content changes every night and
- * indexing it would leave permanently stale snippets.
+ * The URL people type. Its canonical tag points at the scene's WEEK permalink
+ * (see buildSceneDayMetadata), because this URL's content changes every night
+ * and indexing it would leave permanently stale snippets.
  *
  * "Tonight" is resolved by the BACKEND, in the scene's own timezone and against
  * its 6am night boundary — at 01:00 the answer is still the previous date, so

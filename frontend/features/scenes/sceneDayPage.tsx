@@ -71,10 +71,11 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // the PREVIOUS ISO week. A week computed from a clock on this side would skip
   // the scene forward a week on exactly that boundary.
   //
-  // The dated permalink keeps pointing at itself: it is a permanent URL naming
-  // one night, and folding it into the week would erase the night it names.
-  const isRollingTonight = date === undefined
-  const canonical = isRollingTonight
+  // The discriminator is the ABSENT `date` argument, not `day.is_tonight`: that
+  // flag is also true for a dated permalink naming today, and that permalink
+  // must keep pointing at itself rather than be folded into the week.
+  const isRollingRoute = date === undefined
+  const canonical = isRollingRoute
     ? `${SITE_URL}/scenes/${day.slug}/${day.iso_week}`
     : `${SITE_URL}/scenes/${day.slug}/${day.date}`
 
@@ -92,10 +93,8 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
     openGraph: {
       title,
       description,
-      // Deliberately the same URL as the canonical tag, which means /tonight
-      // declares the WEEK permalink here too. An og:url that disagreed with
-      // rel=canonical would hand unfurlers and crawlers two different answers
-      // to the question this change exists to settle.
+      // Deliberately the canonical, so /tonight declares the WEEK permalink
+      // here too rather than answering the same question two ways.
       url: canonical,
       type: 'website',
       // Set explicitly to suppress the `opengraph-image` in the `[period]`

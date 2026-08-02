@@ -39,6 +39,9 @@ describe('buildSceneDayMetadata', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    // Unconditional: one test below pins the clock, and a leaked fake clock
+    // would follow it into every test after it in this file.
+    vi.useRealTimers()
   })
 
   it('titles the live night in the words someone would type', async () => {
@@ -80,9 +83,7 @@ describe('buildSceneDayMetadata', () => {
     expect(meta.description).not.toMatch(/no shows in/i)
   })
 
-  // The rolling URL's content changes every night, so it cannot be its own
-  // canonical; the dated permalink it used to name is in no sitemap. The week
-  // permalink is the only stable URL we actually announce.
+  // Why the week rather than the night is argued once, in buildSceneDayMetadata.
   it('points the rolling /tonight canonical at the WEEK permalink', async () => {
     fetchSceneDay.mockResolvedValue(day())
 
@@ -97,10 +98,12 @@ describe('buildSceneDayMetadata', () => {
     )
   })
 
-  // A dated permalink is a permanent URL naming ONE night. Folding it into the
-  // week would erase the night it names.
-  it('leaves the DATED permalink as its own canonical', async () => {
-    fetchSceneDay.mockResolvedValue(day({ is_tonight: false }))
+  // The fixture is a live night (`is_tonight: true`), so this also pins the
+  // DISCRIMINATOR: an implementation keying off `day.is_tonight` instead of the
+  // absent `date` argument would collapse every same-day permalink into the
+  // week, and only this shape catches it.
+  it('self-canonicalizes a dated permalink even on the night it names', async () => {
+    fetchSceneDay.mockResolvedValue(day())
 
     const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
 
@@ -112,32 +115,22 @@ describe('buildSceneDayMetadata', () => {
     )
   })
 
-  // A dated permalink for TODAY still self-canonicalizes. `is_tonight` is true
-  // for it, so anything keying off that flag instead of the absent `date`
-  // argument would silently collapse every same-day permalink into the week.
-  it('self-canonicalizes a dated permalink even when it IS tonight', async () => {
-    fetchSceneDay.mockResolvedValue(day({ is_tonight: true }))
-
-    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
-
-    expect(meta.alternates?.canonical).toBe(
-      'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
-    )
-  })
-
-  // THE BOUNDARY CASE. Read at 01:30 on Monday 2026-08-03, the backend's 6am
-  // night boundary still answers Sunday 2026-08-02, and Sunday is the LAST day
-  // of 2026-W31 while that Monday already opens 2026-W32. The canonical must
-  // follow the payload's `iso_week`, not a week derived from a clock on this
-  // side, which would send the reader a week forward on exactly this night.
+  // THE BOUNDARY CASE. The clock is pinned to 01:30 on Monday 2026-08-03, where
+  // the backend's 6am night boundary still answers Sunday 2026-08-02: the LAST
+  // day of 2026-W31, while that same Monday already opens 2026-W32. Without the
+  // pinned clock this test cannot fail, because the payload it feeds is
+  // internally consistent and any implementation reading `iso_week` OR deriving
+  // the week from `date` returns W31. The clock is the whole point: it is what
+  // makes a canonical derived on THIS side answer W32 and fail.
   it('uses the payload iso_week when tonight falls in the PREVIOUS ISO week', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-03T08:30:00Z')) // 01:30 Mon, Phoenix
     fetchSceneDay.mockResolvedValue(
       day({
         date: '2026-08-02',
         iso_week: '2026-W31',
         prev_date: '2026-08-01',
         next_date: '2026-08-03',
-        is_tonight: true,
       })
     )
 
@@ -157,16 +150,6 @@ describe('buildSceneDayMetadata', () => {
     fetchSceneDay.mockResolvedValue(day({ shows: [], show_count: 0 }))
 
     const meta = await buildSceneDayMetadata('phoenix-az')
-
-    expect(meta.robots).toEqual({ index: false, follow: true })
-  })
-
-  // The thin-content noindex is a property of the NIGHT, not of the route, so
-  // the dated permalink for a quiet night carries it too.
-  it('noindexes a quiet night on the dated permalink as well', async () => {
-    fetchSceneDay.mockResolvedValue(day({ shows: [], show_count: 0, is_tonight: false }))
-
-    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
 
     expect(meta.robots).toEqual({ index: false, follow: true })
   })

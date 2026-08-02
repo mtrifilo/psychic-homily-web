@@ -78,9 +78,9 @@ describe('fetchSceneDay', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([ROLLING_URL])
   })
 
-  // Tonight's DATED permalink is the canonical URL — the one crawlers index and
-  // the breadcrumb points at — so while it is still tonight it must not be a day
-  // staler than /tonight, which serves the same content.
+  // Tonight's DATED permalink is a real URL people reach and the breadcrumb
+  // leaf points at, so while it is still tonight it must not be a day staler
+  // than /tonight, which serves the same content.
   it('gives a night that has not ended the short window, even when asked for by date', async () => {
     fetchMock.mockResolvedValue(jsonResponse(day({ is_past_day: false })))
 

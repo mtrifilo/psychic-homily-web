@@ -331,17 +331,20 @@ test.describe('Not-found pages — HTTP 404 status', () => {
 
     test('the permalink /tonight declares canonical returns HTTP 200', async ({ page }) => {
       // A canonical that 404s is worse than no canonical at all. Read the
-      // target OFF the page rather than hardcoding today's date: a fixed date
-      // would keep passing while quietly testing nothing, since any valid date
+      // target OFF the page rather than hardcoding this week's key: a fixed key
+      // would keep passing while quietly testing nothing, since any valid week
       // 200s. This way the assertion follows the real declared relationship.
       await page.goto('/scenes/phoenix-az/tonight')
       const href = await page.locator('link[rel="canonical"]').getAttribute('href')
 
       expect(href, '/tonight must declare a canonical').toBeTruthy()
+      // The WEEK permalink (PSY-1728), not the dated day permalink: day
+      // permalinks are announced in no sitemap, so canonicalizing to one aimed
+      // crawlers at a URL the site never tells them about.
       expect(
         href,
-        'the canonical must be the DATED permalink, never the rolling URL'
-      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
+        'the canonical must be the WEEK permalink, never the rolling URL or a dated day'
+      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-W\d{2}$/)
 
       // The PATH, against the server under test. The canonical is absolute and
       // points at the production origin, so navigating to it verbatim would
