@@ -201,7 +201,7 @@ func TestSuggestEdit_TrustedContributor_AutoApplies(t *testing.T) {
 			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
 				return created, nil
 			},
-			ApprovePendingEditFn: func(editID, reviewerID uint) (*contracts.PendingEditResponse, error) {
+			ApprovePendingEditFn: func(_ context.Context, editID, reviewerID uint) (*contracts.PendingEditResponse, error) {
 				if editID != 3 {
 					t.Errorf("expected approve editID=3, got %d", editID)
 				}
@@ -237,7 +237,7 @@ func TestSuggestEdit_LocalAmbassador_AutoApplies(t *testing.T) {
 			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
 				return created, nil
 			},
-			ApprovePendingEditFn: func(editID, reviewerID uint) (*contracts.PendingEditResponse, error) {
+			ApprovePendingEditFn: func(_ context.Context, editID, reviewerID uint) (*contracts.PendingEditResponse, error) {
 				return approved, nil
 			},
 		},
@@ -267,7 +267,7 @@ func TestSuggestEdit_Admin_AutoApplies(t *testing.T) {
 			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
 				return created, nil
 			},
-			ApprovePendingEditFn: func(editID, reviewerID uint) (*contracts.PendingEditResponse, error) {
+			ApprovePendingEditFn: func(_ context.Context, editID, reviewerID uint) (*contracts.PendingEditResponse, error) {
 				return approved, nil
 			},
 		},
@@ -511,7 +511,7 @@ func TestAdminApprove_Success(t *testing.T) {
 
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
-			ApprovePendingEditFn: func(editID, rID uint) (*contracts.PendingEditResponse, error) {
+			ApprovePendingEditFn: func(_ context.Context, editID, rID uint) (*contracts.PendingEditResponse, error) {
 				if editID != 1 || rID != 1 {
 					t.Errorf("unexpected params: editID=%d, reviewerID=%d", editID, rID)
 				}
@@ -533,7 +533,7 @@ func TestAdminApprove_Success(t *testing.T) {
 func TestAdminApprove_NotFound(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
-			ApprovePendingEditFn: func(editID, rID uint) (*contracts.PendingEditResponse, error) {
+			ApprovePendingEditFn: func(_ context.Context, editID, rID uint) (*contracts.PendingEditResponse, error) {
 				return nil, apperrors.ErrPendingEditNotFound()
 			},
 		},
@@ -547,7 +547,7 @@ func TestAdminApprove_NotFound(t *testing.T) {
 func TestAdminApprove_AlreadyReviewed(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
-			ApprovePendingEditFn: func(editID, rID uint) (*contracts.PendingEditResponse, error) {
+			ApprovePendingEditFn: func(_ context.Context, editID, rID uint) (*contracts.PendingEditResponse, error) {
 				return nil, apperrors.ErrPendingEditNotPending("approved")
 			},
 		},

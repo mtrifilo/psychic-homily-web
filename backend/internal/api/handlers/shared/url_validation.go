@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -68,6 +69,30 @@ var urlFieldSpecs = map[string]urlFieldSpec{
 	"soundcloud":      {displayName: "SoundCloud URL", maxLength: 500},
 	"bandcamp":        {displayName: "Bandcamp URL", maxLength: 500},
 	"website":         {displayName: "Website URL", maxLength: 500},
+}
+
+// FetchedURLFieldNames returns the field names marked `fetched` above: the URL
+// fields whose stored value is later requested server-side, and which therefore
+// must clear the SSRF host guard.
+//
+// It is exported so the apply-side copy of this list can be checked against the
+// canonical one. internal/services/admin re-runs the guard at pending-edit
+// approval time (PSY-1692); it keeps its own map because services do not import
+// handler packages (a layering rule here, not a compile constraint), and its
+// test compares the two and fails when they drift.
+//
+// The only caller is that drift test. If a production consumer ever appears,
+// prefer moving the registry down into internal/utils/urlguard over widening
+// this accessor.
+func FetchedURLFieldNames() []string {
+	names := make([]string, 0, len(urlFieldSpecs))
+	for field, spec := range urlFieldSpecs {
+		if spec.fetched {
+			names = append(names, field)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // boundedTextFieldSpecs caps NON-URL free-text fields that are reachable
