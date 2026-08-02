@@ -213,7 +213,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
         // against. This gates an `Offer`, which is a claim that a reader can
         // still buy a ticket, and doors close at a moment: stretching it to
         // local midnight would advertise one for a show already in progress.
-        is_past: hasShowStarted(showData.event_date),
+        has_started: hasShowStarted(showData.event_date),
         // Names the vendor in `offers.seller`. The builder never emits this
         // URL — no free referrals into structured data.
         ticket_url: showData.ticket_url ?? undefined,

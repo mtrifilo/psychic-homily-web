@@ -258,18 +258,17 @@ export function generateMusicEventSchema(show: {
    * The show's advertised START INSTANT has passed, so there is nothing left to
    * sell. Both callers supply `hasShowStarted` from `lib/utils/showTiming`.
    *
-   * The name is older than the distinction and undersells it: this is NOT "the
-   * show's day is over". Do not feed it `isShowPast` from that module, which
-   * draws the venue-local calendar-day boundary for listing liveness. That
-   * boundary keeps an `InStock` offer standing through the show itself, and for
-   * nearly a full day for a show starting after midnight, which is a shortened
-   * form of the bug the offer gate exists to prevent.
+   * This is NOT "the show's day is over". Do not feed it `isShowPast` from
+   * that module, which draws the venue-local calendar-day boundary for listing
+   * liveness. That boundary keeps an `InStock` offer standing through the show
+   * itself, and for nearly a full day for a show starting after midnight,
+   * which is a shortened form of the bug the offer gate exists to prevent.
    *
    * Caller-supplied rather than derived from `date` here, so this stays a pure
    * function of its input: its output is reproducible and its tests do not
    * depend on the clock.
    */
-  is_past?: boolean
+  has_started?: boolean
   venue?: {
     name: string
     slug?: string
@@ -399,7 +398,7 @@ export function generateMusicEventSchema(show: {
   // The gate is price-or-sold-out for the same reason: with no url, an offer
   // carrying neither conveys nothing at all.
   const hasPrice = show.price !== undefined && show.price !== null
-  if (!show.is_cancelled && !show.is_past && (hasPrice || show.is_sold_out)) {
+  if (!show.is_cancelled && !show.has_started && (hasPrice || show.is_sold_out)) {
     const seller = ticketVendorName(show.ticket_url)
     schema.offers = {
       '@type': 'Offer',

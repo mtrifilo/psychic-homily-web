@@ -97,7 +97,7 @@ function toMusicEventInput(
     // a moment, and the shared module's `isShowPast` answers a different
     // question (how long the listing stays live) that would keep this offer
     // standing through the show itself.
-    is_past: hasShowStarted(startsAt, now),
+    has_started: hasShowStarted(startsAt, now),
     venue,
     artists:
       show.artist_names && show.artist_names.length > 0

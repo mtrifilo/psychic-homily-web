@@ -309,7 +309,7 @@ describe('generateMusicEventSchema', () => {
 
   // Hard rules: the two claims that must never be made.
   it('never says InStock for a past or sold-out show', () => {
-    const past = generateMusicEventSchema({ ...baseShow, price: 25, is_past: true })
+    const past = generateMusicEventSchema({ ...baseShow, price: 25, has_started: true })
     expect(past.offers).toBeUndefined()
 
     const soldOut = generateMusicEventSchema({ ...baseShow, price: 25, is_sold_out: true })
@@ -343,7 +343,7 @@ describe('generateMusicEventSchema', () => {
 
   // An offer is a claim about what a reader can still buy.
   it('omits offers for a show that already happened', () => {
-    const schema = generateMusicEventSchema({ ...baseShow, price: 25, is_past: true })
+    const schema = generateMusicEventSchema({ ...baseShow, price: 25, has_started: true })
     expect(schema.eventStatus).toBe('https://schema.org/EventScheduled')
     expect(schema.offers).toBeUndefined()
   })
