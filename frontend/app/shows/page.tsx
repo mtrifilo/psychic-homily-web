@@ -170,6 +170,25 @@ async function HydratedShowList() {
 }
 
 /**
+ * How long the by-city block's scene payload stays warm.
+ *
+ * A minute, against the hour every other first-screen fetch takes, because this
+ * payload is scoped to a CALENDAR WEEK rather than to "recent". At any moment
+ * except the Monday rollover the two behave the same; at the rollover a stale
+ * entry stops being slightly old and starts describing the WRONG WEEK — every
+ * row reporting last week's total beside a link that now serves this week's,
+ * under a heading naming this week. That is the same lie this ticket removed
+ * from the counts themselves, so it is not one to reintroduce through the cache.
+ *
+ * A minute is a bound, not a fix: the block can still be one minute wrong at the
+ * boundary. Fixing it outright means serving the bounds alongside the counts and
+ * rendering the heading from the payload, which is a design change (per-row
+ * ranges) rather than a data one. `/scenes` is a small, cheap, unpaginated
+ * response, so 60 refreshes an hour on one route is not a load concern.
+ */
+const SCENE_WEEK_INDEX_REVALIDATE_SECONDS = 60
+
+/**
  * The scene-week index under the show list (PSY-1623).
  *
  * `/scenes/{slug}/week` is the best server-rendered answer this site has to
@@ -195,6 +214,7 @@ export function getScenesForWeekIndex(): Promise<SceneListResponse | null> {
     url: API_ENDPOINTS.SCENES.LIST,
     collection: 'scenes',
     service: 'shows-this-week-by-city',
+    revalidateSeconds: SCENE_WEEK_INDEX_REVALIDATE_SECONDS,
   })
 }
 

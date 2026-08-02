@@ -378,9 +378,21 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsCalendarWeekI
 	phxBand := suite.createArtist("Desert Band")
 	nyBand := suite.createArtistIn("Borough Band", "New York", "NY")
 
-	phxStart, _ := sceneCalendarWeekWindow(time.Now(), utils.EventLocation(nil, "AZ"))
-	nyStart, _ := sceneCalendarWeekWindow(time.Now(), utils.EventLocation(nil, "NY"))
-	suite.Require().True(nyStart.Before(phxStart), "New York's Monday opens before Phoenix's")
+	now := time.Now()
+	phxStart, _ := sceneCalendarWeekWindow(now, utils.EventLocation(nil, "AZ"))
+	nyStart, _ := sceneCalendarWeekWindow(now, utils.EventLocation(nil, "NY"))
+	// For the ~3 hours each Monday between New York's midnight and Phoenix's,
+	// the two zones are in DIFFERENT ISO weeks, so their starts sit a week apart
+	// rather than three hours and the boundary gap this test aims at does not
+	// exist. Skipping is the honest response; asserting would fail CI for three
+	// hours every week, and pinning the clock would mean threading one through
+	// ListScenes for this test alone. The sibling tests below carry the
+	// list-equals-page invariant in that window.
+	if !nyStart.Before(phxStart) {
+		suite.T().Skipf(
+			"New York (%s) has rolled into the next ISO week ahead of Phoenix (%s); no boundary gap to test",
+			nyStart.Format(time.RFC3339), phxStart.Format(time.RFC3339))
+	}
 
 	// Three shows per scene clears the listing threshold; the counted ones sit
 	// one hour into each scene's own Monday.

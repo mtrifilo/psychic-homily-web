@@ -68,4 +68,29 @@ test.describe('Shows list', () => {
     expect(newCount).toBeGreaterThan(initialCount)
   })
 
+  // PSY-1623: `/shows` is the only page that links the scene-week pages into the
+  // crawl graph, so the claim worth guarding is that the anchors are in the
+  // RESPONSE BYTES — not merely painted after hydration. The raw body is
+  // asserted directly, because the block streams inside a Suspense boundary and
+  // a DOM-level check would pass even if it had become client-only.
+  test('serves scene-week links in the /shows HTML', async ({ page }) => {
+    const response = await page.goto('/shows')
+    const html = (await response?.text()) ?? ''
+
+    const hrefs = [...html.matchAll(/href="(\/scenes\/[a-z0-9-]+\/week)"/g)].map(
+      m => m[1]
+    )
+    expect(hrefs.length).toBeGreaterThan(0)
+
+    // Every row also carries its count in the accessible name, which is the
+    // half that has to match the destination page (`shows_calendar_week`).
+    expect(html).toMatch(/aria-label="[^"]*(shows|No shows) this week"/)
+
+    // The rendered block agrees with the bytes, so the link is real to a reader
+    // as well as to a crawler.
+    const first = hrefs[0]
+    await expect(page.locator(`a[href="${first}"]`).first()).toBeVisible({
+      timeout: 10_000,
+    })
+  })
 })

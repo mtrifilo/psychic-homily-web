@@ -957,6 +957,13 @@ type SceneListResponse struct {
 	// have caught the site lying. Both fields ship because they answer
 	// different questions — the Atlas pulse wants "is anything on soon", a
 	// week link wants "how many are on that page".
+	//
+	// COUNTED OVER A DIFFERENT VENUE POPULATION from every other field here:
+	// the week page includes unverified venues, and this matches it, while
+	// VenueCount/TotalShowCount/UpcomingShowCount/ShowsThisWeek are
+	// verified-only. A scene with unverified rooms can read "3 shows" and
+	// "17 shows this week" on one card. That is the cost of the link telling
+	// the truth; see sceneCalendarWeekCounts before "fixing" it.
 	ShowsCalendarWeek int `json:"shows_calendar_week"`
 	// Latitude/Longitude position the scene on the geographic-discovery map
 	// (PSY-1212): the metro principal city's centroid (or the fallback city's,

@@ -115,18 +115,22 @@ export function parseCalendarDate(iso: string): Date {
  * own docstring also says PSY-1678 retires it along with the `timezone`
  * parameter, and whoever does that must not silently take this surface with it.
  *
- * A single zone is a compromise here, and the ONLY approximation left in the
- * by-city block: the per-row counts are each scene's own calendar week, exact
- * against the page the row links to (`shows_calendar_week`, PSY-1623). This
- * heading is not, because the approved mock puts one range above every row.
- * The scene-week pages resolve "current week" in each scene's OWN venue
- * timezone, so for a few hours after Monday midnight a scene east of this zone
- * has already turned over while this label still names the previous week — its
- * count and its destination agree with each other, and only the shared heading
- * above them is stale.
+ * A single zone is a compromise here, not a correct answer. The per-row counts
+ * are each scene's own calendar week, exact against the page the row links to
+ * (`shows_calendar_week`, PSY-1623); this heading is not, because the approved
+ * mock puts one range above every row. The scene-week pages resolve "current
+ * week" in each scene's OWN venue timezone, so for a few hours after Monday
+ * midnight a scene east of this zone has already turned over while this label
+ * still names the previous week — its count and its destination agree with each
+ * other, and only the shared heading above them is stale.
  *
- * Fixing it properly means per-row ranges, which is a design change rather than
- * a data one: `GET /scenes` would also have to publish each scene's bounds.
+ * It is not the block's only approximation: the counts also reach the page
+ * through a cache while this label is derived from a live clock, so they can lag
+ * it at the rollover (see `ThisWeekByCity`).
+ *
+ * Fixing either properly means per-row ranges, which is a design change rather
+ * than a data one: `GET /scenes` would also have to publish each scene's bounds,
+ * and the heading would be read off the payload instead of the clock.
  */
 export const SCENE_WEEK_INDEX_TIMEZONE = 'America/Los_Angeles'
 

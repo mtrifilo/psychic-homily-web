@@ -184,7 +184,16 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
             building the href from the requested spelling would mint a second
             URL for a week page that already has one, which is the opposite of
             what this ticket is for. The backend canonicalizes the slug it
-            returns precisely so callers do not have to guess. */}
+            returns precisely so callers do not have to guess.
+
+            NO COUNT ON THIS LINK, deliberately. The scene-detail payload has no
+            calendar-week field — only `GET /scenes` carries
+            `shows_calendar_week` — and the number sitting to its left across
+            the `·` is `upcoming_show_count`, which spans every future show, not
+            this week's. Reaching for that to "finish the pattern" would put a
+            count of 283 against a page that says 96, which is the exact defect
+            PSY-1623 removed from the other two surfaces. Add the field to the
+            detail payload first, or leave the link countless. */}
         <p className="text-muted-foreground mt-1">
           {statParts.length > 0 && `${statParts.join(' \u00B7 ')} \u00B7 `}
           <Link

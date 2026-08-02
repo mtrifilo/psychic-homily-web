@@ -96,11 +96,23 @@ func sceneCalendarWeekWindow(now time.Time, loc *time.Location) (start, end time
 //
 // The modal rule is sceneLocation's, restated over all scenes at once rather
 // than per scene: most common explicit timezone among the scene's VERIFIED
-// venues, ties broken alphabetically. Grouping by sceneGroupKeySQL reproduces
-// sceneScope.venuePredicate for the scenes that can appear in the list — a
-// metro scene's key IS its CBSA, and a fallback scene exists only where the
-// geocoder resolves no metro for that (city, state), which is the same input
-// the venues.metro column was written from.
+// venues, ties broken alphabetically (the ROW_NUMBER ordering reproduces that
+// query's ORDER BY, over the same venue rows).
+//
+// SCOPING IS NOT IDENTICAL TO sceneScope.venuePredicate, and the difference is
+// worth knowing before trusting an equality here:
+//   - METRO scene: exact. Its key IS the CBSA, so COALESCE(v.metro, …) = key
+//     selects the same rows as `v.metro = ?`. CBSA codes are numeric and
+//     fallback keys always contain '|', so the two key spaces cannot collide.
+//   - FALLBACK (no-CBSA) scene: a SUBSET. This key requires v.metro IS NULL;
+//     venuePredicate matches the (city, state) whether or not the venue has a
+//     metro. They agree only while every venue in that place agrees about its
+//     metro — which is what the geocoder writes, but venues.metro DRIFTS (see
+//     metro_backfill.go: the background location writers move city/state
+//     without touching metro). A place holding both NULL-metro and CBSA venues
+//     already splits into two ListScenes groups sharing one slug; that is
+//     pre-existing, and it is the case where this count can undercount the
+//     week page.
 //
 // Scenes missing from the returned map have no verified venue carrying a
 // timezone; the caller falls back to the state map exactly as sceneLocation
@@ -167,6 +179,20 @@ type sceneCalendarWeekTarget struct {
 // would. Capped at sceneWeekShowCap for the same reason — the page's total is
 // the length of a capped list, so an uncapped count would overstate it for a
 // scene busy enough to hit the ceiling.
+//
+// CONSEQUENCE, because it will look like a bug from the outside: this counts a
+// DIFFERENT venue population from every other number on SceneListResponse. The
+// grouped ListScenes query applies sceneVenueEligibilitySQL (verified venues
+// with a usable city/state), so venue_count, total_show_count,
+// upcoming_show_count and shows_this_week are verified-only. A scene with
+// unverified rooms can therefore read "3 shows · 17 shows this week". Adding a
+// verified filter here would make the card self-consistent and make the LINK
+// wrong, which is the trade this field exists to refuse. Fix it, if it is worth
+// fixing, by narrowing the week PAGE — then this follows for free.
+//
+// Grouping caveat: see sceneTimezonesByKey. The metro branch is exact; a
+// fallback scene whose place holds both NULL-metro and CBSA venues can
+// undercount.
 func (s *SceneService) sceneCalendarWeekCounts(now time.Time, targets []sceneCalendarWeekTarget) (map[string]int, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

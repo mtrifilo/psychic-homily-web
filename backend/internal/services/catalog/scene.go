@@ -325,9 +325,17 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// along in the grouped query above, whose window is a single pair of bind
 	// args: this one needs a different Monday per scene.
 	//
-	// Unlike the genre tint, a missing count is NOT cosmetic — a zero would mute
-	// a live scene's week link and understate a busy city — so a failure here
-	// fails the whole list rather than silently serving zeros.
+	// FAILS CLOSED, unlike the genre tint above it, and the trade is not free:
+	// GET /scenes also feeds the Atlas globe, the home scene graph and the
+	// scenes list, none of which read this field, so an error here takes those
+	// down too. Serving zeros instead would mute every live scene's week link
+	// and understate every busy city — a confident wrong answer, which is the
+	// exact failure this field was added to remove, and it would reach the
+	// reader looking like fact rather than like an outage. The two queries also
+	// share a connection, so a failure here strongly predicts the grouped query
+	// above was about to fail anyway. If that balance ever needs revisiting, the
+	// answer is a nullable field the two week-link surfaces can drop a count
+	// for, NOT a silent zero.
 	targets := make([]sceneCalendarWeekTarget, 0, len(groups))
 	for i := range groups {
 		// The DISPLAY state, not the group's MIN(state): a multi-state metro
@@ -1021,14 +1029,6 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 	return result.City, result.State, nil
 }
 
-// metroDisplayIdentity resolves a scene's DISPLAY (city, state): the metro's
-// principal city when the scene keys on a CBSA, the literal place otherwise.
-//
-// The same resolution ParseSceneSlug performs, which is what makes a slug built
-// from this answer round-trip back to the scene it names. Takes the three fields
-// rather than a scope so the sitemap's grouped rows and the query scopes can
-// share one definition — two of them would eventually disagree about which city
-// a metro is displayed under, and the slug would stop resolving.
 // sceneKeyForGroup is the Go-side spelling of sceneGroupKeySQL: the CBSA metro
 // of a scene's venue group, else its lower/trimmed city|state fallback.
 //
@@ -1043,6 +1043,14 @@ func sceneKeyForGroup(metro, city, state string) string {
 	return strings.ToLower(strings.TrimSpace(city)) + "|" + strings.ToLower(strings.TrimSpace(state))
 }
 
+// metroDisplayIdentity resolves a scene's DISPLAY (city, state): the metro's
+// principal city when the scene keys on a CBSA, the literal place otherwise.
+//
+// The same resolution ParseSceneSlug performs, which is what makes a slug built
+// from this answer round-trip back to the scene it names. Takes the three fields
+// rather than a scope so the sitemap's grouped rows and the query scopes can
+// share one definition — two of them would eventually disagree about which city
+// a metro is displayed under, and the slug would stop resolving.
 func metroDisplayIdentity(metro, city, state string) (string, string) {
 	if metro != "" {
 		if mp, ok := geo.MetroPrincipalByCBSA(metro); ok {

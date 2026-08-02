@@ -69,12 +69,19 @@ function CityRow({ scene }: { scene: SceneListItem }) {
  * `shows_this_week` is a ROLLING seven days from now and read 76 for Chicago
  * against that page's 96 on 2026-08-02.
  *
- * The RANGE beside the heading is the looser half, and deliberately so. It is
- * one range for every row, derived in ONE zone (`SCENE_WEEK_INDEX_TIMEZONE`),
- * while each scene resolves its own Monday. Around that boundary a scene east
- * of the heading's zone has already turned over while the label still names
- * last week — a few hours a week, on a decorative header, above numbers that
- * are individually exact. Per-row ranges were not the approved design.
+ * TWO THINGS STILL BLUR THAT EQUALITY, both bounded, neither hidden:
+ *
+ * 1. The RANGE beside the heading is ONE range for every row, derived in ONE
+ *    zone (`SCENE_WEEK_INDEX_TIMEZONE`), while each scene resolves its own
+ *    Monday. For the few hours a week between those Mondays a scene east of the
+ *    heading's zone has already turned over while the label still names last
+ *    week. Per-row ranges were not the approved design.
+ *
+ * 2. The counts arrive through the Data Cache while the heading reads the clock
+ *    fresh, so at the rollover the numbers can lag the heading. `/shows` holds
+ *    that to about a minute (`SCENE_WEEK_INDEX_REVALIDATE_SECONDS`); a caller
+ *    that renders this block off an hour-cached payload would be wrong by an
+ *    hour instead, so pass a payload as fresh as the heading.
  *
  * Column-major by CSS, deliberately: `columns-*` lays a single rank-ordered
  * list down column 1 then column 2, so the DOM order stays the rank order for a

@@ -73,7 +73,23 @@ describe('getScenesForWeekIndex', () => {
       url: expect.stringMatching(/\/scenes$/),
       collection: 'scenes',
       service: 'shows-this-week-by-city',
+      revalidateSeconds: expect.any(Number),
     })
+  })
+
+  // The counts in this payload describe a CALENDAR WEEK, so a stale entry does
+  // not read as slightly old at the Monday rollover — it reads as the wrong
+  // week, beside a heading naming the right one. The default hour is therefore
+  // wrong here on purpose, and asserting the direction (rather than the literal
+  // 60) keeps the test about the reason instead of the number.
+  it('holds the payload far shorter than the default first-screen hour', async () => {
+    fetchListPayload.mockResolvedValue({ scenes: [], count: 0 })
+
+    await getScenesForWeekIndex()
+
+    const { revalidateSeconds } = fetchListPayload.mock.calls[0][0]
+    expect(revalidateSeconds).toBeLessThanOrEqual(60)
+    expect(revalidateSeconds).toBeGreaterThan(0)
   })
 
   // A failed fetch drops the block rather than throwing: it is supplementary to
