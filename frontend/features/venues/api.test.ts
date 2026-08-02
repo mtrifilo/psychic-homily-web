@@ -105,10 +105,18 @@ describe('venueQueryKeys', () => {
     expect(past).not.toEqual(venuePage)
   })
 
-  it('normalizes an omitted timezone to null rather than a key hole', () => {
+  it('normalizes omitted params to null rather than a key hole', () => {
     expect(
       venueQueryKeys.showsPage(42, { timeFilter: 'upcoming', limit: 20 }),
     ).toEqual(['venues', 'shows', '42', 'upcoming', 20, null])
+    expect(venueQueryKeys.showsPage(42, { timeFilter: 'upcoming' })).toEqual([
+      'venues',
+      'shows',
+      '42',
+      'upcoming',
+      null,
+      null,
+    ])
   })
 
   it('nests every shows page under the shows() invalidation prefix', () => {

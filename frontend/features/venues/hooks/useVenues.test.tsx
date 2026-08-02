@@ -29,13 +29,13 @@ vi.mock('@/features/venues/api', () => ({
     // the genuine one.
     showsPage: (
       venueId: string | number,
-      params: { timeFilter: string; limit: number; timezone?: string },
+      params: { timeFilter: string; limit?: number; timezone?: string },
     ) => [
       'venues',
       'shows',
       String(venueId),
       params.timeFilter,
-      params.limit,
+      params.limit ?? null,
       params.timezone ?? null,
     ],
     cities: ['venues', 'cities'],

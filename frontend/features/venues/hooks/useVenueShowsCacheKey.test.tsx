@@ -171,6 +171,35 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
     ).toHaveLength(2)
   })
 
+  it('keys on what the URL actually sent, not on the raw argument', async () => {
+    const queryClient = createTestQueryClient()
+    mockApiRequest.mockResolvedValue(twentyShows())
+    const wrapper = createWrapperWithClient(queryClient)
+
+    // A falsy limit and an empty timezone both drop out of the URL, so these
+    // two hooks issue the SAME request. Keying on the raw argument would mint
+    // two entries for it — the mirror image of the collision above, and the
+    // reason the hook resolves the sent values once for both.
+    const zeroLimit = renderHook(
+      () => useVenueShows({ venueId: VENUE_ID, limit: 0, timezone: '' }),
+      { wrapper },
+    )
+    const omitted = renderHook(
+      () => useVenueShows({ venueId: VENUE_ID, limit: undefined }),
+      { wrapper },
+    )
+    await waitFor(() => expect(zeroLimit.result.current.isSuccess).toBe(true))
+    await waitFor(() => expect(omitted.result.current.isSuccess).toBe(true))
+
+    // `limit: undefined` takes the hook's own default of 20 and sends it;
+    // `limit: 0` sends nothing. Different requests, so still two entries --
+    // but each entry matches the URL that filled it.
+    const urls = mockApiRequest.mock.calls.map(c => c[0] as string)
+    expect(urls.some(u => !u.includes('limit='))).toBe(true)
+    expect(urls.some(u => u.includes('limit=20'))).toBe(true)
+    expect(urls.every(u => !u.includes('timezone='))).toBe(true)
+  })
+
   it('separates a caller that omits the timezone from one that sends it', async () => {
     const queryClient = createTestQueryClient()
     mockApiRequest.mockResolvedValue(twentyShows())

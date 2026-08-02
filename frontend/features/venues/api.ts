@@ -108,16 +108,19 @@ export const venueQueryKeys = {
     venueIdOrSlug: string | number,
     params: {
       timeFilter: VenueShowsTimeFilter
-      limit: number
+      /** Omit for "not sent" — the backend's own default then applies. */
+      limit?: number
+      /** Omit for "not sent" — the backend defaults the boundary to UTC. */
       timezone?: string
     },
   ) =>
     [
       ...venueQueryKeys.shows(venueIdOrSlug),
       params.timeFilter,
-      params.limit,
-      // Normalized so an omitted timezone is one stable key rather than a
-      // hole that hashes differently from an explicit undefined.
+      // Both normalized to null so "not sent" is ONE key rather than a hole
+      // that hashes differently from an explicit undefined. Callers must pass
+      // what the request actually sent, not what they were handed.
+      params.limit ?? null,
       params.timezone ?? null,
     ] as const,
   genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
