@@ -44,15 +44,40 @@ export type SetType = NonNullable<
   components['schemas']['Artist']['set_type']
 >
 
+/**
+ * Minimal label reference rendered next to an artist on the show bill.
+ *
+ * `slug` can be an empty string: `labels.slug` is nullable in the database and
+ * the backend flattens null to "". Callers must treat empty as "no label page
+ * to link to" rather than building `/labels/`.
+ */
+export interface ShowArtistLabel {
+  id: number
+  name: string
+  slug: string
+}
+
 export interface ArtistResponse {
   id: number
   slug: string
   name: string
   state?: string | null
   city?: string | null
+  country?: string | null
   is_headliner?: boolean | null
   set_type: SetType
   position: number
+  /**
+   * Labels this artist records for, name-ascending. Populated only by the
+   * show-DETAIL reads (`GET /shows/{id}`); list endpoints omit the key rather
+   * than pay two queries per show for a field their cards never render.
+   *
+   * Absent (undefined) means "not looked up"; present-but-empty means "looked
+   * up, artist is unsigned". Keep that distinction: rendering an absent key as
+   * "no labels" is the same pixels, but a consumer that needs to know whether
+   * the lookup happened (a "add a label" prompt, say) would be reading a lie.
+   */
+  labels?: ShowArtistLabel[]
   is_new_artist?: boolean | null
   bandcamp_embed_url?: string | null
   socials: ShowArtistSocials

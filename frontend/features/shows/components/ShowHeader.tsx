@@ -1,12 +1,21 @@
 'use client'
 
+import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
+import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
+import { ShowFlyerPlate, flyerCredit, flyerImageSrc } from './ShowFlyerPlate'
 import { showTimingInput } from '../utils'
-import type { ArtistResponse, SetType, ShowResponse } from '../types'
+import type {
+  ArtistResponse,
+  SetType,
+  ShowArtistLabel,
+  ShowResponse,
+} from '../types'
 
 /**
  * Bill order lives in `show_artists.position`. Every backend read path already
@@ -28,13 +37,18 @@ function byBillPosition(a: ArtistResponse, b: ArtistResponse): number {
 /**
  * Support-line annotations, keyed by `set_type`.
  *
- * `opener` is deliberately absent. It reads like a distinguishing role but is
- * really the backend's default for "not the headliner" — `associateArtists`
- * hardcodes it for every non-headliner, and the discovery fallback does the
- * same — so annotating it would append "(opener)" to nearly every support act
- * on nearly every bill. Labelling it only becomes meaningful once `set_type`
- * carries real semantics — a richer vocabulary plus a backfill. Don't re-add
- * it here before that lands.
+ * `opener` is deliberately absent, and the reason has CHANGED without the
+ * behaviour changing. It used to be the backend's default for "not the
+ * headliner", so annotating it would have marked nearly every support act on
+ * nearly every bill. That is no longer true: `set_type` is curated and
+ * authoritative, and the neutral default is now `performer` ("on the bill,
+ * slot unknown"). What keeps `opener` out today is the DESIGN: the locked show
+ * mock renders no role labels on the bill at all. Support acts are `w/` lines
+ * and nothing more. Adding role annotations back is a design decision, not a
+ * data-quality one, so it needs a call rather than a patch here.
+ *
+ * `special_guest` predates that mock and still renders. Left alone on purpose:
+ * removing a shipped annotation is as much a design change as adding one.
  *
  * A `Map` rather than an object literal on purpose: `set_type` is a bare
  * `string` on the wire (see `types/api.d.ts`) over an unconstrained VARCHAR
@@ -55,6 +69,97 @@ function SupportSetTypeLabel({ setType }: { setType: SetType }) {
   )
 }
 
+/**
+ * The labels an act records for, as one bracketed group: `[Epic]`,
+ * `[Jealous Butcher · Dead Oceans]`.
+ *
+ * ONE bracket pair around the whole group, middots inside it, not a bracket
+ * per label. Two labels are a single fact about one band; `[A] [B]` reads as
+ * two separate affordances, which is what {@link BracketLink} means elsewhere
+ * on the page. That is also why this is hand-rolled rather than composed from
+ * BracketLink: the brackets here are annotation, and each NAME inside is its
+ * own link.
+ *
+ * Brackets and separators are `aria-hidden` so the line is announced as
+ * "Modest Mouse Epic Issaquah, WA" rather than as punctuation.
+ *
+ * A missing `slug` renders as plain text: `labels.slug` is nullable in the
+ * database and the backend flattens null to "", which would otherwise build a
+ * link to `/labels/`.
+ */
+function BillLabels({
+  labels,
+  className,
+}: {
+  labels?: ShowArtistLabel[]
+  className?: string
+}) {
+  if (!labels || labels.length === 0) return null
+  return (
+    <>
+      {' '}
+      <span className={cn('font-mono font-normal text-primary', className)}>
+        <span aria-hidden="true">[</span>
+        {labels.map((label, index) => (
+          <span key={label.id}>
+            {index > 0 && (
+              <span aria-hidden="true" className="text-primary/60">
+                {' '}
+                &middot;{' '}
+              </span>
+            )}
+            {label.slug ? (
+              <Link
+                href={`/labels/${label.slug}`}
+                className="hover:underline"
+              >
+                {label.name}
+              </Link>
+            ) : (
+              <span>{label.name}</span>
+            )}
+          </span>
+        ))}
+        <span aria-hidden="true">]</span>
+      </span>
+    </>
+  )
+}
+
+/**
+ * Where an act is from, inline after its labels: `Issaquah, WA`,
+ * `Melbourne, Australia`.
+ *
+ * Delegates to `formatLocation` so the bill obeys the same locked display rule
+ * as every other surface: country included UNLESS the state is set and the
+ * country is USA/US. The `LOCATION_UNKNOWN` placeholder that helper returns is
+ * dropped rather than printed: it is designed to stand alone in a location
+ * field, and "Modest Mouse [Epic] Location Unknown" states something the bill
+ * was not asked to state.
+ */
+function BillHometown({
+  artist,
+  className,
+}: {
+  artist: ArtistResponse
+  className?: string
+}) {
+  const hometown = formatLocation({
+    city: artist.city,
+    state: artist.state,
+    country: artist.country,
+  })
+  if (hometown === LOCATION_UNKNOWN) return null
+  return (
+    <>
+      {' '}
+      <span className={cn('font-normal text-muted-foreground', className)}>
+        {hometown}
+      </span>
+    </>
+  )
+}
+
 interface ShowHeaderProps {
   show: ShowResponse
   /**
@@ -71,12 +176,15 @@ interface ShowHeaderProps {
  * badge row, show meta row (time / price / age), ticket URL CTA, and
  * description paragraph.
  *
- * Laid out as the mock's two columns: the flyer plate on the left, and on the
- * right the module slots in reading order (header block, venue, ticket and
- * actions, attendance). The slots are marked in the markup because their
- * ORDER is the design decision; what goes inside each one is still being
- * filled in wave by wave, and a later wave should have somewhere obvious to
- * put its module rather than choosing a new position for it.
+ * Laid out as the mock's two columns WHEN THERE IS A FLYER: the plate on the
+ * left, and on the right the module slots in reading order (header block,
+ * venue, ticket and actions, attendance). A show with no usable flyer drops
+ * the left column entirely and the typeset content takes the full width. The
+ * grid is a response to the data, not a fixed frame. The slots are marked in
+ * the markup because their ORDER is the design decision; what goes inside each
+ * one is still being filled in wave by wave, and a later wave should have
+ * somewhere obvious to put its module rather than choosing a new position for
+ * it.
  *
  * This intentionally diverges from the generic `EntityHeader` — the bill
  * position semantics (`set_type`) and the co-primary venue entity don't
@@ -84,6 +192,24 @@ interface ShowHeaderProps {
  * See `docs/research/entity-detail-layout-migration.md` for rationale.
  */
 export function ShowHeader({ show, actions }: ShowHeaderProps) {
+  // A flyer URL that 404s, or points at a host that blocks hotlinking, is the
+  // same situation as no flyer at all, so it collapses the column the same
+  // way rather than leaving a broken-image glyph in a reserved 18rem gutter.
+  //
+  // The failed URL is stored, not a boolean: an admin can fix `image_url` from
+  // the edit drawer on this very page, and the live query then re-renders this
+  // component with a new src. A boolean would stay stuck on the old failure and
+  // suppress the new flyer until a reload; comparing URLs resets itself.
+  const [failedFlyerSrc, setFailedFlyerSrc] = useState<string | null>(null)
+  const flyerSrc = flyerImageSrc(show)
+  const hasFlyer = flyerSrc !== null && flyerSrc !== failedFlyerSrc
+  // Stable per URL: the plate holds it in a callback ref, and an identity that
+  // changed every render would detach and re-attach that ref every render.
+  const handleFlyerError = useCallback(
+    () => setFailedFlyerSrc(flyerSrc),
+    [flyerSrc]
+  )
+
   const venue = show.venues[0]
   // The same zone the status stripe above this block is judged on. They render
   // a few hundred pixels apart, so a page that resolved the venue's calendar
@@ -108,23 +234,17 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const effectiveSupport = headliners.length > 0 ? support : artists.slice(1)
 
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-8">
-      {/* SLOT: flyer plate. A plain plate at the mock's native aspect ratio:
-          the flyer itself, its provenance caption and its report affordance
-          are the next wave's, and a dashed "image goes here" box would be
-          promising UI that does not exist. It holds the column open so the
-          two-column reading order is real now rather than arriving as a
-          surprise reflow later.
-
-          Hidden below `md`, and hidden at the COLUMN so a display:none grid
-          item generates no row and no gap: a phone gets the bill at the top of
-          the page instead of a screen of reserved plate. */}
-      <div
-        aria-hidden="true"
-        data-testid="show-flyer-plate"
-        className="hidden aspect-[4/5] w-full rounded-sm border border-border/60 bg-muted/40 md:block"
-      />
-
+    <div
+      className={cn(
+        'grid grid-cols-1 gap-6',
+        // SLOT: flyer plate. The second column EXISTS ONLY WHEN THERE IS A
+        // FLYER. A show with no image collapses to one full-width column
+        // rather than reserving a gutter for a placeholder. The earlier
+        // always-on plate promised an image that was never coming, and every
+        // flyerless show paid 18rem of whitespace for it.
+        hasFlyer && 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-8'
+      )}
+    >
       <div className="min-w-0">
         {/* SLOT: header block. Date, bill, sold-out flag. */}
         <div className="flex items-center gap-2 mb-2">
@@ -141,7 +261,16 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           )}
         </div>
 
-        {/* Artists — grouped by billing */}
+        {/* The bill, typeset: who is playing, who they record for, where they
+            are from. Labels and hometown sit INLINE with the name rather than
+            on their own meta row, so one act reads as one line of type.
+
+            They are inside the h1 on purpose. The heading is the show's title
+            and "Modest Mouse [Epic] Issaquah, WA" is that title as the mock
+            states it; splitting the annotations out to a sibling would make
+            the visual line and the document's heading disagree. The brackets
+            and separators are aria-hidden, so the announced name is
+            "Modest Mouse Epic Issaquah, WA". */}
         <h1 className="text-2xl md:text-3xl font-bold leading-8 md:leading-9">
           {effectiveHeadliners.map((artist, index) => (
             <span key={artist.id}>
@@ -161,29 +290,45 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
               ) : (
                 <span>{artist.name}</span>
               )}
+              <BillLabels labels={artist.labels} className="text-base" />
+              <BillHometown artist={artist} className="text-base" />
             </span>
           ))}
         </h1>
         {effectiveSupport.length > 0 && (
-          <div className="text-lg text-muted-foreground mt-1">
-            <span className="italic">w/</span>{' '}
+          // One act per line, hanging under a single `w/`, rather than one
+          // comma-run. With hometowns on the line a run reads as garbage:
+          // "Califone [Dead Oceans] Chicago, IL, Other Band [Merge] Austin,
+          // TX" puts the same comma between a state and the next band. The
+          // empty grid cell on lines 2+ is what keeps them aligned under the
+          // first name without repeating the marker as text an assistive
+          // reader would hear on every line.
+          <div className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-lg text-muted-foreground">
             {effectiveSupport.map((artist, index) => (
-              <span key={artist.id}>
-                {index > 0 && (
-                  <span className="text-muted-foreground/50">, </span>
-                )}
-                {artist.slug ? (
-                  <Link
-                    href={`/artists/${artist.slug}`}
-                    className="hover:text-primary/80 transition-colors"
-                  >
-                    {artist.name}
-                  </Link>
+              <Fragment key={artist.id}>
+                {index === 0 ? (
+                  <span className="italic">w/</span>
                 ) : (
-                  <span>{artist.name}</span>
+                  <span aria-hidden="true" />
                 )}
-                <SupportSetTypeLabel setType={artist.set_type} />
-              </span>
+                <div>
+                  {artist.slug ? (
+                    <Link
+                      href={`/artists/${artist.slug}`}
+                      className="font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      {artist.name}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-foreground">
+                      {artist.name}
+                    </span>
+                  )}
+                  <SupportSetTypeLabel setType={artist.set_type} />
+                  <BillLabels labels={artist.labels} className="text-sm" />
+                  <BillHometown artist={artist} className="text-base" />
+                </div>
+              </Fragment>
             ))}
           </div>
         )}
@@ -205,7 +350,13 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
                 {venue.name}
               </span>
             )}
-            <div className="flex items-center gap-1 text-muted-foreground mt-1">
+            {/* Testid rather than a text query: the bill above now prints each
+                act's hometown, so "Phoenix, AZ" is no longer a unique string on
+                this page. */}
+            <div
+              data-testid="venue-location"
+              className="flex items-center gap-1 text-muted-foreground mt-1"
+            >
               <MapPin className="h-4 w-4" />
               <span>
                 {venue.city}, {venue.state}
@@ -287,6 +438,26 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           <p className="mt-4 text-muted-foreground">{show.description}</p>
         )}
       </div>
+
+      {/* The plate is LAST in the document and first in the desktop grid.
+          Reading order is the reason, and it goes both ways. On a phone the
+          columns stack, and a full-width flyer at the top pushed the date, the
+          bill and the venue clean off the first screen, which is the opposite
+          of what somebody checking a show on their phone came for; here the
+          typeset facts come first and the poster follows them. For a screen
+          reader, at every width, the bill is the content and the flyer is the
+          supplement, which is the order they are now announced in.
+
+          `md:order-first` puts it back in the left column at desktop, where
+          the mock has it. */}
+      {hasFlyer && flyerSrc && (
+        <ShowFlyerPlate
+          src={flyerSrc}
+          credit={flyerCredit(show)}
+          onError={handleFlyerError}
+          className="md:order-first"
+        />
+      )}
     </div>
   )
 }
