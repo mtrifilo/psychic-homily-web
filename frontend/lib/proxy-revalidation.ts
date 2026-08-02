@@ -1,5 +1,15 @@
 import * as Sentry from '@sentry/nextjs'
 import { safeRevalidatePath } from './revalidate-entity'
+import {
+  ALL_SCENE_PAGES,
+  ALL_SHOW_PAGES,
+  SCENE_LIST_PAGE,
+  SINGULAR_TO_SEGMENT,
+  cascadePages,
+  entityPages,
+  releasePages as releasePagesFor,
+  showPages as showPagesFor,
+} from './revalidation-paths'
 
 /**
  * ISR revalidation rules for mutations routed through the catch-all API
@@ -25,7 +35,9 @@ import { safeRevalidatePath } from './revalidate-entity'
  *
  * Cascades (PSY-941): mutations that change or remove an entity's NAME also
  * invalidate every page that embeds that name (show/release/collection
- * pages), via dynamic route patterns — see RENAME_CASCADES below.
+ * pages), via dynamic route patterns — see RENAME_CASCADES in
+ * lib/revalidation-paths.ts, which owns the page-path table this module and
+ * the out-of-band revalidate endpoint (PSY-1691) both resolve against.
  *
  * Known gaps (follow-up tickets):
  *   - Deletes by numeric ID can't revalidate the deleted entity's own detail
@@ -108,104 +120,10 @@ function nestedSlugs(body: unknown, key: string): string[] {
 // ---------------------------------------------------------------------------
 // Page-path helpers
 // ---------------------------------------------------------------------------
-
-/**
- * ISR list pages by entity URL segment, for the rename/merge/delete cascade.
- *
- * /artists, /venues and /shows are the browse pages that embed entity NAMES
- * in a cached payload, so a rename has to reach them. /scenes also caches a
- * server-fetched payload since PSY-1624, but it is keyed on city rather than
- * on any renameable entity, so it is not part of THIS cascade — it is
- * invalidated by the count-changing mutations in `showPages` / the venue rules
- * instead. Every other entity type's browse page is still client-fetched.
- */
-const ISR_LIST_PAGES: Readonly<Record<string, string>> = {
-  artists: '/artists',
-  venues: '/venues',
-  shows: '/shows',
-}
-
-/**
- * Singular entity_type values (backend contracts) → URL path segments.
- *
- * Deliberately parallel to ENTITY_PLURAL in
- * features/contributions/hooks/useSuggestEdit.ts (a client module this
- * server-only lib must not import). Keep both in sync when adding entity
- * types.
- */
-const SINGULAR_TO_SEGMENT: Readonly<Record<string, string>> = {
-  artist: 'artists',
-  venue: 'venues',
-  show: 'shows',
-  release: 'releases',
-  label: 'labels',
-  festival: 'festivals',
-  collection: 'collections',
-}
-
-// ---------------------------------------------------------------------------
-// Cascade invalidation (PSY-941)
-// ---------------------------------------------------------------------------
-
-// Dynamic route patterns. safeRevalidatePath revalidates these with type
-// 'page', invalidating every cached page under the route on its next visit.
-const ALL_SHOW_PAGES = '/shows/[slug]'
-const ALL_RELEASE_PAGES = '/releases/[slug]'
-const ALL_COLLECTION_PAGES = '/collections/[slug]'
-const ALL_SCENE_PAGES = '/scenes/[slug]'
-
-// The scene BROWSE page. A plain path, not a route pattern — it started
-// caching a server-fetched payload in PSY-1624, so it now needs invalidating
-// alongside the scene pages it links to.
-const SCENE_LIST_PAGE = '/scenes'
-
-// The show BROWSE page, for the same reason: PSY-1624 put entity names into
-// its cached payload, so the rename cascade has to reach it.
-const SHOW_LIST_PAGE = '/shows'
-
-/**
- * Route patterns made stale when an entity of the given segment is renamed,
- * merged, or deleted — the pages that embed the entity's NAME in their own
- * ISR payload (verified against backend contracts):
- *
- *   - Show pages embed artist + venue names (ShowResponse.artists/venues)
- *   - Release pages embed artist + label names (ReleaseDetailResponse)
- *   - Collection pages embed item entity names of every entity type
- *     (CollectionItemResponse.entity_name)
- *   - Scene + tag pages embed only counts → no rename cascade
- *
- * Path-based rules can't enumerate the specific affected pages (that would
- * need revalidateTag with tagged fetches), so the whole route pattern is
- * invalidated. Rename-class mutations are rare admin/trusted events and
- * pages regenerate lazily on their next visit, so the over-invalidation is
- * cheap.
- */
-const RENAME_CASCADES: Readonly<Record<string, readonly string[]>> = {
-  // SHOW_LIST_PAGE, not just the show DETAIL pages: since PSY-1624 the /shows
-  // browse page server-renders each row's artist and venue names, so a rename
-  // leaves the old one in cached HTML until the 1h window turns over. It was
-  // previously safe to omit because those names reached /shows only through a
-  // JSON-LD block.
-  artists: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
-  venues: [SHOW_LIST_PAGE, ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
-  shows: [ALL_COLLECTION_PAGES],
-  releases: [ALL_COLLECTION_PAGES],
-  labels: [ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
-  festivals: [ALL_COLLECTION_PAGES],
-}
-
-/** Cascade route patterns for a segment; empty for types nothing embeds. */
-function cascadePages(segment: string): readonly string[] {
-  return RENAME_CASCADES[segment] ?? []
-}
-
-/** Detail page (when the slug is known) + ISR list page (when one exists). */
-function entityPages(
-  segment: string,
-  slug: string | undefined
-): Array<string | undefined> {
-  return [slug ? `/${segment}/${slug}` : undefined, ISR_LIST_PAGES[segment]]
-}
+//
+// The page-path table and the rename cascade live in lib/revalidation-paths.ts
+// so the out-of-band revalidate endpoint shares them (PSY-1691). The helpers
+// below are the mutation-response adapters: JSON body → slugs → those tables.
 
 /**
  * Rule resolver for the most common shape: the mutation response is the
@@ -244,39 +162,14 @@ function bodySlugPagesWithCascade(
   ]
 }
 
-/**
- * Pages affected by a show mutation: the show itself, the upcoming-show
- * surfaces (/shows, /explore), the /artists and /venues lists (both embed
- * upcoming-show data), the /scenes list and every scene page (per-city show
- * counts in SceneStats), and each billed artist's detail page (artist pages
- * ISR-cache stats.shows_tracked).
- */
+/** showPages for a show mutation response body. */
 function showPages(body: unknown): Array<string | undefined> {
-  const slug = slugOf(body)
-  return [
-    slug ? `/shows/${slug}` : undefined,
-    '/shows',
-    '/explore',
-    '/artists',
-    '/venues',
-    // The /scenes LIST, not only the per-scene pages below: since PSY-1624 it
-    // server-renders each city's show counts, so a show mutation makes it
-    // stale for exactly the same reason.
-    SCENE_LIST_PAGE,
-    ALL_SCENE_PAGES,
-    ...nestedSlugs(body, 'artists').map((artistSlug) => `/artists/${artistSlug}`),
-  ]
+  return showPagesFor(slugOf(body), nestedSlugs(body, 'artists'))
 }
 
-/**
- * Pages affected by a release mutation: the release itself plus each
- * credited artist's detail page (artist pages ISR-cache stats.releases).
- */
+/** releasePages for a release mutation response body. */
 function releasePages(body: unknown): Array<string | undefined> {
-  return [
-    ...entityPages('releases', slugOf(body)),
-    ...nestedSlugs(body, 'artists').map((artistSlug) => `/artists/${artistSlug}`),
-  ]
+  return releasePagesFor(slugOf(body), nestedSlugs(body, 'artists'))
 }
 
 /**

@@ -470,9 +470,12 @@ export async function runSubmitArtist(
 
   const results = await submitArtists(client, artists, options);
 
-  // Check for any errors and set exit code
+  // Check for any errors and set exit code. `process.exitCode` rather than
+  // `process.exit()`: entities written before the failure still need their ISR
+  // revalidation flushed at the end of the run (PSY-1691), and an immediate
+  // exit would skip it. Nothing runs after this, so the exit status is the same.
   const hasErrors = results.some((r) => r.action === "error");
   if (hasErrors) {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

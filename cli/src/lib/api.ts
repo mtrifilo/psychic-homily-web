@@ -1,5 +1,6 @@
 import type { EnvironmentConfig } from "./types";
 import { dim, gray, cyan, yellow } from "./ansi";
+import { recordMutationResponse } from "./revalidate";
 
 export class APIError extends Error {
   constructor(
@@ -198,10 +199,34 @@ export class APIClient {
 
     if (!text) return {} as T;
 
+    let parsed: T;
     try {
-      return JSON.parse(text) as T;
+      parsed = JSON.parse(text) as T;
     } catch {
       return {} as T;
+    }
+
+    // Single choke point for ISR revalidation (PSY-1691): the CLI writes
+    // straight to the Go API, bypassing the frontend proxy that normally
+    // revalidates cached pages after a mutation, which leaves the change
+    // invisible for up to the page's revalidate window. Queue-only — the batch
+    // is POSTed once at the end of the run. See lib/revalidate.ts.
+    this.recordForRevalidation(method, url, parsed);
+
+    return parsed;
+  }
+
+  /** Never throws: revalidation bookkeeping must not fail an API call. */
+  private recordForRevalidation(
+    method: string,
+    url: string,
+    body: unknown,
+  ): void {
+    try {
+      recordMutationResponse(method, new URL(url).pathname, body);
+    } catch {
+      // Ignore — a malformed URL or unexpected body shape only costs us a
+      // revalidation, and the write itself already succeeded.
     }
   }
 }

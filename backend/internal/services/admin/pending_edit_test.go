@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -558,7 +559,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestGetPendingEditsForEntity_Ex
 	s.Require().NoError(err)
 
 	// Approve the edit
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	// Only pending edits returned
@@ -583,7 +584,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAge
 		Summary: "record the door rule",
 	})
 	s.Require().NoError(err)
-	_, err = s.svc.ApprovePendingEdit(padded.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), padded.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	var updated catalogm.Venue
@@ -597,7 +598,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAge
 		Summary: "venue dropped the rule",
 	})
 	s.Require().NoError(err)
-	_, err = s.svc.ApprovePendingEdit(blank.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), blank.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
@@ -619,7 +620,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCap
 		Summary: "counted the room",
 	})
 	s.Require().NoError(err)
-	_, err = s.svc.ApprovePendingEdit(set.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), set.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	var updated catalogm.Venue
@@ -642,7 +643,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueCap
 		Summary: "the number was wrong, we do not know it",
 	})
 	s.Require().NoError(err)
-	_, err = s.svc.ApprovePendingEdit(cleared.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), cleared.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
@@ -665,7 +666,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsF
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(edit.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), edit.ID, reviewer.ID)
 	s.Require().Error(err)
 
 	var untouched catalogm.Venue
@@ -688,7 +689,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsO
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(edit.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), edit.ID, reviewer.ID)
 	s.Require().Error(err)
 
 	var untouched catalogm.Venue
@@ -720,7 +721,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueLoc
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	var updated catalogm.Venue
@@ -759,7 +760,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueAdd
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	var updated catalogm.Venue
@@ -810,7 +811,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_Bandcamp
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	s.Require().Len(filler.calls, 1, "approving a bandcamp edit must invoke the resolver")
@@ -835,7 +836,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_NonBandc
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().NoError(err)
 
 	s.Empty(filler.calls, "a non-bandcamp edit must not invoke the resolver")
@@ -975,7 +976,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestListPendingEdits_FilterBySt
 		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
 		Changes: makeChanges("name", "Test", "Approved"), Summary: "will approve",
 	})
-	_, _ = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, _ = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 
 	// Only pending
 	edits, total, err := s.svc.ListPendingEdits(&contracts.PendingEditFilters{Status: "pending"})
@@ -1030,7 +1031,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesC
 	})
 	s.Require().NoError(err)
 
-	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	resp, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 	s.Require().NotNil(resp)
 	s.Equal(adminm.PendingEditStatusApproved, resp.Status)
@@ -1058,7 +1059,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesC
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 
 	var updated catalogm.Venue
@@ -1076,7 +1077,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RecordsR
 		Changes: makeChanges("name", "Test", "Updated"), Summary: "Update name",
 	})
 
-	_, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 
 	// Verify revision was created
@@ -1094,7 +1095,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RecordsR
 }
 
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_NotFound() {
-	_, err := s.svc.ApprovePendingEdit(99999, 1)
+	_, err := s.svc.ApprovePendingEdit(context.Background(), 99999, 1)
 	s.Error(err)
 	s.Contains(err.Error(), "pending edit not found")
 }
@@ -1109,10 +1110,10 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AlreadyA
 		Changes: makeChanges("name", "Test", "New"), Summary: "test",
 	})
 
-	_, _ = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, _ = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 
 	// Try to approve again
-	_, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Error(err)
 	s.Contains(err.Error(), "not pending")
 }
@@ -1131,7 +1132,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_EntityDe
 	s.db.Delete(&artist)
 
 	// Approve should fail because entity is gone
-	_, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Error(err)
 	s.Contains(err.Error(), "entity not found")
 }
@@ -1146,7 +1147,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AllowsNe
 		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
 		Changes: makeChanges("name", "Test", "V2"), Summary: "first edit",
 	})
-	_, _ = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, _ = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 
 	// User can now submit another pending edit for same entity
 	resp, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
@@ -1194,7 +1195,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsD
 	s.Require().NotNil(created)
 
 	// Approve must fail with the disallowed-fields sentinel.
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().Error(err)
 	s.True(errors.Is(err, adminm.ErrPendingEditDisallowedFields),
 		"expected ErrPendingEditDisallowedFields, got %v", err)
@@ -1242,7 +1243,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesA
 	})
 	s.Require().NoError(err)
 
-	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	resp, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().NoError(err)
 	s.Equal(adminm.PendingEditStatusApproved, resp.Status)
 
@@ -1273,7 +1274,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsM
 		Summary: "many bad fields",
 	})
 
-	_, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.Require().Error(err)
 	s.True(errors.Is(err, adminm.ErrPendingEditDisallowedFields))
 	for _, bad := range []string{"is_admin", "password_hash", "trust_tier"} {
@@ -1407,7 +1408,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCancelPendingEdit_AlreadyAp
 		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
 		Changes: makeChanges("name", "Test", "New"), Summary: "test",
 	})
-	_, _ = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, _ = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 
 	err := s.svc.CancelPendingEdit(created.ID, user.ID)
 	s.Error(err)
@@ -1448,7 +1449,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_SendsApp
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 
 	// Verify approval email was sent
@@ -1487,7 +1488,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_Suppress
 	})
 	s.Require().NoError(err)
 
-	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	resp, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 	s.Equal(adminm.PendingEditStatusApproved, resp.Status, "approval must still succeed when emails are opted out")
 
@@ -1510,7 +1511,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_EmailErr
 	s.mockEmail.editApprovedErr = fmt.Errorf("email API is down")
 
 	// Approval should still succeed despite email error
-	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	resp, err := s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(adminm.PendingEditStatusApproved, resp.Status)
@@ -1573,7 +1574,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueEma
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 
 	s.Require().Len(s.mockEmail.editApprovedCalls, 1)
@@ -1592,7 +1593,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_Festival
 	})
 	s.Require().NoError(err)
 
-	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), created.ID, reviewer.ID)
 	s.NoError(err)
 
 	s.Require().Len(s.mockEmail.editApprovedCalls, 1)

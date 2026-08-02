@@ -308,16 +308,23 @@ func (s *SavedShowService) hydrateSavedShows(refs []savedShowRef, total int64) (
 func (s *SavedShowService) buildShowResponse(show *catalogm.Show, artistsByShow map[uint][]contracts.ArtistResponse) *contracts.ShowResponse {
 	// Build venue responses
 	venues := make([]contracts.VenueResponse, len(show.Venues))
-	for i, venue := range show.Venues {
+	for i := range show.Venues {
+		venue := &show.Venues[i]
 		var venueSlug string
 		if venue.Slug != nil {
 			venueSlug = *venue.Slug
 		}
 		venues[i] = contracts.VenueResponse{
-			ID:        venue.ID,
-			Slug:      venueSlug,
-			Name:      venue.Name,
-			Address:   venue.Address,
+			ID:   venue.ID,
+			Slug: venueSlug,
+			Name: venue.Name,
+			// Street address only for VERIFIED venues, same gate the venue and
+			// show read paths apply. This builder is not just the saved-shows
+			// list: the personal ICS feed (calendar.go GenerateICSFeed) reads
+			// its shows through here, and that feed is served from a bearer
+			// token URL with no login, so an unredacted address here lands in
+			// a public calendar file and then on the subscriber's device.
+			Address:   venue.PublicAddress(),
 			City:      venue.City,
 			State:     venue.State,
 			Timezone:  venue.Timezone,

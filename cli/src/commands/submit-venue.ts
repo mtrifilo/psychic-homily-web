@@ -409,7 +409,9 @@ export async function runSubmitVenue(
 
   const result = await submitVenues(client, venues, opts.confirm ?? false);
 
+  // `process.exitCode`, not `process.exit()`: entities written before a failure
+  // still need their ISR revalidation flushed at the end of the run (PSY-1691).
   if (result.errors > 0) {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

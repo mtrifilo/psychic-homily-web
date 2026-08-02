@@ -4,12 +4,13 @@ import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { HydrationBoundary } from '@tanstack/react-query'
-import { ShowDetail } from '@/features/shows'
+import { connection } from 'next/server'
+import { ShowDetail, showTimingInput } from '@/features/shows'
 import type { ShowResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { resolveShowTimezone } from '@/lib/utils/formatters'
-import { hasShowStarted } from '@/lib/utils/showTiming'
+import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -114,6 +115,41 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
   }
 }
 
+/**
+ * Reads the clock once, on the server, and hands the answer to the client
+ * tree so the status stripe can say TONIGHT without ever consulting the
+ * reader's own clock.
+ *
+ * Its own component because of `await connection()`: under `cacheComponents` a
+ * prerender may not read the current time. (The JSON-LD offer gate below reads
+ * it too, through `hasShowStarted`'s default `now`; that call sits in the page
+ * body, which never executes during the fallback-shell prerender because it
+ * awaits `params` first.) Isolating it costs nothing today, since this route has no
+ * `generateStaticParams` and its whole body already arrives in the postponed
+ * dynamic resume (measured, see the note in `next.config.ts`). It is the shape
+ * that stays correct if per-slug prerendering is ever added, and it keeps the
+ * one clock read in the page somewhere a reader will find it.
+ *
+ * `show` is passed down rather than refetched: `getShow` is `React.cache`d, so
+ * a second call would be free, but two call sites is two chances for the
+ * stripe to be judging a different payload than the page rendered.
+ */
+async function ShowDetailWithLifecycle({
+  slug,
+  show,
+}: {
+  slug: string
+  show: ShowResponse
+}) {
+  await connection()
+  return (
+    <ShowDetail
+      showId={slug}
+      lifecycle={getShowLifecycleState(showTimingInput(show))}
+    />
+  )
+}
+
 function ShowLoadingFallback() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
@@ -191,7 +227,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
       ])} />
       <HydrationBoundary state={dehydratedState}>
         <Suspense fallback={<ShowLoadingFallback />}>
-          <ShowDetail showId={slug} />
+          <ShowDetailWithLifecycle slug={slug} show={showData} />
         </Suspense>
       </HydrationBoundary>
     </>

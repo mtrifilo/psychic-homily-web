@@ -221,14 +221,41 @@ func TestValidate_LookupFailuresDoNotReject(t *testing.T) {
 		})
 	}
 
-	// Same for a caller whose request was already cancelled: the write is about
-	// to be abandoned anyway, and a cancellation is not evidence about the host.
-	// MapResolver ignores ctx, so this asserts through a resolver that honours
-	// it the way *net.Resolver does.
+	// A caller whose request was already cancelled still gets a real answer: the
+	// guard resolves on a context detached from theirs. MapResolver ignores ctx,
+	// so this asserts through a resolver that honours it the way *net.Resolver
+	// does.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := New(ctxResolver{}).Validate(ctx, "https://images.example.com/x.jpg", "Image URL"); err != nil {
-		t.Errorf("a cancelled context must not reject, got %v", err)
+		t.Errorf("a cancelled context must not reject a public host, got %v", err)
+	}
+}
+
+// TestValidate_CancelledContextStillClassifies is the counterpart to
+// TestValidate_LookupFailuresDoNotReject, and the reason hostResolvesPublic
+// detaches from the caller's context (PSY-1692).
+//
+// The two rules interact badly if the caller's cancellation reaches the
+// resolver: "a lookup that fails is a PASS" plus "a cancelled context fails
+// every lookup" equals "a cancelled context turns this into the literal-only
+// check", silently dropping the DNS step that is the whole reason a resolver
+// is here. An earlier version of this file argued that was harmless because
+// the write would be abandoned anyway. It is not: net/http keeps running a
+// handler after the client disconnects, and the write paths that call this
+// pass no context to the database, so the row still lands.
+//
+// So: a name that resolves inward must be refused even when the caller is gone.
+func TestValidate_CancelledContextStillClassifies(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := New(ctxMetadataResolver{}).Validate(ctx, "https://rebind.example.test/x.jpg", "Image URL")
+	if err == nil {
+		t.Fatal("a cancelled caller must not downgrade the guard to the literal-only check")
+	}
+	if !strings.Contains(err.Error(), "private or internal address") {
+		t.Errorf("expected the host-classification refusal, got %v", err)
 	}
 }
 
@@ -276,6 +303,20 @@ type emptyResolver struct{}
 
 func (emptyResolver) LookupIPAddr(context.Context, string) ([]net.IPAddr, error) {
 	return nil, nil
+}
+
+// ctxMetadataResolver honours cancellation like ctxResolver but answers with
+// the cloud metadata address, so a test can tell "the guard resolved" apart
+// from "the guard gave up and passed".
+type ctxMetadataResolver struct{}
+
+func (ctxMetadataResolver) LookupIPAddr(ctx context.Context, _ string) ([]net.IPAddr, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(10 * time.Millisecond):
+		return []net.IPAddr{{IP: net.ParseIP("169.254.169.254")}}, nil
+	}
 }
 
 // ctxResolver honours cancellation the way *net.Resolver does.

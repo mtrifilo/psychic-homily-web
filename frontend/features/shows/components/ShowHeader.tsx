@@ -5,6 +5,7 @@ import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
+import { showTimingInput } from '../utils'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 /**
@@ -57,8 +58,8 @@ function SupportSetTypeLabel({ setType }: { setType: SetType }) {
 interface ShowHeaderProps {
   show: ShowResponse
   /**
-   * Action cluster rendered on the right side of the header (desktop) or
-   * below the artist/venue block (mobile). Typically a `<ShowActions />`.
+   * Action cluster rendered at the foot of the ticket block, under the price
+   * and ticket link, at every width. Typically a `<ShowActions />`.
    */
   actions?: React.ReactNode
 }
@@ -70,6 +71,13 @@ interface ShowHeaderProps {
  * badge row, show meta row (time / price / age), ticket URL CTA, and
  * description paragraph.
  *
+ * Laid out as the mock's two columns: the flyer plate on the left, and on the
+ * right the module slots in reading order (header block, venue, ticket and
+ * actions, attendance). The slots are marked in the markup because their
+ * ORDER is the design decision; what goes inside each one is still being
+ * filled in wave by wave, and a later wave should have somewhere obvious to
+ * put its module rather than choosing a new position for it.
+ *
  * This intentionally diverges from the generic `EntityHeader` — the bill
  * position semantics (`set_type`) and the co-primary venue entity don't
  * fit into `EntityHeader`'s single-string `title` / subtitle-badge shape.
@@ -77,6 +85,10 @@ interface ShowHeaderProps {
  */
 export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const venue = show.venues[0]
+  // The same zone the status stripe above this block is judged on. They render
+  // a few hundred pixels apart, so a page that resolved the venue's calendar
+  // two ways could print two different dates in one screenshot.
+  const timing = showTimingInput(show)
   // Sort the whole bill first so every downstream slice — including the
   // `artists[0]` / `artists.slice(1)` fallback below — is position-ordered.
   const artists = [...show.artists].sort(byBillPosition)
@@ -96,12 +108,28 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
   const effectiveSupport = headliners.length > 0 ? support : artists.slice(1)
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-      <div className="flex-1 min-w-0">
-        {/* Date and Status Badges */}
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-8">
+      {/* SLOT: flyer plate. A plain plate at the mock's native aspect ratio:
+          the flyer itself, its provenance caption and its report affordance
+          are the next wave's, and a dashed "image goes here" box would be
+          promising UI that does not exist. It holds the column open so the
+          two-column reading order is real now rather than arriving as a
+          surprise reflow later.
+
+          Hidden below `md`, and hidden at the COLUMN so a display:none grid
+          item generates no row and no gap: a phone gets the bill at the top of
+          the page instead of a screen of reserved plate. */}
+      <div
+        aria-hidden="true"
+        data-testid="show-flyer-plate"
+        className="hidden aspect-[4/5] w-full rounded-sm border border-border/60 bg-muted/40 md:block"
+      />
+
+      <div className="min-w-0">
+        {/* SLOT: header block. Date, bill, sold-out flag. */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-lg font-bold text-primary">
-            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
+            {formatShowDate(show.event_date, timing.state, false, timing.timezone)}
           </span>
           {show.is_sold_out && (
             <Badge
@@ -160,9 +188,11 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           </div>
         )}
 
-        {/* Venue and Location */}
+        {/* SLOT: venue module. Refined by the venue-module wave; today it is
+            the name link, city/state, street address and the "more shows at"
+            link that already lived here. */}
         {venue && (
-          <div className="mt-2">
+          <div className="mt-4">
             {venue.slug ? (
               <Link
                 href={`/venues/${venue.slug}`}
@@ -203,46 +233,60 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           </div>
         )}
 
-        {/* Show Details. The calendar affordance sits here with the when-info
-            (event-page convention), not in the social action cluster. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-3">
-          <span>{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}</span>
-          {show.price != null && <span>{formatPrice(show.price)}</span>}
-          {show.age_requirement && <span>{show.age_requirement}</span>}
-          <ShowAddToCalendar show={show} />
+        {/* SLOT: ticket and action block. The when/what-it-costs line and
+            every verb a reader can act on, together in one band under the
+            venue, as the mock has them. The action cluster used to float in a
+            right-hand column of the header and was moved, not rewired.
+
+            Two components in here share state: `ShowAddToCalendar` in the meta
+            row below saves the show as a side effect and dedupes against the
+            `SaveButton` inside `actions` through the shared query key. They now
+            render three rows apart. Move either one and check the other. */}
+        <div className="mt-4 border-t border-border/60 pt-4">
+          {/* The calendar affordance sits here with the when-info (event-page
+              convention), not in the social action cluster. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            <span>{formatShowTime(show.event_date, timing.state, timing.timezone)}</span>
+            {show.price != null && <span>{formatPrice(show.price)}</span>}
+            {show.age_requirement && <span>{show.age_requirement}</span>}
+            <ShowAddToCalendar show={show} />
+          </div>
+
+          {/* Ticket URL */}
+          {show.ticket_url && (
+            <div className="mt-3">
+              <a
+                href={
+                  show.ticket_url.startsWith('http')
+                    ? show.ticket_url
+                    : `https://${show.ticket_url}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                Buy Tickets
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          )}
+
+          {actions && (
+            <div className="mt-3 flex flex-col items-start gap-2">{actions}</div>
+          )}
         </div>
 
-        {/* Ticket URL */}
-        {show.ticket_url && (
-          <div className="mt-3">
-            <a
-              href={
-                show.ticket_url.startsWith('http')
-                  ? show.ticket_url
-                  : `https://${show.ticket_url}`
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-            >
-              Buy Tickets
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          </div>
-        )}
+        {/* SLOT: attendance. Going / interested / "I was there" counts land
+            here, under the actions and above the description. Deliberately
+            empty: the counts are designed but not built, and reserving visible
+            blank space for them would read as a broken module. Nothing enforces
+            this position, so treat it as the intent it is, not a guarantee. */}
 
         {/* Description */}
         {show.description && (
           <p className="mt-4 text-muted-foreground">{show.description}</p>
         )}
       </div>
-
-      {/* Action cluster (save + collect + report + admin status toggles) */}
-      {actions && (
-        <div className="flex flex-col items-start sm:items-end gap-2 sm:shrink-0">
-          {actions}
-        </div>
-      )}
     </div>
   )
 }

@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -450,6 +451,85 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_Invalid() {
 	_, err := suite.svc.ValidateCalendarToken("phcal_nonexistent_token")
 	suite.Error(err)
 	suite.Contains(err.Error(), "invalid calendar token")
+}
+
+// unfoldICS reverses RFC 5545 3.1 line folding so a test can search the feed's
+// VALUES rather than its wire bytes. A property longer than 75 octets is split
+// across lines with CRLF plus one leading space or tab, which silently defeats a
+// plain substring assertion — a privacy test that greps for an address it must
+// NOT find would pass while the address is sitting in the payload, folded.
+func unfoldICS(feed string) string {
+	unfolded := strings.ReplaceAll(feed, "\r\n ", "")
+	unfolded = strings.ReplaceAll(unfolded, "\r\n\t", "")
+	unfolded = strings.ReplaceAll(unfolded, "\n ", "")
+	return strings.ReplaceAll(unfolded, "\n\t", "")
+}
+
+// The ICS feed is the worst place for an unverified venue's street address to
+// surface: the URL carries a bearer token instead of a session, so anyone
+// holding the link can fetch it, and an ICS LOCATION is copied onto the
+// subscriber's device where a later redaction can never reach it.
+//
+// This wires the REAL SavedShowService rather than the suite's mock, because
+// the redaction lives in that service's response builder and the whole point of
+// the test is that this feed inherits it. The peer tests above deliberately mock
+// that dependency to isolate ICS formatting; a mock here would assert nothing.
+func (suite *CalendarIntegrationTestSuite) TestGenerateICSFeed_OmitsUnverifiedVenueAddress() {
+	user := suite.createTestUser(true)
+
+	// Deliberately long enough that LOCATION exceeds RFC 5545's 75-octet line
+	// limit and the serializer FOLDS it. With this fixture the break lands
+	// INSIDE the street address, emitting `...Center\, 1234` / `  Secret St\,
+	// Phoenix\, AZ`, so a plain strings.Contains(feed, "1234 Secret St") over
+	// LOCATION is false even when the address is fully published. A negative
+	// privacy assertion is exactly the kind that fails open under that, so every
+	// assertion below runs on the unfolded text. A short venue name would leave
+	// this unexercised and the guard would rot without anything noticing.
+	venue := &catalogm.Venue{
+		Name:     "The Basement Annex Performance Hall and Recreation Center",
+		City:     "Phoenix",
+		State:    "AZ",
+		Address:  stringPtr("1234 Secret St"),
+		Verified: false,
+	}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+
+	show := &catalogm.Show{
+		Title:       "House Show",
+		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+
+	savedShows := NewSavedShowService(suite.db)
+	suite.Require().NoError(savedShows.SaveShow(user.ID, show.ID))
+	svc := NewCalendarService(suite.db, savedShows)
+
+	data, err := svc.GenerateICSFeed(user.ID, "https://psychichomily.com")
+	suite.Require().NoError(err)
+
+	feed := unfoldICS(string(data))
+	suite.Require().Contains(feed, "House Show", "feed must contain the show, or the assertion below is vacuous")
+	suite.NotContains(feed, "1234 Secret St", "unverified venue address must not reach the ICS feed")
+	// The venue is still named and placed, so redaction is not gutting LOCATION.
+	suite.Contains(feed, "The Basement Annex")
+
+	// Same venue, now verified: the address is legitimate and must come through,
+	// proving the feed is gated on verification rather than dropping addresses.
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).
+		Where("id = ?", venue.ID).Update("verified", true).Error)
+	// The ICS payload is cached per user for icsFeedCacheTTL, so without this the
+	// second read would replay the pre-verification bytes and the assertion below
+	// would fail pointing at the redaction logic rather than at the cache.
+	svc.invalidateFeedCache(user.ID)
+
+	data, err = svc.GenerateICSFeed(user.ID, "https://psychichomily.com")
+	suite.Require().NoError(err)
+	suite.Contains(unfoldICS(string(data)), "1234 Secret St", "verified venue address must still be served")
 }
 
 func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUser() {

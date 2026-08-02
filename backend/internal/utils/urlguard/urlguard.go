@@ -231,7 +231,21 @@ func (g *Guard) hostResolvesPublic(ctx context.Context, fieldName, host string) 
 			`defer urlguard.Default.UseResolver(urlguard.MapResolver{"example.com": {"93.184.216.34"}})()`)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, g.timeout)
+	// Detach from the CALLER's cancellation before resolving (PSY-1692).
+	//
+	// A lookup error is a PASS (see Validate), and a cancelled context makes
+	// every lookup an error, so a caller whose context dies mid-request would
+	// silently downgrade this to the literal-only check: exactly the DNS step
+	// that exists to catch a NAME pointing inward. That is not theoretical.
+	// net/http keeps running a handler after the client disconnects, with
+	// r.Context() already cancelled, and the write paths that call this do not
+	// take a context at all (GORM here is context-free), so the row still goes
+	// live. Whether a value is safe to store must not depend on whether the
+	// submitter held the connection open.
+	//
+	// The timeout below still bounds the work, so detaching cannot hang a
+	// request: worst case is g.timeout on a shutdown path.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), g.timeout)
 	defer cancel()
 
 	addrs, err := g.resolver.LookupIPAddr(ctx, host)

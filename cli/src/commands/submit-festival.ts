@@ -797,8 +797,10 @@ export async function runSubmitFestival(
 
   const results = await submitFestivals(festivals, env, confirm);
 
+  // `process.exitCode`, not `process.exit()`: entities written before a failure
+  // still need their ISR revalidation flushed at the end of the run (PSY-1691).
   const hasErrors = results.some((r) => r.action === "error");
   if (hasErrors) {
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

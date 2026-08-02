@@ -71,7 +71,16 @@ Set these in **Project Settings → Environment Variables**:
 | `NEXT_PUBLIC_API_URL` | `https://api.psychichomily.com` |
 | `BACKEND_URL` | `https://api.psychichomily.com` |
 | `ANTHROPIC_API_KEY` | Your API key |
-| `INTERNAL_API_SECRET` | Generate a secure secret |
+| `INTERNAL_API_SECRET` | Generate a secure secret (>=32 chars) |
+
+`INTERNAL_API_SECRET` gates `POST /api/internal/revalidate`, which out-of-band
+writers (the `ph` ingest CLI) call to refresh ISR pages they changed. The value
+set here must equal the `PH_INTERNAL_API_SECRET` exported on the host that runs
+`ph` — the endpoint compares the two directly and never talks to the Go
+backend, so it does not have to match the backend's copy (sharing one value
+across all three is simply the easiest way to keep them in step). If it is
+unset the endpoint answers 401 to every caller and ingested changes stay cached
+until their revalidate window expires.
 
 #### Preview Environment (for staging via `main` branch)
 
@@ -80,7 +89,7 @@ Set these in **Project Settings → Environment Variables**:
 | `NEXT_PUBLIC_API_URL` | `https://api-stage.psychichomily.com` (or same as prod) |
 | `BACKEND_URL` | `https://api-stage.psychichomily.com` (or same as prod) |
 | `ANTHROPIC_API_KEY` | Your API key |
-| `INTERNAL_API_SECRET` | Same or different secret |
+| `INTERNAL_API_SECRET` | Same or different secret, but it must be SET, and `ph` must export the matching value when targeting this deployment |
 
 ### 4. Custom Domains (Vercel Dashboard)
 

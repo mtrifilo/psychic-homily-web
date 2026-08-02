@@ -93,3 +93,61 @@ type Venue struct {
 func (Venue) TableName() string {
 	return "venues"
 }
+
+// PublicAddress is THE street-address privacy gate: the way Address moves from
+// a venue row into any payload a non-admin client can read.
+//
+// An unverified venue is frequently a DIY / house show at somebody's home, so
+// its street address must not be published before a human has reviewed the row.
+// Every response builder that embeds a venue has to apply that rule, and the
+// rule was previously re-spelled as an inline `if venue.Verified` at each site.
+// That is a drift shape rather than a policy: a builder written later (or in
+// another package) simply omits the conditional and the leak is invisible in
+// review, which is exactly how the saved-shows payload came to serve raw
+// addresses. Naming the gate here gives new builders one obvious thing to call
+// and makes the absence of a call the conspicuous part.
+//
+// Returns nil for an unverified venue, so callers assign the result straight
+// into the nullable Address field of their response type. PublicZipcode is the
+// same gate for the other field that carries it; change both together.
+//
+// The rule, rather than a list of the call sites that follow it: every builder
+// of a payload a NON-ADMIN client can read goes through here. Admin surfaces,
+// the moderation queue, and the export/import round trip deliberately read the
+// raw column, so finding one of those is not automatically a bug.
+//
+// Two of those deserve their reason stated, because both look like bugs and
+// "fixing" either one costs something. The admin data-sync export feeds an
+// importer, so gating the read would import every not-yet-present unverified
+// venue with a NULL address (existing rows are left alone: importVenue treats a
+// name+city match as a duplicate). The markdown export is not gated because its
+// route is registered only under ENVIRONMENT=development, which is the whole
+// reason it is not a leak despite being anonymous there.
+//
+// KNOWN GAP, not covered by this gate: field-level revision history stores the
+// submitted address string in revisions.field_changes and the read endpoint is
+// anonymous, so an address that was ever EDITED on an unverified venue is
+// published there regardless of what this returns. Closing it needs a policy for
+// historical values, not another call to this function, so it is tracked
+// separately rather than papered over here.
+func (v *Venue) PublicAddress() *string {
+	if v == nil || !v.Verified {
+		return nil
+	}
+	return v.Address
+}
+
+// PublicZipcode applies the address gate to the venue's zipcode. A zipcode plus
+// a venue name narrows a house show to a neighborhood, so it carries the same
+// rule as the street address and must not drift away from it: the two are
+// redacted together or the response contradicts itself.
+//
+// Street-level coordinates carry the rule too but stay inline in
+// buildVenueResponse, their only producer, because they take an extra
+// freshness condition that reads better beside the fields it guards.
+func (v *Venue) PublicZipcode() *string {
+	if v == nil || !v.Verified {
+		return nil
+	}
+	return v.Zipcode
+}
