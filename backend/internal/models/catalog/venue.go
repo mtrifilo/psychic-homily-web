@@ -124,10 +124,11 @@ func (Venue) TableName() string {
 // route is registered only under ENVIRONMENT=development, which is the whole
 // reason it is not a leak despite being anonymous there.
 //
-// Revision history carries the same rule but cannot use this accessor: it
-// stores the submitted address string in revisions.field_changes, so there is no
-// Venue to gate at read time. It applies the rule by field NAME instead, in
-// services/shared/revisiondiff/privacy.go, masked at read time by
+// Revision history carries the same rule but cannot use this accessor: the
+// value it gates is a historical string in revisions.field_changes, not this
+// venue's current column, so there is nothing for this function to return. It
+// looks up venues.verified itself and applies the rule by field NAME, in
+// services/shared/revisiondiff/privacy.go, at read time in
 // admin.RevisionService. The two are one policy in two spellings — a field
 // withheld here that is not also withheld there is published by editing it once.
 func (v *Venue) PublicAddress() *string {

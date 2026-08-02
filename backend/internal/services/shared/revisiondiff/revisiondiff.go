@@ -58,21 +58,34 @@
 // permanently withhold the history of a venue that later gets verified, and
 // would leave every already-stored row leaking.
 //
-// Every other entity's field list was audited against its live detail response:
-// artist, show, release, label and festival builders serve every field they
-// record unconditionally, so no other field family needs masking. Adding a
-// FIELD-level gate to any live entity response means adding its revision-field
-// name to privacy.go in the same change.
+// Every other entity's field list was audited against its live detail response
+// at the commit that added this: artist, show, release, label and festival
+// builders serve every field they record unconditionally, so no other field
+// family needs masking. That sentence is a point-in-time reading, not a check —
+// what keeps it true is the rule, which is that adding a FIELD-level gate to
+// any live entity response means adding its revision-field name to privacy.go
+// in the same change.
 //
-// KNOWN GAP, a different shape and therefore not closed here: shows are gated at
-// the ENTITY level rather than the field level. GET /shows/{id} 404s an
-// anonymous caller for a show whose status is pending, rejected or private
-// (handlers/catalog/show.go), while GET /revisions/show/{id} still publishes
-// every recorded field for that show. A submitter who unpublishes an approved
-// show therefore hides the show but not the values its history recorded. Closing
-// that needs a decision about whether such a show's history should be withheld
-// wholesale or merely masked, which is a policy question rather than another
-// entry in privacy.go, so it is tracked separately.
+// Three KNOWN GAPS are not closed by a field list, and none of them should be
+// read as covered by the paragraph above.
+//
+// One: Summary is contributor-authored free text, stored and served unmasked
+// beside the diff. The edit drawer asks "why are you making this change?" and
+// tells the contributor it "helps reviewers understand your edit", so the
+// natural summary for an address correction contains the address, and on the
+// trusted-tier auto-apply path no reviewer ever sees it. No field-name rule can
+// reach prose; closing it needs a decision about whether to withhold summaries
+// on gated entities, rewrite the drawer copy to say the field is public, or
+// both.
+//
+// Two: shows are gated at the ENTITY level rather than the field level.
+// GET /shows/{id} 404s an anonymous caller for a show whose status is pending,
+// rejected or private, while GET /revisions/show/{id} still publishes every
+// recorded field. Unpublishing a show hides the show but not its history.
+//
+// Three: venue merge re-points a losing venue's revisions onto the canonical
+// row and deletes the loser, so merging an unverified venue into a verified one
+// republishes the masked history. See MergeVenues.
 package revisiondiff
 
 import (

@@ -616,6 +616,48 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_RedactsUnveri
 	s.Equal(int64(1), total)
 	s.Require().Len(revisions, 1)
 	s.assertAddressMasked(revisions[0])
+
+	// Redaction is a serving concern only. The stored row must still hold the
+	// real values, which is what rollback and any future policy change read.
+	var stored adminm.Revision
+	s.Require().NoError(s.db.First(&stored).Error)
+	s.Contains(string(*stored.FieldChanges), "1234 Secret St",
+		"the stored row must not be rewritten by a read")
+}
+
+// The DB-error half of fail-closed. An aborted transaction makes the
+// verified-venue lookup fail for real, which must mask rather than publish.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LookupErrorFailsClosed() {
+	user := s.createTestUser()
+	venue := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+
+	tx := s.db.Begin()
+	defer func() { _ = tx.Rollback() }()
+	// Poison the transaction: every later statement on it errors until rollback.
+	s.Require().Error(tx.Exec("SELECT 1/0").Error)
+
+	revisions, _, err := NewRevisionService(tx).GetEntityHistory("venue", venue.ID, 10, 0)
+	s.Require().Error(err, "the history query itself fails on a poisoned tx")
+	s.Empty(revisions)
+
+	// The lookup alone, on the same poisoned tx: a VERIFIED venue must still
+	// come back unverified, because the gate cannot prove otherwise.
+	verified := NewRevisionService(tx).verifiedVenueIDs([]uint{venue.ID})
+	s.Empty(verified, "a lookup error must not admit a venue to the verified set")
+}
+
+// nil db is the other fail-closed input: no lookup is possible, so nothing is
+// verified and every venue revision masks.
+func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_NilDBFailsClosed() {
+	raw := json.RawMessage(`[{"field":"address","old_value":"1 Old St","new_value":"1234 Secret St"}]`)
+	revisions := []adminm.Revision{{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: &raw}}
+
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions)
+
+	s.NotContains(string(*revisions[0].FieldChanges), "1234 Secret St")
+	s.NotContains(string(*revisions[0].FieldChanges), "1 Old St")
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesVerifiedVenueAddress() {

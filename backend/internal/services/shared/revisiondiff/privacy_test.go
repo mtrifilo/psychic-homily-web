@@ -1,6 +1,7 @@
 package revisiondiff
 
 import (
+	"strings"
 	"testing"
 
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -13,7 +14,6 @@ func TestRedactVenueChanges(t *testing.T) {
 	tests := []struct {
 		name        string
 		changes     []adminm.FieldChange
-		wantRedact  bool
 		wantMasked  []string
 		wantIntactN int
 	}{
@@ -22,16 +22,16 @@ func TestRedactVenueChanges(t *testing.T) {
 			changes: []adminm.FieldChange{
 				{Field: "address", OldValue: "", NewValue: "1234 Secret St"},
 			},
-			wantRedact: true,
-			wantMasked: []string{"address"},
+			wantMasked:  []string{"address"},
+			wantIntactN: 0,
 		},
 		{
 			name: "masks zipcode",
 			changes: []adminm.FieldChange{
 				{Field: "zipcode", OldValue: "85004", NewValue: "85006"},
 			},
-			wantRedact: true,
-			wantMasked: []string{"zipcode"},
+			wantMasked:  []string{"zipcode"},
+			wantIntactN: 0,
 		},
 		{
 			name: "masks only the private fields in a mixed diff",
@@ -41,33 +41,28 @@ func TestRedactVenueChanges(t *testing.T) {
 				{Field: "capacity", OldValue: 100, NewValue: 150},
 				{Field: "zipcode", OldValue: "", NewValue: "85004"},
 			},
-			wantRedact:  true,
 			wantMasked:  []string{"address", "zipcode"},
 			wantIntactN: 2,
 		},
 		{
-			name: "reports no redaction for a diff with no private field",
+			name: "leaves a diff with no private field alone",
 			changes: []adminm.FieldChange{
 				{Field: "name", OldValue: "Old Room", NewValue: "New Room"},
 				{Field: "capacity", OldValue: 100, NewValue: 150},
 			},
-			wantRedact:  false,
 			wantIntactN: 2,
 		},
 		{
-			name:       "empty diff",
-			changes:    []adminm.FieldChange{},
-			wantRedact: false,
+			name:        "empty diff",
+			changes:     []adminm.FieldChange{},
+			wantIntactN: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, redacted := RedactVenueChanges(tt.changes)
+			out := RedactVenueChanges(tt.changes)
 
-			if redacted != tt.wantRedact {
-				t.Fatalf("redacted = %v, want %v", redacted, tt.wantRedact)
-			}
 			if len(out) != len(tt.changes) {
 				t.Fatalf("len(out) = %d, want %d", len(out), len(tt.changes))
 			}
@@ -103,8 +98,9 @@ func TestRedactVenueChanges_DoesNotMutateInput(t *testing.T) {
 		{Field: "address", OldValue: "1 Old St", NewValue: "1234 Secret St"},
 	}
 
-	if _, redacted := RedactVenueChanges(in); !redacted {
-		t.Fatal("expected redaction")
+	out := RedactVenueChanges(in)
+	if out[0].NewValue != RedactedValue {
+		t.Fatalf("expected redaction, got %v", out[0].NewValue)
 	}
 
 	if in[0].OldValue != "1 Old St" || in[0].NewValue != "1234 Secret St" {
@@ -112,18 +108,45 @@ func TestRedactVenueChanges_DoesNotMutateInput(t *testing.T) {
 	}
 }
 
-// Renaming a field in VenueFields without updating privacy.go turns the gate
-// into a silent no-op; init() must reject that.
-func TestValidateVenuePrivateFields(t *testing.T) {
-	if err := validateVenuePrivateFields(); err != nil {
-		t.Fatalf("validateVenuePrivateFields() = %v, want nil", err)
-	}
+// A masked field name that either writing vocabulary can no longer produce
+// turns the gate into a silent no-op. ValidateAll must reject that at init, and
+// it must reject it for BOTH vocabularies: the contributor edit path, not the
+// admin diff path, is the writer that actually records an unverified venue's
+// address.
+func TestValidatePrivateFields(t *testing.T) {
+	private := map[string]struct{}{"address": {}}
+	diffFields := []Field{{Name: "address", Path: "Address"}}
+	editable := map[string]bool{"address": true}
 
-	original := venuePrivateFields
-	t.Cleanup(func() { venuePrivateFields = original })
+	t.Run("passes when the name is in both vocabularies", func(t *testing.T) {
+		if err := validatePrivateFields(private, diffFields, editable); err != nil {
+			t.Fatalf("got %v, want nil", err)
+		}
+	})
 
-	venuePrivateFields = map[string]struct{}{"not_a_venue_field": {}}
-	if err := validateVenuePrivateFields(); err == nil {
-		t.Error("expected an error for a private field absent from VenueFields")
-	}
+	t.Run("rejects a name absent from the diff field list", func(t *testing.T) {
+		err := validatePrivateFields(private, []Field{{Name: "city", Path: "City"}}, editable)
+		if err == nil {
+			t.Fatal("want an error")
+		}
+		if !strings.Contains(err.Error(), "VenueFields") {
+			t.Errorf("error should name the list that is missing it, got %v", err)
+		}
+	})
+
+	t.Run("rejects a name the contributor path cannot record", func(t *testing.T) {
+		err := validatePrivateFields(private, diffFields, map[string]bool{"city": true})
+		if err == nil {
+			t.Fatal("want an error")
+		}
+		if !strings.Contains(err.Error(), "VenueAllowedEditFields") {
+			t.Errorf("error should name the list that is missing it, got %v", err)
+		}
+	})
+
+	t.Run("the real vocabularies are consistent", func(t *testing.T) {
+		if err := validateVenuePrivateFields(); err != nil {
+			t.Fatalf("got %v, want nil", err)
+		}
+	})
 }
