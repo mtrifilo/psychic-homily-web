@@ -1,4 +1,8 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
+import { Loader2 } from 'lucide-react'
+
+import { GraphSkeleton } from './GraphSkeleton'
 
 /**
  * GraphStateCard — the shared visible card for a graph surface's non-canvas
@@ -59,6 +63,72 @@ export function GraphStateCard({
  * trade-off as HomeSceneGraph's PLACEHOLDER_HEIGHT_CLASS).
  */
 export const GRAPH_BOX_HEIGHT_CLASS = 'h-[240px] sm:h-[400px] md:h-[560px]'
+
+/**
+ * Announced loading box for a graph that is being fetched or built — the
+ * skeleton with a spinner and a sentence, at the shared height contract.
+ *
+ * The plain `GraphSkeleton` pulse is right for a below-the-fold section a
+ * visitor has not asked for. A graph that IS the surface needs to say it is
+ * coming, so this pairs the box with a `{verb} …` line.
+ */
+export function GraphLoadingBox({ children }: { children: ReactNode }) {
+  return (
+    <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS}>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+        {children}
+      </div>
+    </GraphSkeleton>
+  )
+}
+
+/**
+ * Settled-failure box with a retry, at the shared height contract.
+ *
+ * `GraphStateCard` is the sibling for terminal states a visitor can only read;
+ * this one is for the states worth offering another attempt at. `role="alert"`
+ * because the failure is the answer to something the visitor was waiting for.
+ */
+export function GraphRetryBox({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <div
+      role="alert"
+      className={`flex flex-col items-center justify-center gap-3 text-center ${GRAPH_BOX_HEIGHT_CLASS}`}
+    >
+      <p className="text-sm text-muted-foreground">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="text-sm text-primary hover:underline underline-offset-4"
+      >
+        Try again
+      </button>
+    </div>
+  )
+}
+
+/**
+ * The canvas height `GRAPH_BOX_HEIGHT_CLASS` reserves, in pixels.
+ *
+ * A canvas needs a NUMBER (it has no CSS box to fill), while the skeleton and
+ * the state cards around it need a Tailwind class — so the same contract has to
+ * exist in both forms. Keeping the number here, beside the class it must match,
+ * is what stops the two drifting: the values used to be a literal inside
+ * ForceGraphView with only a comment tying them together.
+ *
+ * Viewport-keyed class vs container-keyed number is a known, accepted mismatch
+ * in narrow padded columns (see the note above).
+ */
+export function graphCanvasHeight(containerWidth: number): number {
+  return containerWidth < 768 ? 400 : 560
+}
 
 /**
  * min-height mirror of GRAPH_BOX_HEIGHT_CLASS for content-driven state cards

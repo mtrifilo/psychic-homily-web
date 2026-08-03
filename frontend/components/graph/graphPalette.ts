@@ -61,6 +61,30 @@ export interface GraphPalette {
    * (center is distinguished by size + ink ring, not a hue).
    */
   mutedForeground: string
+  /**
+   * Resolved `--font-mono` as a canvas `ctx.font` family list — the Space Mono
+   * face the DOM reaches through `font-mono` (PSY-647). Canvas can't consume
+   * `var(--font-mono)` any more than it can a color token, and next/font emits
+   * a GENERATED family name (`__Space_Mono_abc123`) that no literal can
+   * hardcode, so it has to be read from the cascade like the colors are.
+   *
+   * Used by the map's region captions, the one canvas text that is mono by
+   * design; every other canvas label stays sans (see graphLabels).
+   */
+  monoFontFamily: string
+  /**
+   * True when the resolved tokens are the dark theme's.
+   *
+   * The hook already watches the `<html>` class to know WHEN to re-resolve, so
+   * this is that same bit kept rather than thrown away. Canvas surfaces need it
+   * for the handful of decisions that are not a token lookup — a tinted wash
+   * costs far more contrast on the light theme's newsprint than on near-black,
+   * so the alphas differ by theme even though the hue does not.
+   *
+   * Reading it here (not inferring it from a color's luminance at the call
+   * site) also keeps those surfaces working if a token ever stops being hex.
+   */
+  isDark: boolean
 }
 
 export const CHART_TOKEN_COUNT = 8
@@ -97,6 +121,12 @@ const FALLBACK_LABEL_HALO = '#0d0805' // --background (dark)
 const FALLBACK_PRIMARY = '#e89960' // --primary (dark)
 const FALLBACK_MUTED_FOREGROUND = '#9c8c7c' // --muted-foreground (dark)
 
+// Theme-independent (the mono face is the same on both themes), so this is a
+// true fallback rather than a dark value: the named face for the environments
+// where next/font's generated family can't resolve (jsdom, SSR), then the
+// generic keyword so a canvas always has SOMETHING monospaced to draw with.
+const FALLBACK_MONO_FONT_FAMILY = "'Space Mono', ui-monospace, monospace"
+
 const FALLBACK_PALETTE: GraphPalette = {
   edges: FALLBACK_EDGE_COLORS,
   unknownEdge: FALLBACK_UNKNOWN_EDGE_COLOR,
@@ -106,6 +136,9 @@ const FALLBACK_PALETTE: GraphPalette = {
   labelHalo: FALLBACK_LABEL_HALO,
   primary: FALLBACK_PRIMARY,
   mutedForeground: FALLBACK_MUTED_FOREGROUND,
+  monoFontFamily: FALLBACK_MONO_FONT_FAMILY,
+  // Matches the rest of the fallbacks, which are all the DARK values.
+  isDark: true,
 }
 
 /** Cluster fill for a canvas paint callback. -1 / out-of-range = "other". */
@@ -136,9 +169,37 @@ export function withHexAlpha(color: string, alphaHexPair: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color + alphaHexPair : color
 }
 
+/**
+ * Convert a 0..1 alpha into the two-char hex pair `withHexAlpha` appends
+ * (e.g. `withHexAlpha('#0173B2', alphaToHex(0.12))` → `'#0173B21F'`). Out-of-
+ * range input clamps rather than wrapping. Lives beside `withHexAlpha`, its
+ * only consumer shape, so a caller finds the pair together.
+ */
+export function alphaToHex(alpha: number): string {
+  const clamped = Math.max(0, Math.min(1, alpha))
+  return Math.round(clamped * 255)
+    .toString(16)
+    .padStart(2, '0')
+}
+
 function readToken(style: CSSStyleDeclaration, token: string, fallback: string): string {
   const value = style.getPropertyValue(token).trim()
   return value || fallback
+}
+
+/**
+ * The canvas mono family, resolved through two hops: Tailwind's `@theme inline`
+ * maps `--font-mono` onto the `--font-space-mono` next/font sets on `<html>`.
+ * Read the mapped token first and the raw one second, so the face still
+ * resolves if either layer is absent (a canvas mounted outside the app shell,
+ * a future token rename), and always append the generic keywords so the canvas
+ * falls back to SOME monospace rather than the sans default.
+ */
+function resolveMonoFontFamily(style: CSSStyleDeclaration): string {
+  const resolved =
+    style.getPropertyValue('--font-mono').trim() ||
+    style.getPropertyValue('--font-space-mono').trim()
+  return resolved ? `${resolved}, ${FALLBACK_MONO_FONT_FAMILY}` : FALLBACK_MONO_FONT_FAMILY
 }
 
 function resolveGraphPalette(): GraphPalette {
@@ -159,6 +220,8 @@ function resolveGraphPalette(): GraphPalette {
     labelHalo: readToken(style, '--background', FALLBACK_LABEL_HALO),
     primary: readToken(style, '--primary', FALLBACK_PRIMARY),
     mutedForeground: readToken(style, '--muted-foreground', FALLBACK_MUTED_FOREGROUND),
+    monoFontFamily: resolveMonoFontFamily(style),
+    isDark: document.documentElement.classList.contains('dark'),
   }
 }
 

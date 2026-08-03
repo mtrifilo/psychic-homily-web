@@ -89,10 +89,18 @@ export function isolateShelfGeometry(
   }
 }
 
-/** Approved caption copy: "+{N} not yet connected artists" (singular form
- * for exactly one — the mock shows the plural template). */
+/**
+ * Approved caption copy: "+{N} not yet connected artists" (singular form for
+ * exactly one — the mock shows the plural template).
+ *
+ * Shared with the scene map's isolate band (PSY-1725), which states the same
+ * fact about the same set on a DOM surface. One function so the locked copy
+ * cannot be tuned in one place and not the other. The count is grouped —
+ * catalog-wide the number runs to four figures, where a bare digit string is
+ * genuinely harder to read.
+ */
 export function isolateShelfCaption(count: number): string {
-  return `+${count} not yet connected ${count === 1 ? 'artist' : 'artists'}`
+  return `+${count.toLocaleString()} not yet connected ${count === 1 ? 'artist' : 'artists'}`
 }
 
 /**
