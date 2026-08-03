@@ -12223,6 +12223,8 @@ export interface components {
             appear: number[] | null;
             community: number[] | null;
             degree: number[] | null;
+            /** @description Base64-encoded bitfield per node: bit 0 = has playable audio, bit 1 = has an upcoming show. Decode to a Uint8Array of length node_count. */
+            flags: string;
             id: number[] | null;
             /** @description Base64-encoded byte per node: 0 = artist, 1 = label hub. Decode to a Uint8Array of length node_count. */
             kind: string;

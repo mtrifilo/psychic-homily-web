@@ -519,6 +519,46 @@ func TestRunGraphOverviewSnapshot_IsNonFatal(t *testing.T) {
 	svc.runGraphOverviewSnapshot(context.Background())
 }
 
+// --- chunking ---
+
+func TestChunkIDs(t *testing.T) {
+	ids := []uint{1, 2, 3, 4, 5, 6, 7}
+
+	// Under the size: one batch, and the same backing slice.
+	if got := chunkIDs(ids, 10); len(got) != 1 || len(got[0]) != 7 {
+		t.Fatalf("chunkIDs(7 ids, 10) = %v, want one batch of 7", got)
+	}
+	// Exactly the size: still one batch, not two with an empty tail.
+	if got := chunkIDs(ids, 7); len(got) != 1 {
+		t.Fatalf("chunkIDs(7 ids, 7) = %v, want one batch", got)
+	}
+	// Over: split with the remainder in the last batch, order preserved, and
+	// every id present exactly once.
+	got := chunkIDs(ids, 3)
+	if len(got) != 3 {
+		t.Fatalf("chunkIDs(7 ids, 3) produced %d batches, want 3", len(got))
+	}
+	var flat []uint
+	for _, batch := range got {
+		if len(batch) == 0 {
+			t.Fatal("chunkIDs produced an empty batch")
+		}
+		flat = append(flat, batch...)
+	}
+	if len(flat) != len(ids) {
+		t.Fatalf("chunkIDs lost ids: %v", flat)
+	}
+	for i := range ids {
+		if flat[i] != ids[i] {
+			t.Fatalf("chunkIDs reordered ids: %v", flat)
+		}
+	}
+	// Degenerate size must not spin.
+	if got := chunkIDs(ids, 0); len(got) != 1 {
+		t.Fatalf("chunkIDs(ids, 0) = %v, want a single batch", got)
+	}
+}
+
 // --- node-set filtering ---
 
 func TestFilterBackboneToArtists_DropsEdgesWithAnUnknownEndpoint(t *testing.T) {

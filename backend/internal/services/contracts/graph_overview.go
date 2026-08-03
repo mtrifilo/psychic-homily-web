@@ -75,6 +75,18 @@ const (
 	GraphOverviewRankBetweennessSampled = "betweenness_sampled"
 )
 
+// Bits in GraphOverviewNodes.Flags. These are the map's two "worth clicking"
+// signals, and both are point-in-time facts about the night the map was built —
+// an upcoming show becomes a past show without the map changing, so a client
+// should treat the flag as a hint rather than a promise.
+const (
+	// GraphOverviewFlagPlayableAudio marks an artist with something to play.
+	GraphOverviewFlagPlayableAudio uint8 = 1 << 0
+	// GraphOverviewFlagUpcomingShow marks an artist with an approved show on or
+	// after the build date.
+	GraphOverviewFlagUpcomingShow uint8 = 1 << 1
+)
+
 // GraphOverviewHullConvex marks region hulls built as padded convex hulls.
 const GraphOverviewHullConvex = "convex"
 
@@ -110,6 +122,11 @@ type GraphOverviewNodes struct {
 	// Rank orders nodes for label tiering, 0 = most central. Which centrality
 	// produced it is reported in GraphOverview.RankMetric.
 	Rank []int32 `json:"rank"`
+	// Flags is a per-node bitfield of the GraphOverviewFlag* constants — the
+	// two "is this dot worth clicking" affordances, packed into one byte
+	// because they repeat once per node.
+	// BASE64 ON THE WIRE, like the kind columns — see the package comment.
+	Flags []uint8 `json:"flags" doc:"Base64-encoded bitfield per node: bit 0 = has playable audio, bit 1 = has an upcoming show. Decode to a Uint8Array of length node_count."`
 	// Appear is when the node entered the catalog, in seconds after
 	// GraphOverview.Epoch, for the "grow the map over time" scrub. Clock is
 	// the entity's created_at and its earliest show date — never a

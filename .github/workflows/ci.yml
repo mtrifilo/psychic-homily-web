@@ -167,6 +167,25 @@ jobs:
         working-directory: ./backend
         run: go test -coverprofile=coverage.out ./...
 
+      # PSY-1723: the nightly graph-overview layout runs in a Node subprocess
+      # (backend/layout), and its test suite is the ONLY coverage of the
+      # ForceAtlas2 contract the map's stability rests on — determinism on
+      # identical input, the undocumented `fixed` node attribute, and the
+      # float32 round-trip that makes an unchanged night reproduce an identical
+      # map. Every Go test stubs the runner, so without this step a dependency
+      # bump that silently drops `fixed` would go green.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/layout/package-lock.json
+
+      - name: Run graph-layout worker tests
+        working-directory: ./backend/layout
+        run: |
+          npm ci
+          node --test
+
       - name: Upload backend coverage to Codecov
         uses: codecov/codecov-action@v5
         with:

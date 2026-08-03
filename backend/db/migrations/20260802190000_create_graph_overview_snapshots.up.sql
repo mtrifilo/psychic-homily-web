@@ -27,16 +27,27 @@ CREATE TABLE graph_overview_snapshots (
     edge_count INTEGER NOT NULL,
     isolate_count INTEGER NOT NULL,
 
-    -- content_hash is the payload digest served as the ETag. Stored rather than
-    -- recomputed per request so the hash a client validates against is exactly
-    -- the bytes that were hashed at build time.
+    -- content_hash identifies the snapshot and is served as the ETag. It is a
+    -- digest of the payload as marshalled at build time, which is NOT byte-equal
+    -- to what a reader gets back (this column is JSONB, so Postgres normalizes
+    -- key order and whitespace) nor to what is served (the API adds a $schema
+    -- member). It is an identity stamp for the build, which is all a validator
+    -- needs: the map only ever changes by a new row appearing.
     content_hash TEXT NOT NULL,
+
+    -- structure_key digests the node set and edge set the layout was computed
+    -- from, and nothing else. When the next build's key matches, the graph's
+    -- SHAPE is unchanged and the previous positions are reused verbatim rather
+    -- than relaxed for another 50 ForceAtlas2 iterations — which is what makes
+    -- an unchanged night reproduce a byte-identical map instead of one that
+    -- drifts slightly every time the job runs.
+    structure_key TEXT NOT NULL DEFAULT '',
 
     computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- The only read pattern is "newest snapshot". The PK index already serves
--- ORDER BY id DESC LIMIT 1; this one exists for the retention prune and for
--- operators asking when the map was last built.
+-- The only read pattern is "newest snapshot", which the PK index already serves
+-- via ORDER BY id DESC LIMIT 1 — as does the retention prune. This index exists
+-- for operators asking when the map was last built.
 CREATE INDEX idx_graph_overview_snapshots_computed_at
     ON graph_overview_snapshots (computed_at DESC);

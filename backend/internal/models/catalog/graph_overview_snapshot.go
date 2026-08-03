@@ -27,8 +27,13 @@ type GraphOverviewSnapshot struct {
 	EdgeCount    int `gorm:"column:edge_count"`
 	IsolateCount int `gorm:"column:isolate_count"`
 
-	// ContentHash is the payload digest, served as the response ETag.
+	// ContentHash identifies the snapshot and is served as the response ETag.
 	ContentHash string `gorm:"column:content_hash"`
+
+	// StructureKey digests the node and edge sets the layout was computed from.
+	// A matching key on the next build means the shape is unchanged and the
+	// stored positions are reused instead of re-relaxed.
+	StructureKey string `gorm:"column:structure_key"`
 
 	ComputedAt time.Time `gorm:"column:computed_at"`
 }

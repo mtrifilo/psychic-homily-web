@@ -339,50 +339,119 @@ func (s *GraphOverviewSuite) TestBuild_PublishesACompleteMap() {
 
 // --- acceptance: the stability contract ---
 
-func (s *GraphOverviewSuite) TestBuild_UnchangedDataReproducesIdenticalPositions() {
+func (s *GraphOverviewSuite) TestBuild_UnchangedStructureSkipsTheLayoutEntirely() {
+	// THE HEADLINE CONTRACT. An unchanged graph must reproduce byte-identical
+	// positions — and the only way that is true of a real ForceAtlas2 run is to
+	// not make one. A layout that relaxes for another 50 iterations every night
+	// drifts every dot every night, which is the reshuffle this whole design
+	// exists to prevent. The assertion that the runner was never called is the
+	// one that has teeth: it holds no matter what the physics would have done.
 	s.seedScene()
+
+	first := &stubLayoutRunner{}
+	_, err := s.build(first, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	s.Require().Equal(1, first.calls, "the first build has nothing to reuse")
+	before := s.newestPayload()
+
+	// A rebuild with a runner that would SCRAMBLE the map if it were consulted.
+	scrambler := &stubLayoutRunner{transform: rotateScaleTranslate}
+	_, err = s.build(scrambler, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	after := s.newestPayload()
+
+	s.Assert().Equal(0, scrambler.calls, "an unchanged structure must not run the layout at all")
+	s.Require().Equal(before.NodeCount, after.NodeCount)
+	s.Assert().Equal(before.Nodes.ID, after.Nodes.ID, "node order must be reproducible")
+	s.Assert().Equal(before.Nodes.X, after.Nodes.X, "positions must be byte-identical on unchanged data")
+	s.Assert().Equal(before.Nodes.Y, after.Nodes.Y, "positions must be byte-identical on unchanged data")
+	s.Assert().Equal(before.Nodes.Rank, after.Nodes.Rank)
+	s.Assert().Equal(before.Edges.Targets, after.Edges.Targets)
+	s.Assert().Equal(before.Regions, after.Regions)
+}
+
+func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout() {
+	// Renaming a band changes the payload but must not move a single dot: the
+	// structure key covers the node and edge sets only.
+	artists := s.seedScene()
 
 	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
 	s.Require().NoError(err)
-	first := s.newestPayload()
+	before := s.newestPayload()
 
-	_, err = s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id = ?", artists[0].ID).
+		Update("name", "Renamed Band").Error)
+
+	runner := &stubLayoutRunner{transform: rotateScaleTranslate}
+	_, err = s.build(runner, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
 	s.Require().NoError(err)
-	second := s.newestPayload()
+	after := s.newestPayload()
 
-	s.Require().Equal(first.NodeCount, second.NodeCount)
-	s.Assert().Equal(first.Nodes.ID, second.Nodes.ID, "node order must be reproducible")
-	s.Assert().Equal(first.Nodes.X, second.Nodes.X, "positions must be byte-identical on unchanged data")
-	s.Assert().Equal(first.Nodes.Y, second.Nodes.Y, "positions must be byte-identical on unchanged data")
-	s.Assert().Equal(first.Nodes.Rank, second.Nodes.Rank)
-	s.Assert().Equal(first.Edges.Targets, second.Edges.Targets)
-	s.Assert().Equal(first.Regions, second.Regions)
+	s.Assert().Equal(0, runner.calls, "an attribute-only change must not re-run the layout")
+	s.Assert().Equal(before.Nodes.X, after.Nodes.X)
+	s.Assert().Contains(after.Nodes.Name, "Renamed Band", "the rename still reached the payload")
 }
 
 func (s *GraphOverviewSuite) TestBuild_WarmStartResumesFromThePreviousSnapshot() {
-	s.seedScene()
+	artists := s.seedScene()
 
 	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
 	s.Require().NoError(err)
 
-	// The second run must hand the subprocess the STORED positions, not a fresh
-	// spiral, and must ask for the warm (few-iteration) budget.
+	var stored map[string][2]float32
+	s.Require().NoError(json.Unmarshal(s.newestSnapshot().Layout, &stored))
+	before := s.newestPayload()
+
+	// Change the STRUCTURE so the layout actually runs: a new leaf on the second
+	// star. The returning nodes must still be handed their stored positions
+	// rather than a fresh spiral, and the run must use the warm budget.
+	newcomer := s.createArtist("WarmNewcomer")
+	s.relate(artists[4].ID, newcomer.ID, catalogm.RelationshipTypeSharedBills, 1)
+	_, err = s.svc.ComputeArtistCommunities()
+	s.Require().NoError(err)
+
 	warm := &stubLayoutRunner{}
 	_, err = s.build(warm, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
 	s.Require().NoError(err)
 
+	s.Require().Equal(1, warm.calls, "a structural change must run the layout")
 	s.Assert().Equal(graphOverviewWarmIterations, warm.lastReq.Iterations,
 		"a warm run must use the relaxation budget, not the cold one")
 
-	var stored map[string][2]float32
-	s.Require().NoError(json.Unmarshal(s.newestSnapshot().Layout, &stored))
-	first := s.newestPayload()
-	for i, id := range first.Nodes.ID {
+	after := s.newestPayload()
+	seedByID := make(map[uint]layoutPoint, len(after.Nodes.ID))
+	for i, id := range after.Nodes.ID {
+		seedByID[id] = warm.lastSeed[i]
+	}
+	for _, id := range before.Nodes.ID {
 		p, ok := stored[fmt.Sprintf("%d", id)]
 		s.Require().True(ok, "node %d missing from the persisted layout", id)
-		s.Require().Equal(p[0], warm.lastSeed[i].X, "node %d was not warm-started from its stored x", id)
-		s.Require().Equal(p[1], warm.lastSeed[i].Y, "node %d was not warm-started from its stored y", id)
+		seed := seedByID[id]
+		s.Require().Equal(p[0], seed.X, "node %d was not warm-started from its stored x", id)
+		s.Require().Equal(p[1], seed.Y, "node %d was not warm-started from its stored y", id)
 	}
+}
+
+func (s *GraphOverviewSuite) TestBuild_RefusesToWarmStartAcrossAPayloadVersion() {
+	s.seedScene()
+
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+
+	// Pretend the live snapshot was written by a build with a different payload
+	// schema. Node ids are the ONLY correspondence between epochs, so resuming
+	// across a version that may have re-scoped them would silently place nodes
+	// at another entity's coordinates.
+	s.Require().NoError(s.db.Exec(
+		"UPDATE graph_overview_snapshots SET payload = jsonb_set(payload, '{version}', '99'::jsonb)").Error)
+
+	next := &stubLayoutRunner{}
+	_, err = s.build(next, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+
+	s.Assert().Equal(graphOverviewColdIterations, next.lastReq.Iterations,
+		"a version mismatch must cold-start, not warm-start")
 }
 
 func (s *GraphOverviewSuite) TestBuild_ColdStartUsesTheFullIterationBudget() {
@@ -477,6 +546,50 @@ func (s *GraphOverviewSuite) TestBuild_GrowthKeepsExistingNodesInPlace() {
 	s.Assert().InDelta(neighborPos[1], newcomerPos[1], 2, "a new node seeds at its placed neighbour's barycenter")
 }
 
+func (s *GraphOverviewSuite) TestBuild_FlagsMarkPlayableAudioAndUpcomingShows() {
+	artists := s.seedScene()
+
+	// artists[1] already has the 2019 show (past). Give it something to play,
+	// and give artists[5] a show in the future.
+	embed := "https://bandcamp.com/EmbeddedPlayer/album=1"
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id = ?", artists[1].ID).
+		Update("bandcamp_embed_url", embed).Error)
+	s.createShow("FutureShow", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), artists[5].ID)
+
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	payload := s.newestPayload()
+
+	s.Require().Equal(payload.NodeCount, len(payload.Nodes.Flags))
+	flagOf := func(target uint) uint8 {
+		for i, id := range payload.Nodes.ID {
+			if id == target && payload.Nodes.Kind[i] == contracts.GraphOverviewNodeArtist {
+				return payload.Nodes.Flags[i]
+			}
+		}
+		s.Require().Fail("artist not on the map", "id %d", target)
+		return 0
+	}
+
+	s.Assert().NotZero(flagOf(artists[1].ID)&contracts.GraphOverviewFlagPlayableAudio,
+		"the artist with a bandcamp embed must be marked playable")
+	s.Assert().Zero(flagOf(artists[1].ID)&contracts.GraphOverviewFlagUpcomingShow,
+		"a 2019 show is not an upcoming show")
+	s.Assert().NotZero(flagOf(artists[5].ID)&contracts.GraphOverviewFlagUpcomingShow,
+		"the artist with a future show must be marked upcoming")
+	s.Assert().Zero(flagOf(artists[3].ID),
+		"an artist with neither signal carries no flags")
+
+	// The hub unions its roster's flags — artists[1] is on HubRecords.
+	for i, kind := range payload.Nodes.Kind {
+		if kind == contracts.GraphOverviewNodeLabelHub {
+			s.Assert().NotZero(payload.Nodes.Flags[i]&contracts.GraphOverviewFlagPlayableAudio,
+				"a hub inherits playability from its roster")
+		}
+	}
+}
+
 // --- acceptance: scope order (the PSY-1722 contract) ---
 
 func (s *GraphOverviewSuite) TestBuild_HubScopeIsTheDrawnNodeSet() {
@@ -538,12 +651,17 @@ func (s *GraphOverviewSuite) labelIDFor(name string) uint {
 // --- acceptance: failure posture ---
 
 func (s *GraphOverviewSuite) TestBuild_PreviousSnapshotSurvivesAFailedRun() {
-	s.seedScene()
+	artists := s.seedScene()
 
 	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
 	s.Require().NoError(err)
 	good := s.newestSnapshot()
 	s.Require().NotEmpty(good.Payload)
+
+	// The structure has to change, or the next build reuses the stored layout
+	// and never reaches the runner that is supposed to blow up.
+	newcomer := s.createArtist("DoomedNewcomer")
+	s.relate(artists[4].ID, newcomer.ID, catalogm.RelationshipTypeSharedBills, 1)
 
 	_, err = s.build(&stubLayoutRunner{err: fmt.Errorf("node exploded")}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
 	s.Require().Error(err)
@@ -579,6 +697,31 @@ func (s *GraphOverviewSuite) TestBuild_EveryDrawnNodeIsNamedAndLinkable() {
 		s.Require().NotZero(id, "node %d has no id", i)
 		s.Require().NotEmpty(payload.Nodes.Name[i], "node %d has no name", id)
 		s.Require().NotEmpty(payload.Nodes.Slug[i], "node %d has no slug", id)
+	}
+}
+
+func (s *GraphOverviewSuite) TestBuild_SlugLessArtistIsNotDrawn() {
+	// artists.slug is nullable. A node with no slug cannot be opened, and the
+	// contract promises the client it never has to check — so it must be gone
+	// before the payload, and before the hub builder sees the node set.
+	artists := s.seedScene()
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id = ?", artists[3].ID).
+		Update("slug", nil).Error)
+
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+
+	payload := s.newestPayload()
+	for i, id := range payload.Nodes.ID {
+		s.Require().NotEqual(artists[3].ID, id, "the slug-less artist must not be drawn")
+		s.Require().NotEmpty(payload.Nodes.Slug[i], "node %d has no slug", id)
+	}
+	// Its label roster drops to two in-set artists, which is below the hub
+	// threshold — so the hub goes with it rather than keeping a stale spoke.
+	for _, kind := range payload.Nodes.Kind {
+		s.Assert().NotEqual(contracts.GraphOverviewNodeLabelHub, kind,
+			"a roster that fell under the threshold must not keep its hub")
 	}
 }
 

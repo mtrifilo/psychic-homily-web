@@ -64,13 +64,14 @@ const (
 	// graphOverviewColdIterations is the budget when there is no previous
 	// snapshot to resume from. A cold run has no stability to protect and every
 	// node starts on a seeded spiral, so it needs a real layout pass. Measured
-	// at 5k nodes / 20k edges: ~10s, against ~1s for a warm run.
+	// end to end at 5,037 nodes / 10,020 edges: 5.9s cold against 0.9s warm
+	// (whole pipeline, not just the subprocess).
 	graphOverviewColdIterations = 500
 
 	// graphOverviewLayoutTimeout bounds the subprocess. A warm run at current
-	// scale is ~1s and a cold run ~10s, so this is two orders of magnitude of
-	// headroom for catalog growth while still guaranteeing the nightly cycle
-	// cannot be parked forever on a wedged child process.
+	// scale is under a second and a cold run a few, so this is two orders of
+	// magnitude of headroom for catalog growth while still guaranteeing the
+	// nightly cycle cannot be parked forever on a wedged child process.
 	graphOverviewLayoutTimeout = 10 * time.Minute
 
 	// graphOverviewLayoutMaxOutput caps the bytes read back from the
@@ -222,8 +223,21 @@ func (r *nodeLayoutRunner) Run(ctx context.Context, req layoutRequest) ([]layout
 	// Read one byte past the cap so an output sitting exactly at the limit is
 	// distinguishable from one that was truncated by it.
 	stdoutBytes, readErr := io.ReadAll(io.LimitReader(stdoutPipe, graphOverviewLayoutMaxOutput+1))
+
+	// A CAP BREACH MUST KILL THE CHILD BEFORE WAITING ON IT. Once the reader
+	// stops, the pipe fills and the child blocks forever on its next write, so a
+	// bare Wait here would park the nightly cycle until the context deadline —
+	// turning a bounded-memory guard into a ten-minute stall. Cancelling first
+	// (CommandContext kills on cancel) makes the failure immediate.
+	overCap := len(stdoutBytes) > graphOverviewLayoutMaxOutput
+	if overCap {
+		cancel()
+	}
 	waitErr := cmd.Wait()
 
+	if overCap {
+		return nil, fmt.Errorf("layout subprocess wrote more than the %d byte cap", graphOverviewLayoutMaxOutput)
+	}
 	if waitErr != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("layout subprocess exceeded %s: %w", graphOverviewLayoutTimeout, ctx.Err())
@@ -232,9 +246,6 @@ func (r *nodeLayoutRunner) Run(ctx context.Context, req layoutRequest) ([]layout
 	}
 	if readErr != nil {
 		return nil, fmt.Errorf("failed to read layout response: %w", readErr)
-	}
-	if len(stdoutBytes) > graphOverviewLayoutMaxOutput {
-		return nil, fmt.Errorf("layout subprocess wrote more than the %d byte cap", graphOverviewLayoutMaxOutput)
 	}
 
 	var resp layoutResponse
@@ -278,10 +289,14 @@ func truncateForLog(s string) string {
 // — falling back to a golden-angle spiral when none of its neighbours are
 // placed (a brand-new component, or the whole graph on a cold start).
 //
-// Every seed gets a small deterministic offset along the spiral. ForceAtlas2
-// divides by inter-node distance, so two nodes at the SAME point produce a
-// non-finite force; new nodes sharing a neighbour set would otherwise collide
-// exactly. The offset is a function of the index alone, so it is reproducible.
+// Every seed gets a small deterministic offset along the spiral, because two
+// new nodes with the same placed-neighbour set would otherwise get byte-
+// identical barycenters — the commonest new-node shape, two bands each linked
+// only to the same existing band. graphology-layout-forceatlas2 guards its
+// division on `distance > 0`, so coincident nodes do NOT produce a non-finite
+// force in this version; what they do is stay stacked forever, since every
+// subsequent epoch warm-starts them from the same point. The offset is a
+// function of the index alone, so it is reproducible.
 func seedLayoutPositions(nodeIDs []uint, neighbors [][]int32, previous map[uint]layoutPoint) []layoutPoint {
 	// spiralRadius spaces the fallback ring so a cold start covers an area
 	// proportional to the node count rather than piling everything at the
@@ -291,9 +306,17 @@ func seedLayoutPositions(nodeIDs []uint, neighbors [][]int32, previous map[uint]
 	// goldenAngle spreads successive indexes as evenly as possible over the
 	// circle, so consecutive ids do not seed on top of each other.
 	const goldenAngle = math.Pi * (3.0 - 1.4142135623730951) // pi*(3-sqrt2), irrational turn
-	// jitter is well below any distance the layout cares about but far enough
-	// above float32 epsilon at spiral scale to guarantee distinct points.
-	const jitter = 1e-3
+	// jitterFraction offsets each seed by a share of its own magnitude rather
+	// than by a fixed distance. An absolute epsilon does not survive the map
+	// growing: float32 spacing exceeds 1e-3 once a coordinate passes ~8.4e3, so
+	// a constant offset silently rounds away on a large map and two new nodes
+	// with the same neighbour set stack permanently — which is the one thing
+	// this offset exists to prevent. A relative offset is representable at every
+	// scale and is still far below any distance the layout resolves.
+	const jitterFraction = 1e-6
+	// jitterFloor keeps the offset meaningful near the origin, where a fraction
+	// of a tiny magnitude would itself round away.
+	const jitterFloor = 1e-3
 
 	out := make([]layoutPoint, len(nodeIDs))
 	placed := make([]bool, len(nodeIDs))
@@ -330,6 +353,7 @@ func seedLayoutPositions(nodeIDs []uint, neighbors [][]int32, previous map[uint]
 			x = r * math.Cos(angle)
 			y = r * math.Sin(angle)
 		}
+		jitter := math.Max(jitterFloor, jitterFraction*math.Hypot(x, y))
 		out[i] = layoutPoint{
 			X: float32(x + jitter*math.Cos(angle)),
 			Y: float32(y + jitter*math.Sin(angle)),
@@ -340,6 +364,37 @@ func seedLayoutPositions(nodeIDs []uint, neighbors [][]int32, previous map[uint]
 		// new nodes, and chain a whole new component off one arbitrary guess.
 	}
 	return out
+}
+
+// layoutCovers reports whether every node has a stored position, which is the
+// precondition for replaying a previous layout instead of recomputing it.
+func layoutCovers(previous map[uint]layoutPoint, nodeIDs []uint) bool {
+	if len(previous) == 0 {
+		return false
+	}
+	for _, id := range nodeIDs {
+		if _, ok := previous[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// assertFinitePositions rejects a layout containing a non-finite coordinate.
+//
+// The subprocess checks its own output, but the alignment runs AFTER that: a
+// Procrustes fit over a near-degenerate correspondence can scale a coordinate
+// past float32 range, and the resulting Inf would sail through quantization —
+// both of quantizeCoordinate's clamps compare false against NaN — to land in
+// the payload as a garbage int16. Failing here keeps the previous map live.
+func assertFinitePositions(points []layoutPoint) error {
+	for i, p := range points {
+		if math.IsNaN(float64(p.X)) || math.IsInf(float64(p.X), 0) ||
+			math.IsNaN(float64(p.Y)) || math.IsInf(float64(p.Y), 0) {
+			return fmt.Errorf("node %d has a non-finite position after alignment", i)
+		}
+	}
+	return nil
 }
 
 // similarityTransform is a translation + uniform scale + rotation-or-reflection.
@@ -516,6 +571,12 @@ func quantizePositions(points []layoutPoint) (xs, ys []int16, extent float64) {
 // quantizeCoordinate maps one world coordinate into the int16 wire range.
 func quantizeCoordinate(v, extent float64) int16 {
 	q := math.Round(v / extent * contracts.GraphOverviewCoordinateScale)
+	// NaN FIRST. Both clamps below compare false against NaN, so without this an
+	// unnoticed NaN would fall through to int16(NaN) — an implementation-defined
+	// value that lands in the payload looking like a real coordinate.
+	if math.IsNaN(q) {
+		return 0
+	}
 	if q > contracts.GraphOverviewCoordinateScale {
 		q = contracts.GraphOverviewCoordinateScale
 	}

@@ -1,6 +1,9 @@
 package catalog
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"sort"
 	"strconv"
 	"time"
@@ -187,6 +190,34 @@ func newOverviewBuild(
 	return b
 }
 
+// nodeFlags packs each node's "worth clicking" signals.
+//
+// A label hub gets the OR of its roster's flags: a hub is worth opening when
+// anything on the label is, and the client draws hubs from the same array.
+func (b *overviewBuild) nodeFlags(artistMeta map[uint]overviewArtist, upcoming map[uint]struct{}) []uint8 {
+	flags := make([]uint8, len(b.nodeIDs))
+	for i, id := range b.nodeIDs {
+		if b.nodeKind[i] != contracts.GraphOverviewNodeArtist {
+			continue
+		}
+		meta := artistMeta[id]
+		if meta.BandcampEmbedURL != nil && *meta.BandcampEmbedURL != "" {
+			flags[i] |= contracts.GraphOverviewFlagPlayableAudio
+		}
+		if _, ok := upcoming[id]; ok {
+			flags[i] |= contracts.GraphOverviewFlagUpcomingShow
+		}
+	}
+	for hubIdx, artists := range b.spokeArtists {
+		var merged uint8
+		for _, a := range artists {
+			merged |= flags[a]
+		}
+		flags[hubIdx] = merged
+	}
+	return flags
+}
+
 // appearTimes returns each node's appearance time in epoch-relative seconds.
 //
 // An artist appears at the earlier of its own created_at and its first show —
@@ -288,7 +319,10 @@ func (b *overviewBuild) regions(points []layoutPoint, labels map[int]string, ext
 			pts[i] = points[idx]
 		}
 		hull := padHull(convexHull(pts), graphOverviewHullPadding)
-		var quantized [][2]int16
+		// Empty, never nil: the contract says "empty when the region has too few
+		// members", and a nil slice marshals to JSON null, which is what a client
+		// doing region.hull.length trips over.
+		quantized := [][2]int16{}
 		if !hullIsDegenerate(hull, extent) {
 			quantized = make([][2]int16, len(hull))
 			for i, p := range hull {
@@ -316,6 +350,7 @@ func (b *overviewBuild) payload(
 	ranks []int32,
 	rankMetric string,
 	appear []int32,
+	flags []uint8,
 	regions []contracts.GraphOverviewRegion,
 	isolates int,
 ) contracts.GraphOverview {
@@ -343,11 +378,41 @@ func (b *overviewBuild) payload(
 			Community: b.nodeCommunity,
 			Degree:    degree,
 			Rank:      ranks,
+			Flags:     flags,
 			Appear:    appear,
 		},
 		Edges:   b.csr(appear),
 		Regions: regions,
 	}
+}
+
+// structureKey digests everything the LAYOUT depends on: the node set and the
+// edge set, in the build's canonical order. It deliberately excludes names,
+// slugs, communities, appear times and every other attribute — those change the
+// payload but must not move a single dot.
+//
+// It is what lets an unchanged night skip the physics entirely and reuse the
+// previous positions verbatim. Without it, 50 more relaxation iterations run on
+// an already-relaxed layout and every node drifts a little every night, which is
+// precisely the "map reshuffles under the reader" failure the stability contract
+// exists to prevent.
+func (b *overviewBuild) structureKey() string {
+	h := sha256.New()
+	var buf [8]byte
+	write := func(v uint64) {
+		binary.BigEndian.PutUint64(buf[:], v)
+		h.Write(buf[:])
+	}
+	write(uint64(len(b.nodeIDs)))
+	for _, id := range b.nodeIDs {
+		write(uint64(id))
+	}
+	write(uint64(len(b.edgeSrc)))
+	for i := range b.edgeSrc {
+		write(uint64(b.edgeSrc[i]))
+		write(uint64(b.edgeDst[i]))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // layoutState is the next epoch's warm-start input: full float32 positions

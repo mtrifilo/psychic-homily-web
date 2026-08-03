@@ -3,6 +3,7 @@ package catalog
 import (
 	"math"
 	"os"
+	"sort"
 	"strconv"
 )
 
@@ -103,7 +104,28 @@ func DisparitySignificance(edges []WeightedEdge) map[EdgeKey]float64 {
 		n.degree++
 		n.strength += w
 	}
-	for key, w := range weightByPair {
+	// ACCUMULATE IN A FIXED ORDER. Go randomizes map iteration and float64
+	// addition is not associative, so summing each node's strength straight out
+	// of the map gives a sum that differs at the ULP level between two runs over
+	// identical data. That is invisible almost everywhere — but the significance
+	// it feeds is compared against alpha with `>=`, so an edge sitting within a
+	// few ULPs of the threshold can flip in or out of the backbone run to run.
+	// The overview snapshot's whole contract is that unchanged data reproduces
+	// an identical map, and the backbone is the first thing that map is built
+	// from. Sorting the pairs first costs one sort a night and makes the sum
+	// reproducible.
+	pairs := make([]EdgeKey, 0, len(weightByPair))
+	for key := range weightByPair {
+		pairs = append(pairs, key)
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i][0] != pairs[j][0] {
+			return pairs[i][0] < pairs[j][0]
+		}
+		return pairs[i][1] < pairs[j][1]
+	})
+	for _, key := range pairs {
+		w := weightByPair[key]
 		touch(key[0], w)
 		touch(key[1], w)
 	}

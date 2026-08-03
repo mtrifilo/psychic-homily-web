@@ -3,12 +3,12 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"gorm.io/gorm"
 
-	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -101,6 +101,10 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 		return nil, "", fmt.Errorf("failed to read overview snapshot: %w", err)
 	}
 	if probe.ID == 0 {
+		// Cache the negative too. Between this service deploying and the first
+		// nightly build there is no snapshot at all, and without this every
+		// anonymous request in that window runs a query.
+		s.cached = &graphOverviewCached{freshUntil: now.Add(graphOverviewReadTTL)}
 		return nil, "", nil
 	}
 
@@ -109,24 +113,46 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 		return s.cached.payload, s.cached.etag, nil
 	}
 
-	var row catalogm.GraphOverviewSnapshot
+	// ONE STATEMENT FOR THE RELOAD, and it takes its own id and hash rather than
+	// the probe's. Reading `WHERE id = probe.ID` instead would let a retention
+	// prune landing between the two queries turn a database holding three
+	// healthy snapshots into a 503.
+	var row struct {
+		ID          uint            `gorm:"column:id"`
+		ContentHash string          `gorm:"column:content_hash"`
+		Payload     json.RawMessage `gorm:"column:payload"`
+	}
 	err = s.db.Table("graph_overview_snapshots").
-		Select("payload").
-		Where("id = ?", probe.ID).
+		Select("id, content_hash, payload").
+		Order("id DESC").
+		Limit(1).
 		Scan(&row).Error
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read overview snapshot payload: %w", err)
 	}
-	if len(row.Payload) == 0 {
-		// The row was pruned between the probe and this read. Report nothing
-		// built rather than an error: the next request re-probes and finds
-		// whatever is newest now.
+	if row.ID == 0 || len(row.Payload) == 0 {
+		s.cached = &graphOverviewCached{freshUntil: now.Add(graphOverviewReadTTL)}
 		return nil, "", nil
 	}
 
 	var payload contracts.GraphOverview
 	if err := json.Unmarshal(row.Payload, &payload); err != nil {
 		return nil, "", fmt.Errorf("failed to decode overview snapshot payload: %w", err)
+	}
+	// REFUSE A SNAPSHOT THIS BUILD DOES NOT UNDERSTAND. A deploy that changes
+	// the payload shape goes live before the nightly job that rebuilds it, so
+	// there is always a window where the newest row is the OLD shape. Serving it
+	// would ship a body that disagrees with the schema clients just fetched —
+	// and because the ETag would be unchanged, caches would hold it for another
+	// day. Reporting "not built yet" makes that window a visible 503 instead.
+	if payload.Version != contracts.GraphOverviewVersion {
+		slog.Warn("overview snapshot: newest snapshot is a different payload version; serving unavailable until the next build",
+			"snapshot_version", payload.Version, "expected_version", contracts.GraphOverviewVersion)
+		s.cached = &graphOverviewCached{
+			id:         row.ID,
+			freshUntil: now.Add(graphOverviewReadTTL),
+		}
+		return nil, "", nil
 	}
 
 	// A strong ETag: the tag identifies the SNAPSHOT, and the snapshot fully
@@ -138,9 +164,9 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 	// member to the served body. The hash is therefore a build-time identity
 	// stamp for the snapshot — which is all a validator needs, since the map
 	// only ever changes by a new row appearing.
-	etag := `"` + probe.ContentHash + `"`
+	etag := `"` + row.ContentHash + `"`
 	s.cached = &graphOverviewCached{
-		id:         probe.ID,
+		id:         row.ID,
 		etag:       etag,
 		payload:    &payload,
 		freshUntil: now.Add(graphOverviewReadTTL),

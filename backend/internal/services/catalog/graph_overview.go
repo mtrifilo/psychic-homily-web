@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ──────────────────────────────────────────────
@@ -138,20 +139,35 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 	if err != nil {
 		return result, err
 	}
-	// An endpoint with no artists row is a dangling relationship. Dropping it
-	// here rather than emitting a nameless node keeps the node set honest —
-	// and it must happen BEFORE the hub builder sees the set, since that set is
-	// the hub scope definition.
-	if len(artistMeta) != len(artistIDs) {
+	// Drop anything that cannot be drawn as a real, clickable node:
+	//
+	//   - no artists row at all — a dangling relationship, which would otherwise
+	//     become a nameless dot;
+	//   - no slug — the map's whole payoff is clicking through to the artist, and
+	//     a node promising a click it cannot honor is worse than an absent one.
+	//     This is the same rule the hub builder already applies to slug-less
+	//     labels, and the contract's "a slug is never empty" claim depends on it.
+	//
+	// BOTH must happen BEFORE the hub builder sees the set, since that set is the
+	// hub scope definition and an under-complete one is silently wrong.
+	drawable := make(map[uint]overviewArtist, len(artistMeta))
+	for id, meta := range artistMeta {
+		if meta.Slug == nil || *meta.Slug == "" {
+			continue
+		}
+		drawable[id] = meta
+	}
+	if len(drawable) != len(artistIDs) {
 		filtered := artistIDs[:0]
 		for _, id := range artistIDs {
-			if _, ok := artistMeta[id]; ok {
+			if _, ok := drawable[id]; ok {
 				filtered = append(filtered, id)
 			}
 		}
 		artistIDs = filtered
-		backbone = filterBackboneToArtists(backbone, artistMeta)
+		backbone = filterBackboneToArtists(backbone, drawable)
 	}
+	artistMeta = drawable
 	if len(artistIDs) == 0 || len(backbone) == 0 {
 		return result, fmt.Errorf("overview snapshot: no drawable artists after backbone; keeping previous snapshot")
 	}
@@ -178,37 +194,58 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 	build := newOverviewBuild(artistIDs, artistMeta, hubs, backbone)
 
 	// 5. Layout.
-	previous, err := s.previousOverviewLayout()
+	previous, previousStructure, err := s.previousOverviewLayout()
 	if err != nil {
 		return result, err
 	}
-	iterations := graphOverviewColdIterations
-	if len(previous) > 0 {
-		iterations = graphOverviewWarmIterations
-	}
-	seeds := seedLayoutPositions(build.nodeIDs, build.neighbors, previous)
-	req := layoutRequest{
-		Iterations: iterations,
-		Nodes:      make([]layoutNode, len(seeds)),
-		Edges:      make([]layoutEdge, len(build.edgeSrc)),
-	}
-	for i, p := range seeds {
-		req.Nodes[i] = layoutNode(p)
-	}
-	for i := range build.edgeSrc {
-		// UNIFORM LAYOUT WEIGHT. The stored scores mix relationship types on
-		// incomparable scales (a co-billing count against a normalized label
-		// overlap), so feeding them in as attraction strengths would let one
-		// derivation's units decide the map's shape. The backbone has already
-		// decided WHICH edges are real; the layout draws their topology.
-		req.Edges[i] = layoutEdge{Source: int(build.edgeSrc[i]), Target: int(build.edgeDst[i]), Weight: 1}
-	}
+	structure := build.structureKey()
 
-	points, err := runner.Run(ctx, req)
-	if err != nil {
-		return result, fmt.Errorf("overview snapshot: layout failed: %w", err)
+	var points []layoutPoint
+	iterations := 0
+	reused := structure != "" && structure == previousStructure && layoutCovers(previous, build.nodeIDs)
+	if reused {
+		// NOTHING MOVED, SO NOTHING MOVES. The node and edge sets are identical
+		// to the snapshot these positions came from, so running the layout again
+		// could only relax an already-relaxed map a little further — drifting
+		// every dot for no new information, every night, forever. Replaying the
+		// stored positions is what makes "unchanged data reproduces byte-
+		// identical positions" literally true rather than approximately true.
+		points = make([]layoutPoint, len(build.nodeIDs))
+		for i, id := range build.nodeIDs {
+			points[i] = previous[id]
+		}
+	} else {
+		iterations = graphOverviewColdIterations
+		if len(previous) > 0 {
+			iterations = graphOverviewWarmIterations
+		}
+		seeds := seedLayoutPositions(build.nodeIDs, build.neighbors, previous)
+		req := layoutRequest{
+			Iterations: iterations,
+			Nodes:      make([]layoutNode, len(seeds)),
+			Edges:      make([]layoutEdge, len(build.edgeSrc)),
+		}
+		for i, p := range seeds {
+			req.Nodes[i] = layoutNode(p)
+		}
+		for i := range build.edgeSrc {
+			// UNIFORM LAYOUT WEIGHT. The stored scores mix relationship types on
+			// incomparable scales (a co-billing count against a normalized label
+			// overlap), so feeding them in as attraction strengths would let one
+			// derivation's units decide the map's shape. The backbone has already
+			// decided WHICH edges are real; the layout draws their topology.
+			req.Edges[i] = layoutEdge{Source: int(build.edgeSrc[i]), Target: int(build.edgeDst[i]), Weight: 1}
+		}
+
+		points, err = runner.Run(ctx, req)
+		if err != nil {
+			return result, fmt.Errorf("overview snapshot: layout failed: %w", err)
+		}
+		points = alignToPrevious(build.nodeIDs, points, previous)
 	}
-	points = alignToPrevious(build.nodeIDs, points, previous)
+	if err := assertFinitePositions(points); err != nil {
+		return result, fmt.Errorf("overview snapshot: %w", err)
+	}
 	xs, ys, extent := quantizePositions(points)
 
 	// 6. Metrics and regions.
@@ -220,6 +257,12 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 		return result, err
 	}
 	appear := build.appearTimes(artistMeta, firstShow)
+
+	upcoming, err := queryArtistsWithUpcomingShows(s.db, now().UTC().Truncate(24*time.Hour))
+	if err != nil {
+		return result, err
+	}
+	flags := build.nodeFlags(artistMeta, upcoming)
 
 	communityLabels, err := queryCommunityLabels(s.db)
 	if err != nil {
@@ -238,7 +281,7 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 
 	// 7. Assemble and publish.
 	builtAt := now().UTC()
-	payload := build.payload(builtAt, extent, xs, ys, ranks, rankMetric, appear, regions, isolates)
+	payload := build.payload(builtAt, extent, xs, ys, ranks, rankMetric, appear, flags, regions, isolates)
 
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
@@ -257,6 +300,7 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 		EdgeCount:    payload.EdgeCount,
 		IsolateCount: payload.IsolateCount,
 		ContentHash:  hex.EncodeToString(sum[:]),
+		StructureKey: structure,
 		ComputedAt:   builtAt,
 	}
 	if err := s.publishOverviewSnapshot(&snapshot); err != nil {
@@ -277,6 +321,7 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 		"regions", result.Regions,
 		"isolates", result.Isolates,
 		"payload_bytes", result.PayloadBytes,
+		"layout_reused", reused,
 		"layout_iterations", iterations,
 		"warm_start_nodes", len(previous),
 		"duration", result.Duration)
@@ -340,7 +385,7 @@ func graphOverviewBackbone(edges []WeightedEdge) []overviewEdge {
 		kept = byStrength[:graphOverviewMaxEdges]
 		sortOverviewEdges(kept)
 		slog.Warn("overview snapshot: backbone exceeded the edge cap; kept the strongest",
-			"cap", graphOverviewMaxEdges, "backbone", len(significance))
+			"cap", graphOverviewMaxEdges, "backbone", len(kept), "candidate_pairs", len(significance))
 	}
 	return kept
 }
@@ -472,6 +517,11 @@ type overviewArtist struct {
 	CommunityID *int       `gorm:"column:community_id"`
 	CreatedAt   time.Time  `gorm:"column:created_at"`
 	FirstShow   *time.Time `gorm:"-"`
+	// BandcampEmbedURL is read only to answer "does this dot play something",
+	// which is one of the two affordances that decide whether a dot is worth
+	// clicking. The URL itself is not shipped — the overview links to the
+	// artist page, which already knows how to play it.
+	BandcampEmbedURL *string `gorm:"column:bandcamp_embed_url"`
 }
 
 // queryGraphOverviewArtists loads node metadata for the artist set, chunked
@@ -481,7 +531,7 @@ func queryGraphOverviewArtists(db *gorm.DB, artistIDs []uint) (map[uint]overview
 	for _, batch := range chunkIDs(artistIDs, graphOverviewArtistChunk) {
 		var rows []overviewArtist
 		err := db.Table("artists").
-			Select("id, name, slug, community_id, created_at").
+			Select("id, name, slug, community_id, created_at, bandcamp_embed_url").
 			Where("id IN ?", batch).
 			Scan(&rows).Error
 		if err != nil {
@@ -555,6 +605,30 @@ func queryLabelOnlyPairs(db *gorm.DB) (map[EdgeKey]struct{}, error) {
 	return out, nil
 }
 
+// queryArtistsWithUpcomingShows returns the artists with an approved show on or
+// after `from`.
+//
+// Same shape and the same reasoning as queryArtistFirstShowDates: no bind
+// parameters beyond the date, because the map's artists are a subset of the
+// whole table and an aggregate is cheaper than chunking a catalog-sized IN list.
+func queryArtistsWithUpcomingShows(db *gorm.DB, from time.Time) (map[uint]struct{}, error) {
+	var ids []uint
+	err := db.Table("show_artists AS sa").
+		Select("DISTINCT sa.artist_id").
+		Joins("JOIN shows s ON s.id = sa.show_id").
+		Where("s.status = ?", catalogm.ShowStatusApproved).
+		Where("s.event_date >= ?", from).
+		Scan(&ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to load artists with upcoming shows: %w", err)
+	}
+	out := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out, nil
+}
+
 // overviewCommunityLabel is one community's display metadata.
 type overviewCommunityLabel struct {
 	CommunityID int    `gorm:"column:community_id"`
@@ -593,35 +667,63 @@ func countCatalogArtists(db *gorm.DB) (int, error) {
 
 // previousOverviewLayout loads the newest snapshot's warm-start positions.
 // A missing snapshot is not an error — it is the cold start.
-func (s *RadioService) previousOverviewLayout() (map[uint]layoutPoint, error) {
-	var row catalogm.GraphOverviewSnapshot
+func (s *RadioService) previousOverviewLayout() (map[uint]layoutPoint, string, error) {
+	var row struct {
+		Layout       json.RawMessage `gorm:"column:layout"`
+		StructureKey string          `gorm:"column:structure_key"`
+		Version      *int            `gorm:"column:version"`
+	}
+	// The version comes out of the stored payload rather than a column so the
+	// two can never disagree: it is by construction the version that wrote this
+	// layout.
 	err := s.db.Table("graph_overview_snapshots").
-		Select("layout").
+		Select("layout, structure_key, (payload->>'version')::int AS version").
 		Order("id DESC").
 		Limit(1).
 		Scan(&row).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to load previous overview layout: %w", err)
+		return nil, "", fmt.Errorf("failed to load previous overview layout: %w", err)
 	}
 	if len(row.Layout) == 0 {
-		return nil, nil
+		return nil, "", nil
+	}
+	// A WARM START ACROSS A SCHEMA VERSION IS NOT SAFE. Node ids are the only
+	// correspondence between two epochs, so a version that re-scoped them (a
+	// different hub-id offset, say) would resume nodes at coordinates belonging
+	// to different entities — silently, because every id would still be found.
+	// Cold-starting instead is the "explicit versioned product event" the
+	// stability contract reserves for exactly this.
+	if row.Version == nil || *row.Version != contracts.GraphOverviewVersion {
+		slog.Warn("overview snapshot: previous layout is a different payload version; cold-starting",
+			"previous_version", row.Version, "current_version", contracts.GraphOverviewVersion)
+		return nil, "", nil
 	}
 	var stored map[string][2]float32
 	if err := json.Unmarshal(row.Layout, &stored); err != nil {
 		// A layout blob this build cannot read is a cold start, not a failure:
 		// refusing to build would keep an unreadable snapshot live forever.
 		slog.Warn("overview snapshot: previous layout unreadable; cold-starting", "error", err)
-		return nil, nil
+		return nil, "", nil
 	}
 	out := make(map[uint]layoutPoint, len(stored))
+	unparsable := 0
 	for key, p := range stored {
 		id, err := parseNodeID(key)
 		if err != nil {
+			// Count rather than fail: a key this build cannot read is a node it
+			// will cold-seed, which is survivable. Silence is not — a changed
+			// id scheme would drop every warm start and reshuffle the whole map
+			// while the build still reported success.
+			unparsable++
 			continue
 		}
 		out[id] = layoutPoint{X: p[0], Y: p[1]}
 	}
-	return out, nil
+	if unparsable > 0 {
+		slog.Warn("overview snapshot: previous layout had unreadable node keys; those nodes cold-seed",
+			"unparsable", unparsable, "readable", len(out))
+	}
+	return out, row.StructureKey, nil
 }
 
 // publishOverviewSnapshot inserts the new snapshot and prunes old ones.
