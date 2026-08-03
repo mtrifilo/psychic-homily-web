@@ -23,9 +23,10 @@
 //   {
 //     "iterations": 50,
 //     "nodes": [{"x": 1.5, "y": -0.5, "fixed": false}, ...],
-//     "edges": [{"source": 0, "target": 3, "weight": 1.0}, ...],
-//     "settings": { ...graphology-layout-forceatlas2 settings... }
+//     "edges": [{"source": 0, "target": 3, "weight": 1.0}, ...]
 //   }
+// The physics settings are NOT part of the request — see the frozen `settings`
+// object below for why they cannot be.
 // Node identity is the ARRAY INDEX — `edges[].source`/`target` are indexes into
 // `nodes`, and the response's positions come back in the same order. Ids never
 // cross the boundary: the layout does not care what a node is, and keeping the
@@ -123,11 +124,12 @@ export function runLayout(request) {
     graph.addUndirectedEdge(String(source), String(target), {weight});
   }
 
-  // Settings are passed explicitly by the caller rather than inferred.
+  // Settings are FROZEN here and deliberately not overridable per request.
   // forceAtlas2.inferSettings() derives scalingRatio and barnesHutOptimize FROM
   // GRAPH ORDER, so a snapshot that grew by one node could silently switch
   // physics between epochs — the exact reshuffle the stability contract exists
-  // to prevent.
+  // to prevent. Letting a caller pass settings would reintroduce the same
+  // hazard by a different route, so it cannot.
   //
   // The values below are forceAtlas2.inferSettings()'s recommendations
   // EVALUATED ONCE at this map's scale (~5k nodes) and then frozen. Freezing
@@ -147,7 +149,6 @@ export function runLayout(request) {
     outboundAttractionDistribution: false,
     adjustSizes: false,
     edgeWeightInfluence: 1,
-    ...(request.settings ?? {}),
   };
 
   forceAtlas2.assign(graph, {iterations, settings, getEdgeWeight: 'weight'});

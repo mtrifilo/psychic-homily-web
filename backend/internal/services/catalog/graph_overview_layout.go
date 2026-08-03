@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -75,7 +76,8 @@ const (
 	// graphOverviewLayoutMaxOutput caps the bytes read back from the
 	// subprocess. The response is two floats per node, so a 5k-node map is
 	// ~200 KB; 64 MB is far past any plausible catalog and still bounds a
-	// runaway child's ability to exhaust this process's memory.
+	// runaway child's ability to exhaust this process's memory. Enforced by
+	// reading through an io.LimitReader in Run, not by measuring afterwards.
 	graphOverviewLayoutMaxOutput = 64 << 20
 
 	// graphOverviewLayoutHeapMB caps the subprocess's V8 heap. Barnes-Hut at
@@ -87,14 +89,14 @@ const (
 
 // layoutNode is one node as the subprocess wants it. Identity is the array
 // index — ids never cross the boundary.
+//
+// The script also honours a `fixed` attribute that pins a node in place. No
+// Go-side field exists for it because nothing here sets one; fa2-layout.test.mjs
+// regression-tests the attribute directly so a dependency bump cannot silently
+// drop it before the anchor case needs it.
 type layoutNode struct {
 	X float32 `json:"x"`
 	Y float32 `json:"y"`
-	// Fixed pins a node in place. Unused by the nightly build today (it exists
-	// in the wire format because the library supports it and the anchor case is
-	// the obvious next use); layout_test asserts the attribute still works so a
-	// dependency bump cannot silently drop it.
-	Fixed bool `json:"fixed,omitempty"`
 }
 
 // layoutEdge references nodes by their index in the request's node array.
@@ -140,8 +142,16 @@ type nodeLayoutRunner struct {
 // Both paths are operator configuration, never request data: nothing a client
 // can influence reaches this function, and the command is built as a fixed argv
 // with no shell, so there is no injection surface even if the environment were
-// hostile. The defaults match the Docker image layout (WORKDIR /app, script
-// vendored at /app/layout) and also work from `backend/` in local development.
+// hostile.
+//
+// The default is resolved RELATIVE TO THE BINARY, not to the working directory.
+// The image vendors the script beside the executable (/app/main, /app/layout),
+// and a CWD-relative default would make the nightly build depend on where the
+// process happened to be started — a dependency that fails silently, because
+// the snapshot step is non-fatal by design and a wrong path surfaces as one
+// error log a day later. The CWD-relative form is kept as the fallback so
+// `go run ./cmd/server` from `backend/` still finds the script, since the exe
+// then lives in a temp build directory.
 func graphOverviewLayoutRunner() *nodeLayoutRunner {
 	binary := os.Getenv("GRAPH_LAYOUT_NODE_BIN")
 	if binary == "" {
@@ -149,9 +159,24 @@ func graphOverviewLayoutRunner() *nodeLayoutRunner {
 	}
 	script := os.Getenv("GRAPH_LAYOUT_SCRIPT")
 	if script == "" {
-		script = filepath.Join("layout", "fa2-layout.mjs")
+		script = resolveLayoutScript()
 	}
 	return &nodeLayoutRunner{binary: binary, script: script}
+}
+
+// resolveLayoutScript prefers the copy beside the executable and falls back to
+// the working-directory-relative path used in local development.
+func resolveLayoutScript() string {
+	const relative = "layout/fa2-layout.mjs"
+	exe, err := os.Executable()
+	if err != nil {
+		return filepath.FromSlash(relative)
+	}
+	beside := filepath.Join(filepath.Dir(exe), filepath.FromSlash(relative))
+	if _, err := os.Stat(beside); err == nil {
+		return beside
+	}
+	return filepath.FromSlash(relative)
 }
 
 // Run writes the request to the child's stdin and reads its positions back.
@@ -179,22 +204,41 @@ func (r *nodeLayoutRunner) Run(ctx context.Context, req layoutRequest) ([]layout
 		"NODE_OPTIONS=--max-old-space-size=" + strconv.Itoa(graphOverviewLayoutHeapMB),
 	}
 	cmd.Stdin = bytes.NewReader(body)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	// STREAMED, NOT BUFFERED, so the cap below actually caps. Handing exec a
+	// bytes.Buffer would read the child's entire output into this process
+	// first and only then measure it — which reports a runaway child after it
+	// has already cost us the memory. Reading through a LimitReader means the
+	// bytes past the cap are never allocated here at all.
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open layout stdout: %w", err)
+	}
+	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start layout subprocess: %w", err)
+	}
+	// Read one byte past the cap so an output sitting exactly at the limit is
+	// distinguishable from one that was truncated by it.
+	stdoutBytes, readErr := io.ReadAll(io.LimitReader(stdoutPipe, graphOverviewLayoutMaxOutput+1))
+	waitErr := cmd.Wait()
+
+	if waitErr != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("layout subprocess exceeded %s: %w", graphOverviewLayoutTimeout, ctx.Err())
 		}
-		return nil, fmt.Errorf("layout subprocess failed: %w (stderr: %s)", err, truncateForLog(stderr.String()))
+		return nil, fmt.Errorf("layout subprocess failed: %w (stderr: %s)", waitErr, truncateForLog(stderr.String()))
 	}
-	if stdout.Len() > graphOverviewLayoutMaxOutput {
-		return nil, fmt.Errorf("layout subprocess wrote %d bytes, over the %d cap", stdout.Len(), graphOverviewLayoutMaxOutput)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read layout response: %w", readErr)
+	}
+	if len(stdoutBytes) > graphOverviewLayoutMaxOutput {
+		return nil, fmt.Errorf("layout subprocess wrote more than the %d byte cap", graphOverviewLayoutMaxOutput)
 	}
 
 	var resp layoutResponse
-	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(stdoutBytes, &resp); err != nil {
 		return nil, fmt.Errorf("failed to decode layout response: %w", err)
 	}
 	if len(resp.Positions) != len(req.Nodes) {

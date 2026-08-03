@@ -126,30 +126,5 @@ func TestGetGraphOverview_ServiceErrorIs500(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, http.StatusInternalServerError)
 }
 
-func TestGraphOverviewETagMatches(t *testing.T) {
-	tests := []struct {
-		name        string
-		ifNoneMatch string
-		etag        string
-		want        bool
-	}{
-		{"exact", `"abc"`, `"abc"`, true},
-		{"empty header", "", `"abc"`, false},
-		{"empty etag", `"abc"`, "", false},
-		{"wildcard", "*", `"abc"`, true},
-		{"list containing the tag", `"x", "abc" , "y"`, `"abc"`, true},
-		{"list without the tag", `"x", "y"`, `"abc"`, false},
-		// RFC 9110 §13.1.2: If-None-Match uses WEAK comparison, so a tag an
-		// intermediary weakened still matches.
-		{"weakened by the client", `W/"abc"`, `"abc"`, true},
-		{"weak on both sides", `W/"abc"`, `W/"abc"`, true},
-		{"different tag", `"abcd"`, `"abc"`, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := graphOverviewETagMatches(tt.ifNoneMatch, tt.etag); got != tt.want {
-				t.Errorf("graphOverviewETagMatches(%q, %q) = %v, want %v", tt.ifNoneMatch, tt.etag, got, tt.want)
-			}
-		})
-	}
-}
+// The If-None-Match parsing itself lives in handlers/shared and is tested
+// there; these two cases only pin that this handler routes through it.

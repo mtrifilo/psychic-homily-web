@@ -53,7 +53,7 @@ func (r *stubLayoutRunner) Run(_ context.Context, req layoutRequest) ([]layoutPo
 	}
 	seeds := make([]layoutPoint, len(req.Nodes))
 	for i, n := range req.Nodes {
-		seeds[i] = layoutPoint{X: n.X, Y: n.Y}
+		seeds[i] = layoutPoint(n)
 	}
 	r.lastSeed = seeds
 	if r.transform != nil {

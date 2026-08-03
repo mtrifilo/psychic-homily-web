@@ -248,8 +248,12 @@ func TestBetweennessCentrality_RanksTheBridgeHighest(t *testing.T) {
 		{4, 5},
 	}
 
-	scores := betweennessCentrality(neighbors)
+	scores, metric := betweennessCentrality(neighbors)
 	ranks := rankByScore(scores)
+
+	if metric != contracts.GraphOverviewRankBetweenness {
+		t.Errorf("metric = %q, want exact betweenness below the pivot threshold", metric)
+	}
 
 	if ranks[3] != 0 {
 		t.Errorf("bridge node rank = %d, want 0 (highest betweenness)", ranks[3])
@@ -260,8 +264,29 @@ func TestBetweennessCentrality_RanksTheBridgeHighest(t *testing.T) {
 }
 
 func TestBetweennessCentrality_EmptyGraph(t *testing.T) {
-	if got := betweennessCentrality(nil); len(got) != 0 {
+	if got, _ := betweennessCentrality(nil); len(got) != 0 {
 		t.Errorf("scores = %v, want empty", got)
+	}
+}
+
+func TestBetweennessCentrality_ReportsSamplingAboveTheThreshold(t *testing.T) {
+	// Above the threshold the ranks come from pivot sources, and the payload has
+	// to say so — a silently approximate label tiering is the failure mode the
+	// RankMetric field exists to prevent.
+	n := betweennessPivotThreshold + 1
+	neighbors := make([][]int32, n)
+	for i := 0; i < n-1; i++ {
+		neighbors[i] = append(neighbors[i], int32(i+1))
+		neighbors[i+1] = append(neighbors[i+1], int32(i))
+	}
+
+	scores, metric := betweennessCentrality(neighbors)
+
+	if metric != contracts.GraphOverviewRankBetweennessSampled {
+		t.Errorf("metric = %q, want the sampled marker", metric)
+	}
+	if len(scores) != n {
+		t.Errorf("got %d scores, want %d", len(scores), n)
 	}
 }
 

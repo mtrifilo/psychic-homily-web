@@ -314,6 +314,7 @@ func (b *overviewBuild) payload(
 	extent float64,
 	xs, ys []int16,
 	ranks []int32,
+	rankMetric string,
 	appear []int32,
 	regions []contracts.GraphOverviewRegion,
 	isolates int,
@@ -330,7 +331,7 @@ func (b *overviewBuild) payload(
 		NodeCount:    len(b.nodeIDs),
 		EdgeCount:    len(b.edgeSrc),
 		IsolateCount: isolates,
-		RankMetric:   contracts.GraphOverviewRankBetweenness,
+		RankMetric:   rankMetric,
 		HullKind:     contracts.GraphOverviewHullConvex,
 		Nodes: contracts.GraphOverviewNodes{
 			ID:        b.nodeIDs,

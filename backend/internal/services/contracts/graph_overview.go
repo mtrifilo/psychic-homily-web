@@ -61,13 +61,18 @@ const (
 )
 
 // Rank metrics reported in GraphOverview.RankMetric.
+//
+// A client should not branch on these — the Rank column means the same thing
+// either way. They exist so an operator can tell which tiering a given map
+// shipped with, since the two differ in fidelity and not in shape.
 const (
-	// GraphOverviewRankBetweenness means Rank came from betweenness centrality.
+	// GraphOverviewRankBetweenness means Rank came from exact betweenness
+	// centrality over every node.
 	GraphOverviewRankBetweenness = "betweenness"
-	// GraphOverviewRankDegree means the betweenness computation was skipped and
-	// Rank is degree order. A client should not change behaviour on this — it
-	// exists so an operator can tell which tiering a given map shipped with.
-	GraphOverviewRankDegree = "degree"
+	// GraphOverviewRankBetweennessSampled means the graph was large enough that
+	// betweenness was estimated from a fixed set of pivot sources instead of
+	// every node. The ordering is approximate in the tail.
+	GraphOverviewRankBetweennessSampled = "betweenness_sampled"
 )
 
 // GraphOverviewHullConvex marks region hulls built as padded convex hulls.

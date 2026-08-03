@@ -1225,19 +1225,12 @@ func (s *RadioFetchService) runGraphOverviewSnapshot(ctx context.Context) {
 		}()
 	}
 
-	result, err := s.radioService.ComputeGraphOverviewSnapshot(cycleCtx)
-	if err != nil {
+	// Only the failure is logged here. ComputeGraphOverviewSnapshot already
+	// logs the full result on success, and repeating its six fields would
+	// double the nightly log volume and give the pair two places to drift.
+	if _, err := s.radioService.ComputeGraphOverviewSnapshot(cycleCtx); err != nil {
 		s.logger.Error("graph overview snapshot failed", "error", err)
-		return
 	}
-	s.logger.Info("graph overview snapshot complete",
-		"nodes", result.Nodes,
-		"edges", result.Edges,
-		"regions", result.Regions,
-		"isolates", result.Isolates,
-		"payload_bytes", result.PayloadBytes,
-		"duration", result.Duration,
-	)
 }
 
 // runReMatchCycle re-matches unmatched plays against current artists.

@@ -129,9 +129,15 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 		return nil, "", fmt.Errorf("failed to decode overview snapshot payload: %w", err)
 	}
 
-	// A strong ETag, not a weak one: the hash is over the exact stored bytes, so
-	// two responses with this tag are byte-identical and a client may use it for
-	// range requests and cache validation without qualification.
+	// A strong ETag: the tag identifies the SNAPSHOT, and the snapshot fully
+	// determines the response, so two responses carrying it are byte-identical.
+	//
+	// It is NOT a digest of the bytes on the wire, and must not be described as
+	// one. The column is JSONB, so Postgres normalizes key order and whitespace
+	// on the way back out, and Huma's SchemaLinkTransformer adds a `$schema`
+	// member to the served body. The hash is therefore a build-time identity
+	// stamp for the snapshot — which is all a validator needs, since the map
+	// only ever changes by a new row appearing.
 	etag := `"` + probe.ContentHash + `"`
 	s.cached = &graphOverviewCached{
 		id:         probe.ID,

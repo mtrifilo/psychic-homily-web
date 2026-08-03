@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -192,7 +193,7 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 		Edges:      make([]layoutEdge, len(build.edgeSrc)),
 	}
 	for i, p := range seeds {
-		req.Nodes[i] = layoutNode{X: p.X, Y: p.Y}
+		req.Nodes[i] = layoutNode(p)
 	}
 	for i := range build.edgeSrc {
 		// UNIFORM LAYOUT WEIGHT. The stored scores mix relationship types on
@@ -211,7 +212,8 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 	xs, ys, extent := quantizePositions(points)
 
 	// 6. Metrics and regions.
-	ranks := rankByScore(betweennessCentrality(build.neighbors))
+	centrality, rankMetric := betweennessCentrality(build.neighbors)
+	ranks := rankByScore(centrality)
 
 	firstShow, err := queryArtistFirstShowDates(s.db)
 	if err != nil {
@@ -236,7 +238,7 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 
 	// 7. Assemble and publish.
 	builtAt := now().UTC()
-	payload := build.payload(builtAt, extent, xs, ys, ranks, appear, regions, isolates)
+	payload := build.payload(builtAt, extent, xs, ys, ranks, rankMetric, appear, regions, isolates)
 
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
@@ -285,7 +287,11 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 // Backbone
 // ──────────────────────────────────────────────
 
-// overviewEdge is one undirected backbone edge with its collapsed weight.
+// overviewEdge is one undirected backbone edge in canonical (A < B) order.
+//
+// Weight is only populated when the edge cap binds, which is the sole consumer
+// — the layout deliberately runs on uniform weights and the payload does not
+// carry them. Treat it as zero everywhere else.
 type overviewEdge struct {
 	A      uint
 	B      uint
@@ -301,29 +307,33 @@ func graphOverviewBackbone(edges []WeightedEdge) []overviewEdge {
 	significance := DisparitySignificance(edges)
 	alpha := RadioBackboneAlpha()
 
-	// DisparitySignificance already collapsed parallel edges; re-derive the
-	// collapsed weights the same way so the cap ranks on the same number the
-	// filter tested.
-	weightByPair := make(map[EdgeKey]float64, len(significance))
-	for _, e := range edges {
-		if e.A == e.B || e.Weight <= 0 {
-			continue
-		}
-		weightByPair[canonicalKey(e.A, e.B)] += e.Weight
-	}
-
 	kept := make([]overviewEdge, 0, len(significance))
 	for key, sig := range significance {
 		if sig >= alpha {
 			continue
 		}
-		kept = append(kept, overviewEdge{A: key[0], B: key[1], Weight: weightByPair[key]})
+		kept = append(kept, overviewEdge{A: key[0], B: key[1]})
 	}
 	sortOverviewEdges(kept)
 
 	if len(kept) > graphOverviewMaxEdges {
+		// Weights are only needed to RANK the cut, so they are collapsed here
+		// rather than for every build. DisparitySignificance already did this
+		// collapse internally; re-deriving it the same way (drop self-loops and
+		// non-positive weights, sum parallels by canonical pair) is what makes
+		// the cap rank on the same number the filter tested.
+		weightByPair := make(map[EdgeKey]float64, len(significance))
+		for _, e := range edges {
+			if e.A == e.B || e.Weight <= 0 {
+				continue
+			}
+			weightByPair[canonicalKey(e.A, e.B)] += e.Weight
+		}
 		byStrength := make([]overviewEdge, len(kept))
 		copy(byStrength, kept)
+		for i := range byStrength {
+			byStrength[i].Weight = weightByPair[canonicalKey(byStrength[i].A, byStrength[i].B)]
+		}
 		sort.SliceStable(byStrength, func(i, j int) bool {
 			return byStrength[i].Weight > byStrength[j].Weight
 		})
@@ -431,12 +441,8 @@ func queryLabelRostersChunked(db *gorm.DB, artistIDs []uint) ([]labelRosterRow, 
 		return queryLabelRosters(db, artistIDs)
 	}
 	var all []labelRosterRow
-	for start := 0; start < len(artistIDs); start += graphOverviewArtistChunk {
-		end := start + graphOverviewArtistChunk
-		if end > len(artistIDs) {
-			end = len(artistIDs)
-		}
-		rows, err := queryLabelRosters(db, artistIDs[start:end])
+	for _, batch := range chunkIDs(artistIDs, graphOverviewArtistChunk) {
+		rows, err := queryLabelRosters(db, batch)
 		if err != nil {
 			return nil, err
 		}
@@ -472,15 +478,11 @@ type overviewArtist struct {
 // against the bind-parameter ceiling (see graphOverviewArtistChunk).
 func queryGraphOverviewArtists(db *gorm.DB, artistIDs []uint) (map[uint]overviewArtist, error) {
 	out := make(map[uint]overviewArtist, len(artistIDs))
-	for start := 0; start < len(artistIDs); start += graphOverviewArtistChunk {
-		end := start + graphOverviewArtistChunk
-		if end > len(artistIDs) {
-			end = len(artistIDs)
-		}
+	for _, batch := range chunkIDs(artistIDs, graphOverviewArtistChunk) {
 		var rows []overviewArtist
 		err := db.Table("artists").
 			Select("id, name, slug, community_id, created_at").
-			Where("id IN ?", artistIDs[start:end]).
+			Where("id IN ?", batch).
 			Scan(&rows).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to load overview artist metadata: %w", err)
@@ -650,13 +652,35 @@ func (s *RadioService) publishOverviewSnapshot(snapshot *catalogm.GraphOverviewS
 	return nil
 }
 
-// parseNodeID converts a stored layout key back to a node id.
+// parseNodeID converts a stored layout key back to a node id. It is the exact
+// inverse of the strconv.FormatUint the layout state is written with — Sscanf
+// would accept trailing garbage the writer can never produce.
 func parseNodeID(key string) (uint, error) {
-	var id uint64
-	if _, err := fmt.Sscanf(key, "%d", &id); err != nil {
+	id, err := strconv.ParseUint(key, 10, 64)
+	if err != nil {
 		return 0, err
 	}
 	return uint(id), nil
+}
+
+// chunkIDs splits an id set into bind-parameter-sized batches.
+//
+// pgx refuses a bind message over 65535 parameters, so any catalog-wide IN list
+// has a ceiling. Three reads in this package now need the same split; doing it
+// here keeps the off-by-one in one place instead of once per query.
+func chunkIDs(ids []uint, size int) [][]uint {
+	if size <= 0 || len(ids) <= size {
+		return [][]uint{ids}
+	}
+	out := make([][]uint, 0, (len(ids)+size-1)/size)
+	for start := 0; start < len(ids); start += size {
+		end := start + size
+		if end > len(ids) {
+			end = len(ids)
+		}
+		out = append(out, ids[start:end])
+	}
+	return out
 }
 
 // appearSeconds converts a timestamp to the payload's epoch-relative seconds,

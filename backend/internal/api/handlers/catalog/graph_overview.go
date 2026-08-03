@@ -3,10 +3,10 @@ package catalog
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -70,33 +70,10 @@ func (h *GraphOverviewHandler) GetGraphOverviewHandler(ctx context.Context, req 
 		ETag:         etag,
 		CacheControl: graphOverviewCacheControl,
 	}
-	if graphOverviewETagMatches(req.IfNoneMatch, etag) {
+	if shared.IfNoneMatchCovers(req.IfNoneMatch, etag) {
 		resp.Status = http.StatusNotModified
 		return resp, nil
 	}
 	resp.Body = overview
 	return resp, nil
-}
-
-// graphOverviewETagMatches reports whether an If-None-Match header covers the
-// current ETag.
-//
-// Handles the comma-separated list form and the "*" wildcard from RFC 9110, and
-// compares weakly (ignoring a W/ prefix) because a client or an intermediary may
-// weaken a tag it forwards. Weak comparison is the correct semantic for
-// If-None-Match specifically — RFC 9110 §13.1.2 requires it.
-func graphOverviewETagMatches(ifNoneMatch, etag string) bool {
-	if ifNoneMatch == "" || etag == "" {
-		return false
-	}
-	if strings.TrimSpace(ifNoneMatch) == "*" {
-		return true
-	}
-	want := strings.TrimPrefix(etag, "W/")
-	for _, candidate := range strings.Split(ifNoneMatch, ",") {
-		if strings.TrimPrefix(strings.TrimSpace(candidate), "W/") == want {
-			return true
-		}
-	}
-	return false
 }
