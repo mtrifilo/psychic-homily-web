@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -99,31 +100,13 @@ func writeCalendarResponse(w http.ResponseWriter, r *http.Request, disposition, 
 	w.Header().Set("Cache-Control", publicCalendarCacheControl)
 	w.Header().Set("ETag", etag)
 
-	if matchesETag(r.Header.Get("If-None-Match"), etag) {
+	if shared.IfNoneMatchCovers(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 	respond.SafeWrite(r.Context(), w, body)
-}
-
-// matchesETag reports whether an If-None-Match header covers the current ETag.
-// Handles the "*" wildcard and comma-separated lists per RFC 9110 8.8.3.
-func matchesETag(ifNoneMatch, etag string) bool {
-	ifNoneMatch = strings.TrimSpace(ifNoneMatch)
-	if ifNoneMatch == "" {
-		return false
-	}
-	if ifNoneMatch == "*" {
-		return true
-	}
-	for _, candidate := range strings.Split(ifNoneMatch, ",") {
-		if strings.TrimSpace(candidate) == etag {
-			return true
-		}
-	}
-	return false
 }
 
 // venueFeedFilename derives the download filename from the venue slug.

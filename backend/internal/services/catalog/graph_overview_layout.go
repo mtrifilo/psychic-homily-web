@@ -1,0 +1,587 @@
+package catalog
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"psychic-homily-backend/internal/services/contracts"
+)
+
+// ──────────────────────────────────────────────
+// ForceAtlas2 layout bridge
+// ──────────────────────────────────────────────
+//
+// The layout itself runs in a Node subprocess (backend/layout/fa2-layout.mjs)
+// because there is no maintained pure-Go ForceAtlas2 with Barnes-Hut
+// approximation. Everything that needs HISTORY lives here on the Go side —
+// warm-start replay, barycenter seeding of new nodes, Procrustes alignment to
+// the previous epoch, quantization — so the subprocess stays a pure,
+// separately-testable function of its input.
+//
+// THE STABILITY CONTRACT. The map must not reshuffle nightly; a reader who
+// learned where their corner of the scene sits has to find it there again. Four
+// mechanisms, in the order they apply:
+//
+//  1. WARM START. A node present in the previous snapshot resumes at its stored
+//     position, so an unchanged graph starts at its own fixed point.
+//  2. BARYCENTER SEEDING. A new node starts at the mean of its already-placed
+//     neighbours, so it arrives near where it belongs instead of flying in from
+//     a random corner and dragging its neighbourhood with it.
+//  3. FEW ITERATIONS. A warm run relaxes for graphOverviewWarmIterations, which
+//     is enough to absorb the night's changes and not enough to re-derive the
+//     whole layout. Layout quality is deliberately capped to buy stability.
+//  4. PROCRUSTES ALIGNMENT. ForceAtlas2 has no preferred origin, orientation or
+//     scale, so an otherwise-identical layout can come back translated,
+//     rotated, reflected or resized. The best-fit similarity transform over the
+//     RETURNING nodes is applied to every node before persisting, which removes
+//     that free-floating drift.
+//
+// Determinism is a precondition for all four. The subprocess has no RNG, and
+// every input here is built in a fixed order from a stable key, because
+// ForceAtlas2 sums forces in node order and float addition is not associative —
+// the same ULP discipline LoadCommunityGraphEdges' ORDER BY exists for.
+//
+// PRECISION IS FLOAT32 END TO END. graphology-layout-forceatlas2 stores
+// coordinates in a Float32Array, so every value it returns is float32-rounded
+// whatever we send. Positions are therefore stored as float32; replaying them
+// is then an exact round trip, which is what makes a re-run over unchanged data
+// reproduce byte-identical positions.
+
+const (
+	// graphOverviewWarmIterations is the relaxation budget for a warm run —
+	// the stability-over-quality tradeoff above.
+	graphOverviewWarmIterations = 50
+
+	// graphOverviewColdIterations is the budget when there is no previous
+	// snapshot to resume from. A cold run has no stability to protect and every
+	// node starts on a seeded spiral, so it needs a real layout pass. Measured
+	// end to end at 5,037 nodes / 10,020 edges: 5.9s cold against 0.9s warm
+	// (whole pipeline, not just the subprocess).
+	graphOverviewColdIterations = 500
+
+	// graphOverviewLayoutTimeout bounds the subprocess. A warm run at current
+	// scale is under a second and a cold run a few, so this is two orders of
+	// magnitude of headroom for catalog growth while still guaranteeing the
+	// nightly cycle cannot be parked forever on a wedged child process.
+	graphOverviewLayoutTimeout = 10 * time.Minute
+
+	// graphOverviewLayoutMaxOutput caps the bytes read back from the
+	// subprocess. The response is two floats per node, so a 5k-node map is
+	// ~200 KB; 64 MB is far past any plausible catalog and still bounds a
+	// runaway child's ability to exhaust this process's memory. Enforced by
+	// reading through an io.LimitReader in Run, not by measuring afterwards.
+	graphOverviewLayoutMaxOutput = 64 << 20
+
+	// graphOverviewLayoutHeapMB caps the subprocess's V8 heap. Barnes-Hut at
+	// 5k nodes needs single-digit MB; this leaves room for an order of
+	// magnitude of growth and still fails the child fast instead of letting it
+	// compete with the API server for the container's memory.
+	graphOverviewLayoutHeapMB = 512
+)
+
+// layoutNode is one node as the subprocess wants it. Identity is the array
+// index — ids never cross the boundary.
+//
+// The script also honours a `fixed` attribute that pins a node in place. No
+// Go-side field exists for it because nothing here sets one; fa2-layout.test.mjs
+// regression-tests the attribute directly so a dependency bump cannot silently
+// drop it before the anchor case needs it.
+type layoutNode struct {
+	X float32 `json:"x"`
+	Y float32 `json:"y"`
+}
+
+// layoutEdge references nodes by their index in the request's node array.
+type layoutEdge struct {
+	Source int     `json:"source"`
+	Target int     `json:"target"`
+	Weight float64 `json:"weight"`
+}
+
+type layoutRequest struct {
+	Iterations int          `json:"iterations"`
+	Nodes      []layoutNode `json:"nodes"`
+	Edges      []layoutEdge `json:"edges"`
+}
+
+type layoutResponse struct {
+	Positions [][2]float32 `json:"positions"`
+}
+
+// layoutPoint is a position in world units, at the float32 precision the
+// layout library actually round-trips.
+type layoutPoint struct {
+	X float32
+	Y float32
+}
+
+// graphLayoutRunner runs a ForceAtlas2 request. The nightly build uses
+// nodeLayoutRunner; tests substitute a deterministic stub so the Go pipeline is
+// testable without Node installed.
+type graphLayoutRunner interface {
+	Run(ctx context.Context, req layoutRequest) ([]layoutPoint, error)
+}
+
+// nodeLayoutRunner invokes backend/layout/fa2-layout.mjs as a subprocess.
+type nodeLayoutRunner struct {
+	// binary is the node executable; script is the layout entrypoint.
+	binary string
+	script string
+}
+
+// graphOverviewLayoutRunner resolves the layout subprocess's location.
+//
+// Both paths are operator configuration, never request data: nothing a client
+// can influence reaches this function, and the command is built as a fixed argv
+// with no shell, so there is no injection surface even if the environment were
+// hostile.
+//
+// The default is resolved RELATIVE TO THE BINARY, not to the working directory.
+// The image vendors the script beside the executable (/app/main, /app/layout),
+// and a CWD-relative default would make the nightly build depend on where the
+// process happened to be started — a dependency that fails silently, because
+// the snapshot step is non-fatal by design and a wrong path surfaces as one
+// error log a day later. The CWD-relative form is kept as the fallback so
+// `go run ./cmd/server` from `backend/` still finds the script, since the exe
+// then lives in a temp build directory.
+func graphOverviewLayoutRunner() *nodeLayoutRunner {
+	binary := os.Getenv("GRAPH_LAYOUT_NODE_BIN")
+	if binary == "" {
+		binary = "node"
+	}
+	script := os.Getenv("GRAPH_LAYOUT_SCRIPT")
+	if script == "" {
+		script = resolveLayoutScript()
+	}
+	return &nodeLayoutRunner{binary: binary, script: script}
+}
+
+// resolveLayoutScript prefers the copy beside the executable and falls back to
+// the working-directory-relative path used in local development.
+func resolveLayoutScript() string {
+	const relative = "layout/fa2-layout.mjs"
+	exe, err := os.Executable()
+	if err != nil {
+		return filepath.FromSlash(relative)
+	}
+	beside := filepath.Join(filepath.Dir(exe), filepath.FromSlash(relative))
+	if _, err := os.Stat(beside); err == nil {
+		return beside
+	}
+	return filepath.FromSlash(relative)
+}
+
+// Run writes the request to the child's stdin and reads its positions back.
+//
+// The child gets a MINIMAL environment rather than this process's: it needs
+// PATH to resolve its own interpreter bits and nothing else, and the server's
+// environment holds database credentials and API secrets that a layout script
+// has no business being able to read.
+func (r *nodeLayoutRunner) Run(ctx context.Context, req layoutRequest) ([]layoutPoint, error) {
+	if len(req.Nodes) == 0 {
+		return nil, fmt.Errorf("layout request has no nodes")
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode layout request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, graphOverviewLayoutTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, r.binary, r.script)
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"NODE_OPTIONS=--max-old-space-size=" + strconv.Itoa(graphOverviewLayoutHeapMB),
+	}
+	cmd.Stdin = bytes.NewReader(body)
+	// STREAMED, NOT BUFFERED, so the cap below actually caps. Handing exec a
+	// bytes.Buffer would read the child's entire output into this process
+	// first and only then measure it — which reports a runaway child after it
+	// has already cost us the memory. Reading through a LimitReader means the
+	// bytes past the cap are never allocated here at all.
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open layout stdout: %w", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start layout subprocess: %w", err)
+	}
+	// Read one byte past the cap so an output sitting exactly at the limit is
+	// distinguishable from one that was truncated by it.
+	stdoutBytes, readErr := io.ReadAll(io.LimitReader(stdoutPipe, graphOverviewLayoutMaxOutput+1))
+
+	// A CAP BREACH MUST KILL THE CHILD BEFORE WAITING ON IT. Once the reader
+	// stops, the pipe fills and the child blocks forever on its next write, so a
+	// bare Wait here would park the nightly cycle until the context deadline —
+	// turning a bounded-memory guard into a ten-minute stall. Cancelling first
+	// (CommandContext kills on cancel) makes the failure immediate.
+	overCap := len(stdoutBytes) > graphOverviewLayoutMaxOutput
+	if overCap {
+		cancel()
+	}
+	waitErr := cmd.Wait()
+
+	if overCap {
+		return nil, fmt.Errorf("layout subprocess wrote more than the %d byte cap", graphOverviewLayoutMaxOutput)
+	}
+	if waitErr != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("layout subprocess exceeded %s: %w", graphOverviewLayoutTimeout, ctx.Err())
+		}
+		return nil, fmt.Errorf("layout subprocess failed: %w (stderr: %s)", waitErr, truncateForLog(stderr.String()))
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read layout response: %w", readErr)
+	}
+
+	var resp layoutResponse
+	if err := json.Unmarshal(stdoutBytes, &resp); err != nil {
+		return nil, fmt.Errorf("failed to decode layout response: %w", err)
+	}
+	if len(resp.Positions) != len(req.Nodes) {
+		return nil, fmt.Errorf("layout returned %d positions for %d nodes", len(resp.Positions), len(req.Nodes))
+	}
+
+	out := make([]layoutPoint, len(resp.Positions))
+	for i, p := range resp.Positions {
+		x, y := p[0], p[1]
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) || math.IsNaN(float64(y)) || math.IsInf(float64(y), 0) {
+			return nil, fmt.Errorf("layout returned a non-finite position for node %d", i)
+		}
+		out[i] = layoutPoint{X: x, Y: y}
+	}
+	return out, nil
+}
+
+// truncateForLog bounds a subprocess's stderr before it lands in an error
+// string that will be logged and sent to Sentry.
+func truncateForLog(s string) string {
+	const max = 2000
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…(truncated)"
+}
+
+// seedLayoutPositions builds every node's starting position.
+//
+// nodeIDs must already be in the build's stable order, and neighbors[i] must
+// list node INDEXES adjacent to node i in the same edge set the layout will
+// run on. previous is the last snapshot's positions keyed by node id; nil or
+// empty means a cold start.
+//
+// A returning node resumes exactly where it was. A new node lands at the mean
+// of its already-placed neighbours — its own neighbourhood, not a random corner
+// — falling back to a golden-angle spiral when none of its neighbours are
+// placed (a brand-new component, or the whole graph on a cold start).
+//
+// Every seed gets a small deterministic offset along the spiral, because two
+// new nodes with the same placed-neighbour set would otherwise get byte-
+// identical barycenters — the commonest new-node shape, two bands each linked
+// only to the same existing band. graphology-layout-forceatlas2 guards its
+// division on `distance > 0`, so coincident nodes do NOT produce a non-finite
+// force in this version; what they do is stay stacked forever, since every
+// subsequent epoch warm-starts them from the same point. The offset is a
+// function of the index alone, so it is reproducible.
+func seedLayoutPositions(nodeIDs []uint, neighbors [][]int32, previous map[uint]layoutPoint) []layoutPoint {
+	// spiralRadius spaces the fallback ring so a cold start covers an area
+	// proportional to the node count rather than piling everything at the
+	// origin; the constant is a starting scale only, since ForceAtlas2 resizes
+	// the whole map anyway.
+	const spiralRadius = 10.0
+	// goldenAngle spreads successive indexes as evenly as possible over the
+	// circle, so consecutive ids do not seed on top of each other.
+	const goldenAngle = math.Pi * (3.0 - 1.4142135623730951) // pi*(3-sqrt2), irrational turn
+	// jitterFraction offsets each seed by a share of its own magnitude rather
+	// than by a fixed distance. An absolute epsilon does not survive the map
+	// growing: float32 spacing exceeds 1e-3 once a coordinate passes ~8.4e3, so
+	// a constant offset silently rounds away on a large map and two new nodes
+	// with the same neighbour set stack permanently — which is the one thing
+	// this offset exists to prevent. A relative offset is representable at every
+	// scale and is still far below any distance the layout resolves.
+	const jitterFraction = 1e-6
+	// jitterFloor keeps the offset meaningful near the origin, where a fraction
+	// of a tiny magnitude would itself round away.
+	const jitterFloor = 1e-3
+
+	out := make([]layoutPoint, len(nodeIDs))
+	placed := make([]bool, len(nodeIDs))
+
+	for i, id := range nodeIDs {
+		if p, ok := previous[id]; ok {
+			out[i] = p
+			placed[i] = true
+		}
+	}
+
+	for i := range nodeIDs {
+		if placed[i] {
+			continue
+		}
+		angle := goldenAngle * float64(i)
+		var x, y float64
+		var placedNeighbors int
+		for _, n := range neighbors[i] {
+			if !placed[int(n)] {
+				continue
+			}
+			x += float64(out[n].X)
+			y += float64(out[n].Y)
+			placedNeighbors++
+		}
+		if placedNeighbors > 0 {
+			x /= float64(placedNeighbors)
+			y /= float64(placedNeighbors)
+		} else {
+			// Spiral: radius grows with sqrt(index) so the ring fills at
+			// constant density instead of crowding the rim.
+			r := spiralRadius * math.Sqrt(float64(i)+1)
+			x = r * math.Cos(angle)
+			y = r * math.Sin(angle)
+		}
+		jitter := math.Max(jitterFloor, jitterFraction*math.Hypot(x, y))
+		out[i] = layoutPoint{
+			X: float32(x + jitter*math.Cos(angle)),
+			Y: float32(y + jitter*math.Sin(angle)),
+		}
+		// NOT marked placed: barycenters are computed against the PREVIOUS
+		// snapshot's positions only. Seeding one new node off another new
+		// node's seed would make the result depend on iteration order among
+		// new nodes, and chain a whole new component off one arbitrary guess.
+	}
+	return out
+}
+
+// layoutCovers reports whether every node has a stored position, which is the
+// precondition for replaying a previous layout instead of recomputing it.
+func layoutCovers(previous map[uint]layoutPoint, nodeIDs []uint) bool {
+	if len(previous) == 0 {
+		return false
+	}
+	for _, id := range nodeIDs {
+		if _, ok := previous[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// assertFinitePositions rejects a layout containing a non-finite coordinate.
+//
+// The subprocess checks its own output, but the alignment runs AFTER that: a
+// Procrustes fit over a near-degenerate correspondence can scale a coordinate
+// past float32 range, and the resulting Inf would sail through quantization —
+// both of quantizeCoordinate's clamps compare false against NaN — to land in
+// the payload as a garbage int16. Failing here keeps the previous map live.
+func assertFinitePositions(points []layoutPoint) error {
+	for i, p := range points {
+		if math.IsNaN(float64(p.X)) || math.IsInf(float64(p.X), 0) ||
+			math.IsNaN(float64(p.Y)) || math.IsInf(float64(p.Y), 0) {
+			return fmt.Errorf("node %d has a non-finite position after alignment", i)
+		}
+	}
+	return nil
+}
+
+// similarityTransform is a translation + uniform scale + rotation-or-reflection.
+type similarityTransform struct {
+	Scale float64
+	// R is a 2x2 orthogonal matrix in row-major order [r00, r01, r10, r11].
+	// Its determinant is +1 for a rotation and -1 for a reflection.
+	R [4]float64
+	// Tx, Ty is the translation applied after scaling and rotating.
+	Tx float64
+	Ty float64
+}
+
+// identityTransform leaves points where they are.
+func identityTransform() similarityTransform {
+	return similarityTransform{Scale: 1, R: [4]float64{1, 0, 0, 1}}
+}
+
+// apply maps a point through the transform.
+func (t similarityTransform) apply(p layoutPoint) layoutPoint {
+	x, y := float64(p.X), float64(p.Y)
+	return layoutPoint{
+		X: float32(t.Scale*(t.R[0]*x+t.R[1]*y) + t.Tx),
+		Y: float32(t.Scale*(t.R[2]*x+t.R[3]*y) + t.Ty),
+	}
+}
+
+// solveProcrustes returns the similarity transform that best maps `from` onto
+// `to` in the least-squares sense, allowing reflection.
+//
+// REFLECTION IS ALLOWED ON PURPOSE. ForceAtlas2's result is invariant under
+// mirroring, so a night that comes back mirrored is not a different map — it is
+// the same map that a rotation alone cannot undo, and refusing the reflection
+// would leave every node maximally displaced.
+//
+// The two slices must be the same length and index-aligned (element i of each
+// is the same node). Fewer than two pairs cannot determine a rotation, so the
+// result degrades to translation only, and zero pairs to the identity.
+//
+// This is the closed-form 2x2 case of orthogonal Procrustes: with N = sum of
+// x_i y_i^T over the centred point sets, the objective tr(R N) is maximized
+// analytically over rotations and over reflections, and the better of the two
+// wins. No SVD, no iteration, no dependency.
+func solveProcrustes(from, to []layoutPoint) similarityTransform {
+	n := len(from)
+	if n != len(to) {
+		return identityTransform()
+	}
+	if n == 0 {
+		return identityTransform()
+	}
+
+	var fx, fy, tx, ty float64
+	for i := 0; i < n; i++ {
+		fx += float64(from[i].X)
+		fy += float64(from[i].Y)
+		tx += float64(to[i].X)
+		ty += float64(to[i].Y)
+	}
+	fx /= float64(n)
+	fy /= float64(n)
+	tx /= float64(n)
+	ty /= float64(n)
+
+	if n < 2 {
+		return similarityTransform{Scale: 1, R: [4]float64{1, 0, 0, 1}, Tx: tx - fx, Ty: ty - fy}
+	}
+
+	var n00, n01, n10, n11, fromNorm float64
+	for i := 0; i < n; i++ {
+		ax := float64(from[i].X) - fx
+		ay := float64(from[i].Y) - fy
+		bx := float64(to[i].X) - tx
+		by := float64(to[i].Y) - ty
+		n00 += ax * bx
+		n01 += ax * by
+		n10 += ay * bx
+		n11 += ay * by
+		fromNorm += ax*ax + ay*ay
+	}
+
+	rotValue := math.Hypot(n00+n11, n01-n10)
+	refValue := math.Hypot(n00-n11, n01+n10)
+
+	var r [4]float64
+	var value float64
+	if rotValue >= refValue {
+		value = rotValue
+		if value == 0 {
+			r = [4]float64{1, 0, 0, 1}
+		} else {
+			c := (n00 + n11) / value
+			s := (n01 - n10) / value
+			r = [4]float64{c, -s, s, c}
+		}
+	} else {
+		value = refValue
+		c := (n00 - n11) / value
+		s := (n01 + n10) / value
+		r = [4]float64{c, s, s, -c}
+	}
+
+	scale := 1.0
+	if fromNorm > 0 {
+		scale = value / fromNorm
+	}
+	// A degenerate fit (every source point identical, so fromNorm is 0, or a
+	// vanishing scale) would collapse the whole map onto a point. Fall back to
+	// scale 1 and let the translation do what it can.
+	if scale <= 0 || math.IsNaN(scale) || math.IsInf(scale, 0) {
+		scale = 1
+	}
+
+	return similarityTransform{
+		Scale: scale,
+		R:     r,
+		Tx:    tx - scale*(r[0]*fx+r[1]*fy),
+		Ty:    ty - scale*(r[2]*fx+r[3]*fy),
+	}
+}
+
+// alignToPrevious Procrustes-aligns a fresh layout onto the previous epoch,
+// using the nodes present in both as the correspondence. Returns the points
+// unchanged when there is no usable overlap (a cold start, or a catalog that
+// turned over completely).
+func alignToPrevious(nodeIDs []uint, points []layoutPoint, previous map[uint]layoutPoint) []layoutPoint {
+	if len(previous) == 0 {
+		return points
+	}
+	from := make([]layoutPoint, 0, len(nodeIDs))
+	to := make([]layoutPoint, 0, len(nodeIDs))
+	for i, id := range nodeIDs {
+		if p, ok := previous[id]; ok {
+			from = append(from, points[i])
+			to = append(to, p)
+		}
+	}
+	if len(from) < 2 {
+		return points
+	}
+	t := solveProcrustes(from, to)
+	out := make([]layoutPoint, len(points))
+	for i, p := range points {
+		out[i] = t.apply(p)
+	}
+	return out
+}
+
+// quantizePositions converts world coordinates to the int16 wire format,
+// returning the extent (largest absolute coordinate) needed to invert it.
+//
+// A single shared extent — rather than a per-axis or per-region scale — is what
+// keeps the map's aspect ratio and lets a client treat X and Y as one
+// coordinate space.
+func quantizePositions(points []layoutPoint) (xs, ys []int16, extent float64) {
+	xs = make([]int16, len(points))
+	ys = make([]int16, len(points))
+	for _, p := range points {
+		extent = math.Max(extent, math.Abs(float64(p.X)))
+		extent = math.Max(extent, math.Abs(float64(p.Y)))
+	}
+	// A degenerate map (one node, or every node at the origin) has no extent to
+	// divide by; 1 keeps every coordinate at 0 instead of producing NaN.
+	if extent == 0 {
+		extent = 1
+	}
+	for i, p := range points {
+		xs[i] = quantizeCoordinate(float64(p.X), extent)
+		ys[i] = quantizeCoordinate(float64(p.Y), extent)
+	}
+	return xs, ys, extent
+}
+
+// quantizeCoordinate maps one world coordinate into the int16 wire range.
+func quantizeCoordinate(v, extent float64) int16 {
+	q := math.Round(v / extent * contracts.GraphOverviewCoordinateScale)
+	// NaN FIRST. Both clamps below compare false against NaN, so without this an
+	// unnoticed NaN would fall through to int16(NaN) — an implementation-defined
+	// value that lands in the payload looking like a real coordinate.
+	if math.IsNaN(q) {
+		return 0
+	}
+	if q > contracts.GraphOverviewCoordinateScale {
+		q = contracts.GraphOverviewCoordinateScale
+	}
+	if q < -contracts.GraphOverviewCoordinateScale {
+		q = -contracts.GraphOverviewCoordinateScale
+	}
+	return int16(q)
+}

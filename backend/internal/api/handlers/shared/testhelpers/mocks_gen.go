@@ -2095,6 +2095,21 @@ func (m *MockFollowService) GetFollowers(entityType string, entityID uint, limit
 }
 
 // ============================================================================
+// Mock: GraphOverviewServiceInterface
+// ============================================================================
+
+type MockGraphOverviewService struct {
+	GetGraphOverviewFn func() (*contracts.GraphOverview, string, error)
+}
+
+func (m *MockGraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, string, error) {
+	if m.GetGraphOverviewFn != nil {
+		return m.GetGraphOverviewFn()
+	}
+	return nil, "", nil
+}
+
+// ============================================================================
 // Mock: JWTServiceInterface
 // ============================================================================
 
@@ -4571,6 +4586,7 @@ var _ contracts.FestivalIntelligenceServiceInterface = (*MockFestivalIntelligenc
 var _ contracts.FestivalServiceInterface = (*MockFestivalService)(nil)
 var _ contracts.FieldNoteServiceInterface = (*MockFieldNoteService)(nil)
 var _ contracts.FollowServiceInterface = (*MockFollowService)(nil)
+var _ contracts.GraphOverviewServiceInterface = (*MockGraphOverviewService)(nil)
 var _ contracts.JWTServiceInterface = (*MockJWTService)(nil)
 var _ contracts.LabelServiceInterface = (*MockLabelService)(nil)
 var _ contracts.LeaderboardServiceInterface = (*MockLeaderboardService)(nil)

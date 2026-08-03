@@ -132,6 +132,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupCommentSubscriptionRoutes(rc)
 	setupFieldNoteRoutes(rc)
 	setupExploreRoutes(rc)
+	setupGraphRoutes(rc)
 	setupSitemapRoutes(rc)
 
 	// PSY-432: test-fixtures reset endpoint — only registered when the env

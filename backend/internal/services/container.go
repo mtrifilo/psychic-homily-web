@@ -43,6 +43,7 @@ type ServiceContainer struct {
 	ContributorProfile     *usersvc.ContributorProfileService
 	AuditLog               *adminsvc.AuditLogService
 	Explore                *exploresvc.ExploreService
+	GraphOverview          *catalog.GraphOverviewService
 	EntityExistence        *catalog.EntityExistenceService
 	Sitemap                *catalog.SitemapService
 	Bookmark               *engagement.BookmarkService
@@ -294,6 +295,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ContributorProfile:     usersvc.NewContributorProfileService(database),
 		AuditLog:               adminsvc.NewAuditLogService(database),
 		Explore:                exploreService,
+		GraphOverview:          catalog.NewGraphOverviewService(database),
 		EntityExistence:        catalog.NewEntityExistenceService(database),
 		Sitemap:                catalog.NewSitemapService(database),
 		Bookmark:               engagement.NewBookmarkService(database),
