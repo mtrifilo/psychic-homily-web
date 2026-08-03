@@ -67,27 +67,70 @@ export function ShowStatusBadge({ label }: { label: string }) {
 }
 
 /**
+ * Enough to name a tracked room and, when we have it, link to its page here.
+ *
+ * Deliberately thinner than the day API's `SceneTrackedVenue`: the week payload
+ * still sends bare names, and the footer's locked destination is `/venues/{slug}`
+ * (PSY-1733) — an external website is never the href.
+ */
+export type TrackedRoom = {
+  name: string
+  slug?: string
+}
+
+/** One tracked room → `/venues/{slug}` when we have a slug, else plain text. */
+export function RoomLink({ venue }: { venue: TrackedRoom }) {
+  const slug = venue.slug?.trim()
+  if (slug) {
+    return (
+      <Link
+        href={`/venues/${slug}`}
+        className="underline underline-offset-4 hover:text-primary"
+      >
+        {venue.name}
+      </Link>
+    )
+  }
+  // No page of its own: name it anyway. The list's job is to tell the reader
+  // WHICH rooms this page speaks for, and dropping one would misstate the
+  // coverage it is there to disclose.
+  return <span>{venue.name}</span>
+}
+
+/** `A · B · C`, with each room linked when it has a slug. */
+export function RoomList({ venues }: { venues: TrackedRoom[] }) {
+  return (
+    <p className="mt-2 text-sm leading-relaxed">
+      {venues.map((venue, i) => (
+        <span key={venue.slug || venue.name}>
+          {i > 0 && <span className="text-muted-foreground"> · </span>}
+          <RoomLink venue={venue} />
+        </span>
+      ))}
+    </p>
+  )
+}
+
+/**
  * The rooms a page speaks for, named in full.
  *
  * Load-bearing, not filler: coverage is a curated slice (11 rooms in Chicago,
  * not all of Chicago). A page that implied full city coverage would be false,
  * and a local would notice immediately.
  *
- * Names only, unlinked, deliberately. A page that HAS listings has already
- * given the reader somewhere to go; this footer's job is to state the scope of
- * what they just read, and eleven competing links under a listing would argue
- * with it. The nightly page's empty state does the opposite — see its
- * "check the rooms directly" block, where linking each room IS the offer.
+ * When a room has a slug it links to `/venues/{slug}` (PSY-1733). Week callers
+ * that only have bare names still render unlinked — the week API has not yet
+ * been enriched to `SceneTrackedVenue[]`.
  */
-export function TrackedRoomsFooter({ city, roomNames }: { city: string; roomNames: string[] }) {
-  if (roomNames.length === 0) return null
+export function TrackedRoomsFooter({ city, rooms }: { city: string; rooms: TrackedRoom[] }) {
+  if (rooms.length === 0) return null
   return (
     <footer className="mt-12">
       <div className="border-t-2 border-foreground" />
       <h2 className="pt-4 font-mono text-[11px] tracking-widest text-muted-foreground">
         ROOMS WE TRACK IN {city.toUpperCase()}
       </h2>
-      <p className="mt-2 text-sm leading-relaxed">{roomNames.join(' · ')}</p>
+      <RoomList venues={rooms} />
       <Link
         href="/contribute"
         className="mt-2 inline-block text-sm text-muted-foreground hover:underline"
