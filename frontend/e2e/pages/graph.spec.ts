@@ -6,7 +6,12 @@ test.describe('Music Knowledge Graph', () => {
     await expect(page.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeVisible()
 
     const rootArtist = 'Playboy Manbaby'
-    const search = page.getByPlaceholder('Search an artist to begin…')
+    // PSY-1725: the placeholder now names the map as the other way in. The
+    // e2e catalog has no nightly snapshot, so /graph still opens on the
+    // search-first hero — the map's own fallback branch.
+    const search = page.getByPlaceholder(
+      'Search an artist to begin, or start anywhere on the map',
+    )
     await search.fill(rootArtist)
     await page.getByRole('button', { name: rootArtist, exact: true }).click()
 

@@ -11,6 +11,7 @@ const palette: GraphPalette = {
   labelHalo: '#000000',
   primary: '#e89960',
   mutedForeground: '#9c8c7c',
+  monoFontFamily: "'Space Mono', ui-monospace, monospace",
 }
 
 describe('genreFamilyColor', () => {

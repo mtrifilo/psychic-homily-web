@@ -120,6 +120,7 @@ describe('clusterColor', () => {
     labelHalo: '#0d0805',
     primary: '#e89960',
     mutedForeground: '#9c8c7c',
+    monoFontFamily: "'Space Mono', ui-monospace, monospace",
   }
 
   it('indexes into the resolved chart palette', () => {

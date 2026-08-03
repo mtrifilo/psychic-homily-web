@@ -47,6 +47,9 @@ import {
 import { useScenes } from '@/features/scenes/hooks/useScenes'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
+import { buildSceneMap } from '../sceneMap'
+import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
+import { SceneMapZeroState } from './SceneMapZeroState'
 
 interface GraphAnchor {
   id: number
@@ -483,6 +486,69 @@ function EmptyGraphEscapeHatches({
   )
 }
 
+/**
+ * The search-first hero the page opened on before the Map of the Scene
+ * (PSY-1474). It is NOT retired: it is the branch for every state where there
+ * is no map to draw — a catalog whose first nightly snapshot has not run, a dev
+ * seed, a payload we cannot read — and it is what a phone gets above the map's
+ * list, since a canvas at that width is a smear with failing tap targets.
+ * Extracted from the old inline zero state unchanged.
+ */
+function ZeroStateHero({
+  onShuffle,
+  isShuffleBusy,
+  onPickExample,
+  onPickExampleAnchor,
+  isExampleBusy,
+  lookupError,
+}: {
+  onShuffle: () => void
+  isShuffleBusy: boolean
+  onPickExample: (name: string) => void
+  onPickExampleAnchor: (anchor: GraphAnchor) => void
+  isExampleBusy: boolean
+  lookupError: string | null
+}) {
+  return (
+    // Deliberately NOT on GRAPH_BOX_HEIGHT_CLASS: this is the zero-state
+    // HERO (search-input sibling), not a graph state card — its heights
+    // come from the approved /graph concept.
+    <div
+      className="flex min-h-[420px] flex-col items-center justify-center gap-4 px-6 text-center sm:min-h-[560px]"
+      style={{
+        backgroundImage: 'radial-gradient(circle, color-mix(in srgb, var(--muted-foreground) 18%, transparent) 1px, transparent 1px)',
+        backgroundSize: '22px 22px',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onShuffle}
+        disabled={isShuffleBusy}
+        aria-label="Take a random rabbit hole"
+        className="flex size-14 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary transition-colors hover:border-primary/60 hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60"
+        style={{ boxShadow: '0 0 50px color-mix(in srgb, var(--primary) 18%, transparent)' }}
+      >
+        {isShuffleBusy ? (
+          <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+        ) : (
+          <Shuffle className="size-5" aria-hidden="true" />
+        )}
+      </button>
+      <div className="space-y-1">
+        <h2 className="font-display text-2xl font-medium">Explore the graph.</h2>
+        <RotatingExample
+          onPick={onPickExample}
+          onPickAnchor={onPickExampleAnchor}
+          disabled={isExampleBusy}
+        />
+        {lookupError && (
+          <p role="status" className="text-xs text-destructive">{lookupError}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
@@ -716,6 +782,20 @@ export function GraphObservatory() {
     startAt(anchor)
   }, [cancelPendingLookup, startAt])
 
+  // The Map of the Scene (PSY-1725). Fetched unconditionally rather than only
+  // while the zero state is showing: a visitor who resets back to it should get
+  // the map they already had, not a second load of a payload that changes once
+  // a night.
+  const overviewQuery = useGraphOverview()
+  const sceneMap = useMemo(
+    () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
+    [overviewQuery.data],
+  )
+  // "No snapshot built yet" is a steady state, not a failure — it takes the
+  // hero branch, the same as a payload we could not decode.
+  const isMapUnavailable =
+    overviewQuery.isError && !isGraphOverviewNotBuilt(overviewQuery.error)
+
   const isShuffleBusy = isShuffleFetching || pendingLookup === 'shuffle'
   const graph = graphQuery.data
   const hasCenterConnections = graph?.links.some(link =>
@@ -729,6 +809,17 @@ export function GraphObservatory() {
     [graph],
   )
   const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  const heroZeroState = (
+    <ZeroStateHero
+      onShuffle={handleShuffle}
+      isShuffleBusy={isShuffleBusy}
+      onPickExample={handleExampleSearch}
+      onPickExampleAnchor={handleExampleAnchor}
+      isExampleBusy={pendingLookup === 'example'}
+      lookupError={lookupError}
+    />
+  )
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
@@ -748,14 +839,21 @@ export function GraphObservatory() {
           <ArtistSearch
             ref={searchInputRef}
             onSelect={handleArtistSelect}
-            placeholder="Search an artist to begin…"
+            placeholder="Search an artist to begin, or start anywhere on the map"
             className="max-w-2xl flex-1"
           />
-          {center && (
+          {center ? (
             <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               Centered on <span className="text-foreground">{center.name}</span>
             </p>
-          )}
+          ) : sceneMap ? (
+            <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              The whole map ·{' '}
+              <span className="text-foreground">
+                {sceneMap.artistCount.toLocaleString()} artists
+              </span>
+            </p>
+          ) : null}
         </div>
 
         {center && (
@@ -770,42 +868,46 @@ export function GraphObservatory() {
         )}
 
         {!center ? (
-          // Deliberately NOT on GRAPH_BOX_HEIGHT_CLASS: this is the zero-state
-          // HERO (search-input sibling), not a graph state card — its heights
-          // come from the approved /graph concept, and F1 reuses the shipped
-          // zero-state layout unchanged.
-          <div
-            className="flex min-h-[420px] flex-col items-center justify-center gap-4 px-6 text-center sm:min-h-[560px]"
-            style={{
-              backgroundImage: 'radial-gradient(circle, color-mix(in srgb, var(--muted-foreground) 18%, transparent) 1px, transparent 1px)',
-              backgroundSize: '22px 22px',
-            }}
-          >
-            <button
-              type="button"
-              onClick={handleShuffle}
-              disabled={isShuffleBusy}
-              aria-label="Take a random rabbit hole"
-              className="flex size-14 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary transition-colors hover:border-primary/60 hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60"
-              style={{ boxShadow: '0 0 50px color-mix(in srgb, var(--primary) 18%, transparent)' }}
-            >
-              {isShuffleBusy ? (
-                <Loader2 className="size-5 animate-spin" aria-hidden="true" />
-              ) : (
-                <Shuffle className="size-5" aria-hidden="true" />
-              )}
-            </button>
-            <div className="space-y-1">
-              <h2 className="font-display text-2xl font-medium">Explore the graph.</h2>
-              <RotatingExample
-                onPick={handleExampleSearch}
-                onPickAnchor={handleExampleAnchor}
-                disabled={pendingLookup === 'example'}
-              />
-              {lookupError && (
-                <p role="status" className="text-xs text-destructive">{lookupError}</p>
-              )}
-            </div>
+          <div ref={refCallback}>
+            {overviewQuery.isPending ? (
+              <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS}>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  Mapping the scene…
+                </div>
+              </GraphSkeleton>
+            ) : isMapUnavailable ? (
+              // A settled failure that is NOT "no snapshot yet". The search row
+              // above is untouched — the map failing must never cost a visitor
+              // the one control that always works.
+              <div
+                role="alert"
+                className={`flex flex-col items-center justify-center gap-3 text-center ${GRAPH_BOX_HEIGHT_CLASS}`}
+              >
+                <p className="text-sm text-muted-foreground">The map couldn’t load.</p>
+                <button
+                  type="button"
+                  onClick={() => overviewQuery.refetch()}
+                  className="text-sm text-primary hover:underline underline-offset-4"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : !sceneMap ? (
+              heroZeroState
+            ) : (
+              <>
+                {/* Below the canvas breakpoint the hero stays the primary
+                    affordance and the map contributes its counts + list. */}
+                {!isCanvasUsable && heroZeroState}
+                <SceneMapZeroState
+                  map={sceneMap}
+                  containerWidth={containerWidth}
+                  canvasBreakpointPx={GRAPH_BREAKPOINT_PX}
+                  onSelectArtist={startAt}
+                />
+              </>
+            )}
           </div>
         ) : (
           <div ref={refCallback} className={`relative p-3 ${GRAPH_BOX_MIN_HEIGHT_CLASS}`}>

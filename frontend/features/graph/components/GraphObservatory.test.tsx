@@ -215,6 +215,75 @@ vi.mock('@/features/discovery/useRandomArtistTarget', () => ({
   }),
 }))
 
+// The Map of the Scene (PSY-1725). The DEFAULT is "no snapshot built yet" —
+// the state a dev seed and a cold catalog are both in — so every pre-existing
+// assertion about the search-first hero still describes the surface a visitor
+// gets there, and the map branches are opted into per test.
+const { overviewState, overviewRefetch, sceneMapFixture } = vi.hoisted(() => {
+  const notBuilt = Object.assign(new Error('not built'), { status: 503 })
+  return {
+    overviewRefetch: vi.fn(),
+    overviewState: {
+      data: undefined as unknown,
+      isPending: false,
+      isError: true,
+      error: notBuilt as unknown,
+    },
+    sceneMapFixture: {
+      nodes: [
+        {
+          id: 1,
+          kind: 'artist' as const,
+          name: 'Diners',
+          slug: 'diners',
+          x: 0,
+          y: 0,
+          community: 3,
+          degree: 2,
+          rank: 0,
+          hasUpcomingShow: false,
+          hasPlayableAudio: false,
+        },
+      ],
+      edges: [],
+      regions: [
+        {
+          community: 3,
+          label: 'Around Diners',
+          memberCount: 1,
+          hull: [],
+          captionAnchor: null,
+        },
+      ],
+      artistCount: 1240,
+      labelCount: 18,
+      isolateCount: 42,
+      lastMapped: new Date('2026-08-02T04:00:00Z'),
+    },
+  }
+})
+
+vi.mock('../hooks/useGraphOverview', () => ({
+  useGraphOverview: () => ({ ...overviewState, refetch: overviewRefetch }),
+  isGraphOverviewNotBuilt: (error: unknown) =>
+    (error as { status?: number } | null)?.status === 503,
+}))
+
+// `buildSceneMap` has its own unit coverage; here the decode is short-circuited
+// so a branch test can't fail on a hand-encoded base64 fixture.
+vi.mock('../sceneMap', async importOriginal => {
+  const actual = await importOriginal<typeof import('../sceneMap')>()
+  return { ...actual, buildSceneMap: () => sceneMapFixture }
+})
+
+// jsdom renders no canvas; the map's own card is covered in
+// SceneMapZeroState.test.tsx.
+vi.mock('./SceneMapCanvas', () => ({
+  SceneMapCanvas: ({ ariaLabel }: { ariaLabel: string }) => (
+    <div aria-label={ariaLabel} />
+  ),
+}))
+
 import { GraphObservatory } from './GraphObservatory'
 
 describe('GraphObservatory', () => {
@@ -224,6 +293,11 @@ describe('GraphObservatory', () => {
     reviewState.graphPending = false
     scenesState.scenes = []
     motionState.reduced = true
+    overviewState.data = undefined
+    overviewState.isPending = false
+    overviewState.isError = true
+    overviewState.error = Object.assign(new Error('not built'), { status: 503 })
+    overviewRefetch.mockReset()
     fetchGraph.mockReset()
     fetchGraph.mockImplementation(async (artistId: number) => graphs.get(artistId))
     shuffleRefetch.mockReset()
@@ -664,5 +738,90 @@ describe('GraphObservatory', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('interactive graph is unavailable')
     expect(screen.getByText('Browse connections as a list')).toBeInTheDocument()
+  })
+
+  // ── The Map of the Scene zero state (PSY-1725) ────────────────────────
+  describe('zero state', () => {
+    const showMap = () => {
+      overviewState.data = {} as never
+      overviewState.isPending = false
+      overviewState.isError = false
+      overviewState.error = null
+    }
+
+    it('opens on the map when a snapshot exists', () => {
+      showMap()
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.getByLabelText(/A map of 1240 connected artists/)).toBeInTheDocument()
+      expect(
+        screen.queryByRole('heading', { name: 'Explore the graph.' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('reports the map size beside the search row', () => {
+      showMap()
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.getByText(/The whole map/)).toBeInTheDocument()
+      expect(screen.getByText('1,240 artists')).toBeInTheDocument()
+    })
+
+    // The search row's placeholder copy is asserted in e2e/pages/graph.spec.ts:
+    // ArtistSearch is mocked out here, so a placeholder assertion in this file
+    // would only be checking the mock.
+
+    it('announces the map is being built while the snapshot loads', () => {
+      overviewState.isPending = true
+      overviewState.isError = false
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.getByText('Mapping the scene…')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('heading', { name: 'Explore the graph.' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('offers a retry when the map fails, without disturbing search', async () => {
+      const user = userEvent.setup()
+      overviewState.isError = true
+      overviewState.error = Object.assign(new Error('boom'), { status: 500 })
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent('The map couldn’t load.')
+      await user.click(screen.getByRole('button', { name: 'Try again' }))
+      expect(overviewRefetch).toHaveBeenCalled()
+
+      // Search is untouched by the map's failure — it still re-roots the page.
+      await user.click(screen.getByRole('button', { name: 'Search Diners' }))
+      expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
+    })
+
+    it('keeps the search-first hero for a catalog with no snapshot yet', () => {
+      // Default state: the endpoint answers 503 until the first nightly build.
+      renderWithProviders(<GraphObservatory />)
+
+      expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Take a random rabbit hole' })).toBeInTheDocument()
+      expect(screen.queryByText(/The whole map/)).not.toBeInTheDocument()
+    })
+
+    it('re-roots from the map exactly as search does', async () => {
+      const user = userEvent.setup()
+      showMap()
+      renderWithProviders(<GraphObservatory />)
+
+      await user.click(screen.getByText('Browse the map as a list'))
+      await user.click(screen.getByText('Around Diners'))
+      await user.click(screen.getByRole('button', { name: 'Diners' }))
+
+      // The ego canvas + trail are up, and the map's status line has given way
+      // to the centered-on line: the same surface a search lands on.
+      expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
+      expect(
+        screen.getByRole('navigation', { name: 'Graph traversal history' }),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/The whole map/)).not.toBeInTheDocument()
+    })
   })
 })

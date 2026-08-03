@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { alphaToHex } from './ForceGraphView'
+import { alphaToHex } from './graphPalette'
 
 // PSY-365 — covers the small public helpers callers reuse from the shared
 // ForceGraphView. The canvas + d3-force pipeline are exercised end-to-end
 // by SceneGraph.test.tsx + VenueBillNetwork.test.tsx (jsdom can't render
 // canvas, so behaviour-level coverage lives there). The cluster palette
-// moved to ./graphPalette.ts in PSY-1083 — see graphPalette.test.ts.
+// moved to ./graphPalette.ts in PSY-1083 — see graphPalette.test.ts, and
+// alphaToHex joined withHexAlpha there for the same reason.
 
 describe('alphaToHex', () => {
   it('produces a 2-char lowercase hex pair for 0..1', () => {

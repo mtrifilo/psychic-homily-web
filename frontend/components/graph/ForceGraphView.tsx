@@ -65,7 +65,7 @@ import { polygonHull } from 'd3-polygon'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
-import { clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
+import { alphaToHex, clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
 import {
   drawLabelHubMarker,
   drawPlayableRing,
@@ -1883,14 +1883,4 @@ export function ForceGraphView({
       )}
     </div>
   )
-}
-
-// alphaToHex converts a 0..1 alpha into the two-char hex pair appended to a
-// 6-char hex color (e.g., "#0173B2" + alphaToHex(0.12) → "#0173B21F"). Inline
-// to avoid pulling in a color util just for this.
-export function alphaToHex(alpha: number): string {
-  const clamped = Math.max(0, Math.min(1, alpha))
-  return Math.round(clamped * 255)
-    .toString(16)
-    .padStart(2, '0')
 }
