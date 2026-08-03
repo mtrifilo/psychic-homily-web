@@ -167,6 +167,21 @@ describe('SceneDayView — a night with shows', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('treats a whitespace-only slug as missing, not a broken /venues/ URL', () => {
+    render(
+      <SceneDayView
+        day={day({
+          tracked_venues: [room({ name: 'Whitespace Room', slug: '   ' })],
+        })}
+      />
+    )
+    const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
+    expect(footer).not.toBeNull()
+    expect(
+      within(footer as HTMLElement).queryByRole('link', { name: 'Whitespace Room' })
+    ).not.toBeInTheDocument()
+  })
+
   it('offers adjacent-day navigation and a way to the week', () => {
     render(<SceneDayView day={day()} />)
     expect(screen.getByRole('link', { name: /Thu Jul 30/ })).toHaveAttribute(
