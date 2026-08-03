@@ -19,6 +19,7 @@
  * same artists on every mount and in every browser.
  */
 
+import { BACKGROUND_ALPHA } from '@/components/graph/graphFocus'
 import {
   labelTierStyles,
   type GraphLabelSpec,
@@ -79,6 +80,8 @@ export interface SceneMapLabelCandidate {
   fontFamily?: string
   /** Ink opacity, 1 by default. */
   alpha?: number
+  /** Region size, for ordering the forced list. Unset for node labels. */
+  memberCount?: number
 }
 
 /** Screen-px grid cell for the cull. Roughly a name plus its breathing room. */
@@ -112,6 +115,11 @@ export const MAX_SCENE_MAP_LABELS = 400
  * slice.
  */
 export const MAX_SCENE_MAP_FORCED_LABELS = 150
+
+/** Ink for a forced label while a neighbourhood is focused. */
+function dimmed(alpha: number | undefined): number {
+  return (alpha ?? 1) * BACKGROUND_ALPHA
+}
 
 /** Grid cell key. Numeric, so the hot path allocates no strings. */
 function cellKey(x: number, y: number, cellWidth: number, cellHeight: number): number {
@@ -202,19 +210,25 @@ export function selectSceneMapLabels(
     alpha: candidate.alpha,
   })
 
-  // Forced labels first, and exempt from the GRID: `force` means
-  // `renderGraphLabels` draws them through any collision, so grid-culling one
-  // here would silently revoke the guarantee. They are still bounded by the
-  // viewport (an off-screen guarantee is worth nothing and costs a text
-  // measure) AND by their own ceiling, because their number grows with the
-  // catalog rather than with the screen.
+  // Forced labels first. `force` means `renderGraphLabels` draws them THROUGH
+  // any collision, so this list has to stay small and deliberate — it is
+  // reserved for region names, which are the map's orientation layer and
+  // cannot be allowed to lose a cell to an artist. They skip the grid but not
+  // the viewport (an off-screen guarantee is worth nothing and costs a text
+  // measure) and not their own ceiling.
+  //
+  // They also skip the FOCUS filter: a region is not a node, has no id in the
+  // focused set, and filtering it out would delete the map's whole orientation
+  // layer the moment a cursor touched a dot. It dims with everything else
+  // instead, which is what focus-dim means everywhere else in the app.
   let forcedKept = 0
   for (const candidate of forced) {
     if (forcedKept >= MAX_SCENE_MAP_FORCED_LABELS) break
-    if (focusedIds && !focusedIds.has(candidate.id)) continue
     if (!isVisible(candidate, bounds)) continue
     forcedKept += 1
-    specs.push(toSpec(candidate))
+    specs.push(
+      focusedIds ? { ...toSpec(candidate), alpha: dimmed(candidate.alpha) } : toSpec(candidate),
+    )
   }
 
   let kept = 0

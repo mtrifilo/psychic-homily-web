@@ -136,6 +136,13 @@ const DIMMED_EDGE_ALPHA_HEX = alphaToHex(BACKGROUND_ALPHA / 2)
 const REGION_CAPTION_FONT_SIZE = 11
 const REGION_CAPTION_ALPHA = 0.75
 
+/**
+ * Priority a label hub gets over an artist when they contend for a grid cell.
+ * Far larger than any rank spread, so a hub always wins its cell — but it is a
+ * BOOST, not an exemption: two hubs in one cell still yield to each other.
+ */
+const HUB_LABEL_PRIORITY_BOOST = 1e9
+
 /** Padding for the initial fit, in px. Room for the labels that hang below. */
 const ZOOM_FIT_PADDING = 60
 
@@ -261,21 +268,28 @@ export function SceneMapCanvas({
   const labelCandidates = useMemo(() => {
     const candidates: SceneMapLabelCandidate[] = []
     for (const node of map.nodes) {
-      if (node.kind === 'label') continue
       const tier = tierStyles.get(node.id)
       if (!tier) continue
+      const isHub = node.kind === 'label'
       candidates.push({
         id: node.id,
         x: node.x,
         y: node.y,
-        radius: ARTIST_RADIUS,
+        radius: isHub ? HUB_HALF_EXTENT : ARTIST_RADIUS,
         text: truncateLabel(node.name),
         fontSize: tier.fontSize,
         fontWeight: tier.fontWeight,
         // Rank 0 is the most central node, and `renderGraphLabels` keeps the
         // HIGHER priority on a collision, so the rank has to be inverted here
         // exactly as it is for the tier ladder.
-        priority: -node.rank,
+        //
+        // A hub gets a large boost rather than `force`. Forcing meant every
+        // hub in the catalog drew through every collision at the fitted zoom —
+        // hundreds of label names stacked on each other, and suppressing the
+        // artist names underneath, which is the exact pile-up the shared label
+        // module exists to end. The boost still wins a hub its cell against any
+        // artist; it just cannot win the same cell twice.
+        priority: isHub ? HUB_LABEL_PRIORITY_BOOST - node.rank : -node.rank,
         force: false,
       })
     }
@@ -297,28 +311,13 @@ export function SceneMapCanvas({
   // low alpha is what keeps them behind the artist names rather than competing.
   const forcedCandidates = useMemo(() => {
     const forced: SceneMapLabelCandidate[] = []
-    for (const node of map.nodes) {
-      if (node.kind !== 'label') continue
-      const tier = tierStyles.get(node.id)
-      if (!tier) continue
-      forced.push({
-        id: node.id,
-        x: node.x,
-        y: node.y,
-        radius: HUB_HALF_EXTENT,
-        text: truncateLabel(node.name),
-        fontSize: tier.fontSize,
-        fontWeight: tier.fontWeight,
-        priority: -node.rank,
-        force: true,
-      })
-    }
     for (const region of map.regions) {
       if (!region.captionAnchor) continue
       forced.push({
-        // Region ids share the node-id space here, so they are made negative to
-        // keep the two apart; nothing looks a caption up by id, but a collision
-        // would silently make a region inherit an artist's focus state.
+        // Region ids are made negative so they cannot collide with a node id.
+        // Nothing resolves a caption BY id — `selectSceneMapLabels` exempts
+        // forced candidates from the focus filter precisely because a region
+        // is not a node and has no focus state to look up.
         id: -1 - region.community,
         x: region.captionAnchor[0],
         y: region.captionAnchor[1],
@@ -330,15 +329,14 @@ export function SceneMapCanvas({
         force: true,
         fontFamily: palette.monoFontFamily,
         alpha: REGION_CAPTION_ALPHA,
+        memberCount: region.memberCount,
       })
     }
-    // Sorted so the per-frame ceiling truncates the TAIL, not an arbitrary
-    // slice: region names (priority Infinity) come first, then the most
-    // central hubs. A catalog with more hubs than the ceiling therefore drops
-    // its most peripheral labels, which is the only defensible thing to drop.
-    forced.sort((a, b) => b.priority - a.priority || a.id - b.id)
+    // Sorted so the per-frame ceiling truncates the TAIL: the biggest regions
+    // are the ones a visitor most needs named.
+    forced.sort((a, b) => (b.memberCount ?? 0) - (a.memberCount ?? 0) || a.id - b.id)
     return forced
-  }, [map, tierStyles, palette.monoFontFamily])
+  }, [map, palette.monoFontFamily])
 
   // Hull paint styles, resolved per theme and focus state rather than per
   // frame: the alpha only ever takes two values, so recomputing a colour
@@ -406,10 +404,14 @@ export function SceneMapCanvas({
   // ── Nodes ──────────────────────────────────────────────────────────────
   const nodeCanvasObject = useCallback(
     (node: MapNode, ctx: CanvasRenderingContext2D) => {
-      // No save/restore per node: the library already wraps the whole node pass
-      // in one, and a save/restore pair per node is among the more expensive 2D
-      // operations there is at this node count. Only globalAlpha is touched,
-      // and it is reset on every call.
+      // No save/restore per node, and NOT because the library provides one:
+      // `paintNodes` saves once before the loop, but the default
+      // `nodeCanvasObjectMode` is 'replace', whose branch restores INSIDE the
+      // loop — so the first node empties the stack and every later restore is a
+      // no-op. The real reason is narrower: this callback touches exactly one
+      // piece of ctx state, and resets it unconditionally below. Anything else
+      // added here (setLineDash, shadowBlur, textAlign, filter) WILL leak into
+      // the label pass and the next frame, so wrap the body if that changes.
       ctx.globalAlpha = !focusedIds || focusedIds.has(node.id) ? 1 : BACKGROUND_ALPHA
 
       if (node.kind === 'label') {

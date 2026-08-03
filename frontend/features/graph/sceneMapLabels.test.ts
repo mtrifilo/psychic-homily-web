@@ -167,16 +167,31 @@ describe('selectSceneMapLabels', () => {
     expect(specs).toHaveLength(MAX_SCENE_MAP_LABELS)
   })
 
-  it('shows only the focused neighbourhood while one is hovered', () => {
+  it('narrows NODE labels to the focused neighbourhood while one is hovered', () => {
     const specs = selectSceneMapLabels(
       [candidate({ id: 1, x: 0, y: 0 }), candidate({ id: 2, x: 500, y: 500 })],
-      [candidate({ id: 3, x: 900, y: 900, force: true })],
+      [],
       1,
       new Set([1]),
       WIDE_OPEN,
     )
 
     expect(specs.map(spec => spec.text)).toEqual(['Node 1'])
+  })
+
+  it('keeps region names through a hover, dimmed rather than deleted', () => {
+    // A region is not a node: its synthetic id can never be in the focused
+    // set, so filtering forced candidates by focus would delete the map's
+    // whole orientation layer the instant a cursor touched any dot.
+    const region = candidate({ id: -1, x: 900, y: 900, force: true, alpha: 0.75 })
+
+    const atRest = selectSceneMapLabels([], [region], 1, null, WIDE_OPEN)
+    const focused = selectSceneMapLabels([], [region], 1, new Set([42]), WIDE_OPEN)
+
+    expect(atRest[0].alpha).toBe(0.75)
+    expect(focused.map(spec => spec.text)).toEqual(['Node -1'])
+    expect(focused[0].alpha).toBeLessThan(0.75)
+    expect(focused[0].alpha).toBeGreaterThan(0)
   })
 
   it('counter-scales the font and the gap so labels hold their screen size', () => {

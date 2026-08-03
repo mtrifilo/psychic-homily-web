@@ -40,6 +40,11 @@ export function useGraphOverview() {
     // round-trips to re-learn a fact that only a nightly job can change, and
     // delays the fallback hero by the backoff. Every other failure keeps the
     // default retry behaviour.
-    retry: (failureCount, error) => !isGraphOverviewNotBuilt(error) && failureCount < 3,
+    // ONE retry, not the default three. The fallback for a failed map is the
+    // search-first hero, which is instant and fully usable — so three rounds of
+    // exponential backoff would keep a visitor looking at a skeleton for
+    // several seconds to reach something that was always available. Fail fast
+    // and hand them a working surface.
+    retry: (failureCount, error) => !isGraphOverviewNotBuilt(error) && failureCount < 1,
   })
 }

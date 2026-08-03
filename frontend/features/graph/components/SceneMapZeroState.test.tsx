@@ -169,6 +169,25 @@ describe('SceneMapZeroState', () => {
     expect(onSelectArtist).toHaveBeenCalledWith({ id: 2, slug: 'beta', name: 'Beta' })
   })
 
+  it('opens a second region without closing it again', async () => {
+    // Re-rendering the first region with open={false} fires its own toggle
+    // event. A handler that reads that as "nothing is open" shuts the region
+    // the visitor just clicked, so every region after the first needs two
+    // clicks — on the surface that IS the map on a phone.
+    const user = userEvent.setup()
+    renderZeroState()
+
+    await user.click(screen.getByText('Browse the map as a list'))
+    await user.click(screen.getByText('Around Alpha'))
+    expect(screen.getByRole('button', { name: /Beta/ })).toBeInTheDocument()
+
+    await user.click(screen.getByText('Around Gamma'))
+
+    expect(screen.getByRole('button', { name: /Gamma/ })).toBeInTheDocument()
+    // ...and the first region gave up its rows, so only one is mounted.
+    expect(screen.queryByRole('button', { name: /Beta/ })).not.toBeInTheDocument()
+  })
+
   describe('with no canvas (below the breakpoint)', () => {
     it('replaces the map with a pitch line carrying the live counts', () => {
       renderZeroState({ canvasWidth: null })

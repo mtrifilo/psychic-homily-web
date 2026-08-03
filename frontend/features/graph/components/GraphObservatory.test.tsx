@@ -284,7 +284,7 @@ vi.mock('./SceneMapCanvas', () => ({
   ),
 }))
 
-import { GraphObservatory } from './GraphObservatory'
+import { GraphObservatory, resolveZeroStateView } from './GraphObservatory'
 
 describe('GraphObservatory', () => {
   beforeEach(() => {
@@ -738,6 +738,47 @@ describe('GraphObservatory', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('interactive graph is unavailable')
     expect(screen.getByText('Browse connections as a list')).toBeInTheDocument()
+  })
+
+  describe('resolveZeroStateView', () => {
+    const notBuilt = Object.assign(new Error('not built'), { status: 503 })
+    const broken = Object.assign(new Error('boom'), { status: 500 })
+
+    it('keeps a map it already has through a FAILED background refetch', () => {
+      // React Query keeps `data` when a refetch fails, and refetches fire on
+      // window focus and reconnect. Ordering the error test first would tear a
+      // good on-screen map down and replace it with an error card.
+      expect(
+        resolveZeroStateView({ isPending: false, isError: true, error: broken, hasMap: true }),
+      ).toBe('map')
+      expect(
+        resolveZeroStateView({ isPending: false, isError: true, error: notBuilt, hasMap: true }),
+      ).toBe('map')
+    })
+
+    it('falls back to the hero when the snapshot has never been built', () => {
+      expect(
+        resolveZeroStateView({ isPending: false, isError: true, error: notBuilt, hasMap: false }),
+      ).toBe('hero')
+    })
+
+    it('falls back to the hero when a payload arrived but could not be decoded', () => {
+      expect(
+        resolveZeroStateView({ isPending: false, isError: false, error: null, hasMap: false }),
+      ).toBe('hero')
+    })
+
+    it('offers a retry only for a real failure with nothing to show', () => {
+      expect(
+        resolveZeroStateView({ isPending: false, isError: true, error: broken, hasMap: false }),
+      ).toBe('unavailable')
+    })
+
+    it('reports loading only before anything has arrived', () => {
+      expect(
+        resolveZeroStateView({ isPending: true, isError: false, error: null, hasMap: false }),
+      ).toBe('loading')
+    })
   })
 
   // ── The Map of the Scene zero state (PSY-1725) ────────────────────────

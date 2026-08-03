@@ -63,6 +63,19 @@ describe('isolateShelfGeometry', () => {
   })
 })
 
+describe('isolateShelfCaption grouping', () => {
+  it('groups four-figure counts, the case the shared formatting exists for', () => {
+    // Catalog-wide the isolate count runs to four figures, where a bare digit
+    // string is genuinely harder to read. Shared with the scene map's band.
+    // Asserted locale-INDEPENDENTLY (the separator differs by locale, and a
+    // hardcoded one would fail on any CI runner not set to en-US) — what must
+    // hold is that the number is grouped at all.
+    const caption = isolateShelfCaption(1234)
+    expect(caption).not.toContain('+1234')
+    expect(caption).toContain('not yet connected artists')
+  })
+})
+
 describe('isolateShelfCaption', () => {
   it('uses the approved plural template', () => {
     expect(isolateShelfCaption(37)).toBe('+37 not yet connected artists')

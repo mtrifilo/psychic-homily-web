@@ -517,9 +517,17 @@ export function resolveZeroStateView({
   error: unknown
   hasMap: boolean
 }): 'loading' | 'unavailable' | 'hero' | 'map' {
+  // A MAP WE ALREADY HAVE ALWAYS WINS. React Query keeps `data` when a
+  // background refetch fails, so testing `isError` first would tear a
+  // perfectly good on-screen map down and replace it with an error card —
+  // or, on a 503 after a database restore, silently revert it to the old
+  // hero. Refetches happen on window focus and on reconnect, so this is an
+  // ordinary Tuesday, not an edge case. The sibling ego branch in this file
+  // has always guarded its error arm with `&& !graph`; this is the same rule.
+  if (hasMap) return 'map'
   if (isPending) return 'loading'
   if (isError) return isGraphOverviewNotBuilt(error) ? 'hero' : 'unavailable'
-  return hasMap ? 'map' : 'hero'
+  return 'hero'
 }
 
 /**
@@ -848,6 +856,13 @@ export function GraphObservatory() {
   )
   const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
+  // Whether the hero — which owns the lookup-error slot when it is on screen —
+  // is actually mounted. It is NOT simply "no center": the map arm replaces it
+  // on a wide viewport, and the footer has to pick the message up there or a
+  // failed shuffle is a dead button with no explanation.
+  const isHeroMounted =
+    !center && (zeroStateView === 'hero' || (zeroStateView === 'map' && !isCanvasUsable))
+
   const heroZeroState = (
     <ZeroStateHero
       onShuffle={handleShuffle}
@@ -923,6 +938,14 @@ export function GraphObservatory() {
               />
             ) : zeroStateView === 'hero' || !sceneMap ? (
               heroZeroState
+            ) : containerWidth === null ? (
+              // Width unknown on the FIRST render of a remount — the callback
+              // ref has not run yet. Returning to /graph client-side hits this
+              // with the snapshot already cached, so without this arm a desktop
+              // would paint one frame of the sub-640px treatment (hero + mobile
+              // pitch line) before the measurement landed. The centered branch
+              // below has always held the box for the same reason.
+              <GraphLoadingBox>Mapping the scene…</GraphLoadingBox>
             ) : (
               <>
                 {/* Below the canvas breakpoint the hero stays the primary
@@ -1053,10 +1076,12 @@ export function GraphObservatory() {
         </Link>
         <ShufflePill onClick={handleShuffle} busy={isShuffleBusy} />
         {/* The lookup error renders beside the affordance the user most
-            likely clicked: the hero on the zero state, the no-connections
-            card when that surface (with its own shuffle pill) is active,
-            and this footer slot otherwise. */}
-        {lookupError && center && !isEmptyGraph && (
+            likely clicked: the hero when it is mounted (the fallback zero
+            state, and the map's sub-640px arm), the no-connections card when
+            that surface — which has its own shuffle pill — is active, and this
+            footer slot otherwise. "Otherwise" now includes the MAP zero state,
+            where the footer's shuffle pill is the only one on screen. */}
+        {lookupError && !isHeroMounted && !isEmptyGraph && (
           <p role="status" className="basis-full text-xs text-destructive">{lookupError}</p>
         )}
       </div>

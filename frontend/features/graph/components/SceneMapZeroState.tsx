@@ -234,9 +234,21 @@ function SceneMapList({
             <details
               className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2"
               open={openKey === group.key}
-              onToggle={event =>
-                setOpenKey(event.currentTarget.open ? group.key : null)
-              }
+              // Closing one region must not close the one being opened.
+              // Re-rendering with `open={false}` makes the browser fire a
+              // `toggle` on the region that just closed — so a naive handler
+              // reads that as "nothing is open" and immediately shuts the
+              // region the visitor actually clicked. Every region after the
+              // first would need two clicks, on the surface that IS the map on
+              // a phone. The functional updater only clears when the group
+              // reporting closed is still the one we think is open, and cannot
+              // read a stale `openKey` from its closure.
+              onToggle={event => {
+                const isOpen = event.currentTarget.open
+                setOpenKey(current =>
+                  isOpen ? group.key : current === group.key ? null : current,
+                )
+              }}
             >
               <summary className="cursor-pointer text-sm">
                 <span className="font-medium">{group.label}</span>{' '}
