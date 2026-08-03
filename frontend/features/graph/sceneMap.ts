@@ -303,7 +303,15 @@ function decodeEdges(overview: GraphOverview, nodes: SceneMapNode[]): SceneMapEd
   for (let source = 0; source < nodes.length; source += 1) {
     const start = offsets[source]
     const end = offsets[source + 1]
+    // `end < start` is the guard that makes this loop LINEAR. CSR offsets are
+    // non-decreasing by construction, so each slot belongs to exactly one
+    // source and the whole walk is O(slots). Offsets that jump backwards —
+    // a snapshot-writer regression, not anything a visitor can send — would
+    // otherwise let sources re-walk overlapping ranges, turning an O(n + slots)
+    // payload into O(n · slots) edge objects and freezing the tab before the
+    // page's error boundary can catch anything.
     if (start == null || end == null || start < 0 || end > targets.length) continue
+    if (end < start) continue
     for (let slot = start; slot < end; slot += 1) {
       const target = targets[slot]
       // The `>` (not `!==`) is what de-duplicates: the mirror slot on the other

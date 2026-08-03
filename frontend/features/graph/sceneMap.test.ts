@@ -189,6 +189,20 @@ describe('buildSceneMap', () => {
     expect(map.edges).toEqual([])
   })
 
+  it('stays linear when the CSR offsets jump backwards', () => {
+    // Non-monotonic offsets make every even source re-walk the WHOLE targets
+    // array. Without the backwards guard this is O(nodes x slots) edge objects
+    // from an O(nodes + slots) payload — a frozen tab, not a smaller map.
+    const overview = overviewFixture()
+    const slots = overview.edges.targets!.length
+    overview.edges.offsets = [0, slots, 0, slots, 0]
+    const map = buildSceneMap(overview)!
+
+    // Each source contributes at most its own slice; nothing re-walks.
+    expect(map.edges.length).toBeLessThanOrEqual(slots)
+    expect(map.nodes).toHaveLength(4)
+  })
+
   it('degrades every edge to similarity when the kind column cannot be read', () => {
     const overview = overviewFixture()
     overview.edges.kind = encodeBytes([0])

@@ -86,8 +86,6 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 interface MapNode extends SceneMapNode {
   fx: number
   fy: number
-  /** Resolved once per snapshot + theme — never in the paint callback. */
-  fill: string
 }
 
 interface MapLink {
@@ -194,21 +192,36 @@ export function SceneMapCanvas({
   // would let the engine mutate the decoded snapshot that the list view and
   // every memo below also read.
   //
-  // The fill is resolved here rather than in the paint callback: it depends
-  // only on the node's community and the theme, so recomputing it per node per
-  // frame would be pure waste on the hottest path in the component.
+  // Deliberately NOT keyed on the palette. Rebuilding these objects on a theme
+  // toggle would hand the engine an entirely new graph — a full data digest and
+  // re-initialisation to change nothing but colour. The theme-dependent fill
+  // lives in its own lookup below.
   const graphData = useMemo(() => {
     const nodes: MapNode[] = map.nodes.map(node => ({
       ...node,
       fx: node.x,
       fy: node.y,
-      fill:
-        node.kind === 'label'
-          ? clusterColor(palette, LABEL_HUB_COLOR_INDEX)
-          : clusterColor(palette, sceneMapColorIndex(node.community, palette.chart.length)),
     }))
     const links: MapLink[] = map.edges.map(edge => ({ ...edge }))
     return { nodes, links }
+  }, [map])
+
+  // Node fill by id, resolved per snapshot + theme rather than per node per
+  // frame: it depends only on the node's community and the palette, so
+  // recomputing it inside the paint callback would be pure waste on the
+  // hottest path in the component.
+  const fillById = useMemo(() => {
+    const fills = new Map<number, string>()
+    const hubFill = clusterColor(palette, LABEL_HUB_COLOR_INDEX)
+    for (const node of map.nodes) {
+      fills.set(
+        node.id,
+        node.kind === 'label'
+          ? hubFill
+          : clusterColor(palette, sceneMapColorIndex(node.community, palette.chart.length)),
+      )
+    }
+    return fills
   }, [map, palette])
 
   const nodeIds = useMemo(
@@ -319,6 +332,11 @@ export function SceneMapCanvas({
         alpha: REGION_CAPTION_ALPHA,
       })
     }
+    // Sorted so the per-frame ceiling truncates the TAIL, not an arbitrary
+    // slice: region names (priority Infinity) come first, then the most
+    // central hubs. A catalog with more hubs than the ceiling therefore drops
+    // its most peripheral labels, which is the only defensible thing to drop.
+    forced.sort((a, b) => b.priority - a.priority || a.id - b.id)
     return forced
   }, [map, tierStyles, palette.monoFontFamily])
 
@@ -359,6 +377,11 @@ export function SceneMapCanvas({
   // directly with no per-link dispatch and no flag to reset.
   const handleRenderFramePre = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
+      // The library does NOT wrap the pre-frame hook in save/restore (it calls
+      // it bare, before tickFrame), so anything set here would otherwise leak
+      // into the link and node passes that follow. Same self-contained
+      // save/restore contract `drawIsolateShelfBand` already keeps.
+      ctx.save()
       // Counter-scaled so the boundary is a constant hairline at any zoom. A
       // graph-space width would vanish at the fitted whole-map view, which is
       // the ONE view the region outlines exist for.
@@ -375,6 +398,7 @@ export function SceneMapCanvas({
         ctx.strokeStyle = style.stroke
         ctx.stroke()
       }
+      ctx.restore()
     },
     [hullStyles],
   )
@@ -391,11 +415,18 @@ export function SceneMapCanvas({
       if (node.kind === 'label') {
         // Hubs take the label family's own hue from the shared ramp; SHAPE, not
         // hue, is what separates them from artists (PSY-1530).
-        drawLabelHubMarker(ctx, node.x, node.y, HUB_HALF_EXTENT, node.fill, palette.labelHalo)
+        drawLabelHubMarker(
+          ctx,
+          node.x,
+          node.y,
+          HUB_HALF_EXTENT,
+          fillById.get(node.id) ?? palette.otherCluster,
+          palette.labelHalo,
+        )
       } else {
         ctx.beginPath()
         ctx.arc(node.x, node.y, ARTIST_RADIUS, 0, Math.PI * 2)
-        ctx.fillStyle = node.fill
+        ctx.fillStyle = fillById.get(node.id) ?? palette.otherCluster
         ctx.fill()
         if (node.hasUpcomingShow) {
           drawUpcomingShowDot(ctx, node.x, node.y, ARTIST_RADIUS)
@@ -404,7 +435,7 @@ export function SceneMapCanvas({
 
       ctx.globalAlpha = 1
     },
-    [palette.labelHalo, focusedIds],
+    [fillById, palette.labelHalo, palette.otherCluster, focusedIds],
   )
 
   const nodePointerAreaPaint = useCallback(
@@ -568,23 +599,35 @@ export function SceneMapCanvas({
  * degrades to the grid and the cap alone.
  */
 function visibleWorldBounds(ctx: CanvasRenderingContext2D): WorldBounds | null {
-  const transform = ctx.getTransform?.()
-  if (!transform) return null
-  let inverse: DOMMatrix
+  let minX: number
+  let maxX: number
+  let minY: number
+  let maxY: number
+  // The WHOLE read is guarded, not just the inversion. This runs inside a
+  // render-frame callback, where an exception would kill the frame loop rather
+  // than surface anywhere useful — and it touches three separate optional
+  // platform APIs (getTransform, DOMMatrix.inverse, transformPoint). Returning
+  // null degrades to "no viewport bound", which the label pass handles.
+  // Plain point literals rather than `new DOMPoint(...)`: transformPoint takes
+  // a DOMPointInit, so this needs no constructor that a runtime might lack.
   try {
-    inverse = transform.inverse()
+    const transform = ctx.getTransform?.()
+    if (!transform) return null
+    const inverse = transform.inverse()
+    const topLeft = inverse.transformPoint({ x: 0, y: 0 })
+    const bottomRight = inverse.transformPoint({
+      x: ctx.canvas.width,
+      y: ctx.canvas.height,
+    })
+    minX = Math.min(topLeft.x, bottomRight.x)
+    maxX = Math.max(topLeft.x, bottomRight.x)
+    minY = Math.min(topLeft.y, bottomRight.y)
+    maxY = Math.max(topLeft.y, bottomRight.y)
   } catch {
     return null
   }
-  const topLeft = inverse.transformPoint(new DOMPoint(0, 0))
-  const bottomRight = inverse.transformPoint(
-    new DOMPoint(ctx.canvas.width, ctx.canvas.height),
-  )
-  const minX = Math.min(topLeft.x, bottomRight.x)
-  const maxX = Math.max(topLeft.x, bottomRight.x)
-  const minY = Math.min(topLeft.y, bottomRight.y)
-  const maxY = Math.max(topLeft.y, bottomRight.y)
   if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  if (!Number.isFinite(maxX) || !Number.isFinite(maxY)) return null
   // A margin, so a label anchored just off-screen still draws the part of
   // itself that reaches into view instead of popping in at the edge.
   const marginX = (maxX - minX) * VIEWPORT_CULL_MARGIN

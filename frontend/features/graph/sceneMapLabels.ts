@@ -73,7 +73,7 @@ export interface SceneMapLabelCandidate {
   fontWeight: 400 | 500 | 600
   /** Higher wins a collision. */
   priority: number
-  /** Drawn regardless of collisions, and exempt from the cull and the cap. */
+  /** Drawn through any collision, and exempt from the grid (not from a cap). */
   force: boolean
   /** Non-default face — the mono of a region caption. */
   fontFamily?: string
@@ -95,6 +95,23 @@ export const LABEL_GRID_CELL_HEIGHT = 34
  * `renderGraphLabels` is quadratic in what it is handed.
  */
 export const MAX_SCENE_MAP_LABELS = 400
+
+/**
+ * Ceiling on FORCED labels — region captions and label hubs — in one frame.
+ *
+ * They are exempt from the grid (a hub with no name is an unexplained square,
+ * and a region that has a name must show it), but they cannot be exempt from a
+ * ceiling as well: their count grows with the catalog, they join the
+ * `placed` set every other label is then tested against, and each one costs a
+ * `measureText`. Without this the per-frame cost is bounded by how big the
+ * scene got rather than by the viewport, which is the one thing this module
+ * promises not to do.
+ *
+ * Callers pass forced candidates in priority order, so what survives the
+ * ceiling is the most central hubs and the region names — never an arbitrary
+ * slice.
+ */
+export const MAX_SCENE_MAP_FORCED_LABELS = 150
 
 /** Grid cell key. Numeric, so the hot path allocates no strings. */
 function cellKey(x: number, y: number, cellWidth: number, cellHeight: number): number {
@@ -145,10 +162,14 @@ function isVisible(
  *    off-screen while the region under the cursor went unlabelled.
  *  - THE GRID spreads what survives evenly, so a dense community cannot take
  *    every label on screen.
- *  - THE CAP bounds the per-frame cost outright. The exact-overlap pass in
- *    `renderGraphLabels` is quadratic in what it is handed, and at high zoom
- *    the grid's cells get small enough in world terms that most of the catalog
- *    would earn its own.
+ *  - THE CAPS bound the per-frame cost outright — one for grid-culled labels,
+ *    one for forced ones. The exact-overlap pass in `renderGraphLabels` is
+ *    quadratic in what it is handed, and at high zoom the grid's cells get
+ *    small enough in world terms that most of the catalog would earn its own.
+ *    Forced labels need their own ceiling because the grid does not apply to
+ *    them and their number tracks the catalog, not the screen.
+ *
+ * `forced` MUST also be in priority order — the ceiling truncates its tail.
  *
  * Cells are anchored at the world origin rather than at the viewport, so
  * panning cannot make a label flicker as it crosses a cell boundary.
@@ -181,13 +202,18 @@ export function selectSceneMapLabels(
     alpha: candidate.alpha,
   })
 
-  // Forced labels first, and exempt from the grid and the cap: `force` means
-  // `renderGraphLabels` draws them through any collision, so culling one here
-  // would silently revoke the guarantee. They are still viewport-bounded — an
-  // off-screen guarantee is worth nothing and costs a text measure.
+  // Forced labels first, and exempt from the GRID: `force` means
+  // `renderGraphLabels` draws them through any collision, so grid-culling one
+  // here would silently revoke the guarantee. They are still bounded by the
+  // viewport (an off-screen guarantee is worth nothing and costs a text
+  // measure) AND by their own ceiling, because their number grows with the
+  // catalog rather than with the screen.
+  let forcedKept = 0
   for (const candidate of forced) {
+    if (forcedKept >= MAX_SCENE_MAP_FORCED_LABELS) break
     if (focusedIds && !focusedIds.has(candidate.id)) continue
     if (!isVisible(candidate, bounds)) continue
+    forcedKept += 1
     specs.push(toSpec(candidate))
   }
 

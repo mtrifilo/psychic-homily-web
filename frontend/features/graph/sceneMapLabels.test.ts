@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 
 import {
+  MAX_SCENE_MAP_FORCED_LABELS,
   MAX_SCENE_MAP_LABELS,
   selectSceneMapLabels,
   sceneMapLabelTiers,
@@ -221,5 +222,21 @@ describe('selectSceneMapLabels', () => {
     const specs = selectSceneMapLabels([candidate({ id: 1 })], [], 1, null, null)
 
     expect(specs.map(spec => spec.text)).toEqual(['Node 1'])
+  })
+
+  it('caps forced labels too, so their cost tracks the screen not the catalog', () => {
+    // Region captions and hubs skip the grid. If they also skipped a ceiling,
+    // per-frame cost would grow with the catalog forever — and every one of
+    // them joins the set each other label is collision-tested against.
+    const manyForced = Array.from({ length: MAX_SCENE_MAP_FORCED_LABELS + 60 }, (_, i) =>
+      candidate({ id: i + 1, x: i, y: 0, force: true, priority: -i }),
+    )
+
+    const specs = selectSceneMapLabels([], manyForced, 1, null, WIDE_OPEN)
+
+    expect(specs).toHaveLength(MAX_SCENE_MAP_FORCED_LABELS)
+    // The ceiling truncates the TAIL — the highest-priority forced labels
+    // (region names, then the most central hubs) are the ones kept.
+    expect(specs[0].text).toBe('Node 1')
   })
 })
