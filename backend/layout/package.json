@@ -1,0 +1,15 @@
+{
+  "name": "psy-graph-layout",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ForceAtlas2 layout worker invoked as a subprocess by the Go nightly graph-overview snapshot job.",
+  "main": "fa2-layout.mjs",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "graphology": "0.26.0",
+    "graphology-layout-forceatlas2": "0.10.1"
+  }
+}

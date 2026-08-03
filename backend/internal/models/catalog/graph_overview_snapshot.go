@@ -1,0 +1,39 @@
+package catalog
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// GraphOverviewSnapshot is one nightly build of the precomputed "Map of the
+// Scene" layout.
+//
+// The table is APPEND-ONLY: the nightly job inserts a new row and prunes older
+// ones, so a row is immutable once written and the previous snapshot survives
+// any failure of the next build. Readers take the newest row in a single
+// statement.
+type GraphOverviewSnapshot struct {
+	ID uint `gorm:"column:id;primaryKey"`
+
+	// Payload is the complete serving body (contracts.GraphOverview), stored
+	// pre-assembled so GET /graph/overview is one row read.
+	Payload json.RawMessage `gorm:"column:payload;type:jsonb"`
+
+	// Layout is the next epoch's warm-start input: full-precision positions
+	// keyed by node id. Producer state, never served.
+	Layout json.RawMessage `gorm:"column:layout;type:jsonb"`
+
+	NodeCount    int `gorm:"column:node_count"`
+	EdgeCount    int `gorm:"column:edge_count"`
+	IsolateCount int `gorm:"column:isolate_count"`
+
+	// ContentHash is the payload digest, served as the response ETag.
+	ContentHash string `gorm:"column:content_hash"`
+
+	ComputedAt time.Time `gorm:"column:computed_at"`
+}
+
+// TableName specifies the table name for GraphOverviewSnapshot.
+func (GraphOverviewSnapshot) TableName() string {
+	return "graph_overview_snapshots"
+}
