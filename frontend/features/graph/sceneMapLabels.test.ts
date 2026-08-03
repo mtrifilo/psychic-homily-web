@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 
-import { cullLabelsToGrid, sceneMapLabelTiers } from './sceneMapLabels'
+import {
+  MAX_SCENE_MAP_LABELS,
+  selectSceneMapLabels,
+  sceneMapLabelTiers,
+  type SceneMapLabelCandidate,
+} from './sceneMapLabels'
 
 describe('sceneMapLabelTiers', () => {
   it('gives the top tier to the most central node, not the least', () => {
@@ -70,75 +75,151 @@ describe('sceneMapLabelTiers', () => {
   })
 })
 
-describe('cullLabelsToGrid', () => {
-  it('keeps only the first candidate in each cell', () => {
-    const kept = cullLabelsToGrid(
+// ── Per-frame label selection ─────────────────────────────────────────────
+
+function candidate(
+  overrides: Partial<SceneMapLabelCandidate> & Pick<SceneMapLabelCandidate, 'id'>,
+): SceneMapLabelCandidate {
+  return {
+    x: 0,
+    y: 0,
+    radius: 5,
+    text: `Node ${overrides.id}`,
+    fontSize: 12,
+    fontWeight: 400,
+    priority: 0,
+    force: false,
+    ...overrides,
+  }
+}
+
+/** A viewport big enough that nothing is culled by it. */
+const WIDE_OPEN = { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 }
+
+describe('selectSceneMapLabels', () => {
+  it('keeps one label per grid cell, in the caller\'s priority order', () => {
+    const specs = selectSceneMapLabels(
       [
-        { id: 'a', x: 0, y: 0 },
-        { id: 'b', x: 5, y: 5 },
-        { id: 'c', x: 120, y: 0 },
+        candidate({ id: 1, x: 0, y: 0 }),
+        // Same cell as #1 at scale 1 (cells are 120x34 screen px).
+        candidate({ id: 2, x: 5, y: 5 }),
+        candidate({ id: 3, x: 400, y: 0 }),
       ],
-      100,
-      100,
+      [],
+      1,
+      null,
+      WIDE_OPEN,
     )
 
-    expect(kept.map(c => c.id)).toEqual(['a', 'c'])
+    expect(specs.map(spec => spec.text)).toEqual(['Node 1', 'Node 3'])
   })
 
-  it('treats the caller order as the tie-break', () => {
-    const first = cullLabelsToGrid(
-      [
-        { id: 'winner', x: 1, y: 1 },
-        { id: 'loser', x: 2, y: 2 },
-      ],
-      100,
-      100,
-    )
-    const reversed = cullLabelsToGrid(
-      [
-        { id: 'loser', x: 2, y: 2 },
-        { id: 'winner', x: 1, y: 1 },
-      ],
-      100,
-      100,
+  it('draws forced labels regardless of the grid', () => {
+    const specs = selectSceneMapLabels(
+      [candidate({ id: 1, x: 0, y: 0 })],
+      [candidate({ id: 2, x: 2, y: 2, force: true })],
+      1,
+      null,
+      WIDE_OPEN,
     )
 
-    expect(first.map(c => c.id)).toEqual(['winner'])
-    expect(reversed.map(c => c.id)).toEqual(['loser'])
+    expect(specs.map(spec => spec.text).sort()).toEqual(['Node 1', 'Node 2'])
   })
 
-  it('anchors cells at the origin so negative coordinates get their own cells', () => {
-    const kept = cullLabelsToGrid(
-      [
-        { id: 'left', x: -50, y: 0 },
-        { id: 'right', x: 50, y: 0 },
-      ],
-      100,
-      100,
+  it('drops everything outside the viewport, forced labels included', () => {
+    const specs = selectSceneMapLabels(
+      [candidate({ id: 1, x: 5000, y: 0 })],
+      [candidate({ id: 2, x: 5000, y: 100, force: true })],
+      1,
+      null,
+      { minX: -100, minY: -100, maxX: 100, maxY: 100 },
     )
 
-    expect(kept.map(c => c.id)).toEqual(['left', 'right'])
+    expect(specs).toEqual([])
+  })
+
+  it('spends the label budget on the viewport, not on the whole map', () => {
+    // Off-screen candidates rank ABOVE the on-screen one. Without the viewport
+    // bound they would take the budget and the visible artist would go
+    // unlabelled — the failure mode the bound exists to prevent.
+    const offscreen = Array.from({ length: MAX_SCENE_MAP_LABELS }, (_, i) =>
+      candidate({ id: i + 1, x: 100_000 + i * 500, y: 0, priority: 1000 }),
+    )
+    const specs = selectSceneMapLabels(
+      [...offscreen, candidate({ id: 9999, x: 0, y: 0, priority: -1 })],
+      [],
+      1,
+      null,
+      { minX: -100, minY: -100, maxX: 100, maxY: 100 },
+    )
+
+    expect(specs.map(spec => spec.text)).toEqual(['Node 9999'])
+  })
+
+  it('caps how many labels one frame can draw', () => {
+    const many = Array.from({ length: MAX_SCENE_MAP_LABELS + 50 }, (_, i) =>
+      candidate({ id: i + 1, x: i * 500, y: i * 500 }),
+    )
+
+    const specs = selectSceneMapLabels(many, [], 1, null, WIDE_OPEN)
+
+    expect(specs).toHaveLength(MAX_SCENE_MAP_LABELS)
+  })
+
+  it('shows only the focused neighbourhood while one is hovered', () => {
+    const specs = selectSceneMapLabels(
+      [candidate({ id: 1, x: 0, y: 0 }), candidate({ id: 2, x: 500, y: 500 })],
+      [candidate({ id: 3, x: 900, y: 900, force: true })],
+      1,
+      new Set([1]),
+      WIDE_OPEN,
+    )
+
+    expect(specs.map(spec => spec.text)).toEqual(['Node 1'])
+  })
+
+  it('counter-scales the font and the gap so labels hold their screen size', () => {
+    const [spec] = selectSceneMapLabels(
+      [candidate({ id: 1, fontSize: 12, radius: 10 })],
+      [],
+      2,
+      null,
+      WIDE_OPEN,
+    )
+
+    expect(spec.fontSize).toBe(6)
+    // radius (graph units, unscaled) + the 3px gap at zoom 2.
+    expect(spec.y).toBeCloseTo(10 + 1.5, 6)
+  })
+
+  it('carries a caption\'s own face and ink through to the shared pass', () => {
+    const [spec] = selectSceneMapLabels(
+      [],
+      [candidate({ id: -1, force: true, fontFamily: 'MonoFace', alpha: 0.75 })],
+      1,
+      null,
+      WIDE_OPEN,
+    )
+
+    expect(spec.fontFamily).toBe('MonoFace')
+    expect(spec.alpha).toBe(0.75)
   })
 
   it('drops candidates with non-finite coordinates', () => {
-    const kept = cullLabelsToGrid(
-      [
-        { id: 'ok', x: 0, y: 0 },
-        { id: 'nan', x: Number.NaN, y: 0 },
-      ],
-      100,
-      100,
+    const specs = selectSceneMapLabels(
+      [candidate({ id: 1, x: Number.NaN, y: 0 })],
+      [],
+      1,
+      null,
+      WIDE_OPEN,
     )
 
-    expect(kept.map(c => c.id)).toEqual(['ok'])
+    expect(specs).toEqual([])
   })
 
-  it('passes everything through when the cell size is degenerate', () => {
-    const candidates = [
-      { id: 'a', x: 0, y: 0 },
-      { id: 'b', x: 1, y: 1 },
-    ]
+  it('still selects when the canvas cannot report a viewport', () => {
+    const specs = selectSceneMapLabels([candidate({ id: 1 })], [], 1, null, null)
 
-    expect(cullLabelsToGrid(candidates, 0, 100)).toHaveLength(2)
+    expect(specs.map(spec => spec.text)).toEqual(['Node 1'])
   })
 })

@@ -32,9 +32,7 @@ import {
 import dynamic from 'next/dynamic'
 import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 
-import {
-  LABEL_HUB_HALF_EXTENT,
-} from '@/components/graph/labelHub'
+import { LABEL_HUB_HALF_EXTENT } from '@/components/graph/labelHub'
 import {
   drawLabelHubMarker,
   drawUpcomingShowDot,
@@ -43,11 +41,11 @@ import {
   TOOL_LABEL_TIERS,
   renderGraphLabels,
   truncateLabel,
-  type GraphLabelSpec,
 } from '@/components/graph/graphLabels'
 import {
   BACKGROUND_ALPHA,
   buildAdjacency,
+  endpointId,
   resolveFocusForeground,
 } from '@/components/graph/graphFocus'
 import {
@@ -55,12 +53,17 @@ import {
   clusterColor,
   useGraphPalette,
   withHexAlpha,
-  type GraphPalette,
 } from '@/components/graph/graphPalette'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
+import { graphCanvasHeight } from '@/components/graph/GraphStateCard'
 
 import { sceneMapColorIndex, type SceneMap, type SceneMapNode } from '../sceneMap'
-import { cullLabelsToGrid, sceneMapLabelTiers } from '../sceneMapLabels'
+import {
+  selectSceneMapLabels,
+  sceneMapLabelTiers,
+  type SceneMapLabelCandidate,
+  type WorldBounds,
+} from '../sceneMapLabels'
 
 // Same generic-erasure cast the ego graph uses: `next/dynamic` strips
 // react-force-graph-2d's generic parameters, so the callback props would fall
@@ -81,10 +84,10 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
  * because the position IS the data.
  */
 interface MapNode extends SceneMapNode {
-  x: number
-  y: number
   fx: number
   fy: number
+  /** Resolved once per snapshot + theme — never in the paint callback. */
+  fill: string
 }
 
 interface MapLink {
@@ -127,22 +130,19 @@ const HULL_STROKE_WIDTH_PX = 1.5
 /** Edge ink at rest. Backbone edges are structure, not content: barely there. */
 const EDGE_ALPHA_HEX = '2e'
 const SPOKE_ALPHA_HEX = '4d'
+/** Edge ink inside a hovered neighbourhood, and outside it. */
+const FOCUSED_EDGE_ALPHA_HEX = 'cc'
+const DIMMED_EDGE_ALPHA_HEX = alphaToHex(BACKGROUND_ALPHA / 2)
 
 /** Region caption size in SCREEN px — counter-scaled by zoom at draw time. */
 const REGION_CAPTION_FONT_SIZE = 11
 const REGION_CAPTION_ALPHA = 0.75
 
-/**
- * Screen-space grid cell for the label cull, in px. Sized to a comfortable
- * name-plus-gap at the middle tier, so a fully labelled screen reads as an
- * evenly spaced field of names rather than a dense band over the biggest
- * community with bare space everywhere else.
- */
-const LABEL_GRID_CELL_WIDTH = 120
-const LABEL_GRID_CELL_HEIGHT = 34
-
 /** Padding for the initial fit, in px. Room for the labels that hang below. */
 const ZOOM_FIT_PADDING = 60
+
+/** Viewport-cull margin, as a fraction of the visible extent on each side. */
+const VIEWPORT_CULL_MARGIN = 0.05
 
 export interface SceneMapCanvasProps {
   map: SceneMap
@@ -157,11 +157,6 @@ export interface SceneMapCanvasProps {
   onBackgroundClick: () => void
   ariaLabel: string
   describedById?: string
-}
-
-/** Map height, matching GRAPH_BOX_HEIGHT_CLASS so state swaps don't jump. */
-function mapHeight(containerWidth: number): number {
-  return containerWidth < 768 ? 400 : 560
 }
 
 export function SceneMapCanvas({
@@ -190,26 +185,31 @@ export function SceneMapCanvas({
     [],
   )
 
-  const height = mapHeight(containerWidth)
+  const height = graphCanvasHeight(containerWidth)
 
-  // Render data is built ONCE per snapshot. The nodes handed to the engine are
-  // the exact objects it keeps, so they carry their own pins; rebuilding them
-  // per render would detach the pins from the running instance.
+  // Render data is built ONCE per snapshot, and it is a COPY on purpose.
+  // react-force-graph hands these exact objects to d3-force, which writes its
+  // own bookkeeping onto them (`vx`/`vy`/`index`, and it swaps each link's
+  // numeric endpoints for node references). Handing it `map.nodes` directly
+  // would let the engine mutate the decoded snapshot that the list view and
+  // every memo below also read.
+  //
+  // The fill is resolved here rather than in the paint callback: it depends
+  // only on the node's community and the theme, so recomputing it per node per
+  // frame would be pure waste on the hottest path in the component.
   const graphData = useMemo(() => {
     const nodes: MapNode[] = map.nodes.map(node => ({
       ...node,
-      x: node.x,
-      y: node.y,
       fx: node.x,
       fy: node.y,
+      fill:
+        node.kind === 'label'
+          ? clusterColor(palette, LABEL_HUB_COLOR_INDEX)
+          : clusterColor(palette, sceneMapColorIndex(node.community, palette.chart.length)),
     }))
-    const links: MapLink[] = map.edges.map(edge => ({
-      source: edge.source,
-      target: edge.target,
-      kind: edge.kind,
-    }))
+    const links: MapLink[] = map.edges.map(edge => ({ ...edge }))
     return { nodes, links }
-  }, [map])
+  }, [map, palette])
 
   const nodeIds = useMemo(
     () => new Set(map.nodes.map(node => node.id)),
@@ -235,9 +235,121 @@ export function SceneMapCanvas({
     [map],
   )
 
-  const hullFillAlpha = isDarkPalette(palette) ? HULL_FILL_ALPHA_DARK : HULL_FILL_ALPHA_LIGHT
+  // Everything about a label that does NOT depend on zoom or hover, computed
+  // once per snapshot and pre-sorted by priority.
+  //
+  // This memo is the difference between a map that scrolls and one that does
+  // not. `onRenderFramePost` runs every animation frame; building this list
+  // there would allocate one object per node, sort it, and re-truncate every
+  // name SIXTY TIMES A SECOND — at catalog scale, hundreds of thousands of
+  // allocations per second for a result that changes only when the nightly
+  // snapshot does. Per frame, only the zoom-dependent numbers are applied, and
+  // only to the labels that survive the cull.
+  const labelCandidates = useMemo(() => {
+    const candidates: SceneMapLabelCandidate[] = []
+    for (const node of map.nodes) {
+      if (node.kind === 'label') continue
+      const tier = tierStyles.get(node.id)
+      if (!tier) continue
+      candidates.push({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        radius: ARTIST_RADIUS,
+        text: truncateLabel(node.name),
+        fontSize: tier.fontSize,
+        fontWeight: tier.fontWeight,
+        // Rank 0 is the most central node, and `renderGraphLabels` keeps the
+        // HIGHER priority on a collision, so the rank has to be inverted here
+        // exactly as it is for the tier ladder.
+        priority: -node.rank,
+        force: false,
+      })
+    }
+    // Sorted ONCE. The per-frame cull consumes this order as its tie-break, so
+    // the same artists win the same cells on every frame and the labels never
+    // flicker between neighbours.
+    candidates.sort((a, b) => b.priority - a.priority || a.id - b.id)
+    return candidates
+  }, [map, tierStyles])
 
-  // ── Hulls + region captions ────────────────────────────────────────────
+  // The labels that are not up for culling: every label hub, and every named
+  // region. Both go through `renderGraphLabels` with the artist names so their
+  // boxes are RESERVED — a separate text pass would draw them and reserve
+  // nothing, and an artist name landing on top of a region name is exactly the
+  // pile-up that module exists to prevent.
+  //
+  // A hub is the visual anchor of a whole roster, so an unlabelled one is an
+  // unexplained square; a region that has a name must show it. The captions'
+  // low alpha is what keeps them behind the artist names rather than competing.
+  const forcedCandidates = useMemo(() => {
+    const forced: SceneMapLabelCandidate[] = []
+    for (const node of map.nodes) {
+      if (node.kind !== 'label') continue
+      const tier = tierStyles.get(node.id)
+      if (!tier) continue
+      forced.push({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        radius: HUB_HALF_EXTENT,
+        text: truncateLabel(node.name),
+        fontSize: tier.fontSize,
+        fontWeight: tier.fontWeight,
+        priority: -node.rank,
+        force: true,
+      })
+    }
+    for (const region of map.regions) {
+      if (!region.captionAnchor) continue
+      forced.push({
+        // Region ids share the node-id space here, so they are made negative to
+        // keep the two apart; nothing looks a caption up by id, but a collision
+        // would silently make a region inherit an artist's focus state.
+        id: -1 - region.community,
+        x: region.captionAnchor[0],
+        y: region.captionAnchor[1],
+        radius: 0,
+        text: region.label,
+        fontSize: REGION_CAPTION_FONT_SIZE,
+        fontWeight: 400,
+        priority: Number.POSITIVE_INFINITY,
+        force: true,
+        fontFamily: palette.monoFontFamily,
+        alpha: REGION_CAPTION_ALPHA,
+      })
+    }
+    return forced
+  }, [map, tierStyles, palette.monoFontFamily])
+
+  // Hull paint styles, resolved per theme and focus state rather than per
+  // frame: the alpha only ever takes two values, so recomputing a colour
+  // string per region per frame is pure garbage.
+  //
+  // Light mode takes a lower fill — the newsprint background sits far closer
+  // in luminance to a tinted wash than the dark theme's near-black, so the same
+  // alpha reads roughly twice as loud there.
+  const hullStyles = useMemo(() => {
+    const focusFactor = focusedIds ? BACKGROUND_ALPHA : 1
+    const fillAlpha =
+      (palette.isDark ? HULL_FILL_ALPHA_DARK : HULL_FILL_ALPHA_LIGHT) * focusFactor
+    const strokeAlpha = HULL_STROKE_ALPHA * focusFactor
+    return map.regions
+      .filter(region => region.hull.length >= 3)
+      .map(region => {
+        const base = clusterColor(
+          palette,
+          sceneMapColorIndex(region.community, palette.chart.length),
+        )
+        return {
+          hull: region.hull,
+          fill: withHexAlpha(base, alphaToHex(fillAlpha)),
+          stroke: withHexAlpha(base, alphaToHex(strokeAlpha)),
+        }
+      })
+  }, [map, palette, focusedIds])
+
+  // ── Hulls ──────────────────────────────────────────────────────────────
   //
   // Drawn from `onRenderFramePre`, which runs before the links and nodes with
   // the ctx already in graph coordinates. ForceGraphView reaches the same layer
@@ -247,69 +359,52 @@ export function SceneMapCanvas({
   // directly with no per-link dispatch and no flag to reset.
   const handleRenderFramePre = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
-      // While a neighbourhood is focused the regions fade with the rest of the
-      // background: the washes are their own fill pass, so globalAlpha does not
-      // touch them, and left lit they bury the focused set (worst in light mode).
-      const focusFactor = focusedIds ? BACKGROUND_ALPHA : 1
-      for (const region of map.regions) {
-        if (region.hull.length < 3) continue
-        const fill = clusterColor(
-          palette,
-          sceneMapColorIndex(region.community, palette.chart.length),
-        )
+      // Counter-scaled so the boundary is a constant hairline at any zoom. A
+      // graph-space width would vanish at the fitted whole-map view, which is
+      // the ONE view the region outlines exist for.
+      ctx.lineWidth = HULL_STROKE_WIDTH_PX / globalScale
+      for (const style of hullStyles) {
         ctx.beginPath()
-        ctx.moveTo(region.hull[0][0], region.hull[0][1])
-        for (let i = 1; i < region.hull.length; i += 1) {
-          ctx.lineTo(region.hull[i][0], region.hull[i][1])
+        ctx.moveTo(style.hull[0][0], style.hull[0][1])
+        for (let i = 1; i < style.hull.length; i += 1) {
+          ctx.lineTo(style.hull[i][0], style.hull[i][1])
         }
         ctx.closePath()
-        ctx.fillStyle = withHexAlpha(fill, alphaToHex(hullFillAlpha * focusFactor))
+        ctx.fillStyle = style.fill
         ctx.fill()
-        // Counter-scaled so the boundary is a constant hairline at any zoom.
-        // A graph-space width would vanish at the fitted whole-map view, which
-        // is the ONE view the region outlines exist for.
-        ctx.lineWidth = HULL_STROKE_WIDTH_PX / globalScale
-        ctx.strokeStyle = withHexAlpha(fill, alphaToHex(HULL_STROKE_ALPHA * focusFactor))
+        ctx.strokeStyle = style.stroke
         ctx.stroke()
       }
     },
-    [map, palette, hullFillAlpha, focusedIds],
+    [hullStyles],
   )
 
   // ── Nodes ──────────────────────────────────────────────────────────────
   const nodeCanvasObject = useCallback(
     (node: MapNode, ctx: CanvasRenderingContext2D) => {
-      const foreground = !focusedIds || focusedIds.has(node.id)
-      ctx.save()
-      ctx.globalAlpha = foreground ? 1 : BACKGROUND_ALPHA
+      // No save/restore per node: the library already wraps the whole node pass
+      // in one, and a save/restore pair per node is among the more expensive 2D
+      // operations there is at this node count. Only globalAlpha is touched,
+      // and it is reset on every call.
+      ctx.globalAlpha = !focusedIds || focusedIds.has(node.id) ? 1 : BACKGROUND_ALPHA
 
       if (node.kind === 'label') {
         // Hubs take the label family's own hue from the shared ramp; SHAPE, not
         // hue, is what separates them from artists (PSY-1530).
-        drawLabelHubMarker(
-          ctx,
-          node.x,
-          node.y,
-          HUB_HALF_EXTENT,
-          clusterColor(palette, LABEL_HUB_COLOR_INDEX),
-          palette.labelHalo,
-        )
+        drawLabelHubMarker(ctx, node.x, node.y, HUB_HALF_EXTENT, node.fill, palette.labelHalo)
       } else {
         ctx.beginPath()
         ctx.arc(node.x, node.y, ARTIST_RADIUS, 0, Math.PI * 2)
-        ctx.fillStyle = clusterColor(
-          palette,
-          sceneMapColorIndex(node.community, palette.chart.length),
-        )
+        ctx.fillStyle = node.fill
         ctx.fill()
         if (node.hasUpcomingShow) {
           drawUpcomingShowDot(ctx, node.x, node.y, ARTIST_RADIUS)
         }
       }
 
-      ctx.restore()
+      ctx.globalAlpha = 1
     },
-    [palette, focusedIds],
+    [palette.labelHalo, focusedIds],
   )
 
   const nodePointerAreaPaint = useCallback(
@@ -335,68 +430,64 @@ export function SceneMapCanvas({
   )
 
   // ── Labels + region captions ───────────────────────────────────────────
+  //
+  // Region captions and node names go through ONE pass, so a region name and
+  // an artist name can never be drawn over each other — a second text pass
+  // would reserve no collision box, which is the pile-up `graphLabels` exists
+  // to prevent.
+  //
+  // Labels are ALWAYS ON here. The zoom gate every other surface applies would
+  // blank the map entirely, because a fitted whole-catalog view sits far below
+  // it — this map's labels ARE its content, not a hover reward.
   const handleRenderFramePost = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
-      drawRegionCaptions(ctx, palette, map, globalScale, focusedIds != null)
-
-      // Labels are ALWAYS ON here — the zoom gate the other surfaces apply
-      // would blank the map entirely, because a fitted whole-catalog view sits
-      // far below it. Tier sizes are screen px, so they are counter-scaled by
-      // the zoom; the collision boxes stay in graph space.
-      const candidates: GraphLabelSpec[] = []
-      for (const node of graphData.nodes) {
-        if (focusedIds && !focusedIds.has(node.id)) continue
-        const tier = tierStyles.get(node.id)
-        if (!tier) continue
-        const radius = node.kind === 'label' ? HUB_HALF_EXTENT : ARTIST_RADIUS
-        candidates.push({
-          x: node.x,
-          y: node.y + radius + 3 / globalScale,
-          text: truncateLabel(node.name),
-          fontSize: tier.fontSize / globalScale,
-          fontWeight: tier.fontWeight,
-          // Rank 0 is the most central node, and `renderGraphLabels` keeps the
-          // HIGHER priority on a collision, so the rank has to be inverted here
-          // exactly as it is for the tier ladder.
-          priority: -node.rank,
-          // A hub is the visual anchor of a whole roster; an unlabelled one is
-          // an unexplained square.
-          force: node.kind === 'label',
-        })
-      }
-      candidates.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
-
-      // Forced labels skip the grid entirely. `renderGraphLabels` draws them
-      // regardless of collisions, so culling one here would only silently
-      // revoke the guarantee `force` exists to give.
-      const forced = candidates.filter(spec => spec.force)
-      const culled = cullLabelsToGrid(
-        candidates.filter(spec => !spec.force),
-        LABEL_GRID_CELL_WIDTH / globalScale,
-        LABEL_GRID_CELL_HEIGHT / globalScale,
+      renderGraphLabels(
+        ctx,
+        palette,
+        selectSceneMapLabels(
+          labelCandidates,
+          forcedCandidates,
+          globalScale,
+          focusedIds,
+          visibleWorldBounds(ctx),
+        ),
       )
-      renderGraphLabels(ctx, palette, [...forced, ...culled])
     },
-    [graphData, tierStyles, palette, map, focusedIds],
+    [labelCandidates, forcedCandidates, palette, focusedIds],
   )
 
   // ── Links ──────────────────────────────────────────────────────────────
+  // The four colours an edge can ever be, resolved once per theme.
+  //
+  // react-force-graph calls the accessor below once per link per redraw, and it
+  // then hashes what comes back to batch the strokes. Building the string in
+  // the accessor meant a regex test and two string allocations per edge per
+  // frame; returning one of four cached instances makes the batching cheaper
+  // too, since identical strings compare by reference.
+  const linkColors = useMemo(() => {
+    const spokeBase = clusterColor(palette, LABEL_HUB_COLOR_INDEX)
+    return {
+      restSimilarity: withHexAlpha(palette.mutedForeground, EDGE_ALPHA_HEX),
+      restSpoke: withHexAlpha(spokeBase, SPOKE_ALPHA_HEX),
+      focusedSimilarity: withHexAlpha(palette.mutedForeground, FOCUSED_EDGE_ALPHA_HEX),
+      focusedSpoke: withHexAlpha(spokeBase, FOCUSED_EDGE_ALPHA_HEX),
+      dimmedSimilarity: withHexAlpha(palette.mutedForeground, DIMMED_EDGE_ALPHA_HEX),
+      dimmedSpoke: withHexAlpha(spokeBase, DIMMED_EDGE_ALPHA_HEX),
+    }
+  }, [palette])
+
   const linkColor = useCallback(
     (link: MapLink) => {
-      const base =
-        link.kind === 'spoke'
-          ? clusterColor(palette, LABEL_HUB_COLOR_INDEX)
-          : palette.mutedForeground
-      const alphaHex = link.kind === 'spoke' ? SPOKE_ALPHA_HEX : EDGE_ALPHA_HEX
-      if (!focusedIds) return withHexAlpha(base, alphaHex)
+      const isSpoke = link.kind === 'spoke'
+      if (!focusedIds) return isSpoke ? linkColors.restSpoke : linkColors.restSimilarity
       // Both endpoints in the focused set = a connection INSIDE the
       // neighbourhood; anything else recedes with the rest of the background.
-      const source = endpointNodeId(link.source)
-      const target = endpointNodeId(link.target)
-      const inFocus = focusedIds.has(source) && focusedIds.has(target)
-      return withHexAlpha(base, inFocus ? 'cc' : alphaToHex(BACKGROUND_ALPHA / 2))
+      const inFocus =
+        focusedIds.has(endpointId(link.source)) && focusedIds.has(endpointId(link.target))
+      if (inFocus) return isSpoke ? linkColors.focusedSpoke : linkColors.focusedSimilarity
+      return isSpoke ? linkColors.dimmedSpoke : linkColors.dimmedSimilarity
     },
-    [palette, focusedIds],
+    [linkColors, focusedIds],
   )
 
   // ── Interaction ────────────────────────────────────────────────────────
@@ -467,57 +558,41 @@ export function SceneMapCanvas({
   )
 }
 
-/** d3-force swaps a bare endpoint id for the resolved node after wiring. */
-function endpointNodeId(endpoint: number | { id: number }): number {
-  return typeof endpoint === 'number' ? endpoint : endpoint.id
-}
-
 /**
- * Whether the resolved palette is the dark theme, inferred from the background
- * token's luminance. The palette carries colors, not a theme name, and this is
- * the one decision on the map that needs to know which way round the two are:
- * a tinted wash costs far more contrast on newsprint than on near-black.
+ * The graph-space rectangle currently on screen, read back from the canvas.
+ *
+ * Inside a render-frame hook the ctx transform IS the graph transform (pan +
+ * zoom + device pixel ratio), so inverting it maps the canvas corners to world
+ * coordinates without duplicating the camera maths. Returns null if the browser
+ * cannot invert it, which the label pass reads as "no viewport bound" and
+ * degrades to the grid and the cap alone.
  */
-export function isDarkPalette(palette: GraphPalette): boolean {
-  const hex = palette.labelHalo
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return true
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return (r * 299 + g * 587 + b * 114) / 1000 < 128
-}
-
-/**
- * "Around {artist}" captions over each region, in the mono face the rest of the
- * app uses for data (PSY-647). Inert by design in v1 — they name a
- * neighbourhood, they are not a control — so they are drawn, not hit-tested.
- */
-function drawRegionCaptions(
-  ctx: CanvasRenderingContext2D,
-  palette: GraphPalette,
-  map: SceneMap,
-  globalScale: number,
-  isFocused: boolean,
-): void {
-  const anchored = map.regions.filter(region => region.captionAnchor !== null)
-  if (anchored.length === 0) return
-
-  ctx.save()
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.lineJoin = 'round'
-  const fontSize = REGION_CAPTION_FONT_SIZE / globalScale
-  ctx.font = `400 ${fontSize}px ${palette.monoFontFamily}`
-  ctx.globalAlpha = REGION_CAPTION_ALPHA * (isFocused ? BACKGROUND_ALPHA : 1)
-  ctx.lineWidth = fontSize / 4
-  for (const region of anchored) {
-    const [x, y] = region.captionAnchor!
-    // Same halo-under-fill recipe the node labels use: a caption sitting over
-    // its own hull wash needs the backdrop just as much.
-    ctx.strokeStyle = palette.labelHalo
-    ctx.strokeText(region.label, x, y)
-    ctx.fillStyle = palette.labelText
-    ctx.fillText(region.label, x, y)
+function visibleWorldBounds(ctx: CanvasRenderingContext2D): WorldBounds | null {
+  const transform = ctx.getTransform?.()
+  if (!transform) return null
+  let inverse: DOMMatrix
+  try {
+    inverse = transform.inverse()
+  } catch {
+    return null
   }
-  ctx.restore()
+  const topLeft = inverse.transformPoint(new DOMPoint(0, 0))
+  const bottomRight = inverse.transformPoint(
+    new DOMPoint(ctx.canvas.width, ctx.canvas.height),
+  )
+  const minX = Math.min(topLeft.x, bottomRight.x)
+  const maxX = Math.max(topLeft.x, bottomRight.x)
+  const minY = Math.min(topLeft.y, bottomRight.y)
+  const maxY = Math.max(topLeft.y, bottomRight.y)
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  // A margin, so a label anchored just off-screen still draws the part of
+  // itself that reaches into view instead of popping in at the edge.
+  const marginX = (maxX - minX) * VIEWPORT_CULL_MARGIN
+  const marginY = (maxY - minY) * VIEWPORT_CULL_MARGIN
+  return {
+    minX: minX - marginX,
+    maxX: maxX + marginX,
+    minY: minY - marginY,
+    maxY: maxY + marginY,
+  }
 }

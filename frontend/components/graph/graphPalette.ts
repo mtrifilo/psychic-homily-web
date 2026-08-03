@@ -72,6 +72,19 @@ export interface GraphPalette {
    * design; every other canvas label stays sans (see graphLabels).
    */
   monoFontFamily: string
+  /**
+   * True when the resolved tokens are the dark theme's.
+   *
+   * The hook already watches the `<html>` class to know WHEN to re-resolve, so
+   * this is that same bit kept rather than thrown away. Canvas surfaces need it
+   * for the handful of decisions that are not a token lookup — a tinted wash
+   * costs far more contrast on the light theme's newsprint than on near-black,
+   * so the alphas differ by theme even though the hue does not.
+   *
+   * Reading it here (not inferring it from a color's luminance at the call
+   * site) also keeps those surfaces working if a token ever stops being hex.
+   */
+  isDark: boolean
 }
 
 export const CHART_TOKEN_COUNT = 8
@@ -124,6 +137,8 @@ const FALLBACK_PALETTE: GraphPalette = {
   primary: FALLBACK_PRIMARY,
   mutedForeground: FALLBACK_MUTED_FOREGROUND,
   monoFontFamily: FALLBACK_MONO_FONT_FAMILY,
+  // Matches the rest of the fallbacks, which are all the DARK values.
+  isDark: true,
 }
 
 /** Cluster fill for a canvas paint callback. -1 / out-of-range = "other". */
@@ -206,6 +221,7 @@ function resolveGraphPalette(): GraphPalette {
     primary: readToken(style, '--primary', FALLBACK_PRIMARY),
     mutedForeground: readToken(style, '--muted-foreground', FALLBACK_MUTED_FOREGROUND),
     monoFontFamily: resolveMonoFontFamily(style),
+    isDark: document.documentElement.classList.contains('dark'),
   }
 }
 

@@ -4,8 +4,11 @@ import {
   SCENE_MAP_WORLD_HALF_EXTENT,
   buildSceneMap,
   decodeByteColumn,
+  groupNodesByRegion,
   sceneMapColorIndex,
   type GraphOverview,
+  type SceneMap,
+  type SceneMapNode,
 } from './sceneMap'
 
 const QUANT_SCALE = 32767
@@ -208,5 +211,75 @@ describe('sceneMapColorIndex', () => {
 
   it('returns the no-cluster sentinel for a node in no community', () => {
     expect(sceneMapColorIndex(-1, 8)).toBe(-1)
+  })
+})
+
+// ── Grouping the map for the list view ────────────────────────────────────
+
+function node(
+  overrides: Partial<SceneMapNode> & Pick<SceneMapNode, 'id' | 'name'>,
+): SceneMapNode {
+  return {
+    kind: 'artist',
+    slug: overrides.name.toLowerCase(),
+    x: 0,
+    y: 0,
+    community: 7,
+    degree: 1,
+    rank: 0,
+    hasUpcomingShow: false,
+    hasPlayableAudio: false,
+    ...overrides,
+  }
+}
+
+function sceneMapFixture(overrides: Partial<SceneMap> = {}): SceneMap {
+  return {
+    nodes: [
+      node({ id: 1, name: 'Alpha', rank: 0 }),
+      node({ id: 2, name: 'Beta', rank: 1 }),
+      node({ id: 3, name: 'Gamma', rank: 2, community: 9 }),
+      node({ id: 900001, name: 'Doom Records', kind: 'label', community: -1, degree: 4 }),
+    ],
+    edges: [],
+    regions: [
+      { community: 7, label: 'Around Alpha', memberCount: 2, hull: [], captionAnchor: null },
+      { community: 9, label: 'Around Gamma', memberCount: 1, hull: [], captionAnchor: null },
+    ],
+    artistCount: 3,
+    labelCount: 1,
+    isolateCount: 42,
+    lastMapped: new Date('2026-08-02T04:00:00Z'),
+    ...overrides,
+  }
+}
+
+describe('groupNodesByRegion', () => {
+  it('groups artists under their region, biggest first, most central first', () => {
+    const groups = groupNodesByRegion(sceneMapFixture())
+
+    expect(groups.map(g => g.label)).toEqual(['Around Alpha', 'Around Gamma'])
+    expect(groups[0].nodes.map(n => n.name)).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('leaves label hubs out — a hub opens a card, it does not re-root', () => {
+    const groups = groupNodesByRegion(sceneMapFixture())
+
+    expect(groups.flatMap(g => g.nodes).map(n => n.name)).not.toContain('Doom Records')
+  })
+
+  it('collects artists whose community has no region so the list is never short', () => {
+    const map = sceneMapFixture({
+      regions: [
+        { community: 7, label: 'Around Alpha', memberCount: 2, hull: [], captionAnchor: null },
+      ],
+    })
+
+    const groups = groupNodesByRegion(map)
+
+    expect(groups.map(g => g.label)).toEqual(['Around Alpha', 'Elsewhere on the map'])
+    expect(groups[1].nodes.map(n => n.name)).toEqual(['Gamma'])
+    // Every artist on the map is reachable from the list.
+    expect(groups.flatMap(g => g.nodes)).toHaveLength(map.artistCount)
   })
 })

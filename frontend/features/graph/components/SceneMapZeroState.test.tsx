@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 
 import type { SceneMap, SceneMapNode } from '../sceneMap'
-import { SceneMapZeroState, groupNodesByRegion } from './SceneMapZeroState'
+import { SceneMapZeroState } from './SceneMapZeroState'
 
 // jsdom cannot render a canvas, so the map surface is stubbed down to the
 // callbacks the host wires: this file covers the CARD around the map (band,
@@ -86,8 +86,7 @@ function renderZeroState(
   renderWithProviders(
     <SceneMapZeroState
       map={sceneMapFixture()}
-      containerWidth={1024}
-      canvasBreakpointPx={640}
+      canvasWidth={1024}
       onSelectArtist={onSelectArtist}
       {...props}
     />,
@@ -170,9 +169,9 @@ describe('SceneMapZeroState', () => {
     expect(onSelectArtist).toHaveBeenCalledWith({ id: 2, slug: 'beta', name: 'Beta' })
   })
 
-  describe('below the canvas breakpoint', () => {
+  describe('with no canvas (below the breakpoint)', () => {
     it('replaces the map with a pitch line carrying the live counts', () => {
-      renderZeroState({ containerWidth: 400 })
+      renderZeroState({ canvasWidth: null })
 
       expect(screen.queryByRole('button', { name: 'Click artist dot' })).not.toBeInTheDocument()
       expect(
@@ -182,7 +181,7 @@ describe('SceneMapZeroState', () => {
 
     it('links the pitch line at the list, and still renders the list', async () => {
       const user = userEvent.setup()
-      const { onSelectArtist } = renderZeroState({ containerWidth: 400 })
+      const { onSelectArtist } = renderZeroState({ canvasWidth: null })
 
       expect(
         screen.getByRole('link', { name: 'Browse the map as a list' }),
@@ -194,41 +193,5 @@ describe('SceneMapZeroState', () => {
 
       expect(onSelectArtist).toHaveBeenCalledWith({ id: 3, slug: 'gamma', name: 'Gamma' })
     })
-  })
-
-  it('holds the map back until the container has been measured', () => {
-    renderZeroState({ containerWidth: null })
-
-    expect(screen.queryByRole('button', { name: 'Click artist dot' })).not.toBeInTheDocument()
-  })
-})
-
-describe('groupNodesByRegion', () => {
-  it('groups artists under their region, biggest first, most central first', () => {
-    const groups = groupNodesByRegion(sceneMapFixture())
-
-    expect(groups.map(g => g.label)).toEqual(['Around Alpha', 'Around Gamma'])
-    expect(groups[0].nodes.map(n => n.name)).toEqual(['Alpha', 'Beta'])
-  })
-
-  it('leaves label hubs out — a hub opens a card, it does not re-root', () => {
-    const groups = groupNodesByRegion(sceneMapFixture())
-
-    expect(groups.flatMap(g => g.nodes).map(n => n.name)).not.toContain('Doom Records')
-  })
-
-  it('collects artists whose community has no region so the list is never short', () => {
-    const map = sceneMapFixture({
-      regions: [
-        { community: 7, label: 'Around Alpha', memberCount: 2, hull: [], captionAnchor: null },
-      ],
-    })
-
-    const groups = groupNodesByRegion(map)
-
-    expect(groups.map(g => g.label)).toEqual(['Around Alpha', 'Elsewhere on the map'])
-    expect(groups[1].nodes.map(n => n.name)).toEqual(['Gamma'])
-    // Every artist on the map is reachable from the list.
-    expect(groups.flatMap(g => g.nodes)).toHaveLength(map.artistCount)
   })
 })

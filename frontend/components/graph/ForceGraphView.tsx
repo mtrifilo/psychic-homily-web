@@ -66,6 +66,7 @@ import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 import { buildLinkLabel, edgeLineDash, edgeWidth } from './edgeGrammar'
 import { alphaToHex, clusterColor, useGraphPalette, withHexAlpha } from './graphPalette'
+import { graphCanvasHeight } from './GraphStateCard'
 import {
   drawLabelHubMarker,
   drawPlayableRing,
@@ -561,7 +562,7 @@ export function ForceGraphView({
     }
   }, [nodeOverlays])
 
-  const graphHeight = height ?? (containerWidth < 768 ? 400 : 560)
+  const graphHeight = height ?? graphCanvasHeight(containerWidth)
 
   const clustersByID = useMemo(() => {
     const map = new Map<string, GraphCluster>()

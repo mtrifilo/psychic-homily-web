@@ -14,8 +14,12 @@ import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
-import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import { GRAPH_BOX_HEIGHT_CLASS, GRAPH_BOX_MIN_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import {
+  GraphLoadingBox,
+  GraphRetryBox,
+  GRAPH_BOX_HEIGHT_CLASS,
+  GRAPH_BOX_MIN_HEIGHT_CLASS,
+} from '@/components/graph/GraphStateCard'
 import {
   GRAPH_BREAKPOINT_PX,
   useContainerWidth,
@@ -487,6 +491,38 @@ function EmptyGraphEscapeHatches({
 }
 
 /**
+ * Which zero-state arm to render, as a pure function of the overview query.
+ *
+ * Split out so the rule is readable and testable on its own rather than as a
+ * chain of ternaries inside JSX — and because "no snapshot yet" being a NORMAL
+ * state rather than a failure is the non-obvious part:
+ *
+ *  - `loading`     — the first fetch is in flight.
+ *  - `unavailable` — a settled failure that is NOT "not built yet". The error
+ *                    card offers a retry; search is untouched either way.
+ *  - `hero`        — nothing to draw: a catalog before its first nightly build
+ *                    (the endpoint's 503), or a payload we could not decode.
+ *                    Both leave a visitor in the same place, so they share an
+ *                    arm — the shipped search-first hero.
+ *  - `map`         — a snapshot we can draw.
+ */
+export function resolveZeroStateView({
+  isPending,
+  isError,
+  error,
+  hasMap,
+}: {
+  isPending: boolean
+  isError: boolean
+  error: unknown
+  hasMap: boolean
+}): 'loading' | 'unavailable' | 'hero' | 'map' {
+  if (isPending) return 'loading'
+  if (isError) return isGraphOverviewNotBuilt(error) ? 'hero' : 'unavailable'
+  return hasMap ? 'map' : 'hero'
+}
+
+/**
  * The search-first hero the page opened on before the Map of the Scene
  * (PSY-1474). It is NOT retired: it is the branch for every state where there
  * is no map to draw — a catalog whose first nightly snapshot has not run, a dev
@@ -791,10 +827,12 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
-  // "No snapshot built yet" is a steady state, not a failure — it takes the
-  // hero branch, the same as a payload we could not decode.
-  const isMapUnavailable =
-    overviewQuery.isError && !isGraphOverviewNotBuilt(overviewQuery.error)
+  const zeroStateView = resolveZeroStateView({
+    isPending: overviewQuery.isPending,
+    isError: overviewQuery.isError,
+    error: overviewQuery.error,
+    hasMap: sceneMap !== null,
+  })
 
   const isShuffleBusy = isShuffleFetching || pendingLookup === 'shuffle'
   const graph = graphQuery.data
@@ -842,18 +880,22 @@ export function GraphObservatory() {
             placeholder="Search an artist to begin, or start anywhere on the map"
             className="max-w-2xl flex-1"
           />
-          {center ? (
+          {(center || sceneMap) && (
             <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              Centered on <span className="text-foreground">{center.name}</span>
+              {center ? (
+                <>
+                  Centered on <span className="text-foreground">{center.name}</span>
+                </>
+              ) : (
+                <>
+                  The whole map ·{' '}
+                  <span className="text-foreground">
+                    {sceneMap?.artistCount.toLocaleString()} artists
+                  </span>
+                </>
+              )}
             </p>
-          ) : sceneMap ? (
-            <p className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              The whole map ·{' '}
-              <span className="text-foreground">
-                {sceneMap.artistCount.toLocaleString()} artists
-              </span>
-            </p>
-          ) : null}
+          )}
         </div>
 
         {center && (
@@ -869,31 +911,17 @@ export function GraphObservatory() {
 
         {!center ? (
           <div ref={refCallback}>
-            {overviewQuery.isPending ? (
-              <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS}>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  Mapping the scene…
-                </div>
-              </GraphSkeleton>
-            ) : isMapUnavailable ? (
+            {zeroStateView === 'loading' ? (
+              <GraphLoadingBox>Mapping the scene…</GraphLoadingBox>
+            ) : zeroStateView === 'unavailable' ? (
               // A settled failure that is NOT "no snapshot yet". The search row
               // above is untouched — the map failing must never cost a visitor
               // the one control that always works.
-              <div
-                role="alert"
-                className={`flex flex-col items-center justify-center gap-3 text-center ${GRAPH_BOX_HEIGHT_CLASS}`}
-              >
-                <p className="text-sm text-muted-foreground">The map couldn’t load.</p>
-                <button
-                  type="button"
-                  onClick={() => overviewQuery.refetch()}
-                  className="text-sm text-primary hover:underline underline-offset-4"
-                >
-                  Try again
-                </button>
-              </div>
-            ) : !sceneMap ? (
+              <GraphRetryBox
+                message="The map couldn’t load."
+                onRetry={() => overviewQuery.refetch()}
+              />
+            ) : zeroStateView === 'hero' || !sceneMap ? (
               heroZeroState
             ) : (
               <>
@@ -902,8 +930,7 @@ export function GraphObservatory() {
                 {!isCanvasUsable && heroZeroState}
                 <SceneMapZeroState
                   map={sceneMap}
-                  containerWidth={containerWidth}
-                  canvasBreakpointPx={GRAPH_BREAKPOINT_PX}
+                  canvasWidth={isCanvasUsable ? containerWidth : null}
                   onSelectArtist={startAt}
                 />
               </>
@@ -912,23 +939,12 @@ export function GraphObservatory() {
         ) : (
           <div ref={refCallback} className={`relative p-3 ${GRAPH_BOX_MIN_HEIGHT_CLASS}`}>
             {containerWidth === null || graphQuery.isPending ? (
-              <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS}>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  Mapping {center.name}…
-                </div>
-              </GraphSkeleton>
+              <GraphLoadingBox>Mapping {center.name}…</GraphLoadingBox>
             ) : graphQuery.isError && !graph ? (
-              <div role="alert" className={`flex flex-col items-center justify-center gap-3 text-center ${GRAPH_BOX_HEIGHT_CLASS}`}>
-                <p className="text-sm text-muted-foreground">This graph couldn’t load.</p>
-                <button
-                  type="button"
-                  onClick={() => graphQuery.refetch()}
-                  className="text-sm text-primary hover:underline underline-offset-4"
-                >
-                  Try again
-                </button>
-              </div>
+              <GraphRetryBox
+                message="This graph couldn’t load."
+                onRetry={() => graphQuery.refetch()}
+              />
             ) : isEmptyGraph ? (
               // min-height (not the fixed-height contract): this card is
               // content-driven — the escape hatches wrap to several rows on

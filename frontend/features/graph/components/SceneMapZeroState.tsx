@@ -19,9 +19,10 @@ import { ArrowRight } from 'lucide-react'
 
 import { EntityContextPanel } from '@/components/graph/EntityContextPanel'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
-import { GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
+import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 
-import type { SceneMap, SceneMapNode } from '../sceneMap'
+import { groupNodesByRegion, type SceneMap, type SceneMapNode } from '../sceneMap'
 import { SceneMapCanvas } from './SceneMapCanvas'
 
 /** Anchor shape the host re-roots on — the same one artist search produces. */
@@ -39,25 +40,22 @@ const SCENE_MAP_GUIDANCE_ID = 'scene-map-guidance'
 
 export interface SceneMapZeroStateProps {
   map: SceneMap
-  /** Measured width of the card body; null until the first measure lands. */
-  containerWidth: number | null
-  /** Below this the canvas is not mounted at all (shared graph breakpoint). */
-  canvasBreakpointPx: number
+  /**
+   * Width to draw the canvas at, or null for no canvas — the host owns that
+   * gate (it also decides whether the hero shows), so the threshold rule lives
+   * in exactly one place and the two cannot disagree.
+   */
+  canvasWidth: number | null
   /** Re-root the Observatory on an artist — identical to picking one in search. */
   onSelectArtist: (anchor: SceneMapArtistAnchor) => void
 }
 
 export function SceneMapZeroState({
   map,
-  containerWidth,
-  canvasBreakpointPx,
+  canvasWidth,
   onSelectArtist,
 }: SceneMapZeroStateProps) {
   const [selectedHub, setSelectedHub] = useState<SceneMapNode | null>(null)
-  // Narrowed to a number, not a boolean, so the canvas's width prop needs no
-  // non-null assertion at the mount site.
-  const canvasWidth =
-    containerWidth !== null && containerWidth >= canvasBreakpointPx ? containerWidth : null
 
   const handleSelectArtist = useCallback(
     (node: SceneMapNode) => {
@@ -80,12 +78,10 @@ export function SceneMapZeroState({
         <GraphSectionErrorBoundary
           sentryTag="graph-scene-map"
           fallback={
-            <div
-              role="status"
-              className={`flex items-center justify-center text-sm text-muted-foreground ${GRAPH_BOX_HEIGHT_CLASS}`}
-            >
-              The map is unavailable. Browse the scene as a list below.
-            </div>
+            <GraphStateCard
+              className={GRAPH_BOX_HEIGHT_CLASS}
+              message="The map is unavailable. Browse the scene as a list below."
+            />
           }
         >
           <SceneMapCanvas
@@ -158,8 +154,7 @@ function IsolateBand({ count }: { count: number }) {
   if (count <= 0) return null
   return (
     <p className="border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground">
-      +{count.toLocaleString()} not yet connected{' '}
-      {count === 1 ? 'artist' : 'artists'}.{' '}
+      {isolateShelfCaption(count)}.{' '}
       <Link
         href="/contribute"
         className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
@@ -202,9 +197,15 @@ function FreshnessFooter({ map }: { map: SceneMap }) {
  * expansion that does not exist. Regions here are the map's own grouping, and
  * an artist row does exactly what its dot does — re-root the Observatory.
  *
- * Regions render collapsed, so the DOM cost is one row per region until a
- * visitor asks for members. No per-region cap: a capped list would quietly be
- * LESS than the canvas offers, which is the one thing this list must not be.
+ * A closed `<details>` HIDES its children, it does not skip rendering them —
+ * React builds the DOM for everything inside regardless. At catalog scale that
+ * is tens of thousands of elements mounted, invisibly, on the page every
+ * visitor lands on. So the open region is tracked in state and only ITS members
+ * are rendered; a closed region still shows its own name and count, which come
+ * from the group rather than from the rows.
+ *
+ * No per-region cap, though: a capped list would quietly offer LESS than the
+ * canvas does, which is the one thing this list must not do.
  */
 function SceneMapList({
   map,
@@ -214,6 +215,7 @@ function SceneMapList({
   onSelectArtist: (node: SceneMapNode) => void
 }) {
   const groups = useMemo(() => groupNodesByRegion(map), [map])
+  const [openKey, setOpenKey] = useState<string | null>(null)
 
   return (
     <details
@@ -229,7 +231,13 @@ function SceneMapList({
       <ul className="mt-3 space-y-3">
         {groups.map(group => (
           <li key={group.key}>
-            <details className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
+            <details
+              className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2"
+              open={openKey === group.key}
+              onToggle={event =>
+                setOpenKey(event.currentTarget.open ? group.key : null)
+              }
+            >
               <summary className="cursor-pointer text-sm">
                 <span className="font-medium">{group.label}</span>{' '}
                 <span className="text-xs text-muted-foreground">
@@ -238,7 +246,7 @@ function SceneMapList({
                 </span>
               </summary>
               <ul className="mt-2 divide-y divide-border/50">
-                {group.nodes.map(node => (
+                {openKey === group.key && group.nodes.map(node => (
                   <li key={node.id}>
                     <button
                       type="button"
@@ -261,55 +269,4 @@ function SceneMapList({
       </ul>
     </details>
   )
-}
-
-interface SceneMapListGroup {
-  key: string
-  label: string
-  nodes: SceneMapNode[]
-}
-
-/**
- * Group the map's artists under the regions the canvas names, biggest region
- * first and members by centrality — the same ordering the map expresses
- * visually through hull size and label tier.
- *
- * Label hubs carry no community by design (a hub anchors a roster, it does not
- * live in one), so they are NOT listed: a hub's dot opens a context card rather
- * than re-rooting, and every artist a hub connects is already listed under its
- * own region. Artists whose community has no region entry fall into a trailing
- * group so the list total can never come up short of the map.
- */
-export function groupNodesByRegion(map: SceneMap): SceneMapListGroup[] {
-  const byCommunity = new Map<number, SceneMapNode[]>()
-  for (const node of map.nodes) {
-    if (node.kind !== 'artist') continue
-    const bucket = byCommunity.get(node.community)
-    if (bucket) bucket.push(node)
-    else byCommunity.set(node.community, [node])
-  }
-  for (const bucket of byCommunity.values()) {
-    bucket.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
-  }
-
-  const groups: SceneMapListGroup[] = []
-  const named = new Set<number>()
-  for (const region of map.regions) {
-    const nodes = byCommunity.get(region.community)
-    if (!nodes || nodes.length === 0) continue
-    named.add(region.community)
-    groups.push({ key: `region-${region.community}`, label: region.label, nodes })
-  }
-  groups.sort((a, b) => b.nodes.length - a.nodes.length || a.label.localeCompare(b.label))
-
-  const ungrouped: SceneMapNode[] = []
-  for (const [community, nodes] of byCommunity) {
-    if (named.has(community)) continue
-    ungrouped.push(...nodes)
-  }
-  if (ungrouped.length > 0) {
-    ungrouped.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
-    groups.push({ key: 'ungrouped', label: 'Elsewhere on the map', nodes: ungrouped })
-  }
-  return groups
 }

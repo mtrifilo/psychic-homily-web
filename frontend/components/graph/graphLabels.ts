@@ -211,6 +211,19 @@ export interface GraphLabelSpec {
    * so a caption can never overlap a neighbouring label.
    */
   caption?: string
+  /**
+   * CSS font family for this label, defaulting to the sans every node name
+   * uses. Exists so text that is mono BY DESIGN — the scene map's "Around
+   * {artist}" region captions (PSY-1725) — can go through this pass instead of
+   * a second one. A separate text pass would reserve no collision box, which
+   * is exactly the pile-up this module was built to end.
+   */
+  fontFamily?: string
+  /**
+   * Ink opacity, 1 by default. For text that names a REGION rather than a node
+   * — it should sit behind the names, not compete with them.
+   */
+  alpha?: number
 }
 
 /** Caption line size relative to its label, and the gap above it. */
@@ -248,9 +261,15 @@ function boxesIntersect(a: LabelBox, b: LabelBox): boolean {
   return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0
 }
 
+const DEFAULT_LABEL_FONT_FAMILY = 'sans-serif'
+
+function fontFamilyFor(spec: GraphLabelSpec): string {
+  return spec.fontFamily ?? DEFAULT_LABEL_FONT_FAMILY
+}
+
 function fontFor(spec: GraphLabelSpec): string {
   const weight = spec.fontWeight ?? (spec.bold ? 700 : 400)
-  return `${weight} ${spec.fontSize}px sans-serif`
+  return `${weight} ${spec.fontSize}px ${fontFamilyFor(spec)}`
 }
 
 function measureLabelBox(
@@ -264,7 +283,7 @@ function measureLabelBox(
   let widest = ctx.measureText(spec.text).width
   if (spec.caption && spec.caption.trim() !== '') {
     const font = ctx.font
-    ctx.font = `400 ${captionFontSize(spec)}px sans-serif`
+    ctx.font = `400 ${captionFontSize(spec)}px ${fontFamilyFor(spec)}`
     widest = Math.max(widest, ctx.measureText(spec.caption).width)
     ctx.font = font
   }
@@ -362,10 +381,12 @@ export function renderGraphLabels(
     const box = measureLabelBox(ctx, spec)
     if (!spec.force && placed.some((p) => boxesIntersect(p, box))) continue
     ctx.lineWidth = spec.fontSize / 4
+    ctx.globalAlpha = spec.alpha ?? 1
     ctx.strokeStyle = palette.labelHalo
     ctx.strokeText(spec.text, spec.x, spec.y)
     ctx.fillStyle = palette.labelText
     ctx.fillText(spec.text, spec.x, spec.y)
+    ctx.globalAlpha = 1
 
     if (spec.caption && spec.caption.trim() !== '') {
       const size = captionFontSize(spec)
@@ -373,9 +394,9 @@ export function renderGraphLabels(
         spec.y + spec.fontSize * LABEL_HEIGHT_FACTOR + CAPTION_GAP
       // Same halo recipe as the name — a caption over a hull or an edge needs
       // the backdrop just as much, and it is smaller (so less forgiving).
-      ctx.font = `400 ${size}px sans-serif`
+      ctx.font = `400 ${size}px ${fontFamilyFor(spec)}`
       ctx.lineWidth = size / 4
-      ctx.globalAlpha = CAPTION_ALPHA
+      ctx.globalAlpha = CAPTION_ALPHA * (spec.alpha ?? 1)
       ctx.strokeStyle = palette.labelHalo
       ctx.strokeText(spec.caption, spec.x, captionY)
       ctx.fillStyle = palette.labelText

@@ -180,18 +180,17 @@ function edgeKindFromByte(byte: number): SceneMapEdgeKind {
  * canvas draws as nothing, with no error anywhere.
  */
 function nodeColumnsAreWellFormed(overview: GraphOverview): boolean {
-  const n = overview.node_count
   const nodes = overview.nodes
-  return (
-    (nodes.id?.length ?? -1) === n &&
-    (nodes.name?.length ?? -1) === n &&
-    (nodes.slug?.length ?? -1) === n &&
-    (nodes.x?.length ?? -1) === n &&
-    (nodes.y?.length ?? -1) === n &&
-    (nodes.community?.length ?? -1) === n &&
-    (nodes.degree?.length ?? -1) === n &&
-    (nodes.rank?.length ?? -1) === n
-  )
+  return [
+    nodes.id,
+    nodes.name,
+    nodes.slug,
+    nodes.x,
+    nodes.y,
+    nodes.community,
+    nodes.degree,
+    nodes.rank,
+  ].every(column => column?.length === overview.node_count)
 }
 
 function toWorld(quantized: number): number {
@@ -359,4 +358,58 @@ function decodeRegions(overview: GraphOverview): SceneMapRegion[] {
 export function sceneMapColorIndex(community: number, rampSize: number): number {
   if (community < 0 || rampSize <= 0) return -1
   return community % rampSize
+}
+
+/** One region's worth of artists, for the map's list view. */
+export interface SceneMapListGroup {
+  key: string
+  label: string
+  nodes: SceneMapNode[]
+}
+
+/**
+ * Group the map's artists under the regions the canvas names, biggest region
+ * first and members by centrality — the same ordering the map expresses
+ * visually through hull size and label tier.
+ *
+ * Label hubs carry no community by design (a hub anchors a roster, it does not
+ * live in one), so they are NOT listed: a hub's dot opens a context card rather
+ * than re-rooting, and every artist a hub connects is already listed under its
+ * own region. Artists whose community has no region entry fall into a trailing
+ * group, so the list can never come up short of the map.
+ *
+ * Lives here beside the decode rather than in the list component: it shapes map
+ * data, and keeping it pure is what lets the grouping rules be tested without
+ * rendering anything.
+ */
+export function groupNodesByRegion(map: SceneMap): SceneMapListGroup[] {
+  const byCommunity = new Map<number, SceneMapNode[]>()
+  for (const node of map.nodes) {
+    if (node.kind !== 'artist') continue
+    const bucket = byCommunity.get(node.community)
+    if (bucket) bucket.push(node)
+    else byCommunity.set(node.community, [node])
+  }
+  const byCentrality = (a: SceneMapNode, b: SceneMapNode) =>
+    a.rank - b.rank || a.name.localeCompare(b.name)
+  for (const bucket of byCommunity.values()) bucket.sort(byCentrality)
+
+  const groups: SceneMapListGroup[] = []
+  for (const region of map.regions) {
+    const nodes = byCommunity.get(region.community)
+    if (!nodes || nodes.length === 0) continue
+    // Claimed as we go, so the leftover pass below needs no second bookkeeping
+    // structure to know what it has already emitted.
+    byCommunity.delete(region.community)
+    groups.push({ key: `region-${region.community}`, label: region.label, nodes })
+  }
+  groups.sort((a, b) => b.nodes.length - a.nodes.length || a.label.localeCompare(b.label))
+
+  const ungrouped: SceneMapNode[] = []
+  for (const nodes of byCommunity.values()) ungrouped.push(...nodes)
+  if (ungrouped.length > 0) {
+    ungrouped.sort(byCentrality)
+    groups.push({ key: 'ungrouped', label: 'Elsewhere on the map', nodes: ungrouped })
+  }
+  return groups
 }
