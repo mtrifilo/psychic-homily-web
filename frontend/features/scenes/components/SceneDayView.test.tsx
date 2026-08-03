@@ -122,6 +122,66 @@ describe('SceneDayView — a night with shows', () => {
     expect(screen.getByText(/ROOMS WE TRACK IN PHOENIX/)).toBeInTheDocument()
   })
 
+  // PSY-1733: listing nights keep the slug data and link each room to its
+  // page here — not an external website.
+  it('links tracked rooms in the listing footer to their venue pages', () => {
+    render(<SceneDayView day={day()} />)
+    // Scope to the footer: show rows also mention venue names inside the
+    // whole-row show link, and a bare name query would match those too.
+    const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
+    expect(footer).not.toBeNull()
+    expect(within(footer as HTMLElement).getByRole('link', { name: 'Valley Bar' })).toHaveAttribute(
+      'href',
+      '/venues/valley-bar'
+    )
+    expect(
+      within(footer as HTMLElement).getByRole('link', { name: 'Crescent Ballroom' })
+    ).toHaveAttribute('href', '/venues/crescent-ballroom')
+    const footerLinks = within(footer as HTMLElement)
+      .getAllByRole('link')
+      .filter(a => a.getAttribute('href')?.startsWith('/venues/'))
+    expect(footerLinks).toHaveLength(2)
+    expect(
+      within(footer as HTMLElement)
+        .getAllByRole('link')
+        .every(a => {
+          const href = a.getAttribute('href') ?? ''
+          return href.startsWith('/venues/') || href === '/contribute'
+        })
+    ).toBe(true)
+  })
+
+  it('names a tracked room without a slug, unlinked, in the listing footer', () => {
+    render(
+      <SceneDayView
+        day={day({
+          tracked_venues: [room({ name: 'DIY Basement', slug: '' })],
+        })}
+      />
+    )
+    const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
+    expect(footer).not.toBeNull()
+    expect(within(footer as HTMLElement).getByText('DIY Basement')).toBeInTheDocument()
+    expect(
+      within(footer as HTMLElement).queryByRole('link', { name: 'DIY Basement' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('treats a whitespace-only slug as missing, not a broken /venues/ URL', () => {
+    render(
+      <SceneDayView
+        day={day({
+          tracked_venues: [room({ name: 'Whitespace Room', slug: '   ' })],
+        })}
+      />
+    )
+    const footer = screen.getByText(/ROOMS WE TRACK IN PHOENIX/).closest('footer')
+    expect(footer).not.toBeNull()
+    expect(
+      within(footer as HTMLElement).queryByRole('link', { name: 'Whitespace Room' })
+    ).not.toBeInTheDocument()
+  })
+
   it('offers adjacent-day navigation and a way to the week', () => {
     render(<SceneDayView day={day()} />)
     expect(screen.getByRole('link', { name: /Thu Jul 30/ })).toHaveAttribute(
@@ -206,27 +266,27 @@ describe('SceneDayView — a quiet night', () => {
   })
 
   // Being told we have nothing is exactly when a reader needs the means to
-  // check for themselves.
-  it('lists the rooms — their own site when we have one, their page here otherwise', () => {
+  // check for themselves — on OUR venue pages (PSY-1733), not off-site.
+  it('lists the rooms as links to their venue pages here', () => {
     render(<SceneDayView day={quiet()} />)
     expect(screen.getByText(/CHECK THE ROOMS DIRECTLY/)).toBeInTheDocument()
 
-    // Named exactly: "Club Congress" also appears inside the next-show pointer
-    // above, and the ↗ is what marks this one as leaving the site.
-    const external = screen.getByRole('link', { name: 'Club Congress ↗' })
-    expect(external).toHaveAttribute('href', 'https://hotelcongress.com/')
-    expect(external).toHaveAttribute('target', '_blank')
-    expect(external).toHaveAttribute('rel', 'noopener noreferrer nofollow')
-
+    expect(screen.getByRole('link', { name: 'Club Congress' })).toHaveAttribute(
+      'href',
+      '/venues/club-congress'
+    )
     expect(screen.getByRole('link', { name: 'La Rosa' })).toHaveAttribute(
       'href',
       '/venues/la-rosa'
     )
+    // External website on the payload must not become the href.
+    expect(screen.queryByRole('link', { name: 'Club Congress' })).not.toHaveAttribute(
+      'href',
+      'https://hotelcongress.com/'
+    )
   })
 
-  // Operator-supplied data reaching an href: a stored `javascript:` value must
-  // never become a link.
-  it('falls back to the venue page for an unsafe website value', () => {
+  it('ignores an unsafe website value and still links via slug', () => {
     render(
       <SceneDayView
         day={quiet({
@@ -242,7 +302,7 @@ describe('SceneDayView — a quiet night', () => {
     )
   })
 
-  it('names a room with neither a site nor a page, unlinked', () => {
+  it('names a room with no slug, unlinked', () => {
     render(
       <SceneDayView
         day={quiet({ tracked_venues: [room({ name: 'RV Phone Home', slug: '', website: '' })] })}

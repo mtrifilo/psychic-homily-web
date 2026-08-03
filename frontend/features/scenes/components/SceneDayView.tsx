@@ -9,13 +9,12 @@ import {
   formatPointerDay,
   formatShowPrice,
   formatShowStartTime,
-  venueWebsiteHref,
   type SceneDayResponse,
   type SceneDayShow,
-  type SceneTrackedVenue,
 } from '../sceneDay'
 import {
   SCENE_NAV_CHIP_CLASS,
+  RoomList,
   SceneBreadcrumb,
   SceneCityHeading,
   ShowStatusBadge,
@@ -70,51 +69,6 @@ function ShowRow({ show, sceneTimezone }: { show: SceneDayShow; sceneTimezone?: 
         )}
       </Link>
     </li>
-  )
-}
-
-/** One tracked room: its own site when we have one, its page here otherwise. */
-function RoomLink({ venue }: { venue: SceneTrackedVenue }) {
-  const website = venueWebsiteHref(venue.website)
-  if (website) {
-    return (
-      <a
-        href={website}
-        target="_blank"
-        rel="noopener noreferrer nofollow"
-        className="underline underline-offset-4 hover:text-primary"
-      >
-        {venue.name} ↗
-      </a>
-    )
-  }
-  if (venue.slug) {
-    return (
-      <Link
-        href={`/venues/${venue.slug}`}
-        className="underline underline-offset-4 hover:text-primary"
-      >
-        {venue.name}
-      </Link>
-    )
-  }
-  // No site and no page of its own: name it anyway. The list's job is to tell
-  // the reader WHICH rooms this page speaks for, and dropping one would
-  // misstate the coverage it is there to disclose.
-  return <span>{venue.name}</span>
-}
-
-/** `A · B · C`, with each room linked. */
-function RoomList({ venues }: { venues: SceneTrackedVenue[] }) {
-  return (
-    <p className="mt-2 text-sm leading-relaxed">
-      {venues.map((venue, i) => (
-        <span key={venue.slug || venue.name}>
-          {i > 0 && <span className="text-muted-foreground"> · </span>}
-          <RoomLink venue={venue} />
-        </span>
-      ))}
-    </p>
   )
 }
 
@@ -175,11 +129,11 @@ function EmptyNight({ day, weekHref }: { day: SceneDayResponse; weekHref: string
       {rooms.length > 0 && (
         <section className="mt-8">
           {/* The reader is being told we have nothing; the least we owe them is
-              the means to check for themselves. */}
+              a path into each room's page here (PSY-1733). */}
           <h2 className="font-mono text-[11px] tracking-widest text-muted-foreground">
             CHECK THE ROOMS DIRECTLY
           </h2>
-          <RoomList venues={rooms} />
+          <RoomList venues={rooms.map(({ name, slug }) => ({ name, slug }))} />
         </section>
       )}
 
@@ -285,9 +239,17 @@ export function SceneDayView({ day }: { day: SceneDayResponse }) {
         </ul>
       )}
 
-      {/* Only under a listing. The empty state names the same rooms as LINKS,
-          which is a different offer — see EmptyNight. */}
-      {total > 0 && <TrackedRoomsFooter city={day.city} roomNames={rooms.map(v => v.name)} />}
+      {/* Only under a listing. EmptyNight renders the same rooms under its own
+          heading (CHECK THE ROOMS DIRECTLY) — both paths share RoomList so the
+          /venues/{slug} destination cannot drift (PSY-1733). Project name+slug
+          only: SceneTrackedVenue also carries website, which is intentionally
+          not a footer href. */}
+      {total > 0 && (
+        <TrackedRoomsFooter
+          city={day.city}
+          rooms={rooms.map(({ name, slug }) => ({ name, slug }))}
+        />
+      )}
     </div>
   )
 }

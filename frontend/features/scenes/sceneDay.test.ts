@@ -9,7 +9,6 @@ import {
   formatShowPrice,
   formatShowStartTime,
   looksLikeCalendarDate,
-  venueWebsiteHref,
   type SceneDayResponse,
   type SceneDayShow,
 } from './sceneDay'
@@ -204,25 +203,5 @@ describe('dayShows', () => {
   // ever agree — or state a number the page cannot show.
   it('ignores a show_count that disagrees with the rows', () => {
     expect(dayShows(day({ show_count: 99 }))).toHaveLength(1)
-  })
-})
-
-describe('venueWebsiteHref', () => {
-  it('passes through an absolute http(s) URL', () => {
-    expect(venueWebsiteHref('https://hotelcongress.com')).toBe('https://hotelcongress.com/')
-  })
-
-  // Operator-supplied data reaching an href. A stored `javascript:` value would
-  // otherwise be stored XSS on a page that renders one link per room; the room
-  // falls back to its page here instead, which is a worse link and never an
-  // unsafe one.
-  it.each([
-    'javascript:alert(1)',
-    'data:text/html,<script>alert(1)</script>',
-    'hotelcongress.com',
-    '',
-    undefined,
-  ])('refuses %s', raw => {
-    expect(venueWebsiteHref(raw as string | undefined)).toBeNull()
   })
 })

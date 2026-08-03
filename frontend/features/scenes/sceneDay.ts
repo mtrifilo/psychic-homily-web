@@ -170,23 +170,3 @@ export function formatDayCountLine(total: number): string {
   if (total === 0) return '0 shows listed'
   return `${total} ${total === 1 ? 'show' : 'shows'}`
 }
-
-/**
- * A venue website safe to put in an `href`, or null.
- *
- * Venue websites are operator-supplied data reaching an anchor tag, so the
- * scheme is checked rather than assumed: a stored `javascript:` value would
- * otherwise be a stored-XSS vector on a page that renders one link per room.
- * Anything that is not an absolute http(s) URL is treated as "no website on
- * file", which lands the room on its internal page — a worse link, never an
- * unsafe one.
- */
-export function venueWebsiteHref(raw: string | undefined): string | null {
-  if (!raw) return null
-  try {
-    const url = new URL(raw)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null
-  } catch {
-    return null
-  }
-}

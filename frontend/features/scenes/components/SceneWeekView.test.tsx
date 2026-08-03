@@ -98,12 +98,18 @@ describe('SceneWeekView', () => {
   })
 
   // Load-bearing, not decoration: coverage is a curated slice, and a page that
-  // implied full city coverage would be false.
+  // implied full city coverage would be false. Week API still sends bare names
+  // (no slugs), so rooms stay unlinked until a follow-up enriches the payload.
   it('always discloses that coverage is partial', () => {
     render(<SceneWeekView week={week()} />)
     expect(screen.getByText(/Not a complete city listing/)).toBeInTheDocument()
-    expect(screen.getByText(/ROOMS WE TRACK IN CHICAGO/)).toBeInTheDocument()
-    expect(screen.getByText(/Empty Bottle · Thalia Hall/)).toBeInTheDocument()
+    const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
+    expect(footer).not.toBeNull()
+    expect(within(footer as HTMLElement).getByText('Empty Bottle')).toBeInTheDocument()
+    expect(within(footer as HTMLElement).getByText('Thalia Hall')).toBeInTheDocument()
+    expect(
+      within(footer as HTMLElement).queryByRole('link', { name: 'Empty Bottle' })
+    ).not.toBeInTheDocument()
   })
 
   it('links each show and shows its venue', () => {
