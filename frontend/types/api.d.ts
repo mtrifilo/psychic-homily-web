@@ -4442,6 +4442,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/graph/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get graph overview */
+        get: operations["get-graph-overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -12167,6 +12184,61 @@ export interface components {
              * @description Venue ID
              */
             venue_id: number;
+        };
+        GraphOverview: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GraphOverview.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            edge_count: number;
+            edges: components["schemas"]["GraphOverviewEdges"];
+            /** Format: date-time */
+            epoch: string;
+            /** Format: double */
+            extent: number;
+            hull_kind: string;
+            /** Format: int64 */
+            isolate_count: number;
+            /** Format: date-time */
+            last_mapped: string;
+            /** Format: int64 */
+            node_count: number;
+            nodes: components["schemas"]["GraphOverviewNodes"];
+            rank_metric: string;
+            regions: components["schemas"]["GraphOverviewRegion"][] | null;
+            /** Format: int64 */
+            version: number;
+        };
+        GraphOverviewEdges: {
+            appear: number[] | null;
+            /** @description Base64-encoded byte per edge slot: 0 = similarity, 1 = label spoke. Decode to a Uint8Array of length 2 * edge_count, index-aligned with targets. */
+            kind: string;
+            offsets: number[] | null;
+            targets: number[] | null;
+        };
+        GraphOverviewNodes: {
+            appear: number[] | null;
+            community: number[] | null;
+            degree: number[] | null;
+            id: number[] | null;
+            /** @description Base64-encoded byte per node: 0 = artist, 1 = label hub. Decode to a Uint8Array of length node_count. */
+            kind: string;
+            name: string[] | null;
+            rank: number[] | null;
+            slug: string[] | null;
+            x: number[] | null;
+            y: number[] | null;
+        };
+        GraphOverviewRegion: {
+            /** Format: int32 */
+            community: number;
+            hull: (number[] | null)[] | null;
+            label: string;
+            /** Format: int64 */
+            member_count: number;
         };
         HealthResponseBody: {
             /**
@@ -27701,6 +27773,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchFollowResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-graph-overview": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description ETag from a previous response; a match is answered with 304 */
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphOverview"];
                 };
             };
             /** @description Error */

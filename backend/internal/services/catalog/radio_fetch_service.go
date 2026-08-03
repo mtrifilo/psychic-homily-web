@@ -806,8 +806,8 @@ func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 		Name:     "radio_affinity",
 		Interval: s.affinityInterval,
 		StopCh:   s.stopCh,
-	}, func(_ context.Context) {
-		s.runAffinityCycle()
+	}, func(cycleCtx context.Context) {
+		s.runAffinityCycle(cycleCtx)
 	})
 }
 
@@ -1148,7 +1148,11 @@ func errorKindName(k errorKind) string {
 }
 
 // runAffinityCycle computes the artist affinity table and syncs to artist relationships.
-func (s *RadioFetchService) runAffinityCycle() {
+//
+// ctx bounds the steps that can run long enough to outlive a deploy — today
+// that is the overview snapshot's layout subprocess, which must be killed on
+// shutdown rather than left holding the container open.
+func (s *RadioFetchService) runAffinityCycle(ctx context.Context) {
 	start := time.Now()
 	s.logger.Info("starting affinity computation")
 
@@ -1190,6 +1194,50 @@ func (s *RadioFetchService) runAffinityCycle() {
 	if _, err := s.radioService.ComputeArtistCommunities(); err != nil {
 		s.logger.Error("artist community computation failed", "error", err)
 	}
+
+	s.runGraphOverviewSnapshot(ctx)
+}
+
+// runGraphOverviewSnapshot rebuilds the precomputed overview map.
+//
+// It runs LAST in the cycle and strictly AFTER the community partition, because
+// the map's regions are that partition's communities — building the map first
+// would colour tonight's geometry with last night's colouring.
+//
+// NON-FATAL, like every other derived step in this cycle. The snapshot table is
+// append-only, so a failure anywhere leaves the previous map live and served;
+// there is no partial state to clean up and nothing downstream to abort for.
+func (s *RadioFetchService) runGraphOverviewSnapshot(ctx context.Context) {
+	// The layout runs in a child process, and a shutdown must take it down with
+	// us rather than orphan it. RunScheduledLoop's context already carries the
+	// service context, but the immediate-trigger entrypoint passes a background
+	// one, so stopCh is wired in here for both paths — the same shape
+	// runReMatchCycle uses.
+	cycleCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if s.stopCh != nil {
+		go func() {
+			select {
+			case <-s.stopCh:
+				cancel()
+			case <-cycleCtx.Done():
+			}
+		}()
+	}
+
+	result, err := s.radioService.ComputeGraphOverviewSnapshot(cycleCtx)
+	if err != nil {
+		s.logger.Error("graph overview snapshot failed", "error", err)
+		return
+	}
+	s.logger.Info("graph overview snapshot complete",
+		"nodes", result.Nodes,
+		"edges", result.Edges,
+		"regions", result.Regions,
+		"isolates", result.Isolates,
+		"payload_bytes", result.PayloadBytes,
+		"duration", result.Duration,
+	)
 }
 
 // runReMatchCycle re-matches unmatched plays against current artists.
@@ -1594,7 +1642,7 @@ func (s *RadioFetchService) RunJanitorCycleNow() {
 
 // RunAffinityCycleNow triggers an immediate affinity computation (useful for testing/admin).
 func (s *RadioFetchService) RunAffinityCycleNow() {
-	s.runAffinityCycle()
+	s.runAffinityCycle(context.Background())
 }
 
 // RunReMatchCycleNow triggers an immediate re-match cycle (useful for testing/admin).

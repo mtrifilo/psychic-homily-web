@@ -18,6 +18,19 @@ import "time"
 // slice has length NodeCount and index i describes the same node in all of
 // them.
 //
+// ONE COLUMN IS NOT A JSON ARRAY. The `kind` columns are `[]uint8`, and Go's
+// encoding/json writes any `[]uint8` as a BASE64 STRING, not a list of numbers
+// — so on the wire (and in the generated TypeScript) `nodes.kind` and
+// `edges.kind` are strings, while every other column is an array. Decoding one
+// byte per element is what a client must do:
+//
+//	const kinds = Uint8Array.from(atob(overview.nodes.kind), (c) => c.charCodeAt(0));
+//
+// The decoded length is NodeCount (nodes) or 2*EdgeCount (edge slots), so the
+// columnar invariant holds after decoding. This is called out here and in each
+// field's `doc` tag because the asymmetry is invisible in the Go type and would
+// otherwise be discovered by a client indexing a string.
+//
 // The same struct is BOTH the stored snapshot and the response body. That is
 // deliberate: a separate serving type would be a second place for the schema to
 // drift, and the payload is stored pre-assembled precisely so serving does no
@@ -73,8 +86,10 @@ type GraphOverviewNodes struct {
 	// ID is the entity id. Pair it with Kind before treating it as a database
 	// key — artist ids and label-hub ids share this one numeric space.
 	ID []uint `json:"id"`
-	// Kind is one of the GraphOverviewNode* constants.
-	Kind []uint8 `json:"kind"`
+	// Kind is one of the GraphOverviewNode* constants, one byte per node.
+	// BASE64 ON THE WIRE — see the package comment above. Decoded length is
+	// NodeCount.
+	Kind []uint8 `json:"kind" doc:"Base64-encoded byte per node: 0 = artist, 1 = label hub. Decode to a Uint8Array of length node_count."`
 	// Name and Slug are the node's display name and its URL slug. A slug is
 	// never empty: an unlinkable node is not emitted.
 	Name []string `json:"name"`
@@ -112,8 +127,10 @@ type GraphOverviewEdges struct {
 	Offsets []int32 `json:"offsets"`
 	// Targets has length 2*EdgeCount: neighbour node indexes.
 	Targets []int32 `json:"targets"`
-	// Kind is one of the GraphOverviewEdge* constants, per slot.
-	Kind []uint8 `json:"kind"`
+	// Kind is one of the GraphOverviewEdge* constants, one byte per slot.
+	// BASE64 ON THE WIRE — see the package comment above. Decoded length is
+	// 2*EdgeCount, matching Targets.
+	Kind []uint8 `json:"kind" doc:"Base64-encoded byte per edge slot: 0 = similarity, 1 = label spoke. Decode to a Uint8Array of length 2 * edge_count, index-aligned with targets."`
 	// Appear is the edge's appearance time in seconds after
 	// GraphOverview.Epoch, per slot. An edge cannot predate either endpoint, so
 	// it is the later of the two.
