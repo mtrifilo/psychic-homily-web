@@ -107,11 +107,11 @@
 // text: rollback needs it, and a future policy that can tell safe prose from
 // unsafe would need it too.
 //
-// The complementary half is contributor-facing and lives in the frontend:
-// EntityEditDrawer's summary field says the text is public and permanent, so
-// the copy no longer implies the audience is moderators. Deciding to withhold
-// summaries does not make that copy accurate — the field is still world-
-// readable on every entity that is not a gated venue.
+// The complementary half is contributor-facing and lives in the frontend, on
+// the edit drawer's summary field: whatever that copy says, it must not imply
+// the audience is moderators. Withholding summaries on gated venues does not
+// remove that obligation — the field is still world-readable on every entity
+// that is not a gated venue, which is nearly all of them.
 //
 // ONE KNOWN GAP remains that is not closed by a field list, and it should not be
 // read as covered by the paragraphs above.

@@ -283,12 +283,8 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 // field, the author and the timestamp. That is the residual, and it is
 // deliberate — revision history exists to be auditable.
 //
-// Summary is the exception to "values, not fields": it is withheld whole,
-// because it is prose and there is nothing in it to key a field rule off. It is
-// withheld on EVERY revision of a gated venue, not only the ones whose diff
-// touches address or zipcode — a contributor who renames the room can still
-// type the street into the box, and a rule that only fired on address edits
-// would be trivially sidestepped by the summaries most likely to explain one.
+// Summary is the exception to "values, not fields": it is withheld whole. See
+// the package doc named above for why, and for what that costs.
 func (s *RevisionService) applyPrivacyRedaction(revisions []adminm.Revision) {
 	venueIDs := make([]uint, 0, len(revisions))
 	seen := make(map[uint]struct{}, len(revisions))
@@ -361,7 +357,6 @@ func (s *RevisionService) verifiedVenueIDs(ids []uint) map[uint]struct{} {
 // sensitive. Absent is the honest shape: the handler already declares summary
 // omitempty and the frontend already renders the row without it.
 //
-
 // It ALWAYS re-marshals rather than passing the stored bytes through when no
 // private field matched. Serving the stored bytes would make the guarantee
 // depend on the stored JSON having exactly the shape adminm.FieldChange models:

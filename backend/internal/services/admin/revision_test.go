@@ -642,11 +642,16 @@ func (s *RevisionServiceIntegrationTestSuite) createVerifiedTestVenue(name strin
 	return venue
 }
 
+// secretAddress is the value the whole gate exists to keep out of a response.
+// Single-sourced so a fixture and its assertions cannot drift onto different
+// strings and pass vacuously.
+const secretAddress = "1234 Secret St"
+
 // addressChanges is the diff an approved contributor address edit records.
 func addressChanges() []adminm.FieldChange {
 	return []adminm.FieldChange{
 		{Field: "name", OldValue: "Old Room", NewValue: "The Basement"},
-		{Field: "address", OldValue: "1 Old St", NewValue: "1234 Secret St"},
+		{Field: "address", OldValue: "1 Old St", NewValue: secretAddress},
 		{Field: "zipcode", OldValue: "85003", NewValue: "85004"},
 	}
 }
@@ -679,7 +684,19 @@ func (s *RevisionServiceIntegrationTestSuite) changesFor(r adminm.Revision) map[
 // addressChanges models: prose that republishes the value the diff beside it
 // masks. Every fixture records it, so the whole-payload assertions have
 // something to bite on in the prose slot as well as in the diff.
-const leakySummary = "corrected the address to 1234 Secret St"
+const leakySummary = "corrected the address to " + secretAddress
+
+// assertSummaryNotServed is the prose half of the gate, split out so the case
+// whose diff carries nothing private can assert it without also asserting a
+// mask. Prose is withheld whole rather than masked, so there is no sentinel to
+// look for, only absence. Checked against the whole marshalled revision so a
+// future writer that copies the summary under another key still fails.
+func (s *RevisionServiceIntegrationTestSuite) assertSummaryNotServed(r adminm.Revision) {
+	s.Nil(r.Summary, "a gated venue's summary must not be served")
+	served, err := json.Marshal(r)
+	s.Require().NoError(err)
+	s.NotContains(string(served), secretAddress, "no field of the response may carry the address")
+}
 
 // assertGatedVenueRevision pins the actual acceptance criterion first (neither
 // the old nor the new street address appears ANYWHERE in the served revision,
@@ -694,13 +711,7 @@ const leakySummary = "corrected the address to 1234 Secret St"
 // assertAddressMasked would read as unrelated to a summary leak.
 func (s *RevisionServiceIntegrationTestSuite) assertGatedVenueRevision(r adminm.Revision) {
 	s.Require().NotNil(r.FieldChanges)
-	served, err := json.Marshal(r)
-	s.Require().NoError(err)
-	s.NotContains(string(served), "1234 Secret St", "no field of the response may carry the address")
-
-	// Prose is withheld whole rather than masked, so there is no sentinel to
-	// look for, only absence.
-	s.Nil(r.Summary, "a gated venue's summary must not be served")
+	s.assertSummaryNotServed(r)
 
 	raw := string(*r.FieldChanges)
 	s.NotContains(raw, "1 Old St", "the old address must not be served either")
@@ -736,7 +747,7 @@ func (s *RevisionServiceIntegrationTestSuite) assertGatedVenueRevision(r adminm.
 func (s *RevisionServiceIntegrationTestSuite) assertPublishableVenueRevision(r adminm.Revision) {
 	byField := s.changesFor(r)
 	s.Equal("1 Old St", byField["address"].OldValue)
-	s.Equal("1234 Secret St", byField["address"].NewValue)
+	s.Equal(secretAddress, byField["address"].NewValue)
 	s.Equal("85003", byField["zipcode"].OldValue)
 	s.Equal("85004", byField["zipcode"].NewValue)
 
@@ -780,7 +791,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_RedactsUnveri
 	// verification restores, and what any future, finer policy would re-read.
 	var stored adminm.Revision
 	s.Require().NoError(s.db.First(&stored).Error)
-	s.Contains(string(*stored.FieldChanges), "1234 Secret St",
+	s.Contains(string(*stored.FieldChanges), secretAddress,
 		"the stored row must not be rewritten by a read")
 	s.Require().NotNil(stored.Summary)
 	s.Equal(leakySummary, *stored.Summary, "the stored prose must not be rewritten by a read")
@@ -817,7 +828,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_NilDBFai
 
 	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions)
 
-	s.NotContains(string(*revisions[0].FieldChanges), "1234 Secret St")
+	s.NotContains(string(*revisions[0].FieldChanges), secretAddress)
 	s.NotContains(string(*revisions[0].FieldChanges), "1 Old St")
 }
 
@@ -891,10 +902,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_WithholdsSumm
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
 
-	s.Nil(revisions[0].Summary)
-	served, err := json.Marshal(revisions[0])
-	s.Require().NoError(err)
-	s.NotContains(string(served), "1234 Secret St")
+	s.assertSummaryNotServed(revisions[0])
 
 	// The diff itself is untouched: nothing in it was private.
 	byField := s.changesFor(revisions[0])
@@ -961,7 +969,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresRealAddressFo
 
 	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
-		Update("address", "1234 Secret St").Error)
+		Update("address", secretAddress).Error)
 
 	var stored adminm.Revision
 	s.Require().NoError(s.db.First(&stored).Error)
@@ -1024,7 +1032,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverif
 
 	// Provenance, not a scrub: the stored diff still holds the real address, so
 	// rollback and the moderation surfaces are unaffected.
-	s.Contains(string(*moved.FieldChanges), "1234 Secret St",
+	s.Contains(string(*moved.FieldChanges), secretAddress,
 		"the merge must not rewrite stored history")
 }
 

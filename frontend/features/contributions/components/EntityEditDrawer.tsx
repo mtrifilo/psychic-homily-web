@@ -450,20 +450,13 @@ export function EntityEditDrawer({
               </div>
             )}
 
-            {/* Edit summary.
-
-                The helper text names the real audience. It used to say the note
+            {/* Edit summary */}
+            {/* The helper text names the real audience. It used to say the note
                 "helps reviewers understand your edit", which implied moderators
                 were the only readers: it is in fact published in the entity's
                 edit history, anonymously readable, attributed, and with no edit
                 or delete endpoint behind it. Contributors were writing the value
-                they were correcting into a box they thought was private, which
-                is how a private address reached a public page (PSY-1714).
-
-                It over-warns on purpose. Summaries on an unverified venue are
-                withheld at read time, so for that one case the note is not in
-                fact public, but telling a contributor the field is public when
-                it might not be is the direction that costs nothing. */}
+                they were correcting into a box they thought was private. */}
             <div className="space-y-1.5">
               <Label htmlFor="edit-summary" className="text-foreground">
                 Why are you making this change? <span className="text-red-400">*</span>

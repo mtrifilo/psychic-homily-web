@@ -462,15 +462,13 @@ func TestMapRevisionToResponse_NilFieldChanges(t *testing.T) {
 // carries no summary KEY at all, rather than an empty string a client could
 // still render as a blank line. Asserted on the JSON, not on the struct, because
 // omitempty is the part that could regress silently.
+//
+// Built from the fully-populated fixture with only Summary cleared, so it also
+// shows summary is the ONLY key that disappears — a payload that dropped several
+// keys would not distinguish withholding from a broken response.
 func TestMapRevisionToResponse_NilSummaryOmittedFromPayload(t *testing.T) {
-	r := adminm.Revision{
-		ID:         1,
-		EntityType: "venue",
-		EntityID:   10,
-		UserID:     5,
-		Summary:    nil,
-		CreatedAt:  time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
-	}
+	r := makeTestRevision(1)
+	r.Summary = nil
 
 	encoded, err := json.Marshal(mapRevisionToResponse(r))
 	if err != nil {
@@ -483,6 +481,11 @@ func TestMapRevisionToResponse_NilSummaryOmittedFromPayload(t *testing.T) {
 	}
 	if _, present := payload["summary"]; present {
 		t.Errorf("expected no summary key in payload, got %s", encoded)
+	}
+	for _, key := range []string{"id", "entity_type", "entity_id", "user_id", "user_name", "changes", "created_at"} {
+		if _, present := payload[key]; !present {
+			t.Errorf("expected %q to survive, got %s", key, encoded)
+		}
 	}
 }
 

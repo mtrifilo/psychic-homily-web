@@ -114,12 +114,12 @@ func resolveRevisionUserUsername(u *authm.User) *string {
 // function publishes the result verbatim. Do not read revisions.field_changes
 // or revisions.summary into a response through any other path.
 //
-// Summary is covered by that gate as of PSY-1714, but differently from the
-// diff: a gated revision arrives here with a nil Summary, which Deref turns
-// into "" and omitempty drops from the payload. There is no mask string to
-// recognise, so an empty summary here means EITHER the contributor wrote none
-// or the revision is gated — do not add a branch that tries to tell them apart,
-// because the whole point is that the response cannot.
+// Summary is covered by that gate too, but differently from the diff: a gated
+// revision arrives here with a nil Summary, which Deref turns into "" and
+// omitempty drops from the payload. There is no mask string to recognise, so an
+// empty summary here means EITHER the contributor wrote none or the revision is
+// gated — do not add a branch that tries to tell them apart, because the whole
+// point is that the response cannot.
 func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 	item := RevisionResponseItem{
 		ID:           r.ID,
