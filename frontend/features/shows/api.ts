@@ -7,7 +7,6 @@
  */
 
 import { API_BASE_URL } from '@/lib/api-base'
-import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 
 // ============================================================================
 // Endpoints
@@ -51,7 +50,10 @@ export const showQueryKeys = {
   all: ['shows'] as const,
   list: (filters?: Record<string, unknown>) =>
     ['shows', 'list', filters] as const,
-  cities: (timezone?: string) => ['shows', 'cities', timezone] as const,
+  // No timezone segment: `GET /shows/cities` counts the same venue-local
+  // upcoming partition for every visitor (PSY-1678), so a per-viewer key would
+  // fragment the cache across entries that can only ever hold identical data.
+  cities: () => ['shows', 'cities'] as const,
   detail: (id: string) => ['shows', 'detail', id] as const,
   userShows: (userId: string) => ['shows', 'user', userId] as const,
   search: (query: string) => ['shows', 'search', query.toLowerCase()] as const,
@@ -70,45 +72,40 @@ export const showQueryKeys = {
  * after the browser has downloaded, parsed and run the bundle.
  *
  * "First render" is doing real work in that sentence. `ShowList` derives its
- * city filter during render from three per-visitor sources (the `?cities=`
- * param, the signed-in viewer's `favorite_cities`, and the IP-geo default) and
- * asks for the viewer's timezone. None of that is knowable by a server
- * rendering one cacheable answer for everyone, so the seeded pair is the
- * CANONICAL one: no filter, and `CANONICAL_FIRST_SCREEN_TIMEZONE` in place of
- * the viewer's zone. Two of the three filter sources resolve to exactly that on
- * a first render anyway, since geo arrives from a later client fetch and a bare
- * URL contributes no filter, and `useBrowserTimezone` reports the same
- * canonical zone through hydration.
+ * city filter during render from three per-visitor sources: the `?cities=`
+ * param, the signed-in viewer's `favorite_cities`, and the IP-geo default. None
+ * of that is knowable by a server rendering one cacheable answer for everyone,
+ * so the seeded pair is the CANONICAL one: no filter at all. Two of the three
+ * sources resolve to exactly that on a first render anyway, since geo arrives
+ * from a later client fetch and a bare URL contributes no filter.
  *
  * A filtered deep link, and a signed-in viewer whose `favorite_cities` apply,
  * both MISS this entry. The hook and the seed disagree, so both render passes
  * agree on the skeleton and those pages behave exactly as they did before this
  * existed. That is the failure mode by design: degraded, never mismatched. The
- * favourites case is an accepted limitation of this ticket rather than an
- * oversight; giving it a server-rendered first screen means resolving
- * per-visitor state on a cacheable route, which is a separate decision.
+ * favourites case is an accepted limitation rather than an oversight; giving it
+ * a server-rendered first screen means resolving per-visitor state on a
+ * cacheable route, which is a separate decision.
  *
- * The timezone is part of both the URL and the key, so the two must be built
- * from one value. They are declared together for the same reason the pairing
- * exists at all, and it is unenforceable at the type level:
- * `useShowsFirstScreen.test.tsx` asserts the hooks really do register these
- * keys against these URLs. The sibling `useShows.test.tsx` cannot, because it
- * `vi.mock`s this module and so never sees the real constants. A drifted pair
- * produces no error anywhere, just a page that quietly stops being
- * server-rendered.
+ * WHAT MAKES THE SEED LAND, and the reason PSY-1678 could delete the machinery
+ * PSY-1624 needed: these requests now carry NO per-viewer input. `GET
+ * /shows/upcoming` decides "upcoming" against each show's own venue timezone, so
+ * one canonical answer is the correct answer for every visitor. The bare URL and
+ * the filterless key below are therefore exactly what the hooks ask for on a
+ * cold anon `/shows` — the seeded entry is a hit, and the hydration commit has
+ * nothing to refetch. Under the old viewer-timezone contract they could only
+ * ever be an approximation that the client then re-fetched and discarded.
+ *
+ * The URL and the key have to stay a matched pair, and that is unenforceable at
+ * the type level: `useShowsFirstScreen.test.tsx` asserts the hooks really do
+ * register these keys against these URLs. The sibling `useShows.test.tsx`
+ * cannot, because it `vi.mock`s this module and so never sees the real
+ * constants. A drifted pair produces no error anywhere, just a page that quietly
+ * stops being server-rendered.
  */
-// Built with URLSearchParams rather than string concatenation so the encoding
-// matches the hooks byte for byte; they build their query strings the same way,
-// and `America/Los_Angeles` contains a slash that has to arrive as %2F on both
-// sides or the contract test is comparing two different URLs.
-const FIRST_SCREEN_TIMEZONE_PARAM = new URLSearchParams({
-  timezone: CANONICAL_FIRST_SCREEN_TIMEZONE,
-}).toString()
-
-export const UPCOMING_SHOWS_FIRST_SCREEN_URL = `${showEndpoints.UPCOMING}?${FIRST_SCREEN_TIMEZONE_PARAM}`
+export const UPCOMING_SHOWS_FIRST_SCREEN_URL = showEndpoints.UPCOMING
 
 export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
-  timezone: CANONICAL_FIRST_SCREEN_TIMEZONE,
   cursor: undefined,
   limit: undefined,
   city: undefined,
@@ -118,8 +115,6 @@ export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
   tagMatch: undefined,
 })
 
-export const SHOW_CITIES_FIRST_SCREEN_URL = `${showEndpoints.CITIES}?${FIRST_SCREEN_TIMEZONE_PARAM}`
+export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
 
-export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities(
-  CANONICAL_FIRST_SCREEN_TIMEZONE
-)
+export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities()

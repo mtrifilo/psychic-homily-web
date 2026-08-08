@@ -22,12 +22,15 @@ import (
 // built from utils.StateTimezones rather than restating it.
 //
 // MIGRATED so far: artist show lists, venue show lists, the artist graph card's
-// next-show, and the saved-shows list.
+// next-show, the saved-shows list, and the main /shows feed
+// (catalog.ShowService.GetUpcomingShows and its GetShowCities picker counts).
 //
 // NOT migrated — do not read the paragraph above as a description of the whole
 // repo, because these still draw their own boundary:
-//   - catalog.ShowService.GetUpcomingShows / GetShowCities — the main /shows
-//     feed, still start-of-today in the CALLER's zone (PSY-1678 owns it).
+//   - catalog/tag_intersection.go — the tag-page entity counts, start-of-today
+//     in UTC. It disclaims parity with the /shows list in its own comment; the
+//     reason it gave (no request timezone to work from) no longer applies now
+//     that the boundary needs no timezone at all.
 //   - engagement/venue_calendar.go upcomingShowsForVenue — the venue ICS feed,
 //     start-of-today in the QUERIED venue's zone, so it can disagree with the
 //     venue page for a show booked at two venues.

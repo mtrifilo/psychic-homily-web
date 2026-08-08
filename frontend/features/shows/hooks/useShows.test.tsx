@@ -57,20 +57,24 @@ describe('useShows', () => {
       })
     })
 
-    it('includes timezone in query params when provided', async () => {
+    // The hook must send NO timezone, ever (PSY-1678). A default-options call
+    // hitting the bare endpoint is what makes the server-seeded first screen a
+    // cache hit rather than an approximation the client refetches; the contract
+    // between the URL and the seeded key is pinned in
+    // useShowsFirstScreen.test.tsx, which uses the real api module.
+    it('sends no timezone parameter on a default call', async () => {
       mockApiRequest.mockResolvedValueOnce({ shows: [], has_more: false })
 
-      const { result } = renderHook(
-        () => useUpcomingShows({ timezone: 'America/Phoenix' }),
-        { wrapper: createWrapper() }
-      )
+      const { result } = renderHook(() => useUpcomingShows(), {
+        wrapper: createWrapper(),
+      })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(mockApiRequest).toHaveBeenCalledWith(
-        '/shows/upcoming?timezone=America%2FPhoenix',
-        { method: 'GET' }
-      )
+      expect(mockApiRequest).toHaveBeenCalledWith('/shows/upcoming', {
+        method: 'GET',
+      })
+      expect(mockApiRequest.mock.calls[0][0]).not.toContain('timezone')
     })
 
     it('includes cursor for pagination', async () => {
@@ -110,9 +114,10 @@ describe('useShows', () => {
       const { result } = renderHook(
         () =>
           useUpcomingShows({
-            timezone: 'America/Phoenix',
             cursor: 'page2',
             limit: 25,
+            city: 'Phoenix',
+            state: 'AZ',
           }),
         { wrapper: createWrapper() }
       )
@@ -121,9 +126,10 @@ describe('useShows', () => {
 
       // URL should contain all params
       const calledUrl = mockApiRequest.mock.calls[0][0]
-      expect(calledUrl).toContain('timezone=America%2FPhoenix')
       expect(calledUrl).toContain('cursor=page2')
       expect(calledUrl).toContain('limit=25')
+      expect(calledUrl).toContain('city=Phoenix')
+      expect(calledUrl).toContain('state=AZ')
     })
 
     it('returns has_more flag for pagination', async () => {

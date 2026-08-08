@@ -106,14 +106,14 @@ export function parseCalendarDate(iso: string): Date {
 /**
  * The zone the cross-city week index names its week in.
  *
- * It holds the same value as `lib/canonicalTimezone.ts`'s
- * `CANONICAL_FIRST_SCREEN_TIMEZONE` and is deliberately NOT that constant.
- * That one places the start-of-today boundary for `GET /shows/upcoming`, and
- * its safety argument is specific to that question: everything the boundary
- * excludes has already started, so it cannot hide an upcoming show from anyone.
- * None of that reasoning transfers to picking which Monday a heading names. Its
- * own docstring also says PSY-1678 retires it along with the `timezone`
- * parameter, and whoever does that must not silently take this surface with it.
+ * It used to hold the same value as `lib/canonicalTimezone.ts`'s
+ * `CANONICAL_FIRST_SCREEN_TIMEZONE`, and was deliberately NOT that constant.
+ * PSY-1678 has since deleted that one outright: `GET /shows/upcoming` places
+ * its boundary per show, in the show's own venue zone, and needs no canonical
+ * viewer zone at all. This constant survived that deletion on purpose, which is
+ * the whole reason the two were kept separate — nothing about resolving
+ * "upcoming" transfers to picking which Monday a heading names, so there is no
+ * per-row zone to move this to.
  *
  * A single zone is a compromise here, not a correct answer. The per-row counts
  * are each scene's own calendar week, exact against the page the row links to

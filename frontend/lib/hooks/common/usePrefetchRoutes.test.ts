@@ -21,16 +21,20 @@ vi.mock('../../api', () => ({
 
 vi.mock('../../queryClient', () => ({
   queryKeys: {
-    shows: {
-      list: (params: unknown) => ['shows', 'list', params],
-      cities: (tz: string) => ['shows', 'cities', tz],
-    },
     venues: {
       list: (params: unknown) => ['venues', 'list', params],
       cities: ['venues', 'cities'],
     },
   },
 }))
+
+// Deliberately NOT mocked: the show entries must be prefetched under the REAL
+// first-screen constants, which is what makes them the entry an arriving
+// `/shows` reads rather than a sibling that merely hashes the same today.
+import {
+  SHOW_CITIES_FIRST_SCREEN_KEY,
+  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
+} from '@/features/shows/api'
 
 describe('usePrefetchRoutes', () => {
   let originalRequestIdleCallback: typeof window.requestIdleCallback
@@ -53,7 +57,7 @@ describe('usePrefetchRoutes', () => {
     window.requestIdleCallback = mockRIC
     window.cancelIdleCallback = mockCIC
 
-    const { unmount } = renderHook(() => usePrefetchRoutes('America/Phoenix'))
+    const { unmount } = renderHook(() => usePrefetchRoutes())
 
     expect(mockRIC).toHaveBeenCalledWith(expect.any(Function))
 
@@ -69,7 +73,7 @@ describe('usePrefetchRoutes', () => {
 
     vi.useFakeTimers()
 
-    const { unmount } = renderHook(() => usePrefetchRoutes('America/Phoenix'))
+    const { unmount } = renderHook(() => usePrefetchRoutes())
 
     // The prefetch should not have been called yet
     expect(mockPrefetchQuery).not.toHaveBeenCalled()
@@ -89,9 +93,34 @@ describe('usePrefetchRoutes', () => {
     window.requestIdleCallback = vi.fn(() => 99)
     window.cancelIdleCallback = cancelSpy
 
-    const { unmount } = renderHook(() => usePrefetchRoutes('America/Phoenix'))
+    const { unmount } = renderHook(() => usePrefetchRoutes())
     unmount()
 
     expect(cancelSpy).toHaveBeenCalledWith(99)
+  })
+
+  // The point of the prefetch, and the thing PSY-1678 made possible: the two
+  // show entries must be warmed under the SAME keys `/shows` reads on arrival.
+  // Keying them on the viewer's timezone (what this hook did before) warmed
+  // entries that page never looked at, so the prefetch was a guaranteed miss.
+  it('warms the show entries under the first-screen keys, with no timezone', () => {
+    window.requestIdleCallback = vi.fn((cb: IdleRequestCallback) => {
+      cb({ didTimeout: false, timeRemaining: () => 50 })
+      return 1
+    })
+    window.cancelIdleCallback = vi.fn()
+
+    // Unmounted inside the test, not left to auto-cleanup: this file's
+    // afterEach restores the idle-callback globals, and jsdom has no real
+    // `cancelIdleCallback` to restore, so a deferred unmount tears down against
+    // an undefined global.
+    const { unmount } = renderHook(() => usePrefetchRoutes())
+
+    const keys = mockPrefetchQuery.mock.calls.map(c => c[0].queryKey)
+    expect(keys).toContainEqual(UPCOMING_SHOWS_FIRST_SCREEN_KEY)
+    expect(keys).toContainEqual(SHOW_CITIES_FIRST_SCREEN_KEY)
+    expect(JSON.stringify(keys)).not.toContain('timezone')
+
+    unmount()
   })
 })

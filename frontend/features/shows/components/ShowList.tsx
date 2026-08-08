@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { DensityToggle } from '@/components/shared'
-import { useBrowserTimezone } from '@/lib/hooks/common/useBrowserTimezone'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { ShowCard } from './ShowCard'
 import { ShowListSkeleton } from './ShowListSkeleton'
@@ -84,16 +83,6 @@ export function ShowList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  // The shared canonical zone until the hydration render has committed, then
-  // the viewer's own. Reading `Intl` directly here would key the server render
-  // on the SERVER's zone and the client's on the viewer's, so the server-seeded
-  // first screen (PSY-1624) could never be the entry this hook reads. Both
-  // requests below therefore send `CANONICAL_FIRST_SCREEN_TIMEZONE` on that
-  // first pass, which is where the seed is keyed; the viewer's zone arrives one
-  // render later and `keepPreviousData` holds the rows on screen while it
-  // refetches. PSY-1678 removes the parameter and this two-phase read with it.
-  const timezone = useBrowserTimezone()
-
   // Any explicit selection (?cities=<pick>, ?cities=all, or legacy single-city)
   // means geo must not seed. Authed favorites also stand the geo hook down
   // (handled inside the hook via favoriteCities + isAuthenticated).
@@ -106,9 +95,7 @@ export function ShowList() {
     isLoading: citiesLoading,
     isFetching: citiesFetching,
     isPlaceholderData: citiesArePlaceholder,
-  } = useShowCities({
-    timezone,
-  })
+  } = useShowCities()
 
   // Map ShowCity → CityWithCount (the has-shows list). Lifted above the early
   // returns so the geo hook can read it unconditionally.
@@ -163,7 +150,6 @@ export function ShowList() {
     error,
     refetch,
   } = useUpcomingShows({
-    timezone,
     cursor,
     cities: selectedCities.length > 0 ? selectedCities : undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
@@ -288,14 +274,16 @@ export function ShowList() {
 
   // Track if we're updating (fetching but already have data)
   // Dim only while the rows on screen belong to a DIFFERENT query than the one
-  // being awaited — a filter change, or the post-hydration timezone refinement,
-  // where `keepPreviousData` is holding the old page in place.
-  // `isPlaceholderData` says exactly that; raw `isFetching` does not, and using
-  // it would dim a same-key background revalidation. That distinction became
-  // visible in PSY-1624: the server-seeded first screen arrives stale by
-  // construction (`seedFirstScreen` stamps `dataUpdatedAt: 0`), so `isFetching`
-  // is true on the very first client commit and the freshly server-rendered
-  // list would fade to 60% the instant it hydrated — the opposite of the point.
+  // being awaited — a filter change, where `keepPreviousData` is holding the old
+  // page in place. `isPlaceholderData` says exactly that; raw `isFetching` does
+  // not, and using it would dim a same-key background revalidation. That
+  // distinction became visible in PSY-1624: the server-seeded first screen
+  // arrives stale by construction (`seedFirstScreen` stamps `dataUpdatedAt: 0`),
+  // so `isFetching` is true on the very first client commit and the freshly
+  // server-rendered list would fade to 60% the instant it hydrated — the
+  // opposite of the point. PSY-1678 removed the OTHER trigger this guarded
+  // against, the post-hydration timezone refinement, by removing the timezone
+  // from the key; the seeded revalidation remains and so does this guard.
   const isUpdating =
     (isFetching && isPlaceholderData) ||
     (citiesFetching && citiesArePlaceholder) ||

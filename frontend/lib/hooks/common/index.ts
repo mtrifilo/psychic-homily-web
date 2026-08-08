@@ -1,6 +1,5 @@
 export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
-export { useBrowserTimezone } from './useBrowserTimezone'
 
 export { useHydrated } from './useHydrated'
 

@@ -61,13 +61,12 @@ describe('showQueryKeys', () => {
     ])
   })
 
-  it('carries the optional timezone segment in the cities key', () => {
-    expect(showQueryKeys.cities()).toEqual(['shows', 'cities', undefined])
-    expect(showQueryKeys.cities('America/Phoenix')).toEqual([
-      'shows',
-      'cities',
-      'America/Phoenix',
-    ])
+  // No per-viewer segment (PSY-1678): /shows/cities counts one venue-local
+  // partition for everyone, so a timezone segment could only fragment the cache
+  // across entries holding identical data — and would break the server-seeded
+  // first screen, which keys on exactly this.
+  it('keys cities on nothing but the collection', () => {
+    expect(showQueryKeys.cities()).toEqual(['shows', 'cities'])
   })
 
   it('scopes the detail key by id', () => {

@@ -13,7 +13,6 @@ import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '..
 import { buildCitiesParam } from '@/components/filters/cityParams'
 
 interface UseUpcomingShowsOptions {
-  timezone?: string
   cursor?: string
   limit?: number
   /** Legacy single-city filter */
@@ -29,14 +28,20 @@ interface UseUpcomingShowsOptions {
 }
 
 /**
- * Hook to fetch upcoming shows with cursor-based pagination
+ * Hook to fetch upcoming shows with cursor-based pagination.
+ *
+ * No timezone: whether a show is still upcoming is decided against its own
+ * venue's zone, so the response is the same for every viewer (PSY-1678). That is
+ * what lets the server-seeded first screen be a cache HIT rather than an
+ * approximation the hydration commit has to refetch — see the seeding contract
+ * in `features/shows/api.ts`. Do not reintroduce a per-viewer key segment here
+ * without changing that contract too.
  */
 export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
-  const { timezone, cursor, limit, city, state, cities, tags, tagMatch } = options
+  const { cursor, limit, city, state, cities, tags, tagMatch } = options
 
   // Build query params
   const params = new URLSearchParams()
-  if (timezone) params.set('timezone', timezone)
   if (cursor) params.set('cursor', cursor)
   if (limit) params.set('limit', limit.toString())
 
@@ -60,7 +65,6 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
 
   return useQuery({
     queryKey: showQueryKeys.list({
-      timezone,
       cursor,
       limit,
       city,
@@ -95,29 +99,18 @@ export const useShow = (showId: string | number) => {
   })
 }
 
-interface UseShowCitiesOptions {
-  timezone?: string
-}
-
 /**
- * Hook to fetch cities that have upcoming shows with counts
+ * Hook to fetch cities that have upcoming shows with counts.
+ *
+ * Takes no options, and no timezone in particular: the counts cover the same
+ * venue-local upcoming partition `useUpcomingShows` lists, so every viewer gets
+ * the same answer (PSY-1678).
  */
-export const useShowCities = (options: UseShowCitiesOptions = {}) => {
-  const { timezone } = options
-
-  // Build query params
-  const params = new URLSearchParams()
-  if (timezone) params.set('timezone', timezone)
-
-  const queryString = params.toString()
-  const endpoint = queryString
-    ? `${showEndpoints.CITIES}?${queryString}`
-    : showEndpoints.CITIES
-
+export const useShowCities = () => {
   return useQuery({
-    queryKey: showQueryKeys.cities(timezone),
+    queryKey: showQueryKeys.cities(),
     queryFn: async (): Promise<ShowCitiesResponse> => {
-      return apiRequest<ShowCitiesResponse>(endpoint, {
+      return apiRequest<ShowCitiesResponse>(showEndpoints.CITIES, {
         method: 'GET',
       })
     },

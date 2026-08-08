@@ -50,18 +50,12 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: () => ({ density: 'comfortable', setDensity: vi.fn() }),
 }))
 
-// The canonical zone is what `useBrowserTimezone` reports on the SERVER render
-// and the hydration render, which is the commit this file is about. A plain
-// `render()` is neither, so the real hook would report the jsdom zone here and
-// key the query away from the seed. That the real hook resolves to this value
-// server-side is pinned separately, by `useBrowserTimezone.test.tsx` via
-// `renderToString`.
-vi.mock('@/lib/hooks/common/useBrowserTimezone', async () => {
-  const { CANONICAL_FIRST_SCREEN_TIMEZONE } = await import(
-    '@/lib/canonicalTimezone'
-  )
-  return { useBrowserTimezone: () => CANONICAL_FIRST_SCREEN_TIMEZONE }
-})
+// No timezone mock. There used to be one here, standing in for what
+// `useBrowserTimezone` reported on the server and hydration renders, because
+// the real hook would have reported the jsdom zone under a plain `render()` and
+// keyed the query away from the seed. PSY-1678 removed the parameter, so the
+// component asks for the canonical entry unconditionally and the seed lands
+// with nothing faked.
 
 vi.mock('@/components/filters/useGeoDefaultCity', () => ({
   useGeoDefaultCity: () => ({
@@ -106,9 +100,9 @@ const seededCities = {
 /**
  * The composition the ticket actually delivers, as opposed to its parts.
  *
- * The pieces each have their own tests — the key/URL pairing, the server
- * snapshot of `useBrowserTimezone`, the mechanics of `seedFirstScreen`. None
- * of them notice if the assembled page stops server-rendering, and the ways
+ * The pieces each have their own tests — the key/URL pairing, the mechanics of
+ * `seedFirstScreen`. None of them notice if the assembled page stops
+ * server-rendering, and the ways
  * that can happen are ordinary edits: widening the `isLoading && !data` gate,
  * passing a `limit` from `ShowList`, adding a query the component blocks on.
  * Every one of those leaves this file's siblings green.

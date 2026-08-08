@@ -16,12 +16,7 @@ export function FavoriteCitiesSettings() {
   const { data: profileData } = useProfile()
   const setFavoriteCities = useSetFavoriteCities()
 
-  const timezone =
-    typeof window !== 'undefined'
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : 'America/Phoenix'
-
-  const { data: citiesData, isLoading: citiesLoading } = useShowCities({ timezone })
+  const { data: citiesData, isLoading: citiesLoading } = useShowCities()
 
   const favoriteCities: CityState[] = useMemo(() => {
     const prefs = profileData?.user?.preferences

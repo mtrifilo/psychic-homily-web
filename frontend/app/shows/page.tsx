@@ -25,7 +25,6 @@ import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_ENDPOINTS } from '@/lib/api'
 import { API_BASE_URL } from '@/lib/api-base'
-import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
@@ -127,11 +126,13 @@ export const UPCOMING_SHOWS_LIMIT = 50
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    // The canonical zone matters even here: it decides where start-of-today
-    // falls, so omitting it would advertise last night's shows to a crawler.
+    // No timezone: the endpoint decides "upcoming" against each show's own
+    // venue zone (PSY-1678), so this JSON-LD block advertises exactly the rows
+    // the page renders. It used to have to name a canonical zone here, because
+    // omitting it meant taking the API's UTC default and advertising last
+    // night's finished shows to a crawler.
     url: `${API_BASE_URL}/shows/upcoming?${new URLSearchParams({
       limit: String(UPCOMING_SHOWS_LIMIT),
-      timezone: CANONICAL_FIRST_SCREEN_TIMEZONE,
     })}`,
     collection: 'shows',
     service: 'shows-listing',
