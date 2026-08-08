@@ -15,7 +15,7 @@ func TestApplyGeocoding(t *testing.T) {
 
 	t.Run("US venue resolved by state", func(t *testing.T) {
 		v := &catalogm.Venue{City: "Phoenix", State: "AZ"}
-		s.applyGeocoding(v)
+		s.applyGeocoding(s.db, v)
 		if v.Timezone == nil || *v.Timezone != "America/Phoenix" {
 			t.Fatalf("timezone = %v, want America/Phoenix", v.Timezone)
 		}
@@ -31,7 +31,7 @@ func TestApplyGeocoding(t *testing.T) {
 	t.Run("international venue resolved by country name", func(t *testing.T) {
 		country := "Netherlands"
 		v := &catalogm.Venue{City: "Amsterdam", State: "NL", Country: &country}
-		s.applyGeocoding(v)
+		s.applyGeocoding(s.db, v)
 		if v.Timezone == nil || *v.Timezone != "Europe/Amsterdam" {
 			t.Fatalf("timezone = %v, want Europe/Amsterdam", v.Timezone)
 		}
@@ -39,7 +39,7 @@ func TestApplyGeocoding(t *testing.T) {
 
 	t.Run("geocode miss leaves all fields nil (legacy fallback)", func(t *testing.T) {
 		v := &catalogm.Venue{City: "Nowherecityville", State: "ZZ"}
-		s.applyGeocoding(v)
+		s.applyGeocoding(s.db, v)
 		// All-or-nothing invariant: a miss must leave lat/lng/timezone/metro ALL nil.
 		// UpdateVenue relies on this — it forwards these pointers straight into the
 		// GORM updates map, so a miss must write SQL NULL across all four (PSY-1255).
@@ -51,7 +51,7 @@ func TestApplyGeocoding(t *testing.T) {
 	t.Run("nil geocoder is a no-op", func(t *testing.T) {
 		ns := &VenueService{}
 		v := &catalogm.Venue{City: "Phoenix", State: "AZ"}
-		ns.applyGeocoding(v)
+		ns.applyGeocoding(ns.db, v)
 		if v.Timezone != nil {
 			t.Errorf("expected no-op with nil geocoder, got %q", *v.Timezone)
 		}

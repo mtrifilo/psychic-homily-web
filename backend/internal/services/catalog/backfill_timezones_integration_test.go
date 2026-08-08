@@ -139,6 +139,47 @@ func (suite *BackfillIntegrationTestSuite) TestBackfill_ReanchorsBerlinShowAndCa
 	suite.Equal(0, report.VenuesUpdated)
 }
 
+// A zone the server's catalog does not carry is NOT a geocoder miss: the
+// coordinates must still be written, and the report must distinguish the two.
+// See BackfillReport.VenuesTzRejected for why.
+func (suite *BackfillIntegrationTestSuite) TestBackfill_RejectedZoneKeepsCoordinates() {
+	slug := "v-rejected-zone"
+	venue := &catalogm.Venue{Name: "Bad Zone Room", Slug: &slug, City: "Nowhere", State: "ZZ"}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+
+	stub := stubGeocoder{byCity: map[string]geo.Result{
+		"Nowhere": {Latitude: 12.345678, Longitude: -98.765432, Timezone: "Not/AZone"},
+	}}
+
+	// Dry run classifies the same way a live run does, and writes nothing.
+	report, err := BackfillVenueTimezones(suite.db, stub, BackfillOptions{DryRun: true})
+	suite.Require().NoError(err)
+	suite.Equal(1, report.VenuesTzRejected)
+	suite.Equal(0, report.VenuesMissed, "a rejected zone is not a geocoder miss")
+	suite.Empty(report.Errors)
+
+	var afterDry catalogm.Venue
+	suite.Require().NoError(suite.db.First(&afterDry, venue.ID).Error)
+	suite.Nil(afterDry.Latitude, "dry-run must not write coordinates")
+
+	report, err = BackfillVenueTimezones(suite.db, stub, BackfillOptions{DryRun: false})
+	suite.Require().NoError(err)
+	suite.Equal(1, report.VenuesTzRejected)
+	suite.Equal(0, report.VenuesMissed, "a rejected zone is not a geocoder miss")
+	suite.Empty(report.Errors)
+	suite.Require().Len(report.VenueChanges, 1)
+	suite.Equal("skip:invalid-tz", report.VenueChanges[0].Action)
+
+	var stored catalogm.Venue
+	suite.Require().NoError(suite.db.First(&stored, venue.ID).Error)
+	suite.Require().NotNil(stored.Latitude,
+		"the geocoder hit, so the coordinate update must survive the rejected zone")
+	suite.InDelta(12.345678, *stored.Latitude, 1e-6)
+	suite.Require().NotNil(stored.Longitude)
+	suite.InDelta(-98.765432, *stored.Longitude, 1e-6)
+	suite.Nil(stored.Timezone, "an unresolvable zone must never be persisted")
+}
+
 // A correctly-stored explicit-time US show must NOT be re-anchored — the
 // regression guard for the adversarial-review CRITICAL finding, exercised
 // through the real assumed-zone derivation (full StateTimezones map).

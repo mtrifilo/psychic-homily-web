@@ -94,9 +94,15 @@ func NormalizeIANATimezone(db *gorm.DB, tz *string) (*string, error) {
 // does not carry it.
 //
 // One home for the log-and-NULL policy, because that policy is the part most
-// likely to change and it has five call sites across two packages: the venue
-// create/update path, the pending-edit approval, both data_sync venue seams,
-// and the backfill CLI.
+// likely to change. THE authoritative census of who must call it — keep this
+// list current and do not start a second copy elsewhere; venues.timezone gained
+// a silently-stale writer (PSY-1709) precisely because the count lived in two
+// comments and only one got updated:
+//
+//   - catalog.VenueService.applyGeocoding (venue create + update)
+//   - admin.applyDerivedVenueLocation (pending-edit approval AND revision rollback)
+//   - admin.data_sync importVenue and importShow (two seams)
+//   - catalog.backfillVenuePass (the backfill CLI)
 //
 // Degrades rather than failing the write, deliberately: the value is ours, not
 // the caller's, so a bad one is our bug and refusing the user's venue would be

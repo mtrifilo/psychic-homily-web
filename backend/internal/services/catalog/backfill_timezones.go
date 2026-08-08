@@ -69,7 +69,11 @@ type VenueGeoChange struct {
 	State   string
 	OldTz   *string
 	NewTz   *string
-	Action  string // "set", "updated", "unchanged", "miss"
+	// Action is one of "set", "updated", "coords", "unchanged", "miss",
+	// "skip:invalid-tz". Keep this list and printReport's switch in step — an
+	// action the printer does not name is a change the operator approves unseen
+	// (printReport has a default case now, but the list is what a reader trusts).
+	Action string
 }
 
 // ShowReanchorChange records the re-anchor outcome for a single show.
@@ -95,6 +99,13 @@ type BackfillReport struct {
 	VenuesCoordsOnly int // tz unchanged, only latitude/longitude changed
 	VenuesUnchanged  int
 	VenuesMissed     int // no geocode match
+	// VenuesTzRejected counts venues the geocoder DID resolve but that yielded no
+	// USABLE zone — blank, or a name the server's zone catalog does not carry — so
+	// the timezone was withheld and only the coordinates written. Deliberately
+	// separate from VenuesMissed: the two have different causes and different
+	// fixes, and folding them together made a zone problem read as a geocoder
+	// problem.
+	VenuesTzRejected int
 	VenueChanges     []VenueGeoChange
 
 	// Show pass
@@ -174,6 +185,11 @@ func backfillVenuePass(
 			continue
 		}
 
+		newLat := roundCoord(res.Latitude)
+		newLng := roundCoord(res.Longitude)
+		latChanged := !floatPtrEq(v.Latitude, &newLat)
+		lngChanged := !floatPtrEq(v.Longitude, &newLng)
+
 		// Same write-boundary invariant the API path holds in
 		// VenueService.applyGeocoding (PSY-1707): never persist a zone Postgres
 		// cannot resolve, because readers use AT TIME ZONE and it raises rather
@@ -181,22 +197,27 @@ func backfillVenuePass(
 		// of going through applyGeocoding, so it has to check for itself.
 		canonicalTz := shared.NormalizedGeocodedTimezoneOrNull(database, &res.Timezone, "venue_id", v.ID, "venue_name", v.Name)
 		if canonicalTz == nil {
+			// Only the ZONE is unusable here — the geocoder hit, so the
+			// coordinates still apply and the venue keeps the zone it already
+			// had. See VenuesTzRejected for why this is not a miss.
 			effectiveTz[v.ID] = v.Timezone
-			report.VenuesMissed++
+			report.VenuesTzRejected++
 			report.VenueChanges = append(report.VenueChanges, VenueGeoChange{
 				VenueID: v.ID, Name: v.Name, City: v.City, State: v.State,
 				OldTz: v.Timezone, NewTz: v.Timezone, Action: "skip:invalid-tz",
 			})
+			if !opts.DryRun && (latChanged || lngChanged) {
+				writeVenueGeo(database, report, v.ID, map[string]interface{}{
+					"latitude":  newLat,
+					"longitude": newLng,
+				})
+			}
 			continue
 		}
 		newTz := *canonicalTz
-		newLat := roundCoord(res.Latitude)
-		newLng := roundCoord(res.Longitude)
 		effectiveTz[v.ID] = &newTz
 
 		tzChanged := derefString(v.Timezone) != newTz
-		latChanged := !floatPtrEq(v.Latitude, &newLat)
-		lngChanged := !floatPtrEq(v.Longitude, &newLng)
 
 		switch {
 		case !tzChanged && !latChanged && !lngChanged:
@@ -234,20 +255,29 @@ func backfillVenuePass(
 		if opts.DryRun {
 			continue
 		}
-		// Plain values, not pointers: a geocode hit always yields all three, and
-		// GORM's map-Updates rejects pointer values with "invalid field".
-		if err := database.Model(&catalogm.Venue{}).
-			Where("id = ?", v.ID).
-			Updates(map[string]interface{}{
-				"latitude":  newLat,
-				"longitude": newLng,
-				"timezone":  newTz,
-			}).Error; err != nil {
-			report.Errors = append(report.Errors, fmt.Sprintf("venue %d update: %v", v.ID, err))
-		}
+		writeVenueGeo(database, report, v.ID, map[string]interface{}{
+			"latitude":  newLat,
+			"longitude": newLng,
+			"timezone":  newTz,
+		})
 	}
 
 	return nil
+}
+
+// writeVenueGeo applies one venue's resolved geo columns, recording a failure on
+// the report rather than aborting the run — one bad row must not cost the rest
+// of the pass.
+//
+// updates carries PLAIN values, not pointers: GORM's map-Updates rejects a
+// pointer value with "invalid field". A caller that wants a column left alone
+// therefore OMITS its key rather than passing a nil.
+func writeVenueGeo(database *gorm.DB, report *BackfillReport, venueID uint, updates map[string]interface{}) {
+	if err := database.Model(&catalogm.Venue{}).
+		Where("id = ?", venueID).
+		Updates(updates).Error; err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("venue %d update: %v", venueID, err))
+	}
 }
 
 // reanchorShowPass re-anchors show instants that were stored under a wrong

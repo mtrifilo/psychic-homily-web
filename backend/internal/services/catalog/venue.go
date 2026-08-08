@@ -66,10 +66,25 @@ func (s *VenueService) WithAddressGeocoder(ag geo.AddressGeocoder) *VenueService
 // takes the query down.
 //
 // It is NOT the only writer of that column, so a new write path does not inherit
-// this for free. The others each hold the invariant themselves via the admin
-// package twin: admin.ApprovePendingEdit, data_sync's importVenue and importShow,
-// and catalog.backfillVenuePass (the CLI). Adding a fifth means adding the call.
-func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
+// this for free — the others each hold the invariant themselves. The full census
+// of writers lives on shared.NormalizedGeocodedTimezoneOrNull; don't re-list it
+// here, because two copies of that list is how a writer went missing (PSY-1709).
+//
+// Deliberately NOT a GORM BeforeSave hook on the model, which looks like the
+// obvious way to make this automatic: two of the writers update through
+// db.Table("venues").Updates(map) with no model bound, so no hook fires for them
+// and coverage would be inconsistent-by-construction — strictly worse than
+// explicit calls. A hook also cannot see WHICH of city/state/country the caller
+// meant to change (the gate every call site needs), has no access to the
+// injected geocoder, and cannot return the classification backfillVenuePass
+// reports.
+//
+// db is the handle the venue is about to be WRITTEN through, not necessarily
+// s.db: FindOrCreateVenue runs inside a caller-supplied transaction, and
+// validating on a second connection would put the guard outside the transaction
+// that carries the write it guards (and take a second pooled connection while
+// the first is held). Callers with no transaction of their own pass s.db.
+func (s *VenueService) applyGeocoding(db *gorm.DB, v *catalogm.Venue) {
 	country := ""
 	if v.Country != nil {
 		country = *v.Country
@@ -78,7 +93,7 @@ func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
 	v.Metro = geo.MetroPointer(s.geocoder, v.City, v.State, country)
 	// PSY-1707 write-boundary invariant. Policy lives in one place; see
 	// shared.NormalizedGeocodedTimezoneOrNull for why it degrades instead of failing.
-	v.Timezone = shared.NormalizedGeocodedTimezoneOrNull(s.db, v.Timezone,
+	v.Timezone = shared.NormalizedGeocodedTimezoneOrNull(db, v.Timezone,
 		"venue_name", v.Name, "city", v.City, "state", v.State)
 }
 
@@ -269,7 +284,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		},
 	}
 
-	s.applyGeocoding(venue)
+	s.applyGeocoding(s.db, venue)
 	s.applyStreetGeocoding(venue)
 
 	if err := s.db.Create(venue).Error; err != nil {
@@ -503,7 +518,7 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 		if req.Country != nil {
 			effective.Country = req.Country
 		}
-		s.applyGeocoding(&effective)
+		s.applyGeocoding(s.db, &effective)
 		// Write unconditionally: on a geocode miss the pointers are nil and GORM's
 		// map Updates writes SQL NULL, so a relocated-but-unresolvable venue falls
 		// back to the legacy state->tz map instead of keeping the OLD location's
@@ -731,7 +746,7 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 		Social:   catalogm.Social{}, // Empty social fields
 	}
 
-	s.applyGeocoding(&venue)
+	s.applyGeocoding(query, &venue)
 	// Street-level geocoding (PSY-1536) is deliberately NOT done inline here:
 	// this is the bulk ingest/show-import seam, and blocking each created venue
 	// on Nominatim's 1 req/s budget would stall imports. The street fields
