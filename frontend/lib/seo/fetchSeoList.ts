@@ -3,6 +3,11 @@ import {
   BUILD_TIME_API_FETCH_TIMEOUT_MS,
   createBuildTimeApiSignal,
 } from '@/lib/build-time-api'
+import {
+  assertFetchFitsDataCache,
+  byteLength,
+  DataCacheBudgetError,
+} from '@/lib/data-cache-budget/assert'
 
 /**
  * How long a fetched SEO list stays warm in Next's Data Cache. These lists feed
@@ -110,7 +115,14 @@ export async function fetchSeoList<T>({
       signal: createBuildTimeApiSignal(timeoutMs),
     })
     if (res.ok) {
-      const body = (await res.json()) as Record<string, unknown> | null
+      // Read as text so the body can be weighed before it is parsed. An
+      // over-cap response is never written to the Data Cache — Next logs one
+      // console.warn and carries on — so the fetch site is the only place that
+      // condition is observable. See lib/data-cache-budget/budget.ts.
+      const text = await res.text()
+      assertFetchFitsDataCache(url, byteLength(text))
+
+      const body = JSON.parse(text) as Record<string, unknown> | null
       const items = body?.[collection]
       // A 200 whose collection key is missing or not an array is a contract
       // break, not an empty list — report it rather than rendering as though
@@ -135,6 +147,10 @@ export async function fetchSeoList<T>({
       })
     }
   } catch (error) {
+    // The one thing this helper must NOT fail open on. A build-time budget
+    // failure IS the gate; absorbing it here would restore exactly the silence
+    // it exists to remove.
+    if (error instanceof DataCacheBudgetError) throw error
     Sentry.captureException(error, {
       level: 'error',
       tags: { service },

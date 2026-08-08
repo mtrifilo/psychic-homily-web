@@ -1844,6 +1844,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/artists/listing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get artists listing */
+        get: operations["get-artists-listing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/artists/relationships": {
         parameters: {
             query?: never;
@@ -7907,6 +7924,12 @@ export interface components {
             slug: string;
             state: string | null;
         };
+        ArtistListingEntry: {
+            /** @description Artist display name */
+            name: string;
+            /** @description URL slug for the artist */
+            slug: string;
+        };
         ArtistMatchResult: {
             /** Format: int64 */
             existing_id?: number;
@@ -12570,6 +12593,21 @@ export interface components {
             aliases: components["schemas"]["TagAliasListing"][] | null;
             /** Format: int64 */
             total: number;
+        };
+        ListArtistListingResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ListArtistListingResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Artists reduced to slug and name */
+            artists: components["schemas"]["ArtistListingEntry"][] | null;
+            /**
+             * Format: int64
+             * @description Number of artists
+             */
+            count: number;
         };
         ListArtistsResponseBody: {
             /**
@@ -21197,6 +21235,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetArtistCitiesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-artists-listing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListArtistListingResponseBody"];
                 };
             };
             /** @description Error */

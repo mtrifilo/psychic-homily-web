@@ -85,6 +85,47 @@ func (h *ArtistHandler) SearchArtistsHandler(ctx context.Context, req *SearchArt
 	return resp, nil
 }
 
+// ListArtistListingRequest is deliberately empty.
+//
+// No filters, and none should be added without a consumer that needs them: this
+// endpoint exists to be small, and every query parameter is another cache key
+// whose payload nobody is watching. Filtering belongs on GET /artists.
+type ListArtistListingRequest struct{}
+
+// ListArtistListingResponse is the slug+name projection of the artist list.
+type ListArtistListingResponse struct {
+	Body struct {
+		Artists []contracts.ArtistListingEntry `json:"artists" doc:"Artists reduced to slug and name"`
+		Count   int                            `json:"count" doc:"Number of artists"`
+	}
+}
+
+// ListArtistListingHandler handles GET /artists/listing.
+//
+// The narrow twin of ListArtistsHandler, for callers that build one link per
+// artist and read nothing else — see contracts.ArtistListingEntry for the
+// measured reason that distinction earns its own endpoint rather than a `fields`
+// parameter on GET /artists (which would make that response's schema depend on
+// its query string, and so untypeable by the generated frontend client).
+func (h *ArtistHandler) ListArtistListingHandler(ctx context.Context, _ *ListArtistListingRequest) (*ListArtistListingResponse, error) {
+	entries, err := h.artistService.GetArtistListing()
+	if err != nil {
+		logger.FromContext(ctx).Error("artist_listing_failed",
+			"error", err.Error(),
+			"request_id", logger.GetRequestID(ctx),
+		)
+		// The error is logged, not returned: it would be serialised into the
+		// body for an unauthenticated caller, handing over raw driver text.
+		return nil, huma.Error500InternalServerError("Failed to fetch artist listing")
+	}
+
+	resp := &ListArtistListingResponse{}
+	resp.Body.Artists = entries
+	resp.Body.Count = len(entries)
+
+	return resp, nil
+}
+
 // ListArtistsRequest represents the request for listing all artists
 type ListArtistsRequest struct {
 	State    string `query:"state" doc:"Filter by state" example:"AZ"`

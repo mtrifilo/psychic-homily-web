@@ -14,6 +14,16 @@
  * there). `/sitemap.xml` 308s to the index — do not add `app/sitemap.xml/route.ts`
  * (collides with the metadata `[__metadata_id__]` route).
  *
+ * THAT BUDGET IS NO LONGER COMFORTABLE, and it is now measured rather than
+ * assumed: on 2026-08-08 the `releases` family's cache entry was 1.93 MB, 97%
+ * of the cap (PSY-1674). Sharding per family bought room once; the largest
+ * family has since grown back to the edge, and the next sizeable release import
+ * pushes it over — at which point that shard stops caching and re-pulls from
+ * origin on every render. Sub-sharding `releases` is the fix. It is recorded in
+ * WARN_BAND_ALLOWLIST in lib/data-cache-budget/budget.ts, which is what keeps
+ * the build gate from failing on it in the meantime; `fetchSitemapFamily` now
+ * weighs every family response so a genuine breach fails the build.
+ *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
  * build → `next start` → kill the backend → curl:
@@ -132,6 +142,7 @@ import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
+import { assertFetchFitsDataCache, byteLength } from '@/lib/data-cache-budget/assert'
 import type { components } from '@/types/api'
 import {
   ALL_SHARD_IDS,
@@ -226,7 +237,15 @@ async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
       throw new Error(`sitemap entries fetch returned ${res.status}`)
     }
 
-    const entries: SitemapEntries = await res.json()
+    // Sharding by family is what keeps each entry under the cache-item cap, but
+    // nothing was checking that it still does: the `releases` shard was at 97%
+    // of the cap when this assertion was added (PSY-1674). Read as text so the
+    // body can be weighed — an over-cap response is never written to the Data
+    // Cache, so this is the only place it is observable.
+    const text = await res.text()
+    assertFetchFitsDataCache(`sitemap/entries?family=${family}`, byteLength(text))
+
+    const entries: SitemapEntries = JSON.parse(text)
     const rows = entries?.[family]
     if (!Array.isArray(rows)) {
       throw new Error(`sitemap entries response is missing the "${family}" family`)

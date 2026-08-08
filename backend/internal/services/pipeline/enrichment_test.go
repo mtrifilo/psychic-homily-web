@@ -479,6 +479,9 @@ func (m *mockArtistServiceForEnrichment) GetArtists(filters map[string]interface
 func (m *mockArtistServiceForEnrichment) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 	return nil, nil
 }
+func (m *mockArtistServiceForEnrichment) GetArtistListing() ([]contracts.ArtistListingEntry, error) {
+	return nil, nil
+}
 func (m *mockArtistServiceForEnrichment) UpdateArtist(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	return nil, nil
 }

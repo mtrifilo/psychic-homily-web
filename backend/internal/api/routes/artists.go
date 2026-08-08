@@ -13,6 +13,7 @@ func setupArtistRoutes(rc RouteContext) {
 	// Note: Static routes must come before parameterized routes
 	huma.Get(rc.API, "/artists", artistHandler.ListArtistsHandler)
 	huma.Get(rc.API, "/artists/cities", artistHandler.GetArtistCitiesHandler)
+	huma.Get(rc.API, "/artists/listing", artistHandler.ListArtistListingHandler)
 	huma.Get(rc.API, "/artists/search", artistHandler.SearchArtistsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}", artistHandler.GetArtistHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)

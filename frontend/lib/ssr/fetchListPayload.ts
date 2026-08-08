@@ -2,6 +2,11 @@ import * as Sentry from '@sentry/nextjs'
 import {
   createBuildTimeApiSignal,
 } from '@/lib/build-time-api'
+import {
+  assertFetchFitsDataCache,
+  byteLength,
+  DataCacheBudgetError,
+} from '@/lib/data-cache-budget/assert'
 
 /**
  * How long a first-screen payload stays warm in Next's Data Cache.
@@ -127,7 +132,13 @@ export async function fetchListPayload<T>({
       return null
     }
 
-    const body = (await res.json()) as unknown
+    // Weighed before parsing: an over-cap response is never written to the Data
+    // Cache (Next warns once and carries on), so the fetch site is the only
+    // place that condition is observable. See lib/data-cache-budget/budget.ts.
+    const text = await res.text()
+    assertFetchFitsDataCache(url, byteLength(text))
+
+    const body = JSON.parse(text) as unknown
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
       Sentry.captureMessage(`${service}: response body is not an object`, {
         level: 'error',
@@ -168,6 +179,9 @@ export async function fetchListPayload<T>({
 
     return { ...record, [collection]: rows } as T
   } catch (error) {
+    // Never degraded into a null seed: a build-time budget failure IS the gate,
+    // and swallowing it here would restore the silence it exists to remove.
+    if (error instanceof DataCacheBudgetError) throw error
     Sentry.captureException(error, {
       level: 'error',
       tags: { service },

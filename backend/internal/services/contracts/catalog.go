@@ -856,6 +856,59 @@ type ArtistWithShowCountResponse struct {
 	LastShowDate      *time.Time `json:"last_show_date,omitempty"`
 }
 
+// ArtistListingEntry is an artist reduced to the two fields a link needs: the
+// slug that builds the href, and the name that labels it.
+//
+// # Why a projection endpoint rather than a field on the list response
+//
+// `GET /artists` answers with sixteen fields per artist. The `/artists` page
+// reads exactly two of them, to emit one JSON-LD `ItemList` entry per artist,
+// and throws the other fourteen away. That is affordable until the response
+// stops fitting a cache entry, at which point it is the whole problem.
+//
+// Measured against production on 2026-08-08, 6,279 artists:
+//
+//	                       raw bytes    base64      % of the 2 MB item cap
+//	GET /artists           3,233,345    4,311,128   206%   (not cached)
+//	GET /artists/listing     311,240      414,988    20%
+//
+// Vercel's Data Cache and Runtime Cache both cap a single item at 2 MB and
+// "items larger won't be cached"; Next enforces the same cap and simply does
+// not write the entry. It logs one console.warn while doing so — a signal, but
+// one that fails nothing and scrolls past in a build log, which is why this
+// went unnoticed for ten days. The body is stored base64-encoded, verified by
+// decoding a real `.next/cache/fetch-cache` entry for this exact URL (1.334x),
+// so the effective raw budget is ~1.5 MB. `GET /artists` crossed it between
+// 2026-07-26 and 2026-07-29 and had been re-pulled from origin on every
+// revalidation since.
+//
+// The projection is a 10.4x reduction, which is ~32,000 artists of headroom
+// against the encoded cap versus 6,279 today. Trimming was chosen over sharding
+// (the sitemap's answer, see SitemapEntry) and over paginating because the
+// fields, not the row count, are what blew the budget: sharding would keep
+// carrying the fourteen unread fields and need its shard count revisited on
+// every growth spurt, and truncating would silently drop URLs from the
+// ItemList — the defect `/venues` already exhibits at 100 of 198.
+//
+// # Why not SitemapEntry
+//
+// It is {slug, updated_at} with no name, so reusing it would silently drop the
+// label from every ItemList entry. It also covers a different set: every
+// slugged artist (9,405) rather than the activity-gated browse set (6,279).
+//
+// # The set this returns
+//
+// Exactly what unfiltered `GET /artists` returns — artists with at least one
+// upcoming approved show, sorted upcoming-count DESC then name ASC — minus
+// rows with an empty slug, which cannot form a URL and which the page filtered
+// out on its side anyway. Keep the two in step: if the default gate on
+// `GET /artists` changes, this changes with it, or the ItemList starts
+// advertising a different set of artists than the page lists.
+type ArtistListingEntry struct {
+	Slug string `json:"slug" doc:"URL slug for the artist"`
+	Name string `json:"name" doc:"Artist display name"`
+}
+
 // ArtistCityResponse represents a city with artist count for filtering
 type ArtistCityResponse struct {
 	City        string `json:"city"`
@@ -1690,6 +1743,10 @@ type ArtistServiceInterface interface {
 	GetArtistBySlug(slug string) (*ArtistDetailResponse, error)
 	GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error)
 	GetArtistsWithShowCounts(filters map[string]interface{}) ([]*ArtistWithShowCountResponse, error)
+	// GetArtistListing is the slug+name projection behind GET /artists/listing.
+	// Same set and order as an unfiltered GetArtistsWithShowCounts, two columns
+	// wide; see ArtistListingEntry for why that distinction is load-bearing.
+	GetArtistListing() ([]ArtistListingEntry, error)
 	UpdateArtist(artistID uint, req *UpdateArtistRequest) (*ArtistDetailResponse, error)
 	DeleteArtist(artistID uint) error
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)

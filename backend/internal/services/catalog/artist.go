@@ -717,6 +717,66 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	return responses, nil
 }
 
+// GetArtistListing returns the slug+name projection behind GET /artists/listing.
+//
+// It answers the same question as an unfiltered GetArtistsWithShowCounts —
+// which artists does the browse page list, in what order — while reading two
+// columns instead of hydrating a full response per row. That is the entire
+// point: the caller builds one link per artist and the wide body is what stops
+// the response fitting a cache entry. See contracts.ArtistListingEntry for the
+// measurements and for why trimming beat sharding or paginating.
+//
+// The gate, join and sort are deliberately identical to the default path above.
+// If that default changes, change this with it — the two feeding different sets
+// would make the page's JSON-LD advertise artists the page does not list.
+//
+// Rows with a NULL or empty slug are dropped here rather than by the caller: a
+// slug is what builds the URL, so an entry without one is unusable to every
+// consumer this endpoint can have.
+func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	now := time.Now().UTC()
+
+	upcomingSubquery := s.db.Table("show_artists").
+		Select("show_artists.artist_id, COUNT(*) as show_count").
+		Joins("JOIN shows ON show_artists.show_id = shows.id").
+		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
+		Group("show_artists.artist_id")
+
+	// Not `[]contracts.ArtistListingEntry` directly: the ORDER BY reads
+	// upcoming_show_count, so it has to be selected, and scanning it into the
+	// response struct would put it on the wire — reintroducing a field no
+	// caller reads.
+	type listingRow struct {
+		Slug              string
+		Name              string
+		UpcomingShowCount int64
+	}
+
+	var rows []listingRow
+	err := s.db.Table("artists").
+		Select("artists.slug, artists.name, COALESCE(sc.show_count, 0) as upcoming_show_count").
+		Joins("JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery).
+		Where("artists.slug IS NOT NULL AND artists.slug != ''").
+		Order("upcoming_show_count DESC, artists.name ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get artist listing: %w", err)
+	}
+
+	// Non-nil even when empty: the handler serialises this straight to JSON and
+	// a null collection is indistinguishable from a failed fetch to the caller.
+	entries := make([]contracts.ArtistListingEntry, len(rows))
+	for i, r := range rows {
+		entries[i] = contracts.ArtistListingEntry{Slug: r.Slug, Name: r.Name}
+	}
+
+	return entries, nil
+}
+
 // GetArtistCities returns distinct cities for artists that have upcoming approved shows.
 // Only artists with both city and state set are included.
 // Results are sorted by artist count (descending) to show most active cities first.
