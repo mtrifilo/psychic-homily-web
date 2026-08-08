@@ -79,28 +79,61 @@
 // the column are not backfilled, because the evidence needed to do so was
 // deleted with the losing venue rows.
 //
-// Two KNOWN GAPS remain that are not closed by a field list, and neither should
-// be read as covered by the paragraph above.
+// # Privacy: the revision summary
 //
-// One: Summary is contributor-authored free text, stored and served unmasked
-// beside the diff. The edit drawer asks "why are you making this change?" and
-// tells the contributor it "helps reviewers understand your edit", so the
-// natural summary for an address correction contains the address, and on the
-// trusted-tier auto-apply path no reviewer ever sees it. No field-name rule can
-// reach prose; closing it needs a decision about whether to withhold summaries
-// on gated entities, rewrite the drawer copy to say the field is public, or
-// both.
+// revisions.summary is contributor-authored free text served beside the diff on
+// the same anonymous routes, so the natural summary for an address correction
+// contains the address the diff beside it masks. On the trusted-tier auto-apply
+// path no reviewer ever reads it before it is published. No field-name rule can
+// reach prose.
 //
-// Two: shows are gated at the ENTITY level rather than the field level.
+// The policy is to withhold the summary WHOLE, at read time, on every revision
+// whose subject is a gated venue, riding the SAME verdict as the field masking
+// above rather than computing its own: both of applyPrivacyRedaction's masking
+// conditions therefore reach prose too, so a row stamped
+// from_unverified_venue by a merge loses its summary exactly as it loses its
+// address. Two consequences are accepted deliberately:
+//
+//   - It costs real transparency. The summary is the only prose explaining WHY
+//     an edit happened, and it disappears for exactly the venues most likely to
+//     need community review. The alternative is publishing addresses, and an
+//     unverified venue is routinely somebody's house.
+//   - It is coarse. A summary that says nothing sensitive is withheld along
+//     with one that does. Prose cannot be inspected for the value it might
+//     paraphrase, so the gate keys off the SUBJECT rather than the content.
+//
+// Verifying a venue restores its summaries, the same way it restores its
+// addresses, because nothing is scrubbed on write. Stored rows keep the real
+// text: rollback needs it, and a future policy that can tell safe prose from
+// unsafe would need it too.
+//
+// The complementary half is contributor-facing and lives in the frontend, on
+// the edit drawer's summary field: whatever that copy says, it must not imply
+// the audience is moderators. Withholding summaries on gated venues does not
+// remove that obligation, because the field is still world-readable on every
+// entity that is not a gated venue, which is nearly all of them.
+//
+// ONE KNOWN GAP remains that is not closed by a field list, and it should not be
+// read as covered by the paragraphs above.
+//
+// Shows are gated at the ENTITY level rather than the field level.
 // GET /shows/{id} 404s an anonymous caller for a show whose status is pending,
 // rejected or private, while GET /revisions/show/{id} still publishes every
-// recorded field. Unpublishing a show hides the show but not its history.
+// recorded field, and its summary. Unpublishing a show hides the show but not
+// its history.
 //
-// Closing gap Two with a read-time lookup on shows.status reproduces the venue
-// merge problem verbatim, and on a worse path: catalog.MergeDuplicateShow
-// re-points revisions off a losing show and deletes it, and it runs from the
-// dedup CLI with no admin in the loop. Whatever closes gap Two has to stamp
-// there the way the venue merge stamps from_unverified_venue.
+// Closing it has to carry all three of the mechanisms above, because a show
+// equivalent that copies only one of them reopens a hole that is already shut:
+//
+//   - The field masking, which is what privacy.go and RedactVenueChanges do.
+//   - The prose withholding, which lives in redactVenueRevision. That function
+//     is venue-named, so a show path has to withhold Summary itself.
+//   - A provenance stamp. A read-time lookup on shows.status reproduces the
+//     venue merge problem verbatim and on a worse path:
+//     catalog.MergeDuplicateShow re-points revisions off a losing show and
+//     deletes it, and it runs from the dedup CLI with no admin in the loop.
+//     Whatever closes this has to stamp there the way the venue merge stamps
+//     from_unverified_venue.
 package revisiondiff
 
 import (

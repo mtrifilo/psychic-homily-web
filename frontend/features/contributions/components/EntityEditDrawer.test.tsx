@@ -54,6 +54,22 @@ describe('EntityEditDrawer URL validation (PSY-599)', () => {
     return screen.getByRole('button', { name: /Submit for Review/i })
   }
 
+  // The summary is served on anonymous revision-history routes with no edit or
+  // delete endpoint behind it. The old copy ("Helps reviewers understand your
+  // edit") told the contributor the audience was moderators, so the natural
+  // summary for an address correction contained the address. Asserting on the
+  // words the contributor has to see, not on a test id, is the point: reverting
+  // to reviewer-only framing must fail here.
+  it('warns that the edit summary is published publicly and permanently', () => {
+    renderWithProviders(<EntityEditDrawer {...defaultProps} />)
+
+    const helper = screen.getByText(/published in the public edit history/i)
+    expect(helper).toBeInTheDocument()
+    expect(helper).toHaveTextContent(/cannot be changed or removed later/i)
+    expect(helper).toHaveTextContent(/leave out private details/i)
+    expect(screen.queryByText(/Helps reviewers understand your edit/i)).not.toBeInTheDocument()
+  })
+
   it('disables Submit when an invalid URL is typed into a url field', () => {
     renderWithProviders(<EntityEditDrawer {...defaultProps} />)
 

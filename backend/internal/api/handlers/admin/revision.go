@@ -108,16 +108,18 @@ func resolveRevisionUserUsername(u *authm.User) *string {
 
 // mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem.
 //
-// All three read routes are anonymous. What may appear in Changes is decided
-// upstream: RevisionService applies the read-time privacy redaction (see
-// applyPrivacyRedaction) before returning a revision, and this function
-// publishes the result verbatim. Do not read revisions.field_changes into a
-// response through any other path.
+// All three read routes are anonymous. What may appear in Changes AND in
+// Summary is decided upstream: RevisionService applies the read-time privacy
+// redaction (see applyPrivacyRedaction) before returning a revision, and this
+// function publishes the result verbatim. Do not read revisions.field_changes
+// or revisions.summary into a response through any other path.
 //
-// Summary is NOT covered by that gate. It is contributor-authored free text
-// passed straight through from the stored row, so it can contain anything the
-// contributor typed, including a value the diff beside it masks. Recorded as a
-// known gap on the revisiondiff package doc.
+// Summary is covered by that gate too, but differently from the diff: a gated
+// revision arrives here with a nil Summary, which Deref turns into "" and
+// omitempty drops from the payload. There is no mask string to recognise, so an
+// empty summary here means EITHER the contributor wrote none or the revision is
+// gated. Do not add a branch that tries to tell them apart. The whole point is
+// that the response cannot.
 func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 	item := RevisionResponseItem{
 		ID:           r.ID,

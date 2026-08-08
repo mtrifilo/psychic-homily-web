@@ -457,6 +457,38 @@ func TestMapRevisionToResponse_NilFieldChanges(t *testing.T) {
 	}
 }
 
+// The last link in the withholding chain. RevisionService hands the handler a
+// nil Summary for a gated venue; this pins that the serialized payload then
+// carries no summary KEY at all, rather than an empty string a client could
+// still render as a blank line. Asserted on the JSON, not on the struct, because
+// omitempty is the part that could regress silently.
+//
+// Built from the fully-populated fixture with only Summary cleared, so it also
+// shows summary is the ONLY key that disappears. A payload that dropped several
+// keys would not distinguish withholding from a broken response.
+func TestMapRevisionToResponse_NilSummaryOmittedFromPayload(t *testing.T) {
+	r := makeTestRevision(1)
+	r.Summary = nil
+
+	encoded, err := json.Marshal(mapRevisionToResponse(r))
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, present := payload["summary"]; present {
+		t.Errorf("expected no summary key in payload, got %s", encoded)
+	}
+	for _, key := range []string{"id", "entity_type", "entity_id", "user_id", "user_name", "changes", "created_at"} {
+		if _, present := payload[key]; !present {
+			t.Errorf("expected %q to survive, got %s", key, encoded)
+		}
+	}
+}
+
 func TestMapRevisionToResponse_FallbackToFirstName(t *testing.T) {
 	firstName := "John"
 	r := adminm.Revision{
