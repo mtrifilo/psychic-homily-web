@@ -46,8 +46,8 @@ describe('readJsonWithinDataCacheBudget', () => {
   // not be under-counted into looking safe by the cheap length-based prefilter.
   it('weighs multi-byte bodies by their byte length, not character count', async () => {
     inProductionBuild(true)
-    // Every character is 4 UTF-8 bytes, so the character count alone is a
-    // quarter of the real size — under the budget where the bytes are over.
+    // Each 🎸 is 4 UTF-8 bytes but only 2 UTF-16 code units, so `.length` is
+    // HALF the real byte size — under the budget where the bytes are over.
     const emoji = '🎸'.repeat(DATA_CACHE_RAW_LIMIT_BYTES / 4 + 10)
     expect(emoji.length).toBeLessThan(DATA_CACHE_RAW_LIMIT_BYTES)
 
@@ -85,7 +85,7 @@ describe('assertFetchFitsDataCache during a production build', () => {
     }
     expect(message).toContain('/artists')
     expect(message).toContain('re-pull')
-    expect(message).toContain('3.08 MB')
+    expect(message).toContain('3.08 MiB')
   })
 
   it('passes the projection the fix introduced', () => {

@@ -1,9 +1,12 @@
 import * as Sentry from '@sentry/nextjs'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import {
+  BREACH_LOG_PATH,
   DATA_CACHE_RAW_BUDGET_BYTES,
   DATA_CACHE_RAW_LIMIT_BYTES,
   encodedSize,
-  formatMib,
+  formatMiB,
   isWarnBandAllowlisted,
 } from './budget'
 
@@ -63,14 +66,34 @@ export async function readJsonWithinDataCacheBudget<T>(
  * oversized case is observable, so every cached list fetch calls this with the
  * body it just read.
  *
- * DURING `next build` THIS THROWS. An uncaught throw in a prerender fails the
- * build, which is the loud failure this ticket asked for: the deploy does not
- * promote and the previous deployment keeps serving. That is a deliberate
- * exception to `fetchSeoList`'s fail-open contract, and it is narrow — a build
- * is the one moment where an oversized payload is a defect to surface rather
- * than a blip to survive, because there is no reader waiting on the response.
- * Callers must therefore invoke this OUTSIDE their fail-open catch, or the
- * throw is swallowed and the gate silently does nothing.
+ * HOW A BREACH ACTUALLY STOPS A DEPLOY — measured on Next 16.1.4 with
+ * `cacheComponents: true`, by forcing a throw at each call site and reading the
+ * exit code. The two call-site kinds do NOT behave the same, and the difference
+ * is the reason for the breach log below:
+ *
+ *   call site                       next build   what stops the deploy
+ *   ------------------------------  -----------  ----------------------------
+ *   page route (fetchSeoList /       EXIT 1      the throw itself; the error
+ *   fetchListPayload, e.g.                       names the URL and the size
+ *   app/artists/page.tsx)
+ *
+ *   metadata route (app/sitemap.ts   EXIT 0      NOT the throw. The shard
+ *   via fetchSitemapFamily)                      degrades to Dynamic with no
+ *                                                prerendered body and the build
+ *                                                still succeeds.
+ *
+ * The second row is why an earlier draft of this comment was wrong to claim a
+ * throw always fails the build: on the metadata route it does not. Before the
+ * breach log, a `releases` breach would have surfaced as
+ * `lib/sitemap-prerender/cli.ts` failing with a message about BACKEND OUTAGES —
+ * a red build pointing at the wrong subsystem entirely. That was measured, not
+ * reasoned about; `lib/sitemap-prerender/check.ts` records the same exit-0
+ * behaviour for this route from the other direction.
+ *
+ * So a breach is ALSO appended to a log that `./cli.ts` reads and fails on,
+ * which makes the outcome uniform across call sites and keeps the diagnosis
+ * attached to the real cause. The throw stays because on a page route it is the
+ * earliest, clearest failure available.
  *
  * AT REQUEST TIME IT ONLY REPORTS. A page that renders is worth more than a
  * cache entry, and by then the deploy has already happened; Sentry is where a
@@ -88,27 +111,83 @@ export function assertFetchFitsDataCache(url: string, rawBytes: number): void {
   // route that has stopped caching, which is the whole point of the gate.
   const allowlisted = !overLimit && isWarnBandAllowlisted(url)
   const message =
-    `${url} responded with ${formatMib(rawBytes)} raw (~${formatMib(encodedSize(rawBytes))} base64), ` +
+    `${url} responded with ${formatMiB(rawBytes)} raw (~${formatMiB(encodedSize(rawBytes))} base64), ` +
     (overLimit
-      ? `over the ${formatMib(DATA_CACHE_RAW_LIMIT_BYTES)} raw budget for a 2 MB Data Cache item. ` +
+      ? `over the ${formatMiB(DATA_CACHE_RAW_LIMIT_BYTES)} raw budget for a 2 MB Data Cache item. ` +
         'Next will refuse to cache it and every render will re-pull it from origin.'
-      : `inside ${formatMib(DATA_CACHE_RAW_LIMIT_BYTES)}, the raw budget for a 2 MB Data Cache item, ` +
+      : `inside ${formatMiB(DATA_CACHE_RAW_LIMIT_BYTES)}, the raw budget for a 2 MB Data Cache item, ` +
         'but close enough that ordinary growth will cross it — after which it stops ' +
         'being cached and nothing fails.') +
     ' Shrink the payload — project it to the fields the caller reads, or shard the fetch.' +
     ' See lib/data-cache-budget/budget.ts.'
 
-  if (isProductionBuild() && !allowlisted) {
-    // Verified against next/dist/build/index.js, which assigns
-    // PHASE_PRODUCTION_BUILD ('phase-production-build') before rendering.
-    throw new DataCacheBudgetError(`Data Cache budget exceeded during build: ${message}`)
+  if (!isProductionBuild()) {
+    Sentry.captureMessage(`data-cache-budget: ${message}`, {
+      level: overLimit ? 'error' : 'warning',
+      tags: { service: 'data-cache-budget' },
+      extra: { url, rawBytes, encodedBytes: encodedSize(rawBytes) },
+    })
+    return
   }
 
-  Sentry.captureMessage(`data-cache-budget: ${message}`, {
-    level: overLimit ? 'error' : 'warning',
-    tags: { service: 'data-cache-budget' },
-    extra: { url, rawBytes, encodedBytes: encodedSize(rawBytes) },
-  })
+  // A build's signal channel is stdout, not an unflushed Sentry transport:
+  // nothing calls Sentry.flush() and `next build` exits immediately, so an
+  // event queued here would simply be lost.
+  console.warn(`Data Cache budget ${overLimit ? 'BREACH' : 'WARNING'}: ${message}`)
+
+  if (allowlisted) return
+
+  recordBreach(url, rawBytes)
+
+  if (enforcementDisabled()) {
+    console.warn(
+      'Data Cache budget enforcement is DISABLED for this build ' +
+        '(DATA_CACHE_BUDGET_ENFORCE=warn). The payload above is not cached, and every ' +
+        'render re-pulls it from origin. This is a break-glass, not a fix.'
+    )
+    return
+  }
+
+  throw new DataCacheBudgetError(`Data Cache budget exceeded during build: ${message}`)
+}
+
+/**
+ * The break-glass.
+ *
+ * Without one, a breach is triggered by DATA rather than code — a release
+ * import nobody shipped a commit for — and blocks EVERY frontend deploy,
+ * including an unrelated hotfix, until a payload-shrinking change lands. That
+ * inverts the severity: the condition being blocked on is a route that stopped
+ * being cached, which is a performance regression, not an outage.
+ *
+ * Deliberately awkward and deliberately loud. It is set per-build, never
+ * committed, and it prints on every affected fetch plus a summary from
+ * ./cli.ts, so a build that used it cannot be mistaken for a clean one. The
+ * design goal is that a breach is impossible to MISS, which a loud failure
+ * serves; it does not require a failure that is impossible to OVERRIDE.
+ *
+ * Deliberately NOT modelled on lib/sitemap-prerender/cli.ts, which has no
+ * opt-out on purpose. That gate guards a sitemap that would 500 to crawlers;
+ * this one guards a cache entry. Different blast radius, different policy.
+ */
+function enforcementDisabled(): boolean {
+  return process.env.DATA_CACHE_BUDGET_ENFORCE === 'warn'
+}
+
+/**
+ * Append a breach so ./cli.ts can fail on it with the right message even when
+ * the throw did not stop the build (the metadata-route row above).
+ *
+ * Best-effort: a failure to write must not mask the breach itself, and on a
+ * page route the throw is about to fail the build anyway.
+ */
+function recordBreach(url: string, rawBytes: number): void {
+  try {
+    mkdirSync(dirname(BREACH_LOG_PATH), { recursive: true })
+    appendFileSync(BREACH_LOG_PATH, `${JSON.stringify({ url, rawBytes })}\n`)
+  } catch {
+    // Intentionally ignored; see above.
+  }
 }
 
 function isProductionBuild(): boolean {

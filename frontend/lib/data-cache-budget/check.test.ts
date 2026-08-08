@@ -123,7 +123,7 @@ describe('formatBudgetFailures', () => {
 
   it('names the offending URL and its share of the cap', () => {
     expect(message).toContain('https://api/artists')
-    expect(message).toContain('4.11 MB')
+    expect(message).toContain('4.11 MiB')
     expect(message).toContain('206%')
   })
 

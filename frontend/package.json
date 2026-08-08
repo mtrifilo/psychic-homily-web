@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build && bun run lib/sitemap-prerender/cli.ts && bun run lib/data-cache-budget/cli.ts",
+    "build": "bun run lib/data-cache-budget/stamp.ts && next build && bun run lib/data-cache-budget/cli.ts && bun run lib/sitemap-prerender/cli.ts",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",

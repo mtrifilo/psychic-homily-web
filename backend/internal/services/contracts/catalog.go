@@ -882,8 +882,10 @@ type ArtistWithShowCountResponse struct {
 // 2026-07-26 and 2026-07-29 and had been re-pulled from origin on every
 // revalidation since.
 //
-// The projection is a 10.4x reduction, which is ~32,000 artists of headroom
-// against the encoded cap versus 6,279 today. Trimming was chosen over sharding
+// The projection is a 10.4x reduction. At ~50 bytes per entry that is ~32,000
+// artists before the cap itself binds, against 6,279 today — but the number to
+// plan against is ~25,400, where the build gate fires at 80% of the raw budget
+// (lib/data-cache-budget). Trimming was chosen over sharding
 // (the sitemap's answer, see SitemapEntry) and over paginating because the
 // fields, not the row count, are what blew the budget: sharding would keep
 // carrying the fourteen unread fields and need its shard count revisited on

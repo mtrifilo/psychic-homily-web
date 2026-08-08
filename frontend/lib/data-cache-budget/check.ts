@@ -24,18 +24,27 @@
  * run — a route already sharded by family (PSY-1622) whose largest shard had
  * quietly grown to the edge anyway.
  *
- * ONLY THIS BUILD'S ENTRIES ARE JUDGED. Vercel restores `.next/cache` between
- * builds, so an entry written before a fix would otherwise fail every later
- * build forever, including the build that fixes it. Entries older than the
- * current `BUILD_ID` are skipped, which is safe in the direction that matters:
- * a previous build's entry was already judged by that build's gate, and
- * anything this build fetched is fresh and judged now.
+ * A SECOND HOLE, ALSO STATED HONESTLY. Vercel restores `.next/cache` between
+ * builds and every fetch here has a 1 h window, so a redeploy inside that hour
+ * serves every fetch from the restored cache. A Data Cache HIT does not rewrite
+ * the entry file, so nothing is fresh and this half weighs nothing at all. It
+ * cannot be fixed by measuring differently — the data simply is not regenerated
+ * — so ./cli.ts says "MEASURED NOTHING" rather than "OK", and reports every
+ * entry on disk regardless of age. What it will not do on such a build is FAIL,
+ * which is the deliberate half of the split below.
+ *
+ * REPORT EVERYTHING, FAIL ON WHAT THIS BUILD WROTE. Because the cache is
+ * restored, an entry written before this gate existed can be over the warn line;
+ * failing on it would be unfixable, including on the build that fixes it. So age
+ * gates the FAILURE, never the REPORT. ./cli.ts takes the age baseline from
+ * ./stamp.ts rather than from `.next/BUILD_ID`, whose mtime lands partway
+ * through the build and silently aged out everything fetched before it.
  */
 import {
   DATA_CACHE_BUDGET_BYTES,
   DATA_CACHE_BUDGET_FRACTION,
   DATA_CACHE_ITEM_LIMIT_BYTES,
-  formatMib,
+  formatMiB,
   isWarnBandAllowlisted,
 } from './budget'
 
@@ -65,16 +74,24 @@ export function partitionOverBudget(entries: FetchCacheEntry[]): {
   /** Over the warn line but recorded in WARN_BAND_ALLOWLIST: reported only. */
   allowlisted: BudgetFailure[]
 } {
-  // Nothing on disk can be over the HARD cap — Next never writes those — so
-  // every entry here is by definition still inside the warn band.
   const overBudget = entries
     .filter(entry => entry.bytes >= DATA_CACHE_BUDGET_BYTES)
     .map(entry => ({ ...entry, fraction: entry.bytes / DATA_CACHE_ITEM_LIMIT_BYTES }))
     .sort((a, b) => b.bytes - a.bytes)
 
+  // The hard cap is enforced here INDEPENDENTLY of the allowlist, mirroring the
+  // fetch-site assertion. It would be tempting to assume nothing on disk can be
+  // over the cap, since Next refuses to write those — but that is not true:
+  // `patch-fetch.js` marks a bare build-time-prerendered fetch
+  // `isImplicitBuildTimeCache`, and `incremental-cache/index.js` skips the size
+  // check entirely for those, so an over-cap entry CAN land on disk. Waiving
+  // that for an allowlisted URL would wave through a route that has already
+  // stopped caching — the exact thing the gate exists to catch.
+  const breached = (entry: BudgetFailure) => entry.bytes >= DATA_CACHE_ITEM_LIMIT_BYTES
+
   return {
-    failures: overBudget.filter(entry => !isWarnBandAllowlisted(entry.url)),
-    allowlisted: overBudget.filter(entry => isWarnBandAllowlisted(entry.url)),
+    failures: overBudget.filter(entry => breached(entry) || !isWarnBandAllowlisted(entry.url)),
+    allowlisted: overBudget.filter(entry => !breached(entry) && isWarnBandAllowlisted(entry.url)),
   }
 }
 
@@ -86,7 +103,7 @@ export function partitionOverBudget(entries: FetchCacheEntry[]): {
 export function formatBudgetFailures(failures: BudgetFailure[]): string {
   const lines = failures.map(f => {
     const pct = (f.fraction * 100).toFixed(0)
-    return `  ${f.url ?? `(url unreadable) ${f.key}`}\n      ${formatMib(f.bytes)} — ${pct}% of the 2 MB cache-item cap`
+    return `  ${f.url ?? `(url unreadable) ${f.key}`}\n      ${formatMiB(f.bytes)} — ${pct}% of the 2 MB cache-item cap`
   })
 
   return [
@@ -96,7 +113,7 @@ export function formatBudgetFailures(failures: BudgetFailure[]): string {
     '',
     ...lines,
     '',
-    `Nothing over ${formatMib(DATA_CACHE_ITEM_LIMIT_BYTES)} is cached. Next logs one console.warn and carries on,`,
+    `Nothing over ${formatMiB(DATA_CACHE_ITEM_LIMIT_BYTES)} is cached. Next logs one console.warn and carries on,`,
     'so the fetch keeps working and keeps re-pulling the whole body from origin on',
     'every render — which is how `/artists` went unnoticed for ten days. This gate',
     `fails at ${(DATA_CACHE_BUDGET_FRACTION * 100).toFixed(0)}% of the cap so there is room to react before that happens.`,

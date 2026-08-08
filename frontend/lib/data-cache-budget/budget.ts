@@ -76,7 +76,27 @@ export const DATA_CACHE_RAW_BUDGET_BYTES = Math.floor(
 /** Encoded entry size a raw body of `bytes` would occupy, wrapper excluded. */
 export const encodedSize = (bytes: number): number => Math.ceil(bytes * BASE64_INFLATION)
 
-export const formatMib = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(2)} MB`
+/**
+ * Mebibytes, and labelled as such. The cap is 2 × 1024², so reporting it in
+ * decimal MB would put the label, the arithmetic and Next's own constant into
+ * three-way disagreement — on a change whose whole premise is that unmeasured
+ * readings of this route family were repeatedly wrong.
+ */
+export const formatMiB = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(2)} MiB`
+
+/**
+ * Where the fetch-site assertion records a breach for ./cli.ts to fail on.
+ *
+ * Under `.next/cache` because that survives `next build` (it is the directory
+ * Vercel restores between builds), and the assertion runs inside the build's
+ * render workers while the CLI runs after the build in a different process —
+ * a file is the only channel between them. ./cli.ts deletes it after reading,
+ * so a restored cache cannot replay an old breach.
+ */
+export const BREACH_LOG_PATH = '.next/cache/data-cache-budget-breaches.jsonl'
+
+/** Where ./stamp.ts records when this build began. See ./cli.ts for why. */
+export const BUILD_STAMP_PATH = '.next/cache/data-cache-budget-build-start'
 
 /**
  * Fetches known to be in the warn band already, which the gate reports but does
@@ -89,38 +109,64 @@ export const formatMib = (bytes: number): string => `${(bytes / 1024 / 1024).toF
  * sub-shard that family, which is the sitemap's own decision to make and would
  * more than double this diff.
  *
- * THE ENTRY IS THE TICKET. Anything listed here is a route heading for a silent
- * cache failure on the current growth curve, so an entry that has been here for
- * a while is a bug, not a baseline — `measuredAt` is a required field so the age
- * is visible without reading prose. Nothing may be added without a measurement
- * and a reason, and nothing here is exempt from the HARD cap: a genuine breach
- * still fails the build for every URL, allowlisted or not.
+ * IT WAIVES THE WARN BAND ONLY. A payload over the HARD cap has already stopped
+ * being cached, so no entry excuses it and both halves of the gate enforce that
+ * independently.
  *
- * `match` is a substring of the FETCH URL as the caller passes it. Both halves
+ * THE ENTRY IS THE TICKET — but not only the ticket. Anything listed here is a
+ * route heading for a silent cache failure on the current growth curve, so an
+ * entry that has sat here for a while is a bug, not a baseline. `measuredAt` and
+ * `ticket` are required: the first makes the age visible without reading prose,
+ * the second means the deferral shows up in triage rather than only in a build
+ * log. Nothing may be added without a measurement, a reason, and a ticket.
+ *
+ * `match` is compared against the fetch URL's pathname + `family` query, not as
+ * a bare substring, so an entry excuses exactly the fetch it was measured
+ * against rather than anything that happens to contain the string. Both halves
  * of the gate feed it the same absolute URL — the scan reads `data.url` from the
  * cache envelope, and every call site passes the URL it fetched — so an entry
  * cannot match one half and silently miss the other.
  */
 export const WARN_BAND_ALLOWLIST: ReadonlyArray<{
-  /** Matched as a substring of the absolute fetch URL. */
+  /** `pathname`, optionally `?family=…`, of the fetch this excuses. */
   match: string
   /** ISO date of the measurement in `reason`. Required: age is the signal. */
   measuredAt: string
+  /** PSY ticket that removes the need for this entry. Required. */
+  ticket: string
   reason: string
 }> = [
   {
     match: '/sitemap/entries?family=releases',
     measuredAt: '2026-08-08',
+    ticket: 'PSY-1763',
     reason:
       'Measured at 1.93 MB encoded, 97% of the cap — the largest sitemap family, ' +
       'already sharded per family by PSY-1622. Sub-sharding releases is the real ' +
-      'fix and is its own change. It is close: expect a breach, and a failing ' +
-      'build, on the next sizeable release import.',
+      'fix and is its own change. It is close: expect a breach on the next ' +
+      'sizeable release import, and the hard cap is NOT waived by this entry.',
   },
 ]
 
-/** Whether `url` is a recorded, still-cacheable warn-band exception. */
+/**
+ * Whether `url` is a recorded, still-cacheable warn-band exception.
+ *
+ * Matched on the parsed URL rather than by substring: `?family=releases` must
+ * not also excuse `?family=releases_v2`, or any unrelated URL that happens to
+ * carry the string in a query value. A URL that cannot be parsed is not
+ * allowlisted — the caller decides what to do with an unidentifiable entry.
+ */
 export function isWarnBandAllowlisted(url: string | undefined): boolean {
   if (!url) return false
-  return WARN_BAND_ALLOWLIST.some(entry => url.includes(entry.match))
+
+  let identity: string
+  try {
+    const parsed = new URL(url)
+    const family = parsed.searchParams.get('family')
+    identity = family ? `${parsed.pathname}?family=${family}` : parsed.pathname
+  } catch {
+    return false
+  }
+
+  return WARN_BAND_ALLOWLIST.some(entry => entry.match === identity)
 }

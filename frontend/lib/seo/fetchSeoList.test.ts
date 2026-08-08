@@ -148,3 +148,44 @@ describe('fetchSeoList', () => {
     )
   })
 })
+
+// PSY-1674. This helper fails open on every other error by design, and the ONE
+// exception is what the Data Cache budget gate is built on: a build-time budget
+// breach must ESCAPE the catch, because absorbing it turns the gate into a
+// no-op and restores exactly the silent cache failure it exists to remove.
+// Without these two tests, deleting the
+// `if (error instanceof DataCacheBudgetError) throw error` line leaves every
+// other test in this file passing.
+describe('fetchSeoList and the Data Cache budget gate', () => {
+  const originalPhase = process.env.NEXT_PHASE
+
+  afterEach(() => {
+    if (originalPhase === undefined) delete process.env.NEXT_PHASE
+    else process.env.NEXT_PHASE = originalPhase
+  })
+
+  // Comfortably past the ~1.5 MiB raw budget.
+  const oversized = () =>
+    jsonResponse({ venues: [{ slug: 'a', pad: 'x'.repeat(2_200_000) }] })
+
+  it('rethrows a budget breach during a build instead of failing open', async () => {
+    process.env.NEXT_PHASE = 'phase-production-build'
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await expect(call(vi.fn().mockResolvedValue(oversized()))).rejects.toThrow(
+      /Data Cache budget exceeded/
+    )
+    // Fail-open would have swallowed it into an empty list plus a Sentry event.
+    expect(captureException).not.toHaveBeenCalled()
+  })
+
+  it('still fails open at request time, where a rendered page beats a cache entry', async () => {
+    delete process.env.NEXT_PHASE
+
+    await expect(call(vi.fn().mockResolvedValue(oversized()))).resolves.toHaveLength(1)
+    expect(captureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('data-cache-budget'),
+      expect.objectContaining({ level: 'error' })
+    )
+  })
+})

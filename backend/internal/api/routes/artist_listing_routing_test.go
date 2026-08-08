@@ -25,16 +25,52 @@ import (
 // serialised object keeps exactly two keys. These tests speak HTTP so both are
 // observable.
 
-// A static sibling losing to the parameterised route would not 404 — it would
-// reach GetArtistHandler with artist_id="listing". The frontend fails open on a
-// non-OK response, so that regression would surface as an ItemList that is
-// quietly empty, which is the same silence this ticket exists to remove.
-func TestArtistListingRouteIsStaticNotParameterised(t *testing.T) {
-	routes := chiRoutes(t, newTestRouter(t))
+// This asserts RESOLUTION, not registration, and the distinction matters.
+//
+// An earlier version of this test compared route-table SHAPES via matching(),
+// which normalises {param} to {} — so `/artists/listing` could only ever match
+// itself and `/artists/{artist_id}` was invisible to it. That assertion reduced
+// to "someone registered the route" and would have passed unchanged in the world
+// it claimed to guard against. It also repeated the folklore in artists.go that
+// registration ORDER decides precedence; it does not — chi walks node types with
+// static first, so a static segment wins regardless of order.
+//
+// What is actually worth pinning is the end state: a GET to /artists/listing
+// reaches the listing handler rather than GetArtistHandler with
+// artist_id="listing". That regression would not 404 — the frontend fails open
+// on a non-OK response, so it would surface as an ItemList that is quietly
+// empty, which is the same silence this ticket exists to remove. No database is
+// needed, so unlike the end-to-end test below this runs in short mode.
+func TestArtistListingRouteResolvesToTheListingHandler(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/artists/listing", nil)
+	w := httptest.NewRecorder()
+	newTestRouter(t).ServeHTTP(w, req)
 
-	if got := matching(routes, http.MethodGet, "/artists/listing"); len(got) != 1 {
-		t.Errorf("GET /artists/listing: %d registered routes %v, want exactly 1 — "+
-			"the static route must be registered alongside /artists/{artist_id}", len(got), got)
+	if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
+		t.Fatalf("GET /artists/listing = %d — the route is not registered", w.Code)
+	}
+
+	// This router has no database, so the listing handler answers 500 with its
+	// OWN message. That message is what identifies the handler: the
+	// /artists/{artist_id} sibling cannot produce it, so seeing it proves the
+	// static segment won. Asserting the identity rather than a 200 keeps this
+	// test free of a Postgres container, so it runs in short mode — the
+	// end-to-end behaviour is covered below.
+	const listingHandlerDetail = "Failed to fetch artist listing"
+
+	var body struct {
+		Detail  string             `json:"detail"`
+		Artists *[]json.RawMessage `json:"artists"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("parse response: %v; body: %s", err, w.Body.String())
+	}
+
+	if body.Artists == nil && body.Detail != listingHandlerDetail {
+		t.Errorf("GET /artists/listing did not reach the listing handler.\n"+
+			"got status %d body %s\n"+
+			"the parameterised /artists/{artist_id} sibling answered instead",
+			w.Code, w.Body.String())
 	}
 }
 

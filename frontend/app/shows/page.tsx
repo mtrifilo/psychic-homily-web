@@ -75,6 +75,21 @@ interface ShowListItem {
 export const UPCOMING_SHOWS_LIMIT = 50
 
 /**
+ * Data Cache exposure, measured against production 2026-08-08 (PSY-1674), when
+ * `/artists` was found 206% over the 2 MB cache-item cap and silently uncached:
+ *
+ *   GET /shows/upcoming?limit=50   80,327 raw   107,104 base64   5.1% of the cap
+ *   GET /shows/cities               8,948 raw    11,932 base64   0.6%
+ *
+ * `/shows` is not exposed, and structurally so: the list fetch carries an
+ * explicit `limit`, so it grows with the page size rather than the catalogue.
+ * (`/shows/cities` carries none, but it is a facet aggregate — one row per city
+ * — so it grows with cities, not shows.) `GET /artists` had no limit at all,
+ * which is what let it run away. Re-measure if this limit is ever raised
+ * sharply, or if a field is added to the show response.
+ */
+
+/**
  * The `ItemList` read of `/shows/upcoming`.
  *
  * Separate from the first-screen seed below, and the split is deliberate after
