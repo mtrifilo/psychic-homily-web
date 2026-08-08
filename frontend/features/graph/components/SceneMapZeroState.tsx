@@ -13,9 +13,9 @@
  * a map it can draw.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Play } from 'lucide-react'
 
 import { EntityContextPanel } from '@/components/graph/EntityContextPanel'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
@@ -23,6 +23,8 @@ import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/Graph
 import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 
 import { groupNodesByRegion, type SceneMap, type SceneMapNode } from '../sceneMap'
+import type { SceneReplayController } from '../useSceneReplay'
+import { ReplayScrubber } from './ReplayScrubber'
 import { SceneMapCanvas } from './SceneMapCanvas'
 
 /** Anchor shape the host re-roots on — the same one artist search produces. */
@@ -48,14 +50,56 @@ export interface SceneMapZeroStateProps {
   canvasWidth: number | null
   /** Re-root the Observatory on an artist — identical to picking one in search. */
   onSelectArtist: (anchor: SceneMapArtistAnchor) => void
+  /**
+   * The growth replay's transport (PSY-1737), owned by the host because the
+   * page header reads the same clock. Omitted in the tests that only exercise
+   * the card, and unusable below the canvas breakpoint either way.
+   */
+  replay?: SceneReplayController
 }
 
 export function SceneMapZeroState({
   map,
   canvasWidth,
   onSelectArtist,
+  replay,
 }: SceneMapZeroStateProps) {
   const [selectedHub, setSelectedHub] = useState<SceneMapNode | null>(null)
+
+  // NO REPLAY BELOW THE CANVAS BREAKPOINT (locked scope edge). Sub-640px keeps
+  // the PSY-1472 teaser idiom: there is no map down there, so there is nothing
+  // to watch grow. The rule lives HERE, once, beside the canvas gate it mirrors
+  // — the host must not be able to disagree with it.
+  const canReplay = canvasWidth !== null && replay?.timeline != null
+  const isReplaying = canReplay && replay.isActive
+  const replayTimeline = replay?.timeline ?? null
+
+  // Memoised so the canvas gets a STABLE object. Its paint callbacks list this
+  // as a dependency, and a fresh object per render would rebuild every one of
+  // them on every render — including the one the library treats as its
+  // repaint trigger.
+  const readFrame = replay?.readFrame
+  const canvasReplay = useMemo(
+    () => (canReplay && replayTimeline && readFrame ? { timeline: replayTimeline, readFrame } : null),
+    [canReplay, replayTimeline, readFrame],
+  )
+
+  const exitReplay = replay?.exit
+  useEffect(() => {
+    if (!isReplaying || !exitReplay) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      // BUBBLE phase, and it defers to anything already handled. The graph's
+      // inspector panels dismiss through Radix's layer stack, which
+      // preventDefaults in the CAPTURE phase — so an Escape aimed at an open
+      // hub card closes the card and leaves the run alone, which is the same
+      // deference the fullscreen overlay keeps (PSY-1355).
+      if (event.defaultPrevented) return
+      exitReplay()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isReplaying, exitReplay])
 
   const handleSelectArtist = useCallback(
     (node: SceneMapNode) => {
@@ -93,6 +137,8 @@ export function SceneMapZeroState({
             onBackgroundClick={closeHub}
             ariaLabel={`A map of ${map.artistCount} connected artists in ${map.regions.length} regions.`}
             describedById={SCENE_MAP_GUIDANCE_ID}
+            replay={canvasReplay}
+            isReplayActive={isReplaying}
           />
           <p id={SCENE_MAP_GUIDANCE_ID} className="sr-only">
             Select an artist to center the graph on them. Select a label to see
@@ -117,9 +163,18 @@ export function SceneMapZeroState({
         />
       )}
 
-      <IsolateBand count={map.isolateCount} />
+      <IsolateBand count={map.isolateCount} dimmed={isReplaying} />
       <SceneMapList map={map} onSelectArtist={handleSelectArtist} />
-      <FreshnessFooter map={map} />
+      {/* The scrubber REPLACES the freshness strip, and only while a run is in
+          flight — the at-rest map keeps exactly the chrome it shipped with. */}
+      {isReplaying && replayTimeline ? (
+        <ReplayScrubber replay={replay} timeline={replayTimeline} />
+      ) : (
+        <FreshnessFooter
+          map={map}
+          onWatchItGrow={canReplay ? replay.start : undefined}
+        />
+      )}
     </div>
   )
 }
@@ -150,10 +205,18 @@ function MapPitchLine({ map }: { map: SceneMap }) {
  * than drawn (a few thousand unconnected dots would say only "nothing is known
  * about these yet"), with the one action that changes it.
  */
-function IsolateBand({ count }: { count: number }) {
+function IsolateBand({ count, dimmed }: { count: number; dimmed: boolean }) {
   if (count <= 0) return null
   return (
-    <p className="border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground">
+    <p
+      className={`border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none ${
+        // Recedes during a run (locked scope edge): the count of artists NOT on
+        // the map is a fact about now, and the map on screen is not showing now.
+        // Dimmed rather than hidden — the row disappearing would jump the whole
+        // card's layout at the moment the replay wants attention on the canvas.
+        dimmed ? 'opacity-45' : ''
+      }`}
+    >
       {isolateShelfCaption(count)}.{' '}
       <Link
         href="/contribute"
@@ -166,8 +229,23 @@ function IsolateBand({ count }: { count: number }) {
   )
 }
 
-/** When the map was built, and what is on it. */
-function FreshnessFooter({ map }: { map: SceneMap }) {
+/**
+ * When the map was built, what is on it — and the one way into the growth
+ * replay.
+ *
+ * The entry point is a chip in this row rather than a control on the canvas
+ * (locked): the at-rest map stays chrome-free, and the invitation sits with the
+ * other facts about the snapshot, which is where a visitor is already reading
+ * when they wonder how it got this way.
+ */
+function FreshnessFooter({
+  map,
+  onWatchItGrow,
+}: {
+  map: SceneMap
+  /** Absent when this snapshot has no watchable history, or below the canvas breakpoint. */
+  onWatchItGrow?: () => void
+}) {
   const lastMapped = Number.isNaN(map.lastMapped.getTime())
     ? null
     : map.lastMapped.toLocaleDateString(undefined, {
@@ -177,7 +255,19 @@ function FreshnessFooter({ map }: { map: SceneMap }) {
       })
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/50 px-4 py-2.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-      <span>Mapped nightly{lastMapped ? ` · Last mapped ${lastMapped}` : ''}</span>
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {onWatchItGrow && (
+          <button
+            type="button"
+            onClick={onWatchItGrow}
+            className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <Play className="size-3 fill-current" aria-hidden="true" />
+            Watch it grow
+          </button>
+        )}
+        <span>Mapped nightly{lastMapped ? ` · Last mapped ${lastMapped}` : ''}</span>
+      </span>
       <span>
         {map.artistCount.toLocaleString()} connected ·{' '}
         {map.labelCount.toLocaleString()} labels ·{' '}

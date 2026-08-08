@@ -255,3 +255,66 @@ describe('selectSceneMapLabels', () => {
     expect(specs[0].text).toBe('Node 1')
   })
 })
+
+// ── The growth replay's label rules (PSY-1737) ────────────────────────────
+describe('selectSceneMapLabels during a growth replay', () => {
+  const captions = [candidate({ id: -1, text: 'Around Alpha', force: true, alpha: 0.75 })]
+  const nodes = [
+    candidate({ id: 1, x: 0, y: 0 }),
+    candidate({ id: 2, x: 500, y: 0, isDecoration: true, text: 'Doom Records' }),
+  ]
+
+  it('leaves every label alone at rest — the default is the shipped behaviour', () => {
+    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN)
+
+    expect(specs.map(spec => spec.text)).toEqual(['Around Alpha', 'Node 1', 'Doom Records'])
+    expect(specs.find(spec => spec.text === 'Around Alpha')!.alpha).toBe(0.75)
+    expect(specs.find(spec => spec.text === 'Node 1')!.alpha).toBeUndefined()
+  })
+
+  it('crossfades region captions and hub names with the layer they belong to', () => {
+    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, 0.4)
+
+    expect(specs.find(spec => spec.text === 'Around Alpha')!.alpha).toBeCloseTo(0.3, 10)
+    expect(specs.find(spec => spec.text === 'Doom Records')!.alpha).toBeCloseTo(0.4, 10)
+    // An artist name is content, not furniture: it is untouched.
+    expect(specs.find(spec => spec.text === 'Node 1')!.alpha).toBeUndefined()
+  })
+
+  it('drops the orientation layer entirely once it has faded out', () => {
+    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, 0)
+
+    // Not merely transparent: a sub-percent label still costs a text measure
+    // and still reserves a collision box against names that ARE on the map.
+    expect(specs.map(spec => spec.text)).toEqual(['Node 1'])
+  })
+
+  it('fades an artist name in with its own dot', () => {
+    const reveal = new Map([[1, 0.3]])
+    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, 0, id =>
+      reveal.get(id) ?? 1,
+    )
+
+    expect(specs.find(spec => spec.text === 'Node 1')!.alpha).toBeCloseTo(0.3, 10)
+  })
+
+  it('does not label a dot that has not arrived, and frees its cell for one that has', () => {
+    // Both candidates land in the SAME grid cell, so at rest the first wins it
+    // and the second is culled. Mid-replay the first has not arrived, and the
+    // cell must go to the one a visitor can actually see.
+    const contenders = [
+      candidate({ id: 10, x: 0, y: 0, priority: 10, text: 'Not here yet' }),
+      candidate({ id: 11, x: 1, y: 1, priority: 5, text: 'Already here' }),
+    ]
+
+    expect(selectSceneMapLabels(contenders, [], 1, null, WIDE_OPEN).map(s => s.text)).toEqual([
+      'Not here yet',
+    ])
+
+    const specs = selectSceneMapLabels(contenders, [], 1, null, WIDE_OPEN, 1, id =>
+      id === 10 ? 0 : 1,
+    )
+
+    expect(specs.map(spec => spec.text)).toEqual(['Already here'])
+  })
+})

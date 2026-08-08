@@ -59,6 +59,13 @@ import { graphCanvasHeight } from '@/components/graph/GraphStateCard'
 
 import { sceneMapColorIndex, type SceneMap, type SceneMapNode } from '../sceneMap'
 import {
+  progressAtAppear,
+  replayIsPulsing,
+  replayReveal,
+  type ReplayTimeline,
+} from '../replayTimeline'
+import type { SceneReplayFrame } from '../useSceneReplay'
+import {
   selectSceneMapLabels,
   sceneMapLabelTiers,
   type SceneMapLabelCandidate,
@@ -86,12 +93,20 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
 interface MapNode extends SceneMapNode {
   fx: number
   fy: number
+  /**
+   * Where this node arrives along the replay run, 0..1 — precomputed once per
+   * snapshot (PSY-1737). 0 when the snapshot has no replayable history, which
+   * only matters when a run is active, and there can be no run without one.
+   */
+  revealAt: number
 }
 
 interface MapLink {
   source: number
   target: number
   kind: 'similarity' | 'spoke'
+  /** Same units as `MapNode.revealAt`, never earlier than either endpoint's. */
+  revealAt: number
 }
 
 /**
@@ -149,6 +164,42 @@ const ZOOM_FIT_PADDING = 60
 /** Viewport-cull margin, as a fraction of the visible extent on each side. */
 const VIEWPORT_CULL_MARGIN = 0.05
 
+/**
+ * Alpha steps an edge's reveal is quantised into during a replay.
+ *
+ * react-force-graph BATCHES link strokes by the colour string the accessor
+ * returns, so a continuous per-edge alpha would hand it twenty thousand distinct
+ * strings and one stroke call each. Five steps keeps the batching (ten cached
+ * strings for the two kinds) and the crossfade still reads as a crossfade at the
+ * hairline alphas backbone edges are drawn with.
+ */
+const REPLAY_EDGE_ALPHA_STEPS = 5
+
+/**
+ * How small a fresh dot starts, as a fraction of its final radius. It grows to
+ * full size across the same window it fades in over, so an arrival lands rather
+ * than switches on.
+ */
+const REPLAY_MIN_NODE_SCALE = 0.45
+
+/** Extra radius a dot carries at the peak of its arrival beat. */
+const REPLAY_PULSE_SCALE_BOOST = 0.5
+
+/**
+ * What the replay layer needs from its host. Absent — the normal case — the
+ * canvas behaves exactly as it did before the replay existed: every branch below
+ * is gated on the frame's own `active` flag, which only a live run sets.
+ */
+export interface SceneMapReplay {
+  timeline: ReplayTimeline
+  /**
+   * The transport's clock. Called INSIDE paint callbacks only: it changes sixty
+   * times a second and is deliberately invisible to React. The object it returns
+   * is mutated in place, so it is read per frame and never stored.
+   */
+  readFrame: () => SceneReplayFrame
+}
+
 export interface SceneMapCanvasProps {
   map: SceneMap
   containerWidth: number
@@ -162,6 +213,14 @@ export interface SceneMapCanvasProps {
   onBackgroundClick: () => void
   ariaLabel: string
   describedById?: string
+  /** The growth replay layer, or null for the at-rest map (PSY-1737). */
+  replay?: SceneMapReplay | null
+  /**
+   * True while a run is in flight. React state, changed a handful of times per
+   * run — it switches the canvas out of its auto-pause redraw mode and nothing
+   * else. The per-frame values all come through `replay.frameRef`.
+   */
+  isReplayActive?: boolean
 }
 
 export function SceneMapCanvas({
@@ -173,6 +232,8 @@ export function SceneMapCanvas({
   onBackgroundClick,
   ariaLabel,
   describedById,
+  replay = null,
+  isReplayActive = false,
 }: SceneMapCanvasProps) {
   const palette = useGraphPalette()
   const graphRef = useRef<ForceGraphMethods<MapNode, MapLink> | null>(null)
@@ -203,15 +264,27 @@ export function SceneMapCanvas({
   // toggle would hand the engine an entirely new graph — a full data digest and
   // re-initialisation to change nothing but colour. The theme-dependent fill
   // lives in its own lookup below.
+  //
+  // The replay's reveal positions are baked in HERE, once per snapshot, rather
+  // than resolved per node per frame: mapping an appear time onto the run is a
+  // binary search over the bins, and the whole point of the fixed-layout design
+  // is that a frame does arithmetic, not lookups. The timeline is derived from
+  // the same snapshot, so this memo gains no new invalidations.
+  const timeline = replay?.timeline ?? null
   const graphData = useMemo(() => {
+    const bins = timeline?.bins
     const nodes: MapNode[] = map.nodes.map(node => ({
       ...node,
       fx: node.x,
       fy: node.y,
+      revealAt: bins ? progressAtAppear(bins, node.appear) : 0,
     }))
-    const links: MapLink[] = map.edges.map(edge => ({ ...edge }))
+    const links: MapLink[] = map.edges.map(edge => ({
+      ...edge,
+      revealAt: bins ? progressAtAppear(bins, edge.appear) : 0,
+    }))
     return { nodes, links }
-  }, [map])
+  }, [map, timeline])
 
   // Node fill by id, resolved per snapshot + theme rather than per node per
   // frame: it depends only on the node's community and the palette, so
@@ -291,6 +364,9 @@ export function SceneMapCanvas({
         // artist; it just cannot win the same cell twice.
         priority: isHub ? HUB_LABEL_PRIORITY_BOOST - node.rank : -node.rank,
         force: false,
+        // A hub's name belongs to the map's orientation layer, which the growth
+        // replay clears along with the hub squares themselves.
+        isDecoration: isHub,
       })
     }
     // Sorted ONCE. The per-frame cull consumes this order as its tie-break, so
@@ -373,13 +449,50 @@ export function SceneMapCanvas({
   // because it needs d3-polygon to COMPUTE a hull from live node positions.
   // Here the polygons arrive precomputed, so the pre-frame hook does the job
   // directly with no per-link dispatch and no flag to reset.
+  // The one place the replay's frame is read for the decoration layer. Kept as a
+  // helper rather than repeated in four callbacks so "is the furniture visible"
+  // has a single answer per frame.
+  //
+  // Gated on `isReplayActive` as well as on the frame's own flag. That is not
+  // belt-and-braces: it is what lets every paint callback below take its at-rest
+  // path without calling into the transport at all, and it makes the React
+  // dependency honest — the callbacks genuinely behave differently when it flips.
+  const readDecorationAlpha = useCallback(() => {
+    if (!isReplayActive || !replay) return 1
+    const frame = replay.readFrame()
+    return frame.active ? frame.decorationAlpha : 1
+  }, [isReplayActive, replay])
+
+  // A name is only as present as its dot. `undefined` at rest, so the label pass
+  // keeps its at-rest fast path rather than calling a function per label that
+  // would always answer 1.
+  const replayNodeAlpha = useMemo(() => {
+    if (!isReplayActive || !replay || !timeline) return undefined
+    const { readFrame } = replay
+    return (id: number) => {
+      const frame = readFrame()
+      if (!frame.active) return 1
+      const revealAt = timeline.revealByNodeId.get(id)
+      if (revealAt === undefined) return 1
+      return replayReveal(frame.progress, revealAt, timeline.fadeProgress)
+    }
+  }, [isReplayActive, replay, timeline])
+
   const handleRenderFramePre = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
+      // Hulls belong to the at-rest map: a region outline around three dots
+      // that have not arrived yet is a promise the replay has not kept. They
+      // crossfade out on entry and back in on settle.
+      const decorationAlpha = readDecorationAlpha()
+      if (decorationAlpha <= 0) return
       // The library does NOT wrap the pre-frame hook in save/restore (it calls
       // it bare, before tickFrame), so anything set here would otherwise leak
       // into the link and node passes that follow. Same self-contained
       // save/restore contract `drawIsolateShelfBand` already keeps.
       ctx.save()
+      // Multiplies whatever the fill and stroke colours already carry, so the
+      // focus-dim and the replay crossfade compose instead of fighting.
+      if (decorationAlpha < 1) ctx.globalAlpha = decorationAlpha
       // Counter-scaled so the boundary is a constant hairline at any zoom. A
       // graph-space width would vanish at the fitted whole-map view, which is
       // the ONE view the region outlines exist for.
@@ -398,7 +511,7 @@ export function SceneMapCanvas({
       }
       ctx.restore()
     },
-    [hullStyles],
+    [hullStyles, readDecorationAlpha],
   )
 
   // ── Nodes ──────────────────────────────────────────────────────────────
@@ -412,7 +525,45 @@ export function SceneMapCanvas({
       // piece of ctx state, and resets it unconditionally below. Anything else
       // added here (setLineDash, shadowBlur, textAlign, filter) WILL leak into
       // the label pass and the next frame, so wrap the body if that changes.
-      ctx.globalAlpha = !focusedIds || focusedIds.has(node.id) ? 1 : BACKGROUND_ALPHA
+      let alpha = !focusedIds || focusedIds.has(node.id) ? 1 : BACKGROUND_ALPHA
+
+      // ── The reveal ─────────────────────────────────────────────────────
+      // Alpha and RADIUS only. The position is read from the snapshot exactly
+      // as it is at rest — a dot that moved would break the mental map the
+      // fixed-layout design exists to preserve, and there is no simulation here
+      // that could move one.
+      const frame = isReplayActive && replay ? replay.readFrame() : null
+      let radius = ARTIST_RADIUS
+      let fill = fillById.get(node.id) ?? palette.otherCluster
+      if (frame?.active && timeline) {
+        if (node.kind === 'label') {
+          // Hubs are orientation, not arrivals: they leave with the hulls.
+          if (frame.decorationAlpha <= 0) return
+          alpha *= frame.decorationAlpha
+        } else {
+          const reveal = replayReveal(frame.progress, node.revealAt, timeline.fadeProgress)
+          if (reveal <= 0) return
+          alpha *= reveal
+          let scale = REPLAY_MIN_NODE_SCALE + (1 - REPLAY_MIN_NODE_SCALE) * reveal
+          // A beat of primary orange on the way in, so the eye is drawn to what
+          // just happened rather than having to find it in the field.
+          //
+          // The beat carries a SIZE overshoot as well as the hue, and that is
+          // not decoration: the design tokens give `--primary` the same value as
+          // `--chart-1`, so an arrival in a chart-1 community would pulse to its
+          // own colour and read as nothing at all. Same reasoning the shared
+          // suggested-direction affordance is documented with in `graphPalette`
+          // — legibility through shape, not hue alone.
+          const pulseAge = frame.progress - node.revealAt
+          if (replayIsPulsing(frame.progress, node.revealAt, timeline.pulseProgress)) {
+            fill = palette.primary
+            scale *= 1 + REPLAY_PULSE_SCALE_BOOST * (1 - pulseAge / timeline.pulseProgress)
+          }
+          radius = ARTIST_RADIUS * scale
+        }
+      }
+
+      ctx.globalAlpha = alpha
 
       if (node.kind === 'label') {
         // Hubs take the label family's own hue from the shared ramp; SHAPE, not
@@ -422,22 +573,37 @@ export function SceneMapCanvas({
           node.x,
           node.y,
           HUB_HALF_EXTENT,
-          fillById.get(node.id) ?? palette.otherCluster,
+          fill,
           palette.labelHalo,
         )
       } else {
         ctx.beginPath()
-        ctx.arc(node.x, node.y, ARTIST_RADIUS, 0, Math.PI * 2)
-        ctx.fillStyle = fillById.get(node.id) ?? palette.otherCluster
+        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
+        ctx.fillStyle = fill
         ctx.fill()
         if (node.hasUpcomingShow) {
-          drawUpcomingShowDot(ctx, node.x, node.y, ARTIST_RADIUS)
+          drawUpcomingShowDot(ctx, node.x, node.y, radius)
         }
       }
 
       ctx.globalAlpha = 1
     },
-    [fillById, palette.labelHalo, palette.otherCluster, focusedIds],
+    [
+      fillById,
+      palette.labelHalo,
+      palette.otherCluster,
+      palette.primary,
+      focusedIds,
+      replay,
+      timeline,
+      // Also what forces ONE repaint when a run starts or ends.
+      // `nodeCanvasObject` is the prop the library wires to `notifyRedraw`, so a
+      // new identity is the only handle a component has on "draw the current
+      // state once". Without this changing, the canvas would keep the last
+      // replay frame on screen after settling, because auto-pause has just come
+      // back on and nothing else React can see has changed.
+      isReplayActive,
+    ],
   )
 
   const nodePointerAreaPaint = useCallback(
@@ -483,10 +649,15 @@ export function SceneMapCanvas({
           globalScale,
           focusedIds,
           visibleWorldBounds(ctx),
+          // Region captions and hub names crossfade with the layer they belong
+          // to. Artist names are NOT part of that layer — they arrive with
+          // their own dots, which is what makes a run readable.
+          readDecorationAlpha(),
+          replayNodeAlpha,
         ),
       )
     },
-    [labelCandidates, forcedCandidates, palette, focusedIds],
+    [labelCandidates, forcedCandidates, palette, focusedIds, readDecorationAlpha, replayNodeAlpha],
   )
 
   // ── Links ──────────────────────────────────────────────────────────────
@@ -509,9 +680,36 @@ export function SceneMapCanvas({
     }
   }, [palette])
 
+  // The replay's edge ramp: each kind's rest colour, stepped down to nothing.
+  // Built per theme, exactly like the four above and for the same reason — the
+  // accessor must return a CACHED instance or the library's stroke batching
+  // degrades into one draw call per edge.
+  const replayLinkColors = useMemo(() => {
+    const spokeBase = clusterColor(palette, LABEL_HUB_COLOR_INDEX)
+    const ramp = (base: string, restHex: string) => {
+      const rest = parseInt(restHex, 16)
+      return Array.from({ length: REPLAY_EDGE_ALPHA_STEPS }, (_, step) =>
+        withHexAlpha(
+          base,
+          alphaToHex(((rest / 255) * step) / (REPLAY_EDGE_ALPHA_STEPS - 1)),
+        ),
+      )
+    }
+    return {
+      similarity: ramp(palette.mutedForeground, EDGE_ALPHA_HEX),
+      spoke: ramp(spokeBase, SPOKE_ALPHA_HEX),
+    }
+  }, [palette])
+
   const linkColor = useCallback(
     (link: MapLink) => {
       const isSpoke = link.kind === 'spoke'
+      const frame = isReplayActive && replay ? replay.readFrame() : null
+      if (frame?.active && timeline) {
+        const reveal = replayReveal(frame.progress, link.revealAt, timeline.fadeProgress)
+        const step = Math.round(reveal * (REPLAY_EDGE_ALPHA_STEPS - 1))
+        return (isSpoke ? replayLinkColors.spoke : replayLinkColors.similarity)[step]
+      }
       if (!focusedIds) return isSpoke ? linkColors.restSpoke : linkColors.restSimilarity
       // Both endpoints in the focused set = a connection INSIDE the
       // neighbourhood; anything else recedes with the rest of the background.
@@ -520,7 +718,20 @@ export function SceneMapCanvas({
       if (inFocus) return isSpoke ? linkColors.focusedSpoke : linkColors.focusedSimilarity
       return isSpoke ? linkColors.dimmedSpoke : linkColors.dimmedSimilarity
     },
-    [linkColors, focusedIds],
+    [linkColors, focusedIds, isReplayActive, replay, replayLinkColors, timeline],
+  )
+
+  // An edge whose reveal has not started is not drawn at all, rather than
+  // stroked at alpha 0. Early in a run that is most of the catalog's twenty
+  // thousand lines, and the library evaluates this before it does any geometry.
+  const linkVisibility = useCallback(
+    (link: MapLink) => {
+      if (!isReplayActive || !replay) return true
+      const frame = replay.readFrame()
+      if (!frame.active) return true
+      return link.revealAt <= frame.progress
+    },
+    [isReplayActive, replay],
   )
 
   // ── Interaction ────────────────────────────────────────────────────────
@@ -549,6 +760,15 @@ export function SceneMapCanvas({
     graphRef.current?.zoomToFit(0, ZOOM_FIT_PADDING)
   }, [canvasReady, map, containerWidth, height])
 
+  // A run needs the library's animation loop to actually be running. It normally
+  // is — but PSY-1235 measured it coming back DEAD after an App Router back-nav
+  // remount, and a replay on a dead loop is a frozen empty map with a scrubber
+  // ticking beside it. Resuming is idempotent, and this is the only surface that
+  // depends on the loop rather than on repaint-on-change.
+  useEffect(() => {
+    if (isReplayActive) graphRef.current?.resumeAnimation()
+  }, [isReplayActive])
+
   return (
     <div
       className="w-full overflow-hidden rounded-lg"
@@ -573,7 +793,15 @@ export function SceneMapCanvas({
         linkSource="source"
         linkTarget="target"
         linkColor={linkColor}
+        linkVisibility={linkVisibility}
         linkWidth={1.5}
+        // THE ONE THING THAT MAKES A RUN ANIMATE. With auto-pause on (the
+        // default) the canvas repaints only when something React-visible
+        // changes or the visitor pans — and the replay's clock is deliberately
+        // invisible to React, so every frame would draw the same picture. It is
+        // switched back on the moment a run ends, because at rest a
+        // continuously redrawing whole-catalog canvas is a battery bug.
+        autoPauseRedraw={!isReplayActive}
         onRenderFramePre={handleRenderFramePre}
         onRenderFramePost={handleRenderFramePost}
         // ZERO client simulation — the whole point of the nightly snapshot.

@@ -53,6 +53,7 @@ import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
+import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
 
 interface GraphAnchor {
@@ -593,6 +594,42 @@ function ZeroStateHero({
   )
 }
 
+/**
+ * `REPLAY · Mar 2019 · 412 ON THE MAP` — the header status line while a growth
+ * replay runs (PSY-1737).
+ *
+ * The text is written straight into the DOM from the transport's frame
+ * subscription rather than rendered. Both halves of it change on every frame,
+ * and rendering them would re-render the whole Observatory sixty times a second
+ * for two words — the same reason the playhead itself is not React state.
+ *
+ * A `useEffect` here is not a fallback: subscribing to something outside React
+ * and unsubscribing on unmount is precisely what an effect is for, and there is
+ * no render-time way to attach to a live clock. `useSyncExternalStore` is the
+ * wrong tool for the same reason it would be for the playhead — it exists to
+ * turn an external change into a RE-RENDER, which is the cost being avoided.
+ */
+function ReplayStatusLine({ replay }: { replay: SceneReplayController }) {
+  const textRef = useRef<HTMLSpanElement>(null)
+  const { subscribe, timeline } = replay
+
+  useEffect(() => {
+    if (!timeline) return
+    let last = ''
+    return subscribe(frame => {
+      const text = replayStatusText(timeline, frame.progress)
+      if (text === last) return
+      last = text
+      if (textRef.current) textRef.current.textContent = text
+    })
+  }, [subscribe, timeline])
+
+  // `aria-live` is deliberately absent: the run repaints this every frame, and
+  // announcing it would flood a screen reader. The scrubber's slider carries the
+  // accessible position instead, where it can be read on demand.
+  return <span ref={textRef} className="text-foreground" />
+}
+
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
@@ -835,6 +872,10 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
+  // The growth replay's transport (PSY-1737). Owned HERE rather than inside the
+  // map card because the header's status line reads the same clock, and two
+  // clocks would be two answers to "what year is on screen".
+  const replay = useSceneReplay(sceneMap)
   const zeroStateView = resolveZeroStateView({
     isPending: overviewQuery.isPending,
     isError: overviewQuery.isError,
@@ -901,6 +942,8 @@ export function GraphObservatory() {
                 <>
                   Centered on <span className="text-foreground">{center.name}</span>
                 </>
+              ) : replay.isActive ? (
+                <ReplayStatusLine replay={replay} />
               ) : (
                 <>
                   The whole map ·{' '}
@@ -955,6 +998,7 @@ export function GraphObservatory() {
                   map={sceneMap}
                   canvasWidth={isCanvasUsable ? containerWidth : null}
                   onSelectArtist={startAt}
+                  replay={replay}
                 />
               </>
             )}
