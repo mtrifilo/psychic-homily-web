@@ -118,8 +118,8 @@ func resolveRevisionUserUsername(u *authm.User) *string {
 // revision arrives here with a nil Summary, which Deref turns into "" and
 // omitempty drops from the payload. There is no mask string to recognise, so an
 // empty summary here means EITHER the contributor wrote none or the revision is
-// gated — do not add a branch that tries to tell them apart, because the whole
-// point is that the response cannot.
+// gated. Do not add a branch that tries to tell them apart. The whole point is
+// that the response cannot.
 func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 	item := RevisionResponseItem{
 		ID:           r.ID,

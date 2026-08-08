@@ -464,7 +464,7 @@ func TestMapRevisionToResponse_NilFieldChanges(t *testing.T) {
 // omitempty is the part that could regress silently.
 //
 // Built from the fully-populated fixture with only Summary cleared, so it also
-// shows summary is the ONLY key that disappears — a payload that dropped several
+// shows summary is the ONLY key that disappears. A payload that dropped several
 // keys would not distinguish withholding from a broken response.
 func TestMapRevisionToResponse_NilSummaryOmittedFromPayload(t *testing.T) {
 	r := makeTestRevision(1)

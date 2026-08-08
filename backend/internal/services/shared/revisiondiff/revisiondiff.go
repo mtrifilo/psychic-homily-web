@@ -83,9 +83,9 @@
 //
 // revisions.summary is contributor-authored free text served beside the diff on
 // the same anonymous routes, so the natural summary for an address correction
-// contains the address the diff beside it masks — and on the trusted-tier
-// auto-apply path no reviewer ever reads it before it is published. No
-// field-name rule can reach prose.
+// contains the address the diff beside it masks. On the trusted-tier auto-apply
+// path no reviewer ever reads it before it is published. No field-name rule can
+// reach prose.
 //
 // The policy is to withhold the summary WHOLE, at read time, on every revision
 // whose subject is a gated venue, riding the SAME verdict as the field masking
@@ -110,8 +110,8 @@
 // The complementary half is contributor-facing and lives in the frontend, on
 // the edit drawer's summary field: whatever that copy says, it must not imply
 // the audience is moderators. Withholding summaries on gated venues does not
-// remove that obligation — the field is still world-readable on every entity
-// that is not a gated venue, which is nearly all of them.
+// remove that obligation, because the field is still world-readable on every
+// entity that is not a gated venue, which is nearly all of them.
 //
 // ONE KNOWN GAP remains that is not closed by a field list, and it should not be
 // read as covered by the paragraphs above.
