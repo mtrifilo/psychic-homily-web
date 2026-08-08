@@ -265,6 +265,14 @@ func main() {
 	// (stage, observe 429 rates, then prod).
 	router.Use(routes.EngagementMutationRateLimiter(sc.JWT, os.Getenv))
 
+	// PSY-1734: gzip compressible response bodies. Production browsers fetch this
+	// API cross-origin rather than through the frontend's `/api` proxy, so the
+	// proxy's own compression never applies to them and every read was going out
+	// as identity encoding. Mounted LAST of the global middleware, i.e. inside the
+	// rate limiters, so a rejected request is never compressed — see
+	// routes.ResponseCompression for the scope and ordering rationale.
+	router.Use(routes.ResponseCompression())
+
 	// Setup routes
 	_ = routes.SetupRoutes(router, sc, cfg)
 

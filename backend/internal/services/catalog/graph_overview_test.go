@@ -759,7 +759,9 @@ func (s *GraphOverviewSuite) TestRead_ServesTheNewestSnapshotWithItsStoredHash()
 
 	s.Require().NoError(err)
 	s.Require().NotNil(payload)
-	s.Assert().Equal(`"`+row.ContentHash+`"`, etag, "the ETag is the stored payload digest")
+	s.Assert().Equal(`W/"`+row.ContentHash+`"`, etag,
+		"the ETag is the stored payload digest, marked WEAK because the response is served under "+
+			"more than one content-coding (PSY-1734 gzip) so it is not byte-identical across them")
 	s.Assert().Equal(row.NodeCount, payload.NodeCount)
 	s.Assert().Equal(row.EdgeCount, payload.EdgeCount)
 }
@@ -790,5 +792,5 @@ func (s *GraphOverviewSuite) TestRead_PicksUpANewSnapshotOnceTheCacheLapses() {
 	_, freshETag, err := read.GetGraphOverview()
 	s.Require().NoError(err)
 	s.Assert().NotEqual(firstETag, freshETag, "past the TTL the newest snapshot must be picked up")
-	s.Assert().Equal(`"`+s.newestSnapshot().ContentHash+`"`, freshETag)
+	s.Assert().Equal(`W/"`+s.newestSnapshot().ContentHash+`"`, freshETag)
 }
