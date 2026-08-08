@@ -155,16 +155,27 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 		return nil, "", nil
 	}
 
-	// A strong ETag: the tag identifies the SNAPSHOT, and the snapshot fully
-	// determines the response, so two responses carrying it are byte-identical.
+	// A WEAK ETag, matching what the calendar feeds already mint. The tag
+	// identifies the SNAPSHOT, and two responses carrying it are semantically
+	// identical — but not byte-identical, which is the stronger thing a strong
+	// validator would promise.
 	//
-	// It is NOT a digest of the bytes on the wire, and must not be described as
-	// one. The column is JSONB, so Postgres normalizes key order and whitespace
+	// THE HASH IS NOT A DIGEST OF THE BYTES ON THE WIRE, and must not be described
+	// as one: the column is JSONB, so Postgres normalizes key order and whitespace
 	// on the way back out, and Huma's SchemaLinkTransformer adds a `$schema`
-	// member to the served body. The hash is therefore a build-time identity
-	// stamp for the snapshot — which is all a validator needs, since the map
-	// only ever changes by a new row appearing.
-	etag := `"` + row.ContentHash + `"`
+	// member to the served body. It is a build-time identity stamp for the
+	// snapshot, which is all a validator needs, since the map only ever changes by
+	// a new row appearing. Compression settled the question — one snapshot now
+	// legitimately goes out under two content-codings, which RFC 9110 §8.8.1
+	// forbids a strong validator from sharing — but the byte-for-byte promise was
+	// never really ours to make.
+	//
+	// Weakening costs nothing here. If-None-Match is specified to use WEAK
+	// comparison (shared.IfNoneMatchCovers already strips the prefix on both
+	// sides), so revalidation and its 304s are unaffected. The only thing a weak
+	// validator gives up is Range requests, and this endpoint serves a single
+	// whole JSON document with no Accept-Ranges.
+	etag := `W/"` + row.ContentHash + `"`
 	s.cached = &graphOverviewCached{
 		id:         row.ID,
 		etag:       etag,
