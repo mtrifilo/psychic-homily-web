@@ -872,16 +872,31 @@ export function GraphObservatory() {
     () => (overviewQuery.data ? buildSceneMap(overviewQuery.data) : null),
     [overviewQuery.data],
   )
-  // The growth replay's transport (PSY-1737). Owned HERE rather than inside the
-  // map card because the header's status line reads the same clock, and two
-  // clocks would be two answers to "what year is on screen".
-  const replay = useSceneReplay(sceneMap)
   const zeroStateView = resolveZeroStateView({
     isPending: overviewQuery.isPending,
     isError: overviewQuery.isError,
     error: overviewQuery.error,
     hasMap: sceneMap !== null,
   })
+  const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  // The growth replay's transport (PSY-1737). Owned HERE rather than inside the
+  // map card because the header's status line reads the same clock, and two
+  // clocks would be two answers to "what year is on screen".
+  //
+  // GATED ON THE SURFACE, not just on the data. A run belongs to the drawn map:
+  // hand the transport a map only while the map arm is what is actually on
+  // screen at a width that draws a canvas. Everything downstream reads that one
+  // decision instead of re-deriving it, which is what stops a run outliving the
+  // surface hosting it — resize to a phone mid-run, or click a dot to re-root,
+  // and the scrubber and its Escape handler unmount while a header that decided
+  // for itself would keep ticking `REPLAY · …` with no way left to stop it.
+  //
+  // It also means no timeline is built (a sort plus two passes over every node)
+  // for the ego-graph and hero renders that will never draw a map.
+  const replayableMap =
+    !center && zeroStateView === 'map' && isCanvasUsable ? sceneMap : null
+  const replay = useSceneReplay(replayableMap)
 
   const isShuffleBusy = isShuffleFetching || pendingLookup === 'shuffle'
   const graph = graphQuery.data
@@ -895,7 +910,6 @@ export function GraphObservatory() {
     () => new Set(graph?.links.map(link => link.type) ?? []),
     [graph],
   )
-  const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   // Whether the hero — which owns the lookup-error slot when it is on screen —
   // is actually mounted. It is NOT simply "no center": the map arm replaces it

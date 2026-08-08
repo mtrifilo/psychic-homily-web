@@ -256,15 +256,25 @@ describe('selectSceneMapLabels', () => {
   })
 })
 
-// ── The growth replay's label rules (PSY-1737) ────────────────────────────
-describe('selectSceneMapLabels during a growth replay', () => {
-  const captions = [candidate({ id: -1, text: 'Around Alpha', force: true, alpha: 0.75 })]
+// ── The caller-supplied label alpha (PSY-1737's growth replay uses it) ────
+//
+// The module owns one MECHANISM here — an alpha at or below the floor means skip
+// the candidate and release its cell — and knows nothing about why a caller
+// faded a label. These tests exercise the mechanism, using the replay's own
+// policy (furniture vs content) as the worked example.
+describe('selectSceneMapLabels with a caller-supplied alpha', () => {
+  const captions = [
+    candidate({ id: -1, text: 'Around Alpha', force: true, alpha: 0.75, isDecoration: true }),
+  ]
   const nodes = [
     candidate({ id: 1, x: 0, y: 0 }),
     candidate({ id: 2, x: 500, y: 0, isDecoration: true, text: 'Doom Records' }),
   ]
+  /** The replay's rule: furniture takes one alpha, a name takes its own. */
+  const replayAlpha = (decoration: number, byId: Map<number, number> = new Map()) =>
+    (c: SceneMapLabelCandidate) => (c.isDecoration ? decoration : (byId.get(c.id) ?? 1))
 
-  it('leaves every label alone at rest — the default is the shipped behaviour', () => {
+  it('leaves every label alone when no alpha is supplied — the shipped behaviour', () => {
     const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN)
 
     expect(specs.map(spec => spec.text)).toEqual(['Around Alpha', 'Node 1', 'Doom Records'])
@@ -272,36 +282,41 @@ describe('selectSceneMapLabels during a growth replay', () => {
     expect(specs.find(spec => spec.text === 'Node 1')!.alpha).toBeUndefined()
   })
 
-  it('crossfades region captions and hub names with the layer they belong to', () => {
-    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, 0.4)
+  it('scales a label by what the caller returns, forced ones included', () => {
+    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, replayAlpha(0.4))
 
+    // The caption keeps its own 0.75 ink, scaled by the layer's 0.4.
     expect(specs.find(spec => spec.text === 'Around Alpha')!.alpha).toBeCloseTo(0.3, 10)
     expect(specs.find(spec => spec.text === 'Doom Records')!.alpha).toBeCloseTo(0.4, 10)
-    // An artist name is content, not furniture: it is untouched.
+    // An artist name is content, not furniture: this policy leaves it alone.
     expect(specs.find(spec => spec.text === 'Node 1')!.alpha).toBeUndefined()
   })
 
-  it('drops the orientation layer entirely once it has faded out', () => {
-    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, 0)
+  it('drops a label entirely once its alpha reaches the floor', () => {
+    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, replayAlpha(0))
 
     // Not merely transparent: a sub-percent label still costs a text measure
     // and still reserves a collision box against names that ARE on the map.
     expect(specs.map(spec => spec.text)).toEqual(['Node 1'])
   })
 
-  it('fades an artist name in with its own dot', () => {
-    const reveal = new Map([[1, 0.3]])
-    const specs = selectSceneMapLabels(nodes, captions, 1, null, WIDE_OPEN, 0, id =>
-      reveal.get(id) ?? 1,
+  it('fades one name independently of the rest', () => {
+    const specs = selectSceneMapLabels(
+      nodes,
+      captions,
+      1,
+      null,
+      WIDE_OPEN,
+      replayAlpha(0, new Map([[1, 0.3]])),
     )
 
     expect(specs.find(spec => spec.text === 'Node 1')!.alpha).toBeCloseTo(0.3, 10)
   })
 
-  it('does not label a dot that has not arrived, and frees its cell for one that has', () => {
-    // Both candidates land in the SAME grid cell, so at rest the first wins it
-    // and the second is culled. Mid-replay the first has not arrived, and the
-    // cell must go to the one a visitor can actually see.
+  it('releases a faded label’s grid cell to one that is visible', () => {
+    // Both candidates land in the SAME grid cell, so with no alpha the first
+    // wins it and the second is culled. Faded to nothing, the cell must go to
+    // the one a visitor can actually see.
     const contenders = [
       candidate({ id: 10, x: 0, y: 0, priority: 10, text: 'Not here yet' }),
       candidate({ id: 11, x: 1, y: 1, priority: 5, text: 'Already here' }),
@@ -311,10 +326,23 @@ describe('selectSceneMapLabels during a growth replay', () => {
       'Not here yet',
     ])
 
-    const specs = selectSceneMapLabels(contenders, [], 1, null, WIDE_OPEN, 1, id =>
-      id === 10 ? 0 : 1,
+    const specs = selectSceneMapLabels(contenders, [], 1, null, WIDE_OPEN, c =>
+      c.id === 10 ? 0 : 1,
     )
 
     expect(specs.map(spec => spec.text)).toEqual(['Already here'])
+  })
+
+  it('reads the reveal position off the candidate, so the hot loop does no lookups', () => {
+    const withReveal = [
+      candidate({ id: 20, x: 0, y: 0, revealAt: 0.2, text: 'Arrived' }),
+      candidate({ id: 21, x: 400, y: 0, revealAt: 0.9, text: 'Not yet' }),
+    ]
+
+    const specs = selectSceneMapLabels(withReveal, [], 1, null, WIDE_OPEN, c =>
+      c.revealAt !== undefined && c.revealAt <= 0.5 ? 1 : 0,
+    )
+
+    expect(specs.map(spec => spec.text)).toEqual(['Arrived'])
   })
 })

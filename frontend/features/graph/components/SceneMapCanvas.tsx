@@ -58,12 +58,7 @@ import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { graphCanvasHeight } from '@/components/graph/GraphStateCard'
 
 import { sceneMapColorIndex, type SceneMap, type SceneMapNode } from '../sceneMap'
-import {
-  progressAtAppear,
-  replayIsPulsing,
-  replayReveal,
-  type ReplayTimeline,
-} from '../replayTimeline'
+import { progressAtAppear, replayReveal, type ReplayTimeline } from '../replayTimeline'
 import type { SceneReplayFrame } from '../useSceneReplay'
 import {
   selectSceneMapLabels,
@@ -273,11 +268,17 @@ export function SceneMapCanvas({
   const timeline = replay?.timeline ?? null
   const graphData = useMemo(() => {
     const bins = timeline?.bins
+    // Nodes read the position the TIMELINE already computed. Recomputing it here
+    // would be a second derivation of one number: the label pass reads
+    // `revealByNodeId` while the dot pass reads this field, so any future change
+    // to how an appear time maps onto the run would have to be made in both or a
+    // name fades in on a frame its own dot does not. Edges have no such map and
+    // genuinely need the search.
     const nodes: MapNode[] = map.nodes.map(node => ({
       ...node,
       fx: node.x,
       fy: node.y,
-      revealAt: bins ? progressAtAppear(bins, node.appear) : 0,
+      revealAt: timeline?.revealByNodeId.get(node.id) ?? 0,
     }))
     const links: MapLink[] = map.edges.map(edge => ({
       ...edge,
@@ -367,6 +368,9 @@ export function SceneMapCanvas({
         // A hub's name belongs to the map's orientation layer, which the growth
         // replay clears along with the hub squares themselves.
         isDecoration: isHub,
+        // Baked in so the per-frame label pass reads a number off the candidate
+        // instead of hashing an id into the timeline once per node per frame.
+        revealAt: timeline?.revealByNodeId.get(node.id) ?? 0,
       })
     }
     // Sorted ONCE. The per-frame cull consumes this order as its tie-break, so
@@ -374,7 +378,7 @@ export function SceneMapCanvas({
     // flicker between neighbours.
     candidates.sort((a, b) => b.priority - a.priority || a.id - b.id)
     return candidates
-  }, [map, tierStyles])
+  }, [map, tierStyles, timeline])
 
   // The labels that are not up for culling: every label hub, and every named
   // region. Both go through `renderGraphLabels` with the artist names so their
@@ -403,6 +407,9 @@ export function SceneMapCanvas({
         fontWeight: 400,
         priority: Number.POSITIVE_INFINITY,
         force: true,
+        // Every forced candidate is orientation by definition, so the replay's
+        // label policy treats captions exactly as it treats hub names.
+        isDecoration: true,
         fontFamily: palette.monoFontFamily,
         alpha: REGION_CAPTION_ALPHA,
         memberCount: region.memberCount,
@@ -453,30 +460,22 @@ export function SceneMapCanvas({
   // helper rather than repeated in four callbacks so "is the furniture visible"
   // has a single answer per frame.
   //
-  // Gated on `isReplayActive` as well as on the frame's own flag. That is not
-  // belt-and-braces: it is what lets every paint callback below take its at-rest
-  // path without calling into the transport at all, and it makes the React
-  // dependency honest — the callbacks genuinely behave differently when it flips.
-  const readDecorationAlpha = useCallback(() => {
-    if (!isReplayActive || !replay) return 1
-    const frame = replay.readFrame()
-    return frame.active ? frame.decorationAlpha : 1
-  }, [isReplayActive, replay])
+  // ONE value answers "is a run in flight", and every paint callback below reads
+  // just this. The two props are separate for a reason — `timeline` has to be
+  // available at REST so `graphData` bakes reveal positions once per snapshot
+  // rather than re-digesting a 5k-node graph at the moment a run starts — but
+  // nothing downstream should have to re-derive the conjunction, and the invalid
+  // combination (`isReplayActive` with no `replay`) stops being expressible.
+  //
+  // Flipping null to object is also what forces the one repaint a run needs at
+  // its start and its end: see `nodeCanvasObject`.
+  const liveReplay = isReplayActive ? replay : null
 
-  // A name is only as present as its dot. `undefined` at rest, so the label pass
-  // keeps its at-rest fast path rather than calling a function per label that
-  // would always answer 1.
-  const replayNodeAlpha = useMemo(() => {
-    if (!isReplayActive || !replay || !timeline) return undefined
-    const { readFrame } = replay
-    return (id: number) => {
-      const frame = readFrame()
-      if (!frame.active) return 1
-      const revealAt = timeline.revealByNodeId.get(id)
-      if (revealAt === undefined) return 1
-      return replayReveal(frame.progress, revealAt, timeline.fadeProgress)
-    }
-  }, [isReplayActive, replay, timeline])
+  const readDecorationAlpha = useCallback(() => {
+    if (!liveReplay) return 1
+    const frame = liveReplay.readFrame()
+    return frame.active ? frame.decorationAlpha : 1
+  }, [liveReplay])
 
   const handleRenderFramePre = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -532,7 +531,7 @@ export function SceneMapCanvas({
       // as it is at rest — a dot that moved would break the mental map the
       // fixed-layout design exists to preserve, and there is no simulation here
       // that could move one.
-      const frame = isReplayActive && replay ? replay.readFrame() : null
+      const frame = liveReplay ? liveReplay.readFrame() : null
       let radius = ARTIST_RADIUS
       let fill = fillById.get(node.id) ?? palette.otherCluster
       if (frame?.active && timeline) {
@@ -555,7 +554,7 @@ export function SceneMapCanvas({
           // suggested-direction affordance is documented with in `graphPalette`
           // — legibility through shape, not hue alone.
           const pulseAge = frame.progress - node.revealAt
-          if (replayIsPulsing(frame.progress, node.revealAt, timeline.pulseProgress)) {
+          if (pulseAge >= 0 && pulseAge < timeline.pulseProgress) {
             fill = palette.primary
             scale *= 1 + REPLAY_PULSE_SCALE_BOOST * (1 - pulseAge / timeline.pulseProgress)
           }
@@ -594,7 +593,6 @@ export function SceneMapCanvas({
       palette.otherCluster,
       palette.primary,
       focusedIds,
-      replay,
       timeline,
       // Also what forces ONE repaint when a run starts or ends.
       // `nodeCanvasObject` is the prop the library wires to `notifyRedraw`, so a
@@ -602,7 +600,7 @@ export function SceneMapCanvas({
       // state once". Without this changing, the canvas would keep the last
       // replay frame on screen after settling, because auto-pause has just come
       // back on and nothing else React can see has changed.
-      isReplayActive,
+      liveReplay,
     ],
   )
 
@@ -640,6 +638,19 @@ export function SceneMapCanvas({
   // it — this map's labels ARE its content, not a hover reward.
   const handleRenderFramePost = useCallback(
     (ctx: CanvasRenderingContext2D, globalScale: number) => {
+      // The replay's label policy, resolved ONCE PER FRAME rather than per label.
+      // Region captions and hub names crossfade with the orientation layer they
+      // belong to; an artist's name arrives with its own dot, which is what makes
+      // a run readable. Both read numbers already on the candidate, so the inner
+      // loop does arithmetic and no lookups.
+      const frame = liveReplay?.readFrame()
+      const alphaFor =
+        frame?.active && timeline
+          ? (candidate: SceneMapLabelCandidate) =>
+              candidate.isDecoration
+                ? frame.decorationAlpha
+                : replayReveal(frame.progress, candidate.revealAt ?? 0, timeline.fadeProgress)
+          : undefined
       renderGraphLabels(
         ctx,
         palette,
@@ -649,15 +660,11 @@ export function SceneMapCanvas({
           globalScale,
           focusedIds,
           visibleWorldBounds(ctx),
-          // Region captions and hub names crossfade with the layer they belong
-          // to. Artist names are NOT part of that layer — they arrive with
-          // their own dots, which is what makes a run readable.
-          readDecorationAlpha(),
-          replayNodeAlpha,
+          alphaFor,
         ),
       )
     },
-    [labelCandidates, forcedCandidates, palette, focusedIds, readDecorationAlpha, replayNodeAlpha],
+    [labelCandidates, forcedCandidates, palette, focusedIds, liveReplay, timeline],
   )
 
   // ── Links ──────────────────────────────────────────────────────────────
@@ -704,7 +711,7 @@ export function SceneMapCanvas({
   const linkColor = useCallback(
     (link: MapLink) => {
       const isSpoke = link.kind === 'spoke'
-      const frame = isReplayActive && replay ? replay.readFrame() : null
+      const frame = liveReplay ? liveReplay.readFrame() : null
       if (frame?.active && timeline) {
         const reveal = replayReveal(frame.progress, link.revealAt, timeline.fadeProgress)
         const step = Math.round(reveal * (REPLAY_EDGE_ALPHA_STEPS - 1))
@@ -718,7 +725,7 @@ export function SceneMapCanvas({
       if (inFocus) return isSpoke ? linkColors.focusedSpoke : linkColors.focusedSimilarity
       return isSpoke ? linkColors.dimmedSpoke : linkColors.dimmedSimilarity
     },
-    [linkColors, focusedIds, isReplayActive, replay, replayLinkColors, timeline],
+    [linkColors, focusedIds, liveReplay, replayLinkColors, timeline],
   )
 
   // An edge whose reveal has not started is not drawn at all, rather than
@@ -726,12 +733,12 @@ export function SceneMapCanvas({
   // thousand lines, and the library evaluates this before it does any geometry.
   const linkVisibility = useCallback(
     (link: MapLink) => {
-      if (!isReplayActive || !replay) return true
-      const frame = replay.readFrame()
+      if (!liveReplay) return true
+      const frame = liveReplay.readFrame()
       if (!frame.active) return true
       return link.revealAt <= frame.progress
     },
-    [isReplayActive, replay],
+    [liveReplay],
   )
 
   // ── Interaction ────────────────────────────────────────────────────────
@@ -766,8 +773,8 @@ export function SceneMapCanvas({
   // ticking beside it. Resuming is idempotent, and this is the only surface that
   // depends on the loop rather than on repaint-on-change.
   useEffect(() => {
-    if (isReplayActive) graphRef.current?.resumeAnimation()
-  }, [isReplayActive])
+    if (liveReplay) graphRef.current?.resumeAnimation()
+  }, [liveReplay])
 
   return (
     <div
@@ -801,7 +808,7 @@ export function SceneMapCanvas({
         // invisible to React, so every frame would draw the same picture. It is
         // switched back on the moment a run ends, because at rest a
         // continuously redrawing whole-catalog canvas is a battery bug.
-        autoPauseRedraw={!isReplayActive}
+        autoPauseRedraw={liveReplay === null}
         onRenderFramePre={handleRenderFramePre}
         onRenderFramePost={handleRenderFramePost}
         // ZERO client simulation — the whole point of the nightly snapshot.

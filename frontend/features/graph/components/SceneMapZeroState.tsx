@@ -24,7 +24,7 @@ import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 
 import { groupNodesByRegion, type SceneMap, type SceneMapNode } from '../sceneMap'
 import type { SceneReplayController } from '../useSceneReplay'
-import { ReplayScrubber } from './ReplayScrubber'
+import { REPLAY_CHIP_CLASS, ReplayScrubber } from './ReplayScrubber'
 import { SceneMapCanvas } from './SceneMapCanvas'
 
 /** Anchor shape the host re-roots on — the same one artist search produces. */
@@ -260,7 +260,7 @@ function FreshnessFooter({
           <button
             type="button"
             onClick={onWatchItGrow}
-            className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className={REPLAY_CHIP_CLASS}
           >
             <Play className="size-3 fill-current" aria-hidden="true" />
             Watch it grow

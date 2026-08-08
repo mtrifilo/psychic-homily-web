@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 
 import { SETTLE_MS, replayStatusText, useSceneReplay } from './useSceneReplay'
-import { buildReplayTimeline } from './replayTimeline'
+import { buildReplayTimeline, replayReadoutText } from './replayTimeline'
 import type { SceneMap, SceneMapNode } from './sceneMap'
 
 /**
@@ -34,7 +34,12 @@ beforeEach(() => {
     scheduled.push(callback)
     return scheduled.length
   })
-  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  // Cancellation has to be OBSERVABLE, or a test cannot tell a torn-down chain
+  // from a live one. The transport keeps exactly one frame in flight, so
+  // dropping the queue is a faithful stand-in for cancelling by handle.
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {
+    scheduled = []
+  })
   vi.spyOn(performance, 'now').mockImplementation(() => now)
 })
 
@@ -336,6 +341,47 @@ describe('useSceneReplay', () => {
       expect(result.current.readFrame().progress).toBeGreaterThan(progress)
     })
 
+    // Losing the map entirely is the case that MUST end the run. Its owner only
+    // hands this hook a map while the drawn map is the surface on screen, so a
+    // null arrival means the visitor re-rooted on an artist or narrowed the
+    // window past the canvas breakpoint. The scrubber and its Escape handler
+    // unmount with that surface, so a run that kept going would be a mode with
+    // no way out of it.
+    it('ends the run when the map goes away, and stops the frame loop', () => {
+      const { result, rerender } = renderHook(({ map }) => useSceneReplay(map), {
+        initialProps: { map: REPLAYABLE_MAP as SceneMap | null },
+      })
+      act(() => result.current.start())
+      runFrames(5, 100)
+      expect(result.current.isActive).toBe(true)
+
+      rerender({ map: null })
+
+      expect(result.current.phase).toBe('rest')
+      expect(result.current.isActive).toBe(false)
+      expect(result.current.readFrame().active).toBe(false)
+      expect(result.current.readFrame().progress).toBe(0)
+      // Nothing left scheduled: the chain is cancelled rather than left
+      // publishing frames at a surface nobody can see.
+      expect(scheduled).toHaveLength(0)
+    })
+
+    it('can start a fresh run once the map comes back', () => {
+      const { result, rerender } = renderHook(({ map }) => useSceneReplay(map), {
+        initialProps: { map: REPLAYABLE_MAP as SceneMap | null },
+      })
+      act(() => result.current.start())
+      runFrames(5, 100)
+      rerender({ map: null })
+      rerender({ map: REPLAYABLE_MAP })
+
+      expect(result.current.phase).toBe('rest')
+      act(() => result.current.start())
+
+      expect(result.current.phase).toBe('playing')
+      expect(result.current.readFrame().progress).toBe(0)
+    })
+
     it('survives an unmemoised map without spinning', () => {
       // A caller rebuilding the map every render must not put this hook into a
       // render loop, whatever else it costs them.
@@ -351,11 +397,22 @@ describe('useSceneReplay', () => {
 })
 
 describe('replayStatusText', () => {
-  it('reads REPLAY, the date, and what is on the map', () => {
+  // Lower case at the source: both hosts carry `uppercase` in their class list,
+  // so the display casing is CSS's job and the same string is what an assistive
+  // technology should read out of the scrubber's `aria-valuetext`.
+  it('reads Replay, the date, and what is on the map', () => {
     const timeline = buildReplayTimeline(REPLAYABLE_MAP)!
 
-    expect(replayStatusText(timeline, 0)).toMatch(/^REPLAY · \w+ 20\d\d · [\d,]+ ON THE MAP$/)
-    expect(replayStatusText(timeline, 1)).toContain('1,000 ON THE MAP')
+    expect(replayStatusText(timeline, 0)).toMatch(/^Replay · \w+ 20\d\d · [\d,]+ on the map$/)
+    expect(replayStatusText(timeline, 1)).toContain('1,000 on the map')
+  })
+
+  it('shares its sentence with the scrubber readout, so the two cannot drift', () => {
+    const timeline = buildReplayTimeline(REPLAYABLE_MAP)!
+
+    expect(replayStatusText(timeline, 0.4)).toBe(
+      `Replay · ${replayReadoutText(timeline, 0.4)}`,
+    )
   })
 
   it('carries no em dashes, per the project copy rule', () => {

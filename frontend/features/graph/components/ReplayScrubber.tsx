@@ -22,19 +22,31 @@
  * ordinary slider.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Pause, Play, X } from 'lucide-react'
 
 import {
-  formatReplayDate,
-  replayDateAt,
-  revealedNodeCount,
+  replayBinIndexAt,
+  replayBinStep,
+  replayReadoutText,
   type ReplayTimeline,
 } from '../replayTimeline'
 import type { SceneReplayController } from '../useSceneReplay'
 
 /** Shortest bar drawn, as a fraction of the track height — an empty-looking bin still reads as a bin. */
 const MIN_BAR_FRACTION = 0.08
+
+/**
+ * The mono primary-tinted chip both replay controls wear — the `WATCH IT GROW`
+ * entry point on the freshness footer and this transport's pause control.
+ *
+ * One constant for the same reason `SHUFFLE_PILL_CLASS` is one: they are the same
+ * affordance at two moments of the same feature, and a hover or focus-ring spec
+ * copied into two files drifts (these two had already disagreed on their ring
+ * offset before they landed). Add `shrink-0` at a call site inside a flex row.
+ */
+export const REPLAY_CHIP_CLASS =
+  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 
 export interface ReplayScrubberProps {
   replay: SceneReplayController
@@ -53,6 +65,12 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
   // work for nothing.
   const lastReadoutRef = useRef('')
   const lastValueNowRef = useRef(-1)
+  // The bin the readout was last built for. Two `Intl` formatters (a date and a
+  // thousands-separated count) are the most expensive thing on this path, and
+  // the date only carries month precision — so they run once per BIN rather
+  // than once per frame, which at 250 bins over a 25s run is ~10 times a second
+  // instead of 60.
+  const lastReadoutBinRef = useRef(-1)
 
   const bars = useMemo(() => {
     const max = Math.max(1, timeline.maxBinCount)
@@ -68,19 +86,34 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
         const percent = frame.progress * 100
         // `clip-path` on an overlaid copy of the bars, so the played region is
         // the SAME geometry in orange rather than a second bar list to keep in
-        // sync — and an inset clip is compositor work, not layout.
+        // sync. Mutating it per frame does re-raster the played layer (only
+        // CSS-animated clip-paths composite), but the invalidated area is a
+        // ~600x24px strip, which is genuinely cheap.
         if (playedRef.current) {
           playedRef.current.style.clipPath = `inset(0 ${100 - percent}% 0 0)`
         }
+        // A percentage `left` rather than a transform, knowingly: a transform
+        // would need the track's width in px (percentage transforms resolve
+        // against the ELEMENT, and this element is 1px wide), which means
+        // measuring it and tracking resizes. The layout this invalidates is a
+        // 1px box inside a strip the clip-path above already re-rasters, so the
+        // measurement machinery would buy nothing real.
         if (playheadRef.current) {
           playheadRef.current.style.left = `${percent}%`
         }
-        const date = formatReplayDate(replayDateAt(timeline, frame.progress))
-        const count = revealedNodeCount(timeline, frame.progress).toLocaleString()
-        const text = `${date} · ${count} on the map`
-        if (readoutRef.current && text !== lastReadoutRef.current) {
-          lastReadoutRef.current = text
-          readoutRef.current.textContent = text
+        // The readout is rebuilt only when the BIN changes, not every frame. It
+        // carries month precision and a count that moves in steps, so at 250
+        // bins over a 25s run this is ~10 rebuilds a second instead of 60 — and
+        // each one is two `Intl` formats, the most expensive thing on this path.
+        const binIndex = replayBinIndexAt(timeline, frame.progress)
+        if (binIndex !== lastReadoutBinRef.current) {
+          lastReadoutBinRef.current = binIndex
+          const text = replayReadoutText(timeline, frame.progress)
+          if (text !== lastReadoutRef.current) {
+            lastReadoutRef.current = text
+            if (readoutRef.current) readoutRef.current.textContent = text
+            if (trackRef.current) trackRef.current.setAttribute('aria-valuetext', text)
+          }
         }
         // Whole percents only: assistive technology announces this, and a value
         // that changes sixty times a second announces nothing usefully.
@@ -88,7 +121,6 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
         if (trackRef.current && valueNow !== lastValueNowRef.current) {
           lastValueNowRef.current = valueNow
           trackRef.current.setAttribute('aria-valuenow', String(valueNow))
-          trackRef.current.setAttribute('aria-valuetext', text)
         }
       }),
     [subscribe, timeline],
@@ -142,7 +174,9 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const step = 1 / Math.max(1, timeline.bins.length)
+      // The transport's own step, from the module that defines the pacing — not
+      // re-derived here from bin internals.
+      const step = replayBinStep(timeline)
       const current = readFrame().progress
       switch (event.key) {
         case 'ArrowLeft':
@@ -170,7 +204,7 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
       }
       event.preventDefault()
     },
-    [readFrame, seek, timeline.bins.length],
+    [readFrame, seek, timeline],
   )
 
   const isPaused = phase === 'paused'
@@ -181,7 +215,7 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
         type="button"
         onClick={togglePause}
         aria-label={isPaused ? 'Resume the replay' : 'Pause the replay'}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className={`${REPLAY_CHIP_CLASS} shrink-0`}
       >
         {isPaused ? (
           <Play className="size-3" aria-hidden="true" />
@@ -242,8 +276,19 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
  * from the same array, so the two rows cannot drift apart. `currentColor` is
  * what lets the caller set the colour with a class instead of duplicating the
  * geometry per theme.
+ *
+ * Memoised because `bars` is stable per snapshot and the class is a literal, so
+ * with 250 bars per row this skips 500 element reconciliations (and 500 fresh
+ * style objects) on every re-render of the strip — which happens on each phase
+ * change and on any hover or hub selection elsewhere in the card during a run.
  */
-function BarRow({ bars, className }: { bars: number[]; className: string }) {
+const BarRow = memo(function BarRow({
+  bars,
+  className,
+}: {
+  bars: number[]
+  className: string
+}) {
   return (
     <div
       aria-hidden="true"
@@ -261,4 +306,4 @@ function BarRow({ bars, className }: { bars: number[]; className: string }) {
       ))}
     </div>
   )
-}
+})

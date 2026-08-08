@@ -26,9 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   buildReplayTimeline,
-  formatReplayDate,
-  replayDateAt,
-  revealedNodeCount,
+  replayReadoutText,
   type ReplayTimeline,
 } from './replayTimeline'
 import type { SceneMap } from './sceneMap'
@@ -127,6 +125,9 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
   // rebuilds its render nodes in, and both eras of the history mean the same
   // thing at the same position. Ending the run instead would interrupt the
   // visitor to fix a problem they do not have.
+  //
+  // Losing the map ENTIRELY is the different case, and it is handled: see
+  // `isActive` and the teardown effect below.
 
   const readFrame = useCallback(() => frameRef.current, [])
 
@@ -160,9 +161,13 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
     }
   }, [])
 
-  // The run's length is captured when the chain starts. A snapshot swap resets
-  // the whole run at render time, so this closure can never outlive the timeline
-  // it was built from by more than the one frame it takes the loop to notice.
+  // The run's length, captured when the rAF chain starts. A snapshot that swaps
+  // in mid-run therefore keeps pacing against the previous timeline's duration
+  // for the rest of that run, which is deliberate rather than overlooked: the
+  // duration is `bins.length * REPLAY_MS_PER_BIN` and the bin count saturates at
+  // its target for any catalog large enough to be worth replaying, so two
+  // consecutive nightly snapshots yield the same number. Re-reading it per frame
+  // would buy nothing and would put the timeline back in the loop's closure.
   const durationMs = timeline?.durationMs ?? 0
   const runLoop = useCallback(() => {
     let previous = performance.now()
@@ -176,9 +181,10 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
       const frame = frameRef.current
       const phaseNow = phaseRef.current
 
-      // The run ended without the loop's help — a snapshot swapped in under it
-      // (see the render-time reset above). Stop rather than keep a chain alive
-      // against a map that is gone.
+      // Nothing outside this loop moves the phase to `rest` today — the settle
+      // below is the only path there, and it returns without rescheduling. This
+      // is a self-destruct guard for the edit that adds a second one: without it
+      // a chain would keep publishing frames over an at-rest map forever.
       if (phaseNow === 'rest') return
 
       if (phaseNow === 'settling') {
@@ -261,13 +267,59 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
     isScrubbingRef.current = scrubbing
   }, [])
 
+  // ── The run cannot outlive the map it plays ────────────────────────────
+  //
+  // The owner hands this hook a map only while the drawn map is the surface on
+  // screen (see `GraphObservatory`), so a null timeline means the visitor has
+  // navigated, re-rooted, or narrowed the window past the canvas breakpoint. The
+  // controls that would stop a run have unmounted with that surface, so if the
+  // transport did not notice, the rAF chain would keep publishing frames to
+  // nothing and the header would keep claiming `REPLAY · …` with no way left to
+  // stop it.
+  //
+  // Deliberately split in two halves, because this repo's lint rules forbid
+  // both of the single-place options: `setState` inside an effect
+  // (`react-hooks/set-state-in-effect`) and touching refs during a render
+  // (`react-hooks/refs`). So the REACT half resets during render — the
+  // documented "adjust state when a prop changes" pattern, and it terminates
+  // because it can only fire on a timeline identity change — and the IMPERATIVE
+  // half cancels the scheduled frame in an effect, which is where cancelling a
+  // frame belongs anyway.
+  // Tracks only WHETHER there is a map, never WHICH one. Holding the timeline
+  // identity here would spin forever the moment a caller passed an unmemoised
+  // map: each render would produce a new timeline, the comparison would fail, and
+  // the state write would schedule the next render. A boolean cannot do that, and
+  // "the map went away" is the only transition this needs to catch.
+  const hasTimeline = timeline !== null
+  const [hadTimeline, setHadTimeline] = useState(hasTimeline)
+  if (hadTimeline !== hasTimeline) {
+    setHadTimeline(hasTimeline)
+    if (!hasTimeline && phase !== 'rest') setPhase('rest')
+  }
+
+  useEffect(() => {
+    if (timeline) return
+    stopLoop()
+    isScrubbingRef.current = false
+    phaseRef.current = 'rest'
+    const frame = frameRef.current
+    frame.progress = 0
+    frame.decorationAlpha = 1
+    frame.active = false
+  }, [timeline, stopLoop])
+
   useEffect(() => stopLoop, [stopLoop])
 
   return useMemo(
     () => ({
       timeline,
       phase,
-      isActive: phase !== 'rest',
+      // Derived against the timeline as well as the phase, so the surface's
+      // chrome cannot survive one render longer than the map does. The teardown
+      // effect above lands on the same tick, but this is what makes the header
+      // and the scrubber disappear in the SAME commit the map goes away in
+      // rather than one frame later.
+      isActive: timeline !== null && phase !== 'rest',
       readFrame,
       subscribe,
       start,
@@ -282,13 +334,14 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
 
 /**
  * The status text the header shows while a run is in flight, e.g.
- * `REPLAY · Mar 2019 · 412 ON THE MAP`.
+ * `Replay · Mar 2019 · 412 on the map` — displayed upper case by the host's own
+ * `uppercase` class, like every other mono status line on this page.
  *
  * A plain string builder rather than a component: it is written into the DOM by
  * a frame subscription, not rendered, so it must not depend on React at all.
+ * The sentence after the prefix is `replayReadoutText`, shared with the
+ * scrubber so the two cannot disagree.
  */
 export function replayStatusText(timeline: ReplayTimeline, progress: number): string {
-  const date = formatReplayDate(replayDateAt(timeline, progress))
-  const count = revealedNodeCount(timeline, progress).toLocaleString()
-  return `REPLAY · ${date} · ${count} ON THE MAP`
+  return `Replay · ${replayReadoutText(timeline, progress)}`
 }

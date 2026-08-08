@@ -51,7 +51,12 @@ beforeEach(() => {
     scheduled.push(callback)
     return scheduled.length
   })
-  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+  // Cancellation has to be OBSERVABLE, or a test cannot tell a torn-down chain
+  // from a live one. The transport keeps exactly one frame in flight, so
+  // dropping the queue is a faithful stand-in for cancelling by handle.
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {
+    scheduled = []
+  })
   vi.spyOn(performance, 'now').mockImplementation(() => now)
 })
 

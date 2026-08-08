@@ -121,13 +121,26 @@ export function buildReplayTimeline(map: SceneMap): ReplayTimeline | null {
   // Reveal positions are computed ONCE per snapshot. Doing it per frame would
   // mean a binary search per node per frame — the exact per-frame cost the
   // fixed-layout design exists to avoid.
+  // Memoised by arrival time, not by node. Tied timestamps are the NORMAL shape
+  // of this data — a catalog import stamps thousands of rows with one
+  // `created_at` — so on a real history this collapses two full passes of binary
+  // searches into one search per DISTINCT moment.
+  const progressByAppear = new Map<number, number>()
+  const revealFor = (appear: number): number => {
+    const cached = progressByAppear.get(appear)
+    if (cached !== undefined) return cached
+    const progress = progressAtAppear(bins, appear)
+    progressByAppear.set(appear, progress)
+    return progress
+  }
+
   const revealByNodeId = new Map<number, number>()
   for (const node of map.nodes) {
-    revealByNodeId.set(node.id, progressAtAppear(bins, node.appear))
+    revealByNodeId.set(node.id, revealFor(node.appear))
   }
   const sortedNodeReveals = new Float64Array(appears.length)
   for (let i = 0; i < appears.length; i += 1) {
-    sortedNodeReveals[i] = progressAtAppear(bins, appears[i])
+    sortedNodeReveals[i] = revealFor(appears[i])
   }
   // `appears` is already ascending and `progressAtAppear` is monotonic, so the
   // mapped array is ascending too — no second sort.
@@ -292,6 +305,21 @@ export function replayDateAt(timeline: ReplayTimeline, progress: number): Date {
 }
 
 /**
+ * Formatters built ONCE for the module rather than per call.
+ *
+ * `toLocaleDateString(locale, options)` constructs a fresh ICU formatter every
+ * time it is called — measured at 128-212us against 4-11us for a cached
+ * `Intl.DateTimeFormat`. Two frame subscribers read this readout, so at 60fps
+ * the naive form spent 1.5-2.5% of every frame's budget rebuilding formatters
+ * for a string that changes about thirty times in a 25 second run.
+ */
+const REPLAY_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+})
+const REPLAY_COUNT_FORMAT = new Intl.NumberFormat()
+
+/**
  * The date readout beside the transport, and the one in the status line.
  *
  * Month + year, not a full date: the clock is a quantile of arrivals rather than
@@ -300,5 +328,38 @@ export function replayDateAt(timeline: ReplayTimeline, progress: number): Date {
  */
 export function formatReplayDate(date: Date): string {
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
+  return REPLAY_DATE_FORMAT.format(date)
+}
+
+/**
+ * The one sentence both readouts are built from: `Mar 2019 · 412 on the map`.
+ *
+ * Lower case at the source. Both hosts carry `uppercase` in their class list, so
+ * the display casing is CSS's job — and lower case is what an assistive
+ * technology should read out of `aria-valuetext`.
+ *
+ * Shared so the scrubber and the header cannot drift into disagreeing about the
+ * same fact on the same screen, and so the transport module keeps holding a
+ * clock rather than UI copy.
+ */
+export function replayReadoutText(timeline: ReplayTimeline, progress: number): string {
+  const date = formatReplayDate(replayDateAt(timeline, progress))
+  const count = REPLAY_COUNT_FORMAT.format(revealedNodeCount(timeline, progress))
+  return `${date} · ${count} on the map`
+}
+
+/**
+ * Which bin `progress` falls in — the cheap integer key a per-frame consumer
+ * compares to decide whether the readout can possibly have changed.
+ */
+export function replayBinIndexAt(timeline: ReplayTimeline, progress: number): number {
+  const count = timeline.bins.length
+  if (count === 0) return 0
+  const clamped = Math.min(1, Math.max(0, progress))
+  return Math.min(count - 1, Math.floor(clamped * count))
+}
+
+/** One bin's worth of progress — the transport's own step, for a keyboard seek. */
+export function replayBinStep(timeline: ReplayTimeline): number {
+  return 1 / Math.max(1, timeline.bins.length)
 }
