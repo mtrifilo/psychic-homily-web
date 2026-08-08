@@ -1,11 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
-const fetchGraphOverview = vi.hoisted(() => vi.fn())
-
-vi.mock('./graphOverviewApi', () => ({
-  fetchGraphOverview,
-  GRAPH_OVERVIEW_REVALIDATE: 3600,
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+  captureMessage: vi.fn(),
 }))
 
 const QUANT = 32767
@@ -56,6 +54,29 @@ function overviewFixture(overrides: Record<string, unknown> = {}) {
 }
 
 /**
+ * Serve `body` on the overview endpoint.
+ *
+ * Stubbed at the FETCH boundary rather than by mocking `fetchGraphOverview`.
+ * `loadGraphWeekView` calls it as a module-internal function, which a module
+ * mock cannot intercept — and stubbing the network instead runs the real
+ * decode and the real window resolution underneath every assertion here, which
+ * is the half of the pipeline worth exercising.
+ */
+function stubOverview(body: unknown, status = 200) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      status === 200
+        ? new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        : new Response('nope', { status })
+    )
+  )
+}
+
+/**
  * A fresh module per case. `getGraphWeek` is wrapped in React's `cache`, so a
  * second call inside one module instance would return the first case's answer.
  */
@@ -64,18 +85,18 @@ async function loadPage() {
   return import('./graphWeekPage')
 }
 
-beforeEach(() => {
-  fetchGraphOverview.mockReset()
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('buildGraphWeekMetadata', () => {
   it('describes the week and keys the share image on it', async () => {
-    fetchGraphOverview.mockResolvedValue(overviewFixture())
+    stubOverview(overviewFixture())
     const { buildGraphWeekMetadata } = await loadPage()
 
     const metadata = await buildGraphWeekMetadata()
 
-    expect(metadata.title).toBe('This week in the graph — JUL 27 - AUG 2 2026')
+    expect(metadata.title).toBe('This week in the graph · JUL 27 - AUG 2 2026')
     expect(metadata.description).toBe(
       '1 new artist and 1 new connection joined the map, JUL 27 - AUG 2 2026.'
     )
@@ -98,7 +119,7 @@ describe('buildGraphWeekMetadata', () => {
   })
 
   it('is noindex, follow — a share URL, not an index target', async () => {
-    fetchGraphOverview.mockResolvedValue(overviewFixture())
+    stubOverview(overviewFixture())
     const { buildGraphWeekMetadata } = await loadPage()
 
     const metadata = await buildGraphWeekMetadata()
@@ -110,28 +131,30 @@ describe('buildGraphWeekMetadata', () => {
   })
 
   it('carries no twitter images, so Next inherits the full openGraph descriptor', async () => {
-    fetchGraphOverview.mockResolvedValue(overviewFixture())
+    stubOverview(overviewFixture())
     const { buildGraphWeekMetadata } = await loadPage()
 
     const metadata = await buildGraphWeekMetadata()
 
     expect(metadata.twitter).toEqual({
       card: 'summary_large_image',
-      title: 'This week in the graph — JUL 27 - AUG 2 2026',
+      title: 'This week in the graph · JUL 27 - AUG 2 2026',
       description: '1 new artist and 1 new connection joined the map, JUL 27 - AUG 2 2026.',
     })
     expect(metadata.twitter).not.toHaveProperty('images')
   })
 
   it('advertises nothing when there is no snapshot to describe', async () => {
-    fetchGraphOverview.mockResolvedValue(null)
+    stubOverview(null, 503)
     const { buildGraphWeekMetadata } = await loadPage()
 
     const metadata = await buildGraphWeekMetadata()
 
     expect(metadata.robots).toEqual({ index: false, follow: false })
-    // No OG image URL at all: the page 404s, and advertising a card for a page
-    // that does not exist is how an unfurler caches a preview of a dead link.
+    // No OG image URL at all. The page still answers 200 with its empty state
+    // (it cannot answer 404 — see `app/graph/this-week/page.tsx`), so what has
+    // to be withheld is the ADVERTISEMENT: a card promising counts for a week
+    // that has none is how an unfurler caches a preview of nothing.
     expect(metadata.openGraph).toBeUndefined()
   })
 
@@ -139,7 +162,7 @@ describe('buildGraphWeekMetadata', () => {
     const undated = overviewFixture()
     undated.nodes.appear = [0, 0]
     undated.edges.appear = [0, 0]
-    fetchGraphOverview.mockResolvedValue(undated)
+    stubOverview(undated)
     const { buildGraphWeekMetadata } = await loadPage()
 
     expect((await buildGraphWeekMetadata()).robots).toEqual({ index: false, follow: false })
@@ -148,7 +171,7 @@ describe('buildGraphWeekMetadata', () => {
 
 describe('getGraphWeek', () => {
   it('resolves the map and the week together', async () => {
-    fetchGraphOverview.mockResolvedValue(overviewFixture())
+    stubOverview(overviewFixture())
     const { getGraphWeek } = await loadPage()
 
     const view = await getGraphWeek()
@@ -164,7 +187,7 @@ describe('getGraphWeek', () => {
   // were the contract.
 
   it('is null for an undecodable payload rather than throwing', async () => {
-    fetchGraphOverview.mockResolvedValue(overviewFixture({ version: 99 }))
+    stubOverview(overviewFixture({ version: 99 }))
     const { getGraphWeek } = await loadPage()
 
     expect(await getGraphWeek()).toBeNull()
@@ -173,8 +196,9 @@ describe('getGraphWeek', () => {
 
 describe('page bodies', () => {
   it('reports the week and offers the map', async () => {
-    fetchGraphOverview.mockResolvedValue(overviewFixture())
-    const { getGraphWeek, GraphWeekContent } = await loadPage()
+    stubOverview(overviewFixture())
+    const { getGraphWeek } = await loadPage()
+    const { GraphWeekContent } = await import('./components/GraphWeekView')
     const view = (await getGraphWeek())!
 
     render(<GraphWeekContent view={view} />)
@@ -197,7 +221,7 @@ describe('page bodies', () => {
     // The state before the first nightly build. It answers 200 by design — see
     // the page component for why a 404 is not available to this route — so the
     // body has to be a real answer rather than an error.
-    const { GraphWeekUnbuilt } = await loadPage()
+    const { GraphWeekUnbuilt } = await import('./components/GraphWeekView')
 
     render(<GraphWeekUnbuilt />)
 

@@ -23,7 +23,12 @@ import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/Graph
 import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 
 import { groupNodesByRegion, type SceneMap, type SceneMapNode } from '../sceneMap'
-import { GRAPH_WEEK_PATH, graphWeekSummary, resolveGraphWeek } from '../graphWeek'
+import {
+  GRAPH_WEEK_PATH,
+  graphWeekSummary,
+  isGraphWeekShareworthy,
+  resolveGraphWeek,
+} from '../graphWeek'
 import type { SceneReplayController } from '../useSceneReplay'
 import { REPLAY_CHIP_CLASS, ReplayScrubber } from './ReplayScrubber'
 import { SceneMapCanvas } from './SceneMapCanvas'
@@ -251,13 +256,23 @@ function FreshnessFooter({
   // same reason the replay chip does: the at-rest map stays chrome-free, and the
   // invitation belongs beside the other facts about the snapshot.
   //
-  // Gated on the week being SHAREWORTHY, not merely resolvable — a card reading
-  // `+0 ARTISTS · +0 CONNECTIONS` is truthful but is not something to offer, and
-  // the page it links to 404s when the snapshot cannot be dated at all. Deriving
-  // the gate from the same `resolveGraphWeek` the card uses is what guarantees
-  // this never links somewhere the route will refuse.
-  const week = useMemo(() => resolveGraphWeek(map), [map])
-  const shareableWeek = week?.isShareworthy ? week : null
+  // Gated on the week being SHAREWORTHY, not merely resolvable. The page itself
+  // renders either way — it answers 200 with an empty state when there is no
+  // snapshot, because it cannot answer 404 (see `app/graph/this-week/page.tsx`)
+  // — so this gate is not protecting anyone from a dead link. It is a taste
+  // rule: a card reading `+0 ARTISTS · +0 CONNECTIONS` is truthful and is not
+  // something to invite anyone to post. Derived from the same
+  // `resolveGraphWeek` the card uses, so the chip and the card can never
+  // disagree about whether there is a week.
+  //
+  // Owned HERE rather than by the host, unlike the replay chip: that gate is
+  // shared with the page header's status line and the canvas, so it has to live
+  // upstream of all three. This one has a single consumer and needs only `map`,
+  // which is already a prop.
+  const shareableWeek = useMemo(() => {
+    const week = resolveGraphWeek(map)
+    return week && isGraphWeekShareworthy(week) ? week : null
+  }, [map])
 
   const lastMapped = Number.isNaN(map.lastMapped.getTime())
     ? null

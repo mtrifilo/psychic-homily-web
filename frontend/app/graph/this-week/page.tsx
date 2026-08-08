@@ -1,12 +1,11 @@
 import type { Metadata } from 'next'
 import { connection } from 'next/server'
 
+import { buildGraphWeekMetadata, getGraphWeek } from '@/features/graph/graphWeekPage'
 import {
   GraphWeekContent,
   GraphWeekUnbuilt,
-  buildGraphWeekMetadata,
-  getGraphWeek,
-} from '@/features/graph/graphWeekPage'
+} from '@/features/graph/components/GraphWeekView'
 
 export async function generateMetadata(): Promise<Metadata> {
   return buildGraphWeekMetadata()

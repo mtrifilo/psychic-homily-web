@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { deflateSync, inflateSync } from 'node:zlib'
+import { deflateSync } from 'node:zlib'
+
+import { isPng, rightmostContentColumn } from '@/lib/og/test-helpers'
 
 /**
  * The route actually rendering, not just the pure modules it composes.
@@ -116,85 +118,6 @@ async function render(show: object, flyer?: Uint8Array | { status: number }) {
   const res = await mod.default({ params: Promise.resolve({ slug: 'test-show' }) })
   const bytes = new Uint8Array(await res.arrayBuffer())
   return { res, bytes }
-}
-
-/** PNG magic — proof a real raster came back rather than an error page. */
-function isPng(bytes: Uint8Array): boolean {
-  return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-}
-
-/**
- * The x of the right-most pixel that is not the card background.
- *
- * Layout regressions on this card are silent — nothing throws when a column
- * narrows, the text just sits somewhere slightly different — so the only honest
- * assertion is against the pixels. Decoding is cheap here because the route
- * emits 8-bit RGBA with no interlacing.
- */
-function rightmostContentColumn(png: Uint8Array): number {
-  const { width, height, pixels } = decodeRgba(png)
-  const bg = [pixels[0], pixels[1], pixels[2]]
-  for (let x = width - 1; x >= 0; x--) {
-    for (let y = 0; y < height; y++) {
-      const i = (y * width + x) * 4
-      if (
-        Math.abs(pixels[i] - bg[0]) > 6 ||
-        Math.abs(pixels[i + 1] - bg[1]) > 6 ||
-        Math.abs(pixels[i + 2] - bg[2]) > 6
-      ) {
-        return x
-      }
-    }
-  }
-  return -1
-}
-
-function decodeRgba(png: Uint8Array) {
-  const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
-  let at = 8
-  let width = 0
-  let height = 0
-  const idat: Buffer[] = []
-  while (at < png.byteLength) {
-    const length = view.getUint32(at)
-    const type = String.fromCharCode(png[at + 4], png[at + 5], png[at + 6], png[at + 7])
-    const data = png.subarray(at + 8, at + 8 + length)
-    if (type === 'IHDR') {
-      width = view.getUint32(at + 8)
-      height = view.getUint32(at + 12)
-    } else if (type === 'IDAT') {
-      idat.push(Buffer.from(data))
-    } else if (type === 'IEND') break
-    at += 12 + length
-  }
-
-  const raw = inflateSync(Buffer.concat(idat))
-  const stride = width * 4
-  const pixels = new Uint8Array(width * height * 4)
-  // Undo the per-row filters. Paeth included: resvg emits it on real output.
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)]
-    const src = y * (stride + 1) + 1
-    const dst = y * stride
-    for (let i = 0; i < stride; i++) {
-      const a = i >= 4 ? pixels[dst + i - 4] : 0
-      const b = y > 0 ? pixels[dst - stride + i] : 0
-      const c = i >= 4 && y > 0 ? pixels[dst - stride + i - 4] : 0
-      let value = raw[src + i]
-      if (filter === 1) value += a
-      else if (filter === 2) value += b
-      else if (filter === 3) value += (a + b) >> 1
-      else if (filter === 4) {
-        const p = a + b - c
-        const pa = Math.abs(p - a)
-        const pb = Math.abs(p - b)
-        const pc = Math.abs(p - c)
-        value += pa <= pb && pa <= pc ? a : pb <= pc ? b : c
-      }
-      pixels[dst + i] = value & 0xff
-    }
-  }
-  return { width, height, pixels }
 }
 
 afterEach(() => {

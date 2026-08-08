@@ -7,7 +7,11 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { apiRequest, type ApiError } from '@/lib/api'
-import { graphEndpoints, graphQueryKeys } from '@/features/graph/api'
+import {
+  GRAPH_OVERVIEW_NOT_BUILT_STATUS,
+  graphEndpoints,
+  graphQueryKeys,
+} from '@/features/graph/api'
 import type { GraphOverview } from '@/features/graph/sceneMap'
 
 /**
@@ -20,12 +24,11 @@ import type { GraphOverview } from '@/features/graph/sceneMap'
 const OVERVIEW_STALE_TIME = 60 * 60 * 1000
 
 /**
- * HTTP status the endpoint answers with before the first nightly build has ever
- * run (a cold database). It is a legitimate steady state on a fresh install or
- * a dev seed, NOT a failure — the surface renders its search-first fallback
- * rather than an error card, and we do not retry into it.
+ * Re-exported so the surfaces that already import this hook keep one import.
+ * The constant itself lives in `features/graph/api.ts`, which the server-side
+ * fetch can reach without dragging React Query into an OG edge bundle.
  */
-export const GRAPH_OVERVIEW_NOT_BUILT_STATUS = 503
+export { GRAPH_OVERVIEW_NOT_BUILT_STATUS }
 
 export function isGraphOverviewNotBuilt(error: unknown): boolean {
   return (error as ApiError | null)?.status === GRAPH_OVERVIEW_NOT_BUILT_STATUS

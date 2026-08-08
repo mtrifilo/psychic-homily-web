@@ -62,16 +62,22 @@ export interface GraphWeek {
    * choice is how a card comes to draw a line it did not count.
    */
   appearRange: { start: number; end: number }
-  /**
-   * Whether this week is worth INVITING someone to share.
-   *
-   * A week with nothing new renders a truthful but dull `+0 ARTISTS · +0
-   * CONNECTIONS`, which is fine for someone who already has the link and wrong
-   * as something to offer — so the map's affordance is gated on this while the
-   * page and the card are not. Splitting the two is deliberate: a share URL
-   * that 404s on quiet weeks would break links that were live yesterday.
-   */
-  isShareworthy: boolean
+}
+
+/**
+ * Whether this week is worth INVITING someone to share.
+ *
+ * A function rather than a field on `GraphWeek`, so the policy has one
+ * definition and cannot be set inconsistently with the counts it is about.
+ *
+ * A week with nothing new renders a truthful but dull `+0 ARTISTS · +0
+ * CONNECTIONS`. That is fine for someone who already has the link, and wrong as
+ * something to offer — so the map's affordance is gated on this while the page
+ * and the card are not. Splitting the two is deliberate: a share URL that
+ * disappeared on quiet weeks would break links that were live yesterday.
+ */
+export function isGraphWeekShareworthy(week: GraphWeek): boolean {
+  return week.newArtistCount > 0 || week.newConnectionCount > 0
 }
 
 /**
@@ -142,7 +148,6 @@ export function resolveGraphWeek(map: SceneMap): GraphWeek | null {
     newConnectionCount,
     newNodeIds,
     appearRange,
-    isShareworthy: newArtistCount > 0 || newConnectionCount > 0,
   }
 }
 
@@ -214,13 +219,15 @@ export function formatGraphWeekRange(start: Date, end: Date): string {
  * styling decision here the way it is in CSS.
  */
 export function formatGraphWeekCounts(week: GraphWeek): string {
-  const artists = `+${COUNT_FORMAT.format(week.newArtistCount)} ${
-    week.newArtistCount === 1 ? 'ARTIST' : 'ARTISTS'
-  }`
-  const connections = `+${COUNT_FORMAT.format(week.newConnectionCount)} ${
-    week.newConnectionCount === 1 ? 'CONNECTION' : 'CONNECTIONS'
-  }`
-  return `${artists} · ${connections}`
+  return [
+    `+${counted(week.newArtistCount, 'ARTIST', 'ARTISTS')}`,
+    `+${counted(week.newConnectionCount, 'CONNECTION', 'CONNECTIONS')}`,
+  ].join(' · ')
+}
+
+/** `12 artists` / `1 artist` — grouped, and pluralised in exactly one place. */
+function counted(value: number, one: string, many: string): string {
+  return `${COUNT_FORMAT.format(value)} ${value === 1 ? one : many}`
 }
 
 /**
@@ -232,12 +239,8 @@ export function formatGraphWeekCounts(week: GraphWeek): string {
  * punctuation.
  */
 export function graphWeekSummary(week: GraphWeek): string {
-  const artists = `${COUNT_FORMAT.format(week.newArtistCount)} ${
-    week.newArtistCount === 1 ? 'new artist' : 'new artists'
-  }`
-  const connections = `${COUNT_FORMAT.format(week.newConnectionCount)} ${
-    week.newConnectionCount === 1 ? 'new connection' : 'new connections'
-  }`
+  const artists = counted(week.newArtistCount, 'new artist', 'new artists')
+  const connections = counted(week.newConnectionCount, 'new connection', 'new connections')
   return `${artists} and ${connections} joined the map, ${formatGraphWeekRange(
     week.start,
     week.end
@@ -258,8 +261,8 @@ export function graphWeekSummary(week: GraphWeek): string {
  * See `pattern_og_card_family`.
  */
 export function graphWeekKey(week: GraphWeek): string {
-  const end = week.end
-  const month = String(end.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(end.getUTCDate()).padStart(2, '0')
-  return `${end.getUTCFullYear()}-${month}-${day}`
+  // `toISOString` is already UTC, which is the basis this whole module works in
+  // — so the date half of it IS the key, with no hand-rolled month arithmetic
+  // to get off by one.
+  return week.end.toISOString().slice(0, 10)
 }

@@ -6,6 +6,7 @@ import {
   formatGraphWeekRange,
   graphWeekKey,
   graphWeekSummary,
+  isGraphWeekShareworthy,
   isInGraphWeek,
   resolveGraphWeek,
 } from './graphWeek'
@@ -187,12 +188,12 @@ describe('resolveGraphWeek', () => {
     // Dateable, so the page and the card still render — but nothing to offer.
     expect(quiet).not.toBeNull()
     expect(quiet?.newArtistCount).toBe(0)
-    expect(quiet?.isShareworthy).toBe(false)
+    expect(isGraphWeekShareworthy(quiet!)).toBe(false)
 
     const busy = resolveGraphWeek(
       mapFixture({ nodes: [node({ id: 1, appear: appearAt('2026-07-29T00:00:00Z') })] })
     )
-    expect(busy?.isShareworthy).toBe(true)
+    expect(isGraphWeekShareworthy(busy!)).toBe(true)
   })
 
   it('reports a week whose only news is a connection', () => {
@@ -204,7 +205,7 @@ describe('resolveGraphWeek', () => {
     )
     expect(week?.newArtistCount).toBe(0)
     expect(week?.newConnectionCount).toBe(1)
-    expect(week?.isShareworthy).toBe(true)
+    expect(isGraphWeekShareworthy(week!)).toBe(true)
   })
 
   it('exposes the window as whole epoch-relative seconds', () => {
@@ -252,7 +253,6 @@ describe('count copy', () => {
     newConnectionCount,
     newNodeIds: new Set<number>(),
     appearRange: { start: 0, end: 1 },
-    isShareworthy: true,
   })
 
   it('sets the card line in upper case, grouped, with a middle dot', () => {

@@ -10,6 +10,19 @@ export const graphEndpoints = {
   OVERVIEW: `${API_BASE_URL}/graph/overview`,
 } as const
 
+/**
+ * HTTP status the overview endpoint answers with before the first nightly build
+ * has ever run (a cold database).
+ *
+ * A legitimate steady state on a fresh install, a dev seed, or a restored
+ * database — NOT a failure. The client hook reads it to decide not to retry; the
+ * server fetch reads it to decide not to page Sentry. It lives HERE, in the
+ * framework-free endpoint module both already import, rather than in either of
+ * them: the client hook is `'use client'`, so importing it from the server fetch
+ * would drag React Query into an OG edge bundle to learn one number.
+ */
+export const GRAPH_OVERVIEW_NOT_BUILT_STATUS = 503
+
 export const graphQueryKeys = {
   all: ['graph'] as const,
   overview: () => [...graphQueryKeys.all, 'overview'] as const,

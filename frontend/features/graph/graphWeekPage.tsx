@@ -1,23 +1,16 @@
 import { cache } from 'react'
 import type { Metadata } from 'next'
-import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
 
 import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 
-import { fetchGraphOverview } from './graphOverviewApi'
-import { buildSceneMap, type SceneMap } from './sceneMap'
+import { loadGraphWeekView, type GraphWeekView } from './graphOverviewApi'
 import {
   GRAPH_WEEK_PATH,
-  formatGraphWeekCounts,
   formatGraphWeekRange,
   graphWeekKey,
   graphWeekSummary,
-  resolveGraphWeek,
-  type GraphWeek,
 } from './graphWeek'
-import { buildGraphWeekMotif } from './graphWeekOgLayout'
 
 /**
  * `/graph/this-week` — the share surface for the weekly growth card (PSY-1738).
@@ -27,16 +20,10 @@ import { buildGraphWeekMotif } from './graphWeekOgLayout'
  * onto the map. `/graph`'s own OG is deliberately untouched (locked decision):
  * a weekly-changing share image on the map itself would change under everyone
  * who ever posted it, with no explicit share moment to justify it.
+ *
+ * This module is the SEO surface — the resolver and the metadata. The bodies it
+ * describes live in `components/GraphWeekView`.
  */
-
-/** The teaser motif's canvas, in its own coordinate space. */
-const TEASER_BOX = { x: 0, y: 0, width: 900, height: 380 } as const
-
-/** What the page is about, resolved once per request. */
-interface GraphWeekView {
-  map: SceneMap
-  week: GraphWeek
-}
 
 /**
  * Resolve the week, memoised for the request.
@@ -51,15 +38,9 @@ interface GraphWeekView {
  * file deliberately does not assert the dedup: vitest has no such scope, so both
  * calls miss there and the number proves nothing about production.
  */
-export const getGraphWeek = cache(async (): Promise<GraphWeekView | null> => {
-  const overview = await fetchGraphOverview('graph-week-page')
-  if (!overview) return null
-  const map = buildSceneMap(overview)
-  if (!map) return null
-  const week = resolveGraphWeek(map)
-  if (!week) return null
-  return { map, week }
-})
+export const getGraphWeek = cache(
+  (): Promise<GraphWeekView | null> => loadGraphWeekView('graph-week-page')
+)
 
 export async function buildGraphWeekMetadata(): Promise<Metadata> {
   const view = await getGraphWeek()
@@ -71,7 +52,9 @@ export async function buildGraphWeekMetadata(): Promise<Metadata> {
 
   const { week } = view
   const range = formatGraphWeekRange(week.start, week.end)
-  const title = `This week in the graph — ${range}`
+  // A middle dot rather than a dash: no em dashes in UI copy (project rule), and
+  // it is the separator the card itself sets between its two counts.
+  const title = `This week in the graph · ${range}`
   const description = graphWeekSummary(week)
 
   // The week rides in the QUERY STRING, and it is the only thing making this URL
@@ -125,119 +108,4 @@ export async function buildGraphWeekMetadata(): Promise<Metadata> {
     // dimensions. A bare URL string here would silently drop them.
     twitter: { card: 'summary_large_image', title, description },
   }
-}
-
-/**
- * The page body: the two numbers, the week they cover, a teaser of the map with
- * the week's arrivals lit up, and the way onto the real thing.
- *
- * Deliberately thin. Someone arrives here from a link, reads one fact and
- * leaves for `/graph` — so this adds no navigation, no controls and no second
- * call to action (density philosophy). The card is what does the work; this is
- * the page that has to exist for the card to have a URL.
- */
-export function GraphWeekContent({ view }: { view: GraphWeekView }) {
-  const { map, week } = view
-  const motif = buildGraphWeekMotif(map, week, TEASER_BOX)
-  const range = formatGraphWeekRange(week.start, week.end)
-
-  return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
-        The Map of the Scene
-      </p>
-      <h1 className="mt-2 font-display text-4xl font-medium sm:text-5xl">
-        This week in the graph
-      </h1>
-      <p className="mt-4 font-mono text-sm uppercase tracking-wider text-primary">
-        {formatGraphWeekCounts(week)}
-      </p>
-      <p className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
-        {range}
-      </p>
-
-      <TeaserMotif motif={motif} label={graphWeekSummary(week)} />
-
-      <Link
-        href="/graph"
-        className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
-      >
-        Open the map of the scene
-        <ArrowRight className="size-3.5" aria-hidden="true" />
-      </Link>
-    </div>
-  )
-}
-
-/**
- * The share URL before there is anything to share.
- *
- * Reached before the first nightly build has ever run, or when a snapshot
- * cannot be dated. Deliberately says WHEN rather than apologising: the URL is
- * permanent and this state resolves itself overnight, so the one useful thing
- * to offer is the map as it stands today.
- */
-export function GraphWeekUnbuilt() {
-  return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
-        The Map of the Scene
-      </p>
-      <h1 className="mt-2 font-display text-4xl font-medium sm:text-5xl">
-        This week in the graph
-      </h1>
-      <p className="mt-4 max-w-prose text-sm text-muted-foreground">
-        The map is built once a night, and this week&rsquo;s numbers come from that build.
-        There isn&rsquo;t one yet, so there is nothing to report here until the next one runs.
-      </p>
-      <Link
-        href="/graph"
-        className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
-      >
-        Open the map of the scene
-        <ArrowRight className="size-3.5" aria-hidden="true" />
-      </Link>
-    </div>
-  )
-}
-
-/**
- * The same projection the card paints, drawn with theme tokens.
- *
- * A static `<svg>`, not the map canvas: this is a picture of a snapshot, and
- * mounting the interactive canvas here would ship the graph renderer to a page
- * whose only job is to be a link preview with a body. `role="img"` plus the
- * summary is what makes it mean anything without sight of it.
- */
-function TeaserMotif({
-  motif,
-  label,
-}: {
-  motif: ReturnType<typeof buildGraphWeekMotif>
-  label: string
-}) {
-  return (
-    <svg
-      role="img"
-      aria-label={label}
-      viewBox={`0 0 ${TEASER_BOX.width} ${TEASER_BOX.height}`}
-      className="mt-8 w-full rounded-xl border border-border/60 bg-card"
-    >
-      <g className="stroke-primary/50" strokeWidth={1.6}>
-        {motif.connectors.map((line, index) => (
-          <line key={index} x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} />
-        ))}
-      </g>
-      <g className="fill-muted-foreground/35">
-        {motif.dots.map((dot, index) => (
-          <circle key={index} cx={dot.x} cy={dot.y} r={2.6} />
-        ))}
-      </g>
-      <g className="fill-primary">
-        {motif.newDots.map((dot, index) => (
-          <circle key={index} cx={dot.x} cy={dot.y} r={5} />
-        ))}
-      </g>
-    </svg>
-  )
 }

@@ -15,8 +15,9 @@
 
 import * as Sentry from '@sentry/nextjs'
 
-import { graphEndpoints } from './api'
-import type { GraphOverview } from './sceneMap'
+import { GRAPH_OVERVIEW_NOT_BUILT_STATUS, graphEndpoints } from './api'
+import { buildSceneMap, type GraphOverview, type SceneMap } from './sceneMap'
+import { resolveGraphWeek, type GraphWeek } from './graphWeek'
 
 /**
  * How long a fetched snapshot stays fresh.
@@ -27,17 +28,6 @@ import type { GraphOverview } from './sceneMap'
  * revalidation the layer below would answer from its own store.
  */
 export const GRAPH_OVERVIEW_REVALIDATE = 3600
-
-/**
- * Status the endpoint answers with before the first nightly build has ever run.
- *
- * A legitimate steady state on a fresh install, a dev seed, or a restored
- * database — NOT an outage, and deliberately not reported. The same fact the
- * client hook encodes as `GRAPH_OVERVIEW_NOT_BUILT_STATUS`; duplicated as a
- * number here rather than imported, because that module is `'use client'` and
- * importing it would pull React Query into an edge bundle to learn `503`.
- */
-const NOT_BUILT_STATUS = 503
 
 /** Which surface a failure came from, so Sentry triage can tell them apart. */
 export type GraphOverviewService = 'graph-week-page' | 'og-image'
@@ -64,7 +54,7 @@ export async function fetchGraphOverview(
     if (res.ok) return asOverview(await res.json())
     // Everything except "not built yet" and a 404 is worth knowing about. A
     // nightly job that has never run is a fact about the install; a 500 is not.
-    if (res.status !== NOT_BUILT_STATUS && res.status !== 404) {
+    if (res.status !== GRAPH_OVERVIEW_NOT_BUILT_STATUS && res.status !== 404) {
       Sentry.captureMessage(`Graph overview: API returned ${res.status}`, {
         level: res.status >= 500 ? 'error' : 'warning',
         tags: { service },
@@ -93,4 +83,37 @@ function asOverview(body: unknown): GraphOverview | null {
   if (typeof record.node_count !== 'number' || typeof record.version !== 'number') return null
   if (!record.nodes || typeof record.nodes !== 'object') return null
   return body as GraphOverview
+}
+
+/** A snapshot we can draw, and the week it describes. */
+export interface GraphWeekView {
+  map: SceneMap
+  week: GraphWeek
+}
+
+/**
+ * The whole read: fetch, decode, and date the week — or null.
+ *
+ * ONE function because the share card and the share page must agree about what
+ * "there is no week" means, and they are two separate renders of the same fact.
+ * Written twice, a fourth reason to refuse a snapshot (a version floor, a
+ * staleness cut-off) would have to be remembered in both, and the failure mode
+ * is a page and its own `og:image` disagreeing — silently, in a preview nobody
+ * re-checks.
+ *
+ * FOUR DIFFERENT ABSENCES, ONE ANSWER. No snapshot yet (a fresh install's 503),
+ * a fetch that failed, a payload we cannot decode, and a snapshot we cannot date
+ * all leave a reader in the same place, so the callers do not distinguish them:
+ * the card falls back to the branded image, the page to its empty state.
+ */
+export async function loadGraphWeekView(
+  service: GraphOverviewService
+): Promise<GraphWeekView | null> {
+  const overview = await fetchGraphOverview(service)
+  if (!overview) return null
+  const map = buildSceneMap(overview)
+  if (!map) return null
+  const week = resolveGraphWeek(map)
+  if (!week) return null
+  return { map, week }
 }

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { inflateSync } from 'node:zlib'
 
 /**
  * The route actually rendering, not just the pure modules it composes.
@@ -16,6 +15,15 @@ import { inflateSync } from 'node:zlib'
  * error page served as 200, a snapshot with no arrival dates — and expects a 200
  * with a real PNG.
  */
+
+import { OG_COLORS } from '@/lib/og/brand'
+import {
+  countNonBackgroundPixels,
+  countPixelsNear,
+  decodeRgba,
+  isPng,
+  rgb,
+} from '@/lib/og/test-helpers'
 
 vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
@@ -116,115 +124,11 @@ async function render(body: unknown, status = 200) {
   return { res, bytes }
 }
 
-/** PNG magic — proof a real raster came back rather than an error page. */
-function isPng(bytes: Uint8Array): boolean {
-  return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-}
-
 /** The brand primary, `#e89960`, as the card paints its arrivals and counts. */
-const PRIMARY = [0xe8, 0x99, 0x60]
+const PRIMARY = rgb(OG_COLORS.primary)
 
-/**
- * How many pixels in `[fromX, toX)` are recognisably the brand primary.
- *
- * A tolerance rather than an exact match, because the dots are drawn with a
- * fill-opacity over the brand background and resvg antialiases their edges.
- */
-function primaryPixels(png: Uint8Array, fromX: number, toX: number): number {
-  const { width, height, pixels } = decodeRgba(png)
-  let found = 0
-  for (let y = 0; y < height; y += 1) {
-    for (let x = Math.max(0, fromX); x < Math.min(width, toX); x += 1) {
-      const i = (y * width + x) * 4
-      if (
-        Math.abs(pixels[i] - PRIMARY[0]) < 34 &&
-        Math.abs(pixels[i + 1] - PRIMARY[1]) < 34 &&
-        Math.abs(pixels[i + 2] - PRIMARY[2]) < 34
-      ) {
-        found += 1
-      }
-    }
-  }
-  return found
-}
-
-/** Pixels that are not the card's background colour, anywhere in a column band. */
-function nonBackgroundPixels(png: Uint8Array, fromX: number, toX: number): number {
-  const { width, height, pixels } = decodeRgba(png)
-  const bg = [pixels[0], pixels[1], pixels[2]]
-  let found = 0
-  for (let y = 0; y < height; y += 1) {
-    for (let x = Math.max(0, fromX); x < Math.min(width, toX); x += 1) {
-      const i = (y * width + x) * 4
-      if (
-        Math.abs(pixels[i] - bg[0]) > 6 ||
-        Math.abs(pixels[i + 1] - bg[1]) > 6 ||
-        Math.abs(pixels[i + 2] - bg[2]) > 6
-      ) {
-        found += 1
-      }
-    }
-  }
-  return found
-}
-
-function decodeRgba(png: Uint8Array) {
-  const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
-  let at = 8
-  let width = 0
-  let height = 0
-  const idat: Buffer[] = []
-  while (at < png.byteLength) {
-    const length = view.getUint32(at)
-    const type = String.fromCharCode(png[at + 4], png[at + 5], png[at + 6], png[at + 7])
-    const data = png.subarray(at + 8, at + 8 + length)
-    if (type === 'IHDR') {
-      width = view.getUint32(at + 8)
-      height = view.getUint32(at + 12)
-    } else if (type === 'IDAT') {
-      idat.push(Buffer.from(data))
-    } else if (type === 'IEND') break
-    at += 12 + length
-  }
-
-  const raw = inflateSync(Buffer.concat(idat))
-  const stride = width * 4
-  const pixels = new Uint8Array(width * height * 4)
-  for (let y = 0; y < height; y += 1) {
-    const filter = raw[y * (stride + 1)]
-    const row = y * (stride + 1) + 1
-    for (let i = 0; i < stride; i += 1) {
-      const value = raw[row + i]
-      const left = i >= 4 ? pixels[y * stride + i - 4] : 0
-      const up = y > 0 ? pixels[(y - 1) * stride + i] : 0
-      const upLeft = y > 0 && i >= 4 ? pixels[(y - 1) * stride + i - 4] : 0
-      let recovered: number
-      switch (filter) {
-        case 1:
-          recovered = value + left
-          break
-        case 2:
-          recovered = value + up
-          break
-        case 3:
-          recovered = value + ((left + up) >> 1)
-          break
-        case 4: {
-          const p = left + up - upLeft
-          const pa = Math.abs(p - left)
-          const pb = Math.abs(p - up)
-          const pc = Math.abs(p - upLeft)
-          recovered = value + (pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft)
-          break
-        }
-        default:
-          recovered = value
-      }
-      pixels[y * stride + i] = recovered & 0xff
-    }
-  }
-  return { width, height, pixels }
-}
+/** Tolerance: the dots carry a fill-opacity and resvg antialiases their edges. */
+const PRIMARY_TOLERANCE = 34
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -249,13 +153,13 @@ describe('graph this-week OG card', () => {
     // notices before a deploy does.
     const { bytes } = await render(overviewFixture())
 
-    expect(primaryPixels(bytes, 1120, 1200)).toBeGreaterThan(0)
-    expect(nonBackgroundPixels(bytes, 1120, 1200)).toBeGreaterThan(0)
+    expect(countPixelsNear(bytes, PRIMARY, PRIMARY_TOLERANCE, { fromX: 1120 })).toBeGreaterThan(0)
+    expect(countNonBackgroundPixels(bytes, { fromX: 1120 })).toBeGreaterThan(0)
   })
 
   it('paints the counts line in the brand primary on the left', async () => {
     const { bytes } = await render(overviewFixture())
-    expect(primaryPixels(bytes, 72, 400)).toBeGreaterThan(0)
+    expect(countPixelsNear(bytes, PRIMARY, PRIMARY_TOLERANCE, { fromX: 72, toX: 400 })).toBeGreaterThan(0)
   })
 
   // Every case below is the FALLBACK branch: the route must still answer with a
@@ -266,7 +170,7 @@ describe('graph this-week OG card', () => {
     expect(res.status).toBe(200)
     expect(isPng(bytes)).toBe(true)
     // No motif: nothing on the right-hand strip at all.
-    expect(nonBackgroundPixels(bytes, 1120, 1200)).toBe(0)
+    expect(countNonBackgroundPixels(bytes, { fromX: 1120 })).toBe(0)
   })
 
   it('falls back when a 200 carries something that is not a snapshot', async () => {
@@ -291,7 +195,7 @@ describe('graph this-week OG card', () => {
     const { res, bytes } = await render(undated)
     expect(res.status).toBe(200)
     expect(isPng(bytes)).toBe(true)
-    expect(nonBackgroundPixels(bytes, 1120, 1200)).toBe(0)
+    expect(countNonBackgroundPixels(bytes, { fromX: 1120 })).toBe(0)
   })
 
   it('sets a CDN cache window at all — next/og would otherwise forbid one', async () => {

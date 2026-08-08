@@ -7,9 +7,9 @@ import {
   ogFallbackCard,
 } from '@/lib/og/response'
 
-import { fetchGraphOverview, GRAPH_OVERVIEW_REVALIDATE } from './graphOverviewApi'
-import { buildSceneMap } from './sceneMap'
-import { formatGraphWeekCounts, formatGraphWeekRange, resolveGraphWeek } from './graphWeek'
+import { GRAPH_OVERVIEW_REVALIDATE, loadGraphWeekView } from './graphOverviewApi'
+import { formatGraphWeekCounts, formatGraphWeekRange } from './graphWeek'
+import { CARD_MOTIF, buildGraphWeekMotif, type GraphWeekMotif } from './graphMotif'
 import {
   COUNTS_TRACKING,
   EYEBROW_SIZE,
@@ -20,13 +20,10 @@ import {
   HEADLINE_SIZE,
   HEADLINE_TEXT,
   MOTIF_CONNECTOR_OPACITY,
-  MOTIF_CONNECTOR_WIDTH,
   MOTIF_DOT_OPACITY,
-  MOTIF_DOT_RADIUS,
   MOTIF_FADE_CLEAR_STOP,
   MOTIF_FADE_OPAQUE_STOP,
   MOTIF_NEW_DOT_OPACITY,
-  MOTIF_NEW_DOT_RADIUS,
   MOTIF_TOP_FADE_HEIGHT,
   PAD_X,
   PAD_Y,
@@ -34,9 +31,7 @@ import {
   RANGE_SIZE,
   RANGE_TRACKING,
   TEXT_WIDTH,
-  buildGraphWeekMotif,
   fitCountsSize,
-  type GraphWeekMotif,
 } from './graphWeekOgLayout'
 
 /**
@@ -52,36 +47,26 @@ import {
  * `next/og` appears in the feature, which keeps the geometry and the window
  * maths in modules a unit test can import.
  */
-/**
- * The brand background at zero alpha — the far end of both fades.
- *
- * Written as an explicit `rgba` of the SAME colour rather than the keyword
- * `transparent`: several renderers interpolate `transparent` through
- * `rgba(0,0,0,0)`, which greys the middle of a fade from a warm near-black.
- * Kept beside the card, not in `lib/og/brand`, because every import added to a
- * shared OG module is taxed against all four edge bundles.
- */
-const BACKGROUND_CLEAR = 'rgba(13, 8, 5, 0)'
-
 export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response> {
-  const [{ fonts, degraded }, overview] = await Promise.all([
+  // Parallel, not sequential: the font assets and the snapshot are independent
+  // reads, and serialising them would add the asset read to API latency on every
+  // cache miss.
+  const [{ fonts, degraded }, view] = await Promise.all([
     loadBrandFontsOrDefault(),
-    fetchGraphOverview('og-image'),
+    loadGraphWeekView('og-image'),
   ])
 
-  // Three different absences, one answer. No snapshot yet (a fresh install's
-  // 503), a payload we cannot decode, and a snapshot we cannot date all leave a
-  // reader in the same place — and the branded fallback is the family's answer
-  // to it, because an unfurler handed a 500 shows nothing at all and some
-  // clients then cache the miss.
-  const map = overview ? buildSceneMap(overview) : null
-  const week = map ? resolveGraphWeek(map) : null
-  if (!map || !week) return ogFallbackCard(fonts)
+  // `loadGraphWeekView` has already collapsed every reason there might be no
+  // week into one null. The branded fallback is the family's answer to it,
+  // because an unfurler handed a 500 shows nothing at all and some clients then
+  // cache the miss.
+  if (!view) return ogFallbackCard(fonts)
 
+  const { map, week } = view
   const counts = formatGraphWeekCounts(week)
   const range = formatGraphWeekRange(week.start, week.end)
   const countsSize = fitCountsSize(counts)
-  const motif = buildGraphWeekMotif(map, week)
+  const motif = buildGraphWeekMotif(map, week, CARD_MOTIF)
 
   return new ImageResponse(
     (
@@ -113,7 +98,7 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
             // Opaque brand background under the text, clear over the motif's
             // dense middle. Without it the counts line crosses into the dots and
             // stops being readable at 300px.
-            backgroundImage: `linear-gradient(to right, ${OG_COLORS.background} ${MOTIF_FADE_OPAQUE_STOP}%, ${BACKGROUND_CLEAR} ${MOTIF_FADE_CLEAR_STOP}%)`,
+            backgroundImage: `linear-gradient(to right, ${OG_COLORS.background} ${MOTIF_FADE_OPAQUE_STOP}%, ${OG_COLORS.backgroundClear} ${MOTIF_FADE_CLEAR_STOP}%)`,
           }}
         />
         {/* The eyebrow's own band. It is the one line given the full content
@@ -126,7 +111,7 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
             right: 0,
             height: MOTIF_TOP_FADE_HEIGHT,
             display: 'flex',
-            backgroundImage: `linear-gradient(to bottom, ${OG_COLORS.background} 40%, ${BACKGROUND_CLEAR} 100%)`,
+            backgroundImage: `linear-gradient(to bottom, ${OG_COLORS.background} 40%, ${OG_COLORS.backgroundClear} 100%)`,
           }}
         />
 
@@ -229,7 +214,7 @@ function MapMotif({ motif }: { motif: GraphWeekMotif }) {
       {/* Connectors first so a dot always sits ON TOP of its own lines. */}
       <g
         stroke={OG_COLORS.primary}
-        strokeWidth={MOTIF_CONNECTOR_WIDTH}
+        strokeWidth={CARD_MOTIF.paint.connectorWidth}
         strokeOpacity={MOTIF_CONNECTOR_OPACITY}
       >
         {motif.connectors.map((line, index) => (
@@ -238,12 +223,12 @@ function MapMotif({ motif }: { motif: GraphWeekMotif }) {
       </g>
       <g fill={OG_COLORS.mutedForeground} fillOpacity={MOTIF_DOT_OPACITY}>
         {motif.dots.map((dot, index) => (
-          <circle key={index} cx={dot.x} cy={dot.y} r={MOTIF_DOT_RADIUS} />
+          <circle key={index} cx={dot.x} cy={dot.y} r={CARD_MOTIF.paint.dotRadius} />
         ))}
       </g>
       <g fill={OG_COLORS.primary} fillOpacity={MOTIF_NEW_DOT_OPACITY}>
         {motif.newDots.map((dot, index) => (
-          <circle key={index} cx={dot.x} cy={dot.y} r={MOTIF_NEW_DOT_RADIUS} />
+          <circle key={index} cx={dot.x} cy={dot.y} r={CARD_MOTIF.paint.newDotRadius} />
         ))}
       </g>
     </svg>

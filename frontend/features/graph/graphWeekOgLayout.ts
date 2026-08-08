@@ -14,16 +14,16 @@
  * meaning. Divide by 4 to check: headline 23 · counts 8.5-11 · eyebrow 8.5 ·
  * range 8.5.
  *
- * The map motif is the one thing here that is genuinely decoration: the counts
- * are what the card asserts, and the dots are the texture that says WHICH map
- * they are about. It is sized and sampled accordingly.
+ * The motif's own geometry — the projection, the caps, the radii — is NOT here.
+ * It is the same picture the share page draws, at a different size and with a
+ * different paint model, so it lives in `graphMotif` where a surface that has
+ * nothing to do with `next/og` can reach it. What stays here is how this CARD
+ * composes text over it: the box it occupies, the fades that keep the text
+ * legible, and the opacities tuned against this background.
  */
 
 import { OG_SIZE } from '@/lib/og/brand'
-import { measureMono, measureSans } from '@/lib/og/textFit'
-
-import type { SceneMap, SceneMapNode } from './sceneMap'
-import { isInGraphWeek, type GraphWeek } from './graphWeek'
+import { fitMonoSize, measureMono, measureSans } from '@/lib/og/textFit'
 
 export const PAD_X = 72
 export const PAD_Y = 64
@@ -106,29 +106,6 @@ export const TEXT_WIDTH = 660
 export const COUNTS_MAX_WIDTH = 810
 
 /**
- * Where the map motif is drawn, in card coordinates.
- *
- * RIGHT-ANCHORED AND BLEEDING off three edges. The map is roughly square and
- * the card is 1.9:1, so a motif fitted to the whole canvas would be a
- * postage-stamp in the middle with the headline on top of it. Anchored right
- * and over-sized, it reads as a window onto the map with the text beside it —
- * which is the composition the mock locks.
- */
-export const MOTIF_BOX = { x: 470, y: -60, width: 800, height: 750 } as const
-
-/**
- * A box to fit the motif into. The card uses `MOTIF_BOX`; the share PAGE passes
- * its own, because there the motif is a centred teaser rather than the backdrop
- * to a text column, and re-fitting is cheaper than a second projection.
- */
-export interface MotifBox {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-/**
  * Horizontal fade that puts the text on solid brand background.
  *
  * Expressed as gradient stops rather than a box, because Satori paints it as
@@ -154,13 +131,14 @@ export const MOTIF_FADE_CLEAR_STOP = 80
  */
 export const MOTIF_TOP_FADE_HEIGHT = 190
 
-/** Radius of a dot that was already on the map. */
-export const MOTIF_DOT_RADIUS = 3.2
-/** Radius of a dot that arrived in the window — "slightly larger" per the mock. */
-export const MOTIF_NEW_DOT_RADIUS = 7
-/** Thin connector lines between this window's arrivals. */
-export const MOTIF_CONNECTOR_WIDTH = 1.6
-
+/**
+ * How strongly the motif reads THROUGH the card's dark background.
+ *
+ * Opacity lives here rather than with the projection because it is a property
+ * of this composition — the motif sits behind text on this surface and beside
+ * nothing on the share page — while the radii and the caps, which are the same
+ * picture at two sizes, live in `graphMotif`.
+ */
 export const MOTIF_DOT_OPACITY = 0.34
 export const MOTIF_NEW_DOT_OPACITY = 0.95
 /**
@@ -172,24 +150,6 @@ export const MOTIF_NEW_DOT_OPACITY = 0.95
 export const MOTIF_CONNECTOR_OPACITY = 0.26
 
 /**
- * Caps on what the motif draws.
- *
- * Satori serialises an inline `<svg>` subtree and hands it to resvg to
- * rasterise, so every element is real work inside an edge function that already
- * sits at ~96.5% of Vercel's 1 MB limit and has a CPU budget to keep. A
- * production snapshot is thousands of nodes and tens of thousands of edges; the
- * motif needs enough of them to read as a map and no more.
- *
- * The COUNTS ARE NEVER SAMPLED — they come from `resolveGraphWeek`, which walks
- * everything. Only the drawing is capped, so a card can show fewer orange dots
- * than the number beside them. That asymmetry is deliberate: the alternative is
- * a wrong number.
- */
-export const MOTIF_DOT_LIMIT = 900
-export const MOTIF_NEW_DOT_LIMIT = 400
-export const MOTIF_CONNECTOR_LIMIT = 180
-
-/**
  * Next requires a STATIC alt, so it cannot name the counts — they change every
  * night. The page supplies the real numbers through `openGraph.images[].alt`.
  */
@@ -198,10 +158,7 @@ export const GRAPH_WEEK_OG_ALT =
 
 /** What the counts line gets, once its own tracking is accounted for. */
 export function fitCountsSize(counts: string): number {
-  for (let size = COUNTS_SIZE_MAX; size > COUNTS_SIZE_MIN; size -= 1) {
-    if (measureMono(counts, size, COUNTS_TRACKING) <= COUNTS_MAX_WIDTH) return size
-  }
-  return COUNTS_SIZE_MIN
+  return fitMonoSize(counts, COUNTS_MAX_WIDTH, COUNTS_SIZE_MAX, COUNTS_SIZE_MIN, COUNTS_TRACKING)
 }
 
 /** Measured widths the test asserts the fixed-size copy against. */
@@ -214,161 +171,4 @@ export function headlineLongestWordWidth(): number {
   return Math.max(
     ...HEADLINE_TEXT.split(' ').map(word => measureSans(word, 'satoshiBold', HEADLINE_SIZE))
   )
-}
-
-/** One dot on the motif, in card coordinates. */
-export interface MotifDot {
-  x: number
-  y: number
-}
-
-/** One connector, in card coordinates. */
-export interface MotifConnector {
-  x1: number
-  y1: number
-  x2: number
-  y2: number
-}
-
-export interface GraphWeekMotif {
-  /** Nodes that were already on the map, sampled — the muted texture. */
-  dots: MotifDot[]
-  /** Nodes that arrived in the window, sampled — painted primary orange. */
-  newDots: MotifDot[]
-  /** Edges that arrived in the window, sampled. */
-  connectors: MotifConnector[]
-}
-
-/**
- * Project a snapshot into the card's motif.
- *
- * Fitted to the snapshot's OWN node bounds rather than to the payload's nominal
- * extent, so a night whose layout happens to occupy a corner of the coordinate
- * space still fills the motif box instead of huddling in one part of it. Aspect
- * ratio is preserved — a squashed map is not this map.
- *
- * Pure, and returns plain numbers: the card only interpolates them into SVG
- * attributes, which is what lets the sampling and the projection be asserted
- * without rasterising anything.
- */
-export function buildGraphWeekMotif(
-  map: SceneMap,
-  week: GraphWeek,
-  box: MotifBox = MOTIF_BOX
-): GraphWeekMotif {
-  const project = fitProjection(map.nodes, box)
-  if (!project) return { dots: [], newDots: [], connectors: [] }
-
-  const existing: SceneMapNode[] = []
-  const arrivals: SceneMapNode[] = []
-  // Every node's projected position, keyed by id — connectors need an endpoint
-  // that SAMPLING may have dropped from the drawn dots. A line has to land on
-  // the map even when the dot at its far end was not one of the 900 drawn.
-  const positionById = new Map<number, MotifDot>()
-  for (const node of map.nodes) {
-    const at = project(node)
-    // A node with a non-finite coordinate is dropped rather than drawn: a `NaN`
-    // in an SVG attribute is not a visible bug, it is an element resvg may
-    // refuse — and refusing one dot must not cost the whole motif.
-    if (!at) continue
-    positionById.set(node.id, at)
-    if (week.newNodeIds.has(node.id)) arrivals.push(node)
-    else existing.push(node)
-  }
-
-  // The SAME window predicate the counts use (`isInGraphWeek`), never a
-  // re-derivation from the endpoints — that is what keeps a drawn connector and
-  // a counted connection the same set, up to the cap below.
-  const connectors: MotifConnector[] = []
-  for (const edge of map.edges) {
-    if (connectors.length >= MOTIF_CONNECTOR_LIMIT) break
-    if (!isInGraphWeek(week, edge.appear)) continue
-    const from = positionById.get(edge.source)
-    const to = positionById.get(edge.target)
-    if (!from || !to) continue
-    connectors.push({ x1: from.x, y1: from.y, x2: to.x, y2: to.y })
-  }
-
-  return {
-    dots: sample(existing, MOTIF_DOT_LIMIT).map(node => positionById.get(node.id)!),
-    newDots: sample(arrivals, MOTIF_NEW_DOT_LIMIT).map(node => positionById.get(node.id)!),
-    connectors,
-  }
-}
-
-/**
- * Even-stride sample, NOT a random one.
- *
- * The card has to be deterministic per snapshot — that is the whole point of a
- * snapshot-aligned window — so two renders of the same night must draw the same
- * dots. A stride also spreads the sample across the layout, where taking the
- * first N would draw only whichever corner of the map the payload happens to
- * enumerate first.
- */
-function sample<T>(items: T[], limit: number): T[] {
-  if (items.length <= limit) return items
-  const stride = items.length / limit
-  const picked: T[] = new Array(limit)
-  for (let i = 0; i < limit; i += 1) {
-    picked[i] = items[Math.floor(i * stride)]
-  }
-  return picked
-}
-
-/**
- * A world-to-card projection fitted to the nodes' bounding box, or null when
- * there is nothing to fit.
- *
- * A degenerate box (every node at one point, or a single node) would divide by
- * zero, so the scale falls back to 1 and the map lands centred as a single dot
- * — truthful for a one-node catalog, and unreachable in production.
- */
-function fitProjection(
-  nodes: SceneMapNode[],
-  box: MotifBox
-): ((node: SceneMapNode) => MotifDot | null) | null {
-  if (nodes.length === 0) return null
-
-  let minX = Infinity
-  let maxX = -Infinity
-  let minY = Infinity
-  let maxY = -Infinity
-  for (const node of nodes) {
-    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) continue
-    if (node.x < minX) minX = node.x
-    if (node.x > maxX) maxX = node.x
-    if (node.y < minY) minY = node.y
-    if (node.y > maxY) maxY = node.y
-  }
-  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
-
-  const spanX = maxX - minX
-  const spanY = maxY - minY
-  const scale =
-    spanX > 0 || spanY > 0
-      ? Math.min(
-          spanX > 0 ? box.width / spanX : Infinity,
-          spanY > 0 ? box.height / spanY : Infinity
-        )
-      : 1
-  // Centre the fitted map inside the box on whichever axis has slack.
-  const offsetX = box.x + (box.width - spanX * scale) / 2
-  const offsetY = box.y + (box.height - spanY * scale) / 2
-
-  return node => {
-    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return null
-    return {
-      x: round(offsetX + (node.x - minX) * scale),
-      y: round(offsetY + (node.y - minY) * scale),
-    }
-  }
-}
-
-/**
- * One decimal place. The motif is rasterised at 1200px wide, so a second
- * decimal is invisible — and every digit is bytes in the SVG string Satori
- * serialises, multiplied by up to 1,300 elements.
- */
-function round(value: number): number {
-  return Math.round(value * 10) / 10
 }
