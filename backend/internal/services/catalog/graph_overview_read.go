@@ -155,19 +155,20 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 		return nil, "", nil
 	}
 
-	// A WEAK ETag: the tag identifies the SNAPSHOT, and two responses carrying it
-	// are semantically identical — but NOT necessarily byte-identical, which is
-	// exactly what a strong validator would promise.
+	// A WEAK ETag, matching what the calendar feeds already mint. The tag
+	// identifies the SNAPSHOT, and two responses carrying it are semantically
+	// identical — but not byte-identical, which is the stronger thing a strong
+	// validator would promise.
 	//
-	// It cannot promise that for two independent reasons. It is not a digest of
-	// the bytes on the wire: the column is JSONB, so Postgres normalizes key order
-	// and whitespace on the way back out, and Huma's SchemaLinkTransformer adds a
-	// `$schema` member to the served body. And since PSY-1734 the response is
-	// gzipped when the client negotiates it, so the same snapshot legitimately
-	// goes out under two different content-codings — different representations of
-	// one resource, which RFC 9110 §8.8.1 forbids a strong validator from sharing.
-	// The hash is a build-time identity stamp for the snapshot, which is all a
-	// validator needs, since the map only ever changes by a new row appearing.
+	// THE HASH IS NOT A DIGEST OF THE BYTES ON THE WIRE, and must not be described
+	// as one: the column is JSONB, so Postgres normalizes key order and whitespace
+	// on the way back out, and Huma's SchemaLinkTransformer adds a `$schema`
+	// member to the served body. It is a build-time identity stamp for the
+	// snapshot, which is all a validator needs, since the map only ever changes by
+	// a new row appearing. Compression settled the question — one snapshot now
+	// legitimately goes out under two content-codings, which RFC 9110 §8.8.1
+	// forbids a strong validator from sharing — but the byte-for-byte promise was
+	// never really ours to make.
 	//
 	// Weakening costs nothing here. If-None-Match is specified to use WEAK
 	// comparison (shared.IfNoneMatchCovers already strips the prefix on both
