@@ -338,9 +338,9 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       const href = await page.locator('link[rel="canonical"]').getAttribute('href')
 
       expect(href, '/tonight must declare a canonical').toBeTruthy()
-      // The WEEK permalink (PSY-1728), not the dated day permalink: day
-      // permalinks are announced in no sitemap, so canonicalizing to one aimed
-      // crawlers at a URL the site never tells them about.
+      // The WEEK permalink, not the dated day permalink: day permalinks are
+      // announced in no sitemap, so canonicalizing to one aimed crawlers at a
+      // URL the site never tells them about.
       expect(
         href,
         'the canonical must be the WEEK permalink, never the rolling URL or a dated day'
@@ -360,14 +360,13 @@ test.describe('Not-found pages — HTTP 404 status', () => {
     /**
      * A real DATED day permalink still resolves.
      *
-     * Kept as its own test after the canonical above moved to the week key
-     * (PSY-1728). Day permalinks are no longer any page's canonical, but they
-     * are still linked from every day page's prev/next chips and named as the
-     * breadcrumb JSON-LD leaf, and this is the only place the assembled path
-     * (proxy.ts's date branch, then `[period]`'s `looksLikeCalendarDate`
-     * dispatch to the DAY view) is exercised against a date the server agrees
-     * exists. Without it, a change that 404s or soft-404s every dated permalink
-     * ships green.
+     * Kept as its own test now that the canonical probe above follows the week
+     * key. A dated permalink is no longer any rolling page's canonical, but it
+     * is still linked from every day page's prev/next chips, and this is the
+     * only place the assembled path (proxy.ts's date branch, then `[period]`'s
+     * `looksLikeCalendarDate` dispatch to the DAY view) is exercised against a
+     * date the server agrees exists. Without it, a change that 404s or
+     * soft-404s every dated permalink ships green.
      */
     test('a real dated day permalink returns HTTP 200 and renders the DAY view', async ({
       page,

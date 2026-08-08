@@ -22,7 +22,8 @@ interface PageProps {
  * the key that names it: an ISO week (`2026-W31`) or a single calendar date
  * (`2026-07-31`). Both are stable permalinks. The WEEK key is the canonical URL
  * for both rolling siblings, `/week` and `/tonight`; the date key stands as its
- * own canonical and is announced in no sitemap.
+ * own canonical. Why the day key is not announced in any sitemap: see the note
+ * on FAMILY_SHARD_IDS in app/sitemap-shards.ts.
  *
  * The two share ONE dynamic segment because Next allows only one per level, not
  * because they are one page: a `[iso-week]` route alongside a `[date]` route is

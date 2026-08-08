@@ -26,11 +26,12 @@ const day = (over: Partial<SceneDayResponse> = {}): SceneDayResponse =>
   }) as SceneDayResponse
 
 /**
- * The `<head>` carries three product decisions that live nowhere else: the
- * query-language title, the split canonical (rolling /tonight names the WEEK
- * permalink, a dated permalink names itself), and the noindex on a night with
- * nothing on it. Nothing else in the suite touches them, so without this file
- * any of the three can be reworded silently.
+ * The `<head>` decisions that live nowhere else: the query-language title, the
+ * split canonical (rolling /tonight names the WEEK permalink, a dated permalink
+ * names itself), the week key coming from the payload rather than a clock, the
+ * empty-payload fallbacks, og:url held apart from the canonical, and the
+ * route-conditional noindex. Nothing else in the suite touches any of them, so
+ * without this file each one can be reworded silently.
  */
 describe('buildSceneDayMetadata', () => {
   beforeEach(() => {
@@ -125,6 +126,23 @@ describe('buildSceneDayMetadata', () => {
     )
   })
 
+  // The fallback above is only worth anything if the URL it falls back TO is
+  // itself well formed. `slug` and `date` come through the same guard that lets
+  // an empty string past, so a payload missing them must produce NO canonical
+  // rather than a `/scenes//` shape offered to crawlers as this page's identity.
+  it.each([
+    ['slug', { slug: '' }],
+    ['date', { date: '' }],
+  ])('declares no canonical at all when %s is empty', async (_field, over) => {
+    fetchSceneDay.mockResolvedValue(day(over))
+
+    const meta = await buildSceneDayMetadata('phoenix-az')
+
+    expect(meta.alternates?.canonical).toBeUndefined()
+    expect(meta.openGraph?.url).toBeUndefined()
+    expect(meta.robots).toEqual({ index: false, follow: false })
+  })
+
   // The fixture is a live night (`is_tonight: true`), so this also pins the
   // DISCRIMINATOR: an implementation keying off `day.is_tonight` instead of the
   // absent `date` argument would collapse every same-day permalink into the
@@ -152,11 +170,12 @@ describe('buildSceneDayMetadata', () => {
   // implementation deriving the week from `date` would also pass. The clock is
   // the counterfactual: `buildSceneDayMetadata` reads NO clock today, and this
   // test exists so that the day one is introduced it answers W32 and goes red.
-  // Verified by mutation, not by assumption.
   //
-  // Noon UTC rather than the literal 01:30 local, so a runner in any timezone
-  // from UTC-11 to UTC+11 still reads Monday. The hour is immaterial to what is
-  // being guarded; the WEEKDAY is the whole counterfactual.
+  // Noon UTC rather than the literal 01:30 local. The hour is immaterial to
+  // what is guarded; the WEEK a local clock would name is the counterfactual,
+  // and from this instant every real offset (UTC-12 through UTC+14) reads
+  // Monday the 3rd or Tuesday the 4th, so all of them answer W32. There is no
+  // runner timezone in which this test passes for the wrong reason.
   it('uses the payload iso_week when tonight falls in the PREVIOUS ISO week', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-03T12:00:00Z')) // Monday, opening W32

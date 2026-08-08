@@ -55,6 +55,20 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   const title = dayTitle(day)
   const description = dayDescription(day)
 
+  // A payload that cannot name its own page. `asPayload` in scenePeriodApi.ts
+  // only checks that each required field is a STRING, and `prev_date`/`next_date`
+  // in that same list are empty BY DESIGN at the window edges, so an empty
+  // string is a shape this guard demonstrably lets through. With an empty slug
+  // or date the URLs below would collapse to `/scenes//` shapes and be offered
+  // to crawlers as this page's identity, which is worse than offering nothing.
+  //
+  // (The narrow fix would be to reject empty strings at the boundary itself,
+  // for the fields that are never legitimately empty. That validator is shared
+  // with the week and OG-image surfaces, so it is left for its own change.)
+  if (!day.slug || !day.date) {
+    return { title, description, robots: { index: false, follow: false } }
+  }
+
   const dayPermalink = `${SITE_URL}/scenes/${day.slug}/${day.date}`
 
   // The rolling /tonight URL canonicalizes to the scene's WEEK permalink; a
@@ -62,12 +76,19 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   //
   // /tonight cannot be its own canonical, because its content changes every
   // night and an indexed snippet would describe a night that has passed. It
-  // used to name the dated permalink instead. Day permalinks are internally
-  // linked (the prev/next chips, the breadcrumb leaf) but they are in NO
-  // sitemap family, and there are unboundedly many of them; see
-  // FAMILY_SHARD_IDS in app/sitemap-shards.ts, which has scene_weeks and no
-  // scene_days. The week permalink is the announced, bounded surface, so it is
-  // the page that can hold whatever ranking this night earns.
+  // names the week rather than the dated permalink because of what the sitemap
+  // carries: FAMILY_SHARD_IDS in app/sitemap-shards.ts has scene_weeks and no
+  // scene_days. Neither URL space is infinite — days are bounded by
+  // `dateIsServable` (2015..next year, ~4.7k per scene) and week keys are not
+  // bounded at all by the week route — but the scene_weeks family announces a
+  // rolling 8-week window, and there is no day family at any size. The week is
+  // simply the only one of the two the site tells crawlers about.
+  //
+  // Day permalinks stay reachable regardless: the prev/next chips on every day
+  // page are real anchors. The JSON-LD breadcrumb also names the day, but that
+  // is structured data, not a crawl edge, and the VISIBLE breadcrumb stops at
+  // the scene. If those chips ever become non-anchors, day permalinks are
+  // orphaned and this decision needs revisiting.
   //
   // `day.iso_week` comes from the PAYLOAD and is never derived here. "Tonight"
   // is resolved by the backend in the scene's timezone against a 6am night
@@ -78,12 +99,9 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // The discriminator is the ABSENT `date` argument, not `day.is_tonight`: that
   // flag is also true for a dated permalink naming today, and that permalink
   // must keep pointing at itself rather than be folded into the week.
-  //
-  // The empty-`iso_week` fallback is not paranoia about a field the backend
-  // always fills: the payload guard (`asPayload`) admits any string, and two
-  // fields in the SAME required list, `prev_date`/`next_date`, are empty by
-  // design at the window edges. Without the guard an empty week key would
-  // silently canonicalize every scene's /tonight at `/scenes/{slug}/`.
+  // (SceneDayView's "full week" chip deliberately still keys off `is_tonight`.
+  // It is answering "which week link helps a reader here", not "which URL is
+  // this page", so the two are allowed to differ.)
   const isRollingRoute = date === undefined
   const canonical =
     isRollingRoute && day.iso_week
@@ -96,10 +114,18 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   //
   // Only on the DATED route, which is its own canonical. A noindex emitted
   // beside a canonical naming a DIFFERENT URL is a contradiction search engines
-  // are documented to resolve by consolidating the suppression onto the target,
-  // and the target here is the week page the sitemap actively pushes. /tonight
-  // needs no noindex anyway: declaring another URL as its canonical is already
-  // what keeps it from being indexed as itself.
+  // are documented to resolve by consolidating the suppression onto the target.
+  // /tonight needs no noindex anyway: declaring another URL as its canonical is
+  // already what keeps it from being indexed as itself.
+  //
+  // KNOWN GAP, accepted here rather than papered over. The sitemap emits a week
+  // only when that week has at least one approved show, so on a scene whose
+  // whole current week is quiet, /tonight consolidates onto a week page that is
+  // thin, announced nowhere, and carries no noindex of its own (see
+  // buildSceneWeekMetadata, which never sets robots in any state). Closing it
+  // means either a per-week show count on the day payload or dropping the
+  // zero-show exclusion for the current week — both backend changes, which this
+  // change is scoped out of.
   const robots =
     !isRollingRoute && dayShows(day).length === 0
       ? { index: false, follow: true }
