@@ -30,7 +30,7 @@ import {
   resolveGraphWeek,
 } from '../graphWeek'
 import type { SceneReplayController } from '../useSceneReplay'
-import { REPLAY_CHIP_CLASS, ReplayScrubber } from './ReplayScrubber'
+import { MAP_CARD_CHIP_CLASS, ReplayScrubber } from './ReplayScrubber'
 import { SceneMapCanvas } from './SceneMapCanvas'
 
 /** Anchor shape the host re-roots on — the same one artist search produces. */
@@ -288,7 +288,7 @@ function FreshnessFooter({
           <button
             type="button"
             onClick={onWatchItGrow}
-            className={REPLAY_CHIP_CLASS}
+            className={MAP_CARD_CHIP_CLASS}
           >
             <Play className="size-3 fill-current" aria-hidden="true" />
             Watch it grow
@@ -300,7 +300,7 @@ function FreshnessFooter({
           // at lets them see the card before they post it.
           <Link
             href={GRAPH_WEEK_PATH}
-            className={`${REPLAY_CHIP_CLASS} shrink-0`}
+            className={`${MAP_CARD_CHIP_CLASS} shrink-0`}
             aria-label={`Share this week in the graph. ${graphWeekSummary(shareableWeek)}`}
           >
             <Share2 className="size-3" aria-hidden="true" />

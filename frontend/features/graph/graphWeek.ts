@@ -259,6 +259,12 @@ export function graphWeekSummary(week: GraphWeek): string {
  * cards solved this by advertising an archived permalink that carries the week;
  * this route has no archive, so the week rides in a query parameter instead.
  * See `pattern_og_card_family`.
+ *
+ * Day precision, which matches the nightly cadence exactly. If the job were ever
+ * run TWICE in one UTC day, the second build's card would inherit the first's
+ * key and any unfurl cache already holding it would keep serving the earlier
+ * image until the next day. Acceptable for a job that runs once a night;
+ * worth revisiting before anything rebuilds the snapshot on demand.
  */
 export function graphWeekKey(week: GraphWeek): string {
   // `toISOString` is already UTC, which is the basis this whole module works in

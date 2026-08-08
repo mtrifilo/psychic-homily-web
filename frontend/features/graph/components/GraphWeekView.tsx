@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 
-import type { GraphWeekView as GraphWeekData } from '../graphOverviewApi'
+import type { ResolvedGraphWeek } from '../graphOverviewApi'
 import { formatGraphWeekCounts, formatGraphWeekRange, graphWeekSummary } from '../graphWeek'
 import { TEASER_MOTIF, buildGraphWeekMotif, type GraphWeekMotif } from '../graphMotif'
 
@@ -41,7 +41,7 @@ function GraphWeekShell({ children }: { children: React.ReactNode }) {
 }
 
 /** The week itself: the two numbers, the days they cover, and the map. */
-export function GraphWeekContent({ view }: { view: GraphWeekData }) {
+export function GraphWeekContent({ view }: { view: ResolvedGraphWeek }) {
   const { map, week } = view
   const motif = buildGraphWeekMotif(map, week, TEASER_MOTIF)
 

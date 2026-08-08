@@ -4,7 +4,7 @@ import type { Metadata } from 'next'
 import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 
-import { loadGraphWeekView, type GraphWeekView } from './graphOverviewApi'
+import { loadResolvedGraphWeek, type ResolvedGraphWeek } from './graphOverviewApi'
 import {
   GRAPH_WEEK_PATH,
   formatGraphWeekRange,
@@ -39,7 +39,7 @@ import {
  * calls miss there and the number proves nothing about production.
  */
 export const getGraphWeek = cache(
-  (): Promise<GraphWeekView | null> => loadGraphWeekView('graph-week-page')
+  (): Promise<ResolvedGraphWeek | null> => loadResolvedGraphWeek('graph-week-page')
 )
 
 export async function buildGraphWeekMetadata(): Promise<Metadata> {

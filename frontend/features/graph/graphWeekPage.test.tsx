@@ -57,7 +57,7 @@ function overviewFixture(overrides: Record<string, unknown> = {}) {
  * Serve `body` on the overview endpoint.
  *
  * Stubbed at the FETCH boundary rather than by mocking `fetchGraphOverview`.
- * `loadGraphWeekView` calls it as a module-internal function, which a module
+ * `loadResolvedGraphWeek` calls it as a module-internal function, which a module
  * mock cannot intercept — and stubbing the network instead runs the real
  * decode and the real window resolution underneath every assertion here, which
  * is the half of the pipeline worth exercising.

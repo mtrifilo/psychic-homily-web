@@ -37,9 +37,9 @@ export type GraphOverviewService = 'graph-week-page' | 'og-image'
  *
  * A deliberate fail-open, the same classification the rest of the share-card
  * family carries: every failure returns null and the caller falls back — the
- * page to a 404, the card to the branded fallback. There is no reader-visible
- * content behind this to protect, and a share preview that errors is worse than
- * one that renders generically.
+ * page to its empty state, the card to the branded fallback image. There is no
+ * reader-visible content behind this to protect, and a share preview that errors
+ * is worse than one that renders generically.
  */
 export async function fetchGraphOverview(
   service: GraphOverviewService
@@ -85,8 +85,14 @@ function asOverview(body: unknown): GraphOverview | null {
   return body as GraphOverview
 }
 
-/** A snapshot we can draw, and the week it describes. */
-export interface GraphWeekView {
+/**
+ * A snapshot we can draw, and the week it describes.
+ *
+ * NOT named `GraphWeekView`: that is the component module which renders this,
+ * and a data type sharing a name with a component is the kind of collision that
+ * costs a reader a file open every time.
+ */
+export interface ResolvedGraphWeek {
   map: SceneMap
   week: GraphWeek
 }
@@ -106,9 +112,9 @@ export interface GraphWeekView {
  * all leave a reader in the same place, so the callers do not distinguish them:
  * the card falls back to the branded image, the page to its empty state.
  */
-export async function loadGraphWeekView(
+export async function loadResolvedGraphWeek(
   service: GraphOverviewService
-): Promise<GraphWeekView | null> {
+): Promise<ResolvedGraphWeek | null> {
   const overview = await fetchGraphOverview(service)
   if (!overview) return null
   const map = buildSceneMap(overview)

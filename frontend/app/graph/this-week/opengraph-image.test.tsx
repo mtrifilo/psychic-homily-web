@@ -50,7 +50,7 @@ const OLD = appearAt('2021-03-01T00:00:00Z')
 /**
  * Eight artists, positioned deliberately rather than decoratively.
  *
- * `MOTIF_BOX` OVERHANGS the canvas by design — that bleed is the composition —
+ * `CARD_MOTIF.box` OVERHANGS the canvas by design — that bleed is the composition —
  * so the two corner nodes here exist only to pin the projection's bounds and
  * both land off-canvas. What the assertions need is arrivals that land INSIDE
  * the right-hand strip (x ≥ 1120), where no text is ever drawn at any size, so

@@ -7,7 +7,7 @@ import {
   ogFallbackCard,
 } from '@/lib/og/response'
 
-import { GRAPH_OVERVIEW_REVALIDATE, loadGraphWeekView } from './graphOverviewApi'
+import { GRAPH_OVERVIEW_REVALIDATE, loadResolvedGraphWeek } from './graphOverviewApi'
 import { formatGraphWeekCounts, formatGraphWeekRange } from './graphWeek'
 import { CARD_MOTIF, buildGraphWeekMotif, type GraphWeekMotif } from './graphMotif'
 import {
@@ -53,10 +53,10 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
   // cache miss.
   const [{ fonts, degraded }, view] = await Promise.all([
     loadBrandFontsOrDefault(),
-    loadGraphWeekView('og-image'),
+    loadResolvedGraphWeek('og-image'),
   ])
 
-  // `loadGraphWeekView` has already collapsed every reason there might be no
+  // `loadResolvedGraphWeek` has already collapsed every reason there might be no
   // week into one null. The branded fallback is the family's answer to it,
   // because an unfurler handed a 500 shows nothing at all and some clients then
   // cache the miss.
