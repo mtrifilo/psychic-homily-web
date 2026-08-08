@@ -87,6 +87,17 @@ export interface SceneMapNode {
   rank: number
   hasUpcomingShow: boolean
   hasPlayableAudio: boolean
+  /**
+   * When this node entered the catalog, in seconds after `SceneMap.epoch` —
+   * the clock the growth replay runs on (PSY-1737). The backend derives it
+   * from the entity's `created_at` and its earliest show date, never from a
+   * relationship row (which stamps a derive run rather than an event).
+   *
+   * 0 when the snapshot carries no appear column, which reads as "was always
+   * here": a replay built on that data is uninteresting, not wrong, and
+   * `buildReplayTimeline` refuses it outright.
+   */
+  appear: number
 }
 
 export type SceneMapEdgeKind = 'similarity' | 'spoke'
@@ -96,6 +107,13 @@ export interface SceneMapEdge {
   source: number
   target: number
   kind: SceneMapEdgeKind
+  /**
+   * When the edge appeared, on the same clock as `SceneMapNode.appear`. The
+   * backend already resolves it to the LATER of the two endpoints — an edge
+   * cannot predate either — so the replay never has to draw a line into a dot
+   * that is not on the map yet.
+   */
+  appear: number
 }
 
 /** One community's labelled area, hull points already in world coordinates. */
@@ -122,6 +140,8 @@ export interface SceneMap {
   /** Catalog artists with no surviving edge, reported but not drawn. */
   isolateCount: number
   lastMapped: Date
+  /** Origin every `appear` value counts seconds from. */
+  epoch: Date
 }
 
 /**
@@ -245,6 +265,12 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
   const communities = overview.nodes.community!
   const degrees = overview.nodes.degree!
   const ranks = overview.nodes.rank!
+  // Deliberately NOT part of `nodeColumnsAreWellFormed`. Every other column
+  // decides where a dot goes or what it says, so a short one means the map is
+  // wrong; `appear` only feeds the optional growth replay. A snapshot missing
+  // it should still DRAW — it just cannot be replayed, which is the decision
+  // `buildReplayTimeline` makes on its own.
+  const appears = appearColumn(overview.nodes.appear, nodeCount)
 
   const nodes: SceneMapNode[] = new Array(nodeCount)
   let artistCount = 0
@@ -265,6 +291,7 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
       rank: ranks[i],
       hasUpcomingShow: (flags[i] & FLAG_UPCOMING_SHOW) !== 0,
       hasPlayableAudio: (flags[i] & FLAG_PLAYABLE_AUDIO) !== 0,
+      appear: appears ? appears[i] : 0,
     }
   }
 
@@ -276,7 +303,21 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
     labelCount,
     isolateCount: Math.max(0, overview.isolate_count),
     lastMapped: new Date(overview.last_mapped),
+    epoch: new Date(overview.epoch),
   }
+}
+
+/**
+ * An `appear` column, or null when the snapshot does not carry a usable one.
+ *
+ * Length is checked against the count the column is indexed by for the same
+ * reason every other column is: a short one would surface as `undefined` on the
+ * tail entries, and `undefined` in the reveal maths is NaN — which smoothsteps
+ * to 0 and hides those nodes for the whole run, silently.
+ */
+function appearColumn(column: number[] | null | undefined, expectedLength: number): number[] | null {
+  if (!column || column.length !== expectedLength) return null
+  return column
 }
 
 /**
@@ -299,6 +340,9 @@ function decodeEdges(overview: GraphOverview, nodes: SceneMapNode[]): SceneMapEd
   if (offsets.length !== nodes.length + 1) return []
 
   const kinds = decodeByteColumn(overview.edges.kind, targets.length)
+  // Per SLOT, index-aligned with `targets` — not per edge. Reading it with an
+  // edge index would date every line by whatever unrelated slot sat there.
+  const appears = appearColumn(overview.edges.appear, targets.length)
   const edges: SceneMapEdge[] = []
   for (let source = 0; source < nodes.length; source += 1) {
     const start = offsets[source]
@@ -323,6 +367,14 @@ function decodeEdges(overview: GraphOverview, nodes: SceneMapNode[]): SceneMapEd
         // A kind column that failed to decode degrades every edge to the
         // similarity styling rather than dropping the edges entirely.
         kind: kinds ? edgeKindFromByte(kinds[slot]) : 'similarity',
+        // The backend already resolved this to the later endpoint, but the
+        // floor is kept here too: it is what guarantees the replay never draws
+        // a line before both of its dots, whatever the snapshot says.
+        appear: Math.max(
+          appears ? appears[slot] : 0,
+          nodes[source].appear,
+          nodes[target].appear,
+        ),
       })
     }
   }

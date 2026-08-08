@@ -118,14 +118,69 @@ describe('buildSceneMap', () => {
     expect(map.nodes[3].y).toBeCloseTo(SCENE_MAP_WORLD_HALF_EXTENT, 6)
   })
 
+  // ── The growth replay's clock (PSY-1737) ───────────────────────────────
+  it('carries the arrival time of every node and the epoch it counts from', () => {
+    const map = buildSceneMap(
+      overviewFixture({
+        nodes: { ...overviewFixture().nodes, appear: [10, 20, 30, 40] },
+      }),
+    )!
+
+    expect(map.nodes.map(node => node.appear)).toEqual([10, 20, 30, 40])
+    expect(map.epoch.toISOString()).toBe('2020-01-01T00:00:00.000Z')
+  })
+
+  it('reads the edge appear column PER SLOT, not per edge', () => {
+    // Slot order is [B, hub, A, C, B, A]; the surviving edges are slots 0, 1
+    // and 3. Reading these by EDGE index would date every line off an
+    // unrelated slot, which no assertion on a uniform fixture could catch.
+    const map = buildSceneMap(
+      overviewFixture({
+        nodes: { ...overviewFixture().nodes, appear: [0, 0, 0, 0] },
+        edges: { ...overviewFixture().edges, appear: [11, 22, 0, 33, 0, 0] },
+      }),
+    )!
+
+    expect(map.edges.map(edge => edge.appear)).toEqual([11, 22, 33])
+  })
+
+  it('floors an edge at the later of its two endpoints', () => {
+    // A snapshot claiming an edge predates one of its dots must not put a line
+    // on the map before the dot it reaches.
+    const map = buildSceneMap(
+      overviewFixture({
+        nodes: { ...overviewFixture().nodes, appear: [5, 900, 0, 0] },
+        edges: { ...overviewFixture().edges, appear: [0, 0, 0, 0, 0, 0] },
+      }),
+    )!
+
+    const edge = map.edges.find(candidate => candidate.target === 102)!
+    expect(edge.appear).toBe(900)
+  })
+
+  it('still draws a map whose appear columns are missing or the wrong length', () => {
+    // Every other column decides where a dot GOES; these only feed the optional
+    // replay, so a snapshot without them is drawable and merely unwatchable.
+    const map = buildSceneMap(
+      overviewFixture({
+        nodes: { ...overviewFixture().nodes, appear: [1, 2] },
+        edges: { ...overviewFixture().edges, appear: null },
+      }),
+    )
+
+    expect(map).not.toBeNull()
+    expect(map!.nodes.map(node => node.appear)).toEqual([0, 0, 0, 0])
+    expect(map!.edges.every(edge => edge.appear === 0)).toBe(true)
+  })
+
   it('emits each CSR edge exactly once, keyed by entity id', () => {
     const map = buildSceneMap(overviewFixture())!
 
     // Six neighbour slots describe three edges; the mirror slots are dropped.
     expect(map.edges).toEqual([
-      { source: 101, target: 102, kind: 'similarity' },
-      { source: 101, target: 900001, kind: 'spoke' },
-      { source: 102, target: 103, kind: 'similarity' },
+      { source: 101, target: 102, kind: 'similarity', appear: 0 },
+      { source: 101, target: 900001, kind: 'spoke', appear: 0 },
+      { source: 102, target: 103, kind: 'similarity', appear: 0 },
     ])
   })
 
@@ -243,6 +298,7 @@ function node(
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
+    appear: 0,
     ...overrides,
   }
 }
@@ -264,6 +320,7 @@ function sceneMapFixture(overrides: Partial<SceneMap> = {}): SceneMap {
     labelCount: 1,
     isolateCount: 42,
     lastMapped: new Date('2026-08-02T04:00:00Z'),
+    epoch: new Date('2020-01-01T00:00:00Z'),
     ...overrides,
   }
 }

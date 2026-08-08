@@ -46,6 +46,7 @@ function node(overrides: Partial<SceneMapNode> & Pick<SceneMapNode, 'id' | 'name
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
+    appear: 0,
     ...overrides,
   }
 }
@@ -75,6 +76,7 @@ function sceneMapFixture(overrides: Partial<SceneMap> = {}): SceneMap {
     labelCount: 1,
     isolateCount: 42,
     lastMapped: new Date('2026-08-02T04:00:00Z'),
+    epoch: new Date('2020-01-01T00:00:00Z'),
     ...overrides,
   }
 }
