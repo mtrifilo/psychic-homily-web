@@ -651,6 +651,17 @@ func addressChanges() []adminm.FieldChange {
 	}
 }
 
+// nameOnlyChanges is a diff carrying nothing private: a rename, which is the
+// case that proves the summary gate keys off the SUBJECT rather than the diff.
+//
+// Spelled out rather than sliced off addressChanges, which would silently start
+// including the address if that fixture's field order ever changed.
+func nameOnlyChanges() []adminm.FieldChange {
+	return []adminm.FieldChange{
+		{Field: "name", OldValue: "Old Room", NewValue: "The Basement"},
+	}
+}
+
 // changesFor unmarshals a served revision's field_changes into a field->change
 // map for assertions.
 func (s *RevisionServiceIntegrationTestSuite) changesFor(r adminm.Revision) map[string]adminm.FieldChange {
@@ -664,15 +675,35 @@ func (s *RevisionServiceIntegrationTestSuite) changesFor(r adminm.Revision) map[
 	return byField
 }
 
-// assertAddressMasked pins the actual acceptance criterion first — neither the
-// old nor the new street address appears ANYWHERE in the served bytes — and
-// only then the shape of the mask. A field-by-field check alone would pass if a
-// future writer duplicated the value under another key.
-func (s *RevisionServiceIntegrationTestSuite) assertAddressMasked(r adminm.Revision) {
+// leakySummary is the summary a contributor naturally writes for the exact edit
+// addressChanges models: prose that republishes the value the diff beside it
+// masks. Every fixture records it, so the whole-payload assertions have
+// something to bite on in the prose slot as well as in the diff.
+const leakySummary = "corrected the address to 1234 Secret St"
+
+// assertGatedVenueRevision pins the actual acceptance criterion first (neither
+// the old nor the new street address appears ANYWHERE in the served revision,
+// through the diff OR through the summary), and only then the shape of the mask.
+// A field-by-field check alone would pass if a future writer duplicated the
+// value under another key.
+//
+// It covers prose as well as fields because both ride the same verdict: whatever
+// routes a row to redactVenueRevision, the venue lookup or the merge marker,
+// masks the diff and drops the summary together. Naming it for the verdict
+// rather than for "address" is what keeps that true, since a helper called
+// assertAddressMasked would read as unrelated to a summary leak.
+func (s *RevisionServiceIntegrationTestSuite) assertGatedVenueRevision(r adminm.Revision) {
 	s.Require().NotNil(r.FieldChanges)
+	served, err := json.Marshal(r)
+	s.Require().NoError(err)
+	s.NotContains(string(served), "1234 Secret St", "no field of the response may carry the address")
+
+	// Prose is withheld whole rather than masked, so there is no sentinel to
+	// look for, only absence.
+	s.Nil(r.Summary, "a gated venue's summary must not be served")
+
 	raw := string(*r.FieldChanges)
-	s.NotContains(raw, "1234 Secret St", "new address must not be served")
-	s.NotContains(raw, "1 Old St", "old address must not be served either")
+	s.NotContains(raw, "1 Old St", "the old address must not be served either")
 	s.NotContains(raw, "85004")
 	s.NotContains(raw, "85003")
 
@@ -688,16 +719,29 @@ func (s *RevisionServiceIntegrationTestSuite) assertAddressMasked(r adminm.Revis
 	s.Equal("The Basement", byField["name"].NewValue)
 }
 
-// assertAddressServed is the positive counterpart. It exists as a helper for the
-// same reason assertAddressMasked does: spelled inline, the four sites that need
-// it had already drifted to checking different subsets, so a regression masking
-// only (say) zipcode's old value would have passed all of them.
-func (s *RevisionServiceIntegrationTestSuite) assertAddressServed(r adminm.Revision) {
+// assertPublishableVenueRevision is the positive counterpart. It exists as a
+// helper for the same reason assertGatedVenueRevision does: spelled inline, the
+// four sites that need it had already drifted to checking different subsets, so
+// a regression masking only (say) zipcode's old value would have passed all of
+// them.
+//
+// It asserts the summary is PRESENT for the same reason its counterpart asserts
+// absence. Without this, a gate that withheld every summary unconditionally
+// would pass the whole suite, and the withholding would have quietly become
+// "revision history has no prose" instead of "gated venues have no prose".
+//
+// Presence, not a specific string: callers record whatever prose labels their
+// fixture, and pinning one value here would force every positive site onto a
+// shared literal for no gain.
+func (s *RevisionServiceIntegrationTestSuite) assertPublishableVenueRevision(r adminm.Revision) {
 	byField := s.changesFor(r)
 	s.Equal("1 Old St", byField["address"].OldValue)
 	s.Equal("1234 Secret St", byField["address"].NewValue)
 	s.Equal("85003", byField["zipcode"].OldValue)
 	s.Equal("85004", byField["zipcode"].NewValue)
+
+	s.Require().NotNil(r.Summary, "a verified venue's summary is still published")
+	s.NotEmpty(*r.Summary)
 }
 
 // byEntity indexes a page of revisions by the entity they point at, for the
@@ -723,20 +767,23 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_RedactsUnveri
 	venue := s.createTestVenue("Unverified Room")
 	s.Require().False(venue.Verified)
 
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 
 	revisions, total, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
 	s.Require().NoError(err)
 	s.Equal(int64(1), total)
 	s.Require().Len(revisions, 1)
-	s.assertAddressMasked(revisions[0])
+	s.assertGatedVenueRevision(revisions[0])
 
 	// Redaction is a serving concern only. The stored row must still hold the
-	// real values, which is what rollback and any future policy change read.
+	// real values, diff AND prose: that is what rollback reads, what a later
+	// verification restores, and what any future, finer policy would re-read.
 	var stored adminm.Revision
 	s.Require().NoError(s.db.First(&stored).Error)
 	s.Contains(string(*stored.FieldChanges), "1234 Secret St",
 		"the stored row must not be rewritten by a read")
+	s.Require().NotNil(stored.Summary)
+	s.Equal(leakySummary, *stored.Summary, "the stored prose must not be rewritten by a read")
 }
 
 // The DB-error half of fail-closed. An aborted transaction makes the
@@ -745,7 +792,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LookupErrorFa
 	user := s.createTestUser()
 	venue := s.createVerifiedTestVenue("Verified Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 
 	tx := s.db.Begin()
 	defer func() { _ = tx.Rollback() }()
@@ -778,12 +825,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesVerifie
 	user := s.createTestUser()
 	venue := s.createVerifiedTestVenue("Verified Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 
 	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
-	s.assertAddressServed(revisions[0])
+	s.assertPublishableVenueRevision(revisions[0])
 }
 
 // A revision pointing at a venue row that no longer exists must mask, not
@@ -791,12 +838,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesVerifie
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MissingVenueFailsClosed() {
 	user := s.createTestUser()
 
-	s.Require().NoError(s.svc.RecordRevision("venue", 987654, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", 987654, user.ID, addressChanges(), leakySummary))
 
 	revisions, _, err := s.svc.GetEntityHistory("venue", 987654, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
-	s.assertAddressMasked(revisions[0])
+	s.assertGatedVenueRevision(revisions[0])
 }
 
 // Non-venue entities carry no private field, so their diffs must come back
@@ -808,7 +855,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LeavesNonVenu
 		{Field: "city", OldValue: "Phoenix", NewValue: "Tempe"},
 		{Field: "description", OldValue: "", NewValue: "a band"},
 	}
-	s.Require().NoError(s.svc.RecordRevision("artist", 31, user.ID, changes, "moved"))
+	s.Require().NoError(s.svc.RecordRevision("artist", 31, user.ID, changes, leakySummary))
 
 	var stored adminm.Revision
 	s.Require().NoError(s.db.Where("entity_type = ?", "artist").First(&stored).Error)
@@ -817,13 +864,64 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LeavesNonVenu
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
 	s.JSONEq(string(*stored.FieldChanges), string(*revisions[0].FieldChanges))
+	s.Require().NotNil(revisions[0].Summary)
+	s.Equal(leakySummary, *revisions[0].Summary)
+}
+
+// =============================================================================
+// Summary withholding: the two cases no address fixture can produce
+// =============================================================================
+//
+// Every gated-venue test in this file records leakySummary and asserts through
+// assertGatedVenueRevision, so all three read paths and the merge boundary
+// already cover the prose. These two exist because no address-masking fixture
+// produces their input.
+
+// The gate keys off the SUBJECT, not the diff. A rename whose summary mentions
+// the street is exactly the case a field-name rule cannot reach, and the case
+// that would be silently uncovered if the withholding were ever moved inside the
+// private-field loop.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_WithholdsSummaryWhenDiffTouchesNoPrivateField() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Unverified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, nameOnlyChanges(), leakySummary))
+
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 1)
+
+	s.Nil(revisions[0].Summary)
+	served, err := json.Marshal(revisions[0])
+	s.Require().NoError(err)
+	s.NotContains(string(served), "1234 Secret St")
+
+	// The diff itself is untouched: nothing in it was private.
+	byField := s.changesFor(revisions[0])
+	s.Len(byField, 1)
+	s.Equal("The Basement", byField["name"].NewValue)
+}
+
+// A revision with no readable diff still carries prose, and that is the one case
+// where the summary is the ONLY thing being served, so the withholding must not
+// sit behind the FieldChanges nil check.
+func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_WithholdsSummaryWithNilFieldChanges() {
+	summary := leakySummary
+	revisions := []adminm.Revision{
+		{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: nil, Summary: &summary},
+	}
+
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions)
+
+	s.Nil(revisions[0].Summary)
+	s.Equal(leakySummary, summary, "the pointed-to string must not be overwritten in place")
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_RedactsUnverifiedVenueAddress() {
 	user := s.createTestUser()
 	venue := s.createTestVenue("Unverified Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 
 	var stored adminm.Revision
 	s.Require().NoError(s.db.First(&stored).Error)
@@ -831,7 +929,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_RedactsUnverifiedV
 	revision, err := s.svc.GetRevision(stored.ID)
 	s.Require().NoError(err)
 	s.Require().NotNil(revision)
-	s.assertAddressMasked(*revision)
+	s.assertGatedVenueRevision(*revision)
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_RedactsUnverifiedVenueAddress() {
@@ -839,8 +937,8 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_RedactsUnveri
 	unverified := s.createTestVenue("Unverified Room")
 	verified := s.createVerifiedTestVenue("Verified Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", unverified.ID, user.ID, addressChanges(), "moved"))
-	s.Require().NoError(s.svc.RecordRevision("venue", verified.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", unverified.ID, user.ID, addressChanges(), leakySummary))
+	s.Require().NoError(s.svc.RecordRevision("venue", verified.ID, user.ID, addressChanges(), leakySummary))
 
 	revisions, _, err := s.svc.GetUserRevisions(user.ID, 10, 0)
 	s.Require().NoError(err)
@@ -849,8 +947,8 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_RedactsUnveri
 	// One page, two venues, opposite verdicts — proves the batched lookup keys
 	// each revision to its OWN venue rather than to the page as a whole.
 	byEntity := s.byEntity(revisions)
-	s.assertAddressMasked(byEntity[unverified.ID])
-	s.assertAddressServed(byEntity[verified.ID])
+	s.assertGatedVenueRevision(byEntity[unverified.ID])
+	s.assertPublishableVenueRevision(byEntity[verified.ID])
 }
 
 // The stored row is never touched, so it is still the truth an admin rollback
@@ -861,7 +959,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresRealAddressFo
 	adminUser := s.createTestUser()
 	venue := s.createTestVenue("Unverified Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
 		Update("address", "1234 Secret St").Error)
 
@@ -896,12 +994,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverif
 	loser := s.createTestVenue("Somebodys House")
 	s.Require().False(loser.Verified)
 
-	s.Require().NoError(s.svc.RecordRevision("venue", loser.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", loser.ID, user.ID, addressChanges(), leakySummary))
 
 	before, _, err := s.svc.GetEntityHistory("venue", loser.ID, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(before, 1)
-	s.assertAddressMasked(before[0])
+	s.assertGatedVenueRevision(before[0])
 
 	_, err = catalog.NewVenueService(s.db).MergeVenues(canonical.ID, loser.ID, 0)
 	s.Require().NoError(err)
@@ -914,7 +1012,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverif
 	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(after, 1)
-	s.assertAddressMasked(after[0])
+	s.assertGatedVenueRevision(after[0])
 
 	// GetRevision too, not because the routes are separately wired (three
 	// pre-existing tests cover that) but because it redacts a COPY that still
@@ -922,7 +1020,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverif
 	single, err := s.svc.GetRevision(moved.ID)
 	s.Require().NoError(err)
 	s.Require().NotNil(single)
-	s.assertAddressMasked(*single)
+	s.assertGatedVenueRevision(*single)
 
 	// Provenance, not a scrub: the stored diff still holds the real address, so
 	// rollback and the moderation surfaces are unaffected.
@@ -937,7 +1035,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedVerifie
 	canonical := s.createVerifiedTestVenue("Canonical Room")
 	loser := s.createVerifiedTestVenue("Duplicate Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", loser.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", loser.ID, user.ID, addressChanges(), leakySummary))
 
 	_, err := catalog.NewVenueService(s.db).MergeVenues(canonical.ID, loser.ID, 0)
 	s.Require().NoError(err)
@@ -950,7 +1048,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedVerifie
 	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(after, 1)
-	s.assertAddressServed(after[0])
+	s.assertPublishableVenueRevision(after[0])
 }
 
 // The gate's half of the contract, stated without the merge: a marked row masks
@@ -961,7 +1059,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_MarkedRo
 	user := s.createTestUser()
 	venue := s.createVerifiedTestVenue("Verified Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 	var stored adminm.Revision
 	s.Require().NoError(s.db.First(&stored).Error)
 	s.markFromUnverifiedVenue(stored.ID)
@@ -969,7 +1067,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_MarkedRo
 	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
-	s.assertAddressMasked(revisions[0])
+	s.assertGatedVenueRevision(revisions[0])
 }
 
 // The post-merge shape, which is the one a per-VENUE implementation of the
@@ -981,7 +1079,10 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MarkerIsPerRo
 	user := s.createTestUser()
 	venue := s.createVerifiedTestVenue("Verified Room")
 
-	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "carried in"))
+	// The carried-in row's summary is the leaky one, so the assertion that the
+	// marked row publishes no address has teeth in the prose slot too, not just
+	// in the diff. Its neighbour keeps a bland label to stay distinguishable.
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "its own"))
 
 	var stored []adminm.Revision
@@ -997,6 +1098,6 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MarkerIsPerRo
 	for _, r := range revisions {
 		byID[r.ID] = r
 	}
-	s.assertAddressMasked(byID[stored[0].ID])
-	s.assertAddressServed(byID[stored[1].ID])
+	s.assertGatedVenueRevision(byID[stored[0].ID])
+	s.assertPublishableVenueRevision(byID[stored[1].ID])
 }

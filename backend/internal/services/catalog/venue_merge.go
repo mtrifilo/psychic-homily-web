@@ -131,11 +131,16 @@ func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contr
 // and links untouched. Choosing which record's details survive is a judgment
 // call, so it stays with the admin, who picks the canonical id.
 //
-// PRIVACY: an unverified venue's address history is withheld from the
-// anonymous revision routes, and this merge deletes the venue that gate reads.
+// PRIVACY: an unverified venue's address history, and the contributor-authored
+// summary prose beside it, are withheld from the anonymous revision routes, and
+// this merge deletes the venue that gate reads.
 // markUnverifiedVenueRevisions preserves the redaction across the re-point;
 // stored history is not edited and verified-into-verified merges are
 // unaffected. Merges predating that column are not backfilled.
+//
+// The marker carries BOTH halves without knowing about either: it routes the row
+// to redactVenueRevision, which masks the private fields and drops the summary,
+// so nothing here has to be taught about prose.
 func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
 	result, err := s.mergeVenues(canonicalID, mergeFromID, false)
 	if err != nil {

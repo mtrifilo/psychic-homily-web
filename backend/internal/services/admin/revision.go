@@ -253,10 +253,11 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 // READ-TIME PRIVACY REDACTION
 // =============================================================================
 
-// applyPrivacyRedaction masks, in place, the FieldChanges values that revision
-// history is not allowed to publish. The policy it enforces, the field list,
-// and the gaps it does not cover are stated once on the revisiondiff package
-// doc; this is the mechanism.
+// applyPrivacyRedaction masks, in place, the parts of a revision that revision
+// history is not allowed to publish: the private FieldChanges values, and the
+// contributor-authored Summary that sits beside them. The policy it enforces,
+// the field list, and the gaps it does not cover are stated once on the
+// revisiondiff package doc; this is the mechanism.
 //
 // It is caller-independent, mirroring the live gate, which turns on
 // venues.verified alone and has no caller tier: an admin loading an unverified
@@ -281,6 +282,13 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 // It masks VALUES, not the fact of an edit: a masked revision still names the
 // field, the author and the timestamp. That is the residual, and it is
 // deliberate — revision history exists to be auditable.
+//
+// Summary is the exception to "values, not fields": it is withheld whole,
+// because it is prose and there is nothing in it to key a field rule off. It is
+// withheld on EVERY revision of a gated venue, not only the ones whose diff
+// touches address or zipcode — a contributor who renames the room can still
+// type the street into the box, and a rule that only fired on address edits
+// would be trivially sidestepped by the summaries most likely to explain one.
 func (s *RevisionService) applyPrivacyRedaction(revisions []adminm.Revision) {
 	venueIDs := make([]uint, 0, len(revisions))
 	seen := make(map[uint]struct{}, len(revisions))
@@ -342,9 +350,18 @@ func (s *RevisionService) verifiedVenueIDs(ids []uint) map[uint]struct{} {
 	return verified
 }
 
-// redactVenueRevision rewrites one unverified-venue revision's FieldChanges
-// from the parsed diff with the private values masked.
+// redactVenueRevision rewrites one unverified-venue revision for serving: it
+// drops the Summary and rebuilds FieldChanges from the parsed diff with the
+// private values masked.
 //
+// Summary is dropped rather than replaced with RedactedValue. There is no
+// masked-diff row for it to line up with, and "(hidden)" in the prose slot
+// would read as "this venue had something to hide" on every unverified venue's
+// history, including the overwhelming majority whose summaries say nothing
+// sensitive. Absent is the honest shape: the handler already declares summary
+// omitempty and the frontend already renders the row without it.
+//
+
 // It ALWAYS re-marshals rather than passing the stored bytes through when no
 // private field matched. Serving the stored bytes would make the guarantee
 // depend on the stored JSON having exactly the shape adminm.FieldChange models:
@@ -355,10 +372,16 @@ func (s *RevisionService) verifiedVenueIDs(ids []uint) map[uint]struct{} {
 // what was checked. The cost is one marshal of a bounded slice per masked row.
 //
 // It assigns a NEW *json.RawMessage rather than writing through the existing
-// one. GetRevision hands this a copy of a struct that still shares its pointer
-// with the raw row, so mutating the bytes in place would corrupt the value
-// rollback reads.
+// one, and reassigns Summary rather than writing through *r.Summary, for the
+// same reason: GetRevision hands this a copy of a struct that still shares both
+// pointers with the raw row, so mutating either target in place would corrupt
+// the values rollback reads.
 func redactVenueRevision(r *adminm.Revision) {
+	// Unconditional, and before the FieldChanges early return: a revision with
+	// no readable diff can still carry a summary, and that is the one case
+	// where the prose is the ONLY thing being served.
+	r.Summary = nil
+
 	if r.FieldChanges == nil {
 		return
 	}
