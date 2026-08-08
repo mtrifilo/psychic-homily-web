@@ -58,7 +58,12 @@ import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
 import { graphCanvasHeight } from '@/components/graph/GraphStateCard'
 
 import { sceneMapColorIndex, type SceneMap, type SceneMapNode } from '../sceneMap'
-import { progressAtAppear, replayReveal, type ReplayTimeline } from '../replayTimeline'
+import {
+  progressAtAppear,
+  replayIsPulsingAt,
+  replayReveal,
+  type ReplayTimeline,
+} from '../replayTimeline'
 import type { SceneReplayFrame } from '../useSceneReplay'
 import {
   selectSceneMapLabels,
@@ -181,9 +186,11 @@ const REPLAY_MIN_NODE_SCALE = 0.45
 const REPLAY_PULSE_SCALE_BOOST = 0.5
 
 /**
- * What the replay layer needs from its host. Absent — the normal case — the
- * canvas behaves exactly as it did before the replay existed: every branch below
- * is gated on the frame's own `active` flag, which only a live run sets.
+ * What the replay layer needs from its host. Passed at rest as well as during a
+ * run, so `graphData` can bake reveal positions once per snapshot instead of
+ * re-digesting the whole graph the moment a run starts; `isReplayActive` is what
+ * says a run is actually in flight, and the two are combined once into
+ * `liveReplay` so no paint callback has to re-derive it.
  */
 export interface SceneMapReplay {
   timeline: ReplayTimeline
@@ -554,7 +561,7 @@ export function SceneMapCanvas({
           // suggested-direction affordance is documented with in `graphPalette`
           // — legibility through shape, not hue alone.
           const pulseAge = frame.progress - node.revealAt
-          if (pulseAge >= 0 && pulseAge < timeline.pulseProgress) {
+          if (replayIsPulsingAt(pulseAge, timeline.pulseProgress)) {
             fill = palette.primary
             scale *= 1 + REPLAY_PULSE_SCALE_BOOST * (1 - pulseAge / timeline.pulseProgress)
           }

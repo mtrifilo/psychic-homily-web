@@ -9,7 +9,7 @@ import {
   formatReplayDate,
   progressAtAppear,
   quantileBins,
-  replayIsPulsing,
+  replayIsPulsingAt,
   replayReveal,
   revealedNodeCount,
 } from './replayTimeline'
@@ -215,12 +215,12 @@ describe('replayReveal', () => {
   })
 })
 
-describe('replayIsPulsing', () => {
+describe('replayIsPulsingAt', () => {
   it('marks only arrivals inside the beat, and never one that has not arrived', () => {
-    expect(replayIsPulsing(0.19, 0.2, 0.05)).toBe(false)
-    expect(replayIsPulsing(0.2, 0.2, 0.05)).toBe(true)
-    expect(replayIsPulsing(0.24, 0.2, 0.05)).toBe(true)
-    expect(replayIsPulsing(0.26, 0.2, 0.05)).toBe(false)
+    expect(replayIsPulsingAt(0.19 - 0.2, 0.05)).toBe(false)
+    expect(replayIsPulsingAt(0.2 - 0.2, 0.05)).toBe(true)
+    expect(replayIsPulsingAt(0.24 - 0.2, 0.05)).toBe(true)
+    expect(replayIsPulsingAt(0.26 - 0.2, 0.05)).toBe(false)
   })
 })
 
@@ -269,7 +269,7 @@ describe('seek determinism', () => {
       state.push([
         id,
         replayReveal(progress, revealAt, timeline.fadeProgress),
-        replayIsPulsing(progress, revealAt, timeline.pulseProgress),
+        replayIsPulsingAt(progress - revealAt, timeline.pulseProgress),
       ])
     }
     return state

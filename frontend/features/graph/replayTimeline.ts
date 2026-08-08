@@ -271,14 +271,18 @@ export function replayReveal(progress: number, revealAt: number, fadeProgress: n
   return t * t * (3 - 2 * t)
 }
 
-/** Whether a node arrived recently enough to still be wearing the pulse colour. */
-export function replayIsPulsing(
-  progress: number,
-  revealAt: number,
-  pulseProgress: number,
-): boolean {
-  const age = progress - revealAt
-  return age >= 0 && age < pulseProgress
+/**
+ * Whether a node arrived recently enough to still be wearing the pulse colour,
+ * given how long ago it arrived in progress units.
+ *
+ * Takes the AGE rather than the position and the arrival, so the one caller on
+ * the per-node paint path can do its single subtraction and hand the result over
+ * instead of having this recompute it. The rule then has exactly one definition —
+ * which matters because the reveal state at a position is the feature's whole
+ * contract, and a second copy of the pulse boundary is a place for it to drift.
+ */
+export function replayIsPulsingAt(pulseAge: number, pulseProgress: number): boolean {
+  return pulseAge >= 0 && pulseAge < pulseProgress
 }
 
 /**

@@ -225,6 +225,11 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
 
   const start = useCallback(() => {
     if (!timeline || phaseRef.current !== 'rest') return
+    // Cleared defensively. A drag that never sees its `pointerup` — capture lost,
+    // or the strip removed between down and up — would otherwise strand this
+    // true, and the NEXT run would sit at zero forever with no clue why. A
+    // silently dead feature is worth one assignment to rule out.
+    isScrubbingRef.current = false
     const frame = frameRef.current
     frame.progress = 0
     frame.decorationAlpha = 1

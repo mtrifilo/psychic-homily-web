@@ -205,6 +205,23 @@ describe('useSceneReplay', () => {
       expect(result.current.readFrame().progress).toBeGreaterThan(0.3)
     })
 
+    // A drag whose pointerup never arrives (capture lost, or the strip removed
+    // between down and up) must not strand the hold across runs — that would
+    // leave the next run parked at zero with nothing on screen to explain it.
+    it('does not carry a stranded drag hold into the next run', () => {
+      const { result } = renderHook(() => useSceneReplay(REPLAYABLE_MAP))
+      act(() => result.current.start())
+      act(() => result.current.setScrubbing(true))
+      act(() => result.current.exit())
+      runFrames(5, SETTLE_MS)
+      expect(result.current.phase).toBe('rest')
+
+      act(() => result.current.start())
+      runFrames(5, 100)
+
+      expect(result.current.readFrame().progress).toBeGreaterThan(0)
+    })
+
     it('does nothing before a run has started', () => {
       const { result } = renderHook(() => useSceneReplay(REPLAYABLE_MAP))
 
