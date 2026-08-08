@@ -510,11 +510,13 @@ func reassignNotificationFilters(tx *gorm.DB, canonicalID, mergeFromID uint, res
 //
 // KNOWN BOUNDARY, admin-triggered: a marked row's value can still reach an
 // anonymous reader through Rollback, which writes the stored address onto the
-// venue the revision NOW points at. Before the merge that was an unverified
-// venue and the live payload withheld it; after it, the canonical venue is
-// verified and publishes it. Keeping the stored value is what makes rollback
-// possible at all, so this stays an explicit admin action rather than another
-// gate.
+// venue the revision NOW points at, and records the rollback as a fresh
+// (unmarked) revision carrying that value. Before the merge that was an
+// unverified venue and the live payload withheld it; after it, the canonical
+// venue is verified and publishes it, so the new revision is consistent with
+// the address the venue now serves rather than a second leak. Keeping the
+// stored value is what makes rollback possible at all, so this stays an
+// explicit admin action rather than another gate.
 func markUnverifiedVenueRevisions(tx *gorm.DB, mergeFrom *catalogm.Venue) error {
 	if mergeFrom.Verified {
 		return nil
