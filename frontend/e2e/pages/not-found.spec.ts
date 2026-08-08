@@ -374,31 +374,48 @@ test.describe('Not-found pages — HTTP 404 status', () => {
     }) => {
       // Read the date off the page rather than hardcoding today's: a fixed date
       // would keep passing while testing nothing, since any valid date 200s.
+      //
+      // Parsed in the page rather than via a Playwright text filter because the
+      // day route emits SEVERAL ld+json blocks and one of them is a top-level
+      // ARRAY (the MusicEvent graph), so the block has to be identified by its
+      // parsed @type, not by matching source text.
       await page.goto('/scenes/phoenix-az/tonight')
-      const graph = await page
-        .locator('script[type="application/ld+json"]')
-        .filter({ hasText: 'BreadcrumbList' })
-        .first()
-        .textContent()
+      const leaf = await page.evaluate(() => {
+        const blocks = document.querySelectorAll('script[type="application/ld+json"]')
+        for (const block of Array.from(blocks)) {
+          const parsed = JSON.parse(block.textContent ?? 'null')
+          if (parsed && !Array.isArray(parsed) && parsed['@type'] === 'BreadcrumbList') {
+            return parsed.itemListElement[parsed.itemListElement.length - 1].item as string
+          }
+        }
+        return null
+      })
 
-      const leaf = JSON.parse(graph!).itemListElement.at(-1).item as string
+      expect(leaf, '/tonight must emit a BreadcrumbList').toBeTruthy()
       expect(
         leaf,
         'the breadcrumb leaf must name the dated day permalink'
       ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
 
-      const { pathname } = new URL(leaf)
+      const { pathname } = new URL(leaf!)
       const response = await page.goto(pathname)
       expect(
         response?.status(),
         `${pathname} must return 200 — it is linked from every day page`
       ).toBe(200)
-      // The DAY view, not the week view: the shared `[period]` segment decides
-      // between them, and a branch-order regression there would otherwise pass.
       await expect(
         page.getByRole('main').getByRole('heading', { level: 1 })
       ).toContainText('Phoenix', { timeout: 10_000 })
-      await expect(page.getByRole('main')).not.toContainText(/Mon,.*–.*Sun,/)
+
+      // The DAY view, not the week view. `[period]` dispatches both shapes, so
+      // a branch-order regression there would otherwise ship green. Asserted on
+      // the canonical rather than on rendered prose: a dated day permalink is
+      // its own canonical, while the week view would declare a `-W##` key.
+      const served = await page.locator('link[rel="canonical"]').getAttribute('href')
+      expect(
+        served,
+        'a dated day permalink must self-canonicalize, proving the DAY branch ran'
+      ).toBe(`https://psychichomily.com${pathname}`)
     })
 
     test('a date that does not exist returns HTTP 404', async ({ page }) => {
