@@ -36,7 +36,7 @@ import { defineConfig, devices } from '@playwright/test'
  *
  * Stated plainly because the natural assumption is that it does. A dispatch
  * stack DOES satisfy (1) and (2) — `stack-up.sh` seeds via `setup-db.sh`
- * (:163) and sets `ENVIRONMENT=test`, `ENABLE_TEST_FIXTURES=1` and
+ * (:167) and sets `ENVIRONMENT=test`, `ENABLE_TEST_FIXTURES=1` and
  * `DISABLE_AUTH_RATE_LIMITS=1` (:175, :176, :186). What it cannot satisfy, as
  * of PSY-1659, is (3):
  *
