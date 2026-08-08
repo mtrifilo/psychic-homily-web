@@ -344,6 +344,37 @@ func TestResponseCompressionSelectsByContentType(t *testing.T) {
 	}
 }
 
+// Compression must ADD to Vary, never replace it. The CORS middleware upstream
+// sets `Vary: Origin` on every response, and a shared cache that lost it would
+// start serving one origin's CORS headers to another. chi appends today; a bump
+// that changed the append to a Set would break that silently and everywhere,
+// which is worth one assertion to catch.
+func TestResponseCompressionPreservesExistingVary(t *testing.T) {
+	router := chi.NewRouter()
+	router.Use(middleware.ResponseCompression())
+	router.Get("/thing", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Vary", "Origin") // what the CORS middleware contributes
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Repeat(`{"k":"v"},`, 200)))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/thing", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	vary := rr.Header().Values("Vary")
+	joined := strings.Join(vary, ", ")
+	if !strings.Contains(joined, "Origin") {
+		t.Errorf("Vary = %q, lost the upstream Origin — a shared cache would serve one origin's "+
+			"CORS headers to another", joined)
+	}
+	if !strings.Contains(joined, "Accept-Encoding") {
+		t.Errorf("Vary = %q, missing Accept-Encoding", joined)
+	}
+}
+
 // Hijack must still reach the real connection through the whole stack. This is
 // the END-TO-END half of the capability check; the wrapper's own forwarding is
 // unit-tested in response_compression_writer_test.go.
