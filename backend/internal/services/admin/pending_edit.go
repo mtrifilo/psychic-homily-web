@@ -562,11 +562,9 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 	}
 
 	// PSY-985: a venue location edit through the contribution flow bypasses
-	// VenueService, so re-geocode here too. Resolve the effective post-edit
-	// location (changed value, else current) and write latitude/longitude/
-	// timezone — nil on a miss → SQL NULL → legacy state->tz fallback. These
-	// columns are system-derived (not in the contributor allowlist), so we set
-	// them programmatically after the allowlist filter above.
+	// VenueService, so the system-derived columns have to be maintained here too.
+	// They are not in the contributor allowlist, so they are set programmatically
+	// AFTER the allowlist filter above.
 	if edit.EntityType == "venue" {
 		// The contribution flow bypasses VenueService, so the empty-to-NULL
 		// normalization that path applies to age_policy has to be repeated here
@@ -598,34 +596,10 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 			updates["geocode_precision"] = (*string)(nil)
 			updates["geocoded_address"] = (*string)(nil)
 		}
-		if cityChanged || stateChanged || countryChanged {
-			var current catalogm.Venue
-			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {
-				currentCountry := ""
-				if current.Country != nil {
-					currentCountry = *current.Country
-				}
-				lat, lng, tz := geo.LookupPointers(
-					geo.Default(),
-					updatedString(updates, "city", current.City),
-					updatedString(updates, "state", current.State),
-					updatedString(updates, "country", currentCountry),
-				)
-				updates["latitude"] = lat
-				updates["longitude"] = lng
-				// Same write-boundary invariant as VenueService.applyGeocoding
-				// (PSY-1707). This path matters most of the four: a CONTRIBUTOR's
-				// city/state edit is what triggers the re-derivation, so it is the
-				// one an outsider can aim, even though the zone itself is ours.
-				updates["timezone"] = shared.NormalizedGeocodedTimezoneOrNull(s.db, tz, "venue_id", edit.EntityID)
-				// metro is a sibling of the geocoding (PSY-1255 step B): keep it
-				// fresh when a contribution edit relocates the venue.
-				updates["metro"] = geo.MetroPointer(geo.Default(),
-					updatedString(updates, "city", current.City),
-					updatedString(updates, "state", current.State),
-					updatedString(updates, "country", currentCountry))
-			}
-		}
+		// Shared with RevisionService.Rollback, which needs the identical
+		// re-derivation: see applyDerivedVenueLocation for why the two must not
+		// have separate copies.
+		applyDerivedVenueLocation(s.db, edit.EntityID, updates)
 	}
 
 	// metro is derived from an artist's (city, state, country) too — keep it fresh

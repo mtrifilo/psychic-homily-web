@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
@@ -48,6 +50,7 @@ func (s *VenueMergeIntegrationSuite) SetupTest() {
 	s.Require().NoError(err)
 	for _, stmt := range []string{
 		"DELETE FROM audit_logs",
+		"DELETE FROM revisions",
 		"DELETE FROM venue_confirmations",
 		"DELETE FROM entity_tags",
 		"DELETE FROM comments",
@@ -80,6 +83,17 @@ func (s *VenueMergeIntegrationSuite) createVenue(name string) *catalogm.Venue {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
 	v := &catalogm.Venue{Name: name, Slug: &slug, City: "Minneapolis", State: "MN"}
 	s.Require().NoError(s.db.Create(v).Error)
+	return v
+}
+
+// createVerifiedVenue is createVenue plus the verification flag, set with an
+// explicit UPDATE so neither helper depends on GORM's zero-value-vs-column-
+// default behavior for bools.
+func (s *VenueMergeIntegrationSuite) createVerifiedVenue(name string) *catalogm.Venue {
+	v := s.createVenue(name)
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).
+		Where("id = ?", v.ID).Update("verified", true).Error)
+	v.Verified = true
 	return v
 }
 
@@ -784,4 +798,112 @@ func (s *VenueMergeIntegrationSuite) TestVenueEntityRefsCoverSchema() {
 		s.Truef(present[ref.table],
 			"venueEntityRefs lists %q, which no longer has an entity_type column", ref.table)
 	}
+}
+
+// ──────────────────────────────────────────────
+// Revision privacy provenance
+// ──────────────────────────────────────────────
+//
+// Revision address masking is decided at read time from the venue the revision
+// points at. This merge re-points revisions and then deletes the venue the gate
+// would have read, so it stamps the loser's rows on the way through. These
+// tests cover the stamping; the read side of the same boundary lives in
+// services/admin (TestGetEntityHistory_MergedUnverifiedVenueStaysRedacted),
+// which is where the gate that honors the stamp is.
+
+// createVenueRevision records one address edit against a venue: the diff shape
+// whose values the read-time gate masks for an unverified venue.
+func (s *VenueMergeIntegrationSuite) createVenueRevision(venueID, userID uint) uint {
+	changes := json.RawMessage(
+		`[{"field":"address","old_value":"1 Old St","new_value":"1234 Secret St"}]`)
+	rev := &adminm.Revision{
+		EntityType:   "venue",
+		EntityID:     venueID,
+		UserID:       userID,
+		FieldChanges: &changes,
+	}
+	s.Require().NoError(s.db.Create(rev).Error)
+	return rev.ID
+}
+
+// revisionByID reloads a revision through the model, so these tests read the
+// mark the same way the redaction gate does rather than through a hand-written
+// projection that would not notice a column-tag mistake.
+func (s *VenueMergeIntegrationSuite) revisionByID(id uint) adminm.Revision {
+	var rev adminm.Revision
+	s.Require().NoError(s.db.First(&rev, id).Error)
+	return rev
+}
+
+// The leak this closes: an unverified room's address history re-pointed onto a
+// verified venue, with the row that gated it deleted in the same transaction.
+func (s *VenueMergeIntegrationSuite) TestMergeMarksUnverifiedLosersRevisions() {
+	canonical := s.createVerifiedVenue("Verified Room")
+	loser := s.createVenue("Somebodys House")
+	s.Require().False(loser.Verified)
+	user := s.createUser("editor")
+
+	loserRev := s.createVenueRevision(loser.ID, user.ID)
+	canonicalRev := s.createVenueRevision(canonical.ID, user.ID)
+
+	_, err := s.svc.MergeVenues(canonical.ID, loser.ID, 0)
+	s.Require().NoError(err)
+
+	moved := s.revisionByID(loserRev)
+	s.Equal(canonical.ID, moved.EntityID, "the revision must still be re-pointed")
+	s.True(moved.FromUnverifiedVenue,
+		"a revision carried off an unverified venue must be marked, or the read-time "+
+			"gate publishes an address it was withholding before the merge")
+
+	own := s.revisionByID(canonicalRev)
+	s.False(own.FromUnverifiedVenue,
+		"the canonical venue's OWN history must not be marked by a merge into it")
+}
+
+// A VERIFIED loser's revisions pass through in whatever state they arrived in,
+// both directions of the one branch that decides it:
+//
+//   - unmarked stays unmarked, because nothing was being withheld and a merge
+//     must not start withholding it;
+//   - marked stays marked, because those rows came off an earlier unverified
+//     venue and a chain of merges must not launder what one merge withholds.
+func (s *VenueMergeIntegrationSuite) TestMergeLeavesVerifiedLosersRevisionsAsTheyAre() {
+	canonical := s.createVerifiedVenue("Canonical Room")
+	loser := s.createVerifiedVenue("Duplicate Room")
+	user := s.createUser("editor")
+
+	unmarked := s.createVenueRevision(loser.ID, user.ID)
+	inherited := s.createVenueRevision(loser.ID, user.ID)
+	s.Require().NoError(s.db.Model(&adminm.Revision{}).
+		Where("id = ?", inherited).Update("from_unverified_venue", true).Error)
+
+	_, err := s.svc.MergeVenues(canonical.ID, loser.ID, 0)
+	s.Require().NoError(err)
+
+	moved := s.revisionByID(unmarked)
+	s.Equal(canonical.ID, moved.EntityID)
+	s.False(moved.FromUnverifiedVenue,
+		"a verified venue's history is publishable; a merge must not start masking it")
+
+	kept := s.revisionByID(inherited)
+	s.Equal(canonical.ID, kept.EntityID)
+	s.True(kept.FromUnverifiedVenue,
+		"a mark inherited from an earlier merge must survive a later one")
+}
+
+// A preview must measure without leaving the mark behind, the same way it
+// leaves no audit log and no deleted show.
+func (s *VenueMergeIntegrationSuite) TestPreviewDoesNotMarkRevisions() {
+	canonical := s.createVerifiedVenue("Preview Canonical")
+	loser := s.createVenue("Preview Loser")
+	user := s.createUser("editor")
+
+	rev := s.createVenueRevision(loser.ID, user.ID)
+
+	_, err := s.svc.PreviewMergeVenues(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	row := s.revisionByID(rev)
+	s.Equal(loser.ID, row.EntityID, "a preview must roll back the re-point")
+	s.False(row.FromUnverifiedVenue, "a preview must roll back the mark too")
 }

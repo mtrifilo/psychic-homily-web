@@ -12,6 +12,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 	"psychic-homily-backend/internal/testutil"
@@ -543,6 +544,89 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHis
 	s.Equal(0, *restored.Capacity)
 }
 
+// A rollback that restores a venue's city/state must RE-DERIVE the columns the
+// system derives from that location, or the venue lands back in its old city
+// still carrying the timezone resolved for the city it was moved away from.
+// Why that is harmful: see applyDerivedVenueLocation.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesVenueTimezoneOnLocationRevert() {
+	user := s.createTestUser()
+	adminUser := s.createTestUser()
+	venue := s.createTestVenue("Relocated Room") // Phoenix, AZ
+
+	// The state AFTER the edit being rolled back: moved to New York with the
+	// derived columns resolved for New York, as a venue write path leaves them.
+	s.Require().NoError(s.db.Table("venues").Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{
+			"city":      "New York",
+			"state":     "NY",
+			"timezone":  "America/New_York",
+			"latitude":  40.714300,
+			"longitude": -74.006000,
+		}).Error)
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{
+			{Field: "city", OldValue: "Phoenix", NewValue: "New York"},
+			{Field: "state", OldValue: "AZ", NewValue: "NY"},
+		},
+		"moved the venue"))
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	s.Require().NoError(s.svc.Rollback(recorded.ID, adminUser.ID))
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Equal("Phoenix", restored.City)
+	s.Equal("AZ", restored.State)
+
+	// THE assertion: the restored city no longer carries the other city's zone.
+	s.Require().NotNil(restored.Timezone, "rollback must derive a zone for the restored city")
+	s.Equal("America/Phoenix", *restored.Timezone,
+		"the restored city must not keep the timezone derived for the city it was moved away from")
+
+	// Coordinates and metro come out of the same lookup and go stale the same way.
+	s.Require().NotNil(restored.Latitude)
+	s.InDelta(33.45, *restored.Latitude, 0.5, "latitude must be re-derived for Phoenix")
+	s.Require().NotNil(restored.Longitude)
+	s.InDelta(-112.07, *restored.Longitude, 0.5, "longitude must be re-derived for Phoenix")
+	s.Require().NotNil(restored.Metro)
+	s.Equal("38060", *restored.Metro, "metro must be re-derived to the Phoenix CBSA")
+}
+
+// The re-derivation is scoped to location reverts: a rollback that touches no
+// location field must leave the derived columns exactly as they are, or every
+// undo of an unrelated field would silently re-geocode the venue.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_LeavesDerivedColumnsAloneWithoutLocationChange() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Untouched Location Room")
+
+	// A zone that does NOT match the venue's city, so a stray re-derivation would
+	// visibly overwrite it.
+	s.Require().NoError(s.db.Table("venues").Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"timezone": "America/New_York"}).Error)
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{{Field: "name", OldValue: "Untouched Location Room", NewValue: "Renamed"}},
+		"renamed"))
+	s.Require().NoError(s.db.Table("venues").Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"name": "Renamed"}).Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID))
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Equal("Untouched Location Room", restored.Name)
+	s.Require().NotNil(restored.Timezone)
+	s.Equal("America/New_York", *restored.Timezone,
+		"a non-location rollback must not re-derive the timezone")
+}
+
 // =============================================================================
 // Read-time privacy redaction
 // =============================================================================
@@ -602,6 +686,36 @@ func (s *RevisionServiceIntegrationTestSuite) assertAddressMasked(r adminm.Revis
 	s.Len(byField, 3)
 	s.Equal("Old Room", byField["name"].OldValue)
 	s.Equal("The Basement", byField["name"].NewValue)
+}
+
+// assertAddressServed is the positive counterpart. It exists as a helper for the
+// same reason assertAddressMasked does: spelled inline, the four sites that need
+// it had already drifted to checking different subsets, so a regression masking
+// only (say) zipcode's old value would have passed all of them.
+func (s *RevisionServiceIntegrationTestSuite) assertAddressServed(r adminm.Revision) {
+	byField := s.changesFor(r)
+	s.Equal("1 Old St", byField["address"].OldValue)
+	s.Equal("1234 Secret St", byField["address"].NewValue)
+	s.Equal("85003", byField["zipcode"].OldValue)
+	s.Equal("85004", byField["zipcode"].NewValue)
+}
+
+// byEntity indexes a page of revisions by the entity they point at, for the
+// tests that put two venues with opposite verdicts on one page.
+func (s *RevisionServiceIntegrationTestSuite) byEntity(revisions []adminm.Revision) map[uint]adminm.Revision {
+	out := make(map[uint]adminm.Revision, len(revisions))
+	for _, r := range revisions {
+		out[r.EntityID] = r
+	}
+	return out
+}
+
+// markFromUnverifiedVenue stamps stored revisions the way a venue merge does,
+// for the tests that exercise the read gate without running a merge.
+func (s *RevisionServiceIntegrationTestSuite) markFromUnverifiedVenue(revisionID uint) {
+	s.Require().NoError(s.db.Model(&adminm.Revision{}).
+		Where("id = ?", revisionID).
+		Update("from_unverified_venue", true).Error)
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_RedactsUnverifiedVenueAddress() {
@@ -669,11 +783,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesVerifie
 	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
-
-	byField := s.changesFor(revisions[0])
-	s.Equal("1 Old St", byField["address"].OldValue)
-	s.Equal("1234 Secret St", byField["address"].NewValue)
-	s.Equal("85004", byField["zipcode"].NewValue)
+	s.assertAddressServed(revisions[0])
 }
 
 // A revision pointing at a venue row that no longer exists must mask, not
@@ -738,12 +848,9 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_RedactsUnveri
 
 	// One page, two venues, opposite verdicts — proves the batched lookup keys
 	// each revision to its OWN venue rather than to the page as a whole.
-	byEntity := map[uint]adminm.Revision{}
-	for _, r := range revisions {
-		byEntity[r.EntityID] = r
-	}
+	byEntity := s.byEntity(revisions)
 	s.assertAddressMasked(byEntity[unverified.ID])
-	s.Equal("1234 Secret St", s.changesFor(byEntity[verified.ID])["address"].NewValue)
+	s.assertAddressServed(byEntity[verified.ID])
 }
 
 // The stored row is never touched, so it is still the truth an admin rollback
@@ -767,4 +874,129 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresRealAddressFo
 	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
 	s.Require().NotNil(restored.Address)
 	s.Equal("1 Old St", *restored.Address, "rollback must restore the real address, not the mask")
+}
+
+// =============================================================================
+// THE VENUE-MERGE BOUNDARY
+// =============================================================================
+//
+// The first two tests run a REAL venue merge rather than setting the column by
+// hand, because the bug was never in either half on its own: the merge
+// re-points revisions and deletes the venue the read gate decides from, so the
+// two halves only disagree when they meet. The rest stamp the column directly,
+// which is enough to pin the gate's own contract.
+
+// TestGetEntityHistory_MergedUnverifiedVenueStaysRedacted is the leak.
+// Before the merge the loser is unverified and its address history is masked.
+// After it, the same row hangs off a VERIFIED venue and the loser row is gone,
+// so a gate reading venues.verified alone publishes it.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverifiedVenueStaysRedacted() {
+	user := s.createTestUser()
+	canonical := s.createVerifiedTestVenue("Verified Room")
+	loser := s.createTestVenue("Somebodys House")
+	s.Require().False(loser.Verified)
+
+	s.Require().NoError(s.svc.RecordRevision("venue", loser.ID, user.ID, addressChanges(), "moved"))
+
+	before, _, err := s.svc.GetEntityHistory("venue", loser.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(before, 1)
+	s.assertAddressMasked(before[0])
+
+	_, err = catalog.NewVenueService(s.db).MergeVenues(canonical.ID, loser.ID, 0)
+	s.Require().NoError(err)
+
+	var moved adminm.Revision
+	s.Require().NoError(s.db.First(&moved).Error)
+	s.Require().Equal(canonical.ID, moved.EntityID, "precondition: the revision was re-pointed")
+	s.Require().True(moved.FromUnverifiedVenue, "precondition: the merge marked it")
+
+	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(after, 1)
+	s.assertAddressMasked(after[0])
+
+	// GetRevision too, not because the routes are separately wired (three
+	// pre-existing tests cover that) but because it redacts a COPY that still
+	// shares its FieldChanges pointer with the stored row.
+	single, err := s.svc.GetRevision(moved.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(single)
+	s.assertAddressMasked(*single)
+
+	// Provenance, not a scrub: the stored diff still holds the real address, so
+	// rollback and the moderation surfaces are unaffected.
+	s.Contains(string(*moved.FieldChanges), "1234 Secret St",
+		"the merge must not rewrite stored history")
+}
+
+// The other direction must be untouched. A verified venue's address history is
+// publishable, and merging two verified rooms may not start withholding it.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedVerifiedVenueStillServesAddress() {
+	user := s.createTestUser()
+	canonical := s.createVerifiedTestVenue("Canonical Room")
+	loser := s.createVerifiedTestVenue("Duplicate Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", loser.ID, user.ID, addressChanges(), "moved"))
+
+	_, err := catalog.NewVenueService(s.db).MergeVenues(canonical.ID, loser.ID, 0)
+	s.Require().NoError(err)
+
+	var moved adminm.Revision
+	s.Require().NoError(s.db.First(&moved).Error)
+	s.Require().Equal(canonical.ID, moved.EntityID)
+	s.False(moved.FromUnverifiedVenue)
+
+	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(after, 1)
+	s.assertAddressServed(after[0])
+}
+
+// The gate's half of the contract, stated without the merge: a marked row masks
+// even though the venue it points at is verified. This is what stops a later
+// reader of applyPrivacyRedaction from "simplifying" the marker away on the
+// grounds that the venue lookup already answers the question.
+func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_MarkedRowMasksEvenOnVerifiedVenue() {
+	user := s.createTestUser()
+	venue := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "moved"))
+	var stored adminm.Revision
+	s.Require().NoError(s.db.First(&stored).Error)
+	s.markFromUnverifiedVenue(stored.ID)
+
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 1)
+	s.assertAddressMasked(revisions[0])
+}
+
+// The post-merge shape, which is the one a per-VENUE implementation of the
+// marker would get wrong: after a merge the canonical venue's own history and
+// the loser's marked rows share an entity_id on the same page. Deciding by
+// entity_id rather than per row would mask the canonical venue's own
+// publishable history, trading the leak for silently unreadable history.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MarkerIsPerRowNotPerVenue() {
+	user := s.createTestUser()
+	venue := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "carried in"))
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), "its own"))
+
+	var stored []adminm.Revision
+	s.Require().NoError(s.db.Order("id ASC").Find(&stored).Error)
+	s.Require().Len(stored, 2)
+	s.markFromUnverifiedVenue(stored[0].ID)
+
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 2)
+
+	byID := map[uint]adminm.Revision{}
+	for _, r := range revisions {
+		byID[r.ID] = r
+	}
+	s.assertAddressMasked(byID[stored[0].ID])
+	s.assertAddressServed(byID[stored[1].ID])
 }

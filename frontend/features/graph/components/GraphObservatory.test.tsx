@@ -243,6 +243,7 @@ const { overviewState, overviewRefetch, sceneMapFixture } = vi.hoisted(() => {
           rank: 0,
           hasUpcomingShow: false,
           hasPlayableAudio: false,
+          appear: 0,
         },
       ],
       edges: [],
@@ -259,6 +260,7 @@ const { overviewState, overviewRefetch, sceneMapFixture } = vi.hoisted(() => {
       labelCount: 18,
       isolateCount: 42,
       lastMapped: new Date('2026-08-02T04:00:00Z'),
+      epoch: new Date('2020-01-01T00:00:00Z'),
     },
   }
 })

@@ -82,6 +82,19 @@ export interface SceneMapLabelCandidate {
   alpha?: number
   /** Region size, for ordering the forced list. Unset for node labels. */
   memberCount?: number
+  /**
+   * Part of the map's ORIENTATION layer rather than its content — a label hub's
+   * name or a region caption, as against an artist's name. Only `alphaFor`
+   * consumers read it; the selection rules themselves are indifferent.
+   */
+  isDecoration?: boolean
+  /**
+   * Where this label's node arrives along a growth replay, 0..1 (PSY-1737).
+   * Carried on the candidate rather than looked up per frame: this module's inner
+   * loop runs once per node per frame, and a hash lookup there measured ~200us a
+   * frame at catalog scale.
+   */
+  revealAt?: number
 }
 
 /** Screen-px grid cell for the cull. Roughly a name plus its breathing room. */
@@ -189,6 +202,19 @@ export function selectSceneMapLabels(
   globalScale: number,
   focusedIds: ReadonlySet<number> | null,
   bounds: WorldBounds | null,
+  /**
+   * Opacity for ONE label, 0..1 — the single seam a caller uses to fade labels
+   * in and out for its own reasons (the growth replay clears the orientation
+   * layer while it runs, and fades each artist's name in with its own dot).
+   *
+   * A callback rather than a pair of parameters and a taxonomy flag, so this
+   * module owns only the MECHANISM that is genuinely its own — an alpha at or
+   * below the floor means skip the candidate entirely and release its collision
+   * cell to a label that is actually visible — and the policy for which labels
+   * are furniture stays with the caller that knows. Omitted at rest, where every
+   * label is drawn at full strength and the loop calls nothing.
+   */
+  alphaFor?: (candidate: SceneMapLabelCandidate) => number,
 ): GraphLabelSpec[] {
   const cellWidth = LABEL_GRID_CELL_WIDTH / globalScale
   const cellHeight = LABEL_GRID_CELL_HEIGHT / globalScale
@@ -225,10 +251,12 @@ export function selectSceneMapLabels(
   for (const candidate of forced) {
     if (forcedKept >= MAX_SCENE_MAP_FORCED_LABELS) break
     if (!isVisible(candidate, bounds)) continue
+    const scale = alphaFor?.(candidate) ?? 1
+    if (scale <= LABEL_ALPHA_FLOOR) continue
     forcedKept += 1
-    specs.push(
-      focusedIds ? { ...toSpec(candidate), alpha: dimmed(candidate.alpha) } : toSpec(candidate),
-    )
+    const spec = toSpec(candidate)
+    spec.alpha = (focusedIds ? dimmed(candidate.alpha) : (candidate.alpha ?? 1)) * scale
+    specs.push(spec)
   }
 
   let kept = 0
@@ -237,16 +265,31 @@ export function selectSceneMapLabels(
     if (candidate.force) continue
     if (focusedIds && !focusedIds.has(candidate.id)) continue
     if (!isVisible(candidate, bounds)) continue
+    // Cheapest tests first: this one runs a caller-supplied function, so it is
+    // deliberately behind the viewport and focus filters rather than in front of
+    // them — and in front of the grid claim, so a label the caller has faded out
+    // does not hold a cell against one that is on screen.
+    const scale = alphaFor?.(candidate) ?? 1
+    if (scale <= LABEL_ALPHA_FLOOR) continue
     if (gridEnabled) {
       const key = cellKey(candidate.x, candidate.y, cellWidth, cellHeight)
       if (taken.has(key)) continue
       taken.add(key)
     }
     kept += 1
-    specs.push(toSpec(candidate))
+    const spec = toSpec(candidate)
+    if (scale < 1) spec.alpha = (candidate.alpha ?? 1) * scale
+    specs.push(spec)
   }
   return specs
 }
+
+/**
+ * Below this a label is skipped rather than drawn transparent. A sub-percent
+ * label still costs a `measureText` and still reserves a collision box against
+ * names that ARE visible.
+ */
+const LABEL_ALPHA_FLOOR = 0.01
 
 /** Gap in screen px between a node's edge and the top of its label. */
 const LABEL_GAP_PX = 3

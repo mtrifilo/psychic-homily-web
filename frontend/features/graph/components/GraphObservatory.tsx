@@ -53,6 +53,7 @@ import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
+import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
 
 interface GraphAnchor {
@@ -593,6 +594,42 @@ function ZeroStateHero({
   )
 }
 
+/**
+ * `REPLAY · Mar 2019 · 412 ON THE MAP` — the header status line while a growth
+ * replay runs (PSY-1737).
+ *
+ * The text is written straight into the DOM from the transport's frame
+ * subscription rather than rendered. Both halves of it change on every frame,
+ * and rendering them would re-render the whole Observatory sixty times a second
+ * for two words — the same reason the playhead itself is not React state.
+ *
+ * A `useEffect` here is not a fallback: subscribing to something outside React
+ * and unsubscribing on unmount is precisely what an effect is for, and there is
+ * no render-time way to attach to a live clock. `useSyncExternalStore` is the
+ * wrong tool for the same reason it would be for the playhead — it exists to
+ * turn an external change into a RE-RENDER, which is the cost being avoided.
+ */
+function ReplayStatusLine({ replay }: { replay: SceneReplayController }) {
+  const textRef = useRef<HTMLSpanElement>(null)
+  const { subscribe, timeline } = replay
+
+  useEffect(() => {
+    if (!timeline) return
+    let last = ''
+    return subscribe(frame => {
+      const text = replayStatusText(timeline, frame.progress)
+      if (text === last) return
+      last = text
+      if (textRef.current) textRef.current.textContent = text
+    })
+  }, [subscribe, timeline])
+
+  // `aria-live` is deliberately absent: the run repaints this every frame, and
+  // announcing it would flood a screen reader. The scrubber's slider carries the
+  // accessible position instead, where it can be read on demand.
+  return <span ref={textRef} className="text-foreground" />
+}
+
 export function GraphObservatory() {
   const { refCallback, containerWidth } = useContainerWidth()
   const [center, setCenter] = useState<GraphAnchor | null>(null)
@@ -841,6 +878,25 @@ export function GraphObservatory() {
     error: overviewQuery.error,
     hasMap: sceneMap !== null,
   })
+  const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  // The growth replay's transport (PSY-1737). Owned HERE rather than inside the
+  // map card because the header's status line reads the same clock, and two
+  // clocks would be two answers to "what year is on screen".
+  //
+  // GATED ON THE SURFACE, not just on the data. A run belongs to the drawn map:
+  // hand the transport a map only while the map arm is what is actually on
+  // screen at a width that draws a canvas. Everything downstream reads that one
+  // decision instead of re-deriving it, which is what stops a run outliving the
+  // surface hosting it — resize to a phone mid-run, or click a dot to re-root,
+  // and the scrubber and its Escape handler unmount while a header that decided
+  // for itself would keep ticking `REPLAY · …` with no way left to stop it.
+  //
+  // It also means no timeline is built (a sort plus two passes over every node)
+  // for the ego-graph and hero renders that will never draw a map.
+  const replayableMap =
+    !center && zeroStateView === 'map' && isCanvasUsable ? sceneMap : null
+  const replay = useSceneReplay(replayableMap)
 
   const isShuffleBusy = isShuffleFetching || pendingLookup === 'shuffle'
   const graph = graphQuery.data
@@ -854,7 +910,6 @@ export function GraphObservatory() {
     () => new Set(graph?.links.map(link => link.type) ?? []),
     [graph],
   )
-  const isCanvasUsable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   // Whether the hero — which owns the lookup-error slot when it is on screen —
   // is actually mounted. It is NOT simply "no center": the map arm replaces it
@@ -901,6 +956,8 @@ export function GraphObservatory() {
                 <>
                   Centered on <span className="text-foreground">{center.name}</span>
                 </>
+              ) : replay.isActive ? (
+                <ReplayStatusLine replay={replay} />
               ) : (
                 <>
                   The whole map ·{' '}
@@ -955,6 +1012,7 @@ export function GraphObservatory() {
                   map={sceneMap}
                   canvasWidth={isCanvasUsable ? containerWidth : null}
                   onSelectArtist={startAt}
+                  replay={replay}
                 />
               </>
             )}

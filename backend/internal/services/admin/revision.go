@@ -224,6 +224,18 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 		return err
 	}
 
+	// A venue rollback that restores city/state must re-derive the columns the
+	// system derives FROM that location, or the venue lands back in its old city
+	// still carrying the other city's timezone. Shared with the approve path;
+	// see applyDerivedVenueLocation.
+	//
+	// NOT covered, deliberately (same class, different entities, own ticket):
+	// artists and festivals carry a derived metro that a rollback of their
+	// city/state leaves just as stale.
+	if revision.EntityType == "venue" {
+		applyDerivedVenueLocation(s.db, revision.EntityID, updates)
+	}
+
 	result := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
 	if result.Error != nil {
 		return fmt.Errorf("failed to apply rollback: %w", result.Error)
@@ -256,6 +268,16 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 // venue out of the verified set, so its history is masked. Withholding an
 // address that turned out to be publishable is recoverable; the reverse is not.
 //
+// Two conditions mask, not one. venues.verified answers "is the venue this row
+// points at gated today"; revisions.from_unverified_venue answers "did this row
+// come off a venue that was gated when it was merged away". The second exists
+// because a venue merge re-points revisions and then DELETES the venue the
+// first condition would have read, so without the marker a merge into a
+// verified room republishes the loser's address history. Both conditions have to
+// hold for a row to be served, and the marker is per ROW, not per venue: after a
+// merge the canonical venue's own publishable history sits beside the loser's
+// masked rows under one entity_id.
+//
 // It masks VALUES, not the fact of an edit: a masked revision still names the
 // field, the author and the timestamp. That is the residual, and it is
 // deliberate — revision history exists to be auditable.
@@ -281,7 +303,10 @@ func (s *RevisionService) applyPrivacyRedaction(revisions []adminm.Revision) {
 		if revisions[i].EntityType != "venue" {
 			continue
 		}
-		if _, ok := verified[revisions[i].EntityID]; ok {
+		// Publishable only if BOTH hold: the venue it points at is verified
+		// today, and it was not carried here off an unverified one by a merge.
+		_, venueVerified := verified[revisions[i].EntityID]
+		if venueVerified && !revisions[i].FromUnverifiedVenue {
 			continue
 		}
 		redactVenueRevision(&revisions[i])
