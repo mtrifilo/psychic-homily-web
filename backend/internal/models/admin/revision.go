@@ -17,6 +17,17 @@ type Revision struct {
 	Summary      *string          `json:"summary,omitempty" gorm:"column:summary"`
 	CreatedAt    time.Time        `json:"created_at"`
 
+	// FromUnverifiedVenue records that a venue merge re-pointed this revision
+	// off an UNVERIFIED venue onto some other venue row.
+	//
+	// It exists because address redaction is decided at read time from the
+	// venue the revision currently points at, and the merge deletes the venue
+	// it was decided from. Written only by the merge (see catalog.MergeVenues);
+	// read only by the redaction gate, which masks a marked row whatever the
+	// current venue says. It is NOT part of any API response; the served shape
+	// is handlers/admin.RevisionResponseItem.
+	FromUnverifiedVenue bool `json:"-" gorm:"column:from_unverified_venue;not null;default:false"`
+
 	User auth.User `json:"-" gorm:"foreignKey:UserID"`
 }
 

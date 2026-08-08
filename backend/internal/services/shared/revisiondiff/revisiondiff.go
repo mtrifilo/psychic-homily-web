@@ -66,8 +66,21 @@
 // any live entity response means adding its revision-field name to privacy.go
 // in the same change.
 //
-// Three KNOWN GAPS are not closed by a field list, and none of them should be
-// read as covered by the paragraph above.
+// Venue merge is the one case where the read-time gate cannot answer on its
+// own. It re-points a losing venue's revisions onto the canonical row and then
+// DELETES the loser, so a gate reading venues.verified for the current
+// entity_id sees the canonical venue's state and republishes an unverified
+// room's masked history. The merge therefore stamps the loser's rows with
+// revisions.from_unverified_venue before re-pointing them, and
+// applyPrivacyRedaction masks a stamped row regardless of the venue it now
+// points at. This is a provenance marker, not a scrub: the stored
+// diff still holds the real values, so rollback is unaffected, and the marker
+// is set-only so a chain of merges cannot launder an address. Merges predating
+// the column are not backfilled, because the evidence needed to do so was
+// deleted with the losing venue rows.
+//
+// Two KNOWN GAPS remain that are not closed by a field list, and neither should
+// be read as covered by the paragraph above.
 //
 // One: Summary is contributor-authored free text, stored and served unmasked
 // beside the diff. The edit drawer asks "why are you making this change?" and
@@ -83,9 +96,11 @@
 // rejected or private, while GET /revisions/show/{id} still publishes every
 // recorded field. Unpublishing a show hides the show but not its history.
 //
-// Three: venue merge re-points a losing venue's revisions onto the canonical
-// row and deletes the loser, so merging an unverified venue into a verified one
-// republishes the masked history. See MergeVenues.
+// Closing gap Two with a read-time lookup on shows.status reproduces the venue
+// merge problem verbatim, and on a worse path: catalog.MergeDuplicateShow
+// re-points revisions off a losing show and deletes it, and it runs from the
+// dedup CLI with no admin in the loop. Whatever closes gap Two has to stamp
+// there the way the venue merge stamps from_unverified_venue.
 package revisiondiff
 
 import (
