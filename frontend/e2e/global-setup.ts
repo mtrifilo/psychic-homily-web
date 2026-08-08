@@ -381,9 +381,15 @@ export default async function globalSetup(_config: FullConfig) {
   // 3. Check the backend port is free, then start backend
   if (await isPortInUse(BACKEND_PORT)) {
     throw new Error(
-      `Port ${BACKEND_PORT} is already in use. Stop the dev backend before ` +
-        `running E2E tests, or point the harness at a free port with ` +
-        `BACKEND_URL (e.g. BACKEND_URL=http://localhost:8099 bun run test:e2e).`
+      `Port ${BACKEND_PORT} is already in use. Either stop the dev backend, ` +
+        `or point the harness at a FREE port with BACKEND_URL ` +
+        `(e.g. BACKEND_URL=http://localhost:8099 bun run test:e2e) — note ` +
+        `that provisions a NEW backend there; it does not talk to the one ` +
+        `already running. Testing against an already-running stack is ` +
+        `\`bun run test:e2e:external\`, but only for a stack configured with ` +
+        `ENABLE_TEST_FIXTURES=1 and the same JWT_SECRET_KEY the e2e/.auth ` +
+        `state was captured under — a plain run-dev.sh backend has neither. ` +
+        `See e2e/playwright.external.config.ts.`
     )
   }
   startBackend()

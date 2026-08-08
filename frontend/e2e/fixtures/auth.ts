@@ -70,7 +70,52 @@ export const test = base.extend<
 
       await use()
 
-      await resetTestFixtures(workerUserId)
+      // Retry once before failing. Not a softening of the rule above — a
+      // persistent failure still aborts the run, and there is still no
+      // opt-out. This is about WHERE the throw lands: worker-scoped teardown
+      // runs after `use()`, so Playwright (^1.58) reports it as a top-level
+      // runner error with no test attached, and `retries` does not apply to
+      // it. Observed on PSY-1659 by injecting a failure into
+      // `resetTestFixtures`: a first-call-only fault left the run green with a
+      // non-zero exit, which is the reads-as-something-it-isn't shape this
+      // cleanup was made loud to avoid. Re-check this against Playwright's
+      // attribution rules if a major bump changes them.
+      //
+      // `cleanBetweenRetries` below is deliberately NOT given the same guard,
+      // but not because it is protected — it is test-scoped, so its teardown
+      // error is attributed to a test, so whatever retry budget exists can
+      // absorb a blip. That budget differs by config and is worth knowing
+      // before assuming it protects anything: CI is 2, a LOCAL default run is
+      // 0 (`playwright.config.ts`: `CI ? 2 : 0`), and `test:e2e:external` is 1
+      // (`E2E_RETRIES`). So local runs are just as exposed there as here.
+      // Left alone to keep this change to the case that cannot be retried at
+      // all; widening it is follow-up work, not a licence to swallow.
+      const RESET_RETRY_DELAY_MS = 500 // one backend request-timeout's worth; not tuned
+      try {
+        await resetTestFixtures(workerUserId)
+      } catch (firstError) {
+        // Record the recovered failure. Silently swallowing it would hide a
+        // backend degrading steadily — half its resets failing would still
+        // produce a perfectly green run.
+        console.warn(
+          `[e2e] fixture reset failed, retrying once: ${String(firstError)}`
+        )
+        await new Promise((resolve) => setTimeout(resolve, RESET_RETRY_DELAY_MS))
+        try {
+          await resetTestFixtures(workerUserId)
+        } catch (secondError) {
+          // Both errors go in the message, because when they DIFFER —
+          // ECONNREFUSED then 401 — the second is the one that identifies the
+          // real condition, and picking either alone reports the wrong cause.
+          // `cause` carries the first for stack-trace purposes (ES2022; the
+          // repo targets it).
+          throw new Error(
+            `fixture reset failed twice for user ${workerUserId}. ` +
+              `First: ${String(firstError)} | Second: ${String(secondError)}`,
+            { cause: firstError }
+          )
+        }
+      }
     },
     { scope: 'worker', auto: true },
   ],
