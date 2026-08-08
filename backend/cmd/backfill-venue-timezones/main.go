@@ -118,9 +118,18 @@ func printReport(r *catalog.BackfillReport) {
 		case "miss":
 			fmt.Printf("  [miss] venue %d %q (%s, %s): no geocode match (left %s)\n",
 				c.VenueID, c.Name, c.City, c.State, tzStr(c.OldTz))
+		case "skip:invalid-tz":
+			fmt.Printf("  [skip:invalid-tz] venue %d %q (%s, %s): geocoded zone unusable; timezone left %s\n",
+				c.VenueID, c.Name, c.City, c.State, tzStr(c.OldTz))
 		case "unchanged":
 			fmt.Printf("  [unchanged] venue %d %q (%s, %s): %s\n",
 				c.VenueID, c.Name, c.City, c.State, tzStr(c.NewTz))
+		default:
+			// Never silently drop a row: an Action this switch does not name is a
+			// change the operator is being asked to approve unseen, which is how
+			// "skip:invalid-tz" printed nothing at all before PSY-1709.
+			fmt.Printf("  [%s] venue %d %q (%s, %s): %s -> %s\n",
+				c.Action, c.VenueID, c.Name, c.City, c.State, tzStr(c.OldTz), tzStr(c.NewTz))
 		}
 	}
 
@@ -156,6 +165,7 @@ func printReport(r *catalog.BackfillReport) {
 	fmt.Printf("  coords only:     %d\n", r.VenuesCoordsOnly)
 	fmt.Printf("  unchanged:       %d\n", r.VenuesUnchanged)
 	fmt.Printf("  no geocode hit:  %d\n", r.VenuesMissed)
+	fmt.Printf("  tz rejected:     %d\n", r.VenuesTzRejected)
 	fmt.Printf("Shows scanned:     %d\n", r.ShowsScanned)
 	fmt.Printf("  re-anchored:     %d\n", r.ShowsReanchored)
 	fmt.Printf("  already correct: %d\n", r.ShowsAlreadyOK)

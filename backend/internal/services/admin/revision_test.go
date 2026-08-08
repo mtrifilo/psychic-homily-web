@@ -543,6 +543,89 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RestoresOutOfRangeHis
 	s.Equal(0, *restored.Capacity)
 }
 
+// A rollback that restores a venue's city/state must RE-DERIVE the columns the
+// system derives from that location, or the venue lands back in its old city
+// still carrying the timezone resolved for the city it was moved away from.
+// Why that is harmful: see applyDerivedVenueLocation.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesVenueTimezoneOnLocationRevert() {
+	user := s.createTestUser()
+	adminUser := s.createTestUser()
+	venue := s.createTestVenue("Relocated Room") // Phoenix, AZ
+
+	// The state AFTER the edit being rolled back: moved to New York with the
+	// derived columns resolved for New York, as a venue write path leaves them.
+	s.Require().NoError(s.db.Table("venues").Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{
+			"city":      "New York",
+			"state":     "NY",
+			"timezone":  "America/New_York",
+			"latitude":  40.714300,
+			"longitude": -74.006000,
+		}).Error)
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{
+			{Field: "city", OldValue: "Phoenix", NewValue: "New York"},
+			{Field: "state", OldValue: "AZ", NewValue: "NY"},
+		},
+		"moved the venue"))
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+
+	s.Require().NoError(s.svc.Rollback(recorded.ID, adminUser.ID))
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Equal("Phoenix", restored.City)
+	s.Equal("AZ", restored.State)
+
+	// THE assertion: the restored city no longer carries the other city's zone.
+	s.Require().NotNil(restored.Timezone, "rollback must derive a zone for the restored city")
+	s.Equal("America/Phoenix", *restored.Timezone,
+		"the restored city must not keep the timezone derived for the city it was moved away from")
+
+	// Coordinates and metro come out of the same lookup and go stale the same way.
+	s.Require().NotNil(restored.Latitude)
+	s.InDelta(33.45, *restored.Latitude, 0.5, "latitude must be re-derived for Phoenix")
+	s.Require().NotNil(restored.Longitude)
+	s.InDelta(-112.07, *restored.Longitude, 0.5, "longitude must be re-derived for Phoenix")
+	s.Require().NotNil(restored.Metro)
+	s.Equal("38060", *restored.Metro, "metro must be re-derived to the Phoenix CBSA")
+}
+
+// The re-derivation is scoped to location reverts: a rollback that touches no
+// location field must leave the derived columns exactly as they are, or every
+// undo of an unrelated field would silently re-geocode the venue.
+func (s *RevisionServiceIntegrationTestSuite) TestRollback_LeavesDerivedColumnsAloneWithoutLocationChange() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Untouched Location Room")
+
+	// A zone that does NOT match the venue's city, so a stray re-derivation would
+	// visibly overwrite it.
+	s.Require().NoError(s.db.Table("venues").Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"timezone": "America/New_York"}).Error)
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID,
+		[]adminm.FieldChange{{Field: "name", OldValue: "Untouched Location Room", NewValue: "Renamed"}},
+		"renamed"))
+	s.Require().NoError(s.db.Table("venues").Where("id = ?", venue.ID).
+		Updates(map[string]interface{}{"name": "Renamed"}).Error)
+
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
+		Order("id DESC").First(&recorded).Error)
+	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID))
+
+	var restored catalogm.Venue
+	s.Require().NoError(s.db.First(&restored, venue.ID).Error)
+	s.Equal("Untouched Location Room", restored.Name)
+	s.Require().NotNil(restored.Timezone)
+	s.Equal("America/New_York", *restored.Timezone,
+		"a non-location rollback must not re-derive the timezone")
+}
+
 // =============================================================================
 // Read-time privacy redaction
 // =============================================================================

@@ -3,6 +3,8 @@ package catalog
 import (
 	"database/sql"
 
+	"gorm.io/gorm"
+
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
@@ -56,7 +58,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestApplyGeocoding_HoldsTimezoneI
 			svc := &VenueService{db: suite.db, geocoder: fixedZoneGeocoder{zone: tc.zone}}
 			venue := &catalogm.Venue{Name: "Invariant Room", City: "Phoenix", State: "AZ"}
 
-			svc.applyGeocoding(venue)
+			svc.applyGeocoding(svc.db, venue)
 
 			switch {
 			case tc.want == nil && venue.Timezone != nil:
@@ -96,4 +98,37 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_PersistsOnlyResol
 	suite.Require().NoError(suite.db.Raw(
 		"SELECT timezone FROM venues WHERE id = ?", created.ID).Scan(&stored).Error)
 	suite.False(stored.Valid, "an unresolvable geocoder zone must be stored as NULL, never persisted (got %q)", stored.String)
+}
+
+// FindOrCreateVenue writes through a CALLER-SUPPLIED transaction, so the guard
+// has to be applied through that same handle. Reading it off the service's own
+// handle put the validating read on a second connection: outside the transaction
+// carrying the write it guards, and holding two pooled connections where one
+// would do.
+//
+// This test observes WHICH handle was used by giving the service a handle that
+// cannot answer at all. A nil handle makes the guard degrade to "pass the derived
+// value through" (see shared.NormalizedGeocodedTimezoneOrNull), so validating on
+// s.db lets the unresolvable zone reach the row, while validating on the caller's
+// tx rejects it. Same discrimination the production concern rests on — one handle
+// in, one handle out — without racing the connection pool for it.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_ValidatesTimezoneOnTheCallersTransaction() {
+	svc := &VenueService{db: nil, geocoder: fixedZoneGeocoder{zone: "Not/AZone"}}
+
+	var venueID uint
+	suite.Require().NoError(suite.db.Transaction(func(tx *gorm.DB) error {
+		venue, created, err := svc.FindOrCreateVenue("Tx Bad Zone Room", "Phoenix", "AZ", nil, nil, tx, true)
+		if err != nil {
+			return err
+		}
+		suite.True(created)
+		venueID = venue.ID
+		return nil
+	}))
+
+	var stored sql.NullString
+	suite.Require().NoError(suite.db.Raw(
+		"SELECT timezone FROM venues WHERE id = ?", venueID).Scan(&stored).Error)
+	suite.False(stored.Valid,
+		"the zone must be validated through the transaction the venue is written on (got %q)", stored.String)
 }
