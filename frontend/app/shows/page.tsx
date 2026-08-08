@@ -24,7 +24,6 @@ import {
 import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_ENDPOINTS } from '@/lib/api'
-import { API_BASE_URL } from '@/lib/api-base'
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
@@ -118,22 +117,25 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * visible in the other. What actually dedupes a repeated URL is Next's Data
  * Cache, and only when the URLs match.
  *
- * They also carry different bounds, which is why the URLs deliberately do NOT
- * match. This one sends the explicit `limit` argued at `UPCOMING_SHOWS_LIMIT`.
- * The seed sends exactly what the client hook sends, so that what it caches is
- * what the hook will later ask for. Two Data Cache entries, invalidated
- * together by `lib/proxy-revalidation.ts`.
+ * They also carry different bounds, which is why the URLs do NOT match. This
+ * one sends the explicit `limit` argued at `UPCOMING_SHOWS_LIMIT`; the seed
+ * sends exactly what the client hook sends, so that what it caches is what the
+ * hook will later ask for. Two Data Cache entries, invalidated together by
+ * `lib/proxy-revalidation.ts`.
+ *
+ * Since PSY-1678 that `limit` is the ONLY difference between the two URLs, and
+ * it happens to equal the endpoint's own `default:"50"` — so dropping it would
+ * collapse these into one cached backend read. That is deliberately not done
+ * here: `UPCOMING_SHOWS_LIMIT` argues at length for keeping the bound visible
+ * rather than inherited, and trading it for a cache hit is a product call about
+ * SEO coverage, not a cleanup.
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
     // No timezone: the endpoint decides "upcoming" against each show's own
     // venue zone (PSY-1678), so this JSON-LD block advertises exactly the rows
-    // the page renders. It used to have to name a canonical zone here, because
-    // omitting it meant taking the API's UTC default and advertising last
-    // night's finished shows to a crawler.
-    url: `${API_BASE_URL}/shows/upcoming?${new URLSearchParams({
-      limit: String(UPCOMING_SHOWS_LIMIT),
-    })}`,
+    // the page renders rather than whatever a canonical zone happened to admit.
+    url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
     timeoutMs: BUILD_TIME_API_FETCH_TIMEOUT_MS,

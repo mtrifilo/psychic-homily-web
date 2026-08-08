@@ -274,16 +274,14 @@ export function ShowList() {
 
   // Track if we're updating (fetching but already have data)
   // Dim only while the rows on screen belong to a DIFFERENT query than the one
-  // being awaited — a filter change, where `keepPreviousData` is holding the old
-  // page in place. `isPlaceholderData` says exactly that; raw `isFetching` does
-  // not, and using it would dim a same-key background revalidation. That
-  // distinction became visible in PSY-1624: the server-seeded first screen
-  // arrives stale by construction (`seedFirstScreen` stamps `dataUpdatedAt: 0`),
-  // so `isFetching` is true on the very first client commit and the freshly
-  // server-rendered list would fade to 60% the instant it hydrated — the
-  // opposite of the point. PSY-1678 removed the OTHER trigger this guarded
-  // against, the post-hydration timezone refinement, by removing the timezone
-  // from the key; the seeded revalidation remains and so does this guard.
+  // being awaited, which now means a filter change and nothing else:
+  // `keepPreviousData` is holding the old page in place. `isPlaceholderData`
+  // says exactly that; raw `isFetching` does not, and using it would dim a
+  // same-key background revalidation. That distinction became visible in
+  // PSY-1624: the server-seeded first screen arrives stale by construction
+  // (`seedFirstScreen` stamps `dataUpdatedAt: 0`), so `isFetching` is true on
+  // the very first client commit and the freshly server-rendered list would
+  // fade to 60% the instant it hydrated, which is the opposite of the point.
   const isUpdating =
     (isFetching && isPlaceholderData) ||
     (citiesFetching && citiesArePlaceholder) ||

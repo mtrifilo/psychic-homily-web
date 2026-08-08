@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"fmt"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -22,32 +21,35 @@ import (
 // be drawn from one partition, or a non-zero city count dead-ends at an empty
 // list.
 
-// createApprovedShowAt is the ShowService-suite twin of the venue suite's
-// helper. Rows are created directly rather than through CreateShow because the
-// fixture needs an exact instant against a venue whose zone the test chose, and
-// CreateShow resolves a venue of its own.
+// createApprovedShowAt binds the shared fixture to this suite's db/T. The
+// fixture itself lives in show_venue_local_test.go so all three venue-local
+// suites partition the same show shape.
 func (suite *ShowServiceIntegrationTestSuite) createApprovedShowAt(venueID, userID uint, city, state string, at time.Time) *catalogm.Show {
-	show := &catalogm.Show{
-		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
-		EventDate:   at,
-		City:        stringPtr(city),
-		State:       stringPtr(state),
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &userID,
-	}
-	suite.Require().NoError(suite.db.Create(show).Error)
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
-	return show
+	return newApprovedShowAt(suite.T(), suite.db, venueID, userID, city, state, at)
 }
 
-func (suite *ShowServiceIntegrationTestSuite) upcomingShowIDs(callerZone string) ([]uint, int64) {
+// upcomingPage is what every assertion below compares: the ids on the page and
+// the filter-aware total, as one comparable value. Comparing the pair rather
+// than either half is deliberate — a boundary bug that moved the total without
+// moving the page (they are separate queries) would otherwise slip through.
+type upcomingPage struct {
+	IDs   []uint
+	Total int64
+}
+
+func (suite *ShowServiceIntegrationTestSuite) upcomingShows(callerZone string) upcomingPage {
 	shows, _, total, err := suite.showService.GetUpcomingShows(callerZone, "", 50, false, nil)
 	suite.Require().NoError(err)
 	ids := make([]uint, 0, len(shows))
 	for _, s := range shows {
 		ids = append(ids, s.ID)
 	}
-	return ids, total
+	return upcomingPage{IDs: ids, Total: total}
+}
+
+func (suite *ShowServiceIntegrationTestSuite) upcomingShowIDs(callerZone string) ([]uint, int64) {
+	page := suite.upcomingShows(callerZone)
+	return page.IDs, page.Total
 }
 
 // The headline acceptance criterion: a Phoenix date stays listed until midnight
@@ -115,21 +117,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_SameAnswerFor
 	user := suite.createTestUser()
 	suite.createApprovedShowAt(venue.ID, user.ID, "Sweepville", "AZ", time.Now().Add(-12*time.Hour))
 
-	var firstZone string
-	var firstIDs []uint
-	var firstTotal int64
-	for i, callerZone := range everyCallerOffsetZone() {
-		ids, total := suite.upcomingShowIDs(callerZone)
-		suite.Require().LessOrEqual(total, int64(1), "caller zone %q", callerZone)
-		if i == 0 {
-			firstZone, firstIDs, firstTotal = callerZone, ids, total
-			continue
-		}
-		suite.Require().Equal(firstTotal, total,
-			"caller zone %q disagrees with %q: the boundary is still being drawn in the CALLER's timezone",
-			callerZone, firstZone)
-		suite.Require().Equal(firstIDs, ids, "caller zone %q vs %q", callerZone, firstZone)
-	}
+	assertSameForEveryCallerZone(suite.T(), "GetUpcomingShows", suite.upcomingShows)
 }
 
 // Caller-independence alone would also be satisfied by a hardcoded UTC boundary.
@@ -193,6 +181,46 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_MultiVenueSho
 
 	_, total := suite.upcomingShowIDs("UTC")
 	suite.Equal(int64(0), total, "the primary venue's zone decides, not the later-added one's")
+}
+
+// A show with NO venue row at all must still partition rather than vanish. The
+// lateral is a LEFT JOIN precisely so this row survives it; every zone input
+// reads NULL, so the state CASE falls through to its ELSE arm. This matters more
+// on the main feed than on the artist and venue lists, which can only be reached
+// through a relation a venueless show does not have.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_VenuelessShowStillPartitions() {
+	user := suite.createTestUser()
+
+	future := &catalogm.Show{
+		Title:       "Venueless Upcoming",
+		EventDate:   time.Now().Add(48 * time.Hour),
+		City:        stringPtr("Nowhere"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(future).Error)
+
+	past := &catalogm.Show{
+		Title:       "Venueless Past",
+		EventDate:   time.Now().Add(-96 * time.Hour),
+		City:        stringPtr("Nowhere"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(past).Error)
+
+	ids, total := suite.upcomingShowIDs("UTC")
+	suite.Require().Equal(int64(1), total, "the venueless future show must survive the LEFT JOIN")
+	suite.Equal([]uint{future.ID}, ids)
+
+	// And it must be counted by the picker on the same terms.
+	cities, err := suite.showService.GetShowCities("UTC")
+	suite.Require().NoError(err)
+	suite.Require().Len(cities, 1)
+	suite.Equal("Nowhere", cities[0].City)
+	suite.Equal(1, cities[0].ShowCount)
 }
 
 // The city predicates now sit alongside the lateral, which brings
@@ -286,17 +314,10 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_SameAnswerForEve
 	user := suite.createTestUser()
 	suite.createApprovedShowAt(venue.ID, user.ID, "Sweepville", "AZ", time.Now().Add(-12*time.Hour))
 
-	var firstZone string
-	var first []contracts.ShowCityResponse
-	for i, callerZone := range everyCallerOffsetZone() {
-		cities, err := suite.showService.GetShowCities(callerZone)
-		suite.Require().NoError(err, "caller zone %q", callerZone)
-		if i == 0 {
-			firstZone, first = callerZone, cities
-			continue
-		}
-		suite.Require().Equal(first, cities,
-			"caller zone %q disagrees with %q: the counts are still being drawn in the CALLER's timezone",
-			callerZone, firstZone)
-	}
+	assertSameForEveryCallerZone(suite.T(), "GetShowCities",
+		func(callerZone string) []contracts.ShowCityResponse {
+			cities, err := suite.showService.GetShowCities(callerZone)
+			suite.Require().NoError(err, "caller zone %q", callerZone)
+			return cities
+		})
 }

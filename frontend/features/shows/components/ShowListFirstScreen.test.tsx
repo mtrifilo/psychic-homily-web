@@ -50,13 +50,6 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: () => ({ density: 'comfortable', setDensity: vi.fn() }),
 }))
 
-// No timezone mock. There used to be one here, standing in for what
-// `useBrowserTimezone` reported on the server and hydration renders, because
-// the real hook would have reported the jsdom zone under a plain `render()` and
-// keyed the query away from the seed. PSY-1678 removed the parameter, so the
-// component asks for the canonical entry unconditionally and the seed lands
-// with nothing faked.
-
 vi.mock('@/components/filters/useGeoDefaultCity', () => ({
   useGeoDefaultCity: () => ({
     appliedGeoDefault: null,
@@ -100,12 +93,12 @@ const seededCities = {
 /**
  * The composition the ticket actually delivers, as opposed to its parts.
  *
- * The pieces each have their own tests — the key/URL pairing, the mechanics of
- * `seedFirstScreen`. None of them notice if the assembled page stops
- * server-rendering, and the ways
- * that can happen are ordinary edits: widening the `isLoading && !data` gate,
- * passing a `limit` from `ShowList`, adding a query the component blocks on.
- * Every one of those leaves this file's siblings green.
+ * The pieces each have their own tests: the key/URL pairing, and the mechanics
+ * of `seedFirstScreen`. None of them notice if the assembled page stops
+ * server-rendering, and the ways that can happen are ordinary edits: widening
+ * the `isLoading && !data` gate, passing a `limit` from `ShowList`, adding a
+ * query the component blocks on. Every one of those leaves this file's
+ * siblings green.
  *
  * `updatedAt: 0` mirrors what `seedFirstScreen` writes, so what is rendered
  * here is what a hydrating browser renders.

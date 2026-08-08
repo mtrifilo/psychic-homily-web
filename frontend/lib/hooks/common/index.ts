@@ -1,6 +1,5 @@
 export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
-
 export { useHydrated } from './useHydrated'
 
 export { useGeoDefaultScene } from './useGeoDefaultScene'

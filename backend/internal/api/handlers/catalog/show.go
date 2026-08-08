@@ -707,28 +707,19 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 //
 // The `timezone` query parameter is INERT (PSY-1678): the service counts the
 // same venue-local upcoming partition /shows/upcoming lists, so no zone the
-// caller sends can move the boundary. It is still accepted, and still logged, so
-// clients built against the old contract keep working and so the logs show who
-// is still sending one. Removing the parameter outright is a later cleanup.
+// caller sends can move the boundary. It is still accepted so clients built
+// against the old contract keep working, and passed straight through to the
+// service's own deprecated parameter, matching GetShowsForArtistHandler.
+// Removing it outright is a later cleanup.
 func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCitiesRequest) (*GetShowCitiesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Accepted and passed through only so the service's deprecated parameter has
-	// a value to ignore; it does not select anything.
-	timezone := req.Timezone
-	if timezone == "" {
-		timezone = "UTC"
-	}
+	logger.FromContext(ctx).Debug("show_cities_attempt")
 
-	logger.FromContext(ctx).Debug("show_cities_attempt",
-		"requested_timezone_ignored", timezone,
-	)
-
-	cities, err := h.showService.GetShowCities(timezone)
+	cities, err := h.showService.GetShowCities(req.Timezone)
 	if err != nil {
 		logger.FromContext(ctx).Error("show_cities_failed",
 			"error", err.Error(),
-			"requested_timezone_ignored", timezone,
 			"request_id", requestID,
 		)
 		return nil, huma.Error500InternalServerError(
@@ -758,9 +749,8 @@ func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCiti
 //
 // It is still accepted, and still echoed in the response body, so clients built
 // against the old contract keep working; Huma's `default:"UTC"` means an omitted
-// parameter behaves identically to a sent one. It is logged under a name that
-// says it was ignored, so the logs show who is still sending one. Removing the
-// parameter outright is a later cleanup, not this change.
+// parameter behaves identically to a sent one. Removing the parameter outright
+// is a later cleanup, not this change.
 func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -769,7 +759,9 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	includeNonApproved := user != nil && user.IsAdmin
 
 	// Echoed back in the response and handed to the service's deprecated
-	// parameter; it selects nothing.
+	// parameter; it selects nothing. Normalized only because the echoed field is
+	// a contract obligation, and an explicitly-empty `?timezone=` would
+	// otherwise echo "", which no client built against the old shape ever saw.
 	timezone := req.Timezone
 	if timezone == "" {
 		timezone = "UTC"
@@ -822,7 +814,6 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	}
 
 	logger.FromContext(ctx).Debug("shows_upcoming_attempt",
-		"requested_timezone_ignored", timezone,
 		"limit", limit,
 		"has_cursor", req.Cursor != "",
 		"include_non_approved", includeNonApproved,
@@ -836,7 +827,6 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	if err != nil {
 		logger.FromContext(ctx).Error("shows_upcoming_failed",
 			"error", err.Error(),
-			"requested_timezone_ignored", timezone,
 			"request_id", requestID,
 		)
 		return nil, huma.Error500InternalServerError(

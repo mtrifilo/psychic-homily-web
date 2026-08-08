@@ -977,18 +977,17 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 // another. Kept in the signature because removing it is a breaking change for
 // every caller. Do not add new callers that pass a meaningful value.
 func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error) {
-	_ = timezone // inert; see the doc comment above
-
 	if s.db == nil {
 		return nil, nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	applyUpcomingFilters := func(query *gorm.DB) *gorm.DB {
-		// Every predicate below is table-qualified because the venue-local
-		// lateral brings `venue_tz.state` into scope, and a bare `state` is then
-		// ambiguous to Postgres. The rest are qualified for consistency rather
-		// than necessity — an unqualified predicate here is a trap for the next
-		// column the lateral exposes.
+		// Every predicate below is table-qualified. The venue-local lateral
+		// aliases its own columns (shared.VenueTZJoin) so none of them can
+		// collide with a `shows` column, which means this is hygiene rather than
+		// load-bearing. It is still worth doing: this query now spans two
+		// relations, and a reader should not have to know the lateral's
+		// projection to tell which one a bare column came from.
 
 		// Filter by status for non-admin users (public view shows only approved)
 		if !includeNonApproved {
@@ -1049,9 +1048,10 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 		return nil, nil, 0, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
-	// Build page query. `shows.*` is explicit because the lateral would
-	// otherwise widen a bare `SELECT *` with venue_tz's own `state` column and
-	// GORM would scan that over the show's.
+	// Build page query. `shows.*` is explicit so the lateral's columns cannot
+	// widen the projection: shared.VenueTZJoin's aliases match no Show field, so
+	// GORM would ignore them anyway, but naming the source relation keeps that
+	// true if the lateral ever projects something else.
 	query := applyUpcomingFilters(s.db.Preload("Venues").Preload("Artists").Select("shows.*"))
 
 	// Apply cursor filter if provided (narrows the page, not the total)
@@ -1104,17 +1104,16 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 //
 // Deprecated parameter: timezone is accepted and ignored — see GetUpcomingShows.
 func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
-	_ = timezone // inert; see the doc comment above
-
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	var results []contracts.ShowCityResponse
 
-	// Every column is table-qualified: the venue-local lateral brings
-	// `venue_tz.state` into scope, so a bare `state` in the SELECT, the WHERE or
-	// the GROUP BY is ambiguous to Postgres.
+	// Table-qualified throughout, and the SELECT aliases back to the bare names
+	// `contracts.ShowCityResponse` scans into. The venue-local lateral aliases
+	// its own columns, so nothing here is ambiguous; the qualification says
+	// which relation each column came from now that the query spans two.
 	err := s.db.Model(&catalogm.Show{}).
 		Select("shows.city AS city, shows.state AS state, COUNT(*) AS show_count").
 		Joins(shared.VenueTZJoin).

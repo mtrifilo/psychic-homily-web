@@ -86,6 +86,56 @@ func newVenueInZone(t *testing.T, db *gorm.DB, name, state, zone string, verifie
 	return venue
 }
 
+// newApprovedShowAt creates an approved show at an exact instant, booked at one
+// venue. A free function for the same reason newVenueInZone is: the suites'
+// signatures differ, and every venue-local suite needs this identical fixture.
+// Rows are created directly rather than through CreateShow because these tests
+// choose both the instant and the venue's zone, and CreateShow resolves a venue
+// of its own.
+//
+// The venue-local suites must share ONE show fixture: they exist to assert that
+// the artist list, the venue list and the main /shows feed all partition the
+// same row the same way, which a per-suite copy quietly stops guaranteeing the
+// first time the shows table grows a column.
+func newApprovedShowAt(t *testing.T, db *gorm.DB, venueID, userID uint, city, state string, at time.Time) *catalogm.Show {
+	t.Helper()
+	show := &catalogm.Show{
+		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
+		EventDate:   at,
+		City:        stringPtr(city),
+		State:       stringPtr(state),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &userID,
+	}
+	require.NoError(t, db.Create(show).Error)
+	require.NoError(t, db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
+	return show
+}
+
+// assertSameForEveryCallerZone is the caller-INDEPENDENCE half of the
+// regression, extracted because three tests across two files need exactly it:
+// read something once per caller zone across the whole inhabited offset range,
+// and require every zone to agree with the first.
+//
+// It asserts agreement rather than a specific value on purpose. Which answer is
+// correct depends on the venue's calendar and the hour, and pinning that would
+// reintroduce exactly the clock dependence these tests exist to remove.
+func assertSameForEveryCallerZone[T any](t *testing.T, what string, read func(callerZone string) T) {
+	t.Helper()
+	var firstZone string
+	var first T
+	for i, callerZone := range everyCallerOffsetZone() {
+		got := read(callerZone)
+		if i == 0 {
+			firstZone, first = callerZone, got
+			continue
+		}
+		require.Equal(t, first, got,
+			"%s: caller zone %q disagrees with %q, so the boundary is still being drawn in the CALLER's timezone",
+			what, callerZone, firstZone)
+	}
+}
+
 // listPartition adapts a service's paged list to (show ids, total) so the sweep
 // assertion below can be written once for both services.
 type listPartition func(callerZone, timeFilter string) (ids []uint, total int64, err error)
@@ -441,17 +491,7 @@ func (suite *VenueServiceIntegrationTestSuite) venueShowIDs(venueID uint) listPa
 }
 
 func (suite *VenueServiceIntegrationTestSuite) createApprovedShowAt(venueID, userID uint, at time.Time) *catalogm.Show {
-	show := &catalogm.Show{
-		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
-		EventDate:   at,
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &userID,
-	}
-	suite.Require().NoError(suite.db.Create(show).Error)
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
-	return show
+	return newApprovedShowAt(suite.T(), suite.db, venueID, userID, "Phoenix", "AZ", at)
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_VenueLocalYesterdayIsPast_EvenWhenUTCDateIsToday() {

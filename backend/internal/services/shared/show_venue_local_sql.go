@@ -28,9 +28,10 @@ import (
 // NOT migrated — do not read the paragraph above as a description of the whole
 // repo, because these still draw their own boundary:
 //   - catalog/tag_intersection.go — the tag-page entity counts, start-of-today
-//     in UTC. It disclaims parity with the /shows list in its own comment; the
-//     reason it gave (no request timezone to work from) no longer applies now
-//     that the boundary needs no timezone at all.
+//     in UTC. The reason it gave (no request timezone to work from) no longer
+//     applies now that the boundary needs no timezone at all. PSY-1760 owns it;
+//     it is the least bounded consumer this lateral would have, so that ticket
+//     measures before committing to the shape.
 //   - engagement/venue_calendar.go upcomingShowsForVenue — the venue ICS feed,
 //     start-of-today in the QUERIED venue's zone, so it can disagree with the
 //     venue page for a show booked at two venues.
@@ -93,9 +94,9 @@ func buildVenueLocalStateCaseSQL() string {
 	sort.Strings(states)
 
 	var b strings.Builder
-	b.WriteString("CASE WHEN venue_tz.country IS NULL OR btrim(venue_tz.country) = '' OR ")
-	b.WriteString("upper(btrim(venue_tz.country)) IN ('US', 'USA', 'UNITED STATES') THEN (")
-	b.WriteString("CASE upper(btrim(venue_tz.state))")
+	b.WriteString("CASE WHEN venue_tz.venue_tz_country IS NULL OR btrim(venue_tz.venue_tz_country) = '' OR ")
+	b.WriteString("upper(btrim(venue_tz.venue_tz_country)) IN ('US', 'USA', 'UNITED STATES') THEN (")
+	b.WriteString("CASE upper(btrim(venue_tz.venue_tz_state))")
 	for _, state := range states {
 		b.WriteString(" WHEN '")
 		b.WriteString(state)
@@ -154,8 +155,21 @@ func buildVenueLocalStateCaseSQL() string {
 // Postgres'. The two disagree in both directions: "localtime" and "Factory" pass
 // the write gate and fail time.LoadLocation. Those readers have their own
 // fallback and are not made safe by anything here.
+// The projected columns are ALIASED rather than carried under their source
+// names, and that prefix is load-bearing rather than decorative. `venues` and
+// `shows` both have a `state`, so a bare `venue_tz.state` beside `shows.state`
+// left two traps for every caller that queries `shows` directly: an unqualified
+// `state` in a WHERE/GROUP BY is ambiguous and Postgres raises, and a bare
+// `SELECT *` widens to include the lateral's `state`, which GORM then scans
+// over the show's own. The earlier migrated surfaces all happened to select an
+// id column and never hit either. Aliasing removes both structurally: no alias
+// here collides with a `shows` column, and none matches a field name on any
+// model, so a caller cannot reintroduce the collision by forgetting to qualify.
 var VenueTZJoin = `LEFT JOIN LATERAL ` +
-	PrimaryVenueLateralSQL("iv.timezone, iv.state, iv.country", "shows.id") + ` venue_tz ON true`
+	PrimaryVenueLateralSQL(
+		"iv.timezone AS venue_tz_timezone, iv.state AS venue_tz_state, iv.country AS venue_tz_country",
+		"shows.id",
+	) + ` venue_tz ON true`
 
 // venueLocalZoneSQL is the resolved zone for the primary venue, mirroring
 // utils.EventLocation's precedence: the stored venue timezone, then the US state
@@ -173,7 +187,7 @@ var VenueTZJoin = `LEFT JOIN LATERAL ` +
 // page, which is the class of disagreement this ticket exists to remove. It
 // costs nothing in the hot path: a CASE over two already-fetched columns is a
 // scalar expression, not a relation scan.
-var venueLocalZoneSQL = `COALESCE(NULLIF(btrim(venue_tz.timezone, E' \t\n\r\f\v'), ''), ` + venueLocalStateCaseSQL + `)`
+var venueLocalZoneSQL = `COALESCE(NULLIF(btrim(venue_tz.venue_tz_timezone, E' \t\n\r\f\v'), ''), ` + venueLocalStateCaseSQL + `)`
 
 // VenueLocalDateSQL is the show's calendar date in its venue's local zone.
 // event_date is TIMESTAMPTZ (migration 000028), so a single AT TIME ZONE shifts

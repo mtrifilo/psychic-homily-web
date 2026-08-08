@@ -230,13 +230,16 @@ func (s *TagService) intersectBaseQuery(entityType string) *gorm.DB {
 		// Shows: approved + upcoming (event_date >= start of today, UTC). This is
 		// a discovery surface, so past shows are excluded from the count. The
 		// boundary is UTC start-of-day, coarser than ShowService's venue-local
-		// one (see startOfTodayUTC). The original justification — that this
-		// endpoint is city-agnostic and carries no request timezone — expired
+		// one (see startOfTodayUTC). The original justification, that this
+		// endpoint is city-agnostic and carries no request timezone, expired
 		// with PSY-1678: the venue-local condition needs no request timezone
 		// either, so this is now an unmigrated surface rather than a reasoned
-		// divergence. PSY-993 owns the "show all shows" link target and must
-		// point it at an upcoming-scoped shows surface so the linked list agrees
-		// with this count.
+		// divergence. PSY-1760 tracks migrating it, and carries the one real
+		// reason to measure first: this is a whole-shows aggregate with no city
+		// or tag narrowing at the point the gate runs, so it is the least
+		// bounded consumer the lateral would have. PSY-993 owns the "show all
+		// shows" link target and must point it at an upcoming-scoped shows
+		// surface so the linked list agrees with this count.
 		return s.db.Table("shows").
 			Where("shows.status = ?", catalogm.ShowStatusApproved).
 			Where("shows.event_date >= ?", startOfTodayUTC())
@@ -354,10 +357,10 @@ func (s *TagService) enrichForType(entityType string, ids []uint) map[uint]contr
 // show's venue-local calendar day instead (PSY-1678), so the two boundaries can
 // differ by up to a day near the UTC/local date line: this gate can drop a show
 // that /shows still lists. That is an accepted approximation for a tag-discovery
-// count, NOT a claim of parity with ShowService. Migrating it means swapping this
-// for shared.VenueTZJoin + shared.VenueLocalDateCondition("upcoming"), which
-// needs no request timezone either; it is left out of PSY-1678 only to keep that
-// change scoped to the /shows feed.
+// count, NOT a claim of parity with ShowService. Migrating it means swapping
+// this for shared.VenueTZJoin + shared.VenueLocalDateCondition("upcoming"),
+// which needs no request timezone either; it is left out of PSY-1678 only to
+// keep that change scoped to the /shows feed. PSY-1760 owns it.
 func startOfTodayUTC() time.Time {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)

@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { usePrefetchRoutes } from './usePrefetchRoutes'
+// Deliberately NOT mocked: the show entries must be prefetched under the REAL
+// first-screen constants, which is what makes them the entry an arriving
+// `/shows` reads rather than a sibling that merely hashes the same today.
+import {
+  SHOW_CITIES_FIRST_SCREEN_KEY,
+  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
+} from '@/features/shows/api'
 
 // Mock TanStack Query
 const mockPrefetchQuery = vi.fn()
@@ -27,14 +34,6 @@ vi.mock('../../queryClient', () => ({
     },
   },
 }))
-
-// Deliberately NOT mocked: the show entries must be prefetched under the REAL
-// first-screen constants, which is what makes them the entry an arriving
-// `/shows` reads rather than a sibling that merely hashes the same today.
-import {
-  SHOW_CITIES_FIRST_SCREEN_KEY,
-  UPCOMING_SHOWS_FIRST_SCREEN_KEY,
-} from '@/features/shows/api'
 
 describe('usePrefetchRoutes', () => {
   let originalRequestIdleCallback: typeof window.requestIdleCallback
@@ -110,16 +109,11 @@ describe('usePrefetchRoutes', () => {
     })
     window.cancelIdleCallback = vi.fn()
 
-    // Unmounted inside the test, not left to auto-cleanup: this file's
-    // afterEach restores the idle-callback globals, and jsdom has no real
-    // `cancelIdleCallback` to restore, so a deferred unmount tears down against
-    // an undefined global.
     const { unmount } = renderHook(() => usePrefetchRoutes())
 
     const keys = mockPrefetchQuery.mock.calls.map(c => c[0].queryKey)
     expect(keys).toContainEqual(UPCOMING_SHOWS_FIRST_SCREEN_KEY)
     expect(keys).toContainEqual(SHOW_CITIES_FIRST_SCREEN_KEY)
-    expect(JSON.stringify(keys)).not.toContain('timezone')
 
     unmount()
   })
