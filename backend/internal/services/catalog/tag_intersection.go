@@ -234,12 +234,18 @@ func (s *TagService) intersectBaseQuery(entityType string) *gorm.DB {
 		// endpoint is city-agnostic and carries no request timezone, expired
 		// with PSY-1678: the venue-local condition needs no request timezone
 		// either, so this is now an unmigrated surface rather than a reasoned
-		// divergence. PSY-1760 tracks migrating it, and carries the one real
-		// reason to measure first: this is a whole-shows aggregate with no city
-		// or tag narrowing at the point the gate runs, so it is the least
-		// bounded consumer the lateral would have. PSY-993 owns the "show all
-		// shows" link target and must point it at an upcoming-scoped shows
-		// surface so the linked list agrees with this count.
+		// divergence. PSY-1760 tracks migrating it; the reason it is not done
+		// here is SCOPE, not risk. The comparable aggregate WAS measured on the
+		// way past: PSY-1678 put the venue-local lateral under GetShowCities,
+		// which is this same unnarrowed whole-catalog shape on a hotter path,
+		// and recorded 3.8ms at ~670 upcoming rows against 0.6ms before, rising
+		// to 91ms at a synthetic 19,900. Re-measure here rather than assuming
+		// those transfer — the tag gate sorts and groups differently — but do
+		// not treat this surface as uniquely dangerous.
+		//
+		// PSY-993 owns the "show all shows" link target and must point it at an
+		// upcoming-scoped shows surface so the linked list agrees with this
+		// count.
 		return s.db.Table("shows").
 			Where("shows.status = ?", catalogm.ShowStatusApproved).
 			Where("shows.event_date >= ?", startOfTodayUTC())
@@ -360,7 +366,9 @@ func (s *TagService) enrichForType(entityType string, ids []uint) map[uint]contr
 // count, NOT a claim of parity with ShowService. Migrating it means swapping
 // this for shared.VenueTZJoin + shared.VenueLocalDateCondition("upcoming"),
 // which needs no request timezone either; it is left out of PSY-1678 only to
-// keep that change scoped to the /shows feed. PSY-1760 owns it.
+// keep that change scoped to the /shows feed. PSY-1760 owns it, and the
+// measured cost of the same shape on a hotter path is recorded there and in
+// intersectBaseQuery above.
 func startOfTodayUTC() time.Time {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)

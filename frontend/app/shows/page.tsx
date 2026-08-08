@@ -163,9 +163,13 @@ function getShowName(show: ShowListItem): string {
  * BOTH are required: `ShowList` returns its skeleton while EITHER query is
  * still loading, so seeding the rows alone server-renders the skeleton.
  *
- * The rows come from `getUpcomingShowsPayload`, the same `React.cache`'d fetch
- * the `ItemList` above reads, so the crawler's list and the reader's list are
- * one response rather than two that can disagree.
+ * The rows are a SEPARATE fetch from the `ItemList`'s `getUpcomingShowsPayload`
+ * above, against the bare first-screen URL rather than that one's explicit
+ * `limit`. That is deliberate on both counts and the reasoning is on
+ * `getUpcomingShowsPayload`: they need different abort budgets, and this one has
+ * to request exactly what the client hook will request or the seed is not the
+ * entry the hook reads. Two Data Cache entries, invalidated together. Do not
+ * "dedupe" them onto one call without reading that block first.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
  * component fetches for itself and owns the error state (see

@@ -114,24 +114,17 @@ func (suite *ArtistServiceIntegrationTestSuite) createTestVenue(name, city, stat
 	return venue
 }
 
+// The show + venue link come from newApprovedShowAt (show_venue_local_test.go),
+// which the venue and shows-feed suites also build through. Sharing it is what
+// makes the venue-local suites' cross-surface claim real: they assert that the
+// artist list, the venue list and the main /shows feed partition the SAME row
+// the same way, which a per-suite fixture copy silently stops guaranteeing the
+// first time the shows table grows a column.
 func (suite *ArtistServiceIntegrationTestSuite) createApprovedShowWithArtist(artistID, venueID, userID uint, eventDate time.Time) *catalogm.Show {
-	show := &catalogm.Show{
-		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
-		EventDate:   eventDate,
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &userID,
-	}
-	err := suite.db.Create(show).Error
-	suite.Require().NoError(err)
-
-	// Link show to venue
-	err = suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
-	suite.Require().NoError(err)
+	show := newApprovedShowAt(suite.T(), suite.db, venueID, userID, "Phoenix", "AZ", eventDate)
 
 	// Link show to artist
-	err = suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
+	err := suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
 	suite.Require().NoError(err)
 
 	return show

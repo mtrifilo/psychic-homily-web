@@ -1041,39 +1041,52 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 			Where(shared.VenueLocalDateCondition("upcoming"))
 	}
 
-	// Filter-aware total for the full matching set (ignores the page cursor).
+	// The count and the page run inside ONE transaction so they share a single
+	// `now()`. Postgres' now() is transaction_timestamp(), and the venue-local
+	// boundary is evaluated per row against it rather than bound from Go, so
+	// under autocommit these two statements would each get their own clock. A
+	// request that straddles venue-local midnight in some venue's zone would
+	// then return a page and a total drawn from different partitions, and the
+	// count PSY-1653 put on screen would read "51 of 50". The old code could not
+	// hit this: it computed one startOfTodayUTC in Go and bound it into both.
 	var total int64
-	countQuery := applyUpcomingFilters(s.db.Model(&catalogm.Show{}))
-	if err := countQuery.Count(&total).Error; err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to count upcoming shows: %w", err)
-	}
-
-	// Build page query. `shows.*` is explicit so the lateral's columns cannot
-	// widen the projection: shared.VenueTZJoin's aliases match no Show field, so
-	// GORM would ignore them anyway, but naming the source relation keeps that
-	// true if the lateral ever projects something else.
-	query := applyUpcomingFilters(s.db.Preload("Venues").Preload("Artists").Select("shows.*"))
-
-	// Apply cursor filter if provided (narrows the page, not the total)
-	if cursor != "" {
-		cursorDate, cursorID, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, nil, 0, fmt.Errorf("invalid cursor: %w", err)
-		}
-		// Get shows after the cursor position (same date but higher ID, or later date)
-		query = query.Where(
-			"(shows.event_date = ? AND shows.id > ?) OR (shows.event_date > ?)",
-			cursorDate, cursorID, cursorDate,
-		)
-	}
-
-	// Order by event_date ASC, then by ID ASC for stable ordering
-	// Fetch one extra to check if there are more results
-	query = query.Order("shows.event_date ASC, shows.id ASC").Limit(limit + 1)
-
 	var shows []catalogm.Show
-	if err := query.Find(&shows).Error; err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to get upcoming shows: %w", err)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Filter-aware total for the full matching set (ignores the page cursor).
+		if err := applyUpcomingFilters(tx.Model(&catalogm.Show{})).Count(&total).Error; err != nil {
+			return fmt.Errorf("failed to count upcoming shows: %w", err)
+		}
+
+		// Build page query. `shows.*` is explicit so the lateral's columns
+		// cannot widen the projection: shared.VenueTZJoin's aliases match no
+		// Show field, so GORM would ignore them anyway, but naming the source
+		// relation keeps that true if the lateral ever projects something else.
+		query := applyUpcomingFilters(tx.Preload("Venues").Preload("Artists").Select("shows.*"))
+
+		// Apply cursor filter if provided (narrows the page, not the total)
+		if cursor != "" {
+			cursorDate, cursorID, err := decodeCursor(cursor)
+			if err != nil {
+				return fmt.Errorf("invalid cursor: %w", err)
+			}
+			// Get shows after the cursor position (same date but higher ID, or later date)
+			query = query.Where(
+				"(shows.event_date = ? AND shows.id > ?) OR (shows.event_date > ?)",
+				cursorDate, cursorID, cursorDate,
+			)
+		}
+
+		// Order by event_date ASC, then by ID ASC for stable ordering.
+		// Fetch one extra to check if there are more results.
+		query = query.Order("shows.event_date ASC, shows.id ASC").Limit(limit + 1)
+
+		if err := query.Find(&shows).Error; err != nil {
+			return fmt.Errorf("failed to get upcoming shows: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, 0, err
 	}
 
 	// Check if there are more results

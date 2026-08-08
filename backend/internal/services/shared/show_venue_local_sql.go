@@ -29,9 +29,9 @@ import (
 // repo, because these still draw their own boundary:
 //   - catalog/tag_intersection.go — the tag-page entity counts, start-of-today
 //     in UTC. The reason it gave (no request timezone to work from) no longer
-//     applies now that the boundary needs no timezone at all. PSY-1760 owns it;
-//     it is the least bounded consumer this lateral would have, so that ticket
-//     measures before committing to the shape.
+//     applies now that the boundary needs no timezone at all. PSY-1760 owns it,
+//     deferred for SCOPE rather than risk (that ticket carries the measured
+//     cost of the same shape under GetShowCities).
 //   - engagement/venue_calendar.go upcomingShowsForVenue — the venue ICS feed,
 //     start-of-today in the QUERIED venue's zone, so it can disagree with the
 //     venue page for a show booked at two venues.
@@ -39,6 +39,34 @@ import (
 //     batchArtistNextShows — instant-based (event_date > NOW()), which is why a
 //     graph node can show no upcoming dot for a show that started earlier today
 //     while the card still calls it next.
+//
+// DELIBERATELY instant-bounded, and NOT candidates for this file — listed so an
+// audit does not mistake them for oversights:
+//   - services/explore/explore.go — `event_date >= now()` UTC. Already
+//     viewer-independent, and /explore is SSR-prefetched with no viewer
+//     context, so nothing forces the change. It does mean /explore's list can
+//     drop a show that started earlier today while the /shows/cities picker
+//     above it still counts that show; documented at its own call site.
+//   - catalog/charts_service.go mostAnticipatedHorizon and the scene-week
+//     counts — `time.Now().UTC().Truncate(24h)`. A public chart has no
+//     requester and ranks over a multi-week horizon, so a one-day boundary
+//     nudge does not change what it is measuring.
+//
+// BLAST RADIUS OF THE UNKNOWN-ZONE RAISE, re-derived because PSY-1678 changed
+// it. `AT TIME ZONE` RAISES on a name Postgres does not carry rather than
+// degrading (see VenueTZJoin for why the validating join is not in this path,
+// and for the two layers that keep the column clean). That was accepted when
+// every consumer was a single entity page: one poisoned venue row broke that
+// venue's page, that artist's list, or saved-shows. It is no longer: the main
+// /shows feed and its city picker now build through here, so ONE bad row takes
+// down /shows, the homepage list, /explore's picker and the account-settings
+// city picker at once. The mitigation is also weaker than it reads — the
+// VenueTimezoneSweep that re-validates stored zones is opt-in
+// (ENABLE_VENUE_TIMEZONE_SWEEP) on a 24h interval, so in an environment where
+// that flag was never set the outage does not self-heal at all. PSY-1761 owns
+// making the zone expression fail SOFT (fall through to the state CASE on an
+// unrecognized name) instead of raising; until it lands, treat the sweep flag
+// as a deployment prerequisite of this file, not an optimization.
 
 // PrimaryVenueLateralSQL renders the repo's primary-venue pick as a LATERAL
 // subquery: at most one deterministic venue per show, lowest venue_id first.

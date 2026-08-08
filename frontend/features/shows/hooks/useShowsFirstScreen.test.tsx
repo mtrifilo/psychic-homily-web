@@ -85,28 +85,49 @@ describe('shows first-screen prefetch contract', () => {
     expect(cached[0].queryHash).toBe(hashKey(SHOW_CITIES_FIRST_SCREEN_KEY))
   })
 
-  // The seeded entry has to be a HIT, not merely present: that is the whole
-  // acceptance criterion of PSY-1678 (server HTML and post-hydration list are
-  // the same rows, with no discarded refetch). Seeding the key the way the page
-  // does and then mounting the hook has to serve the seeded rows without going
-  // to the network at all.
-  it('a seeded first-screen entry is served without a refetch', async () => {
+  // The seeded entry has to be a HIT — the hook must PAINT the server's rows
+  // rather than fall through to a loading state and fetch them again.
+  //
+  // Seeded at `updatedAt: 0`, which is what `seedFirstScreen` actually writes,
+  // so this reproduces production rather than a friendlier version of it. That
+  // distinction matters: seeding without it would make the entry fresh, suppress
+  // the revalidation, and let this test keep passing even if the real path
+  // degraded to a full miss. What production does is serve the seeded rows
+  // immediately AND revalidate the same key once, which is deliberate — the
+  // server fetch forwards no cookies, so the seed is always the anonymous
+  // payload and an admin's unapproved shows arrive only on that refetch (see
+  // `lib/query-hydration.ts`). So the property to pin is "data is present on the
+  // first commit, and any request that does go out is THIS key's", not "no
+  // request at all".
+  it('serves the seeded first-screen rows immediately, and only revalidates the same key', async () => {
     const seeded = {
       shows: [{ id: 1, title: 'Seeded Show' }],
       pagination: {},
       total: 1,
     }
+    mockApiRequest.mockResolvedValue(seeded)
     const queryClient = createTestQueryClient()
-    queryClient.setQueryData(UPCOMING_SHOWS_FIRST_SCREEN_KEY, seeded)
+    queryClient.setQueryData(UPCOMING_SHOWS_FIRST_SCREEN_KEY, seeded, {
+      updatedAt: 0,
+    })
 
     const { result } = renderHook(() => useUpcomingShows(), {
       wrapper: createWrapperWithClient(queryClient),
     })
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
+    // Present on the very first commit: no loading state, no waiting.
     expect(result.current.data).toEqual(seeded)
-    expect(mockApiRequest).not.toHaveBeenCalled()
+
+    await waitFor(() => expect(result.current.isFetching).toBe(false))
+
+    // The revalidation, if it ran, went to the first-screen URL and landed back
+    // on the first-screen key. A second, differently-keyed request is the
+    // regression this guards (it is what the viewer-timezone parameter caused).
+    for (const call of mockApiRequest.mock.calls) {
+      expect(call[0]).toBe(UPCOMING_SHOWS_FIRST_SCREEN_URL)
+    }
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(1)
+    expect(result.current.data).toEqual(seeded)
   })
 
   // The counterpart: a real filter still keys elsewhere, so the seed is a hit

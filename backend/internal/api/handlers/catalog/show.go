@@ -709,7 +709,7 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 // same venue-local upcoming partition /shows/upcoming lists, so no zone the
 // caller sends can move the boundary. It is still accepted so clients built
 // against the old contract keep working, and passed straight through to the
-// service's own deprecated parameter, matching GetShowsForArtistHandler.
+// service's own deprecated parameter, matching GetArtistShowsHandler.
 // Removing it outright is a later cleanup.
 func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCitiesRequest) (*GetShowCitiesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
