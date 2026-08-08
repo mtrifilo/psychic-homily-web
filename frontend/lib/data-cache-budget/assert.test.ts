@@ -5,8 +5,8 @@ vi.mock('@sentry/nextjs', () => ({ captureMessage }))
 
 import {
   assertFetchFitsDataCache,
-  byteLength,
   DataCacheBudgetError,
+  readJsonWithinDataCacheBudget,
 } from './assert'
 import {
   DATA_CACHE_RAW_BUDGET_BYTES,
@@ -33,13 +33,35 @@ afterEach(() => {
   else process.env.NEXT_PHASE = originalPhase
 })
 
-describe('byteLength', () => {
-  // The cap is on bytes, not characters, so a multi-byte body must not be
-  // under-counted into looking safe.
-  it('counts bytes rather than characters', () => {
-    expect(byteLength('abc')).toBe(3)
-    expect(byteLength('é')).toBe(2)
-    expect(byteLength('🎸')).toBe(4)
+describe('readJsonWithinDataCacheBudget', () => {
+  const respondWith = (text: string) => new Response(text)
+
+  it('parses and returns the body', async () => {
+    await expect(
+      readJsonWithinDataCacheBudget('/x', respondWith('{"artists":[{"slug":"a"}]}'))
+    ).resolves.toEqual({ artists: [{ slug: 'a' }] })
+  })
+
+  // The cap is on BYTES, not characters. A body of multi-byte characters must
+  // not be under-counted into looking safe by the cheap length-based prefilter.
+  it('weighs multi-byte bodies by their byte length, not character count', async () => {
+    inProductionBuild(true)
+    // Every character is 4 UTF-8 bytes, so the character count alone is a
+    // quarter of the real size — under the budget where the bytes are over.
+    const emoji = '🎸'.repeat(DATA_CACHE_RAW_LIMIT_BYTES / 4 + 10)
+    expect(emoji.length).toBeLessThan(DATA_CACHE_RAW_LIMIT_BYTES)
+
+    await expect(
+      readJsonWithinDataCacheBudget('/x', respondWith(JSON.stringify({ s: emoji })))
+    ).rejects.toThrow(DataCacheBudgetError)
+  })
+
+  it('lets a small body through without complaint', async () => {
+    inProductionBuild(true)
+    await expect(
+      readJsonWithinDataCacheBudget('/x', respondWith('{"ok":true}'))
+    ).resolves.toEqual({ ok: true })
+    expect(captureMessage).not.toHaveBeenCalled()
   })
 })
 

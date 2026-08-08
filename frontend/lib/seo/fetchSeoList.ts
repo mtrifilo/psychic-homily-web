@@ -4,9 +4,8 @@ import {
   createBuildTimeApiSignal,
 } from '@/lib/build-time-api'
 import {
-  assertFetchFitsDataCache,
-  byteLength,
   DataCacheBudgetError,
+  readJsonWithinDataCacheBudget,
 } from '@/lib/data-cache-budget/assert'
 
 /**
@@ -115,14 +114,14 @@ export async function fetchSeoList<T>({
       signal: createBuildTimeApiSignal(timeoutMs),
     })
     if (res.ok) {
-      // Read as text so the body can be weighed before it is parsed. An
-      // over-cap response is never written to the Data Cache — Next logs one
-      // console.warn and carries on — so the fetch site is the only place that
+      // Weighs the body against the Data Cache item cap on the way through. An
+      // over-cap response is never written to that cache — Next logs one
+      // console.warn and carries on — so the fetch site is the only place the
       // condition is observable. See lib/data-cache-budget/budget.ts.
-      const text = await res.text()
-      assertFetchFitsDataCache(url, byteLength(text))
-
-      const body = JSON.parse(text) as Record<string, unknown> | null
+      const body = await readJsonWithinDataCacheBudget<Record<string, unknown> | null>(
+        url,
+        res
+      )
       const items = body?.[collection]
       // A 200 whose collection key is missing or not an array is a contract
       // break, not an empty list — report it rather than rendering as though

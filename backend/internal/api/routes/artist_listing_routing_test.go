@@ -45,6 +45,41 @@ func TestArtistListingEndToEnd(t *testing.T) {
 	td := testutil.SetupTestPostgres(t)
 	defer td.Cleanup()
 
+	cfg := testConfig()
+	router := chi.NewRouter()
+	SetupRoutes(router, services.NewServiceContainer(td.DB, cfg), cfg)
+
+	get := func(t *testing.T) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/artists/listing", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /artists/listing = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+		return w
+	}
+
+	// Runs before anything is seeded, sharing this test's container rather than
+	// standing up a second one. An empty catalogue must serialise as [], never
+	// null: the frontend treats a missing array as a contract break and reports
+	// it, so null would raise a false alarm on a legitimately empty state.
+	t.Run("empty catalogue serialises as an array", func(t *testing.T) {
+		var body struct {
+			Artists *[]json.RawMessage `json:"artists"`
+		}
+		w := get(t)
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, w.Body.String())
+		}
+		if body.Artists == nil {
+			t.Fatalf("artists serialised as null, want []; body: %s", w.Body.String())
+		}
+		if len(*body.Artists) != 0 {
+			t.Fatalf("got %d artists on an empty catalogue, want 0", len(*body.Artists))
+		}
+	})
+
 	// One artist per case the projection has to get right.
 	seedArtist := func(name, slug string) *catalogm.Artist {
 		a := &catalogm.Artist{Name: name}
@@ -89,17 +124,7 @@ func TestArtistListingEndToEnd(t *testing.T) {
 	slugless := seedArtist("Slugless Artist", "")
 	bill(seedShow("upcoming-approved-slugless", future, catalogm.ShowStatusApproved), slugless)
 
-	cfg := testConfig()
-	router := chi.NewRouter()
-	SetupRoutes(router, services.NewServiceContainer(td.DB, cfg), cfg)
-
-	req := httptest.NewRequest(http.MethodGet, "/artists/listing", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /artists/listing = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	w := get(t)
 
 	var body struct {
 		// Raw, so the key set of each entry can be asserted rather than a
@@ -121,7 +146,8 @@ func TestArtistListingEndToEnd(t *testing.T) {
 
 	// THE assertion this endpoint exists for. A widened projection is exactly
 	// how the payload grew past the cache cap the first time, and it would
-	// otherwise regress in total silence.
+	// otherwise regress in total silence. It also pins that the
+	// upcoming_show_count selected for the ORDER BY stays off the wire.
 	entry := body.Artists[0]
 	if len(entry) != 2 {
 		t.Errorf("entry has %d fields %v, want exactly 2 (slug, name) — every added field is "+
@@ -143,42 +169,6 @@ func TestArtistListingEndToEnd(t *testing.T) {
 	if slug != "listed-artist" || name != "Listed Artist" {
 		t.Errorf("got {slug:%q name:%q}, want {slug:%q name:%q}",
 			slug, name, "listed-artist", "Listed Artist")
-	}
-}
-
-// An empty catalogue must serialise as [], never null: the frontend treats a
-// missing array as a contract break and reports it, so null here would raise a
-// false alarm on a legitimately empty state.
-func TestArtistListingEmptySerialisesAsArray(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	td := testutil.SetupTestPostgres(t)
-	defer td.Cleanup()
-
-	cfg := testConfig()
-	router := chi.NewRouter()
-	SetupRoutes(router, services.NewServiceContainer(td.DB, cfg), cfg)
-
-	req := httptest.NewRequest(http.MethodGet, "/artists/listing", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /artists/listing = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
-
-	var body struct {
-		Artists *[]json.RawMessage `json:"artists"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("parse response: %v; body: %s", err, w.Body.String())
-	}
-	if body.Artists == nil {
-		t.Fatalf("artists serialised as null, want []; body: %s", w.Body.String())
-	}
-	if len(*body.Artists) != 0 {
-		t.Fatalf("got %d artists on an empty catalogue, want 0", len(*body.Artists))
 	}
 }
 

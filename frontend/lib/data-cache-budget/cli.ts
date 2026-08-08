@@ -18,11 +18,14 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { DATA_CACHE_BUDGET_BYTES, DATA_CACHE_ITEM_LIMIT_BYTES } from './budget'
 import {
-  findAllowlisted,
-  findOverBudget,
+  DATA_CACHE_BUDGET_BYTES,
+  DATA_CACHE_ITEM_LIMIT_BYTES,
+  formatMib,
+} from './budget'
+import {
   formatBudgetFailures,
+  partitionOverBudget,
   type FetchCacheEntry,
 } from './check'
 
@@ -109,18 +112,18 @@ for (const key of filenames) {
   })
 }
 
+const { failures, allowlisted } = partitionOverBudget(entries)
+
 // Reported every build, deliberately: an entry that sits here indefinitely is a
 // route drifting toward a silent cache failure, and the reminder is the only
 // thing keeping it from becoming a permanent baseline.
-for (const entry of findAllowlisted(entries)) {
+for (const entry of allowlisted) {
   console.warn(
     `Data Cache budget WARNING (recorded exception): ${entry.url ?? entry.key} is at ` +
-      `${((entry.bytes / DATA_CACHE_ITEM_LIMIT_BYTES) * 100).toFixed(0)}% of the 2 MB cache-item cap. ` +
+      `${(entry.fraction * 100).toFixed(0)}% of the ${formatMib(DATA_CACHE_ITEM_LIMIT_BYTES)} cache-item cap. ` +
       'See WARN_BAND_ALLOWLIST in lib/data-cache-budget/budget.ts.'
   )
 }
-
-const failures = findOverBudget(entries)
 
 if (failures.length > 0) {
   fail(formatBudgetFailures(failures))
@@ -130,7 +133,7 @@ const largest = entries.reduce((max, e) => (e.bytes > max ? e.bytes : max), 0)
 console.log(
   `Data Cache budget check OK: ${entries.length} fetch cache ${
     entries.length === 1 ? 'entry' : 'entries'
-  } from this build under ${(DATA_CACHE_BUDGET_BYTES / 1024 / 1024).toFixed(2)} MB ` +
-    `(largest ${(largest / 1024 / 1024).toFixed(2)} MB)` +
+  } from this build under ${formatMib(DATA_CACHE_BUDGET_BYTES)} ` +
+    `(largest ${formatMib(largest)})` +
     (skippedStale > 0 ? `; skipped ${skippedStale} from earlier builds.` : '.')
 )

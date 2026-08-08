@@ -18,9 +18,40 @@ export class DataCacheBudgetError extends Error {
   }
 }
 
-/** Byte length of a response body, which is what the cap is applied to. */
-export function byteLength(text: string): number {
-  return new TextEncoder().encode(text).length
+/**
+ * Read a cached fetch's body as JSON, weighing it against the budget on the way
+ * through. THE ONLY WAY A CALL SITE SHOULD CONSUME A CACHED RESPONSE.
+ *
+ * It exists so the gate is not a three-step ritual a future caller can get
+ * partly right: reading as text, measuring before parsing, and measuring
+ * OUTSIDE the caller's fail-open catch are all done here. A helper that keeps
+ * using `res.json()` opts out of the gate visibly rather than silently.
+ *
+ * Callers must still let `DataCacheBudgetError` escape their own catch — see
+ * the note on `assertFetchFitsDataCache`.
+ */
+export async function readJsonWithinDataCacheBudget<T>(
+  url: string,
+  res: Response
+): Promise<T> {
+  const text = await res.text()
+
+  // Measuring exactly costs a pass over the body, so it is skipped for the
+  // ~everything that is nowhere near the line: UTF-8 never exceeds 3 bytes per
+  // UTF-16 code unit, making `length * 3` a safe upper bound that costs a
+  // property read. `Buffer.byteLength` over `TextEncoder` for the real
+  // measurement — same number, without allocating a copy of the body. Every
+  // call site is Node runtime (the only `runtime = 'edge'` routes are the OG
+  // images, which do not import this module).
+  //
+  // Content-Length is NOT usable here: the API gzips compressible bodies, so
+  // the header carries the compressed transfer size, several-fold under the
+  // number the cap is applied to. Weighing it would disarm the gate.
+  if (text.length * 3 >= DATA_CACHE_RAW_BUDGET_BYTES) {
+    assertFetchFitsDataCache(url, Buffer.byteLength(text, 'utf8'))
+  }
+
+  return JSON.parse(text) as T
 }
 
 /**
@@ -61,8 +92,9 @@ export function assertFetchFitsDataCache(url: string, rawBytes: number): void {
     (overLimit
       ? `over the ${formatMib(DATA_CACHE_RAW_LIMIT_BYTES)} raw budget for a 2 MB Data Cache item. ` +
         'Next will refuse to cache it and every render will re-pull it from origin.'
-      : `within ${formatMib(DATA_CACHE_RAW_LIMIT_BYTES)} of the raw budget for a 2 MB Data Cache item, ` +
-        'so it will stop being cached shortly, in silence.') +
+      : `inside ${formatMib(DATA_CACHE_RAW_LIMIT_BYTES)}, the raw budget for a 2 MB Data Cache item, ` +
+        'but close enough that ordinary growth will cross it — after which it stops ' +
+        'being cached and nothing fails.') +
     ' Shrink the payload — project it to the fields the caller reads, or shard the fetch.' +
     ' See lib/data-cache-budget/budget.ts.'
 

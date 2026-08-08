@@ -7,12 +7,22 @@
  * itself is caught by ./assert.ts at the fetch site. Read ./budget.ts first;
  * it records Next's enforcement code and why the split exists.
  *
- * That limitation is also why this scan is worth having despite the assertion:
- * it needs no list of URLs and no cooperation from the caller, so every cached
- * fetch in the app is covered the day it is written, including ones that never
- * go through the shared list helpers. It found `/sitemap/entries?family=releases`
- * at 97% of the cap on its first run — a route already sharded by family
- * (PSY-1622) whose largest shard had quietly grown to the edge anyway.
+ * WHAT IT COVERS, STATED HONESTLY. It needs no list of URLs and no cooperation
+ * from the caller, so it sees fetches that never go through the shared list
+ * helpers — that is its advantage over the assertion. But it only sees fetches
+ * that RUN DURING `next build`, because that is when entries are written. Every
+ * entity detail route (`app/artists/[slug]`, `app/tags/[slug]`, `app/venues/[slug]`,
+ * `app/scenes/[slug]`, the label / release / festival / collection / radio pages)
+ * fetches with `next: { revalidate }` and declares no `generateStaticParams`, so
+ * it renders on demand and is invisible here — and none of them call the
+ * assertion either. Those routes are UNGUARDED by both halves. They carry the
+ * same cap and grow with the catalogue exactly as `/artists` did; `/tags/{slug}`
+ * and `/scenes/{slug}` are the plausible next one. Closing that needs a single
+ * cached-fetch wrapper every route goes through, which is a change of its own.
+ *
+ * It found `/sitemap/entries?family=releases` at 97% of the cap on its first
+ * run — a route already sharded by family (PSY-1622) whose largest shard had
+ * quietly grown to the edge anyway.
  *
  * ONLY THIS BUILD'S ENTRIES ARE JUDGED. Vercel restores `.next/cache` between
  * builds, so an entry written before a fix would otherwise fail every later
@@ -28,8 +38,6 @@ import {
   formatMib,
   isWarnBandAllowlisted,
 } from './budget'
-
-export { DATA_CACHE_BUDGET_BYTES, DATA_CACHE_BUDGET_FRACTION, DATA_CACHE_ITEM_LIMIT_BYTES }
 
 export interface FetchCacheEntry {
   /** Cache-key filename, the only handle the build artifact gives us. */
@@ -51,22 +59,23 @@ export interface BudgetFailure extends FetchCacheEntry {
  * Exported separately from the I/O so the policy is unit-testable without a
  * build directory — the same split `lib/sitemap-prerender` uses.
  */
-export function findOverBudget(entries: FetchCacheEntry[]): BudgetFailure[] {
-  return entries
+export function partitionOverBudget(entries: FetchCacheEntry[]): {
+  /** Over the warn line and not excused: these fail the build. */
+  failures: BudgetFailure[]
+  /** Over the warn line but recorded in WARN_BAND_ALLOWLIST: reported only. */
+  allowlisted: BudgetFailure[]
+} {
+  // Nothing on disk can be over the HARD cap — Next never writes those — so
+  // every entry here is by definition still inside the warn band.
+  const overBudget = entries
     .filter(entry => entry.bytes >= DATA_CACHE_BUDGET_BYTES)
-    // Recorded warn-band exceptions are reported by the caller, not failed on.
-    // Nothing on disk can be over the hard cap — Next never writes those — so
-    // every hit here is by definition still inside the warn band.
-    .filter(entry => !isWarnBandAllowlisted(entry.url))
     .map(entry => ({ ...entry, fraction: entry.bytes / DATA_CACHE_ITEM_LIMIT_BYTES }))
     .sort((a, b) => b.bytes - a.bytes)
-}
 
-/** Warn-band entries that are recorded exceptions, for reporting. */
-export function findAllowlisted(entries: FetchCacheEntry[]): FetchCacheEntry[] {
-  return entries
-    .filter(entry => entry.bytes >= DATA_CACHE_BUDGET_BYTES && isWarnBandAllowlisted(entry.url))
-    .sort((a, b) => b.bytes - a.bytes)
+  return {
+    failures: overBudget.filter(entry => !isWarnBandAllowlisted(entry.url)),
+    allowlisted: overBudget.filter(entry => isWarnBandAllowlisted(entry.url)),
+  }
 }
 
 /**

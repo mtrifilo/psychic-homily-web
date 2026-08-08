@@ -142,7 +142,7 @@ import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
-import { assertFetchFitsDataCache, byteLength } from '@/lib/data-cache-budget/assert'
+import { readJsonWithinDataCacheBudget } from '@/lib/data-cache-budget/assert'
 import type { components } from '@/types/api'
 import {
   ALL_SHARD_IDS,
@@ -225,27 +225,24 @@ const ENTRY_FETCH_TIMEOUT_MS = 30_000
  * entry and its own ~1.5 MB budget (PSY-1622).
  */
 async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
+  const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(family)}`
   try {
-    const res = await fetch(
-      `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(family)}`,
-      {
-        next: { revalidate: ENTRY_REVALIDATE_SECONDS },
-        signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
-      }
-    )
+    const res = await fetch(url, {
+      next: { revalidate: ENTRY_REVALIDATE_SECONDS },
+      signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
+    })
     if (!res.ok) {
       throw new Error(`sitemap entries fetch returned ${res.status}`)
     }
 
     // Sharding by family is what keeps each entry under the cache-item cap, but
     // nothing was checking that it still does: the `releases` shard was at 97%
-    // of the cap when this assertion was added (PSY-1674). Read as text so the
-    // body can be weighed — an over-cap response is never written to the Data
-    // Cache, so this is the only place it is observable.
-    const text = await res.text()
-    assertFetchFitsDataCache(`sitemap/entries?family=${family}`, byteLength(text))
-
-    const entries: SitemapEntries = JSON.parse(text)
+    // of the cap when this was added (PSY-1674). Weighed on the way through,
+    // because an over-cap response is never written to the Data Cache and so is
+    // observable nowhere else. The absolute URL is passed deliberately — it is
+    // the same identity the post-build scan reads out of the cache envelope, so
+    // one allowlist entry matches both halves of the gate.
+    const entries = await readJsonWithinDataCacheBudget<SitemapEntries>(url, res)
     const rows = entries?.[family]
     if (!Array.isArray(rows)) {
       throw new Error(`sitemap entries response is missing the "${family}" family`)

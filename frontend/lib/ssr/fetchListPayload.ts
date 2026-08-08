@@ -3,9 +3,8 @@ import {
   createBuildTimeApiSignal,
 } from '@/lib/build-time-api'
 import {
-  assertFetchFitsDataCache,
-  byteLength,
   DataCacheBudgetError,
+  readJsonWithinDataCacheBudget,
 } from '@/lib/data-cache-budget/assert'
 
 /**
@@ -132,13 +131,10 @@ export async function fetchListPayload<T>({
       return null
     }
 
-    // Weighed before parsing: an over-cap response is never written to the Data
-    // Cache (Next warns once and carries on), so the fetch site is the only
-    // place that condition is observable. See lib/data-cache-budget/budget.ts.
-    const text = await res.text()
-    assertFetchFitsDataCache(url, byteLength(text))
-
-    const body = JSON.parse(text) as unknown
+    // Weighed on the way through: an over-cap response is never written to the
+    // Data Cache (Next warns once and carries on), so the fetch site is the
+    // only place that condition is observable. See lib/data-cache-budget.
+    const body = await readJsonWithinDataCacheBudget<unknown>(url, res)
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
       Sentry.captureMessage(`${service}: response body is not an object`, {
         level: 'error',

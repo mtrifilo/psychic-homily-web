@@ -39,11 +39,11 @@
 export const DATA_CACHE_ITEM_LIMIT_BYTES = 2 * 1024 * 1024
 
 /**
- * Base64 grows 4 bytes for every 3. Used to convert the cap into a budget that
- * can be compared against a RAW response body, which is the only size a fetch
- * caller can cheaply measure.
+ * Base64 grows 4 bytes for every 3. The single expression of that fact — both
+ * the raw limit below and `encodedSize` are derived from it, so they cannot
+ * disagree. Not exported: everything callers need is already derived here.
  */
-export const BASE64_INFLATION = 4 / 3
+const BASE64_INFLATION = 4 / 3
 
 /**
  * The largest raw response body that still fits the cap once encoded: ~1.5 MB.
@@ -74,7 +74,7 @@ export const DATA_CACHE_RAW_BUDGET_BYTES = Math.floor(
 )
 
 /** Encoded entry size a raw body of `bytes` would occupy, wrapper excluded. */
-export const encodedSize = (bytes: number): number => Math.ceil(bytes / 3) * 4
+export const encodedSize = (bytes: number): number => Math.ceil(bytes * BASE64_INFLATION)
 
 export const formatMib = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(2)} MB`
 
@@ -91,21 +91,30 @@ export const formatMib = (bytes: number): string => `${(bytes / 1024 / 1024).toF
  *
  * THE ENTRY IS THE TICKET. Anything listed here is a route heading for a silent
  * cache failure on the current growth curve, so an entry that has been here for
- * a while is a bug, not a baseline. Nothing may be added without a measurement
- * and a reason, and nothing here is exempt from the HARD cap — a genuine breach
+ * a while is a bug, not a baseline — `measuredAt` is a required field so the age
+ * is visible without reading prose. Nothing may be added without a measurement
+ * and a reason, and nothing here is exempt from the HARD cap: a genuine breach
  * still fails the build for every URL, allowlisted or not.
+ *
+ * `match` is a substring of the FETCH URL as the caller passes it. Both halves
+ * of the gate feed it the same absolute URL — the scan reads `data.url` from the
+ * cache envelope, and every call site passes the URL it fetched — so an entry
+ * cannot match one half and silently miss the other.
  */
 export const WARN_BAND_ALLOWLIST: ReadonlyArray<{
-  /** Matched as a substring of the fetch URL. */
+  /** Matched as a substring of the absolute fetch URL. */
   match: string
+  /** ISO date of the measurement in `reason`. Required: age is the signal. */
+  measuredAt: string
   reason: string
 }> = [
   {
-    match: 'sitemap/entries?family=releases',
+    match: '/sitemap/entries?family=releases',
+    measuredAt: '2026-08-08',
     reason:
-      'Measured 2026-08-08 at 1.93 MB encoded, 97% of the cap — the largest sitemap ' +
-      'family, already sharded per family by PSY-1622. Sub-sharding releases is the ' +
-      'real fix and is its own change. It is close: expect a breach, and a failing ' +
+      'Measured at 1.93 MB encoded, 97% of the cap — the largest sitemap family, ' +
+      'already sharded per family by PSY-1622. Sub-sharding releases is the real ' +
+      'fix and is its own change. It is close: expect a breach, and a failing ' +
       'build, on the next sizeable release import.',
   },
 ]

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { findAllowlisted, findOverBudget, formatBudgetFailures } from './check'
+import { formatBudgetFailures, partitionOverBudget } from './check'
 import {
   DATA_CACHE_BUDGET_BYTES,
   DATA_CACHE_BUDGET_FRACTION,
   DATA_CACHE_ITEM_LIMIT_BYTES,
   DATA_CACHE_RAW_LIMIT_BYTES,
+  WARN_BAND_ALLOWLIST,
 } from './budget'
 
 // The measured `/artists` entry sizes from PSY-1674, as on-disk (base64) bytes.
@@ -31,57 +32,80 @@ describe('the budget constants', () => {
   })
 })
 
-describe('findOverBudget', () => {
+describe('the warn-band allowlist', () => {
+  // Age is the signal that an entry has rotted into a permanent baseline, so
+  // it has to be readable without parsing prose.
+  it('dates every entry', () => {
+    for (const entry of WARN_BAND_ALLOWLIST) {
+      expect(entry.measuredAt, `${entry.match} has no measuredAt`).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(entry.reason.length).toBeGreaterThan(20)
+    }
+  })
+})
+
+describe('partitionOverBudget', () => {
   it('passes an entry under the budget', () => {
-    expect(findOverBudget([{ key: 'a', bytes: 414_988 }])).toEqual([])
+    expect(partitionOverBudget([{ key: 'a', bytes: 414_988 }]).failures).toEqual([])
   })
 
   // The regression this gate exists to catch, replayed at its measured size.
   it('fails the /artists entry as it stood on 2026-08-08', () => {
-    const [failure] = findOverBudget([
+    const [failure] = partitionOverBudget([
       { key: 'a', bytes: ARTISTS_OVER_2026_08_08, url: 'https://api/artists' },
-    ])
+    ]).failures
 
     expect(failure).toBeDefined()
     expect(failure.url).toBe('https://api/artists')
     expect(failure.fraction).toBeCloseTo(2.06, 2)
   })
 
-  // The entry that was still caching, six weeks of growth earlier, is the case
-  // that must NOT fail — otherwise the gate is just a lower cap.
+  // The entry that was still caching, weeks of growth earlier, is the case that
+  // must NOT fail — otherwise the gate is just a lower cap.
   it('passes the last /artists entry that actually cached', () => {
-    expect(findOverBudget([{ key: 'a', bytes: ARTISTS_CACHED_2026_07_26 }])).toEqual([])
+    expect(
+      partitionOverBudget([{ key: 'a', bytes: ARTISTS_CACHED_2026_07_26 }]).failures
+    ).toEqual([])
   })
 
   it('fails at the boundary rather than just past it', () => {
-    expect(findOverBudget([{ key: 'a', bytes: DATA_CACHE_BUDGET_BYTES }])).toHaveLength(1)
-    expect(findOverBudget([{ key: 'a', bytes: DATA_CACHE_BUDGET_BYTES - 1 }])).toEqual([])
+    expect(
+      partitionOverBudget([{ key: 'a', bytes: DATA_CACHE_BUDGET_BYTES }]).failures
+    ).toHaveLength(1)
+    expect(
+      partitionOverBudget([{ key: 'a', bytes: DATA_CACHE_BUDGET_BYTES - 1 }]).failures
+    ).toEqual([])
   })
 
   // The recorded exception must not fail the build, but must still be visible.
   it('does not fail a recorded warn-band exception, but still surfaces it', () => {
-    const entries = [
+    const { failures, allowlisted } = partitionOverBudget([
       {
         key: 'a',
         bytes: 2_028_910,
-        url: 'https://api/sitemap/entries?family=releases',
+        url: 'https://api.psychichomily.com/sitemap/entries?family=releases',
       },
-    ]
-    expect(findOverBudget(entries)).toEqual([])
-    expect(findAllowlisted(entries)).toHaveLength(1)
+    ])
+
+    expect(failures).toEqual([])
+    expect(allowlisted).toHaveLength(1)
+    expect(allowlisted[0].fraction).toBeCloseTo(0.97, 2)
   })
 
-  // An allowlist entry waives the WARN band only. Nothing waives the cap.
+  // An allowlist entry waives the WARN band for one URL only.
   it('does not allowlist a family that is not recorded', () => {
     expect(
-      findOverBudget([
-        { key: 'a', bytes: 2_028_910, url: 'https://api/sitemap/entries?family=shows' },
-      ])
+      partitionOverBudget([
+        {
+          key: 'a',
+          bytes: 2_028_910,
+          url: 'https://api.psychichomily.com/sitemap/entries?family=shows',
+        },
+      ]).failures
     ).toHaveLength(1)
   })
 
   it('reports the worst offender first', () => {
-    const failures = findOverBudget([
+    const { failures } = partitionOverBudget([
       { key: 'small', bytes: DATA_CACHE_BUDGET_BYTES + 1 },
       { key: 'big', bytes: ARTISTS_OVER_2026_08_08 },
     ])
@@ -92,9 +116,9 @@ describe('findOverBudget', () => {
 
 describe('formatBudgetFailures', () => {
   const message = formatBudgetFailures(
-    findOverBudget([
+    partitionOverBudget([
       { key: 'abc123', bytes: ARTISTS_OVER_2026_08_08, url: 'https://api/artists' },
-    ])
+    ]).failures
   )
 
   it('names the offending URL and its share of the cap', () => {
@@ -117,7 +141,7 @@ describe('formatBudgetFailures', () => {
   // shape changes under a Next upgrade.
   it('falls back to the cache key when the url could not be read', () => {
     const withoutUrl = formatBudgetFailures(
-      findOverBudget([{ key: 'abc123', bytes: ARTISTS_OVER_2026_08_08 }])
+      partitionOverBudget([{ key: 'abc123', bytes: ARTISTS_OVER_2026_08_08 }]).failures
     )
     expect(withoutUrl).toContain('abc123')
   })
