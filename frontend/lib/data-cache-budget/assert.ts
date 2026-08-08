@@ -148,7 +148,11 @@ export function assertFetchFitsDataCache(url: string, rawBytes: number): void {
     return
   }
 
-  throw new DataCacheBudgetError(`Data Cache budget exceeded during build: ${message}`)
+  throw new DataCacheBudgetError(
+    `Data Cache budget exceeded during build: ${message}` +
+      ' To ship an unrelated change right now, DATA_CACHE_BUDGET_ENFORCE=warn overrides' +
+      ' this — at the cost of shipping a route that is not cached.'
+  )
 }
 
 /**
@@ -180,8 +184,17 @@ function enforcementDisabled(): boolean {
  *
  * Best-effort: a failure to write must not mask the breach itself, and on a
  * page route the throw is about to fail the build anyway.
+ *
+ * NOT under vitest. Unit tests drive this function with `NEXT_PHASE` set to the
+ * build phase, and without this guard each run left fabricated records in the
+ * real log — enough that the documented standalone `bun run
+ * lib/data-cache-budget/cli.ts` then failed reporting breaches no build
+ * produced, including the very `/artists` payload this change fixes. A test
+ * must not be able to forge input to the channel the metadata-route half of the
+ * gate depends on.
  */
 function recordBreach(url: string, rawBytes: number): void {
+  if (process.env.VITEST) return
   try {
     mkdirSync(dirname(BREACH_LOG_PATH), { recursive: true })
     appendFileSync(BREACH_LOG_PATH, `${JSON.stringify({ url, rawBytes })}\n`)

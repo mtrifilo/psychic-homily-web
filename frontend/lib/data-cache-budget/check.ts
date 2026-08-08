@@ -127,5 +127,14 @@ export function formatBudgetFailures(failures: BudgetFailure[]): string {
     '  - shard the fetch so each entry keys separately (see app/sitemap.ts), or',
     '  - bound it with a limit — but only where dropping rows is acceptable,',
     '    which for a JSON-LD ItemList it generally is not.',
+    '',
+    // None of the remedies above can be done under hotfix pressure, and this
+    // condition is usually triggered by DATA rather than by the commit being
+    // deployed. Naming the override here is the difference between a gate and
+    // a deadlock; the cost is stated so it is never the quiet default.
+    'BREAK-GLASS, if you need to ship something unrelated right now:',
+    '  DATA_CACHE_BUDGET_ENFORCE=warn bun run build',
+    'That ships a route which is NOT cached and re-pulls this payload from origin',
+    'on every render. It buys time; it does not fix anything. Shrink the payload.',
   ].join('\n')
 }

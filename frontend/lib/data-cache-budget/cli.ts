@@ -53,6 +53,19 @@ function fail(message: string): never {
   process.exit(1)
 }
 
+// The build-start baseline. Read FIRST, because both halves below need it.
+// Written by ./stamp.ts before `next build`. Missing means the build script was
+// bypassed, and a gate that cannot tell fresh entries from restored ones must
+// not guess — see ./stamp.ts for what went wrong when this was inferred.
+const stamp = statSync(STAMP_PATH, { throwIfNoEntry: false })
+if (!stamp) {
+  fail(
+    `Data Cache budget check could not read ${STAMP_PATH}.\n` +
+      'Run the full `bun run build` script, which stamps the build start first.'
+  )
+}
+const buildStartedAt = new Date(readFileSync(STAMP_PATH, 'utf8')).getTime()
+
 // ---------------------------------------------------------------------------
 // 1. Breaches recorded at the fetch site.
 //
@@ -61,7 +74,19 @@ function fail(message: string): never {
 // page route the build already failed; this covers the metadata routes, where a
 // throw leaves `next build` exiting 0. See ./assert.ts for the measured matrix.
 // ---------------------------------------------------------------------------
-if (existsSync(BREACH_PATH)) {
+// Only a log this build wrote is trusted. ./stamp.ts removes the previous one,
+// but a file predating the stamp means the log came from somewhere other than
+// this build — a restored cache, or a stray unit-test run before the guard in
+// ./assert.ts existed — and acting on it would fail a build for a breach that
+// did not happen here.
+const breachStat = statSync(BREACH_PATH, { throwIfNoEntry: false })
+if (breachStat && breachStat.mtimeMs < buildStartedAt) {
+  console.warn(
+    `Data Cache budget: ignoring ${BREACH_PATH}, which predates this build. ` +
+      'It was not written by this build and says nothing about it.'
+  )
+  rmSync(BREACH_PATH, { force: true })
+} else if (existsSync(BREACH_PATH)) {
   const recorded = readFileSync(BREACH_PATH, 'utf8')
     .split('\n')
     .filter(Boolean)
@@ -99,18 +124,6 @@ if (existsSync(BREACH_PATH)) {
 // ---------------------------------------------------------------------------
 // 2. The disk scan: entries that still FIT, but are approaching the cap.
 // ---------------------------------------------------------------------------
-
-// Written by ./stamp.ts before `next build`. Missing means the build script was
-// bypassed, and a gate that cannot tell fresh entries from restored ones must
-// not guess — see ./stamp.ts for what went wrong when this was inferred.
-const stamp = statSync(STAMP_PATH, { throwIfNoEntry: false })
-if (!stamp) {
-  fail(
-    `Data Cache budget check could not read ${STAMP_PATH}.\n` +
-      'Run the full `bun run build` script, which stamps the build start first.'
-  )
-}
-const buildStartedAt = new Date(readFileSync(STAMP_PATH, 'utf8')).getTime()
 
 const filenames = (() => {
   try {
@@ -176,11 +189,16 @@ for (const entry of allowlisted) {
   )
 }
 
-// An entry whose URL could not be read cannot be matched against the allowlist,
-// so it would otherwise fail the build for a condition that may well be excused
-// — unfixably, since the allowlist keys on a URL that is by definition
-// unavailable. Report the real problem (the envelope shape changed) instead.
+// An entry whose URL could not be read cannot be matched against the allowlist.
+// In the WARN BAND that would fail the build for a condition that may well be
+// excused, unfixably — the allowlist keys on a URL that is by definition
+// unavailable — so those are reported instead. A HARD-CAP breach is different:
+// nothing excuses one, so an unreadable envelope must not become a way to slip
+// past the cap. It fails like any other.
 const unidentified = failures.filter(entry => entry.url === undefined)
+const unidentifiedBreaches = unidentified.filter(
+  entry => entry.bytes >= DATA_CACHE_ITEM_LIMIT_BYTES
+)
 const identified = failures.filter(entry => entry.url !== undefined)
 
 for (const entry of unidentified) {
@@ -190,6 +208,10 @@ for (const entry of unidentified) {
       'cannot be applied to it. The envelope shape has probably changed under a Next ' +
       'upgrade — update readUrl in lib/data-cache-budget/cli.ts.'
   )
+}
+
+if (unidentifiedBreaches.length > 0) {
+  fail(formatBudgetFailures(unidentifiedBreaches))
 }
 
 // Fail only on entries THIS build wrote. A restored `.next/cache` can carry an
@@ -224,10 +246,14 @@ if (measured.length === 0) {
   process.exit(0)
 }
 
-// "largest" must exclude the recorded exceptions, or the line contradicts
-// itself — reporting a largest ABOVE the budget it claims nothing exceeded.
-const excused = new Set(allowlisted.map(entry => entry.key))
-const withinBudget = measured.filter(entry => !excused.has(entry.key))
+// "largest" must exclude every entry that is NOT under the budget, or the line
+// contradicts itself — reporting a largest ABOVE the budget it claims nothing
+// exceeded. That means the recorded exceptions AND the unidentified warn-band
+// entries reported above, which are over the line but were not failed on.
+const notUnderBudget = new Set(
+  [...allowlisted, ...unidentified].map(entry => entry.key)
+)
+const withinBudget = measured.filter(entry => !notUnderBudget.has(entry.key))
 const largest = withinBudget.reduce((max, e) => (e.bytes > max ? e.bytes : max), 0)
 
 console.log(

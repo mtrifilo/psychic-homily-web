@@ -108,6 +108,54 @@ describe('assertFetchFitsDataCache during a production build', () => {
       assertFetchFitsDataCache('/x', DATA_CACHE_RAW_BUDGET_BYTES - 1)
     ).not.toThrow()
   })
+
+  // The failure message is the only place an operator learns the override
+  // exists, and they are reading it under hotfix pressure.
+  it('names the break-glass in the error it throws', () => {
+    expect(() => assertFetchFitsDataCache('/artists', ARTISTS_FULL_2026_08_08)).toThrow(
+      /DATA_CACHE_BUDGET_ENFORCE=warn/
+    )
+  })
+})
+
+// Without these, deleting the override branch leaves the whole suite green and
+// the gate becomes a deadlock the first time a data import breaches it.
+describe('the DATA_CACHE_BUDGET_ENFORCE break-glass', () => {
+  const originalEnforce = process.env.DATA_CACHE_BUDGET_ENFORCE
+
+  beforeEach(() => {
+    inProductionBuild(true)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    if (originalEnforce === undefined) delete process.env.DATA_CACHE_BUDGET_ENFORCE
+    else process.env.DATA_CACHE_BUDGET_ENFORCE = originalEnforce
+  })
+
+  it('suppresses the build failure when set to warn', () => {
+    process.env.DATA_CACHE_BUDGET_ENFORCE = 'warn'
+    expect(() =>
+      assertFetchFitsDataCache('/artists', ARTISTS_FULL_2026_08_08)
+    ).not.toThrow()
+  })
+
+  it('still says loudly what was shipped', () => {
+    process.env.DATA_CACHE_BUDGET_ENFORCE = 'warn'
+    assertFetchFitsDataCache('/artists', ARTISTS_FULL_2026_08_08)
+
+    const warned = vi.mocked(console.warn).mock.calls.flat().join('\n')
+    expect(warned).toContain('BREACH')
+    expect(warned).toContain('enforcement is DISABLED')
+  })
+
+  // Only the exact value opts out — a stray truthy value must not disarm it.
+  it('does not accept an arbitrary value as an opt-out', () => {
+    process.env.DATA_CACHE_BUDGET_ENFORCE = '1'
+    expect(() => assertFetchFitsDataCache('/artists', ARTISTS_FULL_2026_08_08)).toThrow(
+      DataCacheBudgetError
+    )
+  })
 })
 
 describe('assertFetchFitsDataCache at request time', () => {
