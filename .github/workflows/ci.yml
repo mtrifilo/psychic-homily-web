@@ -174,9 +174,13 @@ jobs:
       # float32 round-trip that makes an unchanged night reproduce an identical
       # map. Every Go test stubs the runner, so without this step a dependency
       # bump that silently drops `fixed` would go green.
+      #
+      # Pinned to the exact patch the runtime image ships (see the NODE PIN
+      # comment in backend/Dockerfile) so this suite exercises the V8 that
+      # production runs. Bump both together or the determinism claim is untested.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.2'
           cache: npm
           cache-dependency-path: backend/layout/package-lock.json
 
