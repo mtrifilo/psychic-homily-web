@@ -133,10 +133,26 @@ export interface MotifBox {
  *
  * Expressed as gradient stops rather than a box, because Satori paints it as
  * one `linear-gradient` over the motif. Opaque until the headline column ends,
- * fully clear by the time the motif's dense middle starts.
+ * clear well past the longest line the counts can produce — the clear stop is
+ * 80% rather than the 74% this shipped with in draft, because at 74% the tail
+ * of `+9,999 ARTISTS · +99,999 CONNECTIONS` landed exactly where the gradient
+ * ran out and sat on undimmed connector lines. The test beside this file pins
+ * the relationship so the two cannot drift apart again.
  */
 export const MOTIF_FADE_OPAQUE_STOP = 46
-export const MOTIF_FADE_CLEAR_STOP = 74
+export const MOTIF_FADE_CLEAR_STOP = 80
+
+/**
+ * A second fade, top-down, purely for the eyebrow.
+ *
+ * The eyebrow is the one line given the FULL content width — that is what buys
+ * it 34px and the 8.5px-effective floor — so it necessarily reaches past the
+ * horizontal fade and over the motif. Verified at the 300px share size: without
+ * this, `THE MAP OF THE SCENE` sat on dots and stopped being readable, while
+ * widening the horizontal fade enough to cover it would have hidden most of the
+ * map. A local band is the smaller change and keeps the composition.
+ */
+export const MOTIF_TOP_FADE_HEIGHT = 190
 
 /** Radius of a dot that was already on the map. */
 export const MOTIF_DOT_RADIUS = 3.2
@@ -147,7 +163,13 @@ export const MOTIF_CONNECTOR_WIDTH = 1.6
 
 export const MOTIF_DOT_OPACITY = 0.34
 export const MOTIF_NEW_DOT_OPACITY = 0.95
-export const MOTIF_CONNECTOR_OPACITY = 0.5
+/**
+ * Deliberately faint. At 0.5 — the draft value — a busy week rendered as a
+ * spiderweb rather than a map: the lines out-shouted the dots they connect,
+ * which are the thing the card is about. Verified against a seeded 1,218-node
+ * snapshot at both full size and 300px.
+ */
+export const MOTIF_CONNECTOR_OPACITY = 0.26
 
 /**
  * Caps on what the motif draws.
@@ -165,7 +187,7 @@ export const MOTIF_CONNECTOR_OPACITY = 0.5
  */
 export const MOTIF_DOT_LIMIT = 900
 export const MOTIF_NEW_DOT_LIMIT = 400
-export const MOTIF_CONNECTOR_LIMIT = 300
+export const MOTIF_CONNECTOR_LIMIT = 180
 
 /**
  * Next requires a STATIC alt, so it cannot name the counts — they change every

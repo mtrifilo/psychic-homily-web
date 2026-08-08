@@ -170,6 +170,38 @@ export function GraphWeekContent({ view }: { view: GraphWeekView }) {
 }
 
 /**
+ * The share URL before there is anything to share.
+ *
+ * Reached before the first nightly build has ever run, or when a snapshot
+ * cannot be dated. Deliberately says WHEN rather than apologising: the URL is
+ * permanent and this state resolves itself overnight, so the one useful thing
+ * to offer is the map as it stands today.
+ */
+export function GraphWeekUnbuilt() {
+  return (
+    <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
+      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+        The Map of the Scene
+      </p>
+      <h1 className="mt-2 font-display text-4xl font-medium sm:text-5xl">
+        This week in the graph
+      </h1>
+      <p className="mt-4 max-w-prose text-sm text-muted-foreground">
+        The map is built once a night, and this week&rsquo;s numbers come from that build.
+        There isn&rsquo;t one yet, so there is nothing to report here until the next one runs.
+      </p>
+      <Link
+        href="/graph"
+        className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+      >
+        Open the map of the scene
+        <ArrowRight className="size-3.5" aria-hidden="true" />
+      </Link>
+    </div>
+  )
+}
+
+/**
  * The same projection the card paints, drawn with theme tokens.
  *
  * A static `<svg>`, not the map canvas: this is a picture of a snapshot, and

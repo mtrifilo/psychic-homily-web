@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
 
 const fetchGraphOverview = vi.hoisted(() => vi.fn())
 
@@ -167,5 +168,44 @@ describe('getGraphWeek', () => {
     const { getGraphWeek } = await loadPage()
 
     expect(await getGraphWeek()).toBeNull()
+  })
+})
+
+describe('page bodies', () => {
+  it('reports the week and offers the map', async () => {
+    fetchGraphOverview.mockResolvedValue(overviewFixture())
+    const { getGraphWeek, GraphWeekContent } = await loadPage()
+    const view = (await getGraphWeek())!
+
+    render(<GraphWeekContent view={view} />)
+
+    expect(screen.getByRole('heading', { name: 'This week in the graph' })).toBeInTheDocument()
+    expect(screen.getByText('+1 ARTIST · +1 CONNECTION')).toBeInTheDocument()
+    expect(screen.getByText('JUL 27 - AUG 2 2026')).toBeInTheDocument()
+    // The teaser is a picture of a snapshot; without a label it says nothing at
+    // all to anyone not looking at it.
+    expect(screen.getByRole('img')).toHaveAccessibleName(
+      '1 new artist and 1 new connection joined the map, JUL 27 - AUG 2 2026.'
+    )
+    expect(screen.getByRole('link', { name: /Open the map of the scene/ })).toHaveAttribute(
+      'href',
+      '/graph'
+    )
+  })
+
+  it('says when the numbers will exist rather than apologising', async () => {
+    // The state before the first nightly build. It answers 200 by design — see
+    // the page component for why a 404 is not available to this route — so the
+    // body has to be a real answer rather than an error.
+    const { GraphWeekUnbuilt } = await loadPage()
+
+    render(<GraphWeekUnbuilt />)
+
+    expect(screen.getByRole('heading', { name: 'This week in the graph' })).toBeInTheDocument()
+    expect(screen.getByText(/built once a night/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Open the map of the scene/ })).toHaveAttribute(
+      'href',
+      '/graph'
+    )
   })
 })

@@ -27,6 +27,7 @@ import {
   MOTIF_FADE_OPAQUE_STOP,
   MOTIF_NEW_DOT_OPACITY,
   MOTIF_NEW_DOT_RADIUS,
+  MOTIF_TOP_FADE_HEIGHT,
   PAD_X,
   PAD_Y,
   RANGE_GAP,
@@ -51,6 +52,17 @@ import {
  * `next/og` appears in the feature, which keeps the geometry and the window
  * maths in modules a unit test can import.
  */
+/**
+ * The brand background at zero alpha — the far end of both fades.
+ *
+ * Written as an explicit `rgba` of the SAME colour rather than the keyword
+ * `transparent`: several renderers interpolate `transparent` through
+ * `rgba(0,0,0,0)`, which greys the middle of a fade from a warm near-black.
+ * Kept beside the card, not in `lib/og/brand`, because every import added to a
+ * shared OG module is taxed against all four edge bundles.
+ */
+const BACKGROUND_CLEAR = 'rgba(13, 8, 5, 0)'
+
 export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response> {
   const [{ fonts, degraded }, overview] = await Promise.all([
     loadBrandFontsOrDefault(),
@@ -99,9 +111,22 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
             bottom: 0,
             display: 'flex',
             // Opaque brand background under the text, clear over the motif's
-            // dense middle. Without it the eyebrow's tail and the counts line
-            // cross into the dots and stop being readable at 300px.
-            backgroundImage: `linear-gradient(to right, ${OG_COLORS.background} ${MOTIF_FADE_OPAQUE_STOP}%, rgba(13, 8, 5, 0) ${MOTIF_FADE_CLEAR_STOP}%)`,
+            // dense middle. Without it the counts line crosses into the dots and
+            // stops being readable at 300px.
+            backgroundImage: `linear-gradient(to right, ${OG_COLORS.background} ${MOTIF_FADE_OPAQUE_STOP}%, ${BACKGROUND_CLEAR} ${MOTIF_FADE_CLEAR_STOP}%)`,
+          }}
+        />
+        {/* The eyebrow's own band. It is the one line given the full content
+            width, so it reaches past the horizontal fade by design. */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: MOTIF_TOP_FADE_HEIGHT,
+            display: 'flex',
+            backgroundImage: `linear-gradient(to bottom, ${OG_COLORS.background} 40%, ${BACKGROUND_CLEAR} 100%)`,
           }}
         />
 
