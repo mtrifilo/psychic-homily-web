@@ -8,6 +8,13 @@ import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 // CommandPalette (⌘K). It is presented as the primary right-hand affordance per
 // the Figma design. The palette itself is unchanged here (its re-skin is
 // PSY-1019).
+//
+// Sizing belongs to the CALLER, not to this component: it fills whatever box it
+// is given (`w-full`). The trigger used to carry `w-[220px] xl:w-[320px]`
+// itself, which made it an unshrinkable fixed-width island in the top bar's
+// flex row and pushed the account cluster off-screen (PSY-1638). Its own
+// children already degrade gracefully at any width — the icon and ⌘K hint are
+// `shrink-0` and the label truncates — so the container can size it freely.
 export function SearchTrigger({ className }: { className?: string }) {
   return (
     <button
@@ -16,7 +23,7 @@ export function SearchTrigger({ className }: { className?: string }) {
       aria-label="Search shows, artists, labels"
       aria-keyshortcuts="Meta+K Control+K"
       className={cn(
-        'flex h-9 w-[220px] items-center gap-2 rounded-lg border border-input bg-muted px-3 text-left text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 xl:w-[320px]',
+        'flex h-9 w-full items-center gap-2 rounded-lg border border-input bg-muted px-3 text-left text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
         className
       )}
     >
