@@ -106,7 +106,7 @@ vi.mock('@/features/artists/hooks/useArtistGraphCard', () => ({
 // Default: no geo (null) → liveliest scene, the pre-PSY-1346 behavior every
 // existing test relies on. Geo-specific tests override the return.
 const useGeoDefaultScene = vi.fn()
-vi.mock('../hooks/useGeoDefaultScene', () => ({
+vi.mock('@/lib/hooks/common/useGeoDefaultScene', () => ({
   useGeoDefaultScene: () => useGeoDefaultScene(),
 }))
 

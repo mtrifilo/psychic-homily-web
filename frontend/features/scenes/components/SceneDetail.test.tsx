@@ -237,7 +237,7 @@ describe('SceneDetailView', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
 
       expect(
-        screen.getByRole('link', { name: 'Shows tonight in Phoenix' })
+        screen.getByRole('link', { name: 'Tonight in Phoenix' })
       ).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
       expect(
         screen.getByRole('link', { name: 'This week in Phoenix' })

@@ -6,14 +6,16 @@ import type { GeoLocation } from '@/lib/geo-default'
 import { GEO_CACHE_KEY, toGeoLocation } from '@/lib/geo-client'
 
 /**
- * Client-side geo suggestion for the homepage graph's default scene (PSY-1346).
+ * Client-side geo suggestion for surfaces that key on the visitor's place
+ * rather than on a city filter (the homepage graph's default scene, the
+ * Observatory's nightly link).
  *
  * Reuses the SAME `/api/geo` edge route + sessionStorage cache as the shows
  * city filter's `useGeoDefaultCity` (via the shared `@/lib/geo-client`
  * primitives), so once one consumer has warmed the cache this session, the
- * other reads it instead of re-fetching. (It is NOT a hard single-flight
- * guarantee: on a cold cache both consumers can fire `/api/geo` before either
- * write lands — one extra idempotent edge hit, not a correctness issue.)
+ * others read it instead of re-fetching. (It is NOT a hard single-flight
+ * guarantee: on a cold cache several consumers can fire `/api/geo` before any
+ * write lands — an extra idempotent edge hit, not a correctness issue.)
  *
  * Non-blocking, exactly like `useGeoDefaultCity`: it returns `null` until geo
  * arrives, so the section renders its liveliest-scene default immediately and

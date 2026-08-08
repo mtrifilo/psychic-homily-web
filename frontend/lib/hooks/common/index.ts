@@ -2,6 +2,10 @@ export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
 export { useBrowserTimezone } from './useBrowserTimezone'
 
+export { useHydrated } from './useHydrated'
+
+export { useGeoDefaultScene } from './useGeoDefaultScene'
+
 export { type Density, useDensity } from './useDensity'
 
 export { useFilterNavigation } from './useFilterNavigation'

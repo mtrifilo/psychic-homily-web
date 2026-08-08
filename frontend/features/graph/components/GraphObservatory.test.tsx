@@ -111,7 +111,7 @@ vi.mock('@/features/scenes/hooks/useScenes', () => ({
 
 // The visitor's IP-derived place. Mocked at the hook boundary so no test here
 // reaches the `/api/geo` route or the sessionStorage cache behind it.
-vi.mock('@/features/home/hooks/useGeoDefaultScene', () => ({
+vi.mock('@/lib/hooks/common/useGeoDefaultScene', () => ({
   useGeoDefaultScene: () => geoState.geo,
 }))
 
@@ -922,6 +922,17 @@ describe('GraphObservatory', () => {
     it('keeps the listing when the visitor’s scene has been quiet all week', () => {
       scenesState.scenes = [{ ...phoenix, shows_this_week: 0 }]
       geoState.geo = inPhoenix
+      renderWithProviders(<GraphObservatory />)
+
+      expect(tonightLink()).toHaveAttribute('href', '/shows')
+    })
+
+    // Nothing on this row names a city, so a neighbouring-metro guess would
+    // move the reader somewhere no part of the page mentioned. The city
+    // filter's uncapped nearest-match rule deliberately does NOT reach here.
+    it('keeps the listing for a suburb rather than guessing the metro', () => {
+      scenesState.scenes = [phoenix]
+      geoState.geo = { city: 'Tempe', state: 'AZ' }
       renderWithProviders(<GraphObservatory />)
 
       expect(tonightLink()).toHaveAttribute('href', '/shows')

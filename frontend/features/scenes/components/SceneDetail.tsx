@@ -233,15 +233,20 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
                 header. The two pages link to each other, so this pair is what
                 connects that whole sub-site to the rest of the app — dropping
                 one in a restyle strands more than itself. */}
+            {/* The slug comes from the fetched scene, not the route param the
+                reader arrived on: the two agree for a canonical URL and differ
+                for any spelling the backend resolves to it, and a link built
+                from the second kind hands out a non-canonical URL of our own
+                making. */}
             <CardAction className="flex flex-wrap items-center gap-3">
               <BracketLink
                 label="Tonight"
-                href={`/scenes/${slug}/tonight`}
-                ariaLabel={`Shows tonight in ${scene.city}`}
+                href={`/scenes/${scene.slug}/tonight`}
+                ariaLabel={`Tonight in ${scene.city}`}
               />
               <BracketLink
                 label="This week"
-                href={`/scenes/${slug}/week`}
+                href={`/scenes/${scene.slug}/week`}
                 ariaLabel={`This week in ${scene.city}`}
               />
             </CardAction>

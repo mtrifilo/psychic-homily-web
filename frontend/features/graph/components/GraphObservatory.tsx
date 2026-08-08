@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type Ref,
 } from 'react'
 import Link from 'next/link'
@@ -50,18 +49,15 @@ import {
   type RandomArtistTargetResponse,
 } from '@/features/discovery/useRandomArtistTarget'
 import { useScenes } from '@/features/scenes/hooks/useScenes'
-// The shared client-geo suggestion hook. It lives under `features/home`
-// because the homepage graph was its first consumer, but nothing in it is
-// homepage-specific: it reads the same `/api/geo` route and sessionStorage
-// cache every client geo consumer shares.
-import { useGeoDefaultScene } from '@/features/home/hooks/useGeoDefaultScene'
+import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
-import { pickViewerScene } from './viewerScene'
+import { pickVisitorScene } from './visitorScene'
 
 interface GraphAnchor {
   id: number
@@ -462,9 +458,10 @@ function AccessibleGraphList({
 /**
  * Escape hatches for the no-connections empty state (PSY-1474 F4): two scene
  * links anchored on the artist's metro plus the random rabbit hole. Mounted
- * only while the empty state is visible; the scenes list it reads is the same
- * 10-minute query the footer's nightly link holds open, so this mount is a
- * cache read rather than a request of its own.
+ * only while the empty state is visible, though that no longer saves the
+ * request it once did — the footer's nightly link reads the same 10-minute
+ * scenes query on every visit, so by the time this mounts the list is already
+ * in cache.
  */
 function EmptyGraphEscapeHatches({
   city,
@@ -638,61 +635,42 @@ function ReplayStatusLine({ replay }: { replay: SceneReplayController }) {
   return <span ref={textRef} className="text-foreground" />
 }
 
-// The serendipity footer's two plain links share one treatment; hoisted so a
-// restyle can't land on one and not the other.
-const FOOTER_LINK_CLASS =
+// Shared by the serendipity footer's two plain links, which must not drift
+// apart: they read as one row of alternatives.
+const SERENDIPITY_FOOTER_LINK_CLASS =
   'inline-flex items-center gap-1 text-muted-foreground hover:text-foreground'
 
 /**
- * The store behind the hydration gate below. Browser-only facts never change
- * after load, so `subscribe` is a no-op and both snapshots are module-level
- * constants — anything else re-renders forever.
- */
-const subscribeToNothing = () => () => {}
-const alwaysHydrated = () => true
-const neverOnTheServer = () => false
-
-/**
- * "Tonight's shows" — the visitor's own scene when we can place them, the
- * global listing otherwise.
+ * "Tonight's shows" — the visitor's own scene when we can name one, the global
+ * listing otherwise.
  *
  * A nightly scene page is the better answer for a visitor we can place: one
- * city, tonight, at the rooms we track, rather than every city at once.
+ * city, tonight, at the rooms we track, rather than every city at once. What
+ * counts as "can place" is deliberately strict — see `pickVisitorScene`, which
+ * refuses the neighbouring-metro guess precisely because this link is silent
+ * about where it is sending anyone.
  *
  * The LABEL is fixed; only the href moves. This link sits in a wrap row ahead
  * of the shuffle pill and the resolution lands after mount, so a label that
  * grew a city name would drag its siblings sideways under the reader's cursor.
  *
- * The href is pinned to the global listing until hydration, which is what
- * makes it safe to derive from browser-only state at all: this page is server
- * -rendered, and `useGeoDefaultScene` reads a sessionStorage cache that the
- * server cannot see. Without the gate the two renders could disagree about the
- * href — not today (the scenes query is cold at hydration, so the visitor
- * cannot be placed yet either way), but the day someone prefetches scenes into
- * this route, which is not a change anyone would expect to break a link.
- *
- * Cost: one scenes-list read and one `/api/geo` read per visit, both cached —
- * the scenes list is the same 10-minute query the empty-state hatches use, and
- * the geo answer is session-cached across the homepage graph and the shows
- * city filter, so a visitor arriving from either pays nothing. Neither blocks
- * the first paint.
+ * `useHydrated` is what makes it safe to derive an href from browser-only
+ * state at all: this page is server-rendered, and the geo suggestion comes out
+ * of a sessionStorage cache the server cannot see. Without the gate the server
+ * HTML and the hydration render could disagree about where this link points.
  */
 function TonightShowsLink() {
-  const hydrated = useSyncExternalStore(
-    subscribeToNothing,
-    alwaysHydrated,
-    neverOnTheServer,
-  )
+  const hydrated = useHydrated()
   const geo = useGeoDefaultScene()
   const scenesQuery = useScenes()
   const scene = useMemo(
-    () => pickViewerScene(scenesQuery.data?.scenes ?? [], geo),
+    () => pickVisitorScene(scenesQuery.data?.scenes ?? [], geo),
     [scenesQuery.data, geo],
   )
   const href = hydrated && scene ? `/scenes/${scene.slug}/tonight` : '/shows'
 
   return (
-    <Link href={href} className={FOOTER_LINK_CLASS}>
+    <Link href={href} className={SERENDIPITY_FOOTER_LINK_CLASS}>
       Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
     </Link>
   )
@@ -1194,7 +1172,7 @@ export function GraphObservatory() {
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border/50 pt-4 text-sm">
         <span className="font-display text-base font-medium">No artist in mind?</span>
-        <Link href="/scenes" className={FOOTER_LINK_CLASS}>
+        <Link href="/scenes" className={SERENDIPITY_FOOTER_LINK_CLASS}>
           Your scene <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
         <TonightShowsLink />
