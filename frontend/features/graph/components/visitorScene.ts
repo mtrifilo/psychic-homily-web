@@ -30,7 +30,11 @@ function normalize(value: string | null | undefined): string {
  * scenes list carries to "is anything on soon". It does NOT promise the
  * destination night has a show on it, and no field here could; it buys the
  * weaker guarantee worth having, that a scene dark all week is not somewhere
- * to send a reader asking what is on tonight.
+ * to send a reader asking what is on tonight. Deliberately the ROLLING window
+ * and not `shows_calendar_week`: this link goes to a NIGHT, so the seven days
+ * ahead of the reader are the relevant ones, where the calendar week would be
+ * nearly spent by Sunday evening. The calendar count is the one to reach for
+ * beside a link to the weekly page, which this is not.
  *
  * Case and surrounding whitespace are normalized on both sides: the geo
  * header's spelling of a city need not match the catalog's.

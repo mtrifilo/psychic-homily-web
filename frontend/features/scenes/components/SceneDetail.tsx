@@ -226,28 +226,26 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
               <Calendar className="h-4 w-4 text-muted-foreground" />
               Upcoming Shows
             </CardTitle>
-            {/* The scene's nightly and weekly listings. On the section header
-                as bare bracket links, not verbs in an action row: the action
-                row is for auth-gated relationship verbs (Follow / Notify me),
-                and a link that syndicates a list belongs on that list's
-                header. The two pages link to each other, so this pair is what
-                connects that whole sub-site to the rest of the app — dropping
-                one in a restyle strands more than itself. */}
-            {/* The slug comes from the fetched scene, not the route param the
-                reader arrived on: the two agree for a canonical URL and differ
-                for any spelling the backend resolves to it, and a link built
-                from the second kind hands out a non-canonical URL of our own
-                making. */}
+            {/* The scene's nightly listing. On the section header as a bare
+                bracket link, not a verb in an action row: the action row is
+                for auth-gated relationship verbs (Follow / Notify me), and a
+                link that syndicates a list belongs on that list's header.
+
+                TONIGHT ONLY, deliberately. The week already has its edge from
+                the stats line above (PSY-1623), and the pair reads better
+                split than it would as a second link to the same page a few
+                lines down. The two period pages link to each other, so this is
+                the entry point the whole nightly sub-site hangs off.
+
+                `scene.slug`, not the route param: a metro member spelling
+                resolves to its principal city, and building the href from what
+                the reader typed would mint a second URL for a page that
+                already has one. */}
             <CardAction className="flex flex-wrap items-center gap-3">
               <BracketLink
                 label="Tonight"
                 href={`/scenes/${scene.slug}/tonight`}
                 ariaLabel={`Tonight in ${scene.city}`}
-              />
-              <BracketLink
-                label="This week"
-                href={`/scenes/${scene.slug}/week`}
-                ariaLabel={`This week in ${scene.city}`}
               />
             </CardAction>
           </CardHeader>

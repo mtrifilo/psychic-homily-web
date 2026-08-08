@@ -887,6 +887,7 @@ describe('GraphObservatory', () => {
       upcoming_show_count: 12,
       total_show_count: 400,
       shows_this_week: 4,
+      shows_calendar_week: 6,
       latitude: 33.45,
       longitude: -112.07,
     }
