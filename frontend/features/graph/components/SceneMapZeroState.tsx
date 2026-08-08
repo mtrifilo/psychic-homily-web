@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Play } from 'lucide-react'
+import { ArrowRight, Play, Share2 } from 'lucide-react'
 
 import { EntityContextPanel } from '@/components/graph/EntityContextPanel'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
@@ -23,6 +23,7 @@ import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/Graph
 import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 
 import { groupNodesByRegion, type SceneMap, type SceneMapNode } from '../sceneMap'
+import { GRAPH_WEEK_PATH, graphWeekSummary, resolveGraphWeek } from '../graphWeek'
 import type { SceneReplayController } from '../useSceneReplay'
 import { REPLAY_CHIP_CLASS, ReplayScrubber } from './ReplayScrubber'
 import { SceneMapCanvas } from './SceneMapCanvas'
@@ -246,6 +247,18 @@ function FreshnessFooter({
   /** Absent when this snapshot has no watchable history, or below the canvas breakpoint. */
   onWatchItGrow?: () => void
 }) {
+  // The share affordance sits in THIS row rather than on the canvas, for the
+  // same reason the replay chip does: the at-rest map stays chrome-free, and the
+  // invitation belongs beside the other facts about the snapshot.
+  //
+  // Gated on the week being SHAREWORTHY, not merely resolvable — a card reading
+  // `+0 ARTISTS · +0 CONNECTIONS` is truthful but is not something to offer, and
+  // the page it links to 404s when the snapshot cannot be dated at all. Deriving
+  // the gate from the same `resolveGraphWeek` the card uses is what guarantees
+  // this never links somewhere the route will refuse.
+  const week = useMemo(() => resolveGraphWeek(map), [map])
+  const shareableWeek = week?.isShareworthy ? week : null
+
   const lastMapped = Number.isNaN(map.lastMapped.getTime())
     ? null
     : map.lastMapped.toLocaleDateString(undefined, {
@@ -265,6 +278,19 @@ function FreshnessFooter({
             <Play className="size-3 fill-current" aria-hidden="true" />
             Watch it grow
           </button>
+        )}
+        {shareableWeek && (
+          // A plain link, not a copy-to-clipboard or a share-sheet button: the
+          // thing worth sharing is a URL, and handing someone the page it points
+          // at lets them see the card before they post it.
+          <Link
+            href={GRAPH_WEEK_PATH}
+            className={`${REPLAY_CHIP_CLASS} shrink-0`}
+            aria-label={`Share this week in the graph. ${graphWeekSummary(shareableWeek)}`}
+          >
+            <Share2 className="size-3" aria-hidden="true" />
+            This week
+          </Link>
         )}
         <span>Mapped nightly{lastMapped ? ` · Last mapped ${lastMapped}` : ''}</span>
       </span>
