@@ -131,14 +131,11 @@ func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contr
 // and links untouched. Choosing which record's details survive is a judgment
 // call, so it stays with the admin, who picks the canonical id.
 //
-// KNOWN GAP, admin-triggered: revision history is re-pointed like any other
-// reference, and revision address redaction is decided at READ time from the
-// current entity_id's venues.verified. Merging an UNVERIFIED venue into a
-// VERIFIED one therefore republishes the loser's address history, and the losing
-// row is deleted so nothing survives to re-derive its verification state.
-// Closing it means scrubbing or carrying forward the loser's redaction at merge
-// time, which is a write-path change to stored history rather than another read
-// gate, so it is tracked separately.
+// PRIVACY: an unverified venue's address history is withheld from the
+// anonymous revision routes, and this merge deletes the venue that gate reads.
+// markUnverifiedVenueRevisions preserves the redaction across the re-point;
+// stored history is not edited and verified-into-verified merges are
+// unaffected. Merges predating that column are not backfilled.
 func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
 	result, err := s.mergeVenues(canonicalID, mergeFromID, false)
 	if err != nil {
@@ -213,6 +210,11 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) 
 			return err
 		}
 		if err := reassignNotificationFilters(tx, canonicalID, mergeFromID, result); err != nil {
+			return err
+		}
+		// MUST run before reassignEntityRefs: it identifies the loser's
+		// revisions by the entity_id that step is about to overwrite.
+		if err := markUnverifiedVenueRevisions(tx, mergeFrom); err != nil {
 			return err
 		}
 		if err := reassignEntityRefs(tx, canonicalID, mergeFromID, result); err != nil {
@@ -480,6 +482,53 @@ func reassignNotificationFilters(tx *gorm.DB, canonicalID, mergeFromID uint, res
 		return fmt.Errorf("failed to update notification filters: %w", r.Error)
 	}
 	result.FiltersUpdated = r.RowsAffected
+	return nil
+}
+
+// markUnverifiedVenueRevisions stamps the LOSING venue's revision rows when
+// that venue is unverified, so the read-time address redaction survives the
+// re-point that follows. See the privacy section of the revisiondiff package
+// doc for the policy; this is the mechanism.
+//
+// Order matters: this runs while revisions.entity_id still names the loser.
+// Once reassignEntityRefs has re-pointed them they are indistinguishable from
+// the canonical venue's own history, and the loser row is deleted moments
+// later, so there is no second chance to derive this.
+//
+// The mark only ever goes TRUE, here and nowhere else. A verified loser
+// returns early rather than clearing anything, so rows that came off an
+// earlier unverified venue keep their redaction and a chain of merges cannot
+// launder an address that a single merge withholds.
+//
+// The whole venue is the parameter rather than an id plus a flag: both facts
+// come off the row lockMergeVenues already locked, and splitting them would let
+// a future edit pass one venue's id with another's verification state.
+//
+// This does not scrub anything. The stored diff keeps the real address, which
+// is what rollback and the moderation surfaces read; only the anonymous read
+// path masks it.
+//
+// KNOWN BOUNDARY, admin-triggered: a marked row's value can still reach an
+// anonymous reader through Rollback, which writes the stored address onto the
+// venue the revision NOW points at. Before the merge that was an unverified
+// venue and the live payload withheld it; after it, the canonical venue is
+// verified and publishes it. Keeping the stored value is what makes rollback
+// possible at all, so this stays an explicit admin action rather than another
+// gate.
+func markUnverifiedVenueRevisions(tx *gorm.DB, mergeFrom *catalogm.Venue) error {
+	if mergeFrom.Verified {
+		return nil
+	}
+
+	err := tx.Exec(`
+		UPDATE revisions
+		SET from_unverified_venue = TRUE
+		WHERE entity_type = 'venue'
+		  AND entity_id = ?
+	`, mergeFrom.ID).Error
+	if err != nil {
+		return fmt.Errorf("failed to mark unverified venue revisions: %w", err)
+	}
 	return nil
 }
 
