@@ -37,7 +37,11 @@ interface VenueDetailProps {
    * stamps `dataUpdatedAt: 0`, which would make every venue page refetch a
    * histogram it just rendered; `initialData` is treated as fresh for the usual
    * staleTime, which is what a server-rendered strip should be. The cost is
-   * this prop passing through two components that do nothing else with it.
+   * this prop passing through two components that do nothing else with it, and
+   * a strip that can lag by up to the server read's own window (an hour): on
+   * the day a venue's newest show graduates from upcoming to past, the current
+   * year can be missing from the strip for that long. Acceptable for an archive
+   * index; it would not be for the rows themselves.
    */
   initialPastYears?: VenueShowYearsResponse
 }

@@ -8,7 +8,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
-import { getArchiveYears, getVenue } from '@/features/venues/archiveApi'
+import { archiveData, getArchiveYears, getVenue } from '@/features/venues/archiveApi'
 
 interface VenuePageProps {
   params: Promise<{ slug: string }>
@@ -16,7 +16,7 @@ interface VenuePageProps {
 
 export async function generateMetadata({ params }: VenuePageProps): Promise<Metadata> {
   const { slug } = await params
-  const venue = await getVenue(slug)
+  const venue = archiveData(await getVenue(slug))
 
   if (venue) {
     return {
@@ -58,7 +58,7 @@ export default async function VenuePage({ params }: VenuePageProps) {
   // Both reads take the slug from `params`, so neither waits on the other. The
   // histogram is thrown away for a venue that turns out not to exist, which the
   // proxy's existence check already filters before this route renders.
-  const [venueData, pastYears] = await Promise.all([
+  const [venueRead, pastYearsRead] = await Promise.all([
     getVenue(slug),
     // The past-shows year strip, server-side (PSY-1756).
     //
@@ -73,6 +73,13 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // venue page down with it.
     getArchiveYears(slug),
   ])
+
+  // Unchanged from before this ticket: ANY failed venue read is a not-found
+  // here, indeterminate or not. Narrowing that to a positive 404 would be a
+  // change to a shipped route's failure semantics, which is not this ticket's
+  // to make.
+  const venueData = archiveData(venueRead)
+  const pastYears = archiveData(pastYearsRead)
 
   if (!venueData) {
     notFound()

@@ -72,13 +72,27 @@ describe('venues/[slug]/shows/[year] generateMetadata', () => {
   })
 
   /**
-   * The whole point of keeping `?page=` out of the path: this function takes
-   * only params, so there is no code path on which a page number can reach the
-   * canonical. Intra-year pages therefore canonicalize to the year root by
-   * construction rather than by remembering to strip something.
+   * The whole point of keeping `?page=` out of the path: intra-year pages
+   * canonicalize to the year root by construction.
+   *
+   * Asserted BEHAVIOURALLY. An earlier version of this test checked
+   * `generateMetadata.length === 1`, which is worthless — a destructured
+   * parameter counts as one whether or not it destructures `searchParams`, so
+   * the exact regression it named would have shipped green. Handing the
+   * function a searchParams-carrying argument and demanding the canonical not
+   * move is what actually holds the line.
    */
-  it('takes no searchParams, so every ?page= of the year shares this canonical', async () => {
-    expect(generateMetadata.length).toBe(1)
+  it('ignores searchParams, so every ?page= of the year shares one canonical', async () => {
+    mockVenueAndYears(buildVenue(), [{ year: 2025, count: 161 }])
+
+    const meta = await generateMetadata({
+      params: params('the-rebel-lounge', '2025'),
+      searchParams: Promise.resolve({ page: '4' }),
+    } as unknown as Parameters<typeof generateMetadata>[0])
+
+    expect(meta.alternates?.canonical).toBe(
+      'https://psychichomily.com/venues/the-rebel-lounge/shows/2025'
+    )
   })
 
   it('describes the archive with the venue, the place and the count', async () => {
@@ -119,13 +133,53 @@ describe('venues/[slug]/shows/[year] generateMetadata', () => {
     expect(meta.robots).toEqual({ index: false, follow: false })
   })
 
-  it('noindexes a missing venue without asking the backend for a year', async () => {
+  it('noindexes a venue the backend says is gone', async () => {
     fetchMock.mockResolvedValueOnce(errorResponse(404))
     fetchMock.mockResolvedValueOnce(errorResponse(404))
 
     const meta = await generateMetadata({ params: params('no-such-venue', '2025') })
 
     expect(meta.robots).toEqual({ index: false, follow: false })
+    // Both reads go out together — the histogram does not wait on the venue.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  /**
+   * The sharp edge of this route: the proxy fails OPEN on a 5xx, so a backend
+   * blip lands real archive URLs on this page. If the head answered that with
+   * `noindex` it would be issuing a de-index instruction — at HTTP 200, with no
+   * retry signal — for a URL that was fine a moment ago. "Could not tell" must
+   * never be published as "not there".
+   */
+  it.each([500, 429, 503])(
+    'does NOT noindex when the backend answered %d',
+    async status => {
+      fetchMock.mockResolvedValueOnce(errorResponse(status))
+      fetchMock.mockResolvedValueOnce(errorResponse(status))
+
+      const meta = await generateMetadata({
+        params: params('the-rebel-lounge', '2025'),
+      })
+
+      expect(meta.robots).toBeUndefined()
+      expect(meta.alternates?.canonical).toBe(
+        'https://psychichomily.com/venues/the-rebel-lounge/shows/2025'
+      )
+    }
+  )
+
+  it('does NOT noindex when only the histogram is unavailable', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+    fetchMock.mockResolvedValueOnce(errorResponse(500))
+
+    const meta = await generateMetadata({ params: params('the-rebel-lounge', '2025') })
+
+    expect(meta.robots).toBeUndefined()
+    expect(meta.title).toBe('The Rebel Lounge shows in 2025')
+    // No count is claimed when nothing could be counted.
+    expect(meta.description).toBe(
+      'Every show we have on record at The Rebel Lounge in Phoenix, AZ during 2025.'
+    )
   })
 
   /**

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
-import { proxy } from './proxy'
+import {
+  proxy,
+  VENUE_ARCHIVE_MAX_YEAR,
+  VENUE_ARCHIVE_MIN_YEAR,
+} from './proxy'
 import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 
 function requestFor(pathname: string): NextRequest {
@@ -10,12 +14,16 @@ function requestFor(pathname: string): NextRequest {
   } as unknown as NextRequest
 }
 
-function mockHistogram(years: Array<{ year: number; count: number }>) {
+/**
+ * The venue-shows page the proxy probes: scoped to one year, `limit=1`, and
+ * answered by `total` rather than by the status.
+ */
+function mockYearPage(total: number) {
   return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(JSON.stringify({ venue_id: 7, time_filter: 'past', years }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })
+    new Response(
+      JSON.stringify({ venue_id: 7, shows: [], total, limit: 1, offset: 0 }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )
   )
 }
 
@@ -42,34 +50,32 @@ describe('proxy — venue year archives', () => {
   })
 
   it('lets a year the venue has past shows in through', async () => {
-    const fetchMock = mockHistogram([
-      { year: 2025, count: 14 },
-      { year: 2024, count: 60 },
-    ])
+    const fetchMock = mockYearPage(60)
 
     const response = await proxy(requestFor(`${ARCHIVE}/2024`))
 
-    // A GET, not the HEAD every other check uses: the histogram answers 200 for
-    // any venue that exists, so only its body can settle the year.
+    // A GET, not the HEAD every other check uses: the endpoint answers 200 for
+    // any venue that exists, so only its body can settle the year. Scoped to
+    // the ONE year asked about, with limit=1 — the whole-history histogram
+    // would make a walk of the 8,100-year URL space a full aggregate per hit.
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8080/venues/the-van-buren/shows/years?time_filter=past',
-      { method: 'GET', redirect: 'manual' }
+      'http://localhost:8080/venues/the-van-buren/shows?time_filter=past&year=2024&limit=1',
+      expect.objectContaining({ method: 'GET', redirect: 'manual' })
     )
     expect(response.status).toBe(200)
   })
 
-  it('turns a year with no past shows into a real 404', async () => {
-    mockHistogram([{ year: 2025, count: 14 }])
+  it('bounds the probe with a timeout so a slow backend cannot pin the edge', async () => {
+    const fetchMock = mockYearPage(60)
 
-    const response = await proxy(requestFor(`${ARCHIVE}/1999`))
+    await proxy(requestFor(`${ARCHIVE}/2024`))
 
-    expect(response.status).toBe(404)
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('treats a zero-count year as absent', async () => {
-    // The backend never emits one, but a year that reached the strip with no
-    // rows behind it would render an empty archive at HTTP 200.
-    mockHistogram([{ year: 1999, count: 0 }])
+  it('turns a year with no past shows into a real 404', async () => {
+    mockYearPage(0)
 
     const response = await proxy(requestFor(`${ARCHIVE}/1999`))
 
@@ -87,7 +93,7 @@ describe('proxy — venue year archives', () => {
   it.each(['20xx', '202', '20255', 'years', '2024a'])(
     '404s the malformed year %p without a round trip',
     async segment => {
-      const fetchMock = mockHistogram([{ year: 2024, count: 60 }])
+      const fetchMock = mockYearPage(60)
 
       const response = await proxy(requestFor(`${ARCHIVE}/${segment}`))
 
@@ -99,7 +105,7 @@ describe('proxy — venue year archives', () => {
   it.each(['0000', '1899'])(
     '404s the out-of-range year %p without a round trip',
     async segment => {
-      const fetchMock = mockHistogram([{ year: 2024, count: 60 }])
+      const fetchMock = mockYearPage(60)
 
       const response = await proxy(requestFor(`${ARCHIVE}/${segment}`))
 
@@ -112,9 +118,27 @@ describe('proxy — venue year archives', () => {
    * The proxy keeps its own copy of the window (it does not import `features/`,
    * matching the scenes and charts branches), so this is what stops the two
    * drifting into a soft-404 or a needless round trip.
+   *
+   * It compares the two COPIES, not each against a literal: narrowing the
+   * proxy's minimum to the neighbouring `FIRST_TRACKED_YEAR` (2015) would hard
+   * 404 every pre-2015 archive the sitemap still advertises, and a
+   * literal-versus-literal assertion would stay green through it.
    */
   it('applies the same year window the archive route accepts', () => {
-    expect([ARCHIVE_YEAR_RANGE.min, ARCHIVE_YEAR_RANGE.max]).toEqual([1900, 9999])
+    expect(VENUE_ARCHIVE_MIN_YEAR).toBe(ARCHIVE_YEAR_RANGE.min)
+    expect(VENUE_ARCHIVE_MAX_YEAR).toBe(ARCHIVE_YEAR_RANGE.max)
+  })
+
+  /** The lower boundary itself must pass through, not just fail to 404. */
+  it('probes the backend for the earliest in-range year', async () => {
+    const fetchMock = mockYearPage(3)
+
+    const response = await proxy(
+      requestFor(`${ARCHIVE}/${ARCHIVE_YEAR_RANGE.min}`)
+    )
+
+    expect(fetchMock).toHaveBeenCalled()
+    expect(response.status).toBe(200)
   })
 
   it.each([500, 429, 403])(
@@ -128,9 +152,9 @@ describe('proxy — venue year archives', () => {
     }
   )
 
-  it('fails OPEN when the histogram body is an unrecognised shape', async () => {
+  it('fails OPEN when the body is an unrecognised shape', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ years: null }), {
+      new Response(JSON.stringify({ total: null }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
@@ -157,8 +181,63 @@ describe('proxy — venue year archives', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/entities/venues/the-van-buren/exists',
-      { method: 'HEAD', redirect: 'manual' }
+      expect.objectContaining({ method: 'HEAD', redirect: 'manual' })
     )
+  })
+
+  /**
+   * The retired `?year=` form. It shipped days earlier as a shareable address
+   * (PSY-1753), so these links exist; without the redirect they resolve to the
+   * unfiltered archive while the URL claims one year.
+   */
+  describe('the retired ?year= form', () => {
+    it('308s to the year path, with no query left behind', async () => {
+      const fetchMock = mockStatus(200)
+
+      const response = await proxy(
+        requestFor('/venues/the-van-buren?year=2025')
+      )
+
+      expect(response.status).toBe(308)
+      expect(response.headers.get('location')).toBe(
+        'http://localhost:3000/venues/the-van-buren/shows/2025'
+      )
+      // Settled locally: no existence probe is spent on a redirect.
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('carries ?page= across, since the page is a different axis', async () => {
+      const response = await proxy(
+        requestFor('/venues/the-van-buren?year=2025&page=3')
+      )
+
+      expect(response.headers.get('location')).toBe(
+        'http://localhost:3000/venues/the-van-buren/shows/2025?page=3'
+      )
+    })
+
+    it.each(['garbage', '999', '1899', ''])(
+      'leaves ?year=%p alone and lets the venue page render',
+      async year => {
+        const fetchMock = mockStatus(200)
+
+        const response = await proxy(
+          requestFor(`/venues/the-van-buren?year=${year}`)
+        )
+
+        expect(response.status).toBe(200)
+        // Fell through to the generic existence check rather than redirecting.
+        expect(fetchMock).toHaveBeenCalled()
+      }
+    )
+
+    it('does not touch a bare venue page', async () => {
+      mockStatus(200)
+
+      const response = await proxy(requestFor('/venues/the-van-buren'))
+
+      expect(response.status).toBe(200)
+    })
   })
 
   /** Anything else under a venue is somebody else's route; pass it through. */

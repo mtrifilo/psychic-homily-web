@@ -5,6 +5,7 @@ import {
   VenueYearArchiveContent,
 } from '@/features/venues/yearArchivePage'
 import {
+  archiveData,
   archiveYearExists,
   getArchiveFirstPage,
   getArchiveYears,
@@ -78,13 +79,28 @@ export default async function VenueYearArchivePage({
   // the venue row first. Serialising them would put a full round trip on the
   // critical path of every cold render, and by the time this route renders the
   // proxy's existence branch has already filtered the years that have no rows.
-  const [venue, years, firstPage] = await Promise.all([
-    getVenue(slug),
+  const [venueRead, yearsRead, firstPageRead] = await Promise.all([
+    getVenue(slug, 'venue-year-archive'),
     getArchiveYears(slug),
     getArchiveFirstPage(slug, parsedYear),
   ])
 
-  if (!venue || !years || !archiveYearExists(years, parsedYear)) {
+  // 404 only on a POSITIVE absence. A read that failed is not an answer, and
+  // treating it as one is what turns a backend blip into a not-found body for
+  // every archive on the site — which the proxy deliberately does not do
+  // either (it fails open on anything that is not a backend 404).
+  const venue = archiveData(venueRead)
+  if (venueRead.status === 'missing') {
+    notFound()
+  }
+  if (yearsRead.status === 'ok' && !archiveYearExists(yearsRead, parsedYear)) {
+    notFound()
+  }
+  // The venue is what every other piece hangs off. Without it there is nothing
+  // to render, so this falls through to the not-found body — but by way of the
+  // page rather than the head, and `generateMetadata` has already declined to
+  // stamp `noindex` on a URL it could not check.
+  if (!venue) {
     notFound()
   }
 
@@ -93,8 +109,8 @@ export default async function VenueYearArchivePage({
       venue={venue}
       venueSlug={venue.slug || slug}
       year={parsedYear}
-      years={years}
-      firstPage={firstPage}
+      years={archiveData(yearsRead)}
+      firstPage={archiveData(firstPageRead)}
     />
   )
 }

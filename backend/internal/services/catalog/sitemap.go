@@ -287,8 +287,12 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 	}
 	// Deterministic order, so two fetches of an unchanged catalogue diff cleanly
 	// — the same reason entriesFor sorts. Sorted in Go rather than SQL because
-	// the composite slug is assembled here, and ordering by its parts would put
-	// "2025" after "20" for a venue whose slug ends in a digit.
+	// the composite slug is assembled here, and the two orders are not the same:
+	// ordering by (slug, year) in SQL groups a venue's years together, while
+	// ordering the assembled string interleaves venues whose slugs are prefixes
+	// of one another ("club-2/shows/2025" sorts before "club-2-x/shows/1999",
+	// because '/' is below '-'). The emitted document has to be sorted the way
+	// it is read.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
 	return entries, nil
 }

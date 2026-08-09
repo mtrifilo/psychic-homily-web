@@ -31,7 +31,12 @@ import { Breadcrumb } from '@/components/shared'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { VenuePastShows } from './components/VenuePastShows'
-import { archiveYearExists, getArchiveYears, getVenue } from './archiveApi'
+import {
+  archiveData,
+  archiveYearExists,
+  getArchiveYears,
+  getVenue,
+} from './archiveApi'
 import { venueArchiveHref } from './showArchive'
 import type { Venue, VenueShowsResponse, VenueShowYearsResponse } from './types'
 
@@ -48,30 +53,48 @@ function archiveUrl(slug: string, year: number): string {
  * locked decision for intra-year pages, and it holds structurally because
  * nothing in this function can see the page number.
  *
- * A year the venue has no past shows in gets `noindex` and a "not found" title
- * as a belt-and-braces pair with the page component's `notFound()`: the page is
- * what returns the 404 status, and this is what keeps the head honest on any
- * path where a body still renders.
+ * `noindex` is emitted ONLY on a positive absence: the backend said the venue
+ * is not there, or it answered with a histogram that does not carry the year.
+ * A read that FAILED gets a plain title and no robots directive, because
+ * "noindex" is an instruction, not a shrug — stamped on a live archive during a
+ * backend blip it de-indexes a working URL at HTTP 200, with no retry signal
+ * and no way to notice. The proxy fails open on exactly those responses; a
+ * fail-closed head here would cancel that out.
  */
 export async function buildVenueYearArchiveMetadata(
   slug: string,
   year: number
 ): Promise<Metadata> {
-  const [venue, years] = await Promise.all([
-    getVenue(slug),
+  const [venueRead, yearsRead] = await Promise.all([
+    getVenue(slug, 'venue-year-archive'),
     getArchiveYears(slug),
   ])
+  const venue = archiveData(venueRead)
 
-  if (!venue || !archiveYearExists(years, year)) {
+  if (venueRead.status === 'missing' || (venue && yearsRead.status === 'ok' && !archiveYearExists(yearsRead, year))) {
     return { title: 'Shows not found', robots: { index: false, follow: false } }
   }
 
-  const count = years?.years.find(entry => entry.year === year)?.count ?? 0
+  // Could not tell. Say as little as possible and instruct nothing: the year is
+  // still the address, so the canonical stays honest even without the venue.
+  if (!venue) {
+    return {
+      title: `Shows in ${year}`,
+      alternates: { canonical: archiveUrl(slug, year) },
+    }
+  }
+
+  const count =
+    yearsRead.status === 'ok'
+      ? (yearsRead.data.years.find(entry => entry.year === year)?.count ?? 0)
+      : null
   const title = `${venue.name} shows in ${year}`
   const where = [venue.city, venue.state].filter(Boolean).join(', ')
-  const description = `Every show we have on record at ${venue.name}${
-    where ? ` in ${where}` : ''
-  } during ${year} — ${count} ${count === 1 ? 'show' : 'shows'}.`
+  const scope = `at ${venue.name}${where ? ` in ${where}` : ''} during ${year}`
+  const description =
+    count === null
+      ? `Every show we have on record ${scope}.`
+      : `Every show we have on record ${scope} — ${count} ${count === 1 ? 'show' : 'shows'}.`
   const canonical = archiveUrl(venue.slug || slug, year)
 
   return {
@@ -103,7 +126,12 @@ export function VenueYearArchiveContent({
   /** The venue's canonical slug, resolved once by the route. */
   venueSlug: string
   year: number
-  years: VenueShowYearsResponse
+  /**
+   * Null when the histogram read failed. The strip then appears after the
+   * client's own fetch rather than in the HTML — degraded, not broken, and
+   * strictly better than 404ing an archive over a transient blip.
+   */
+  years: VenueShowYearsResponse | null
   firstPage: VenueShowsResponse | null
 }) {
   const venueHref = `/venues/${venueSlug}`
@@ -137,7 +165,7 @@ export function VenueYearArchiveContent({
         venueState={venue.state}
         venueTimezone={venue.timezone}
         activeYear={year}
-        initialYears={years}
+        initialYears={years ?? undefined}
         // Null when the page read failed. The section then fetches for itself
         // and owns its error state, which is strictly better than throwing away
         // a page whose navigation is intact.

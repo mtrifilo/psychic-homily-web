@@ -22,6 +22,7 @@ vi.mock('@/features/blog', () => ({
 }))
 
 import sitemap, { generateSitemaps } from './sitemap'
+import { ALL_SHARD_IDS } from './sitemap-shards'
 
 const ISO = '2026-07-20T12:00:00Z'
 
@@ -32,6 +33,7 @@ function emptyFamilies(
     shows: [],
     artists: [],
     venues: [],
+    venue_years: [],
     scenes: [],
     scene_weeks: [],
     labels: [],
@@ -65,16 +67,15 @@ describe('sitemap', () => {
     vi.restoreAllMocks()
   })
 
+  /**
+   * Driven from the shared shard list rather than a hand-written enumeration.
+   * The hand-written one silently skipped `venue_years` when it was added
+   * (PSY-1756) while still claiming to cover "every entity family"; a list this
+   * function is itself built from cannot.
+   */
   it('generateSitemaps lists the pages shard plus every entity family', async () => {
     const ids = (await generateSitemaps()).map(s => s.id)
-    expect(ids).toContain('pages')
-    expect(ids).toContain('shows')
-    expect(ids).toContain('scenes')
-    expect(ids).toContain('scene_weeks')
-    expect(ids).toContain('labels')
-    expect(ids).toContain('releases')
-    expect(ids).toContain('festivals')
-    expect(ids).toContain('tags')
+    expect(ids).toEqual([...ALL_SHARD_IDS])
   })
 
   it('maps every entity family onto its URL prefix', async () => {
@@ -84,8 +85,14 @@ describe('sitemap', () => {
       const body: Record<string, unknown> = emptyFamilies({
         [family]: [{ slug: `a-${family}`, updated_at: ISO }],
       })
+      // The composite-slug families carry a whole path tail as their slug.
       if (family === 'scene_weeks') {
         body.scene_weeks = [{ slug: 'phoenix-az/2026-W31', updated_at: ISO }]
+      }
+      if (family === 'venue_years') {
+        body.venue_years = [
+          { slug: 'the-van-buren/shows/2025', updated_at: ISO },
+        ]
       }
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -100,6 +107,9 @@ describe('sitemap', () => {
     )
     expect(await urlsOf('venues')).toContain(
       'https://psychichomily.com/venues/a-venues'
+    )
+    expect(await urlsOf('venue_years')).toContain(
+      'https://psychichomily.com/venues/the-van-buren/shows/2025'
     )
     expect(await urlsOf('scenes')).toContain(
       'https://psychichomily.com/scenes/a-scenes'

@@ -214,17 +214,20 @@ const VENUE_ARCHIVE_YEAR_SEGMENT = /^\d{4}$/
 
 /**
  * The year window the archive route accepts. MUST stay in lockstep with
- * `ARCHIVE_YEAR_RANGE` in features/venues/showArchive (asserted by
- * proxy.venue-years.test.ts); the proxy keeps its own copy rather than
- * importing `features/`, matching the scenes and charts branches.
+ * `ARCHIVE_YEAR_RANGE` in features/venues/showArchive; the proxy keeps its own
+ * copy rather than importing `features/`, matching the scenes and charts
+ * branches, and EXPORTS it so proxy.venue-years.test.ts can assert the two
+ * copies are EQUAL rather than assert each against a literal.
  *
  * Not decoration, for exactly the reason FIRST_TRACKED_YEAR is not: the page
  * 404s a year outside this window, and a `notFound()` the proxy waved through
  * commits a 404 BODY at HTTP 200 — the soft-404 this whole file exists to
- * prevent.
+ * prevent. The upper bound is enforced by VENUE_ARCHIVE_YEAR_SEGMENT (four
+ * digits cannot exceed 9999) rather than by a comparison that could never fire;
+ * it is named here so the lockstep assertion has both ends to compare.
  */
-const VENUE_ARCHIVE_MIN_YEAR = 1900
-const VENUE_ARCHIVE_MAX_YEAR = 9999
+export const VENUE_ARCHIVE_MIN_YEAR = 1900
+export const VENUE_ARCHIVE_MAX_YEAR = 9999
 
 /**
  * Returns the global 404 rewrite response (status 404 + render
@@ -349,6 +352,40 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return notFoundResponse(request)
   }
 
+  // The retired `?year=` form (PSY-1756). PSY-1753 shipped it days earlier as a
+  // deliberately shareable address, so those links exist in the wild — and with
+  // the read removed they would otherwise resolve silently to the UNFILTERED
+  // archive, showing a reader every year while their URL says one.
+  //
+  // Handled here rather than in next.config's `redirects()` because that layer
+  // carries unmatched query params through to the destination, landing the
+  // reader on `/shows/2025?year=2025` — a second address for a page whose whole
+  // premise is having exactly one. Built from `venueArchiveHref`'s shape, and
+  // only for a year the archive would accept: anything else falls through and
+  // the venue page renders as it does today, ignoring the param.
+  if (
+    entityType === 'venues' &&
+    segments.length === 3 &&
+    slug &&
+    !RESERVED_SEGMENTS[entityType]?.has(slug)
+  ) {
+    const legacyYear = request.nextUrl.searchParams.get('year')
+    if (
+      legacyYear &&
+      VENUE_ARCHIVE_YEAR_SEGMENT.test(legacyYear) &&
+      Number(legacyYear) >= VENUE_ARCHIVE_MIN_YEAR
+    ) {
+      const target = new URL(
+        `/venues/${slug}/${VENUE_ARCHIVE_SEGMENT}/${legacyYear}`,
+        request.url
+      )
+      // The page number is a different axis and survives the move unchanged.
+      const page = request.nextUrl.searchParams.get('page')
+      if (page) target.searchParams.set('page', page)
+      return NextResponse.redirect(target, 308)
+    }
+  }
+
   // Venue year archives: `/venues/<slug>/shows/<year>` (PSY-1756). One level
   // BELOW the entity-detail shape the generic check handles, so like the scene
   // periods it needs its own branch or every bad year soft-404s.
@@ -374,8 +411,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     // says, and this is the half of the space a crawler can walk for free.
     if (
       !VENUE_ARCHIVE_YEAR_SEGMENT.test(year) ||
-      Number(year) < VENUE_ARCHIVE_MIN_YEAR ||
-      Number(year) > VENUE_ARCHIVE_MAX_YEAR
+      Number(year) < VENUE_ARCHIVE_MIN_YEAR
     ) {
       return notFoundResponse(request)
     }
@@ -400,6 +436,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   return existenceCheck(request, buildCheckUrl(slug))
 }
+
+/**
+ * How long an existence probe may take before the proxy gives up and lets the
+ * page render. Generous relative to the endpoints it calls (all indexed
+ * lookups) and far below any platform function timeout, so the budget that
+ * binds is this one rather than the invocation's.
+ */
+const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
 
 /**
  * Probe a backend URL and turn the result into a pass-through or a real 404.
@@ -435,6 +479,11 @@ async function existenceCheck(
       // following any backend redirect chain. A 2xx means the slug resolves;
       // only a backend 404 is treated as "missing".
       redirect: 'manual',
+      // Without this a slow-but-alive backend pins one middleware invocation
+      // per request until the platform's own timeout — across EVERY proxied
+      // entity prefix, not just the one being probed. An abort lands in the
+      // catch below, which is the fail-open path, so the page still renders.
+      signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
 
     // 404 from the backend = slug genuinely does not exist → real 404.
@@ -465,20 +514,23 @@ async function existenceCheck(
 }
 
 /**
- * Whether a venue actually has past shows in `year`, per its own histogram.
+ * Whether a venue actually has past shows in `year`.
  *
- * The histogram is the same authority the page renders from, the year strip is
- * built from, and the `venue_years` sitemap family is projected from — so a
- * year that 200s here is a year all four agree exists.
+ * Asked of the venue-shows LIST scoped to that one year, not of the year
+ * histogram, and the difference is the whole point. Both are the same predicate
+ * — `venueShowsBaseQuery(venue, "past", year)`, which is also what the page
+ * renders and what the `venue_years` sitemap family is projected from — but the
+ * histogram enumerates the venue's ENTIRE past history to answer a question
+ * about one year, uncached, over a URL space of 8,100 in-range years per venue.
+ * A crawler (or anyone with curl) walking that space would pay a full-history
+ * aggregate per request. Scoped to a year, the backend's sargable UTC bounds
+ * turn it into an index range and `limit=1` keeps the body to a single row.
  *
- * COST, stated because it is the one uncached read on a crawl surface:
- * `/venues/{slug}/shows/years` aggregates the venue's whole past history behind
- * the venue-local timezone lateral, proxy fetches get no Data Cache, and the
- * page then reads it again through its own (cached) fetch. It is affordable
- * because the shape and range checks above settle the walkable half of the URL
- * space for free, so only a plausible year reaches it. A status-bearing
- * existence endpoint on the backend would make it a HEAD; that is the shape to
- * reach for if this ever shows up in the backend's latency profile.
+ * `total` is what settles it: this endpoint answers 200 for any venue that
+ * exists, so its STATUS says nothing about the year — which is why this is the
+ * one probe in this file that reads a body. A status-bearing existence endpoint
+ * would make it a HEAD like every other branch; that is the shape to reach for
+ * if this ever shows up in the backend's latency profile.
  */
 function venueArchiveYearCheck(
   request: NextRequest,
@@ -487,18 +539,14 @@ function venueArchiveYearCheck(
 ): Promise<NextResponse> {
   return existenceCheck(
     request,
-    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/years?time_filter=past`,
+    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows` +
+      `?time_filter=past&year=${year}&limit=1`,
     body => {
       // Untrusted wire data. An unrecognised shape returns null ("could not
       // tell"), which existenceCheck reads as a pass-through, not a 404.
-      const years = (body as { years?: unknown })?.years
-      if (!Array.isArray(years)) return null
-      return years.some(entry => {
-        const row = entry as { year?: unknown; count?: unknown }
-        return (
-          row?.year === year && typeof row.count === 'number' && row.count > 0
-        )
-      })
+      const total = (body as { total?: unknown })?.total
+      if (typeof total !== 'number' || !Number.isFinite(total)) return null
+      return total > 0
     }
   )
 }

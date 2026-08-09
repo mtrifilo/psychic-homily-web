@@ -225,11 +225,11 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   const sentTimezone = timezone || undefined
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined
-  // Last line of defence, not the URL guard. Callers own year validation —
-  // the venue archive runs `parseArchiveYear` (showArchive.ts) over the raw
-  // `?year=` before it ever reaches here, against the same bounds the backend
-  // enforces. This drops anything outside those bounds so no caller can turn a
-  // stray argument into a 422.
+  // Last line of defence, not the URL guard. Callers own year validation — the
+  // archive route runs `parseArchiveYear` (showArchive.ts) over its `{year}`
+  // path segment before it ever reaches here, against the same bounds the
+  // backend enforces. This drops anything outside those bounds so no caller can
+  // turn a stray argument into a 422.
   const sentYear =
     year !== undefined &&
     Number.isInteger(year) &&

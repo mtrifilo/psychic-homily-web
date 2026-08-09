@@ -27,35 +27,59 @@ import type { Venue, VenueShowsResponse, VenueShowYearsResponse } from './types'
 export const ARCHIVE_REVALIDATE_SECONDS = 3600
 
 /**
- * Read one JSON document for the archive, or null.
+ * The three answers a server read can give, kept apart on purpose.
  *
- * Null rather than throw, uniformly: a missing venue and an unreachable backend
- * both have to reach the page component, which is the only place that may call
- * `notFound()`. Calling it from a helper module renders the not-found body but
- * leaves the status at HTTP 200 (measured on the scene pages, PSY-906) — and on
- * these routes the 404 STATUS is produced one layer earlier still, by the
- * existence branch in proxy.ts, because a `notFound()` reached after the shell
- * has streamed cannot change the status at all.
+ * "The backend said this does not exist" and "the backend did not answer" are
+ * different facts, and collapsing them into `null` is what turns a transient
+ * outage into an SEO incident: the page 404s a real archive and the metadata
+ * stamps `noindex` on it, at HTTP 200, with no retry signal — an active
+ * de-index instruction for a URL that was fine ten seconds ago. Only `missing`
+ * may produce either.
+ *
+ * Nothing here throws, because the page component is the only place that may
+ * call `notFound()`; from a helper it renders the not-found body and leaves the
+ * status at 200 (measured on the scene pages, PSY-906). On these routes the 404
+ * STATUS comes from one layer earlier still — the existence branch in proxy.ts —
+ * because a `notFound()` reached after the shell has streamed cannot set it.
+ */
+export type ArchiveRead<T> =
+  | { status: 'ok'; data: T }
+  /** The backend answered 404: this thing genuinely is not there. */
+  | { status: 'missing' }
+  /** 5xx, a timeout, a network error, an unparseable body: we cannot tell. */
+  | { status: 'unavailable' }
+
+/** Narrowing helper for the common "did we get it" question. */
+export function archiveData<T>(read: ArchiveRead<T>): T | null {
+  return read.status === 'ok' ? read.data : null
+}
+
+/**
+ * Read one JSON document for the archive.
+ *
+ * `timeoutMs` is per caller because the callers disagree about what a failed
+ * read costs. A read whose failure degrades gracefully wants a tight budget so
+ * a slow backend cannot hold the visitor's render open; a read whose failure
+ * takes the whole page down wants the backend's own budget, because turning a
+ * slow response into a 404 is worse than waiting. Omit it for no timeout.
  */
 async function readArchiveJson<T>(
   url: string,
   service: string,
-  context: Record<string, unknown>
-): Promise<T | null> {
+  context: Record<string, unknown>,
+  timeoutMs?: number
+): Promise<ArchiveRead<T>> {
   try {
     const res = await fetch(url, {
       next: { revalidate: ARCHIVE_REVALIDATE_SECONDS },
-      // These reads happen at REQUEST time (no generateStaticParams on either
-      // route), so an unresponsive backend would hold the visitor's render open
-      // rather than degrading. The same budget the other request-time server
-      // reads use, for the same reason — and hitting it lands on the null
-      // branch below, which is the pre-ticket behaviour: the section fetches
-      // for itself on the client.
-      signal: createBuildTimeApiSignal(FIRST_SCREEN_FETCH_TIMEOUT_MS),
+      ...(timeoutMs === undefined
+        ? {}
+        : { signal: createBuildTimeApiSignal(timeoutMs) }),
     })
-    if (res.ok) return (await res.json()) as T
+    if (res.ok) return { status: 'ok', data: (await res.json()) as T }
     // 404s are expected for a slug that does not exist; only a real fault is
     // worth a Sentry event.
+    if (res.status === 404) return { status: 'missing' }
     if (res.status >= 500) {
       Sentry.captureMessage(`Venue show archive: API returned ${res.status}`, {
         level: 'error',
@@ -70,7 +94,7 @@ async function readArchiveJson<T>(
       extra: context,
     })
   }
-  return null
+  return { status: 'unavailable' }
 }
 
 /**
@@ -82,13 +106,19 @@ async function readArchiveJson<T>(
  * Shared by BOTH venue routes: the detail page and the year archive read a
  * venue the same way, with the same window and the same failure handling, and
  * two copies of that had already drifted on whether the slug is URL-encoded.
+ *
+ * NO timeout, deliberately. Both callers treat a failed venue read as "this
+ * page does not exist", so a budget here would convert a slow backend into a
+ * 404 for a venue that is perfectly real — a failure mode the venue page did
+ * not have before this module existed. `surface` separates the two callers in
+ * Sentry, so a regression specific to the archive route is visible.
  */
-export const getVenue = cache((idOrSlug: string) =>
-  readArchiveJson<Venue>(
-    venueEndpoints.GET(encodeURIComponent(idOrSlug)),
-    'venue-page',
-    { idOrSlug }
-  )
+export const getVenue = cache(
+  (idOrSlug: string, surface: 'venue-page' | 'venue-year-archive' = 'venue-page') =>
+    readArchiveJson<Venue>(venueEndpoints.GET(encodeURIComponent(idOrSlug)), surface, {
+      idOrSlug,
+      surface,
+    })
 )
 
 /**
@@ -98,12 +128,17 @@ export const getVenue = cache((idOrSlug: string) =>
  * same filter the year strip, the proxy's existence branch and the
  * `venue_years` sitemap family are built from. All four must agree, or the site
  * advertises a year it 404s.
+ *
+ * Timed out at the first-screen budget: both callers degrade to the pre-ticket
+ * behaviour on a failed read (the strip appears after the client's own fetch
+ * instead of in the HTML), so a slow backend must not hold the render open.
  */
 export const getArchiveYears = cache((slug: string) =>
   readArchiveJson<VenueShowYearsResponse>(
     `${venueEndpoints.SHOW_YEARS(encodeURIComponent(slug))}?time_filter=past`,
     'venue-year-archive-years',
-    { slug }
+    { slug },
+    FIRST_SCREEN_FETCH_TIMEOUT_MS
   )
 )
 
@@ -117,22 +152,31 @@ export const getArchiveYears = cache((slug: string) =>
  * show's own venue-local timezone", and the year filter is venue-local too. It
  * is omitted rather than filled in because the only zone this module could send
  * is the SERVER's, which is a fact about the machine and not about the reader.
+ *
+ * Timed out for the same reason as the histogram: an unseeded archive still
+ * renders, it just fetches its rows on the client.
  */
 export const getArchiveFirstPage = cache((slug: string, year: number) =>
   readArchiveJson<VenueShowsResponse>(
     `${venueEndpoints.SHOWS(encodeURIComponent(slug))}` +
       `?time_filter=past&year=${year}&limit=${VENUE_PAST_SHOWS_PAGE_LIMIT}`,
     'venue-year-archive-page',
-    { slug, year }
+    { slug, year },
+    FIRST_SCREEN_FETCH_TIMEOUT_MS
   )
 )
 
-/** Whether this venue has any past show in `year`, per the histogram. */
+/**
+ * Whether the histogram POSITIVELY says this venue has past shows in `year`.
+ *
+ * Only ever true on a successful read. A caller that needs to distinguish "no"
+ * from "could not tell" must check the read's status itself — this returning
+ * false is not evidence the year is absent.
+ */
 export function archiveYearExists(
-  years: VenueShowYearsResponse | null,
+  years: ArchiveRead<VenueShowYearsResponse>,
   year: number
 ): boolean {
-  return (years?.years ?? []).some(
-    entry => entry.year === year && entry.count > 0
-  )
+  if (years.status !== 'ok') return false
+  return years.data.years.some(entry => entry.year === year && entry.count > 0)
 }

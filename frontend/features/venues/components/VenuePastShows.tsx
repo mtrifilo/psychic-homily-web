@@ -409,7 +409,13 @@ export function VenuePastShows({
         }
       />
 
-      {yearEntries.length > 1 && (
+      {/* Rendered for a SINGLE year too, which it was not before PSY-1756.
+          A one-year venue's archive is still a document with its own URL, and
+          the sitemap announces it — so suppressing the strip left that URL with
+          no inbound link anywhere on the site, next to a venue page carrying
+          the identical rows. An orphaned near-duplicate is the worst of both,
+          and one link is what resolves it. */}
+      {yearEntries.length > 0 && (
         <YearStrip
           ariaLabel="Filter past shows by year"
           allYearsHref={buildHref(null, 1)}
