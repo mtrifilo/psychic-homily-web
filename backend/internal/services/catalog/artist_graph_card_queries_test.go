@@ -9,6 +9,7 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -75,7 +76,7 @@ func TestGraphCardQuerySlimming(t *testing.T) {
 
 	fullArtist := measure(func() { _, _ = svc.GetArtist(artist.ID) })
 	leanArtist := measure(func() { _, _ = svc.GetArtistSummary(artist.ID) })
-	fullShows := measure(func() { _, _, _ = svc.GetShowsForArtist(artist.ID, "UTC", 1, "upcoming") })
+	fullShows := measure(func() { _, _, _ = svc.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 1}) })
 	leanShow := measure(func() { _, _ = svc.GetNextShowForArtist(artist.ID, "UTC") })
 
 	t.Logf("graph-card changed reads (queries): artist %d→%d, next-show %d→%d",

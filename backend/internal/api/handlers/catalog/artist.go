@@ -254,24 +254,40 @@ func (h *ArtistHandler) GetArtistHandler(ctx context.Context, req *GetArtistRequ
 	return &GetArtistResponse{Body: artist}, nil
 }
 
+// defaultArtistShowsTimeFilter is what an omitted time_filter means on BOTH the
+// artist show list and its year histogram. One constant because the histogram
+// drives the list's year picker: if the two defaulted differently, a caller that
+// omitted the param would get a picker counting a set the list never shows.
+const defaultArtistShowsTimeFilter = "upcoming"
+
 // GetArtistShowsRequest represents the request for getting shows for an artist
 type GetArtistShowsRequest struct {
 	ArtistID   string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`
 	Timezone   string `query:"timezone" doc:"Deprecated and ignored. The upcoming/past split is made in each show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only." example:"America/Phoenix"`
 	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"200" doc:"Maximum number of shows to return (max 200)"`
+	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
+	// Bounded rather than open so a nonsense year is a 422 naming the field
+	// rather than an empty page the caller has to diagnose. The ceiling matches
+	// shared.VenueLocalYearCondition's own, above which it stops emitting the
+	// sargable bounds because the Go timestamps stop round-tripping.
+	Year int `query:"year" default:"0" minimum:"0" maximum:"9999" doc:"Filter to a single venue-local calendar year. 0 (default) returns every year. Use /artists/{artist_id}/shows/years to discover which years have shows."`
 }
 
 // GetArtistShowsResponse represents the response for the artist shows endpoint
 type GetArtistShowsResponse struct {
 	Body struct {
-		Shows    []*contracts.ArtistShowResponse `json:"shows" doc:"List of shows"`
+		Shows    []*contracts.ArtistShowResponse `json:"shows" doc:"Page of shows for this artist"`
 		ArtistID uint                            `json:"artist_id" doc:"Artist ID (resolved from slug if provided)"`
-		Total    int64                           `json:"total" doc:"Total number of shows matching filter"`
+		Total    int64                           `json:"total" doc:"Total shows matching the time filter and year, across all pages"`
+		Limit    int                             `json:"limit" doc:"Limit used in query"`
+		Offset   int                             `json:"offset" doc:"Offset used in query"`
+		Year     int                             `json:"year" doc:"Year filter used in query (0 = all years)"`
 	}
 }
 
-// GetArtistShowsHandler handles GET /artists/{artist_id}/shows - returns shows for an artist
+// GetArtistShowsHandler handles GET /artists/{artist_id}/shows - returns a page
+// of shows for an artist.
 func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtistShowsRequest) (*GetArtistShowsResponse, error) {
 	limit := req.Limit
 	if limit == 0 {
@@ -280,27 +296,20 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 
 	timeFilter := req.TimeFilter
 	if timeFilter == "" {
-		timeFilter = "upcoming"
+		timeFilter = defaultArtistShowsTimeFilter
 	}
 
-	// Resolve artist ID from ID or slug
-	var artistID uint
-	if id, parseErr := strconv.ParseUint(req.ArtistID, 10, 32); parseErr == nil {
-		artistID = uint(id)
-	} else {
-		// Look up by slug to get the ID
-		artist, err := h.artistService.GetArtistBySlug(req.ArtistID)
-		if err != nil {
-			var artistErr *apperrors.ArtistError
-			if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
-				return nil, huma.Error404NotFound("Artist not found")
-			}
-			return nil, huma.Error500InternalServerError("Failed to fetch artist", err)
-		}
-		artistID = artist.ID
+	artistID, err := h.resolveArtistID(req.ArtistID)
+	if err != nil {
+		return nil, err
 	}
 
-	shows, total, err := h.artistService.GetShowsForArtist(artistID, req.Timezone, limit, timeFilter)
+	shows, total, err := h.artistService.GetShowsForArtist(artistID, req.Timezone, contracts.ArtistShowsQuery{
+		TimeFilter: timeFilter,
+		Limit:      limit,
+		Offset:     req.Offset,
+		Year:       req.Year,
+	})
 	if err != nil {
 		var artistErr *apperrors.ArtistError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
@@ -313,8 +322,92 @@ func (h *ArtistHandler) GetArtistShowsHandler(ctx context.Context, req *GetArtis
 	resp.Body.Shows = shows
 	resp.Body.ArtistID = artistID
 	resp.Body.Total = total
+	resp.Body.Limit = limit
+	resp.Body.Offset = req.Offset
+	resp.Body.Year = req.Year
 
 	return resp, nil
+}
+
+// GetArtistShowYearsRequest represents the request parameters for an artist's
+// show-year histogram.
+type GetArtistShowYearsRequest struct {
+	ArtistID   string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`
+	TimeFilter string `query:"time_filter" doc:"Count shows by time: upcoming, past, or all" example:"past" enum:"upcoming,past,all"`
+}
+
+// GetArtistShowYearsResponse represents the response for the artist show-years endpoint
+type GetArtistShowYearsResponse struct {
+	Body struct {
+		Years      []contracts.ArtistShowYearCount `json:"years" doc:"Venue-local calendar years that have at least one show, newest first"`
+		ArtistID   uint                            `json:"artist_id" doc:"Artist ID (resolved from slug if provided)"`
+		TimeFilter string                          `json:"time_filter" doc:"Time filter the counts were taken under"`
+	}
+}
+
+// GetArtistShowYearsHandler handles GET /artists/{artist_id}/shows/years -
+// returns the venue-local year histogram behind the show list's year picker.
+//
+// A sibling of the show list rather than a field on it: the picker has to offer
+// every year, so the histogram must NOT narrow to the list's `year` param, and
+// it does not change as the reader pages, so recomputing it per page would be
+// waste. Both surfaces take the same time_filter, and must be requested with the
+// same one or the picker will offer years the list cannot show.
+func (h *ArtistHandler) GetArtistShowYearsHandler(ctx context.Context, req *GetArtistShowYearsRequest) (*GetArtistShowYearsResponse, error) {
+	timeFilter := req.TimeFilter
+	if timeFilter == "" {
+		timeFilter = defaultArtistShowsTimeFilter
+	}
+
+	artistID, err := h.resolveArtistID(req.ArtistID)
+	if err != nil {
+		return nil, err
+	}
+
+	years, err := h.artistService.GetArtistShowYears(artistID, timeFilter)
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to count shows by year", err)
+	}
+
+	resp := &GetArtistShowYearsResponse{}
+	resp.Body.Years = years
+	resp.Body.ArtistID = artistID
+	resp.Body.TimeFilter = timeFilter
+
+	return resp, nil
+}
+
+// resolveArtistID turns the shared {artist_id} path parameter, a numeric id or a
+// slug, into an id, returning a ready-to-surface huma error.
+//
+// Used by exactly three reads: the show list, its year histogram, and the label
+// list. It is NOT a family-wide invariant, and do not read it as one:
+// GetArtistAliasesHandler still parses the parameter itself and answers a slug
+// with 400 rather than resolving it, so /artists/{slug}/aliases fails where its
+// three path-siblings succeed. Widening that is an API decision, not a cleanup.
+//
+// The slug path goes through GetArtistSummaryBySlug, not GetArtistBySlug: the
+// two differ only in the stats block, which is five scalar subqueries this
+// caller discards. An artist page fetches both the show list and its year
+// histogram by slug, so the difference is ten wasted aggregates per load.
+func (h *ArtistHandler) resolveArtistID(idOrSlug string) (uint, error) {
+	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
+		return uint(id), nil
+	}
+
+	artist, err := h.artistService.GetArtistSummaryBySlug(idOrSlug)
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return 0, huma.Error404NotFound("Artist not found")
+		}
+		return 0, huma.Error500InternalServerError("Failed to fetch artist", err)
+	}
+	return artist.ID, nil
 }
 
 // ============================================================================
@@ -336,21 +429,9 @@ type GetArtistLabelsResponse struct {
 
 // GetArtistLabelsHandler handles GET /artists/{artist_id}/labels
 func (h *ArtistHandler) GetArtistLabelsHandler(ctx context.Context, req *GetArtistLabelsRequest) (*GetArtistLabelsResponse, error) {
-	// Resolve artist ID from numeric ID or slug
-	var artistID uint
-	if id, parseErr := strconv.ParseUint(req.ArtistID, 10, 32); parseErr == nil {
-		artistID = uint(id)
-	} else {
-		// Look up by slug to get the ID
-		artist, err := h.artistService.GetArtistBySlug(req.ArtistID)
-		if err != nil {
-			var artistErr *apperrors.ArtistError
-			if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
-				return nil, huma.Error404NotFound("Artist not found")
-			}
-			return nil, huma.Error500InternalServerError("Failed to fetch artist", err)
-		}
-		artistID = artist.ID
+	artistID, err := h.resolveArtistID(req.ArtistID)
+	if err != nil {
+		return nil, err
 	}
 
 	labels, err := h.artistService.GetLabelsForArtist(artistID)

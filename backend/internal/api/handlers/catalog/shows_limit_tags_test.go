@@ -10,7 +10,7 @@ import (
 // isn't silently lowered again. These endpoints list a single entity's shows and
 // can legitimately exceed 50 (e.g. a venue with 60+ upcoming shows). They are
 // public reads rather than admin ones, so they don't belong in the admin
-// offset-pagination guard even now that the venue side offsets. See PSY-1031.
+// offset-pagination guard even now that both of them offset. See PSY-1031.
 func TestEntityShowsLimitTagsAllow200(t *testing.T) {
 	// Both endpoints share one limit contract — lock them to it together so the
 	// cap can't be silently lowered or drift apart between the two.
@@ -37,32 +37,59 @@ func TestEntityShowsLimitTagsAllow200(t *testing.T) {
 	}
 }
 
-// TestVenueShowsPaginationTags pins the venue show list's paging params to the
-// house tags (PSY-1750). The offset tag matches the admin guard's word for word:
-// a venue archive is paged by the same clients as everything else, and a
-// silently different default or floor there is a whole page of shows nobody can
-// reach.
+// TestEntityShowsPaginationTags pins both entity show lists' paging params to
+// the house tags (PSY-1750 for venues, PSY-1751 for artists). The offset tag
+// matches the admin guard's word for word: an entity's archive is paged by the
+// same clients as everything else, and a silently different default or floor
+// there is a whole page of shows nobody can reach.
+//
+// Both are checked in one table for the same reason the limit cap above is: the
+// artist and venue archives are one reading surface pointed at two entities, and
+// a knob that drifts on one of them is a bug only that entity's readers hit.
 //
 // Year is bounded on purpose. It is fed straight into a Go time.Date used to
 // build the query's coarse UTC bounds, and an unbounded int overflows the
-// timestamp range Postgres accepts rather than returning an empty page.
-func TestVenueShowsPaginationTags(t *testing.T) {
-	requestType := reflect.TypeOf(GetVenueShowsRequest{})
+// timestamp range Postgres accepts rather than returning an empty page. The only
+// part of the two tags that legitimately differs is the sibling histogram path
+// each one points the caller at.
+func TestEntityShowsPaginationTags(t *testing.T) {
+	const offsetTag = `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	yearTag := func(yearsPath string) string {
+		return `query:"year" default:"0" minimum:"0" maximum:"9999" doc:"Filter to a single venue-local calendar year. 0 (default) returns every year. Use ` +
+			yearsPath + ` to discover which years have shows."`
+	}
 
 	for _, tc := range []struct {
-		field string
-		want  string
+		name    string
+		request any
+		wantTag map[string]string
 	}{
-		{"Offset", `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`},
-		{"Year", `query:"year" default:"0" minimum:"0" maximum:"9999" doc:"Filter to a single venue-local calendar year. 0 (default) returns every year. Use /venues/{venue_id}/shows/years to discover which years have shows."`},
+		{"venue shows", GetVenueShowsRequest{}, map[string]string{
+			"Offset": offsetTag,
+			"Year":   yearTag("/venues/{venue_id}/shows/years"),
+		}},
+		{"artist shows", GetArtistShowsRequest{}, map[string]string{
+			"Offset": offsetTag,
+			"Year":   yearTag("/artists/{artist_id}/shows/years"),
+		}},
 	} {
-		t.Run(tc.field, func(t *testing.T) {
-			field, ok := requestType.FieldByName(tc.field)
-			if !ok {
-				t.Fatalf("GetVenueShowsRequest is missing %s field", tc.field)
-			}
-			if got := string(field.Tag); got != tc.want {
-				t.Fatalf("%s tag mismatch:\ngot:  %s\nwant: %s", tc.field, got, tc.want)
+		t.Run(tc.name, func(t *testing.T) {
+			requestType := reflect.TypeOf(tc.request)
+
+			// Ranging the map rather than a parallel list of names: a knob added
+			// to wantTag must be asserted, not silently skipped.
+			// Errorf, not Fatalf: map iteration order is randomised, so aborting
+			// on the first mismatch would report an arbitrary one of several
+			// drifted knobs and make the failure output differ run to run.
+			for name, want := range tc.wantTag {
+				field, ok := requestType.FieldByName(name)
+				if !ok {
+					t.Errorf("%s is missing %s field", requestType.Name(), name)
+					continue
+				}
+				if got := string(field.Tag); got != want {
+					t.Errorf("%s tag mismatch:\ngot:  %s\nwant: %s", name, got, want)
+				}
 			}
 		})
 	}

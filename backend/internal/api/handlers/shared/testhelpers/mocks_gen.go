@@ -298,7 +298,8 @@ type MockArtistService struct {
 	UpdateArtistFn             func(uint, *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error)
 	DeleteArtistFn             func(uint) error
 	SearchArtistsFn            func(string) ([]*contracts.ArtistDetailResponse, error)
-	GetShowsForArtistFn        func(uint, string, int, string) ([]*contracts.ArtistShowResponse, int64, error)
+	GetShowsForArtistFn        func(uint, string, contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error)
+	GetArtistShowYearsFn       func(uint, string) ([]contracts.ArtistShowYearCount, error)
 	GetNextShowForArtistFn     func(uint, string) (*contracts.ArtistShowResponse, error)
 	GetArtistCitiesFn          func() ([]*contracts.ArtistCityResponse, error)
 	GetLabelsForArtistFn       func(uint) ([]*contracts.ArtistLabelResponse, error)
@@ -380,11 +381,17 @@ func (m *MockArtistService) SearchArtists(query string) ([]*contracts.ArtistDeta
 	}
 	return nil, nil
 }
-func (m *MockArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
+func (m *MockArtistService) GetShowsForArtist(artistID uint, timezone string, query contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 	if m.GetShowsForArtistFn != nil {
-		return m.GetShowsForArtistFn(artistID, timezone, limit, timeFilter)
+		return m.GetShowsForArtistFn(artistID, timezone, query)
 	}
 	return nil, 0, nil
+}
+func (m *MockArtistService) GetArtistShowYears(artistID uint, timeFilter string) ([]contracts.ArtistShowYearCount, error) {
+	if m.GetArtistShowYearsFn != nil {
+		return m.GetArtistShowYearsFn(artistID, timeFilter)
+	}
+	return nil, nil
 }
 func (m *MockArtistService) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
 	if m.GetNextShowForArtistFn != nil {

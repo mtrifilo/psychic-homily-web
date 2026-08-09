@@ -17,6 +17,10 @@ func setupArtistRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/artists/search", artistHandler.SearchArtistsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}", artistHandler.GetArtistHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/shows", artistHandler.GetArtistShowsHandler)
+	// Sibling of the list rather than a field on it: the year picker must offer
+	// every year regardless of which one the list is filtered to, and the
+	// histogram does not change as the reader pages. See the handler's note.
+	huma.Get(rc.API, "/artists/{artist_id}/shows/years", artistHandler.GetArtistShowYearsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/labels", artistHandler.GetArtistLabelsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/aliases", artistHandler.GetArtistAliasesHandler)
 

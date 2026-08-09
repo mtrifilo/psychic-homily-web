@@ -945,21 +945,26 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 	return responses, nil
 }
 
-// GetShowsForArtist retrieves shows for a specific artist with time filtering.
-// timeFilter can be: "upcoming", "past", or "all". Only returns approved shows.
+// GetShowsForArtist retrieves a page of shows for a specific artist.
+// query.TimeFilter can be: "upcoming", "past", or "all". Only returns approved
+// shows.
 //
 // "today" is each show's OWN venue-local calendar day (shared.VenueTZJoin), not a
 // single boundary shared by the whole page: an artist on tour crosses zones, so
 // a Berlin date and a Phoenix date graduate from upcoming to past at different
-// instants. limit and total both apply to the venue-local partition, so paging
-// stays correct.
+// instants. The same is true of query.Year, which buckets each show by the
+// calendar year of ITS venue, not the artist's home one. The page window and
+// total both apply to that venue-local, year-filtered partition, so a caller can
+// page to the end of `total` without a page disagreeing with the count above it.
 //
 // Deprecated parameter: timezone is accepted and ignored. It used to set the
 // boundary from the CALLER's zone, which made the same show upcoming for one
 // reader and past for another. Kept in the signature because removing it is a
-// breaking change for every caller; frontend call sites are cleaned up in
-// PSY-1698. Do not add new callers that pass a meaningful value.
-func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
+// breaking change for every caller; frontend call sites drop the query param in
+// PSY-1698. Do not add new callers that pass a meaningful value. (It is also
+// the only knob assertSamePartitionForEveryCallerZone can vary to prove the
+// boundary no longer moves with the reader, so the tests outlive the callers.)
+func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, query contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -973,12 +978,8 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		return nil, 0, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	// Partition on each show's own venue-local calendar day. The fragment is
-	// empty for "all", and only then is the timezone lateral unnecessary.
-	dateCondition := shared.VenueLocalDateCondition(timeFilter)
-
 	var orderDirection string
-	if timeFilter == "past" {
+	if query.TimeFilter == "past" {
 		orderDirection = "shows.event_date DESC" // Most recent past shows first
 	} else {
 		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
@@ -987,19 +988,19 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	// Pluck below is implementation-defined on a tie, and would then disagree
 	// with GetNextShowForArtist (whose First appends the same shows.id) about
 	// which show is "next" for an artist double-booked on one date (PSY-1352).
+	// It is also what makes OFFSET paging safe AGAINST TIES, and only against
+	// ties: an unstable tiebreak lets one show appear on two pages and another
+	// on none. It does NOT make offset paging safe against the clock. For
+	// timeFilter "upcoming" and "past" the partition boundary is venue-local
+	// midnight evaluated per statement, so a reader who is mid-archive when a
+	// show graduates from one side to the other sees the rows after it shift by
+	// one: on "past" that repeats a row, on "upcoming" it skips one. A keyset
+	// cursor on (event_date, id) would close it; offset cannot, and the venue
+	// twin has the same property. "all" and a year-filtered list are static and
+	// unaffected.
 	orderDirection += ", shows.id ASC"
 
-	// Fresh builder per query: GORM builders accumulate clauses, so the count
-	// and the id page must not share one.
-	baseQuery := func() *gorm.DB {
-		q := s.db.Table("show_artists").
-			Joins("JOIN shows ON show_artists.show_id = shows.id").
-			Where("show_artists.artist_id = ? AND shows.status = ?", artistID, catalogm.ShowStatusApproved)
-		if dateCondition != "" {
-			q = q.Joins(shared.VenueTZJoin).Where(dateCondition)
-		}
-		return q
-	}
+	baseQuery := s.artistShowsBaseQuery(artistID, query.TimeFilter, query.Year, venueZoneNotNeededBySelect)
 
 	// Count total shows matching the filter
 	var total int64
@@ -1007,20 +1008,27 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
 	}
 
-	// Get show IDs with limit
+	limit, offset := clampPageWindow(query.Limit, query.Offset)
+
+	// Get the page of show IDs. Offset(0) is a no-op in GORM's clause builder,
+	// so the unpaged first page plans exactly as it did before.
 	var showIDs []uint
 	if err := baseQuery().
 		Select("show_artists.show_id").
 		Order(orderDirection).
 		Limit(limit).
+		Offset(offset).
 		Pluck("show_artists.show_id", &showIDs).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get show IDs: %w", err)
 	}
 
-	// Fetch full show data with artists
+	// Fetch the page's show rows. No Preload("Artists"): the bill this response
+	// carries is rebuilt below from show_artists ordered by position, which the
+	// association would not give, so preloading it was a whole extra join whose
+	// result nothing read.
 	var shows []catalogm.Show
 	if len(showIDs) > 0 {
-		if err := s.db.Preload("Artists").Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
+		if err := s.db.Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
 			return nil, 0, fmt.Errorf("failed to get shows: %w", err)
 		}
 	}
@@ -1031,8 +1039,24 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		showIDsList[i] = show.ID
 	}
 
+	// Guarded on an empty page, which offset paging makes an ordinary request
+	// rather than an edge case: unguarded, an overrun offset still costs two
+	// `WHERE show_id IN (NULL)` round trips that can only return nothing.
+	//
+	// Errors are returned rather than ignored: a dropped venue read does not
+	// degrade a row, it LIES about it, handing back a 200 whose every show has
+	// a null venue and an empty bill. Indistinguishable from real data to a
+	// client, so it caches and renders as truth.
 	var allShowVenues []catalogm.ShowVenue
-	s.db.Where("show_id IN ?", showIDsList).Find(&allShowVenues)
+	var allShowArtists []catalogm.ShowArtist
+	if len(showIDsList) > 0 {
+		if err := s.db.Where("show_id IN ?", showIDsList).Find(&allShowVenues).Error; err != nil {
+			return nil, 0, fmt.Errorf("failed to get show venues: %w", err)
+		}
+		if err := s.db.Where("show_id IN ?", showIDsList).Order("position ASC").Find(&allShowArtists).Error; err != nil {
+			return nil, 0, fmt.Errorf("failed to get show bills: %w", err)
+		}
+	}
 
 	// Batch-fetch all venue models
 	venueIDs := make([]uint, 0, len(allShowVenues))
@@ -1044,15 +1068,15 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	venueMap := make(map[uint]*catalogm.Venue)
 	if len(venueIDs) > 0 {
 		var venues []catalogm.Venue
-		s.db.Where("id IN ?", venueIDs).Find(&venues)
+		if err := s.db.Where("id IN ?", venueIDs).Find(&venues).Error; err != nil {
+			return nil, 0, fmt.Errorf("failed to get venues: %w", err)
+		}
 		for i := range venues {
 			venueMap[venues[i].ID] = &venues[i]
 		}
 	}
 
-	// Batch-load all ShowArtist records
-	var allShowArtists []catalogm.ShowArtist
-	s.db.Where("show_id IN ?", showIDsList).Order("position ASC").Find(&allShowArtists)
+	// Index the bill rows loaded above
 	showArtistsMap := make(map[uint][]catalogm.ShowArtist)
 	var allArtistIDs []uint
 	for _, sa := range allShowArtists {
@@ -1062,7 +1086,9 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	artistMap := make(map[uint]*catalogm.Artist)
 	if len(allArtistIDs) > 0 {
 		var artists []catalogm.Artist
-		s.db.Where("id IN ?", allArtistIDs).Find(&artists)
+		if err := s.db.Where("id IN ?", allArtistIDs).Find(&artists).Error; err != nil {
+			return nil, 0, fmt.Errorf("failed to get bill artists: %w", err)
+		}
 		for i := range artists {
 			artistMap[artists[i].ID] = &artists[i]
 		}
@@ -1108,16 +1134,110 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 
 		responses[i] = &contracts.ArtistShowResponse{
 			ID:             show.ID,
+			Slug:           shared.DerefOrEmpty(show.Slug),
 			Title:          show.Title,
 			EventDate:      show.EventDate,
 			Price:          show.Price,
 			AgeRequirement: show.AgeRequirement,
+			IsCancelled:    show.IsCancelled,
+			IsSoldOut:      show.IsSoldOut,
 			Venue:          venue,
 			Artists:        artists,
 		}
 	}
 
 	return responses, total, nil
+}
+
+// artistShowsBaseQuery returns a builder FACTORY for one artist's approved shows
+// under a time filter and optional venue-local year.
+//
+// A factory rather than a builder because GORM builders accumulate clauses: the
+// COUNT and the id page must not share one, or the page's ORDER/LIMIT leak into
+// the count. Every read of an artist's show list goes through here so the count,
+// the page and the year histogram cannot drift apart about what they are
+// counting.
+//
+// selectNeedsVenueZone takes the venueZone* constants from show_list_paging.go;
+// their declaration says why "venue zone" is the right word on the artist path
+// too.
+func (s *ArtistService) artistShowsBaseQuery(artistID uint, timeFilter string, year int, selectNeedsVenueZone bool) func() *gorm.DB {
+	// Partition on each show's own venue-local calendar day. The fragment is
+	// empty for "all".
+	dateCondition := shared.VenueLocalDateCondition(timeFilter)
+	yearCondition, yearArgs := shared.VenueLocalYearCondition(year)
+
+	// Both exact conditions dereference venue_tz, so the lateral is needed if
+	// EITHER is present: "all" plus a year still needs it. Joined at most once,
+	// because a second copy would alias-collide. Left out entirely for an
+	// unfiltered "all" list, which is the one shape that can read every row
+	// without a zone.
+	needsVenueZone := selectNeedsVenueZone || dateCondition != "" || yearCondition != ""
+
+	return func() *gorm.DB {
+		q := s.db.Table("show_artists").
+			Joins("JOIN shows ON show_artists.show_id = shows.id").
+			Where("show_artists.artist_id = ? AND shows.status = ?", artistID, catalogm.ShowStatusApproved)
+		if needsVenueZone {
+			q = q.Joins(shared.VenueTZJoin)
+		}
+		if dateCondition != "" {
+			q = q.Where(dateCondition)
+		}
+		if yearCondition != "" {
+			q = q.Where(yearCondition, yearArgs...)
+		}
+		return q
+	}
+}
+
+// GetArtistShowYears returns the artist's show counts bucketed by VENUE-LOCAL
+// calendar year, newest year first, for the given time filter ("upcoming",
+// "past" or "all"). Only approved shows are counted.
+//
+// The year is each show's own venue's, so a touring artist's New Year's Eve date
+// in Honolulu counts against the year it was played in, not the year it was in
+// UTC. That is the same convention GetShowsForArtist filters on, which is what
+// makes a year the picker offers a year the list can actually show.
+//
+// Years with no shows are absent rather than zero: the histogram's consumer is a
+// year picker, and an empty year is not a selectable option. That also means the
+// result is naturally sparse for an artist with gaps in their touring history.
+//
+// It is a separate read from GetShowsForArtist rather than a field on that
+// response because the two answer different questions: the histogram spans every
+// year and must NOT narrow to the requested one, or selecting a year would erase
+// every other option from the picker that produced it. It is also invariant
+// across offset, so bundling it would recompute an unchanging aggregate on every
+// page turn.
+func (s *ArtistService) GetArtistShowYears(artistID uint, timeFilter string) ([]contracts.ArtistShowYearCount, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var artist catalogm.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// year 0: the histogram is the thing that ENUMERATES years, so it can never
+	// be narrowed to one.
+	baseQuery := s.artistShowsBaseQuery(artistID, timeFilter, 0, venueZoneNeededBySelect)
+
+	buckets, err := scanVenueLocalYearBuckets(baseQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	// Non-nil even when empty: the histogram must serialize as [] rather than null.
+	years := make([]contracts.ArtistShowYearCount, len(buckets))
+	for i, bucket := range buckets {
+		years[i] = contracts.ArtistShowYearCount{Year: bucket.Year, Count: bucket.Count}
+	}
+	return years, nil
 }
 
 // GetNextShowForArtist returns the artist's SOONEST upcoming approved show (with
@@ -1158,12 +1278,18 @@ func (s *ArtistService) GetNextShowForArtist(artistID uint, timezone string) (*c
 		return nil, fmt.Errorf("failed to get next show: %w", err)
 	}
 
+	// Slug and the status flags come off the row already fetched, so the card
+	// pays nothing for them. Leaving them at their zero values would be worse
+	// than omitting them: a cancelled show would render as a live one.
 	resp := &contracts.ArtistShowResponse{
 		ID:             show.ID,
+		Slug:           shared.DerefOrEmpty(show.Slug),
 		Title:          show.Title,
 		EventDate:      show.EventDate,
 		Price:          show.Price,
 		AgeRequirement: show.AgeRequirement,
+		IsCancelled:    show.IsCancelled,
+		IsSoldOut:      show.IsSoldOut,
 	}
 
 	// Attach the venue in ONE query (junction → venue join), degrading to no

@@ -548,7 +548,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_Upcoming()
 	// Create a past show
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
 
-	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -566,7 +566,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_Past() {
 	// Create a past show
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
 
-	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
+	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -582,7 +582,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_All() {
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
 
-	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "all")
+	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "all", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
@@ -590,7 +590,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_All() {
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_NotFound() {
-	_, _, err := suite.artistService.GetShowsForArtist(99999, "UTC", 10, "upcoming")
+	_, _, err := suite.artistService.GetShowsForArtist(99999, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 
 	suite.Require().Error(err)
 	var artistErr *apperrors.ArtistError
@@ -605,7 +605,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_IncludesVe
 
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
-	resp, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	resp, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -629,7 +629,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_IncludesOt
 	err := suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist2.ID, Position: 1}).Error
 	suite.Require().NoError(err)
 
-	resp, _, err := suite.artistService.GetShowsForArtist(artist1.ID, "UTC", 10, "upcoming")
+	resp, _, err := suite.artistService.GetShowsForArtist(artist1.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
@@ -673,7 +673,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_ExcludesNo
 	suite.db.Create(&catalogm.ShowVenue{ShowID: rejectedShow.ID, VenueID: venue.ID})
 	suite.db.Create(&catalogm.ShowArtist{ShowID: rejectedShow.ID, ArtistID: artist.ID, Position: 0})
 
-	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -690,7 +690,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_RespectsLi
 		suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, i))
 	}
 
-	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 3, "upcoming")
+	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 3})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), total) // total count is still 5
@@ -988,7 +988,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersShows(
 	suite.Equal(int64(1), result.ShowsMoved)
 
 	// Verify canonical now has the show
-	shows, _, err := suite.artistService.GetShowsForArtist(canonical.ID, "UTC", 10, "upcoming")
+	shows, _, err := suite.artistService.GetShowsForArtist(canonical.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Len(shows, 1)
 }
@@ -1233,7 +1233,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LimitZero(
 	venue := suite.createTestVenue("LZ Venue", "Phoenix", "AZ")
 	user := suite.createTestUser()
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
-	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 0, "upcoming")
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 0})
 	suite.Require().NoError(err)
 	suite.GreaterOrEqual(total, int64(1), "total should reflect show count")
 	suite.Empty(shows, "limit=0 should return no shows")
@@ -1246,7 +1246,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LimitOne()
 	for i := 0; i < 3; i++ {
 		suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, i+1))
 	}
-	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 1, "upcoming")
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 1})
 	suite.Require().NoError(err)
 	suite.GreaterOrEqual(total, int64(3))
 	suite.Len(shows, 1, "limit=1 should return exactly 1 show")
@@ -1257,7 +1257,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LargeLimit
 	venue := suite.createTestVenue("LargeLimit Venue", "Phoenix", "AZ")
 	user := suite.createTestUser()
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
-	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 1000, "upcoming")
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 1000})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
 	suite.Len(shows, 1, "large limit should return all available results")
@@ -1265,7 +1265,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LargeLimit
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_EmptyResult() {
 	artist := suite.createTestArtist("EmptyResult Artist")
-	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total)
 	suite.Empty(shows)
@@ -1281,7 +1281,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_ShowAtExac
 	// would correctly read as past for 17 of every 24 hours (PSY-1695).
 	midnight := venueLocalInstant(suite.T(), "America/Phoenix", 0, 0)
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, midnight)
-	shows, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "upcoming")
+	shows, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 50})
 	suite.Require().NoError(err)
 	suite.NotEmpty(shows, "show at exact venue-local midnight today should appear in upcoming")
 }
@@ -1292,7 +1292,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_PastShowEx
 	user := suite.createTestUser()
 	yesterday := time.Now().UTC().AddDate(0, 0, -1)
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, yesterday)
-	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "upcoming")
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 50})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total, "past show should not appear in upcoming filter")
 	suite.Empty(shows)

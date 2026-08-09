@@ -1106,27 +1106,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, query con
 		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
 	}
 
-	// Both page bounds are clamped here because GORM reads a negative value in
-	// each as a DIFFERENT instruction, and neither is what a caller with a
-	// miscomputed page size means:
-	//
-	//   - a negative offset becomes `OFFSET -1`, which Postgres rejects outright
-	//     (a 500);
-	//   - a negative limit CANCELS the limit clause entirely, which is worse
-	//     because it succeeds: the venue's whole history comes back hydrated
-	//     with every bill, silently.
-	//
-	// Clamping to zero matches what limit 0 already means on this path (no rows,
-	// real total) and keeps the handler's own minimum tags from being the only
-	// thing between a stray value and either outcome.
-	limit := query.Limit
-	if limit < 0 {
-		limit = 0
-	}
-	offset := query.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	limit, offset := clampPageWindow(query.Limit, query.Offset)
 
 	// Get the page of show IDs. Offset(0) is a no-op in GORM's clause builder,
 	// so the unpaged first page plans exactly as it did before.
@@ -1237,14 +1217,6 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, query con
 	return responses, total, nil
 }
 
-// Whether the CALLER's own select/group expressions dereference venue_tz,
-// independent of what the WHERE clauses need. Named rather than a bare literal
-// at the call site, where `true` would not say which of the two reasons applies.
-const (
-	venueZoneNotNeededBySelect = false
-	venueZoneNeededBySelect    = true
-)
-
 // venueShowsBaseQuery returns a builder FACTORY for one venue's approved shows
 // under a time filter and optional venue-local year.
 //
@@ -1313,22 +1285,17 @@ func (s *VenueService) GetVenueShowYears(venueID uint, timeFilter string) ([]con
 	// be narrowed to one.
 	baseQuery := s.venueShowsBaseQuery(venueID, timeFilter, 0, venueZoneNeededBySelect)
 
-	// Aliases are quoted and the ORDER BY repeats the expression rather than
-	// naming the alias: `year` and `count` are both keywords Postgres would
-	// otherwise be free to resolve against something else.
-	var buckets []contracts.VenueShowYearCount
-	if err := baseQuery().
-		Select(shared.VenueLocalYearSQL + ` AS "year", COUNT(*) AS "count"`).
-		Group(shared.VenueLocalYearSQL).
-		Order(shared.VenueLocalYearSQL + " DESC").
-		Scan(&buckets).Error; err != nil {
-		return nil, fmt.Errorf("failed to count shows by year: %w", err)
+	buckets, err := scanVenueLocalYearBuckets(baseQuery)
+	if err != nil {
+		return nil, err
 	}
 
-	if buckets == nil {
-		buckets = []contracts.VenueShowYearCount{}
+	// Non-nil even when empty: the histogram must serialize as [] rather than null.
+	years := make([]contracts.VenueShowYearCount, len(buckets))
+	for i, bucket := range buckets {
+		years[i] = contracts.VenueShowYearCount{Year: bucket.Year, Count: bucket.Count}
 	}
-	return buckets, nil
+	return years, nil
 }
 
 // contracts.VenueCityResponse represents a city with venue count for filtering

@@ -969,13 +969,63 @@ type ArtistLabelResponse struct {
 
 // ArtistShowResponse represents a show in the artist shows endpoint
 type ArtistShowResponse struct {
-	ID             uint                     `json:"id"`
+	ID uint `json:"id"`
+	// Slug is the canonical /shows/{slug} target, matching ShowResponse.Slug.
+	// Empty when the show has no slug, and clients fall back to the id.
+	Slug           string                   `json:"slug"`
 	Title          string                   `json:"title"`
 	EventDate      time.Time                `json:"event_date"`
 	Price          *float64                 `json:"price"`
 	AgeRequirement *string                  `json:"age_requirement"`
-	Venue          *ArtistShowVenueResponse `json:"venue"`
-	Artists        []ArtistShowArtist       `json:"artists"`
+	// Status flags, so an artist listing can strike through a cancelled date and
+	// badge a sold-out one without a second fetch per row. Every producer of this
+	// type must populate them: a default-false flag on a cancelled show is not a
+	// missing field, it is a wrong one.
+	IsCancelled bool                     `json:"is_cancelled"`
+	IsSoldOut   bool                     `json:"is_sold_out"`
+	Venue       *ArtistShowVenueResponse `json:"venue"`
+	Artists     []ArtistShowArtist       `json:"artists"`
+}
+
+// ArtistShowsQuery carries the paging and filtering knobs for one artist's show
+// list. The venue twin is VenueShowsQuery, and the two are deliberately
+// identical: the artist and venue archives are the same reading surface pointed
+// at a different entity, so a knob that exists on one and not the other is a
+// bug report waiting to happen.
+//
+// A struct rather than positional arguments because Limit, Offset and Year are
+// all ints: a transposed pair at a call site compiles cleanly and silently pages
+// the wrong window.
+type ArtistShowsQuery struct {
+	// TimeFilter is "upcoming", "past" or "all". Any other value is treated as
+	// "upcoming", matching shared.VenueLocalDateCondition and the handler's own
+	// default for an omitted time_filter.
+	TimeFilter string
+	// Limit caps the page. Zero returns no rows while still reporting the full
+	// total. That is long-standing behaviour, which the handler shields callers
+	// from by defaulting an omitted limit to 20. Negative is clamped to zero
+	// rather than passed through, because GORM reads a negative limit as "no
+	// limit" and would return the artist's entire history.
+	Limit int
+	// Offset skips this many rows of the ordered page. Negative is clamped to 0.
+	Offset int
+	// Year narrows to a single VENUE-LOCAL calendar year, taken per show in its
+	// own venue's zone rather than the artist's, and is reflected in the total.
+	// Zero means every year.
+	Year int
+}
+
+// ArtistShowYearCount is one bucket of an artist's show-year histogram: a
+// venue-local calendar year and how many of the artist's shows fall in it.
+// Only years with at least one show are emitted.
+//
+// A twin of VenueShowYearCount rather than one shared type. They serialise
+// identically today, but they are two independent public response schemas over
+// two different entities, and collapsing them would mean an artist-side field
+// could only ever be added by also adding it to the venue payload.
+type ArtistShowYearCount struct {
+	Year  int   `json:"year" doc:"Venue-local calendar year"`
+	Count int64 `json:"count" doc:"Shows the artist played in that year, within the requested time filter"`
 }
 
 // ArtistShowVenueResponse represents venue info in artist show response
@@ -1803,7 +1853,12 @@ type ArtistServiceInterface interface {
 	UpdateArtist(artistID uint, req *UpdateArtistRequest) (*ArtistDetailResponse, error)
 	DeleteArtist(artistID uint) error
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)
-	GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error)
+	GetShowsForArtist(artistID uint, timezone string, query ArtistShowsQuery) ([]*ArtistShowResponse, int64, error)
+	// GetArtistShowYears is the year histogram behind the show list's year
+	// picker. It deliberately ignores ArtistShowsQuery.Year: the picker has to
+	// render every selectable year, including the ones the current page is
+	// filtered away from.
+	GetArtistShowYears(artistID uint, timeFilter string) ([]ArtistShowYearCount, error)
 	// GetNextShowForArtist: the soonest upcoming show only (no count, no bill) —
 	// the graph-card's next-show glance (PSY-1352).
 	GetNextShowForArtist(artistID uint, timezone string) (*ArtistShowResponse, error)
