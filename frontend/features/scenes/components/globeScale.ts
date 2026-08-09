@@ -326,10 +326,15 @@ export function compareScenesByActivity<
  * unit test can reach — GlobeCanvas imports maplibre at module scope, so its
  * strings are otherwise only verifiable by reading them.
  *
- * The trailing segment counts `shows_this_week`, so it says "next 7 days" —
- * see `SceneListItem.shows_this_week` for why (PSY-1732). The segment is
- * dropped entirely at zero: a quiet scene shows its upcoming total without a
- * "0" that reads as dead.
+ * The trailing segment counts `shows_this_week`, so it says "in the next 7
+ * days" — see `SceneListItem.shows_this_week` for why (PSY-1732). The "in" is
+ * load-bearing rather than decorative: the segment sits after "N upcoming", so
+ * the bare "76 next 7 days" the ticket first specified put two numerals side by
+ * side and scanned as two figures. Amended on the ticket to match the pulse
+ * band, which is now the one phrasing every rolling surface uses.
+ *
+ * The segment is dropped entirely at zero: a quiet scene shows its upcoming
+ * total without a "0" that reads as dead.
  */
 export function sceneTooltipLabel(scene: {
   city: string
@@ -338,7 +343,9 @@ export function sceneTooltipLabel(scene: {
   shows_this_week: number
 }): string {
   const week =
-    scene.shows_this_week > 0 ? ` · ${scene.shows_this_week} next 7 days` : ''
+    scene.shows_this_week > 0
+      ? ` · ${scene.shows_this_week} in the next 7 days`
+      : ''
   return `${scene.city}, ${scene.state} · ${scene.upcoming_show_count} upcoming${week}`
 }
 

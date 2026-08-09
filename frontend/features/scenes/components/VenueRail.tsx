@@ -124,13 +124,11 @@ export function VenueRail({
               (PSY-1574). The heading above names ONE city; a flat "12 venues"
               under it would read as a claim about Phoenix proper while the
               list also holds Tempe and Mesa. The last stat sums the venues'
-              rolling `shows_this_week`, hence "next 7 days" — see
-              `VenueWithShowCount.shows_this_week`.
-
-              "IN the next 7 days" and not the bare "next 7 days" the globe
-              tooltip uses: this strip is uppercase mono and every other segment
-              reads "<number> <noun>", so "9 NEXT 7 DAYS" puts two numerals
-              together and scans as two figures. */}
+              rolling `shows_this_week`, hence "in the next 7 days" — see
+              `VenueWithShowCount.shows_this_week`. Same phrasing as the pulse
+              band and the globe tooltip; the "in" keeps "9 IN THE NEXT 7 DAYS"
+              from setting two numerals side by side in this uppercase-mono
+              strip, where every other segment reads "<number> <noun>". */}
           {stats.venueCount} {spansMetro ? 'metro ' : ''}
           {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
           upcoming · {stats.thisWeekCount} in the next 7 days

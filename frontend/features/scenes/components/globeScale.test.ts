@@ -622,9 +622,9 @@ describe('sceneTooltipLabel', () => {
   // window, so calendar-week wording must not come back here (PSY-1732).
   // Refining the copy is fine — updating these strings to match is the expected
   // cost of that, not a regression.
-  it('words the rolling count as "next 7 days", never "this week"', () => {
+  it('words the rolling count as "in the next 7 days", never "this week"', () => {
     expect(sceneTooltipLabel(chicago)).toBe(
-      'Chicago, IL · 283 upcoming · 76 next 7 days',
+      'Chicago, IL · 283 upcoming · 76 in the next 7 days',
     )
   })
 
