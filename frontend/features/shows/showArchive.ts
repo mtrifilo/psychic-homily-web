@@ -45,11 +45,13 @@ export interface ShowZone {
 export type ShowZoneResolver<T> = (row: T) => ShowZone
 
 /**
- * En dash, not a hyphen and never an em dash: this is a range ("Sep–Dec"),
- * which is exactly what an en dash is for, and em dashes are banned in UI copy
- * across this project.
+ * En dash, not a hyphen and never an em dash.
+ *
+ * Two jobs, one character, which is why it is declared once: it joins a range
+ * ("Sep–Dec"), which is exactly what an en dash is for, and it stands in for a
+ * value nobody recorded. Em dashes are banned in UI copy across this project.
  */
-const EN_DASH = '–'
+export const EN_DASH = '–'
 
 /** A run of consecutive rows that share a month. */
 export interface MonthGroup<T> {

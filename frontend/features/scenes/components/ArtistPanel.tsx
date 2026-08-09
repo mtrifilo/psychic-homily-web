@@ -151,13 +151,16 @@ export function ArtistPanel({
   // Requests one full page and slices for display, rather than a `limit: 2`
   // request for the two rows drawn.
   //
-  // Since PSY-1754 that is a bandwidth-for-latency trade, not a correctness
-  // requirement: `artistQueryKeys.showsPage()` now keys on limit, timezone,
-  // year and offset, so a narrower request here can no longer answer for the
-  // artist page. It stays a full page because a reader who steps through this
-  // panel and then follows "Open artist page →" arrives at a warm cache — and
-  // the artist page's own upcoming section asks for a page of its own size, so
-  // the two only share an entry when they genuinely ask the same question.
+  // That USED to be load-bearing: `artistQueryKeys.shows()` keyed only on
+  // artist id and time filter, so a narrow request here silently handed the
+  // artist page a two-row list for the whole staleTime. PSY-1754 put every
+  // response-shaping param in the key, and the artist page now asks for a
+  // larger page than this one, so the two no longer share an entry either way.
+  //
+  // It stays a full page only because nothing has measured whether narrowing it
+  // is worth the loss on a reader who opens the artist page from here. Deciding
+  // that is a follow-up, not a drive-by: what matters at this call site is that
+  // the page it asks for is a whole one, which is what the test below pins.
   const { data: showsData } = useArtistShows({
     artistId: current?.artistId ?? 0,
     limit: ARTIST_SHOWS_PAGE_LIMIT,

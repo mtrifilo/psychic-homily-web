@@ -3,12 +3,14 @@
  * PSY-1754).
  *
  * The derivations themselves live in `@/features/shows/showArchive`, which the
- * artist archive uses too. Only one thing differs between the two entities:
- * where a row's timezone comes from. A venue archive lists ONE venue's shows,
- * so the zone is the venue's for every row (with the row's own `state` winning
- * when it disagrees); an artist archive lists shows across venues, so each row
- * carries its own. This module binds the venue answer once, so no venue call
- * site has to restate it.
+ * artist archive uses too, and callers take the entity-agnostic half (year
+ * parsing, page clamping, the en dash) straight from there. What is left here
+ * is the one thing that is genuinely venue-shaped: where a row's timezone comes
+ * from. A venue archive lists ONE venue's shows, so the zone is the venue's for
+ * every row, with the row's own denormalized `state` still winning when the two
+ * disagree; an artist archive lists shows across venues, so each row carries
+ * its own. Binding that answer once is what stops every venue call site from
+ * restating it.
  */
 
 import {
@@ -19,13 +21,6 @@ import {
 } from '@/features/shows/showArchive'
 import type { VenueShowZone } from './types'
 
-export {
-  ARCHIVE_YEAR_RANGE,
-  clampPage,
-  parseArchiveYear,
-} from '@/features/shows/showArchive'
-export type { MonthGroup } from '@/features/shows/showArchive'
-
 /** The minimum a row needs before this module can place it in time. */
 export interface ArchiveRow {
   event_date: string
@@ -34,9 +29,9 @@ export interface ArchiveRow {
 }
 
 /**
- * Every row is read on the venue's calendar, except where the row's own denormalized
- * `state` disagrees with it — that is the older, per-show answer and still wins
- * over the venue-level fallback.
+ * Every row is read on the venue's calendar, except where the row's own
+ * denormalized `state` disagrees with it — that is the older, per-show answer
+ * and still wins over the venue-level fallback.
  */
 function venueZoneResolver<T extends ArchiveRow>(
   zone: VenueShowZone

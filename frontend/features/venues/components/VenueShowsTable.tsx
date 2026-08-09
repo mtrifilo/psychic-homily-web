@@ -13,14 +13,15 @@ import {
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
-import { groupByMonth, type MonthGroup } from '../showArchive'
+import { EN_DASH, type MonthGroup } from '@/features/shows/showArchive'
+import { groupByMonth } from '../showArchive'
 import type { VenueShow, VenueShowZone } from '../types'
 
 /** Date, Bill, Price, Time. Group headings must span all of them. */
 const COLUMN_COUNT = 4
 
-/** Stands in for a price nobody has recorded. An en dash, never an em dash. */
-const ABSENT = '–'
+/** Stands in for a price nobody has recorded. */
+const ABSENT = EN_DASH
 
 function ShowRow({
   show,

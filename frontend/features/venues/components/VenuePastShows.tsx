@@ -17,12 +17,8 @@ import {
 import { cn } from '@/lib/utils'
 import { useVenueShowYears, useVenueShows } from '../hooks/useVenues'
 import { venueQueryKeys, venuePastShowsPageParams } from '../api'
-import {
-  archiveDocumentTitle,
-  clampPage,
-  monthRangeLabel,
-  parseArchiveYear,
-} from '../showArchive'
+import { clampPage, parseArchiveYear } from '@/features/shows/showArchive'
+import { archiveDocumentTitle, monthRangeLabel } from '../showArchive'
 import { VenueShowsTable } from './VenueShowsTable'
 import type { VenueShow, VenueShowZone, VenueShowsResponse } from '../types'
 

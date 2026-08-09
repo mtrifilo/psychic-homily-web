@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { clampPage, parseArchiveYear } from '@/features/shows/showArchive'
 import {
   archiveDocumentTitle,
-  clampPage,
   groupByMonth,
   monthRangeLabel,
-  parseArchiveYear,
 } from './showArchive'
 
 /**

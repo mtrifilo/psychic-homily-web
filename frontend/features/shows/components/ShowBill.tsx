@@ -2,10 +2,11 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { EN_DASH } from '../showArchive'
 import { splitBill } from '../utils'
 
-/** Stands in for a bill nobody has recorded. An en dash, never an em dash. */
-const ABSENT = '–'
+/** Stands in for a bill nobody has recorded. */
+const ABSENT = EN_DASH
 
 /**
  * The bill fields a dense show row renders.
@@ -44,11 +45,11 @@ export interface ShowBillProps {
   isCancelled: boolean
   isSoldOut: boolean
   /**
-   * Row context rendered between the bill and the status badges, muted. The
-   * artist archive puts the venue and city here, because its rows span venues;
-   * the venue archive has nothing to add and omits it.
+   * Rendered between the bill and the status badges, muted. The artist archive
+   * puts the venue and city here, because its rows span venues; the venue
+   * archive has nothing to add and omits it.
    */
-  context?: ReactNode
+  afterBill?: ReactNode
 }
 
 /**
@@ -64,7 +65,7 @@ export function ShowBill({
   artists,
   isCancelled,
   isSoldOut,
-  context,
+  afterBill,
 }: ShowBillProps) {
   const { headliners, support } = splitBill(artists)
 
@@ -111,7 +112,7 @@ export function ShowBill({
       ) : (
         <span className="text-muted-foreground">{ABSENT}</span>
       )}
-      {context}
+      {afterBill}
       {isCancelled && (
         <Badge variant="destructive" className="text-[10px]">
           CANCELLED

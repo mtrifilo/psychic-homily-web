@@ -8,7 +8,11 @@ import { DenseTable, DenseTableGroupHeader } from '@/components/shared'
 // artists value cycle in behind it (the same reason ShowForm deep-imports
 // ArtistInput). See features/artists/components/index.ts.
 import { ShowBill } from '@/features/shows/components/ShowBill'
-import { groupByMonth, type MonthGroup } from '@/features/shows/showArchive'
+import {
+  EN_DASH,
+  groupByMonth,
+  type MonthGroup,
+} from '@/features/shows/showArchive'
 import {
   formatPrice,
   formatShowDate,
@@ -20,8 +24,8 @@ import type { ArtistShow } from '../types'
 /** Date, Bill, Price, Time. Group headings must span all of them. */
 const COLUMN_COUNT = 4
 
-/** Stands in for a value nobody has recorded. An en dash, never an em dash. */
-const ABSENT = '–'
+/** Stands in for a value nobody has recorded. */
+const ABSENT = EN_DASH
 
 /**
  * Where the show happened, rendered inline after the bill.
@@ -72,7 +76,7 @@ function ShowRow({ show }: { show: ArtistShow }) {
           artists={show.artists}
           isCancelled={show.is_cancelled}
           isSoldOut={show.is_sold_out}
-          context={<VenueContext venue={show.venue} />}
+          afterBill={<VenueContext venue={show.venue} />}
         />
       </td>
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
