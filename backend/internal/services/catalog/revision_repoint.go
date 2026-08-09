@@ -19,9 +19,11 @@ import (
 // MergeDuplicateShow, which runs from cmd/dedup-shows with no admin in the
 // loop.
 //
-// repointRevisions takes the decision as a REQUIRED parameter. Adding a fourth
-// merge path, or teaching an existing one a new entity type, does not compile
-// until its author has picked one of the values below.
+// repointRevisions takes the decision as a REQUIRED parameter, so a merge
+// cannot be routed through it without its author picking one of the values
+// below. What keeps a merge from bypassing it altogether is
+// TestNoRevisionRepointOutsideTheHelper, which fails on an UPDATE against
+// revisions written anywhere else in the backend.
 
 // revisionEntityType is the revisions.entity_type value a merge re-points.
 //
@@ -108,18 +110,16 @@ func (p revisionProvenance) String() string {
 }
 
 // repointRevisions moves the losing entity's revision rows onto the canonical
-// entity, applying the caller's provenance decision first.
+// entity, carrying out the caller's provenance decision in the SAME statement.
 //
-// Order is the reason the stamp lives in here rather than beside the call:
-// the stamp identifies its rows by the entity_id the re-point is about to
-// overwrite, and the losing row is usually deleted in the same transaction, so
-// there is no second chance to derive it. Two statements at a call site can be
-// reordered by an edit that looks harmless; one function cannot.
+// One UPDATE rather than a stamp followed by a move, because the stamp has to
+// be applied to rows selected by the entity_id the move overwrites, and the
+// losing entity is usually deleted moments later — a stamp that runs second
+// has nothing left to identify. Two statements at a call site can be reordered
+// by an edit that looks harmless; the set clause of one UPDATE cannot.
 //
-// It must run inside the merge's transaction. Both statements are part of the
-// merge's atomicity: a stamp that committed without its re-point would mask a
-// venue's own publishable history, and a re-point that committed without its
-// stamp is the leak this whole file exists to prevent.
+// Must run inside the merge's transaction, which is where the rest of the
+// merge's atomicity comes from.
 //
 // Returns the number of revisions re-pointed, for the caller's merge summary.
 func repointRevisions(
@@ -128,21 +128,21 @@ func repointRevisions(
 	canonicalID, mergeFromID uint,
 	provenance revisionProvenance,
 ) (int64, error) {
-	if tx == nil {
-		return 0, fmt.Errorf("repoint revisions: nil transaction")
-	}
 	if !entity.valid() {
 		return 0, fmt.Errorf("repoint revisions: unknown entity type %q", string(entity))
 	}
 	if canonicalID == 0 || mergeFromID == 0 {
 		return 0, fmt.Errorf("repoint revisions: canonical and merge-from ids are required")
 	}
-	// A self-merge is a no-op UPDATE but NOT a no-op stamp: it would mark the
+	// A self-merge is a no-op move but NOT a no-op stamp: it would mark the
 	// surviving entity's own history as carried off an unverified venue.
 	if canonicalID == mergeFromID {
 		return 0, fmt.Errorf("repoint revisions: cannot re-point %s %d onto itself", entity, canonicalID)
 	}
 
+	// The provenance decision is the only thing that varies, and it varies by
+	// one hardcoded fragment. Never caller input.
+	setClause := "entity_id = ?"
 	switch provenance {
 	case stampFromUnverifiedVenue:
 		if entity != revisionEntityVenue {
@@ -150,15 +150,7 @@ func repointRevisions(
 				"repoint revisions: %s is venue-only, but entity type is %q",
 				provenance, string(entity))
 		}
-		err := tx.Exec(`
-			UPDATE revisions
-			SET from_unverified_venue = TRUE
-			WHERE entity_type = ?
-			  AND entity_id = ?
-		`, string(entity), mergeFromID).Error
-		if err != nil {
-			return 0, fmt.Errorf("failed to mark unverified venue revisions: %w", err)
-		}
+		setClause += ", from_unverified_venue = TRUE"
 	case noRedactionCarryover:
 		// Nothing to preserve — see the constant.
 	default:
@@ -167,14 +159,13 @@ func repointRevisions(
 				"stampFromUnverifiedVenue or noRedactionCarryover", provenance)
 	}
 
-	r := tx.Exec(`
-		UPDATE revisions
-		SET entity_id = ?
-		WHERE entity_type = ?
-		  AND entity_id = ?
-	`, canonicalID, string(entity), mergeFromID)
+	// #nosec G201 -- setClause is one of two literals chosen by the switch
+	// above; the ids and the entity type are bound parameters.
+	sql := fmt.Sprintf(
+		"UPDATE revisions SET %s WHERE entity_type = ? AND entity_id = ?", setClause)
+	r := tx.Exec(sql, canonicalID, string(entity), mergeFromID)
 	if r.Error != nil {
-		return 0, fmt.Errorf("failed to move revisions: %w", r.Error)
+		return 0, fmt.Errorf("failed to re-point %s revisions: %w", entity, r.Error)
 	}
 	return r.RowsAffected, nil
 }

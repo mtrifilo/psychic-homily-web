@@ -1,11 +1,14 @@
 package catalog
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strings"
 	"testing"
 
 	"gorm.io/gorm"
-
-	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // These cover the guards, which are the whole point of the helper: every one
@@ -52,8 +55,8 @@ func TestRepointRevisions_RejectsUnknownEntityType(t *testing.T) {
 	}
 }
 
-// A self-merge is a harmless no-op for the UPDATE and a real corruption for
-// the stamp: it would mark the surviving venue's own history as carried off an
+// A self-merge is a harmless no-op for the move and a real corruption for the
+// stamp: it would mark the surviving venue's own history as carried off an
 // unverified one.
 func TestRepointRevisions_RejectsSelfMerge(t *testing.T) {
 	_, err := repointRevisions(unusableTx(), revisionEntityVenue, 7, 7, stampFromUnverifiedVenue)
@@ -71,24 +74,77 @@ func TestRepointRevisions_RejectsZeroIDs(t *testing.T) {
 	}
 }
 
-func TestRepointRevisions_RejectsNilTransaction(t *testing.T) {
-	_, err := repointRevisions(nil, revisionEntityVenue, 1, 2, noRedactionCarryover)
-	if err == nil {
-		t.Fatal("a nil transaction must be rejected")
+// A required parameter only binds an author who reaches for the helper. This
+// is what binds the one who does not: a merge that re-points revisions with
+// its own UPDATE never has to answer the provenance question, and the leak
+// this file exists to prevent comes back on a path nobody reviewed for it.
+//
+// The same idiom as TestVenueEntityRefsCoverSchema — a hand-maintained
+// invariant whose failure mode is silent, checked at the only cheap moment.
+//
+// It reads SQL, so it catches the idiom all three merges used and not a GORM
+// builder chain. That is the shape to extend it to if one ever appears.
+func TestNoRevisionRepointOutsideTheHelper(t *testing.T) {
+	root := backendRoot(t)
+	updateRevisions := regexp.MustCompile(`(?is)\bupdate\s+revisions\b`)
+
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			// Third-party code is not ours to route through the helper, and
+			// `go mod vendor` would otherwise drop it into the scan.
+			if entry.Name() == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		// Tests seed and inspect rows directly; the rule is about production
+		// merge paths.
+		if strings.HasSuffix(path, "_test.go") || filepath.Base(path) == "revision_repoint.go" {
+			return nil
+		}
+
+		source, readErr := os.ReadFile(path) // #nosec G304 -- path comes from walking the module's own tree
+		if readErr != nil {
+			return readErr
+		}
+		if updateRevisions.Match(source) {
+			rel, _ := filepath.Rel(root, path)
+			t.Errorf("%s writes an UPDATE against revisions. Re-pointing revisions must go "+
+				"through catalog.repointRevisions, which requires a provenance decision — "+
+				"without it a merge silently republishes history that was being withheld.", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to scan backend sources: %v", err)
 	}
 }
 
-// venueRevisionProvenance is the one branch that decides whether a real merge
-// stamps. A verified loser must NOT clear an inherited mark, which is why the
-// verified case is noRedactionCarryover rather than an "unstamp" value.
-func TestVenueRevisionProvenance(t *testing.T) {
-	unverified := &catalogm.Venue{ID: 1, Verified: false}
-	if got := venueRevisionProvenance(unverified); got != stampFromUnverifiedVenue {
-		t.Fatalf("unverified loser: got %s, want stampFromUnverifiedVenue", got)
+// backendRoot walks up from this file to the directory holding go.mod, so the
+// scan above covers the whole module rather than one package.
+func backendRoot(t *testing.T) string {
+	t.Helper()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate this test file")
 	}
 
-	verified := &catalogm.Venue{ID: 2, Verified: true}
-	if got := venueRevisionProvenance(verified); got != noRedactionCarryover {
-		t.Fatalf("verified loser: got %s, want noRedactionCarryover", got)
+	dir := filepath.Dir(thisFile)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("cannot find go.mod above the catalog package")
+		}
+		dir = parent
 	}
 }

@@ -1102,11 +1102,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_RevisionsCarryN
 	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Stamp MergeFrom"})
 	user := suite.createTestUser()
 
-	var revisionID uint
-	suite.Require().NoError(suite.db.Raw(`
-		INSERT INTO revisions (entity_type, entity_id, user_id, field_changes, summary, created_at)
-		VALUES ('artist', ?, ?, '[]', 'renamed the band', NOW())
-		RETURNING id`, mergeFrom.ID, user.ID).Row().Scan(&revisionID))
+	revisionID := seedRevision(suite.T(), suite.db, "artist", mergeFrom.ID, user.ID, "renamed the band")
 
 	_, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
 	suite.Require().NoError(err)

@@ -1386,10 +1386,9 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		tx.Exec("UPDATE artist_reports SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
 
 		// 9. revisions: no conflict key, but the re-point has to state what
-		// happens to the losing artist's read-time redaction. Artist revision
-		// history is published in full, so there is none to carry — see
-		// noRedactionCarryover, which is where that changes if artists ever
-		// gain a gate.
+		// happens to the losing artist's read-time redaction. Artist history
+		// is published in full, so there is none to carry — see
+		// noRedactionCarryover for when that stops being true.
 		if _, err := repointRevisions(
 			tx, revisionEntityArtist, canonicalID, mergeFromID, noRedactionCarryover,
 		); err != nil {

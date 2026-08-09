@@ -256,13 +256,11 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		*op.dst += res.RowsAffected
 	}
 
-	// revisions: a plain re-point today, but it has to say so. This runs with
-	// no admin in the loop (cmd/dedup-shows), and it deletes the show a
-	// read-time gate would consult, so it is the exact site the revisiondiff
-	// package doc names when it describes closing the show-history gap:
-	// a show gated at the entity level (pending / rejected / private) needs a
-	// provenance stamp written HERE, the way the venue merge writes
-	// from_unverified_venue. Until that gate exists there is nothing to carry.
+	// revisions: a plain re-point today, but it has to say so. Show history is
+	// published in full, so there is no redaction to carry — and when that
+	// changes, THIS is the site the revisiondiff package doc names, because
+	// the dedup CLI deletes the show a read-time gate would have consulted.
+	// See noRedactionCarryover.
 	revisionsMoved, err := repointRevisions(tx, revisionEntityShow, winnerID, loserID, noRedactionCarryover)
 	if err != nil {
 		return err

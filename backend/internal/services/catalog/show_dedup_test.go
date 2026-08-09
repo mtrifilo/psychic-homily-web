@@ -303,11 +303,7 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RevisionsCarryNoRedactionSta
 	loser := s.seedShow("L", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
 	u := s.seedUser("revisions@test.com")
 
-	var revisionID uint
-	s.Require().NoError(s.db.Raw(`
-		INSERT INTO revisions (entity_type, entity_id, user_id, field_changes, summary, created_at)
-		VALUES ('show', ?, ?, '[]', 'fixed the door time', NOW())
-		RETURNING id`, loser, u.ID).Row().Scan(&revisionID))
+	revisionID := seedRevision(s.T(), s.db, "show", loser, u.ID, "fixed the door time")
 
 	summary := &ShowDedupSummary{}
 	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
