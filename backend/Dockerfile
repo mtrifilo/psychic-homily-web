@@ -93,11 +93,23 @@ COPY layout/fa2-layout.mjs ./
 # keep arriving. Freezing this base does mean Alpine's own patches now wait for a
 # manual bump, which is the trade reproducibility asks for.
 #
+# THIS FILE IS THE SOURCE OF TRUTH for the Node version. CI does not restate
+# it: the graph-layout step in .github/workflows/ci.yml derives it from the FROM
+# lines below via `scripts/check_node_base_pin.sh --print-version`, so there is
+# no second value that a bump can leave behind.
+#
+# Bumps are proposed weekly by Dependabot (.github/dependabot.yml), which
+# watches these FROM lines, so a republished tag (an Alpine patch) or a new Node
+# patch arrives as a PR instead of never arriving. Three checks stand behind it,
+# all runnable locally, all described in their own headers:
+#   scripts/check_node_base_pin.sh       shape of the pin (Backend Tests, required)
+#   scripts/check_node_base_manifest.sh  digest is a multi-arch manifest list
+#   .github/workflows/backend-image.yml  the image still builds, before Railway
+#
 # To bump (deliberately, not incidentally):
 #   1. docker buildx imagetools inspect node:<new-version>-alpine<alpine-ver>
-#   2. copy the top-level `Digest:` into BOTH FROM lines in this file
-#   3. update node-version in the graph-layout step of .github/workflows/ci.yml
-#      to the same patch, so CI tests the Node that production runs
+#   2. copy the TOP-LEVEL `Digest:` into BOTH FROM lines in this file
+#   3. scripts/check_node_base_pin.sh && scripts/check_node_base_manifest.sh
 #   4. rebuild and confirm `node --test` in backend/layout still passes
 FROM node:22.23.2-alpine3.24@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 
