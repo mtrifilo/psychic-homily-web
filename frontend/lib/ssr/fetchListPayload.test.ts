@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { captureException, captureMessage } = vi.hoisted(() => ({
   captureException: vi.fn(),
@@ -145,5 +145,42 @@ describe('fetchListPayload', () => {
         expect.objectContaining({ level: 'error' }),
       )
     }
+  })
+})
+
+// PSY-1674. Same invariant as lib/seo/fetchSeoList.test.ts: this helper degrades
+// to `null` on every other error, and a build-time budget breach is the one
+// thing it must NOT absorb. Swallowing it would leave the build green with a
+// route that has silently stopped caching.
+describe('fetchListPayload and the Data Cache budget gate', () => {
+  const originalPhase = process.env.NEXT_PHASE
+
+  afterEach(() => {
+    if (originalPhase === undefined) delete process.env.NEXT_PHASE
+    else process.env.NEXT_PHASE = originalPhase
+  })
+
+  const oversized = () =>
+    jsonResponse({ venues: [{ slug: 'a', pad: 'x'.repeat(2_200_000) }], total: 1 })
+
+  it('rethrows a budget breach during a build rather than seeding null', async () => {
+    process.env.NEXT_PHASE = 'phase-production-build'
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await expect(call(vi.fn().mockResolvedValue(oversized()))).rejects.toThrow(
+      /Data Cache budget exceeded/
+    )
+    expect(captureException).not.toHaveBeenCalled()
+  })
+
+  it('still degrades to a usable payload at request time', async () => {
+    delete process.env.NEXT_PHASE
+
+    const result = await call(vi.fn().mockResolvedValue(oversized()))
+    expect(result?.total).toBe(1)
+    expect(captureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('data-cache-budget'),
+      expect.objectContaining({ level: 'error' })
+    )
   })
 })

@@ -65,6 +65,23 @@ interface VenueListItem {
  */
 export const VENUE_LIST_LIMIT = 100
 
+/**
+ * Data Cache exposure, measured against production 2026-08-08 (PSY-1674), when
+ * `/artists` was found 206% over the 2 MB cache-item cap and silently uncached:
+ *
+ *   GET /venues?limit=100    71,172 raw    94,896 base64     4.5% of the cap
+ *   GET /venues?limit=50     35,226 raw    46,968 base64     2.2%
+ *   GET /venues/cities        5,668 raw     7,560 base64     0.4%
+ *
+ * `/venues` is not exposed, and the reason is structural rather than luck: the
+ * two list fetches carry an explicit `limit`, so they grow with the page size
+ * rather than the catalogue. (`/venues/cities` carries none, but it is a facet
+ * aggregate — one row per city — so it grows with cities, not venues.)
+ * `GET /artists` had no limit at all, which is what let it run away.
+ *
+ * The truncation described on the constant above is a SEPARATE, live defect and
+ * is now tracked as PSY-1764 rather than only recorded here.
+ */
 export function getVenues(): Promise<VenueListItem[]> {
   return fetchSeoList<VenueListItem>({
     url: `${API_BASE_URL}/venues?limit=${VENUE_LIST_LIMIT}`,

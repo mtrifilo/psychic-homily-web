@@ -294,6 +294,7 @@ type MockArtistService struct {
 	GetArtistBySlugFn          func(string) (*contracts.ArtistDetailResponse, error)
 	GetArtistsFn               func(map[string]interface{}) ([]*contracts.ArtistDetailResponse, error)
 	GetArtistsWithShowCountsFn func(map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error)
+	GetArtistListingFn         func() ([]contracts.ArtistListingEntry, error)
 	UpdateArtistFn             func(uint, *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error)
 	DeleteArtistFn             func(uint) error
 	SearchArtistsFn            func(string) ([]*contracts.ArtistDetailResponse, error)
@@ -352,6 +353,12 @@ func (m *MockArtistService) GetArtists(filters map[string]interface{}) ([]*contr
 func (m *MockArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 	if m.GetArtistsWithShowCountsFn != nil {
 		return m.GetArtistsWithShowCountsFn(filters)
+	}
+	return nil, nil
+}
+func (m *MockArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, error) {
+	if m.GetArtistListingFn != nil {
+		return m.GetArtistListingFn()
 	}
 	return nil, nil
 }

@@ -14,6 +14,16 @@
  * there). `/sitemap.xml` 308s to the index — do not add `app/sitemap.xml/route.ts`
  * (collides with the metadata `[__metadata_id__]` route).
  *
+ * THAT BUDGET IS NO LONGER COMFORTABLE, and it is now measured rather than
+ * assumed: on 2026-08-08 the `releases` family's cache entry was 1.93 MB, 97%
+ * of the cap (PSY-1674). Sharding per family bought room once; the largest
+ * family has since grown back to the edge, and the next sizeable release import
+ * pushes it over — at which point that shard stops caching and re-pulls from
+ * origin on every render. Sub-sharding `releases` is the fix. It is recorded in
+ * WARN_BAND_ALLOWLIST in lib/data-cache-budget/budget.ts, which is what keeps
+ * the build gate from failing on it in the meantime; `fetchSitemapFamily` now
+ * weighs every family response so a genuine breach fails the build.
+ *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
  * build → `next start` → kill the backend → curl:
@@ -132,6 +142,7 @@ import { MetadataRoute } from 'next'
 import { getBlogSlugs, getBlogPost, getMixSlugs, getMix } from '@/features/blog'
 import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
+import { readJsonWithinDataCacheBudget } from '@/lib/data-cache-budget/assert'
 import type { components } from '@/types/api'
 import {
   ALL_SHARD_IDS,
@@ -214,19 +225,24 @@ const ENTRY_FETCH_TIMEOUT_MS = 30_000
  * entry and its own ~1.5 MB budget (PSY-1622).
  */
 async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
+  const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(family)}`
   try {
-    const res = await fetch(
-      `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(family)}`,
-      {
-        next: { revalidate: ENTRY_REVALIDATE_SECONDS },
-        signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
-      }
-    )
+    const res = await fetch(url, {
+      next: { revalidate: ENTRY_REVALIDATE_SECONDS },
+      signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
+    })
     if (!res.ok) {
       throw new Error(`sitemap entries fetch returned ${res.status}`)
     }
 
-    const entries: SitemapEntries = await res.json()
+    // Sharding by family is what keeps each entry under the cache-item cap, but
+    // nothing was checking that it still does: the `releases` shard was at 97%
+    // of the cap when this was added (PSY-1674). Weighed on the way through,
+    // because an over-cap response is never written to the Data Cache and so is
+    // observable nowhere else. The absolute URL is passed deliberately — it is
+    // the same identity the post-build scan reads out of the cache envelope, so
+    // one allowlist entry matches both halves of the gate.
+    const entries = await readJsonWithinDataCacheBudget<SitemapEntries>(url, res)
     const rows = entries?.[family]
     if (!Array.isArray(rows)) {
       throw new Error(`sitemap entries response is missing the "${family}" family`)

@@ -75,6 +75,35 @@ interface ShowListItem {
 export const UPCOMING_SHOWS_LIMIT = 50
 
 /**
+ * Data Cache exposure, measured against production 2026-08-08 (PSY-1674), when
+ * `/artists` was found 206% over the 2 MB cache-item cap and silently uncached.
+ *
+ * ALL FOUR cached fetches this page makes, not just the ItemList one — they are
+ * four separate Data Cache entries with four separate budgets, and what bounds
+ * each differs:
+ *
+ *   fetch                          raw      base64   % cap   bounded by
+ *   -----------------------------  -------  -------  ------  ------------------
+ *   /shows/upcoming?limit=50        80,327  107,104    5.1%  this file's limit
+ *   /shows/upcoming?timezone=…      80,327  107,104    5.1%  backend default:"50"
+ *   /shows/cities?timezone=…         8,948   11,932    0.6%  one row per city
+ *   /scenes                          7,256    9,676    0.5%  UNBOUNDED
+ *
+ * So "the limit protects it" is true of the ItemList fetch only. The seed URL
+ * deliberately omits `limit` (see the note above) and is held at 50 by the
+ * backend's `default:"50"` — a bound that lives in another repo layer and could
+ * be raised without anyone reading this file. `/scenes` has no bound at all; it
+ * is the same unbounded-list shape that blew up `GET /artists`, and is only
+ * small because scenes are few. It also runs behind `await connection()`, so it
+ * is request-time only: NEITHER half of lib/data-cache-budget can fail a build
+ * on it, and a Sentry report after the fact is the whole signal.
+ *
+ * Re-measure if any of those bounds move, or if a field is added to the show
+ * response — the row count is not what blew the budget on /artists, the fields
+ * were.
+ */
+
+/**
  * The `ItemList` read of `/shows/upcoming`.
  *
  * Separate from the first-screen seed below, and the split is deliberate after

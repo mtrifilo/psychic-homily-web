@@ -639,12 +639,7 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 
 	now := time.Now().UTC()
 
-	// Subquery: count upcoming approved shows per artist
-	upcomingSubquery := s.db.Table("show_artists").
-		Select("show_artists.artist_id, COUNT(*) as show_count").
-		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
-		Group("show_artists.artist_id")
+	upcomingSubquery := s.upcomingShowCountSubquery(now)
 
 	var query *gorm.DB
 	if skipActiveFilter {
@@ -696,7 +691,7 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	}
 
 	var artistsWithCount []ArtistWithCount
-	if err := query.Order("upcoming_show_count DESC, artists.name ASC").Find(&artistsWithCount).Error; err != nil {
+	if err := query.Order(artistBrowseOrder).Find(&artistsWithCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to get artists with show counts: %w", err)
 	}
 
@@ -715,6 +710,65 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	}
 
 	return responses, nil
+}
+
+// artistBrowseOrder is the order the /artists browse page lists artists in:
+// active first, then alphabetical. Shared so the listing projection and the full
+// list cannot drift into presenting different orders.
+const artistBrowseOrder = "upcoming_show_count DESC, artists.name ASC"
+
+// upcomingShowCountSubquery counts each artist's upcoming approved shows.
+//
+// Shared by every artist query that needs the activity gate, so the definition
+// of "active" — approved, and not yet past — lives in exactly one place. It used
+// to be copied per call site, which made the gate drift a matter of whether
+// someone remembered a comment.
+func (s *ArtistService) upcomingShowCountSubquery(now time.Time) *gorm.DB {
+	return s.db.Table("show_artists").
+		Select("show_artists.artist_id, COUNT(*) as show_count").
+		Joins("JOIN shows ON show_artists.show_id = shows.id").
+		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
+		Group("show_artists.artist_id")
+}
+
+// GetArtistListing returns the slug+name projection behind GET /artists/listing.
+//
+// It answers the same question as an unfiltered GetArtistsWithShowCounts —
+// which artists does the browse page list, in what order — while reading two
+// columns instead of hydrating a full response per row. That is the entire
+// point: the caller builds one link per artist and the wide body is what stops
+// the response fitting a cache entry. See contracts.ArtistListingEntry for the
+// measurements and for why trimming beat sharding or paginating.
+//
+// The gate and the sort are SHARED with that default path rather than restated,
+// so the only deliberate difference is the slug filter below. Rows with a NULL
+// or empty slug are dropped here rather than by the caller: a slug is what
+// builds the URL, so an entry without one is unusable to any consumer.
+func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Non-nil even when empty: the handler serialises this straight to JSON, and
+	// a null collection is indistinguishable from a failed fetch to the caller.
+	entries := []contracts.ArtistListingEntry{}
+
+	// The count is selected so the SHARED order clause applies verbatim, but it
+	// never reaches the wire: ArtistListingEntry has no field for it, and GORM
+	// drops columns it cannot map. No COALESCE — this is an INNER JOIN, so
+	// show_count is never NULL (the default path needs it only because its
+	// evergreen mode LEFT JOINs).
+	err := s.db.Table("artists").
+		Select("artists.slug, artists.name, sc.show_count as upcoming_show_count").
+		Joins("JOIN (?) as sc ON artists.id = sc.artist_id", s.upcomingShowCountSubquery(time.Now().UTC())).
+		Where("artists.slug IS NOT NULL AND artists.slug != ''").
+		Order(artistBrowseOrder).
+		Find(&entries).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get artist listing: %w", err)
+	}
+
+	return entries, nil
 }
 
 // GetArtistCities returns distinct cities for artists that have upcoming approved shows.
