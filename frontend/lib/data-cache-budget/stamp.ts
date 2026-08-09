@@ -22,19 +22,20 @@
  * tell fresh from restored, and a gate that cannot tell should not guess.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { BREACH_LOG_PATH, BUILD_STAMP_PATH } from './budget'
+import { dirname } from 'node:path'
+import { breachLogPath, buildStampPath } from './budget'
 
-const root = join(import.meta.dirname, '..', '..')
-const stampPath = join(root, BUILD_STAMP_PATH)
-const breachLogPath = join(root, BREACH_LOG_PATH)
+// Both are already absolute, resolved in ./budget.ts from that module's own
+// location, so every process in the gate names the same file regardless of cwd.
+const stampPath = buildStampPath()
+const breachPath = breachLogPath()
 
 try {
   mkdirSync(dirname(stampPath), { recursive: true })
   writeFileSync(stampPath, new Date().toISOString())
   // A breach recorded by a PREVIOUS build must not fail this one — that would
   // be unfixable, since the file rides along in the restored cache.
-  rmSync(breachLogPath, { force: true })
+  rmSync(breachPath, { force: true })
 } catch (error) {
   console.error(`\nData Cache budget: could not stamp the build start.\n${String(error)}\n`)
   process.exit(1)

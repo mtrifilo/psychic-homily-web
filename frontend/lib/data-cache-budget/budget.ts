@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 /**
  * The numbers behind the fetch Data Cache budget, in one place.
  *
@@ -85,18 +87,39 @@ export const encodedSize = (bytes: number): number => Math.ceil(bytes * BASE64_I
 export const formatMiB = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(2)} MiB`
 
 /**
- * Where the fetch-site assertion records a breach for ./cli.ts to fail on.
+ * Where the fetch-site assertion records a breach for ./cli.ts to fail on, and
+ * where ./stamp.ts records when the build began.
  *
- * Under `.next/cache` because that survives `next build` (it is the directory
- * Vercel restores between builds), and the assertion runs inside the build's
- * render workers while the CLI runs after the build in a different process —
- * a file is the only channel between them. ./cli.ts deletes it after reading,
- * so a restored cache cannot replay an old breach.
+ * Under `.next/cache` because that survives `next build` (Next's distDir clean
+ * excludes /^(cache|dev|lock)/), and the assertion runs inside the build's
+ * render workers while the CLI runs afterwards in a different process — a file
+ * is the only channel between them.
+ *
+ * FUNCTIONS, not constants, and resolved from `process.cwd()` rather than from
+ * this module's location. Two constraints meet here:
+ *
+ *   - `import.meta.dirname` is NOT available: this module is imported by app
+ *     code (./assert.ts, reached from app/sitemap.ts), so the bundler evaluates
+ *     it in a context where that is undefined. Using it crashed the build at
+ *     module-eval time with ERR_INVALID_ARG_TYPE.
+ *   - A bare relative string is worse: the writer resolved it against the
+ *     worker's cwd while the readers resolved it against their module
+ *     directory, so the two halves agreed only by coincidence and a chdir would
+ *     have disarmed the metadata-route half in silence.
+ *
+ * `process.cwd()` is correct for every invocation this repo supports, because
+ * all three stages are npm scripts in the same `bun run build` chain (which is
+ * also Vercel's buildCommand) and therefore share one cwd, which the render
+ * workers inherit. Resolving lazily also keeps module-eval free of I/O
+ * assumptions. If the cwd ever did differ, ./cli.ts fails loudly on the missing
+ * stamp rather than passing quietly — the failure mode is a red build, not a
+ * disarmed gate.
  */
-export const BREACH_LOG_PATH = '.next/cache/data-cache-budget-breaches.jsonl'
+export const breachLogPath = (): string =>
+  join(process.cwd(), '.next', 'cache', 'data-cache-budget-breaches.jsonl')
 
-/** Where ./stamp.ts records when this build began. See ./cli.ts for why. */
-export const BUILD_STAMP_PATH = '.next/cache/data-cache-budget-build-start'
+export const buildStampPath = (): string =>
+  join(process.cwd(), '.next', 'cache', 'data-cache-budget-build-start')
 
 /**
  * Fetches known to be in the warn band already, which the gate reports but does

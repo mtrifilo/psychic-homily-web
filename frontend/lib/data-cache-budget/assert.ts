@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/nextjs'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
-  BREACH_LOG_PATH,
+  breachLogPath,
   DATA_CACHE_RAW_BUDGET_BYTES,
   DATA_CACHE_RAW_LIMIT_BYTES,
   encodedSize,
@@ -196,8 +196,9 @@ function enforcementDisabled(): boolean {
 function recordBreach(url: string, rawBytes: number): void {
   if (process.env.VITEST) return
   try {
-    mkdirSync(dirname(BREACH_LOG_PATH), { recursive: true })
-    appendFileSync(BREACH_LOG_PATH, `${JSON.stringify({ url, rawBytes })}\n`)
+    const path = breachLogPath()
+    mkdirSync(dirname(path), { recursive: true })
+    appendFileSync(path, `${JSON.stringify({ url, rawBytes })}\n`)
   } catch {
     // Intentionally ignored; see above.
   }

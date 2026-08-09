@@ -101,10 +101,32 @@ export function partitionOverBudget(entries: FetchCacheEntry[]): {
  * payload decision rather than a code defect.
  */
 export function formatBudgetFailures(failures: BudgetFailure[]): string {
+  // Most red builds are WARN-band, because the gate fires at 80% of the cap.
+  // Telling that reader their payload "is not cached and re-pulls on every
+  // render" describes a production regression that has not happened yet — and
+  // makes the break-glass look far costlier than it is. Each line says which it
+  // is, and the prose below follows the worst one present.
+  const anyBreached = failures.some(f => f.bytes >= DATA_CACHE_ITEM_LIMIT_BYTES)
+
   const lines = failures.map(f => {
     const pct = (f.fraction * 100).toFixed(0)
-    return `  ${f.url ?? `(url unreadable) ${f.key}`}\n      ${formatMiB(f.bytes)} — ${pct}% of the 2 MB cache-item cap`
+    const label = f.bytes >= DATA_CACHE_ITEM_LIMIT_BYTES ? 'BREACH' : 'WARN  '
+    return `  ${label} ${f.url ?? `(url unreadable) ${f.key}`}\n      ${formatMiB(f.bytes)} — ${pct}% of the 2 MB cache-item cap`
   })
+
+  const explanation = anyBreached
+    ? [
+        `BREACH means over ${formatMiB(DATA_CACHE_ITEM_LIMIT_BYTES)}, which is NOT CACHED AT ALL. Next logs one`,
+        'console.warn and carries on, so the fetch keeps working and keeps re-pulling the',
+        'whole body from origin on every render — which is how `/artists` went unnoticed',
+        'for ten days.',
+      ]
+    : [
+        `WARN means still cached, but past ${(DATA_CACHE_BUDGET_FRACTION * 100).toFixed(0)}% of the ${formatMiB(DATA_CACHE_ITEM_LIMIT_BYTES)} cap. Nothing is`,
+        'broken in production yet. This gate fires early ON PURPOSE: past the cap an entry',
+        'stops being cached silently, and `/artists` went from 73% to 206% in under two',
+        'weeks of ordinary catalogue growth.',
+      ]
 
   return [
     `Fetch Data Cache budget exceeded by ${failures.length} ${
@@ -113,10 +135,7 @@ export function formatBudgetFailures(failures: BudgetFailure[]): string {
     '',
     ...lines,
     '',
-    `Nothing over ${formatMiB(DATA_CACHE_ITEM_LIMIT_BYTES)} is cached. Next logs one console.warn and carries on,`,
-    'so the fetch keeps working and keeps re-pulling the whole body from origin on',
-    'every render — which is how `/artists` went unnoticed for ten days. This gate',
-    `fails at ${(DATA_CACHE_BUDGET_FRACTION * 100).toFixed(0)}% of the cap so there is room to react before that happens.`,
+    ...explanation,
     '',
     'Sizes above are the on-disk cache entry, which holds the body BASE64-encoded',
     '(~1.334x). The raw response budget is therefore about 1.5 MB, not 2 MB.',
@@ -134,7 +153,9 @@ export function formatBudgetFailures(failures: BudgetFailure[]): string {
     // a deadlock; the cost is stated so it is never the quiet default.
     'BREAK-GLASS, if you need to ship something unrelated right now:',
     '  DATA_CACHE_BUDGET_ENFORCE=warn bun run build',
-    'That ships a route which is NOT cached and re-pulls this payload from origin',
-    'on every render. It buys time; it does not fix anything. Shrink the payload.',
+    anyBreached
+      ? 'That ships a route which is NOT cached and re-pulls this payload from origin on every render.'
+      : 'The payloads above are still cached today, so this mainly spends the warning margin.',
+    'It buys time; it does not fix anything. Shrink the payload.',
   ].join('\n')
 }

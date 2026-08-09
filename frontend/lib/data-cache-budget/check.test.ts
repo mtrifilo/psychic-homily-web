@@ -137,6 +137,33 @@ describe('formatBudgetFailures', () => {
     expect(message.toLowerCase()).toContain('project the response')
   })
 
+  // The gate fires at 80% of the cap, so MOST red builds are warn-band ones.
+  // Telling that reader the payload "is not cached and re-pulls on every render"
+  // describes a production regression that has not happened yet.
+  it('does not claim a warn-band payload has stopped being cached', () => {
+    const warnBand = formatBudgetFailures(
+      partitionOverBudget([
+        { key: 'a', bytes: DATA_CACHE_BUDGET_BYTES + 1, url: 'https://api/x' },
+      ]).failures
+    )
+
+    expect(warnBand).toContain('WARN')
+    expect(warnBand).toContain('still cached')
+    expect(warnBand).not.toContain('NOT CACHED AT ALL')
+  })
+
+  it('says plainly that a breached payload is not cached at all', () => {
+    expect(message).toContain('BREACH')
+    expect(message).toContain('NOT CACHED AT ALL')
+  })
+
+  // The operator reads this under hotfix pressure; the override is the only
+  // thing here they can act on immediately.
+  it('names the break-glass and its cost', () => {
+    expect(message).toContain('DATA_CACHE_BUDGET_ENFORCE=warn')
+    expect(message).toContain('does not fix anything')
+  })
+
   // Falling back to the cache key keeps an entry reportable when the envelope
   // shape changes under a Next upgrade.
   it('falls back to the cache key when the url could not be read', () => {

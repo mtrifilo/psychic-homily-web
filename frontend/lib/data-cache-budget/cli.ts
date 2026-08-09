@@ -29,8 +29,8 @@
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  BREACH_LOG_PATH,
-  BUILD_STAMP_PATH,
+  breachLogPath,
+  buildStampPath,
   DATA_CACHE_BUDGET_BYTES,
   DATA_CACHE_ITEM_LIMIT_BYTES,
   encodedSize,
@@ -45,8 +45,10 @@ import {
 const ROOT = join(import.meta.dirname, '..', '..')
 const BUILD_DIR = join(ROOT, '.next')
 const FETCH_CACHE_DIR = join(BUILD_DIR, 'cache', 'fetch-cache')
-const STAMP_PATH = join(ROOT, BUILD_STAMP_PATH)
-const BREACH_PATH = join(ROOT, BREACH_LOG_PATH)
+// Already absolute (resolved in ./budget.ts), so the writer inside the build's
+// render workers and this reader cannot disagree about which file they mean.
+const STAMP_PATH = buildStampPath()
+const BREACH_PATH = breachLogPath()
 
 function fail(message: string): never {
   console.error(`\n${message}\n`)
@@ -58,13 +60,20 @@ function fail(message: string): never {
 // bypassed, and a gate that cannot tell fresh entries from restored ones must
 // not guess — see ./stamp.ts for what went wrong when this was inferred.
 const stamp = statSync(STAMP_PATH, { throwIfNoEntry: false })
-if (!stamp) {
+const buildStartedAt = stamp
+  ? new Date(readFileSync(STAMP_PATH, 'utf8')).getTime()
+  : Number.NaN
+// NaN is checked as well as absence: an empty or truncated stamp (a build killed
+// mid-write, a full disk) leaves the file EXISTING, and NaN would then make every
+// `mtime >= buildStartedAt` false — no entry fresh, no failure possible, and a
+// confident "MEASURED NOTHING" exit 0. A false clean is the one outcome this
+// module must never produce.
+if (!stamp || Number.isNaN(buildStartedAt)) {
   fail(
-    `Data Cache budget check could not read ${STAMP_PATH}.\n` +
+    `Data Cache budget check could not read a usable build stamp at ${STAMP_PATH}.\n` +
       'Run the full `bun run build` script, which stamps the build start first.'
   )
 }
-const buildStartedAt = new Date(readFileSync(STAMP_PATH, 'utf8')).getTime()
 
 // ---------------------------------------------------------------------------
 // 1. Breaches recorded at the fetch site.
@@ -87,20 +96,36 @@ if (breachStat && breachStat.mtimeMs < buildStartedAt) {
   )
   rmSync(BREACH_PATH, { force: true })
 } else if (existsSync(BREACH_PATH)) {
-  const recorded = readFileSync(BREACH_PATH, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map(line => JSON.parse(line) as { url: string; rawBytes: number })
+  // Parsed defensively: concurrent render workers append to this file, so a
+  // build killed mid-write can leave a torn final line. Dying on a SyntaxError
+  // here would replace the breach report with a stack trace naming this file.
+  const recorded: Array<{ url: string; rawBytes: number }> = []
+  for (const line of readFileSync(BREACH_PATH, 'utf8').split('\n').filter(Boolean)) {
+    try {
+      recorded.push(JSON.parse(line) as { url: string; rawBytes: number })
+    } catch {
+      console.warn(`Data Cache budget: skipping an unreadable breach-log line: ${line.slice(0, 120)}`)
+    }
+  }
 
-  // Read once: a stale log riding along in a restored `.next/cache` would fail
-  // every later build unfixably. ./stamp.ts also clears it before each build.
-  rmSync(BREACH_PATH, { force: true })
+  // The log is deliberately NOT deleted here. ./stamp.ts clears it before every
+  // build and the mtime guard above ignores anything older, so removing it now
+  // buys nothing — and it used to destroy the only record of a metadata-route
+  // breach in the very run that reported it, making a re-run of this checker
+  // print OK on identical artifacts.
 
   if (recorded.length > 0) {
     const message = formatBudgetFailures(
       // Dedupe: a breached fetch is attempted once per route that makes it, so
-      // the same URL can be recorded several times in one build.
-      [...new Map(recorded.map(b => [b.url, b])).values()].map(breach => ({
+      // the same URL can be recorded several times in one build. Keep the
+      // LARGEST observation — the last one understates the build's worst case.
+      [...recorded
+        .reduce((worst, b) => {
+          const seen = worst.get(b.url)
+          if (!seen || b.rawBytes > seen.rawBytes) worst.set(b.url, b)
+          return worst
+        }, new Map<string, { url: string; rawBytes: number }>())
+        .values()].map(breach => ({
         key: breach.url,
         url: breach.url,
         // The cap applies to the base64 envelope; these are raw bytes.
@@ -259,7 +284,9 @@ const largest = withinBudget.reduce((max, e) => (e.bytes > max ? e.bytes : max),
 console.log(
   `Data Cache budget check OK: ${withinBudget.length} of ${measured.length} fetch cache ` +
     `${measured.length === 1 ? 'entry' : 'entries'} written by this build are under ` +
-    `${formatMiB(DATA_CACHE_BUDGET_BYTES)} (largest ${formatMiB(largest)})` +
+    `${formatMiB(DATA_CACHE_BUDGET_BYTES)} (largest ${
+      withinBudget.length > 0 ? formatMiB(largest) : 'n/a'
+    })` +
     (allowlisted.length > 0
       ? `; ${allowlisted.length} recorded exception(s) above are over it and were not failed on`
       : '') +
