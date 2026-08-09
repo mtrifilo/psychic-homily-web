@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ReleaseListItem } from '../types'
@@ -44,12 +44,21 @@ vi.mock('./ReleaseCard', () => ({
   ),
 }))
 
-vi.mock('@/components/shared', () => ({
-  LoadingSpinner: () => <div data-testid="loading-spinner">Loading...</div>,
-  DensityToggle: ({ density }: { density: string }) => (
-    <div data-testid="density-toggle">{density}</div>
-  ),
-}))
+// The barrel is stubbed to keep unrelated shared components out of this suite,
+// but the pager is the thing under test here, so the real one is spliced back
+// in from its own module.
+vi.mock('@/components/shared', async () => {
+  const { Pagination } = await vi.importActual<
+    typeof import('@/components/shared/Pagination')
+  >('@/components/shared/Pagination')
+  return {
+    Pagination,
+    LoadingSpinner: () => <div data-testid="loading-spinner">Loading...</div>,
+    DensityToggle: ({ density }: { density: string }) => (
+      <div data-testid="density-toggle">{density}</div>
+    ),
+  }
+})
 
 // Forward the `layout` prop into `data-layout` so tests can assert the
 // desktop panel renders as the top bar (PSY-1002) without re-testing the
@@ -296,7 +305,7 @@ describe('ReleaseList', () => {
     )
   })
 
-  it('renders pagination controls when there is more than one page', () => {
+  function multiPageReleases() {
     mockUseReleases.mockReturnValue({
       data: {
         releases: [makeRelease()],
@@ -309,9 +318,46 @@ describe('ReleaseList', () => {
       error: null,
       refetch: vi.fn(),
     })
+  }
+
+  it('renders pagination controls when there is more than one page', () => {
+    multiPageReleases()
     renderWithProviders(<ReleaseList />)
-    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument()
-    expect(screen.getByText('Next')).toBeInTheDocument()
+    const desktop = within(screen.getByTestId('pagination-desktop'))
+    expect(desktop.getByText('Page 1 of 3')).toBeInTheDocument()
+    expect(desktop.getByRole('link', { name: /Next/ })).toBeInTheDocument()
+  })
+
+  it('renders every page as a crawlable link rather than a button', () => {
+    multiPageReleases()
+    renderWithProviders(<ReleaseList />)
+    const desktop = within(screen.getByTestId('pagination-desktop'))
+    // Page one drops `?page=` so the head of the list has one canonical URL.
+    expect(desktop.getByRole('link', { name: 'Page 1' })).toHaveAttribute(
+      'href',
+      '/releases'
+    )
+    expect(desktop.getByRole('link', { name: 'Page 2' })).toHaveAttribute(
+      'href',
+      '/releases?page=2'
+    )
+  })
+
+  it('carries the active filters into the page links', () => {
+    mockGet.mockImplementation((key: string) => {
+      if (key === 'type') return 'lp'
+      if (key === 'search') return 'rainbows'
+      if (key === 'sort') return 'oldest'
+      if (key === 'tags') return 'post-punk'
+      return null
+    })
+    multiPageReleases()
+    renderWithProviders(<ReleaseList />)
+    const desktop = within(screen.getByTestId('pagination-desktop'))
+    expect(desktop.getByRole('link', { name: 'Page 3' })).toHaveAttribute(
+      'href',
+      '/releases?type=lp&search=rainbows&sort=oldest&page=3&tags=post-punk'
+    )
   })
 
   it('does not render pagination for a single page of results', () => {
@@ -328,6 +374,6 @@ describe('ReleaseList', () => {
       refetch: vi.fn(),
     })
     renderWithProviders(<ReleaseList />)
-    expect(screen.queryByText(/Page \d+ of/)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pagination')).not.toBeInTheDocument()
   })
 })

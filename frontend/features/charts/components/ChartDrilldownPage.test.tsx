@@ -60,17 +60,26 @@ vi.mock('@/features/releases', () => ({
   useReleaseSaveCountBatch: () => query({}),
 }))
 
-vi.mock('@/components/shared', () => ({
-  FollowButton: ({ entityId }: { entityId: number }) => (
-    <button>follow-{entityId}</button>
-  ),
-  SaveButton: ({ showId }: { showId: number }) => (
-    <button>save-show-{showId}</button>
-  ),
-  ReleaseSaveButton: ({ releaseId }: { releaseId: number }) => (
-    <button>save-release-{releaseId}</button>
-  ),
-}))
+// The inline action buttons are stubbed to keep their own suites' concerns out
+// of this one; the pager is spliced back in from its module because this suite
+// asserts the URLs it emits.
+vi.mock('@/components/shared', async () => {
+  const { Pagination } = await vi.importActual<
+    typeof import('@/components/shared/Pagination')
+  >('@/components/shared/Pagination')
+  return {
+    Pagination,
+    FollowButton: ({ entityId }: { entityId: number }) => (
+      <button>follow-{entityId}</button>
+    ),
+    SaveButton: ({ showId }: { showId: number }) => (
+      <button>save-show-{showId}</button>
+    ),
+    ReleaseSaveButton: ({ releaseId }: { releaseId: number }) => (
+      <button>save-release-{releaseId}</button>
+    ),
+  }
+})
 
 const payloads = {
   'most-active-artists': {
@@ -306,8 +315,23 @@ describe('ChartDrilldownPage', () => {
       expect.objectContaining({ offset: 50, enabled: true, scene: '38060' })
     )
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    expect(mockSetPage).toHaveBeenCalledWith(3)
+    // The pager navigates by href, not by a nuqs write: `?page=` is set by the
+    // link, and the window and scene filters ride along so a page change never
+    // silently drops them.
+    const pager = within(screen.getByTestId('pagination-desktop'))
+    expect(pager.getByRole('link', { name: /Next/ })).toHaveAttribute(
+      'href',
+      '/charts/most-active-artists?window=quarter&scene=38060&page=3'
+    )
+    expect(pager.getByRole('link', { name: 'Page 1' })).toHaveAttribute(
+      'href',
+      '/charts/most-active-artists?window=quarter&scene=38060'
+    )
+    expect(pager.getByRole('link', { name: 'Page 2' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+
     await user.click(screen.getByRole('button', { name: 'All Time' }))
     expect(mockSetPage).toHaveBeenCalledWith(null)
     expect(mockSetWindow).toHaveBeenCalledWith('all_time')
@@ -345,12 +369,20 @@ describe('ChartDrilldownPage', () => {
     payloads['most-active-artists'].total = 20_000
     render(<ChartDrilldownPage module="most-active-artists" />)
 
-    expect(screen.getByRole('button', { name: '201' })).toHaveAttribute(
+    const pager = within(screen.getByTestId('pagination-desktop'))
+    expect(pager.getByRole('link', { name: 'Page 201' })).toHaveAttribute(
       'aria-current',
       'page'
     )
-    expect(screen.queryByRole('button', { name: '400' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(
+      pager.queryByRole('link', { name: 'Page 400' })
+    ).not.toBeInTheDocument()
+    // The last reachable page offers no onward link at all, so there is no href
+    // pointing past the backend's offset cap.
+    expect(
+      screen.getAllByTestId('pagination-next-disabled').length
+    ).toBeGreaterThan(0)
+    expect(pager.queryByRole('link', { name: /Next/ })).not.toBeInTheDocument()
     expect(
       screen.getByText(/first 10,050 accessible/)
     ).toBeInTheDocument()

@@ -9,12 +9,12 @@ import {
   useTransition,
 } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { useReleaseSaveCountBatch } from '../hooks/useSavedReleases'
 import { useReleases } from '../hooks/useReleases'
 import { useLabels } from '@/features/labels/hooks/useLabels'
 import { ReleaseCard } from './ReleaseCard'
-import { LoadingSpinner, DensityToggle } from '@/components/shared'
+import { LoadingSpinner, DensityToggle, Pagination } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -91,8 +91,16 @@ export function ReleaseList() {
     user?.id
   )
 
-  // URL update helper — preserves existing params unless explicitly overridden
-  const updateFilters = (params: Record<string, string | null>) => {
+  /**
+   * Serializes the current filter set into a `/releases` URL, with `params`
+   * overriding individual values. `page` is dropped unless explicitly passed,
+   * so every filter change lands the reader back on page one.
+   *
+   * Shared by the filter controls (which navigate imperatively) and the pager
+   * (which needs the same URL as a plain `href`), so a page link can never
+   * drift from what a filter change would have written.
+   */
+  const buildReleasesHref = (params: Record<string, string | null>) => {
     const newParams = new URLSearchParams()
 
     // Merge current and new params
@@ -127,12 +135,24 @@ export function ReleaseList() {
     if (mergedTagMatch) newParams.set('tag_match', mergedTagMatch)
 
     const queryString = newParams.toString()
+    return queryString ? `/releases?${queryString}` : '/releases'
+  }
+
+  const updateFilters = (params: Record<string, string | null>) => {
+    const href = buildReleasesHref(params)
     startTransition(() => {
-      router.push(queryString ? `/releases?${queryString}` : '/releases', {
-        scroll: false,
-      })
+      router.push(href, { scroll: false })
     })
   }
+
+  /**
+   * Page links are real URLs so the strip is crawlable and middle-clickable;
+   * the `<Link>` navigation writes the param, and this component reads it back
+   * off `useSearchParams`. Page one drops `?page=` to keep one canonical URL
+   * for the head of the list.
+   */
+  const releasePageHref = (nextPage: number) =>
+    buildReleasesHref({ page: nextPage > 1 ? String(nextPage) : null })
 
   const handleTagsChange = useCallback(
     (nextTags: string[]) => {
@@ -181,11 +201,6 @@ export function ReleaseList() {
     } else if (!trimmed) {
       updateFilters({ year: null, page: null })
     }
-  }
-
-  const handlePageChange = (page: number) => {
-    updateFilters({ page: page > 1 ? page.toString() : null })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const clearFilters = () => {
@@ -424,32 +439,16 @@ export function ReleaseList() {
           </div>
         )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-8">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage <= 1}
-              onClick={() => handlePageChange(currentPage - 1)}
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Previous
-            </Button>
-            <span className="text-sm text-muted-foreground px-3">
-              Page {currentPage} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentPage >= totalPages}
-              onClick={() => handlePageChange(currentPage + 1)}
-            >
-              Next
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </div>
-        )}
+        {/* Hides itself at one page, so it needs no guard here. */}
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          pageHref={releasePageHref}
+          ariaLabel="Releases pagination"
+          previousLabel="Previous"
+          nextLabel="Next"
+          className="mt-8"
+        />
       </div>
     </section>
   )

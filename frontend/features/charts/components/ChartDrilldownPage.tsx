@@ -10,6 +10,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import {
   FollowButton,
+  Pagination,
   ReleaseSaveButton,
   SaveButton,
 } from '@/components/shared'
@@ -108,22 +109,6 @@ function ReferenceList({
       </Link>
     </span>
   ))
-}
-
-function paginationItems(currentPage: number, totalPages: number) {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1)
-  }
-  const pages = new Set([1, totalPages, currentPage])
-  if (currentPage > 1) pages.add(currentPage - 1)
-  if (currentPage < totalPages) pages.add(currentPage + 1)
-  const sorted = [...pages].sort((a, b) => a - b)
-  const items: Array<number | 'ellipsis'> = []
-  sorted.forEach((page, index) => {
-    if (index > 0 && page - sorted[index - 1] > 1) items.push('ellipsis')
-    items.push(page)
-  })
-  return items
 }
 
 function resolveDrilldownWindow(raw: string | null): ChartWindow {
@@ -554,8 +539,26 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     if (pageOutOfRange) void setPage(totalPages)
   }, [pageOutOfRange, setPage, totalPages])
 
-  const goToPage = (nextPage: number) =>
-    void setPage(nextPage === 1 ? null : nextPage)
+  /**
+   * Page links are real URLs, so the strip is crawlable and middle-clickable
+   * and the `<Link>` navigation itself writes `?page=` — nuqs reads it back
+   * from the URL. Writing the param from an `onNavigate` handler as well would
+   * push a second, identical history entry, so this surface navigates by href
+   * alone; `setPage` stays for the clamp and snap-back corrections only.
+   *
+   * The window and scene filters are re-serialized here so they survive a page
+   * change, and page one drops `?page=` entirely to keep one canonical URL for
+   * the head of the list. Only the three params this page owns round-trip;
+   * anything else on the URL is not carried into the pager links.
+   */
+  const drilldownPageHref = (nextPage: number) => {
+    const params = new URLSearchParams()
+    if (windowParam) params.set('window', windowParam)
+    if (scene) params.set('scene', scene)
+    if (nextPage > 1) params.set('page', String(nextPage))
+    const query = params.toString()
+    return query ? `/charts/${module}?${query}` : `/charts/${module}`
+  }
   const changeWindow = (nextWindow: RollingChartWindow) => {
     void setPage(null)
     void setWindow(nextWindow === 'quarter' ? null : nextWindow)
@@ -753,58 +756,27 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
       </div>
 
       {showPagination ? (
-        <nav
-          aria-label="Chart pagination"
-          className="flex flex-col gap-3 border-t border-border pt-4 font-mono text-xs sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p className="text-muted-foreground">
+        <div className="space-y-3 border-t border-border pt-4">
+          {/*
+            The row summary sits outside the pager: it is the answer to "how
+            much is here", which a single-page chart still needs, and the pager
+            hides itself entirely at one page.
+          */}
+          <p className="font-mono text-xs text-muted-foreground">
             Showing {showingStart}–{showingEnd} of {total.toLocaleString()}
             {total > reachableTotal
               ? ` · first ${reachableTotal.toLocaleString()} accessible`
               : ''}
           </p>
-          <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => goToPage(page - 1)}
-              className="px-2 py-1 text-primary disabled:text-muted-foreground"
-            >
-              Previous
-            </button>
-            {paginationItems(page, totalPages).map((item, index) =>
-              item === 'ellipsis' ? (
-                <span
-                  key={`ellipsis-${index}`}
-                  className="px-1 text-muted-foreground"
-                >
-                  …
-                </span>
-              ) : (
-                <button
-                  key={item}
-                  type="button"
-                  aria-current={page === item ? 'page' : undefined}
-                  onClick={() => goToPage(item)}
-                  className={cn(
-                    'min-w-7 px-2 py-1 text-primary',
-                    page === item && 'bg-primary text-primary-foreground'
-                  )}
-                >
-                  {item}
-                </button>
-              )
-            )}
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => goToPage(page + 1)}
-              className="px-2 py-1 text-primary disabled:text-muted-foreground"
-            >
-              Next
-            </button>
-          </div>
-        </nav>
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            pageHref={drilldownPageHref}
+            ariaLabel="Chart pagination"
+            previousLabel="Previous"
+            nextLabel="Next"
+          />
+        </div>
       ) : null}
     </div>
   )
