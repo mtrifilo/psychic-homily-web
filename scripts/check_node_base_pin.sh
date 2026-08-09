@@ -36,8 +36,8 @@
 #
 # Usage:
 #   scripts/check_node_base_pin.sh                  # validate + report
-#   scripts/check_node_base_pin.sh --print-version  # 22.23.2
-#   scripts/check_node_base_pin.sh --print-ref      # node:22.23.2-alpine3.24@sha256:...
+#   scripts/check_node_base_pin.sh --print-version  # <major>.<minor>.<patch>
+#   scripts/check_node_base_pin.sh --print-ref      # node:<version>-alpine<ver>@sha256:<digest>
 #
 # Validation runs in every mode; the print modes only replace the report with
 # the bare value, so no caller can consume an unvalidated pin. No network I/O

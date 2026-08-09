@@ -41,10 +41,22 @@ reset_fixture() {
 }
 
 # sed -i is not portable between GNU and BSD; rewrite through a temp file.
+#
+# A mutation that matches nothing is the dangerous failure here: the case would
+# then run the gate against a perfectly good Dockerfile, get the pass it was
+# written to reject, and report `ok`. Restructuring the Dockerfile is exactly
+# what would stop these patterns matching, so every edit asserts it landed.
 edit() {
   # edit <sed-expression>
   local expr="$1" file="$FIXTURE/backend/Dockerfile"
-  sed -E "$expr" "$file" >"$file.tmp" && mv "$file.tmp" "$file"
+  sed -E "$expr" "$file" >"$file.tmp"
+  if cmp -s "$file" "$file.tmp"; then
+    echo "FAIL [$CASE]: fixture mutation matched nothing, so this case proves nothing."
+    echo "    expression: $expr"
+    echo "    The Dockerfile's shape probably changed; update the pattern."
+    FAILURES=$((FAILURES + 1))
+  fi
+  mv "$file.tmp" "$file"
 }
 
 expect() {
