@@ -129,16 +129,20 @@ func NormalizedGeocodedTimezoneOrNull(db *gorm.DB, tz *string, logCtx ...any) *s
 		return canonical
 	case errors.Is(err, ErrUnknownTimezone):
 		slog.Error("geocoded timezone is not in the server's zone catalog; storing NULL",
-			append([]any{"rejected_timezone", derefOrEmpty(tz), "error", err}, logCtx...)...)
+			append([]any{"rejected_timezone", DerefOrEmpty(tz), "error", err}, logCtx...)...)
 		return nil
 	default:
 		slog.Error("could not validate geocoded timezone; keeping the derived value",
-			append([]any{"timezone", derefOrEmpty(tz), "error", err}, logCtx...)...)
+			append([]any{"timezone", DerefOrEmpty(tz), "error", err}, logCtx...)...)
 		return tz
 	}
 }
 
-func derefOrEmpty(s *string) string {
+// DerefOrEmpty reads a nullable string as the empty string — the shape both the
+// log fields above and the geocoder take for "not set". Exported because the
+// admin location derivation needs the same unwrap, and the alternative was one
+// more private copy of these five lines (the tree already has several).
+func DerefOrEmpty(s *string) string {
 	if s == nil {
 		return ""
 	}

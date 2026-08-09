@@ -267,38 +267,6 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 	return s.toResponses(edits), total, nil
 }
 
-// updatedString returns the EFFECTIVE post-write value of key: the write's own
-// value when it carries one, the fallback (the entity's current value) when it
-// does not. Used to build the location the derived columns are recomputed from.
-//
-// A key present with an explicit nil is a write that CLEARS the column, so it
-// resolves to the empty string, not the fallback. That case is real on the
-// rollback path — artists and festivals have nullable city/state/country, so
-// undoing "admin added a city" restores SQL NULL — and falling back to the
-// current value there would derive the new metro from a city the same write is
-// about to erase, which is the stale pairing the derivation exists to prevent.
-func updatedString(updates map[string]interface{}, key, fallback string) string {
-	v, ok := updates[key]
-	if !ok {
-		return fallback
-	}
-	if v == nil {
-		return ""
-	}
-	if s, isString := v.(string); isString {
-		return s
-	}
-	// Both nil shapes clear the column: an untyped nil from JSONB (the rollback
-	// path) and a typed nil the map is built with directly (the shape the venue
-	// branch already uses for the street-geocode fields).
-	if p, isPtr := v.(*string); isPtr {
-		return derefOrEmpty(p)
-	}
-	// A non-string value is a shape this function cannot interpret; leaving the
-	// derivation on the current value beats deriving from a guess.
-	return fallback
-}
-
 // NarrowNumericUpdates rewrites every registered whole-number field in an
 // update map from the shape JSONB hands back (float64) to the shape the column
 // actually is (*int), leaving a nil as a typed nil so it lands as SQL NULL.
@@ -595,9 +563,6 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 				updates["age_policy"] = utils.NilIfBlank(s)
 			}
 		}
-		_, cityChanged := updates["city"]
-		_, stateChanged := updates["state"]
-		_, countryChanged := updates["country"]
 		_, addressChanged := updates["address"]
 		_, zipcodeChanged := updates["zipcode"]
 		// Street-level geocode (PSY-1536): the contribution path does not call
@@ -608,26 +573,21 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		// Re-resolution happens on the next daily street-geocode sweep
 		// (catalog.StreetGeocodeSweep) — the cleared geocoded_address key no
 		// longer matches, which is exactly what the reconciler queries for.
-		if addressChanged || zipcodeChanged || cityChanged || stateChanged || countryChanged {
+		if addressChanged || zipcodeChanged || locationChanged(updates) {
 			updates["street_latitude"] = (*float64)(nil)
 			updates["street_longitude"] = (*float64)(nil)
 			updates["geocode_precision"] = (*string)(nil)
 			updates["geocoded_address"] = (*string)(nil)
 		}
-		// Shared with RevisionService.Rollback, which needs the identical
-		// re-derivation: see applyDerivedVenueLocation for why the two must not
-		// have separate copies.
-		applyDerivedVenueLocation(s.db, edit.EntityID, updates)
 	}
 
-	// Artists (PSY-1255 step B) and festivals (PSY-1278) carry a derived metro of
-	// their own — keep it fresh when a contribution / trusted-tier inline edit
-	// relocates one, the same way UpdateArtist does (this path bypasses the
-	// service). Shared with RevisionService.Rollback, which needs the identical
-	// re-derivation: see applyDerivedEntityMetro for why the two must not have
-	// separate copies. Entity types that derive nothing from their location fall
-	// through it untouched.
-	applyDerivedEntityMetro(s.db, edit.EntityType, edit.EntityID, updates)
+	// The system-derived location columns, for every entity type that has them:
+	// a venue's coordinates and timezone, an artist's or festival's metro. Shared
+	// with RevisionService.Rollback, which needs the identical re-derivation —
+	// see applyDerivedLocation for why the two must not have separate copies.
+	// Runs after the venue block above so the street-geocode clearing, which is
+	// venue-only and NOT shared with rollback, keeps its position.
+	applyDerivedLocation(s.db, edit.EntityType, edit.EntityID, updates)
 
 	// The closure returns typed errors directly: a vanished entity is a 422
 	// (the edit can no longer be applied), everything else is a 500.

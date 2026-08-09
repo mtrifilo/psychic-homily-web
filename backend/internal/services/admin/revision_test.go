@@ -84,6 +84,22 @@ func (s *RevisionServiceIntegrationTestSuite) createTestVenue(name string) *cata
 	return venue
 }
 
+// CBSA codes the offline geocoder resolves these two cities to. Named so the
+// location-derivation tests read as one family.
+const (
+	metroPhoenix = "38060"
+	metroNewYork = "35620"
+)
+
+// rollbackLatest undoes the most recent revision recorded against an entity —
+// the find-the-revision-then-roll-it-back pair every rollback test repeats.
+func (s *RevisionServiceIntegrationTestSuite) rollbackLatest(entityType string, entityID, adminID uint) {
+	var recorded adminm.Revision
+	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).
+		Order("id DESC").First(&recorded).Error)
+	s.Require().NoError(s.svc.Rollback(recorded.ID, adminID))
+}
+
 // createTestArtist makes an artist already living in a metro, so a rollback that
 // re-derives has something to be wrong about.
 func (s *RevisionServiceIntegrationTestSuite) createTestArtist(name, city, state, metro string) *catalogm.Artist {
@@ -663,14 +679,13 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_LeavesDerivedColumnsA
 
 // An artist's metro is derived from its (city, state, country) exactly the way a
 // venue's timezone is, so a rollback that restores the old city must re-derive
-// it or the artist lands back in Phoenix still keyed into the New York scene.
-// Why that is harmful: see applyDerivedEntityMetro.
+// it. Why the stale pairing is harmful: see applyDerivedEntityMetro.
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesArtistMetroOnLocationRevert() {
 	user := s.createTestUser()
 	adminUser := s.createTestUser()
 	// The state AFTER the edit being rolled back: moved to New York with the
 	// metro resolved for New York, as an artist write path leaves it.
-	artist := s.createTestArtist("Relocated Band", "New York", "NY", "35620")
+	artist := s.createTestArtist("Relocated Band", "New York", "NY", metroNewYork)
 
 	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, user.ID,
 		[]adminm.FieldChange{
@@ -679,11 +694,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesArtistMetroO
 		},
 		"moved the artist"))
 
-	var recorded adminm.Revision
-	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
-		Order("id DESC").First(&recorded).Error)
-
-	s.Require().NoError(s.svc.Rollback(recorded.ID, adminUser.ID))
+	s.rollbackLatest("artist", artist.ID, adminUser.ID)
 
 	var restored catalogm.Artist
 	s.Require().NoError(s.db.First(&restored, artist.ID).Error)
@@ -692,7 +703,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesArtistMetroO
 
 	// THE assertion: the restored city no longer carries the other city's metro.
 	s.Require().NotNil(restored.Metro, "rollback must derive a metro for the restored city")
-	s.Equal("38060", *restored.Metro,
+	s.Equal(metroPhoenix, *restored.Metro,
 		"the restored city must not keep the metro derived for the city it was moved away from")
 }
 
@@ -702,7 +713,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesArtistMetroO
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesFestivalMetroOnLocationRevert() {
 	user := s.createTestUser()
 	adminUser := s.createTestUser()
-	festival := s.createTestFestival("Relocated Fest", "New York", "NY", "35620")
+	festival := s.createTestFestival("Relocated Fest", "New York", "NY", metroNewYork)
 
 	s.Require().NoError(s.svc.RecordRevision("festival", festival.ID, user.ID,
 		[]adminm.FieldChange{
@@ -711,18 +722,14 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesFestivalMetr
 		},
 		"moved the festival"))
 
-	var recorded adminm.Revision
-	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "festival", festival.ID).
-		Order("id DESC").First(&recorded).Error)
-
-	s.Require().NoError(s.svc.Rollback(recorded.ID, adminUser.ID))
+	s.rollbackLatest("festival", festival.ID, adminUser.ID)
 
 	var restored catalogm.Festival
 	s.Require().NoError(s.db.First(&restored, festival.ID).Error)
 	s.Require().NotNil(restored.City)
 	s.Equal("Phoenix", *restored.City)
 	s.Require().NotNil(restored.Metro, "rollback must derive a metro for the restored city")
-	s.Equal("38060", *restored.Metro,
+	s.Equal(metroPhoenix, *restored.Metro,
 		"the restored city must not keep the metro derived for the city it was moved away from")
 }
 
@@ -734,7 +741,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_RederivesFestivalMetr
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_ClearsArtistMetroWhenLocationRevertsToNull() {
 	user := s.createTestUser()
 	adminUser := s.createTestUser()
-	artist := s.createTestArtist("Newly Placed Band", "Phoenix", "AZ", "38060")
+	artist := s.createTestArtist("Newly Placed Band", "Phoenix", "AZ", metroPhoenix)
 
 	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, user.ID,
 		[]adminm.FieldChange{
@@ -743,11 +750,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_ClearsArtistMetroWhen
 		},
 		"gave the artist a hometown"))
 
-	var recorded adminm.Revision
-	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
-		Order("id DESC").First(&recorded).Error)
-
-	s.Require().NoError(s.svc.Rollback(recorded.ID, adminUser.ID))
+	s.rollbackLatest("artist", artist.ID, adminUser.ID)
 
 	var restored catalogm.Artist
 	s.Require().NoError(s.db.First(&restored, artist.ID).Error)
@@ -761,24 +764,22 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_ClearsArtistMetroWhen
 // entity's scene membership off whatever the geocoder says today.
 func (s *RevisionServiceIntegrationTestSuite) TestRollback_LeavesArtistMetroAloneWithoutLocationChange() {
 	user := s.createTestUser()
+	adminUser := s.createTestUser()
 	// A metro that does NOT match the city, so a stray re-derivation would
 	// visibly overwrite it.
-	artist := s.createTestArtist("Renamed Band", "Phoenix", "AZ", "35620")
+	artist := s.createTestArtist("Renamed Band", "Phoenix", "AZ", metroNewYork)
 
 	s.Require().NoError(s.svc.RecordRevision("artist", artist.ID, user.ID,
 		[]adminm.FieldChange{{Field: "name", OldValue: "Original Band", NewValue: "Renamed Band"}},
 		"renamed"))
 
-	var recorded adminm.Revision
-	s.Require().NoError(s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).
-		Order("id DESC").First(&recorded).Error)
-	s.Require().NoError(s.svc.Rollback(recorded.ID, user.ID))
+	s.rollbackLatest("artist", artist.ID, adminUser.ID)
 
 	var restored catalogm.Artist
 	s.Require().NoError(s.db.First(&restored, artist.ID).Error)
 	s.Equal("Original Band", restored.Name)
 	s.Require().NotNil(restored.Metro)
-	s.Equal("35620", *restored.Metro, "a non-location rollback must not re-derive the metro")
+	s.Equal(metroNewYork, *restored.Metro, "a non-location rollback must not re-derive the metro")
 }
 
 // =============================================================================
