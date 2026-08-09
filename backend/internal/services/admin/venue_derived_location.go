@@ -14,15 +14,13 @@ import (
 // and metro — whenever the write it is building touches any of those three. A
 // write that does not relocate the venue is left completely alone.
 //
-// Both admin write paths that apply a venue edit as an untyped GORM update map
-// go through here: ApprovePendingEdit (contribution + trusted-tier auto-apply)
-// and RevisionService.Rollback. They must not diverge — a path that moves a
-// venue's city without re-deriving leaves the coordinates and TIMEZONE of the
-// city it moved away from, and every venue-local surface (the show-list
-// partition, the ICS feed, reminder rendering) then reads that stale zone as the
-// venue's real one and silently mis-dates its shows instead of failing visibly.
-// Rollback shipped without this and had exactly that bug (PSY-1709); the fix is
-// one function rather than a comment asking two copies to stay in step.
+// Reached through applyDerivedLocation, which is where the two admin write paths
+// that share it are named; not called directly. What makes the venue case the
+// severe one: a path that moves a venue's city without re-deriving leaves the
+// coordinates and TIMEZONE of the city it moved away from, and every venue-local
+// surface (the show-list partition, the ICS feed, reminder rendering) then reads
+// that stale zone as the venue's real one and silently mis-dates its shows
+// instead of failing visibly. Rollback shipped with exactly that bug (PSY-1709).
 //
 // The four columns are on no editor's field list, so recomputing them can never
 // clobber a value a human chose — they are ours.
@@ -43,14 +41,11 @@ import (
 // rather than failing the whole edit, which would throw away the fields that CAN
 // be applied.
 //
-// NOT covered here: artists and festivals carry a derived metro of their own.
-// ApprovePendingEdit re-derives those inline (they have no timezone, so they are
-// a different, milder problem); Rollback does not.
+// NOT covered here: artists and festivals carry a derived metro of their own and
+// no timezone, so they go through applyDerivedEntityMetro — the metro-only
+// sibling of this function, reached through the same dispatcher.
 func applyDerivedVenueLocation(db *gorm.DB, venueID uint, updates map[string]interface{}) {
-	_, cityChanged := updates["city"]
-	_, stateChanged := updates["state"]
-	_, countryChanged := updates["country"]
-	if !cityChanged && !stateChanged && !countryChanged {
+	if !locationChanged(updates) {
 		return
 	}
 
@@ -60,16 +55,11 @@ func applyDerivedVenueLocation(db *gorm.DB, venueID uint, updates map[string]int
 			"venue_id", venueID, "error", err.Error())
 		return
 	}
-	currentCountry := ""
-	if current.Country != nil {
-		currentCountry = *current.Country
-	}
-
 	// The effective POST-write location: the incoming value where this write
 	// carries one, the venue's current value otherwise.
 	city := updatedString(updates, "city", current.City)
 	state := updatedString(updates, "state", current.State)
-	country := updatedString(updates, "country", currentCountry)
+	country := updatedString(updates, "country", shared.DerefOrEmpty(current.Country))
 
 	lat, lng, tz := geo.LookupPointers(geo.Default(), city, state, country)
 	updates["latitude"] = lat

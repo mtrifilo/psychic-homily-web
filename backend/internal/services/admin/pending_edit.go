@@ -16,10 +16,8 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
-	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
-	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 	"psychic-homily-backend/internal/utils/urlguard"
@@ -267,18 +265,6 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 	}
 
 	return s.toResponses(edits), total, nil
-}
-
-// updatedString returns the pending-edit's new value for key when it is present
-// and a string, otherwise the fallback (the entity's current value). Used to
-// build the effective post-edit location for re-geocoding.
-func updatedString(updates map[string]interface{}, key, fallback string) string {
-	if v, ok := updates[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return fallback
 }
 
 // NarrowNumericUpdates rewrites every registered whole-number field in an
@@ -577,9 +563,6 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 				updates["age_policy"] = utils.NilIfBlank(s)
 			}
 		}
-		_, cityChanged := updates["city"]
-		_, stateChanged := updates["state"]
-		_, countryChanged := updates["country"]
 		_, addressChanged := updates["address"]
 		_, zipcodeChanged := updates["zipcode"]
 		// Street-level geocode (PSY-1536): the contribution path does not call
@@ -590,74 +573,21 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		// Re-resolution happens on the next daily street-geocode sweep
 		// (catalog.StreetGeocodeSweep) — the cleared geocoded_address key no
 		// longer matches, which is exactly what the reconciler queries for.
-		if addressChanged || zipcodeChanged || cityChanged || stateChanged || countryChanged {
+		if addressChanged || zipcodeChanged || locationChanged(updates) {
 			updates["street_latitude"] = (*float64)(nil)
 			updates["street_longitude"] = (*float64)(nil)
 			updates["geocode_precision"] = (*string)(nil)
 			updates["geocoded_address"] = (*string)(nil)
 		}
-		// Shared with RevisionService.Rollback, which needs the identical
-		// re-derivation: see applyDerivedVenueLocation for why the two must not
-		// have separate copies.
-		applyDerivedVenueLocation(s.db, edit.EntityID, updates)
 	}
 
-	// metro is derived from an artist's (city, state, country) too — keep it fresh
-	// when a contribution / trusted-tier inline edit relocates the artist, the same
-	// way UpdateArtist does (this path bypasses the service). (PSY-1255 step B)
-	if edit.EntityType == "artist" {
-		_, cityChanged := updates["city"]
-		_, stateChanged := updates["state"]
-		_, countryChanged := updates["country"]
-		if cityChanged || stateChanged || countryChanged {
-			var current catalogm.Artist
-			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {
-				curCity, curState, curCountry := "", "", ""
-				if current.City != nil {
-					curCity = *current.City
-				}
-				if current.State != nil {
-					curState = *current.State
-				}
-				if current.Country != nil {
-					curCountry = *current.Country
-				}
-				updates["metro"] = geo.MetroPointer(geo.Default(),
-					updatedString(updates, "city", curCity),
-					updatedString(updates, "state", curState),
-					updatedString(updates, "country", curCountry))
-			}
-		}
-	}
-
-	// Festivals carry the same derived metro key (PSY-1278) — keep it fresh when
-	// a contribution edit relocates the festival, mirroring the artist branch
-	// above (festivals have no lat/lng/timezone columns, so metro is the only
-	// derived sibling to forward).
-	if edit.EntityType == "festival" {
-		_, cityChanged := updates["city"]
-		_, stateChanged := updates["state"]
-		_, countryChanged := updates["country"]
-		if cityChanged || stateChanged || countryChanged {
-			var current catalogm.Festival
-			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {
-				curCity, curState, curCountry := "", "", ""
-				if current.City != nil {
-					curCity = *current.City
-				}
-				if current.State != nil {
-					curState = *current.State
-				}
-				if current.Country != nil {
-					curCountry = *current.Country
-				}
-				updates["metro"] = geo.MetroPointer(geo.Default(),
-					updatedString(updates, "city", curCity),
-					updatedString(updates, "state", curState),
-					updatedString(updates, "country", curCountry))
-			}
-		}
-	}
+	// The system-derived location columns, for every entity type that has them:
+	// a venue's coordinates and timezone, an artist's or festival's metro. Shared
+	// with RevisionService.Rollback, which needs the identical re-derivation —
+	// see applyDerivedLocation for why the two must not have separate copies.
+	// Runs after the venue block above so the street-geocode clearing, which is
+	// venue-only and NOT shared with rollback, keeps its position.
+	applyDerivedLocation(s.db, edit.EntityType, edit.EntityID, updates)
 
 	// The closure returns typed errors directly: a vanished entity is a 422
 	// (the edit can no longer be applied), everything else is a 500.

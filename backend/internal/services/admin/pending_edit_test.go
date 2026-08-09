@@ -732,6 +732,52 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueLoc
 	s.Require().NotNil(updated.Longitude)
 }
 
+// Artists and festivals derive a metro from their location the way a venue
+// derives a timezone, and the contribution flow bypasses the services that
+// would maintain it. Both types go through the same helper, so both are
+// asserted here: this is the approve half of applyDerivedLocation, and it had
+// no coverage before PSY-1744 moved it.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_ArtistAndFestivalLocationRederiveMetro() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Metro Band") // no location yet
+	fest := s.createTestFestival("Metro Fest") // no location yet
+
+	artistEdit, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "city", NewValue: "Phoenix"},
+			{Field: "state", NewValue: "AZ"},
+		},
+		Summary: "give the band a hometown",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), artistEdit.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	var updatedArtist catalogm.Artist
+	s.Require().NoError(s.db.First(&updatedArtist, artist.ID).Error)
+	s.Require().NotNil(updatedArtist.Metro, "an approved location edit must derive the artist's metro")
+	s.Equal(metroPhoenix, *updatedArtist.Metro)
+
+	festEdit, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "festival", EntityID: fest.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "city", NewValue: "Phoenix"},
+			{Field: "state", NewValue: "AZ"},
+		},
+		Summary: "give the festival a home",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.ApprovePendingEdit(context.Background(), festEdit.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	var updatedFest catalogm.Festival
+	s.Require().NoError(s.db.First(&updatedFest, fest.ID).Error)
+	s.Require().NotNil(updatedFest.Metro, "an approved location edit must derive the festival's metro")
+	s.Equal(metroPhoenix, *updatedFest.Metro)
+}
+
 // TestApprovePendingEdit_VenueAddressChangeClearsStreetGeocode verifies
 // PSY-1536: the contribution path doesn't call Nominatim inline, so approving
 // an edit that changes any address-key component must CLEAR the street-level
