@@ -55,6 +55,11 @@ type entityRef struct {
 	// idCol. Empty with dedupe=true means the index is on (entity_type, idCol)
 	// alone.
 	key []string
+	// repointedElsewhere marks a table this list must still COVER — the
+	// schema-drift guard reads the list, not the loop — but whose re-point is
+	// not a bare UPDATE and therefore does not happen in reassignEntityRefs.
+	// See the entry for the reason.
+	repointedElsewhere bool
 }
 
 // venueEntityRefs is every table in the schema whose polymorphic entity
@@ -91,9 +96,13 @@ var venueEntityRefs = []entityRef{
 	{table: "comments", idCol: "entity_id"},
 	{table: "entity_edit_audit_logs", idCol: "entity_id"},
 	{table: "entity_reports", idCol: "entity_id"},
-	{table: "revisions", idCol: "entity_id"},
 	{table: "requests", idCol: "requested_entity_id"},
 	{table: "entity_requests", idCol: "created_entity_id"},
+
+	// Re-pointed by repointRevisions, which pairs the move with the
+	// provenance decision it must not be separated from. Listed here so the
+	// schema-coverage guard still sees the table as handled.
+	{table: "revisions", idCol: "entity_id", repointedElsewhere: true},
 }
 
 // venueFKTables is every table holding a real foreign key to venues.id. Each
@@ -134,7 +143,7 @@ func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contr
 // PRIVACY: an unverified venue's address history, and the contributor-authored
 // summary prose beside it, are withheld from the anonymous revision routes, and
 // this merge deletes the venue that gate reads.
-// markUnverifiedVenueRevisions preserves the redaction across the re-point;
+// reassignVenueRevisions preserves the redaction across the re-point;
 // stored history is not edited and verified-into-verified merges are
 // unaffected. Merges predating that column are not backfilled.
 //
@@ -217,9 +226,7 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) 
 		if err := reassignNotificationFilters(tx, canonicalID, mergeFromID, result); err != nil {
 			return err
 		}
-		// MUST run before reassignEntityRefs: it identifies the loser's
-		// revisions by the entity_id that step is about to overwrite.
-		if err := markUnverifiedVenueRevisions(tx, mergeFrom); err != nil {
+		if err := reassignVenueRevisions(tx, canonicalID, mergeFrom, result); err != nil {
 			return err
 		}
 		if err := reassignEntityRefs(tx, canonicalID, mergeFromID, result); err != nil {
@@ -490,24 +497,14 @@ func reassignNotificationFilters(tx *gorm.DB, canonicalID, mergeFromID uint, res
 	return nil
 }
 
-// markUnverifiedVenueRevisions stamps the LOSING venue's revision rows when
-// that venue is unverified, so the read-time address redaction survives the
-// re-point that follows. See the privacy section of the revisiondiff package
-// doc for the policy; this is the mechanism.
+// reassignVenueRevisions moves the losing venue's revision history onto the
+// canonical venue, stamping it first when that venue was unverified so the
+// read-time address redaction survives the re-point. See the privacy section
+// of the revisiondiff package doc for the policy; repointRevisions is the
+// mechanism, and it is what keeps the stamp ahead of the move.
 //
-// Order matters: this runs while revisions.entity_id still names the loser.
-// Once reassignEntityRefs has re-pointed them they are indistinguishable from
-// the canonical venue's own history, and the loser row is deleted moments
-// later, so there is no second chance to derive this.
-//
-// The mark only ever goes TRUE, here and nowhere else. A verified loser
-// returns early rather than clearing anything, so rows that came off an
-// earlier unverified venue keep their redaction and a chain of merges cannot
-// launder an address that a single merge withholds.
-//
-// The whole venue is the parameter rather than an id plus a flag: both facts
-// come off the row lockMergeVenues already locked, and splitting them would let
-// a future edit pass one venue's id with another's verification state.
+// The count joins EntityRefsMoved, which is what it counted toward when
+// revisions were re-pointed inside the reassignEntityRefs loop.
 //
 // This does not scrub anything. The stored diff keeps the real address, which
 // is what rollback and the moderation surfaces read; only the anonymous read
@@ -522,27 +519,42 @@ func reassignNotificationFilters(tx *gorm.DB, canonicalID, mergeFromID uint, res
 // the address the venue now serves rather than a second leak. Keeping the
 // stored value is what makes rollback possible at all, so this stays an
 // explicit admin action rather than another gate.
-func markUnverifiedVenueRevisions(tx *gorm.DB, mergeFrom *catalogm.Venue) error {
-	if mergeFrom.Verified {
-		return nil
-	}
-
-	err := tx.Exec(`
-		UPDATE revisions
-		SET from_unverified_venue = TRUE
-		WHERE entity_type = 'venue'
-		  AND entity_id = ?
-	`, mergeFrom.ID).Error
+func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.Venue, result *contracts.MergeVenueResult) error {
+	moved, err := repointRevisions(
+		tx, revisionEntityVenue, canonicalID, mergeFrom.ID, venueRevisionProvenance(mergeFrom),
+	)
 	if err != nil {
-		return fmt.Errorf("failed to mark unverified venue revisions: %w", err)
+		return err
 	}
+	result.EntityRefsMoved += moved
 	return nil
+}
+
+// venueRevisionProvenance decides what happens to a losing venue's revision
+// history when a merge carries it onto another venue.
+//
+// A verified loser gets noRedactionCarryover rather than a clear: nothing was
+// being withheld, and any mark already on those rows came off an EARLIER
+// unverified venue, so a chain of merges cannot launder an address that a
+// single merge withholds.
+//
+// The whole venue is the parameter rather than an id plus a flag: both facts
+// come off the row lockMergeVenues already locked, and splitting them would let
+// a future edit pass one venue's id with another's verification state.
+func venueRevisionProvenance(mergeFrom *catalogm.Venue) revisionProvenance {
+	if mergeFrom.Verified {
+		return noRedactionCarryover
+	}
+	return stampFromUnverifiedVenue
 }
 
 // reassignEntityRefs walks venueEntityRefs, dropping rows that would collide on
 // a unique key before re-pointing the rest at the canonical venue.
 func reassignEntityRefs(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
 	for _, ref := range venueEntityRefs {
+		if ref.repointedElsewhere {
+			continue
+		}
 		if ref.dedupe {
 			joinPred := ""
 			for _, col := range ref.key {

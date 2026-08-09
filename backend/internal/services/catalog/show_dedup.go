@@ -245,7 +245,6 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		{"comments", `UPDATE comments SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.CommentsRepointed},
 		{"entity_reports", `UPDATE entity_reports SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.EntityReportsMoved},
 		{"pending_entity_edits", `UPDATE pending_entity_edits SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.PendingEditsMoved},
-		{"revisions", `UPDATE revisions SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.RevisionsMoved},
 		{"audit_logs", `UPDATE audit_logs SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.AuditLogsMoved},
 		// requests uses requested_entity_id, not entity_id.
 		{"requests", `UPDATE requests SET requested_entity_id = ? WHERE entity_type = 'show' AND requested_entity_id = ?`, &summary.RequestsMoved},
@@ -256,6 +255,19 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		}
 		*op.dst += res.RowsAffected
 	}
+
+	// revisions: a plain re-point today, but it has to say so. This runs with
+	// no admin in the loop (cmd/dedup-shows), and it deletes the show a
+	// read-time gate would consult, so it is the exact site the revisiondiff
+	// package doc names when it describes closing the show-history gap:
+	// a show gated at the entity level (pending / rejected / private) needs a
+	// provenance stamp written HERE, the way the venue merge writes
+	// from_unverified_venue. Until that gate exists there is nothing to carry.
+	revisionsMoved, err := repointRevisions(tx, revisionEntityShow, winnerID, loserID, noRedactionCarryover)
+	if err != nil {
+		return err
+	}
+	summary.RevisionsMoved += revisionsMoved
 
 	// Polymorphic FK repoints WITH a uniqueness constraint —
 	// conflict-correlation columns vary per table.
