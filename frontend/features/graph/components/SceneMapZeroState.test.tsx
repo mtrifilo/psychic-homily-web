@@ -46,6 +46,7 @@ function node(overrides: Partial<SceneMapNode> & Pick<SceneMapNode, 'id' | 'name
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
+    homeCity: null,
     appear: 0,
     ...overrides,
   }
@@ -63,6 +64,7 @@ function sceneMapFixture(overrides: Partial<SceneMap> = {}): SceneMap {
       kind: 'label',
       community: -1,
       degree: 4,
+      homeCity: 'Brooklyn',
     }),
   ]
   return {
@@ -149,6 +151,34 @@ describe('SceneMapZeroState', () => {
     expect(
       screen.queryByRole('region', { name: 'About Doom Records' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('states the hub home city in its panel', async () => {
+    // The panel and the canvas caption read the SAME field (PSY-1736), so the
+    // dot and the card cannot disagree about where a label is from.
+    const user = userEvent.setup()
+    renderZeroState()
+
+    await user.click(screen.getByRole('button', { name: 'Click hub' }))
+
+    expect(screen.getByRole('region', { name: 'About Doom Records' })).toHaveTextContent(
+      'Brooklyn',
+    )
+  })
+
+  it('omits the panel city line for a hub with no city on file', async () => {
+    // No placeholder: a label known only by name drops the line rather than
+    // saying "location unknown".
+    const user = userEvent.setup()
+    const map = sceneMapFixture()
+    map.nodes[3] = { ...map.nodes[3], homeCity: null }
+    renderZeroState({ map })
+
+    await user.click(screen.getByRole('button', { name: 'Click hub' }))
+
+    expect(
+      screen.getByRole('region', { name: 'About Doom Records' }),
+    ).not.toHaveTextContent('Brooklyn')
   })
 
   it('does not open an entity panel for an artist dot', async () => {

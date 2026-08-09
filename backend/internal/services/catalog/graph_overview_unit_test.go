@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -421,6 +422,77 @@ func TestBackboneArtistIDs_AreAscendingAndDeduplicated(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("ids = %v, want %v", got, want)
 		}
+	}
+}
+
+// --- the hub city column ---
+
+// hubCityBuild indexes two artists and three hubs, so the column's SCOPE (hub
+// indexes only) and its trimming are both visible in one assertion.
+func hubCityBuild(cities ...string) *overviewBuild {
+	slugA, slugB := "band-a", "band-b"
+	artistIDs := []uint{1, 2}
+	artistMeta := map[uint]overviewArtist{
+		1: {ID: 1, Name: "Band A", Slug: &slugA},
+		2: {ID: 2, Name: "Band B", Slug: &slugB},
+	}
+	hubs := labelHubs{}
+	for i, city := range cities {
+		hubs.Nodes = append(hubs.Nodes, contracts.SceneGraphNode{
+			ID:         uint(labelHubNodeIDOffset + i + 1),
+			EntityType: contracts.SceneNodeKindLabel,
+			Name:       "Label " + strconv.Itoa(i+1),
+			Slug:       "label-" + strconv.Itoa(i+1),
+			City:       city,
+		})
+	}
+	return newOverviewBuild(artistIDs, artistMeta, hubs, []overviewEdge{{A: 1, B: 2, Weight: 1}})
+}
+
+func TestOverviewBuild_HubCityIsHubScopedAndTrimmed(t *testing.T) {
+	// The column is the HUB CAPTION, not a location column: an artist index is
+	// empty because the map does not carry artist cities, and a hub index is
+	// empty when its label has none on file. A regression that filled artist
+	// indexes would caption the wrong nodes with no error anywhere.
+	//
+	// Whitespace is normalized here rather than at the caption, so " " and ""
+	// are the same absent city for every client.
+	b := hubCityBuild(" Austin ", "   ", "")
+
+	want := []string{"", "", "Austin", "", ""}
+	if len(b.nodeHubCity) != len(want) {
+		t.Fatalf("hub city column has %d entries, want %d (one per node)", len(b.nodeHubCity), len(want))
+	}
+	for i := range want {
+		if b.nodeHubCity[i] != want[i] {
+			t.Errorf("hub city[%d] = %q, want %q", i, b.nodeHubCity[i], want[i])
+		}
+	}
+
+	// And it reaches the payload at full node length, which is the invariant
+	// every columnar consumer indexes against.
+	n := len(b.nodeIDs)
+	payload := b.payload(time.Now(), 1, make([]int16, n), make([]int16, n),
+		make([]int32, n), contracts.GraphOverviewRankBetweenness, make([]int32, n),
+		make([]uint8, n), nil, 0)
+	if len(payload.Nodes.HubCity) != payload.NodeCount {
+		t.Errorf("payload hub_city has %d entries, want node_count = %d",
+			len(payload.Nodes.HubCity), payload.NodeCount)
+	}
+}
+
+func TestOverviewBuild_HubCityDoesNotEnterTheStructureKey(t *testing.T) {
+	// THE STABILITY CONTRACT, at the cheapest place to state it. The structure
+	// key is what lets an unchanged night replay stored positions instead of
+	// re-relaxing them; if an additive payload column entered it, shipping this
+	// field — and every label edit afterwards — would re-lay-out the whole map
+	// and reshuffle it under the reader.
+	unset := hubCityBuild("", "", "")
+	set := hubCityBuild("Austin", "Brooklyn", "London")
+
+	if unset.structureKey() != set.structureKey() {
+		t.Fatalf("hub cities changed the structure key (%s vs %s); an attribute must not move a dot",
+			unset.structureKey(), set.structureKey())
 	}
 }
 

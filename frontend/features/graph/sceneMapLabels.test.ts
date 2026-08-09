@@ -115,6 +115,24 @@ describe('selectSceneMapLabels', () => {
     expect(specs.map(spec => spec.text)).toEqual(['Node 1', 'Node 3'])
   })
 
+  it('carries a hub caption through to the drawn spec', () => {
+    // The caption is the hub's home city (PSY-1736). `renderGraphLabels`
+    // measures it into the collision box, so dropping it here would both lose
+    // the caption and under-reserve the box it needs.
+    const specs = selectSceneMapLabels(
+      [
+        candidate({ id: 1, x: 0, y: 0, caption: 'Brooklyn' }),
+        candidate({ id: 2, x: 400, y: 0 }),
+      ],
+      [],
+      1,
+      null,
+      WIDE_OPEN,
+    )
+
+    expect(specs.map(spec => spec.caption)).toEqual(['Brooklyn', undefined])
+  })
+
   it('draws forced labels regardless of the grid', () => {
     const specs = selectSceneMapLabels(
       [candidate({ id: 1, x: 0, y: 0 })],

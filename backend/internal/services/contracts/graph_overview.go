@@ -39,6 +39,22 @@ import "time"
 // GraphOverviewVersion is the payload schema version. Bump it when a field's
 // meaning changes so a client can refuse a shape it does not understand; a
 // stale snapshot written by an older build keeps its own version.
+//
+// DO NOT BUMP FOR AN ADDITIVE FIELD. A bump costs two things, and both are
+// worse than the absent field it would announce:
+//
+//   - The read path refuses any snapshot whose version is not this one
+//     (GetGraphOverview), so the map 503s from the deploy until the next
+//     nightly build commits.
+//   - The nightly build refuses to warm-start across a version change
+//     (previousOverviewLayout), so that build cold-starts the layout and
+//     reshuffles every dot for every reader.
+//
+// A client reading an older snapshot that simply lacks a new column loses that
+// column's feature for one nightly cycle and nothing else. Bump only when an
+// EXISTING field's meaning changes, or when node ids are re-scoped — the cases
+// where reading the old payload would be silently wrong rather than merely
+// incomplete.
 const GraphOverviewVersion = 1
 
 // Node kinds in GraphOverviewNodes.Kind. They mirror the scene graph's node
@@ -111,6 +127,29 @@ type GraphOverviewNodes struct {
 	// never empty: an unlinkable node is not emitted.
 	Name []string `json:"name"`
 	Slug []string `json:"slug"`
+	// HubCity is a LABEL HUB's home city, and is empty for everything else.
+	//
+	// The name says "hub" because the scope is the point: it is empty at every
+	// ARTIST index — not because artists have no city, but because the map does
+	// not carry theirs — and empty at a hub whose label has no city on file.
+	// Reading it as "this node's location" would silently claim that most of
+	// the catalog is from nowhere.
+	//
+	// City ONLY: no state, no country, no "City, ST" composition. That is the
+	// locked caption rule for this surface (PSY-1721). Note what the lock costs
+	// by living HERE: the client cannot show a state or country it was never
+	// sent, so revisiting the rule is a payload change plus a nightly rebuild,
+	// not a frontend tweak. That is accepted — the alternative, shipping three
+	// columns so the client can compose, would put the composition rule in
+	// every consumer instead of in one place.
+	//
+	// TRIMMED. A present value is drawable text: the builder normalizes
+	// whitespace, so "  " arrives as "" rather than as a blank caption line.
+	//
+	// OPTIONAL, like Appear. A snapshot written before this column existed
+	// carries no `hub_city` at all — see GraphOverviewVersion for why that is
+	// preferable to a version bump. Length is NodeCount whenever present.
+	HubCity []string `json:"hub_city,omitempty" doc:"Label hub's home city, trimmed; empty at every artist index and at a hub with no city on file. Absent entirely on a snapshot built before the column existed."`
 	// X and Y are quantized positions; see GraphOverviewCoordinateScale.
 	X []int16 `json:"x"`
 	Y []int16 `json:"y"`
