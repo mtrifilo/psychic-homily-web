@@ -40,14 +40,32 @@ export function isShowTimezoneResolved(
   return (!!timezone && isValidTimeZone(timezone)) || hasTimezoneForState(state)
 }
 
+/** IANA zone name -> does it exist. See {@link isValidTimeZone}. */
+const timeZoneValidity = new Map<string, boolean>()
+
+/**
+ * Whether an IANA zone name exists, memoized.
+ *
+ * The answer is a property of the string and of the runtime's tz database, so
+ * it can never change within a session, and the key domain is bounded by the
+ * zones the venue table holds. The probe is not free — constructing an
+ * `Intl.DateTimeFormat` costs ~20us, and this sits on the path every single
+ * date and time on an entity page takes, several times per row. A dense table
+ * of 50 shows asks the same question 150 times about the same venue.
+ */
 function isValidTimeZone(tz: string): boolean {
+  const known = timeZoneValidity.get(tz)
+  if (known !== undefined) return known
+  let valid: boolean
   try {
     // Throws RangeError for an unknown/malformed IANA name.
     new Intl.DateTimeFormat('en-US', { timeZone: tz })
-    return true
+    valid = true
   } catch {
-    return false
+    valid = false
   }
+  timeZoneValidity.set(tz, valid)
+  return valid
 }
 
 /**
@@ -74,6 +92,45 @@ export function formatShowWeekday(
 ): string {
   return formatInTimezone(dateString, resolveShowTimezone(state, timezone), {
     weekday: 'short',
+  })
+}
+
+/**
+ * The venue-local month and year of a show, kept apart: `{ month: 'Sep', year:
+ * '2025' }`.
+ *
+ * Callers that need to compare or recombine the halves take them from here
+ * rather than splitting {@link formatShowMonth}'s output, so no caller has to
+ * assume where the year sits inside a formatted string.
+ */
+export function formatShowMonthParts(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): { month: string; year: string } {
+  const tz = resolveShowTimezone(state, timezone)
+  return {
+    month: formatInTimezone(dateString, tz, { month: 'short' }),
+    year: formatInTimezone(dateString, tz, { year: 'numeric' }),
+  }
+}
+
+/**
+ * Format the venue-local month and year of a show: "Sep 2025".
+ *
+ * Doubles as the grouping KEY for month-grouped show lists, which is why it is
+ * one function rather than a formatter plus a separate key builder: two months
+ * share a heading exactly when they share this string, with no chance of the
+ * label and the key disagreeing about which timezone decided the boundary.
+ */
+export function formatShowMonth(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
+  return formatInTimezone(dateString, resolveShowTimezone(state, timezone), {
+    month: 'short',
+    year: 'numeric',
   })
 }
 

@@ -47,13 +47,14 @@ export function VenueCard({ venue }: VenueCardProps) {
   // suggest edits via the EntityEditDrawer on VenueDetail (unified queue).
   const canEdit = isAuthenticated && !!user?.is_admin
 
-  // The inline preview's own page, deliberately shorter than the venue page's
-  // VENUE_SHOWS_PAGE_LIMIT: the card renders every row it fetches and offers a
-  // "View all N shows" link out when the venue has more. Until PSY-1698 keyed
-  // venue-shows entries on the limit, this default-20 request and the venue
-  // page's 50-row list shared one entry, so expanding a card here and then
-  // opening that venue handed the venue page a truncated list for the whole
-  // 5-minute staleTime.
+  // The inline preview's own page, deliberately shorter than any full list:
+  // the card renders every row it fetches and offers a "View all N shows" link
+  // out when the venue has more. Until PSY-1698 keyed venue-shows entries on
+  // the limit, this default-20 request and the venue page's then-50-row list
+  // shared one entry, so expanding a card here and then opening that venue
+  // handed the venue page a truncated list for the whole 5-minute staleTime.
+  // (The venue page pages its own archive since PSY-1753 and no longer has a
+  // single "the venue page's limit" to be shorter than.)
   const { data, error, refetch } = useVenueShows({
     venueId: venue.id,
     limit: VENUE_CARD_PREVIEW_LIMIT,

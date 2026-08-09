@@ -1,24 +1,20 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
+import { useMemo, useState } from 'react'
 import { Loader2, Plus } from 'lucide-react'
-import {
-  BracketLink,
-  SectionHeader,
-  DenseTable,
-} from '@/components/shared'
+import { formatCount, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { NotifyMeButton } from '@/features/notifications'
-import { dedupVenueShows, ShowForm } from '@/features/shows'
-import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
+import { ShowForm } from '@/features/shows'
 import { useVenueShows } from '../hooks/useVenues'
 import {
-  VENUE_SHOWS_PAGE_LIMIT,
+  VENUE_UPCOMING_SHOWS_LIMIT,
   VENUE_SHOWS_VIEWER_TIMEZONE,
 } from '../api'
-import type { VenueShow } from '../types'
+import { VenuePastShows } from './VenuePastShows'
+import { VenueShowsTable } from './VenueShowsTable'
+import type { VenueShowZone } from '../types'
 
 interface VenueShowsListProps {
   venueId: number
@@ -33,12 +29,6 @@ interface VenueShowsListProps {
   onShowAdded?: () => void
 }
 
-// Shared with the Atlas venue panel, the other surface that renders a venue's
-// full show list. venueQueryKeys.showsPage() keys on limit and timezone, so
-// agreeing on them is what lets the two share a cache entry rather than what
-// keeps them from corrupting one (PSY-1698).
-const TIMEZONE = VENUE_SHOWS_VIEWER_TIMEZONE
-
 function ShowsLoader() {
   return (
     <div className="flex justify-center py-6">
@@ -47,102 +37,13 @@ function ShowsLoader() {
   )
 }
 
-function ShowRow({
-  show,
-  venueState,
-  venueTimezone,
-}: {
-  show: VenueShow
-  venueState: string
-  venueTimezone?: string | null
-}) {
-  // Per-show `state` falls back to the venue's state for date/time formatting;
-  // the venue's timezone (when known) takes precedence over the state map (PSY-986).
-  const state = show.state ?? venueState
-  const detailsHref = `/shows/${show.slug || show.id}`
-  return (
-    <tr>
-      <td className="whitespace-nowrap">
-        <Link
-          href={detailsHref}
-          className="hover:text-primary hover:underline underline-offset-2"
-        >
-          {formatShowDate(show.event_date, state, false, venueTimezone)}
-        </Link>
-      </td>
-      <td className="text-muted-foreground">
-        {show.artists.length > 0 ? (
-          show.artists.map((a, i) => (
-            <span key={a.id}>
-              {i > 0 && ', '}
-              <Link
-                href={`/artists/${a.slug}`}
-                className="hover:text-foreground hover:underline"
-              >
-                {a.name}
-              </Link>
-            </span>
-          ))
-        ) : (
-          '—'
-        )}
-      </td>
-      <td className="text-right whitespace-nowrap text-muted-foreground">
-        {formatShowTime(show.event_date, state, venueTimezone)}
-      </td>
-    </tr>
-  )
-}
-
-function ShowsTable({
-  shows,
-  total,
-  venueState,
-  venueTimezone,
-  isPast,
-}: {
-  shows: VenueShow[]
-  total: number
-  venueState: string
-  venueTimezone?: string | null
-  isPast: boolean
-}) {
-  return (
-    <>
-      <DenseTable
-        variant="alternating"
-        aria-label={isPast ? 'Past shows' : 'Upcoming shows'}
-      >
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Bill</th>
-            <th className="text-right">Time</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shows.map(show => (
-            <ShowRow
-              key={show.id}
-              show={show}
-              venueState={venueState}
-              venueTimezone={venueTimezone}
-            />
-          ))}
-        </tbody>
-      </DenseTable>
-      {total > shows.length && (
-        <p className="text-xs text-muted-foreground mt-2">
-          Showing {shows.length} of {total} shows
-        </p>
-      )}
-    </>
-  )
-}
-
 /**
- * Both fetches fire eagerly so the past-shows-when-zero branch can hide
- * the whole section without an expand round-trip.
+ * A venue's shows: everything booked ahead, then the archive behind it.
+ *
+ * The two sections answer different questions and are paged differently, so
+ * they own their own requests rather than slicing one. Upcoming is bounded by
+ * booking horizons and comes down in a single request; the past is unbounded
+ * and lives in `VenuePastShows`, which pages it by year (PSY-1753).
  */
 export function VenueShowsList({
   venueId,
@@ -156,35 +57,51 @@ export function VenueShowsList({
   className,
   onShowAdded,
 }: VenueShowsListProps) {
-  const [pastOpen, setPastOpen] = useState(false)
   const [isAddingShow, setIsAddingShow] = useState(false)
   const { isAuthenticated } = useAuthContext()
 
   const upcoming = useVenueShows({
     venueId,
-    timezone: TIMEZONE,
+    timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
-    enabled: true,
-    limit: VENUE_SHOWS_PAGE_LIMIT,
-  })
-  const past = useVenueShows({
-    venueId,
-    timezone: TIMEZONE,
-    timeFilter: 'past',
-    enabled: true,
-    limit: VENUE_SHOWS_PAGE_LIMIT,
+    limit: VENUE_UPCOMING_SHOWS_LIMIT,
   })
 
-  const upcomingShows = upcoming.data?.shows
-    ? dedupVenueShows(upcoming.data.shows)
-    : []
-  const pastShows = past.data?.shows ? dedupVenueShows(past.data.shows) : []
+  // No `dedupVenueShows` here, and none in the past archive either (PSY-1753).
+  // The duplicate class it filtered — same headliner, same instant, at this
+  // venue — is enforced impossible by the PSY-576 structural unique index,
+  // verified clean on stage and on prod. Filtering rows after the fact is also
+  // actively wrong once a list is paged server-side: it would render fewer rows
+  // than the pager's own "Showing 51-100 of 161" claims, and `total` and the
+  // year histogram would still count what the page dropped. The Atlas venue
+  // panel still dedups because it fetches one unpaged page.
+  const upcomingShows = upcoming.data?.shows ?? []
+  const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
+  // Stable identity so `VenueShowsTable`'s memos key on it cleanly. This
+  // section does not group by month (that is the past archive's treatment), so
+  // nothing expensive hangs off it here — it is kept stable to match the past
+  // section, where it does matter, rather than to fix a cost on this path.
+  const zone: VenueShowZone = useMemo(
+    () => ({ venueState, venueTimezone }),
+    [venueState, venueTimezone]
+  )
 
   return (
     <div className={className}>
       <section>
-        <SectionHeader title="Upcoming shows" as="h2" size="md" />
-        {upcoming.isLoading ? (
+        <SectionHeader
+          title="Upcoming shows"
+          as="h2"
+          size="md"
+          action={
+            upcomingShows.length > 0 ? (
+              <span className="font-mono text-xs text-muted-foreground">
+                {formatCount(upcomingTotal)}
+              </span>
+            ) : undefined
+          }
+        />
+        {upcoming.isPending ? (
           <ShowsLoader />
         ) : upcoming.error ? (
           <p className="py-3 text-sm text-destructive">Failed to load shows</p>
@@ -199,40 +116,33 @@ export function VenueShowsList({
             />
           </div>
         ) : (
-          <ShowsTable
-            shows={upcomingShows}
-            total={upcoming.data?.total ?? upcomingShows.length}
-            venueState={venueState}
-            venueTimezone={venueTimezone}
-            isPast={false}
-          />
+          <>
+            <VenueShowsTable
+              shows={upcomingShows}
+              zone={zone}
+              ariaLabel="Upcoming shows"
+            />
+            {/* Only when the backend cap actually bit. A venue booked further
+                out than `VENUE_UPCOMING_SHOWS_LIMIT` is hypothetical today, but
+                a silently truncated list would read as the whole calendar. */}
+            {upcomingTotal > upcomingShows.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing the next {formatCount(upcomingShows.length)} of{' '}
+                {formatCount(upcomingTotal)} announced shows.
+              </p>
+            )}
+          </>
         )}
       </section>
 
-      {pastShows.length > 0 && (
-        <section className="mt-8">
-          <SectionHeader
-            title="Past shows"
-            as="h2"
-            size="md"
-            action={
-              <BracketLink
-                label={pastOpen ? 'Hide' : 'Show'}
-                onClick={() => setPastOpen(!pastOpen)}
-              />
-            }
-          />
-          {pastOpen && (
-            <ShowsTable
-              shows={pastShows}
-              total={past.data?.total ?? pastShows.length}
-              venueState={venueState}
-              venueTimezone={venueTimezone}
-              isPast={true}
-            />
-          )}
-        </section>
-      )}
+      <VenuePastShows
+        venueId={venueId}
+        venueSlug={venueSlug}
+        venueName={venueName}
+        venueState={venueState}
+        venueTimezone={venueTimezone}
+        className="mt-8"
+      />
 
       {isAuthenticated && (
         <div className="mt-6 pt-4 border-t border-border/50">

@@ -31,8 +31,12 @@ export function showTimingInput(show: ShowResponse): ShowTimingInput {
 }
 
 /**
- * Render-time dedup helpers for show lists shown on artist + venue
- * detail pages (PSY-559).
+ * Render-time dedup helpers for show lists (PSY-559).
+ *
+ * Callers as of PSY-1753: the artist detail list and the Atlas venue panel.
+ * The VENUE PAGE no longer dedups — see `VenueShowsList` for why (the
+ * structural unique index makes the class impossible, and a filtered page
+ * would render fewer rows than its own pager claims).
  *
  * The dedup key MUST include time (full ISO event_date), not just
  * the date — matinee + evening sets at the same venue on the same
@@ -118,6 +122,38 @@ export function dedupArtistShows<T extends ShowWithVenueAndArtists>(shows: T[]):
  */
 export function dedupVenueShows<T extends ShowWithArtists>(shows: T[]): T[] {
   return pickWinners(shows, show => `${headlinerArtistId(show) ?? 0}|${show.event_date}`)
+}
+
+/** The bill fields that decide who leads. */
+interface BillArtist {
+  set_type?: string | null
+  is_headliner?: boolean | null
+}
+
+/**
+ * Split a bill into the acts at the top and everyone under them.
+ *
+ * The curated `set_type` is authoritative when it says "headliner";
+ * `is_headliner` is the older flag and still carries shows written before the
+ * roles existed, so both count. A bill that claims neither is read in listed
+ * order, with the first act leading — which is how a flyer reads.
+ *
+ * Shared because "who headlines this show" must not have a different answer on
+ * the show card, the show header and the venue table for the same show.
+ */
+export function splitBill<T extends BillArtist>(
+  artists: T[]
+): { headliners: T[]; support: T[] } {
+  const leads = (artist: T) =>
+    artist.set_type === 'headliner' || artist.is_headliner === true
+
+  const headliners = artists.filter(leads)
+  if (headliners.length === 0) {
+    return artists.length > 0
+      ? { headliners: [artists[0]], support: artists.slice(1) }
+      : { headliners: [], support: [] }
+  }
+  return { headliners, support: artists.filter(artist => !leads(artist)) }
 }
 
 /**

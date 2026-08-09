@@ -3,6 +3,7 @@ export {
   useVenue,
   type TimeFilter,
   useVenueShows,
+  useVenueShowYears,
   useVenueCities,
   useVenueGenres,
   useVenueBillNetwork,

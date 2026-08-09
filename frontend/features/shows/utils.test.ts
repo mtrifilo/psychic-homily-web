@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  splitBill,
   dedupArtistShows,
   dedupVenueShows,
   formatShowCountLabel,
@@ -258,5 +259,50 @@ describe('showTimingInput', () => {
       state: 'AZ',
       timezone: undefined,
     })
+  })
+})
+
+describe('splitBill', () => {
+  const act = (
+    name: string,
+    overrides: { set_type?: string; is_headliner?: boolean | null } = {}
+  ) => ({ name, set_type: 'performer', ...overrides })
+
+  it('leads with the curated set_type', () => {
+    const { headliners, support } = splitBill([
+      act('Opener', { set_type: 'opener' }),
+      act('Top', { set_type: 'headliner' }),
+    ])
+    expect(headliners.map(a => a.name)).toEqual(['Top'])
+    expect(support.map(a => a.name)).toEqual(['Opener'])
+  })
+
+  it('honours the older is_headliner flag on shows written before the roles', () => {
+    const { headliners, support } = splitBill([
+      act('Support', { is_headliner: false }),
+      act('Lead', { is_headliner: true }),
+    ])
+    expect(headliners.map(a => a.name)).toEqual(['Lead'])
+    expect(support.map(a => a.name)).toEqual(['Support'])
+  })
+
+  it('keeps every co-headliner, in listed order', () => {
+    const { headliners, support } = splitBill([
+      act('A', { set_type: 'headliner' }),
+      act('B', { is_headliner: true }),
+      act('C', { set_type: 'opener' }),
+    ])
+    expect(headliners.map(a => a.name)).toEqual(['A', 'B'])
+    expect(support.map(a => a.name)).toEqual(['C'])
+  })
+
+  it('reads an unclaimed bill in listed order, first act leading', () => {
+    const { headliners, support } = splitBill([act('First'), act('Second')])
+    expect(headliners.map(a => a.name)).toEqual(['First'])
+    expect(support.map(a => a.name)).toEqual(['Second'])
+  })
+
+  it('returns nothing for a show with no bill at all', () => {
+    expect(splitBill([])).toEqual({ headliners: [], support: [] })
   })
 })

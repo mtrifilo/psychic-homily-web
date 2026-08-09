@@ -36,11 +36,12 @@ import {
   mergeVenueConfirmation,
 } from '../cityView'
 
-// The venue page requests the same page from the same shared constants.
-// `venueQueryKeys.showsPage()` keys on limit and timezone (PSY-1698), so
-// matching those constants is what earns this panel a shared cache entry with
-// `VenueShowsList` — drift here no longer corrupts that entry, it just splits
-// it and costs a redundant fetch. The constants live beside the query key.
+// This panel is now the only caller of `VENUE_SHOWS_PAGE_LIMIT`. It used to
+// share a cache entry with the venue page, which asked the same question; since
+// PSY-1753 the venue page's sections ask different ones (an unpaginated
+// upcoming list, and a paged past archive), so the entries are separate.
+// `venueQueryKeys.showsPage()` keys on every parameter (PSY-1698), so that
+// separation is a split, never a corruption. The constants live beside the key.
 
 interface VenuePanelProps {
   /** The selected venue, straight from the rail's already-fetched page. */

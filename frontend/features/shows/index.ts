@@ -92,7 +92,12 @@ export {
 export { useMySubmissions } from './hooks'
 
 // Utilities
-export { dedupArtistShows, dedupVenueShows, showTimingInput } from './utils'
+export {
+  dedupArtistShows,
+  dedupVenueShows,
+  showTimingInput,
+  splitBill,
+} from './utils'
 
 // Components
 export {
