@@ -18,6 +18,7 @@ import {
   sceneDotSortKey,
   sceneLabelSize,
   sceneLabelSizePx,
+  sceneTooltipLabel,
   visibleLabelScenes,
   zoomForAltitude,
 } from './globeScale'
@@ -606,5 +607,39 @@ describe('compareScenesByActivity', () => {
         { upcoming_show_count: NaN },
       ),
     ).toBe(0)
+  })
+})
+
+describe('sceneTooltipLabel', () => {
+  const chicago = {
+    city: 'Chicago',
+    state: 'IL',
+    upcoming_show_count: 283,
+    shows_this_week: 76,
+  }
+
+  it('words the rolling count as "next 7 days", never "this week"', () => {
+    const label = sceneTooltipLabel(chicago)
+    expect(label).toBe('Chicago, IL · 283 upcoming · 76 next 7 days')
+    // The guard that matters: shows_this_week is a ROLLING window, so the
+    // calendar-week phrasing must not come back here (PSY-1732).
+    expect(label).not.toMatch(/this week/i)
+  })
+
+  it('drops the rolling segment entirely on a quiet scene', () => {
+    expect(sceneTooltipLabel({ ...chicago, shows_this_week: 0 })).toBe(
+      'Chicago, IL · 283 upcoming',
+    )
+  })
+
+  it('keeps city and state verbatim (contributor-editable text is not reworded)', () => {
+    expect(
+      sceneTooltipLabel({
+        city: 'Winston-Salem',
+        state: 'NC',
+        upcoming_show_count: 4,
+        shows_this_week: 1,
+      }),
+    ).toBe('Winston-Salem, NC · 4 upcoming · 1 next 7 days')
   })
 })

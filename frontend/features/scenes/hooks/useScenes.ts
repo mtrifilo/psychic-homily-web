@@ -92,7 +92,7 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
 }
 
 /**
- * Hook to fetch a scene's next upcoming shows — the preview panel's "This week"
+ * Hook to fetch a scene's next upcoming shows — the preview panel's "Next 7 days"
  * row (PSY-1309). Backend defaults: 7-day window, 3 shows, soonest first;
  * metro-scoped so member-city shows count (a Tempe show shows under Phoenix).
  * Don't re-default the window here — the backend owns it (same rule as

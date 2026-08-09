@@ -275,7 +275,7 @@ describe('filterCityVenues', () => {
     ).toEqual(all)
   })
 
-  it('drops venues with nothing booked this week', () => {
+  it('drops venues with nothing booked in the next 7 days', () => {
     expect(
       filterCityVenues(all, { thisWeekOnly: true, genreFamily: null }),
     ).toEqual([mohawk, untinted])

@@ -297,7 +297,15 @@ export function venuesSpanMetro(
 // ── Filters ───────────────────────────────────────────────────────────────
 
 export interface CityVenueFilters {
-  /** "This week" chip: only venues with a show in the next 7 days. */
+  /**
+   * "Next 7 days" chip: only venues with a show in the next 7 days.
+   *
+   * The field keeps its name while the chip reads "next 7 days" (PSY-1732) —
+   * the window it gates on (`shows_this_week`) is the API's, and renaming the
+   * flag without renaming the field it reads would trade one mismatch for
+   * another. The label is what a reader sees; the rolling window is what it
+   * has always meant.
+   */
   thisWeekOnly: boolean
   /** Genre-family key from the "All genres" chip, or null for all. */
   genreFamily: string | null

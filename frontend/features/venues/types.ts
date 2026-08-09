@@ -130,7 +130,7 @@ export interface VenueSearchResponse {
  */
 export interface VenueWithShowCount extends Venue {
   upcoming_show_count: number
-  /** The <=7-day slice of `upcoming_show_count`. Drives the "This week" chip. */
+  /** The <=7-day slice of `upcoming_show_count`. Drives the "Next 7 days" chip. */
   shows_this_week?: number
   /** Soonest upcoming show, `YYYY-MM-DD`, ALREADY in the venue's timezone. */
   next_show_date?: string

@@ -31,6 +31,7 @@ import {
   sceneDotRadiusPx,
   sceneDotSortKey,
   sceneLabelSizePx,
+  sceneTooltipLabel,
   visibleLabelScenes,
   zoomForAltitude,
 } from './globeScale'
@@ -140,9 +141,9 @@ const BLACK_MARBLE_FADE_END = 7
 const MAX_ZOOM = 17
 const MIN_ZOOM = 1
 
-// "Happening this week" pulse ring (PSY-1309 parity): a propagating stroked
-// circle under each scene with a show in the next 7 days. Same period and
-// fade curve as the shipped globe; radius converted from the old 1.6
+// "Happening in the next 7 days" pulse ring (PSY-1309 parity): a propagating
+// stroked circle under each scene with a show in the next 7 days. Same period
+// and fade curve as the shipped globe; radius converted from the old 1.6
 // globe-degrees (~30 px at the default POV) to CSS px.
 const RING_PERIOD_MS = 2600
 const RING_MAX_RADIUS_PX = 30
@@ -909,11 +910,9 @@ export default function GlobeCanvas({
         tooltip.style.display = 'none'
         return
       }
-      const week =
-        scene.shows_this_week > 0 ? ` · ${scene.shows_this_week} this week` : ''
       // textContent, not innerHTML — contributor-editable city/state can't
       // inject markup (the old canvas needed an escapeHtml for this).
-      tooltip.textContent = `${scene.city}, ${scene.state} · ${scene.upcoming_show_count} upcoming${week}`
+      tooltip.textContent = sceneTooltipLabel(scene)
       tooltip.style.display = 'block'
       // Flip the offset near the right/bottom edges so edge-of-viewport
       // scenes don't get their tooltip clipped by the overflow-hidden wrap.

@@ -311,6 +311,33 @@ export function compareScenesByActivity<
   return bv - av
 }
 
+/**
+ * The globe's hover tooltip line for a scene.
+ *
+ * Lives here rather than inline in GlobeCanvas for the same reason VenuePin
+ * carries a preformatted `nextShowLabel`: the canvas draws what it is handed
+ * and does not decide how a count is worded. It also puts the copy somewhere a
+ * unit test can reach — GlobeCanvas imports maplibre at module scope, so its
+ * strings are otherwise only verifiable by reading them.
+ *
+ * The trailing segment counts `shows_this_week`, which is a ROLLING seven days
+ * from now, NOT a Monday-to-Sunday week (see `sceneWeek.ts`). It therefore says
+ * "next 7 days" and must keep saying so: the calendar-week wording belongs only
+ * beside `shows_calendar_week`, which is the number the scene-week page prints.
+ * The segment is dropped entirely at zero — a quiet scene shows its upcoming
+ * total without a "0" that reads as dead.
+ */
+export function sceneTooltipLabel(scene: {
+  city: string
+  state: string
+  upcoming_show_count: number
+  shows_this_week: number
+}): string {
+  const week =
+    scene.shows_this_week > 0 ? ` · ${scene.shows_this_week} next 7 days` : ''
+  return `${scene.city}, ${scene.state} · ${scene.upcoming_show_count} upcoming${week}`
+}
+
 // The shape visibleLabelScenes / declutterByProximity need: a show count for the
 // gate + ordering, and coords for the proximity pass. Coords are optional (the
 // scenes API's latitude/longitude are `number | null`); a scene without them is

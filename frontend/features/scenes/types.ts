@@ -16,9 +16,10 @@ export interface SceneListItem {
   upcoming_show_count: number
   total_show_count: number
   // The ≤7-day slice of upcoming_show_count (PSY-1309) — drives the globe's
-  // "happening this week" pulse treatment. A ROLLING window from now, so it is
-  // NOT the number /scenes/{slug}/week prints; anything rendered beside a link
-  // to that page uses shows_calendar_week instead.
+  // "happening in the next 7 days" pulse treatment. A ROLLING window from now,
+  // so it is NOT the number /scenes/{slug}/week prints; anything rendered beside
+  // a link to that page uses shows_calendar_week instead, and anything rendered
+  // FROM this field is worded "next 7 days", never "this week" (PSY-1732).
   shows_this_week: number
   // The scene's Monday-to-Sunday total, resolved in its OWN venue timezone —
   // exactly what its /scenes/{slug}/week page reports (PSY-1623). The only
@@ -101,7 +102,7 @@ export interface SceneArtistsResponse {
 }
 
 /**
- * One upcoming show in the scene preview's "This week" row (PSY-1309).
+ * One upcoming show in the scene preview's "Next 7 days" row (PSY-1309).
  *
  * DERIVED from the generated OpenAPI schema, not hand-written. The hand-written
  * copy that used to live here had already fallen two fields behind the API

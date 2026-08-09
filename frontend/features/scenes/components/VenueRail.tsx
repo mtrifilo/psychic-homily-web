@@ -124,9 +124,12 @@ export function VenueRail({
               (PSY-1574). The heading above names ONE city; a flat "12 venues"
               under it would read as a claim about Phoenix proper while the
               list also holds Tempe and Mesa. */}
+          {/* "next 7 days", not "this week": thisWeekCount sums the venues'
+              ROLLING `shows_this_week` slice, which does not reset on Monday
+              (PSY-1732). */}
           {stats.venueCount} {spansMetro ? 'metro ' : ''}
           {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
-          upcoming · {stats.thisWeekCount} this week
+          upcoming · {stats.thisWeekCount} next 7 days
           {localArtistCount !== undefined && (
             <> · {localArtistCount} local artists</>
           )}
@@ -148,7 +151,7 @@ export function VenueRail({
               onFiltersChange({ ...filters, thisWeekOnly: !filters.thisWeekOnly })
             }
           >
-            This week
+            Next 7 days
           </FilterChip>
 
           {/* A native select styled as a chip: the menu is a list of the

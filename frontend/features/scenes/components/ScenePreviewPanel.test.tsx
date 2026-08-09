@@ -36,7 +36,7 @@ vi.mock('./SceneNotifyModeToggle', () => ({
   SceneNotifyModeToggle: () => null,
 }))
 
-// Default: a quiet week — tests for the "This week" section override this.
+// Default: a quiet stretch — tests for the "Next 7 days" section override this.
 const mockUseSceneShows = vi.fn()
 vi.mock('../hooks', () => ({
   useSceneArtists: (opts: unknown) => mockUseSceneArtists(opts),
@@ -343,7 +343,9 @@ describe('ScenePreviewPanel', () => {
     })
     renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
 
-    expect(screen.getByRole('heading', { name: 'This week' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Next 7 days' }),
+    ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Big Show' })).toHaveAttribute(
       'href',
       '/shows/big-show',
@@ -434,7 +436,7 @@ describe('ScenePreviewPanel', () => {
     )
   })
 
-  it('renders no "This week" section on a quiet week', () => {
+  it('renders no "Next 7 days" section on a quiet stretch', () => {
     mockUseSceneArtists.mockReturnValue({
       data: { artists: [], total: 0 },
       isLoading: false,
@@ -442,7 +444,7 @@ describe('ScenePreviewPanel', () => {
     renderWithProviders(<ScenePreviewPanel scene={scene} onClose={() => {}} />)
 
     expect(
-      screen.queryByRole('heading', { name: 'This week' }),
+      screen.queryByRole('heading', { name: 'Next 7 days' }),
     ).not.toBeInTheDocument()
   })
 })
