@@ -18,9 +18,12 @@ export interface SceneListItem {
   // The ≤7-day slice of upcoming_show_count (PSY-1309) — drives the globe's
   // "happening in the next 7 days" pulse treatment.
   //
-  // THE AUTHORITY on rolling-vs-calendar for the whole frontend; the render
-  // sites point here rather than restating it, so this pair of comments is the
-  // one place to edit when the rule moves.
+  // The authority for the WORDING rule below: the surfaces that render this
+  // field point here instead of restating it. It is NOT the only place the
+  // rolling-vs-calendar distinction is written down — `sceneWeek.ts`,
+  // `SceneList.tsx` and `ThisWeekByCity.tsx` each carry a calendar-side
+  // account with measurements this one does not, and `CommunityPulseResponse`
+  // has its own separate field. Do not assume editing here is sufficient.
   //
   // A ROLLING window from now, so it is NOT the number /scenes/{slug}/week
   // prints. Two rules follow, and they are separate:

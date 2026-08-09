@@ -59,7 +59,7 @@ describe('VenueRail', () => {
       ],
     })
     expect(
-      screen.getByText(/2 venues · 25 upcoming · 3 next 7 days/i),
+      screen.getByText(/2 venues · 25 upcoming · 3 in the next 7 days/i),
     ).toBeInTheDocument()
   })
 
