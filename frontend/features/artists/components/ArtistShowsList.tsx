@@ -1,25 +1,20 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
-import {
-  BracketLink,
-  SectionHeader,
-  DenseTable,
-} from '@/components/shared'
+import { formatCount, SectionHeader } from '@/components/shared'
 import { NotifyMeButton } from '@/features/notifications'
-import { dedupArtistShows } from '@/features/shows'
-import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
 import { useArtistShows } from '../hooks/useArtists'
 import {
-  ARTIST_SHOWS_PAGE_LIMIT,
+  ARTIST_UPCOMING_SHOWS_LIMIT,
   ARTIST_SHOWS_VIEWER_TIMEZONE,
 } from '../api'
-import type { ArtistShow } from '../types'
+import { ArtistPastShows } from './ArtistPastShows'
+import { ArtistShowsTable } from './ArtistShowsTable'
 
 interface ArtistShowsListProps {
   artistId: number
+  /** Used to build page/year hrefs in the past archive, so they are shareable. */
+  artistSlug: string
   artistName: string
   className?: string
 }
@@ -32,154 +27,61 @@ function ShowsLoader() {
   )
 }
 
-function ShowRow({ show, artistId }: { show: ArtistShow; artistId: number }) {
-  const state = show.venue?.state ?? null
-  const otherArtists = show.artists.filter(a => a.id !== artistId)
-  const detailsHref = `/shows/${show.slug || show.id}`
-  return (
-    <tr>
-      <td className="whitespace-nowrap">
-        <Link
-          href={detailsHref}
-          className="hover:text-primary hover:underline underline-offset-2"
-        >
-          {formatShowDate(show.event_date, state, false, show.venue?.timezone)}
-        </Link>
-      </td>
-      <td>
-        {show.venue ? (
-          <span>
-            <Link
-              href={`/venues/${show.venue.slug}`}
-              className="font-medium hover:text-primary hover:underline"
-            >
-              {show.venue.name}
-            </Link>
-            <span className="text-muted-foreground">
-              {' · '}
-              {[show.venue.city, show.venue.state].filter(Boolean).join(', ')}
-            </span>
-          </span>
-        ) : (
-          <span className="text-muted-foreground">Venue TBA</span>
-        )}
-      </td>
-      <td className="text-muted-foreground">
-        {otherArtists.length > 0 ? (
-          <span>
-            <span className="italic">w/</span>{' '}
-            {otherArtists.map((a, i) => (
-              <span key={a.id}>
-                {i > 0 && ', '}
-                <Link
-                  href={`/artists/${a.slug}`}
-                  className="hover:text-foreground hover:underline"
-                >
-                  {a.name}
-                </Link>
-              </span>
-            ))}
-          </span>
-        ) : (
-          '—'
-        )}
-      </td>
-      <td className="text-right whitespace-nowrap text-muted-foreground">
-        {formatShowTime(show.event_date, state, show.venue?.timezone)}
-      </td>
-    </tr>
-  )
-}
-
-function ShowsTable({
-  shows,
-  total,
-  artistId,
-  isPast,
-}: {
-  shows: ArtistShow[]
-  total: number
-  artistId: number
-  isPast: boolean
-}) {
-  return (
-    <>
-      <DenseTable
-        variant="alternating"
-        aria-label={isPast ? 'Past shows' : 'Upcoming shows'}
-      >
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Venue · Location</th>
-            <th>Bill</th>
-            <th className="text-right">Time</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shows.map(show => (
-            <ShowRow key={show.id} show={show} artistId={artistId} />
-          ))}
-        </tbody>
-      </DenseTable>
-      {total > shows.length && (
-        <p className="text-xs text-muted-foreground mt-2">
-          Showing {shows.length} of {total} shows
-        </p>
-      )}
-    </>
-  )
-}
-
 /**
- * Artist shows — two density-first sections (PSY-644).
+ * An artist's shows: everything booked ahead, then the archive behind it
+ * (PSY-1754).
  *
- * - **Upcoming shows**: always rendered. Empty state shows an inline
- *   `[Notify me]` affordance because shows are PH's primary signal —
- *   landing on an artist with zero upcoming shows should let the user
- *   subscribe immediately, not get a bare "no shows yet" message.
- * - **Past shows**: separate section, collapsed by default with a
- *   `[Show]`/`[Hide]` toggle. The whole section hides when the artist has
- *   zero past shows. Fetch fires eagerly on page load so the empty-section
- *   hide can happen without an expand round-trip.
+ * The two sections answer different questions and are paged differently, so
+ * they own their own requests rather than slicing one. Upcoming is bounded by
+ * booking horizons and comes down in a single request; the past is unbounded
+ * and lives in `ArtistPastShows`, which pages it by year.
  *
- * Replaces the pre-PSY-644 internal Upcoming/Past Radix tabs.
+ * The venue twin is `VenueShowsList` (PSY-1753). The one deliberate divergence
+ * is in the rows: an artist's shows span venues, so each row names where it
+ * happened. There is no add-show affordance here, because a show is created
+ * against a venue, not against a bill.
  */
 export function ArtistShowsList({
   artistId,
+  artistSlug,
   artistName,
   className,
 }: ArtistShowsListProps) {
-  const [pastOpen, setPastOpen] = useState(false)
-  // The shared page + timezone, NOT local literals: `artistQueryKeys.shows()`
-  // keys only on artist id + time filter, so every artist-shows caller shares
-  // one cache entry and must therefore request the same page. See
-  // ARTIST_SHOWS_PAGE_LIMIT for what goes wrong when they don't.
   const upcoming = useArtistShows({
     artistId,
     timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
-    enabled: true,
-    limit: ARTIST_SHOWS_PAGE_LIMIT,
-  })
-  const past = useArtistShows({
-    artistId,
-    timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
-    timeFilter: 'past',
-    enabled: true,
-    limit: ARTIST_SHOWS_PAGE_LIMIT,
+    limit: ARTIST_UPCOMING_SHOWS_LIMIT,
   })
 
-  const upcomingShows = upcoming.data?.shows
-    ? dedupArtistShows(upcoming.data.shows)
-    : []
-  const pastShows = past.data?.shows ? dedupArtistShows(past.data.shows) : []
+  // No `dedupArtistShows` here, and none in the past archive either. The
+  // duplicate class it filtered — the same artist, at the same venue, at the
+  // same instant — is enforced impossible by the PSY-576 structural unique
+  // index on `show_artists (artist_id, venue_id, event_date)`, verified clean
+  // on stage and on prod, and that index key IS the dedup key once the list is
+  // scoped to one artist. Filtering rows after the fact is also actively wrong
+  // in a server-paged list: it would render fewer rows than the pager's own
+  // "Showing 51-100 of 161" claims, and `total` and the year histogram would
+  // still count what the page dropped.
+  const upcomingShows = upcoming.data?.shows ?? []
+  const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
 
   return (
     <div className={className}>
       <section>
-        <SectionHeader title="Upcoming shows" as="h2" size="md" />
-        {upcoming.isLoading ? (
+        <SectionHeader
+          title="Upcoming shows"
+          as="h2"
+          size="md"
+          action={
+            upcomingShows.length > 0 ? (
+              <span className="font-mono text-xs text-muted-foreground">
+                {formatCount(upcomingTotal)}
+              </span>
+            ) : undefined
+          }
+        />
+        {upcoming.isPending ? (
           <ShowsLoader />
         ) : upcoming.error ? (
           <p className="py-3 text-sm text-destructive">Failed to load shows</p>
@@ -194,38 +96,31 @@ export function ArtistShowsList({
             />
           </div>
         ) : (
-          <ShowsTable
-            shows={upcomingShows}
-            total={upcoming.data?.total ?? upcomingShows.length}
-            artistId={artistId}
-            isPast={false}
-          />
+          <>
+            <ArtistShowsTable
+              shows={upcomingShows}
+              ariaLabel="Upcoming shows"
+            />
+            {/* Only when the backend cap actually bit. An artist booked further
+                out than `ARTIST_UPCOMING_SHOWS_LIMIT` is hypothetical today,
+                but a silently truncated list would read as the whole
+                calendar. */}
+            {upcomingTotal > upcomingShows.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing the next {formatCount(upcomingShows.length)} of{' '}
+                {formatCount(upcomingTotal)} announced shows.
+              </p>
+            )}
+          </>
         )}
       </section>
 
-      {pastShows.length > 0 && (
-        <section className="mt-8">
-          <SectionHeader
-            title="Past shows"
-            as="h2"
-            size="md"
-            action={
-              <BracketLink
-                label={pastOpen ? 'Hide' : 'Show'}
-                onClick={() => setPastOpen(!pastOpen)}
-              />
-            }
-          />
-          {pastOpen && (
-            <ShowsTable
-              shows={pastShows}
-              total={past.data?.total ?? pastShows.length}
-              artistId={artistId}
-              isPast={true}
-            />
-          )}
-        </section>
-      )}
+      <ArtistPastShows
+        artistId={artistId}
+        artistSlug={artistSlug}
+        artistName={artistName}
+        className="mt-8"
+      />
     </div>
   )
 }

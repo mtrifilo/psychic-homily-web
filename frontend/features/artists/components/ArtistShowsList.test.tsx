@@ -1,70 +1,73 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import type { ArtistShow, ArtistTimeFilter } from '../types'
+import type {
+  ArtistShow,
+  ArtistShowYearCount,
+  ArtistTimeFilter,
+} from '../types'
 
-// Routes useArtistShows fetches by `timeFilter` so the test fixtures for
-// upcoming vs past can be set independently.
+// ── Query stubs ────────────────────────────────────────────────────────────
+// Two parallel useArtistShows results so upcoming + past fixtures can be set
+// independently, plus the year histogram behind the past section's strip.
 const upcomingResult = {
   data: undefined as { shows: ArtistShow[]; total: number } | undefined,
-  isLoading: false,
+  isPending: false,
+  isFetching: false,
+  isPlaceholderData: false,
+  isError: false,
   error: null as Error | null,
 }
-const pastResult = {
-  data: undefined as { shows: ArtistShow[]; total: number } | undefined,
-  isLoading: false,
-  error: null as Error | null,
+const pastResult = { ...upcomingResult }
+const yearsResult = {
+  data: undefined as { years: ArtistShowYearCount[] } | undefined,
+  isSuccess: false,
+  isPending: false,
+  isError: false,
 }
+
+// The past section asks for a page by offset; record what it asked for so the
+// URL-to-request wiring can be asserted directly rather than inferred from
+// which rows happened to render.
+const pastRequests: Array<{
+  offset?: number
+  year?: number
+  limit?: number
+  enabled?: boolean
+}> = []
 
 vi.mock('../hooks/useArtists', () => ({
-  useArtistShows: ({ timeFilter }: { timeFilter: ArtistTimeFilter }) =>
-    timeFilter === 'past' ? pastResult : upcomingResult,
+  useArtistShows: ({
+    timeFilter,
+    offset,
+    year,
+    limit,
+    enabled,
+  }: {
+    timeFilter: ArtistTimeFilter
+    offset?: number
+    year?: number
+    limit?: number
+    enabled?: boolean
+  }) => {
+    if (timeFilter !== 'past') return upcomingResult
+    pastRequests.push({ offset, year, limit, enabled })
+    return pastResult
+  },
+  useArtistShowYears: () => yearsResult,
 }))
 
-// Identity passthrough — dedup behavior is exercised in features/shows/utils.test.ts.
-vi.mock('@/features/shows', () => ({
-  dedupArtistShows: <T,>(shows: T[]) => shows,
-}))
-
-// Lightweight shared primitive mocks — render plain elements with the props
-// the tests care about. Real implementations are unit-tested in their own
-// files; we just need inspectable wrappers here.
-vi.mock('@/components/shared', () => ({
-  BracketLink: ({
-    label,
-    onClick,
-  }: {
-    label: string
-    onClick?: () => void
-  }) => (
-    <button data-testid={`bracket-${label}`} onClick={onClick}>
-      [{label}]
-    </button>
-  ),
-  SectionHeader: ({
-    title,
-    action,
-  }: {
-    title: string
-    action?: React.ReactNode
-  }) => (
-    <div data-testid={`section-header-${title}`}>
-      <h2>{title}</h2>
-      {action}
-    </div>
-  ),
-  DenseTable: ({
-    children,
-    'aria-label': ariaLabel,
-  }: {
-    children: React.ReactNode
-    'aria-label'?: string
-  }) => (
-    <table data-testid={`densetable-${ariaLabel ?? 'unlabeled'}`} aria-label={ariaLabel}>
-      {children}
-    </table>
-  ),
+// nuqs throws without a NuqsAdapter, and the adapter would need a real router.
+// The component only READS these params (every write is an <a href>), so a
+// plain value stub is the whole contract.
+let queryYear: number | null = null
+let queryPage = 1
+vi.mock('nuqs', async importOriginal => ({
+  // Partial: the shared filter parsers elsewhere in this import graph build on
+  // nuqs's real `createParser`, so only the hook is swapped out.
+  ...(await importOriginal<typeof import('nuqs')>()),
+  useQueryState: (key: string) =>
+    key === 'year' ? [queryYear, vi.fn()] : [queryPage, vi.fn()],
 }))
 
 vi.mock('@/features/notifications', () => ({
@@ -73,7 +76,12 @@ vi.mock('@/features/notifications', () => ({
   ),
 }))
 
+// `@/components/shared` is deliberately NOT mocked: Pagination, YearStrip and
+// DenseTable are the behaviour under test here, not incidental chrome.
+
 import { ArtistShowsList } from './ArtistShowsList'
+
+// ── Fixtures ───────────────────────────────────────────────────────────────
 
 function makeShow(overrides: Partial<ArtistShow> = {}): ArtistShow {
   return {
@@ -87,10 +95,11 @@ function makeShow(overrides: Partial<ArtistShow> = {}): ArtistShow {
     is_sold_out: false,
     venue: {
       id: 1,
-      slug: 'test-venue',
-      name: 'Test Venue',
-      city: 'Phoenix',
-      state: 'AZ',
+      slug: 'empty-bottle',
+      name: 'Empty Bottle',
+      city: 'Chicago',
+      state: 'IL',
+      timezone: 'America/Chicago',
     },
     artists: [
       { id: 42, slug: 'main-artist', name: 'Main Artist' },
@@ -100,111 +109,620 @@ function makeShow(overrides: Partial<ArtistShow> = {}): ArtistShow {
   }
 }
 
-function setUpcoming(data: { shows: ArtistShow[]; total?: number } | null, opts?: { isLoading?: boolean; error?: Error | null }) {
-  upcomingResult.data = data ? { shows: data.shows, total: data.total ?? data.shows.length } : undefined
-  upcomingResult.isLoading = opts?.isLoading ?? false
-  upcomingResult.error = opts?.error ?? null
+type QueryState = {
+  isPending?: boolean
+  isFetching?: boolean
+  isPlaceholderData?: boolean
+  error?: Error | null
 }
 
-function setPast(data: { shows: ArtistShow[]; total?: number } | null, opts?: { isLoading?: boolean; error?: Error | null }) {
-  pastResult.data = data ? { shows: data.shows, total: data.total ?? data.shows.length } : undefined
-  pastResult.isLoading = opts?.isLoading ?? false
-  pastResult.error = opts?.error ?? null
+function applyState(
+  target: typeof upcomingResult,
+  data: { shows: ArtistShow[]; total?: number } | null,
+  opts?: QueryState
+) {
+  target.data = data
+    ? { shows: data.shows, total: data.total ?? data.shows.length }
+    : undefined
+  target.isPending = opts?.isPending ?? false
+  target.isFetching = opts?.isFetching ?? false
+  target.isPlaceholderData = opts?.isPlaceholderData ?? false
+  target.error = opts?.error ?? null
+  target.isError = Boolean(opts?.error)
 }
+
+const setUpcoming = (
+  data: { shows: ArtistShow[]; total?: number } | null,
+  opts?: QueryState
+) => applyState(upcomingResult, data, opts)
+
+const setPast = (
+  data: { shows: ArtistShow[]; total?: number } | null,
+  opts?: QueryState
+) => applyState(pastResult, data, opts)
+
+function setYears(years: ArtistShowYearCount[] | null) {
+  yearsResult.data = years ? { years } : undefined
+  yearsResult.isSuccess = years !== null
+  yearsResult.isPending = years === null
+  yearsResult.isError = false
+}
+
+function renderList(
+  overrides?: Partial<Parameters<typeof ArtistShowsList>[0]>
+) {
+  return renderWithProviders(
+    <ArtistShowsList
+      artistId={42}
+      artistSlug="turnstile"
+      artistName="Turnstile"
+      {...overrides}
+    />
+  )
+}
+
+/** The past section's `<section>`, scoped so upcoming rows never leak in. */
+const pastSection = () =>
+  within(document.getElementById('artist-past-shows') as HTMLElement)
+
+beforeEach(() => {
+  setUpcoming(null, { isPending: true })
+  setPast(null, { isPending: true })
+  setYears(null)
+  pastRequests.length = 0
+  queryYear = null
+  queryPage = 1
+})
+
+afterEach(() => {
+  document.title = ''
+})
+
+// ── Upcoming ───────────────────────────────────────────────────────────────
 
 describe('ArtistShowsList — upcoming section', () => {
-  beforeEach(() => {
-    setUpcoming(null)
-    setPast(null)
-  })
-
-  it('renders the Upcoming shows section header always', () => {
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    expect(screen.getByTestId('section-header-Upcoming shows')).toBeInTheDocument()
+  it('renders the Upcoming shows heading always', () => {
+    renderList()
+    expect(
+      screen.getByRole('heading', { name: 'Upcoming shows' })
+    ).toBeInTheDocument()
   })
 
   it('shows a loader while upcoming shows are loading', () => {
-    setUpcoming(null, { isLoading: true })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    renderList()
     expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
   it('shows an error message when the upcoming fetch fails', () => {
     setUpcoming(null, { error: new Error('boom') })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    renderList()
     expect(screen.getByText(/Failed to load shows/i)).toBeInTheDocument()
   })
 
   it('renders an inline [Notify me] affordance when there are no upcoming shows', () => {
     setUpcoming({ shows: [] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Just Mustard" />)
+    renderList({ artistName: 'Just Mustard' })
     expect(screen.getByText(/No upcoming shows yet/i)).toBeInTheDocument()
-    expect(screen.getByTestId('notify-me-button')).toHaveTextContent('Just Mustard')
+    expect(screen.getByTestId('notify-me-button')).toHaveTextContent(
+      'Just Mustard'
+    )
   })
 
-  it('renders upcoming shows as a DenseTable when data is present', () => {
+  it('renders upcoming shows as a table with the total beside the heading', () => {
+    setUpcoming({ shows: [makeShow()], total: 83 })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Upcoming shows' })
+    expect(within(table).getByText('Main Artist')).toBeInTheDocument()
+    expect(screen.getByText('83')).toBeInTheDocument()
+  })
+
+  it('does not group upcoming shows into month headings', () => {
     setUpcoming({ shows: [makeShow()] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    expect(screen.getByTestId('densetable-Upcoming shows')).toBeInTheDocument()
-    expect(screen.getByText('Test Venue')).toBeInTheDocument()
+    renderList()
+    const table = screen.getByRole('table', { name: 'Upcoming shows' })
+    expect(
+      within(table).queryByRole('rowheader', { name: /2025/ })
+    ).not.toBeInTheDocument()
   })
 
-  it('shows the "Showing N of M" hint when results are truncated', () => {
-    setUpcoming({ shows: [makeShow()], total: 30 })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    expect(screen.getByText(/Showing 1 of 30 shows/)).toBeInTheDocument()
-  })
+  it('discloses truncation only when the backend cap actually bit', () => {
+    setUpcoming({ shows: [makeShow()], total: 1 })
+    const { unmount } = renderList()
+    expect(screen.queryByText(/Showing the next/)).not.toBeInTheDocument()
+    unmount()
 
-  it('filters the current artist out of the Bill column', () => {
-    setUpcoming({ shows: [makeShow()] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Main Artist" />)
-    // Bill cell should mention The Opener but NOT Main Artist (artistId=42).
-    expect(screen.getByText('The Opener')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Main Artist' })).not.toBeInTheDocument()
+    setUpcoming({ shows: [makeShow()], total: 240 })
+    renderList()
+    expect(
+      screen.getByText(/Showing the next 1 of 240 announced shows/)
+    ).toBeInTheDocument()
   })
 })
 
-describe('ArtistShowsList — past section', () => {
-  beforeEach(() => {
-    setUpcoming(null)
-    setPast(null)
-  })
+// ── Past archive: presence ─────────────────────────────────────────────────
 
-  it('omits the Past shows section entirely when there are 0 past shows', () => {
+describe('ArtistPastShows — presence', () => {
+  it('omits the past section entirely for an artist with no past shows', () => {
+    setUpcoming({ shows: [makeShow()] })
     setPast({ shows: [] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    expect(screen.queryByTestId('section-header-Past shows')).not.toBeInTheDocument()
+    setYears([])
+    renderList()
+    expect(document.getElementById('artist-past-shows')).toBeNull()
   })
 
-  it('renders the Past shows section header with a [Show] toggle when past shows exist', () => {
-    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    expect(screen.getByTestId('section-header-Past shows')).toBeInTheDocument()
-    expect(screen.getByTestId('bracket-Show')).toBeInTheDocument()
+  it('renders the past archive expanded, with no [Show] toggle', () => {
+    setUpcoming({ shows: [] })
+    setPast({ shows: [makeShow({ id: 5 })], total: 1 })
+    setYears([{ year: 2025, count: 1 }])
+    renderList()
+    expect(
+      screen.getByRole('table', { name: 'Past shows' })
+    ).toBeInTheDocument()
+    expect(screen.queryByText('[Show]')).not.toBeInTheDocument()
   })
 
-  it('past shows body is collapsed by default', () => {
-    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    expect(screen.queryByTestId('densetable-Past shows')).not.toBeInTheDocument()
+  it('keeps the section for an empty hand-typed year and offers the way out', () => {
+    queryYear = 1999
+    setUpcoming({ shows: [] })
+    setPast({ shows: [], total: 0 })
+    setYears([{ year: 2025, count: 60 }])
+    renderList()
+    expect(screen.getByText(/No past shows in 1999/)).toBeInTheDocument()
+    expect(
+      pastSection().getByRole('link', { name: 'Show every year' })
+    ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
   })
 
-  it('expands the past shows body when [Show] is clicked', async () => {
-    const user = userEvent.setup()
-    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    await user.click(screen.getByTestId('bracket-Show'))
-    expect(screen.getByTestId('densetable-Past shows')).toBeInTheDocument()
-    // Toggle label flips to [Hide].
-    expect(screen.getByTestId('bracket-Hide')).toBeInTheDocument()
+  it('says so rather than redirecting when the page is past the end', () => {
+    queryPage = 40
+    setUpcoming({ shows: [] })
+    setPast(null, { isPending: true })
+    setYears([{ year: 2025, count: 60 }])
+    renderList()
+    expect(screen.getByText(/past the end of this archive/)).toBeInTheDocument()
+    expect(
+      pastSection().getByRole('link', { name: 'Back to the first page' })
+    ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
+    // And the histogram already knew, so no 50,000-row offset scan was spent
+    // proving it. A spinner must never be the terminal state here.
+    expect(pastRequests[0].enabled).toBe(false)
+    expect(document.querySelector('.animate-spin')).toBeNull()
+  })
+})
+
+// ── Past archive: rows ─────────────────────────────────────────────────────
+
+describe('ArtistPastShows — rows', () => {
+  beforeEach(() => {
+    setUpcoming({ shows: [] })
+    setYears([{ year: 2025, count: 3 }])
   })
 
-  it('collapses again when [Hide] is clicked', async () => {
-    const user = userEvent.setup()
-    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
-    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
-    await user.click(screen.getByTestId('bracket-Show'))
-    await user.click(screen.getByTestId('bracket-Hide'))
-    expect(screen.queryByTestId('densetable-Past shows')).not.toBeInTheDocument()
+  it('links the date to the show slug, falling back to the id only without one', () => {
+    setPast({
+      shows: [
+        makeShow({ id: 5, slug: 'ripe-at-empty-bottle' }),
+        makeShow({ id: 6, slug: '', event_date: '2025-06-14T20:00:00Z' }),
+      ],
+      total: 2,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(within(table).getByRole('link', { name: /Jun 15/ })).toHaveAttribute(
+      'href',
+      '/shows/ripe-at-empty-bottle'
+    )
+    expect(within(table).getByRole('link', { name: /Jun 14/ })).toHaveAttribute(
+      'href',
+      '/shows/6'
+    )
+  })
+
+  it('names the venue and city after the bill, linked to the venue page', () => {
+    // The one deliberate divergence from the venue archive: an artist's rows
+    // span venues, so the place is part of the row.
+    setPast({ shows: [makeShow({ id: 5 })], total: 1 })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(
+      within(table).getByRole('link', { name: 'Empty Bottle' })
+    ).toHaveAttribute('href', '/venues/empty-bottle')
+    expect(within(table).getByText(/Chicago/)).toBeInTheDocument()
+  })
+
+  it('leaves a venue with no slug unlinked rather than linking to /venues/', () => {
+    setPast({
+      shows: [
+        makeShow({
+          id: 5,
+          venue: {
+            id: 9,
+            slug: '',
+            name: 'Unslugged Room',
+            city: 'Tempe',
+            state: 'AZ',
+            timezone: null,
+          },
+        }),
+      ],
+      total: 1,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(within(table).getByText(/Unslugged Room/)).toBeInTheDocument()
+    expect(
+      within(table).queryByRole('link', { name: 'Unslugged Room' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('says Venue TBA for a show with no venue at all', () => {
+    setPast({ shows: [makeShow({ id: 5, venue: null })], total: 1 })
+    renderList()
+    expect(
+      within(screen.getByRole('table', { name: 'Past shows' })).getByText(
+        /Venue TBA/
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('emphasizes the headliner and reads the support acts as "w/"', () => {
+    // The artist-shows payload carries no set_type/is_headliner, so `splitBill`
+    // reads the API's own bill-position order: first act leads.
+    setPast({ shows: [makeShow({ id: 5 })], total: 1 })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(
+      within(table)
+        .getByRole('link', { name: 'Main Artist' })
+        .closest('.font-medium')
+    ).not.toBeNull()
+    expect(within(table).getByText(/w\//)).toBeInTheDocument()
+    expect(
+      within(table).getByRole('link', { name: 'The Opener' }).closest('.font-medium')
+    ).toBeNull()
+  })
+
+  it('badges cancelled shows, and suppresses sold-out on a cancelled one', () => {
+    setPast({
+      shows: [
+        makeShow({ id: 5, is_cancelled: true, is_sold_out: true }),
+        makeShow({
+          id: 6,
+          is_sold_out: true,
+          event_date: '2025-06-14T20:00:00Z',
+        }),
+      ],
+      total: 2,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(within(table).getAllByText('CANCELLED')).toHaveLength(1)
+    expect(within(table).getAllByText('SOLD OUT')).toHaveLength(1)
+  })
+
+  it('still badges a cancelled show that has no bill at all', () => {
+    setPast({
+      shows: [makeShow({ id: 5, artists: [], is_cancelled: true })],
+      total: 1,
+    })
+    renderList()
+    expect(
+      within(screen.getByRole('table', { name: 'Past shows' })).getByText(
+        'CANCELLED'
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('renders a price, and an en dash (never an em dash) when there is none', () => {
+    setPast({
+      shows: [
+        makeShow({ id: 5, price: 22 }),
+        makeShow({ id: 6, price: null, event_date: '2025-06-14T20:00:00Z' }),
+      ],
+      total: 2,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(within(table).getByText('$22.00')).toBeInTheDocument()
+    expect(within(table).getAllByText('–').length).toBeGreaterThan(0)
+    expect(within(table).queryByText('—')).not.toBeInTheDocument()
+  })
+
+  it('groups past rows under month headings in each venue-local month', () => {
+    setPast({
+      shows: [
+        makeShow({ id: 5, event_date: '2025-09-20T03:00:00Z' }),
+        makeShow({ id: 6, event_date: '2025-09-06T03:00:00Z' }),
+        makeShow({ id: 7, event_date: '2025-06-06T03:00:00Z' }),
+      ],
+      total: 3,
+    })
+    renderList()
+    const headings = within(screen.getByRole('table', { name: 'Past shows' }))
+      .getAllByRole('rowheader')
+      .map(cell => cell.textContent)
+    expect(headings).toEqual(['Sep 2025', 'Jun 2025'])
+  })
+
+  it('places each row in its OWN venue timezone, not one zone for the table', () => {
+    // 2025-01-01T04:00:00Z is still Dec 31 in Chicago and already Jan 1 in
+    // London. A single-zone table would file both rows under one month.
+    setPast({
+      shows: [
+        makeShow({
+          id: 5,
+          event_date: '2025-01-01T04:00:00Z',
+          venue: {
+            id: 2,
+            slug: 'the-lexington',
+            name: 'The Lexington',
+            city: 'London',
+            state: '',
+            timezone: 'Europe/London',
+          },
+        }),
+        makeShow({ id: 6, event_date: '2025-01-01T04:00:00Z' }),
+      ],
+      total: 2,
+    })
+    renderList()
+    const headings = within(screen.getByRole('table', { name: 'Past shows' }))
+      .getAllByRole('rowheader')
+      .map(cell => cell.textContent)
+    expect(headings).toEqual(['Jan 2025', 'Dec 2024'])
+  })
+})
+
+// ── Past archive: URL state ────────────────────────────────────────────────
+
+describe('ArtistPastShows — year and page state', () => {
+  const threeYears: ArtistShowYearCount[] = [
+    { year: 2026, count: 34 },
+    { year: 2025, count: 161 },
+    { year: 2024, count: 58 },
+  ]
+
+  beforeEach(() => {
+    setUpcoming({ shows: [] })
+    setPast({ shows: [makeShow({ id: 5 })], total: 253 })
+    setYears(threeYears)
+  })
+
+  it('renders a year strip whose links are bare, page-free and anchored', () => {
+    renderList()
+    const strip = screen.getByRole('navigation', {
+      name: 'Filter past shows by year',
+    })
+    expect(within(strip).getByRole('link', { name: /2025/ })).toHaveAttribute(
+      'href',
+      '/artists/turnstile?year=2025#artist-past-shows'
+    )
+    expect(
+      within(strip).getByRole('link', { name: 'All years' })
+    ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
+  })
+
+  it('never emits ?page=1: page 1 links are bare', () => {
+    queryPage = 2
+    renderList()
+    const pagers = screen.getAllByRole('navigation', { name: /pagination/i })
+    expect(
+      within(pagers[0]).getByRole('link', { name: 'Page 1' })
+    ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
+  })
+
+  it('carries the active year into every page link', () => {
+    queryYear = 2025
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(
+      within(pager).getByRole('link', { name: /^Page 2/ })
+    ).toHaveAttribute('href', '/artists/turnstile?year=2025&page=2#artist-past-shows')
+  })
+
+  it('translates the page param into an offset request', () => {
+    queryPage = 3
+    queryYear = 2025
+    renderList()
+    expect(pastRequests[0]).toMatchObject({ offset: 100, year: 2025, limit: 50 })
+  })
+
+  it('reads a hand-edited nonsense year as the unfiltered archive', () => {
+    queryYear = 1_759_000_000
+    renderList()
+    expect(pastRequests[0].year).toBeUndefined()
+    expect(
+      screen.getByRole('heading', { name: 'Past shows' })
+    ).toBeInTheDocument()
+  })
+
+  it('bounds a hand-edited runaway page instead of forwarding the offset', () => {
+    queryPage = 999_999
+    renderList()
+    expect(pastRequests[0].offset).toBe(999 * 50)
+  })
+
+  it('renders a pager above and below the table, with distinct names', () => {
+    renderList()
+    const pagers = screen.getAllByRole('navigation', { name: /pagination/i })
+    expect(pagers).toHaveLength(2)
+    expect(new Set(pagers.map(nav => nav.getAttribute('aria-label'))).size).toBe(
+      2
+    )
+  })
+
+  it('hides the pagers when the whole archive fits on one page', () => {
+    setPast({ shows: [makeShow({ id: 5 })], total: 3 })
+    setYears([{ year: 2025, count: 3 }])
+    renderList()
+    expect(
+      screen.queryByRole('navigation', { name: /pagination/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('scrolls a cold #artist-past-shows deep link onto the archive', () => {
+    // The browser resolves the fragment before this section exists, so the
+    // component has to honour it once its own rows are on screen.
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.location.hash = '#artist-past-shows'
+    try {
+      renderList()
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    } finally {
+      Element.prototype.scrollIntoView = original
+      window.location.hash = ''
+    }
+  })
+
+  it('leaves the scroll position alone without our fragment', () => {
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.location.hash = '#venue-past-shows'
+    try {
+      renderList()
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      Element.prototype.scrollIntoView = original
+      window.location.hash = ''
+    }
+  })
+
+  it('moves focus to the past-shows heading on a client-side page change', () => {
+    renderList()
+    const heading = screen.getByRole('heading', { name: /Past shows/ })
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    fireEvent.click(within(pager).getByRole('link', { name: /^Page 2/ }))
+    expect(heading).toHaveFocus()
+  })
+})
+
+// ── Past archive: filter reflection ────────────────────────────────────────
+
+describe('ArtistPastShows — filter reflection', () => {
+  const years: ArtistShowYearCount[] = [
+    { year: 2026, count: 34 },
+    { year: 2025, count: 161 },
+    { year: 2024, count: 217 },
+  ]
+
+  beforeEach(() => {
+    setUpcoming({ shows: [] })
+    setPast({ shows: [makeShow({ id: 5 })], total: 412 })
+    setYears(years)
+    document.title = 'Turnstile | Psychic Homily'
+  })
+
+  it('heads the unfiltered archive with the all-time total', () => {
+    renderList()
+    expect(
+      screen.getByRole('heading', { name: 'Past shows' })
+    ).toBeInTheDocument()
+    expect(pastSection().getByText('412')).toBeInTheDocument()
+  })
+
+  it('rescopes the heading and count to the active year', () => {
+    queryYear = 2025
+    renderList()
+    expect(
+      screen.getByRole('heading', { name: 'Past shows in 2025' })
+    ).toBeInTheDocument()
+    expect(pastSection().getByText('161 of 412 all-time')).toBeInTheDocument()
+  })
+
+  it('leaves the document title alone on the default view', () => {
+    renderList()
+    expect(document.title).toBe('Turnstile | Psychic Homily')
+  })
+
+  it('carries the year and page in the document title', () => {
+    queryYear = 2025
+    queryPage = 2
+    renderList()
+    expect(document.title).toBe(
+      'Turnstile shows in 2025 (page 2 of 4) | Psychic Homily'
+    )
+  })
+
+  it('leaves a title another writer has replaced alone on unmount', () => {
+    // On a soft navigation the next route's <title> is committed before this
+    // effect's cleanup runs, so an unconditional restore would relabel the page
+    // the reader just opened.
+    queryYear = 2025
+    const { unmount } = renderList()
+    expect(document.title).toContain('shows in 2025')
+    document.title = 'Some Other Page | Psychic Homily'
+    unmount()
+    expect(document.title).toBe('Some Other Page | Psychic Homily')
+  })
+
+  it('restores the route title when the archive unmounts', () => {
+    queryYear = 2025
+    const { unmount } = renderList()
+    expect(document.title).toContain('shows in 2025')
+    unmount()
+    expect(document.title).toBe('Turnstile | Psychic Homily')
+  })
+
+  it('states no row range while the rows belong to the previous page', () => {
+    // `keepPreviousData` holds the outgoing page on screen. A caption is an
+    // exact claim ("Showing 51-100 of 412") and would be WRONG, not merely
+    // stale, over rows 1-50 — and the pager latches its announcement on that
+    // first render, so a label taken from them is never corrected.
+    queryPage = 2
+    setPast(
+      { shows: [makeShow({ id: 5 })], total: 412 },
+      { isFetching: true, isPlaceholderData: true }
+    )
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(within(pager).getAllByText(/Page 2 of/).length).toBeGreaterThan(0)
+    expect(within(pager).queryByText(/Showing/)).not.toBeInTheDocument()
+    // No month-span label for the current page either, for the same reason:
+    // the accessible name stays a bare "Page 2".
+    expect(
+      within(pager).getByRole('link', { name: 'Page 2' })
+    ).toBeInTheDocument()
+  })
+
+  it('keeps a way out of a failed page', () => {
+    // An artist with one year renders no year strip, so without these the only
+    // escape from a failed page 2 is hand-editing the URL.
+    queryPage = 2
+    setYears([{ year: 2025, count: 412 }])
+    setPast(null, { error: new Error('boom') })
+    renderList()
+    expect(
+      pastSection().getByRole('button', { name: /Try again/i })
+    ).toBeInTheDocument()
+    expect(
+      pastSection().getByRole('link', { name: 'Back to the first page' })
+    ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
+  })
+
+  it('dims the rows only while they answer a different question', () => {
+    setPast(
+      { shows: [makeShow({ id: 5 })], total: 412 },
+      { isFetching: true, isPlaceholderData: true }
+    )
+    const { unmount } = renderList()
+    expect(
+      screen.getByRole('table', { name: 'Past shows' }).closest('.opacity-60')
+    ).not.toBeNull()
+    unmount()
+
+    // A same-key background revalidation must NOT fade a list that is not
+    // changing (the ShowList.tsx gate, not raw isFetching).
+    setPast(
+      { shows: [makeShow({ id: 5 })], total: 412 },
+      { isFetching: true, isPlaceholderData: false }
+    )
+    renderList()
+    expect(
+      screen.getByRole('table', { name: 'Past shows' }).closest('.opacity-60')
+    ).toBeNull()
   })
 })

@@ -1215,7 +1215,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         }
       >
         <div className="space-y-8">
-          <ArtistShowsList artistId={artist.id} artistName={artist.name} />
+          <ArtistShowsList
+            artistId={artist.id}
+            artistSlug={artist.slug}
+            artistName={artist.name}
+          />
 
           <DiscographyTab artistIdOrSlug={artistId} />
 

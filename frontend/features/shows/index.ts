@@ -93,7 +93,6 @@ export { useMySubmissions } from './hooks'
 
 // Utilities
 export {
-  dedupArtistShows,
   dedupVenueShows,
   showTimingInput,
   splitBill,
