@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Pagination, paginationWindow } from './Pagination'
+import {
+  Pagination,
+  paginationWindow,
+  usePaginationFocusTarget,
+} from './Pagination'
 
 const pageHref = (page: number) =>
   page === 1 ? '/venues/rebel#past-shows' : `/venues/rebel?page=${page}#past-shows`
@@ -299,5 +303,73 @@ describe('Pagination', () => {
   it('forwards custom className onto the nav', () => {
     renderPager({ className: 'mt-6' })
     expect(screen.getByTestId('pagination').className).toContain('mt-6')
+  })
+
+  it('renders nothing instead of looping when the page count is not a number', () => {
+    // Consumers derive totalPages as Math.ceil(total / PAGE_SIZE); `total` is
+    // undefined while a list is still loading, which yields NaN. NaN defeats
+    // every clamp and, because NaN !== NaN, used to re-render until React threw
+    // "Too many re-renders".
+    const { container } = renderPager({ totalPages: NaN })
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('recovers from a non-numeric current page', () => {
+    renderPager({ currentPage: NaN })
+    expect(desktop().getByText('Page 1 of 4')).toBeInTheDocument()
+  })
+
+  it('leaves the window sane for non-finite input', () => {
+    expect(paginationWindow(NaN, NaN)).toEqual([1])
+    expect(paginationWindow(NaN, 4)).toEqual([1, 2, 3, 4])
+    // Infinity is not a usable page count either, so it collapses to one page
+    // rather than trying to build a strip out of it.
+    expect(paginationWindow(2, Infinity)).toEqual([1])
+  })
+
+  it('stays quiet on a cmd-click, which navigates a different tab', async () => {
+    const user = userEvent.setup()
+    const onNavigate = vi.fn()
+    renderPager({ onNavigate })
+    await user.keyboard('{Meta>}')
+    await user.click(desktop().getByRole('link', { name: /Page 3/ }))
+    await user.keyboard('{/Meta}')
+    expect(onNavigate).not.toHaveBeenCalled()
+  })
+})
+
+describe('usePaginationFocusTarget', () => {
+  function Harness() {
+    const { targetProps, focusTarget } =
+      usePaginationFocusTarget<HTMLHeadingElement>()
+    return (
+      <>
+        <h2 {...targetProps}>Past shows</h2>
+        <Pagination
+          currentPage={2}
+          totalPages={4}
+          pageHref={pageHref}
+          ariaLabel="Past shows pagination"
+          onNavigate={() => focusTarget()}
+        />
+      </>
+    )
+  }
+
+  it('makes the heading programmatically focusable without adding a tab stop', () => {
+    render(<Harness />)
+    expect(screen.getByRole('heading', { name: 'Past shows' })).toHaveAttribute(
+      'tabindex',
+      '-1'
+    )
+  })
+
+  it('moves focus to the heading when the pager navigates', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    const heading = screen.getByRole('heading', { name: 'Past shows' })
+    expect(heading).not.toHaveFocus()
+    await user.click(desktop().getByRole('link', { name: /Page 3/ }))
+    expect(heading).toHaveFocus()
   })
 })

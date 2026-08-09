@@ -3,6 +3,12 @@
 import { useId, useState } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import {
+  formatCount,
+  isPlainNavigationClick,
+  navCurrentClass,
+  navLinkClass,
+} from './paginationChrome'
 
 export interface YearStripEntry {
   /** Calendar year. Also the React key, so it must be unique in `years`. */
@@ -40,17 +46,6 @@ export interface YearStripProps {
   className?: string
 }
 
-const linkClass =
-  'rounded-sm text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-
-const currentClass = 'font-bold text-primary underline underline-offset-4'
-
-/**
- * Locale is pinned so the server and client render identical digit grouping;
- * see the same note in Pagination.tsx.
- */
-const formatCount = (value: number) => value.toLocaleString('en-US')
-
 /**
  * Year filter strip for archive lists: `All years · 2026 (34) · 2025 (161) …`.
  * Composes above a {@link Pagination} row rather than being part of it — the
@@ -79,7 +74,14 @@ export function YearStrip({
   className,
 }: YearStripProps) {
   // A year with nothing in it navigates to an empty list, so it never renders.
+  // `> 0` also drops a NaN count rather than rendering "NaN".
   const visibleYears = years.filter((entry) => entry.count > 0)
+
+  // A non-finite year is treated as "no year selected". Beyond rendering
+  // sensibly, this keeps the tracked-year comparison below from comparing NaN
+  // to itself, which is never equal and would re-render forever.
+  const selectedYear =
+    currentYear !== null && Number.isFinite(currentYear) ? currentYear : null
 
   const collapseAt =
     collapseAfter !== undefined && collapseAfter > 0 ? collapseAfter : null
@@ -95,7 +97,7 @@ export function YearStrip({
   // can always see where they are without opening the disclosure first.
   const currentYearIsInTail =
     isCollapsible &&
-    visibleYears.slice(headCount).some((entry) => entry.year === currentYear)
+    visibleYears.slice(headCount).some((entry) => entry.year === selectedYear)
 
   const [expanded, setExpanded] = useState(currentYearIsInTail)
 
@@ -105,9 +107,9 @@ export function YearStrip({
   // selecting a tail year would leave the reader on a strip where nothing is
   // marked current. Re-checked only when the selected year actually changes,
   // so a reader's manual collapse is not fought on every render.
-  const [trackedYear, setTrackedYear] = useState(currentYear)
-  if (trackedYear !== currentYear) {
-    setTrackedYear(currentYear)
+  const [trackedYear, setTrackedYear] = useState(selectedYear)
+  if (trackedYear !== selectedYear) {
+    setTrackedYear(selectedYear)
     if (currentYearIsInTail) setExpanded(true)
   }
 
@@ -129,9 +131,14 @@ export function YearStrip({
         <li>
           <Link
             href={allYearsHref}
-            aria-current={currentYear === null ? 'page' : undefined}
-            onClick={() => onNavigate?.(null)}
-            className={cn(linkClass, currentYear === null && currentClass)}
+            aria-current={selectedYear === null ? 'page' : undefined}
+            onClick={(event) => {
+              if (isPlainNavigationClick(event)) onNavigate?.(null)
+            }}
+            className={cn(
+              navLinkClass,
+              selectedYear === null && navCurrentClass
+            )}
           >
             {allYearsLabel}
           </Link>
@@ -142,17 +149,16 @@ export function YearStrip({
             // Collapsed years keep their href in the DOM for crawlers while
             // `hidden` takes them out of the accessibility tree and tab order.
             hidden={!expanded && index >= headCount}
-            data-collapsed={
-              !expanded && index >= headCount ? 'true' : undefined
-            }
           >
             <span aria-hidden="true" className="mr-2 text-muted-foreground">
               ·
             </span>
             <Link
               href={entry.href}
-              aria-current={entry.year === currentYear ? 'page' : undefined}
-              onClick={() => onNavigate?.(entry.year)}
+              aria-current={entry.year === selectedYear ? 'page' : undefined}
+              onClick={(event) => {
+                if (isPlainNavigationClick(event)) onNavigate?.(entry.year)
+              }}
               // Named explicitly so the count survives the breakpoint that
               // hides it, and so name computation cannot drop the space
               // between the year and its count (engines disagree about
@@ -160,8 +166,8 @@ export function YearStrip({
               // stays a subset of the name, so voice control still works.
               aria-label={`${entry.year} (${formatCount(entry.count)})`}
               className={cn(
-                linkClass,
-                entry.year === currentYear && currentClass
+                navLinkClass,
+                entry.year === selectedYear && navCurrentClass
               )}
             >
               {entry.year}
@@ -179,7 +185,7 @@ export function YearStrip({
           aria-expanded={expanded}
           aria-controls={yearListId}
           onClick={() => setExpanded((open) => !open)}
-          className={cn(linkClass, 'whitespace-nowrap text-muted-foreground')}
+          className={cn(navLinkClass, 'whitespace-nowrap text-muted-foreground')}
         >
           {expanded ? 'fewer' : 'older'}
           <span aria-hidden="true">{expanded ? ' ▴' : ' ▾'}</span>

@@ -3,6 +3,13 @@
 import { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import {
+  formatCount,
+  isPlainNavigationClick,
+  navCurrentClass,
+  navLinkClass,
+  toPageNumber,
+} from './paginationChrome'
 
 /** A slot in the rendered page strip: a page number, or a collapsed gap. */
 export type PaginationWindowItem = number | 'ellipsis'
@@ -27,8 +34,8 @@ export function paginationWindow(
   currentPage: number,
   totalPages: number
 ): PaginationWindowItem[] {
-  const total = Math.max(1, Math.floor(totalPages))
-  const current = Math.min(Math.max(1, Math.floor(currentPage)), total)
+  const total = toPageNumber(totalPages, 1)
+  const current = Math.min(toPageNumber(currentPage, 1), total)
 
   if (total <= FULL_STRIP_MAX_PAGES) {
     return Array.from({ length: total }, (_, index) => index + 1)
@@ -46,14 +53,6 @@ export function paginationWindow(
   })
   return items
 }
-
-/**
- * Locale is pinned rather than left to the runtime: this caption renders on the
- * server and again on the client, and a viewer whose browser locale groups
- * digits differently ("1.234" vs "1,234") would hydrate into a mismatch. The
- * same reason the date helpers in `lib/utils` pin `en-US`.
- */
-const formatCount = (value: number) => value.toLocaleString('en-US')
 
 /** Row-count summary rendered in the pager caption. */
 export interface PaginationCaptionRange {
@@ -103,11 +102,6 @@ export interface PaginationProps {
   /** Extra classes on the `<nav>`. */
   className?: string
 }
-
-const linkClass =
-  'rounded-sm text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-
-const currentPageClass = 'font-bold text-primary underline underline-offset-4'
 
 /**
  * Disabled boundary controls keep their space rather than unmounting, so the
@@ -178,8 +172,10 @@ function BoundaryControl({
   return (
     <Link
       href={pageHref(targetPage)}
-      onClick={() => onNavigate?.(targetPage)}
-      className={cn(linkClass, className)}
+      onClick={(event) => {
+        if (isPlainNavigationClick(event)) onNavigate?.(targetPage)
+      }}
+      className={cn(navLinkClass, className)}
     >
       {content}
     </Link>
@@ -221,8 +217,11 @@ export function Pagination({
   nextLabel = 'Older',
   className,
 }: PaginationProps) {
-  const total = Math.max(1, Math.floor(totalPages))
-  const current = Math.min(Math.max(1, Math.floor(currentPage)), total)
+  // A non-finite page count falls back to 1, which renders nothing at all. A
+  // list whose count is still resolving should show no pager, never a crash or
+  // "Page NaN of NaN". See `toPageNumber`.
+  const total = toPageNumber(totalPages, 1)
+  const current = Math.min(toPageNumber(currentPage, 1), total)
 
   const positionText = `Page ${current} of ${total}`
   const currentRangeLabel = rangeLabels?.[current]
@@ -291,8 +290,13 @@ export function Pagination({
                   // for this slice of the list, and crawlers plus "copy link"
                   // both depend on it being there.
                   aria-current={item === current ? 'page' : undefined}
-                  onClick={() => onNavigate?.(item)}
-                  className={cn(linkClass, item === current && currentPageClass)}
+                  onClick={(event) => {
+                    if (isPlainNavigationClick(event)) onNavigate?.(item)
+                  }}
+                  className={cn(
+                    navLinkClass,
+                    item === current && navCurrentClass
+                  )}
                 >
                   {/*
                     The whole accessible name lives in one node. Split across

@@ -244,6 +244,24 @@ describe('YearStrip', () => {
     ).toBeInTheDocument()
   })
 
+  it('treats a non-numeric current year as no selection instead of looping', () => {
+    renderStrip({ currentYear: NaN })
+    expect(screen.getByRole('link', { name: 'All years' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+  })
+
+  it('stays quiet on a cmd-click, which navigates a different tab', async () => {
+    const user = userEvent.setup()
+    const onNavigate = vi.fn()
+    renderStrip({ onNavigate })
+    await user.keyboard('{Meta>}')
+    await user.click(screen.getByRole('link', { name: '2024 (98)' }))
+    await user.keyboard('{/Meta}')
+    expect(onNavigate).not.toHaveBeenCalled()
+  })
+
   it('forwards custom className onto the nav', () => {
     renderStrip({ className: 'mb-4' })
     expect(screen.getByTestId('year-strip').className).toContain('mb-4')
