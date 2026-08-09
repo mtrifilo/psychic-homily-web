@@ -233,14 +233,24 @@ func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]cont
 // empty is never advertised. That is the same rule the page enforces (it 404s a
 // year the histogram does not carry); both sides fall out of this one query
 // shape rather than needing to be kept in sync by hand.
+//
+// COST, recorded rather than discovered later. This family is the most
+// expensive one in Entries and the only one whose input set grows without
+// bound: it scans every approved PAST show (the coarse `event_date < now()`
+// bound prunes nothing on an archive) with one lateral execution per row, and
+// past shows never age out. The other families are either single-table scans
+// (entriesFor) or windowed (sceneWeekEntries, 8 weeks per scene). Two thresholds
+// to watch as the catalogue grows, neither of which is close today: the ~1.5 MB
+// Next Data Cache budget per shard (app/sitemap.ts weighs it and fails the
+// build), and the 50,000-URL sitemap limit — this family is venues x years, so
+// it will reach both before any other. The proportionate fix at that point is a
+// rollup refreshed on the same hourly cadence, not a cleverer query here.
 func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
 	type row struct {
 		Slug      string    `gorm:"column:slug"`
 		Year      int       `gorm:"column:year"`
 		UpdatedAt time.Time `gorm:"column:updated_at"`
 	}
-
-	yearSQL := shared.VenueLocalYearSQL
 
 	var rows []row
 	// The lateral in VenueTZJoin correlates on shows.id, so `shows` must already
@@ -261,8 +271,8 @@ func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.Site
 		Where("shows.status = ?", catalogm.ShowStatusApproved).
 		Where("av.slug IS NOT NULL AND av.slug <> ''").
 		Where(shared.VenueLocalDateCondition("past")).
-		Select("av.slug AS slug, " + yearSQL + " AS year, MAX(shows.updated_at) AS updated_at").
-		Group("av.slug, " + yearSQL).
+		Select("av.slug AS slug, " + shared.VenueLocalYearSQL + " AS year, MAX(shows.updated_at) AS updated_at").
+		Group("av.slug, " + shared.VenueLocalYearSQL).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err

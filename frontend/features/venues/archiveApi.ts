@@ -8,8 +8,9 @@
  */
 import { cache } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { API_BASE_URL } from '@/lib/api-base'
-import { VENUE_PAST_SHOWS_PAGE_LIMIT } from './api'
+import { createBuildTimeApiSignal } from '@/lib/build-time-api'
+import { FIRST_SCREEN_FETCH_TIMEOUT_MS } from '@/lib/ssr/fetchListPayload'
+import { venueEndpoints, VENUE_PAST_SHOWS_PAGE_LIMIT } from './api'
 import type { Venue, VenueShowsResponse, VenueShowYearsResponse } from './types'
 
 /**
@@ -44,6 +45,13 @@ async function readArchiveJson<T>(
   try {
     const res = await fetch(url, {
       next: { revalidate: ARCHIVE_REVALIDATE_SECONDS },
+      // These reads happen at REQUEST time (no generateStaticParams on either
+      // route), so an unresponsive backend would hold the visitor's render open
+      // rather than degrading. The same budget the other request-time server
+      // reads use, for the same reason — and hitting it lands on the null
+      // branch below, which is the pre-ticket behaviour: the section fetches
+      // for itself on the client.
+      signal: createBuildTimeApiSignal(FIRST_SCREEN_FETCH_TIMEOUT_MS),
     })
     if (res.ok) return (await res.json()) as T
     // 404s are expected for a slug that does not exist; only a real fault is
@@ -66,18 +74,20 @@ async function readArchiveJson<T>(
 }
 
 /**
- * The venue behind an archive URL.
+ * One venue, by id or slug.
  *
  * Wrapped in `React.cache` so `generateMetadata` and the page body share ONE
- * trip per request instead of two — the pattern the venue page and the scene
- * pages already use. By SLUG deliberately: the backend resolves either, and the
- * slug means the archive never has to load the venue before asking for shows.
+ * trip per request instead of two — the pattern the scene pages already use.
+ *
+ * Shared by BOTH venue routes: the detail page and the year archive read a
+ * venue the same way, with the same window and the same failure handling, and
+ * two copies of that had already drifted on whether the slug is URL-encoded.
  */
-export const getArchiveVenue = cache((slug: string) =>
+export const getVenue = cache((idOrSlug: string) =>
   readArchiveJson<Venue>(
-    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}`,
-    'venue-year-archive',
-    { slug }
+    venueEndpoints.GET(encodeURIComponent(idOrSlug)),
+    'venue-page',
+    { idOrSlug }
   )
 )
 
@@ -91,16 +101,26 @@ export const getArchiveVenue = cache((slug: string) =>
  */
 export const getArchiveYears = cache((slug: string) =>
   readArchiveJson<VenueShowYearsResponse>(
-    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/years?time_filter=past`,
+    `${venueEndpoints.SHOW_YEARS(encodeURIComponent(slug))}?time_filter=past`,
     'venue-year-archive-years',
     { slug }
   )
 )
 
-/** The first page of one year's rows — what the archive route renders. */
+/**
+ * The first page of one year's rows — what the archive route renders.
+ *
+ * `timezone` is deliberately NOT sent, so this URL differs from the one the
+ * client hook builds (`venuePastShowsPageParams`, which always sends the
+ * viewer's zone). The two still answer identically: the backend documents that
+ * parameter as "deprecated and ignored — the upcoming/past split is made in each
+ * show's own venue-local timezone", and the year filter is venue-local too. It
+ * is omitted rather than filled in because the only zone this module could send
+ * is the SERVER's, which is a fact about the machine and not about the reader.
+ */
 export const getArchiveFirstPage = cache((slug: string, year: number) =>
   readArchiveJson<VenueShowsResponse>(
-    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows` +
+    `${venueEndpoints.SHOWS(encodeURIComponent(slug))}` +
       `?time_filter=past&year=${year}&limit=${VENUE_PAST_SHOWS_PAGE_LIMIT}`,
     'venue-year-archive-page',
     { slug, year }

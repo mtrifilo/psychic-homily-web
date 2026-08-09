@@ -124,10 +124,11 @@ const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
  * First path segment → the families claiming it, derived from the shared
  * FAMILY_URL_PREFIXES table rather than restated.
  *
- * Most prefixes have exactly one claimant. `/scenes` has two, which is why this
- * is a list: the collision is DETECTED here rather than assumed, so a future
- * family sharing an existing prefix surfaces in `SHARED_PREFIXES` (and fails
- * the guard test in parse.test.ts) instead of being silently misbucketed.
+ * Most prefixes have exactly one claimant. `/scenes` and `/venues` have two
+ * each, which is why this is a list: the collision is DETECTED here rather than
+ * assumed, so a future family sharing an existing prefix surfaces in
+ * `SHARED_CLAIMANTS` (and fails the guard test in parse.test.ts) instead of
+ * being silently misbucketed.
  */
 const FAMILIES_BY_PREFIX = new Map<string, Family[]>()
 for (const family of FAMILY_SHARD_IDS) {
@@ -137,10 +138,21 @@ for (const family of FAMILY_SHARD_IDS) {
   else FAMILIES_BY_PREFIX.set(prefix, [family])
 }
 
-/** Prefixes claimed by more than one family; each needs a rule in `classifyLoc`. */
-export const SHARED_PREFIXES = [...FAMILIES_BY_PREFIX]
-  .filter(([, claimants]) => claimants.length > 1)
-  .map(([prefix]) => prefix)
+/**
+ * Every shared prefix and the exact families claiming it, sorted so the guard
+ * test does not depend on FAMILY_SHARD_IDS' declaration order.
+ *
+ * The CLAIMANTS, not just the prefix list: `classifyLoc` needs a rule per
+ * family under a shared prefix, not per prefix. A list of prefixes alone stops
+ * catching anything once a prefix is already shared — a third family under
+ * `/venues` would leave it unchanged, and the new family would silently
+ * classify as `other` with every test still green.
+ */
+export const SHARED_CLAIMANTS: Record<string, Family[]> = Object.fromEntries(
+  [...FAMILIES_BY_PREFIX]
+    .filter(([, claimants]) => claimants.length > 1)
+    .map(([prefix, claimants]) => [prefix, [...claimants].sort()])
+)
 
 /** The `/scenes` prefix without its slash, as `classifyLoc` compares segments. */
 const bareScenesPrefix = FAMILY_URL_PREFIXES.scenes.replace(/^\//, '')

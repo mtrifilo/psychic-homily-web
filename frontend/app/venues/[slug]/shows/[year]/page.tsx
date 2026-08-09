@@ -7,8 +7,8 @@ import {
 import {
   archiveYearExists,
   getArchiveFirstPage,
-  getArchiveVenue,
   getArchiveYears,
+  getVenue,
 } from '@/features/venues/archiveApi'
 // Entity-agnostic since PSY-1754 — the artist archive validates its `?year=`
 // with the same function, against the same bounds the backend enforces.
@@ -73,21 +73,25 @@ export default async function VenueYearArchivePage({
     notFound()
   }
 
-  const [venue, years] = await Promise.all([
-    getArchiveVenue(slug),
+  // All three take the slug from `params`, so none of them waits on another —
+  // the backend resolves an id or a slug identically, so the rows do not need
+  // the venue row first. Serialising them would put a full round trip on the
+  // critical path of every cold render, and by the time this route renders the
+  // proxy's existence branch has already filtered the years that have no rows.
+  const [venue, years, firstPage] = await Promise.all([
+    getVenue(slug),
     getArchiveYears(slug),
+    getArchiveFirstPage(slug, parsedYear),
   ])
 
   if (!venue || !years || !archiveYearExists(years, parsedYear)) {
     notFound()
   }
 
-  const firstPage = await getArchiveFirstPage(venue.slug || slug, parsedYear)
-
   return (
     <VenueYearArchiveContent
       venue={venue}
-      slug={slug}
+      venueSlug={venue.slug || slug}
       year={parsedYear}
       years={years}
       firstPage={firstPage}

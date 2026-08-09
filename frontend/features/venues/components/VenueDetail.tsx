@@ -28,10 +28,16 @@ interface VenueDetailProps {
   venueId: string | number
   /**
    * The venue's past-show year histogram, already fetched by the route so the
-   * archive's year strip reaches the served HTML (PSY-1756). Threaded down to
-   * `VenuePastShows` rather than seeded into the query cache, because that
-   * cache's keys are built in the browser and a key computed on the server
-   * would miss silently.
+   * archive's year strip reaches the served HTML (PSY-1756).
+   *
+   * Threaded to `VenuePastShows` as a prop rather than seeded through the
+   * page's `HydrationBoundary`, and the reason is freshness rather than key
+   * mechanics — `venueQueryKeys.showYears` carries no viewer timezone, so
+   * unlike the shows pages it CAN be keyed on the server. `seedFirstScreen`
+   * stamps `dataUpdatedAt: 0`, which would make every venue page refetch a
+   * histogram it just rendered; `initialData` is treated as fresh for the usual
+   * staleTime, which is what a server-rendered strip should be. The cost is
+   * this prop passing through two components that do nothing else with it.
    */
   initialPastYears?: VenueShowYearsResponse
 }

@@ -88,7 +88,8 @@ export function shardRoutePath(id: string): string {
  *
  * Anything mapping a URL back to a family has to disambiguate each pair by
  * segment count, not by prefix — see `classifyLoc` in lib/sitemap-monitor/parse,
- * whose SHARED_PREFIXES guard fails the day a third pair appears without a rule.
+ * whose SHARED_CLAIMANTS guard fails the day any family joins a shared prefix
+ * without a rule.
  */
 export const FAMILY_URL_PREFIXES = {
   shows: '/shows',

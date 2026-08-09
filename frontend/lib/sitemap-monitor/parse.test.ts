@@ -6,7 +6,7 @@ import {
   parseSitemapIndex,
   parseUrlset,
   showDateFromLoc,
-  SHARED_PREFIXES,
+  SHARED_CLAIMANTS,
 } from './parse'
 
 const INDEX_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -177,12 +177,16 @@ describe('classifyLoc', () => {
 
   /**
    * `classifyLoc` can only split families that share a prefix if it has an
-   * explicit rule for that prefix. Today `/venues` and `/scenes` are the two
-   * collisions, and both have one. If a new family adds a third, this fails
-   * loudly instead of letting the new family be silently misbucketed.
+   * explicit rule for each CLAIMANT of that prefix. Asserting the claimants
+   * rather than the prefix list is what keeps this a live guard: once `/venues`
+   * is shared, a prefix-only assertion stops changing when a THIRD family joins
+   * it, and that family would classify as `other` with every test still green.
    */
-  it('has a disambiguation rule for every shared prefix', () => {
-    expect(SHARED_PREFIXES).toEqual(['venues', 'scenes'])
+  it('has a disambiguation rule for every family under a shared prefix', () => {
+    expect(SHARED_CLAIMANTS).toEqual({
+      venues: ['venue_years', 'venues'],
+      scenes: ['scene_weeks', 'scenes'],
+    })
   })
 })
 

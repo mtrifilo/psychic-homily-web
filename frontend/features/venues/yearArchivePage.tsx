@@ -31,7 +31,7 @@ import { Breadcrumb } from '@/components/shared'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { VenuePastShows } from './components/VenuePastShows'
-import { archiveYearExists, getArchiveVenue, getArchiveYears } from './archiveApi'
+import { archiveYearExists, getArchiveYears, getVenue } from './archiveApi'
 import { venueArchiveHref } from './showArchive'
 import type { Venue, VenueShowsResponse, VenueShowYearsResponse } from './types'
 
@@ -58,7 +58,7 @@ export async function buildVenueYearArchiveMetadata(
   year: number
 ): Promise<Metadata> {
   const [venue, years] = await Promise.all([
-    getArchiveVenue(slug),
+    getVenue(slug),
     getArchiveYears(slug),
   ])
 
@@ -94,22 +94,22 @@ export async function buildVenueYearArchiveMetadata(
  */
 export function VenueYearArchiveContent({
   venue,
-  slug,
+  venueSlug,
   year,
   years,
   firstPage,
 }: {
   venue: Venue
-  slug: string
+  /** The venue's canonical slug, resolved once by the route. */
+  venueSlug: string
   year: number
   years: VenueShowYearsResponse
   firstPage: VenueShowsResponse | null
 }) {
-  const venueSlug = venue.slug || slug
   const venueHref = `/venues/${venueSlug}`
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container max-w-6xl mx-auto px-4 py-6">
       <JsonLd
         data={generateBreadcrumbSchema([
           { name: 'Home', url: SITE_URL },

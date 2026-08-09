@@ -49,9 +49,11 @@ describe('proxy — venue year archives', () => {
 
     const response = await proxy(requestFor(`${ARCHIVE}/2024`))
 
+    // A GET, not the HEAD every other check uses: the histogram answers 200 for
+    // any venue that exists, so only its body can settle the year.
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/venues/the-van-buren/shows/years?time_filter=past',
-      { redirect: 'manual' }
+      { method: 'GET', redirect: 'manual' }
     )
     expect(response.status).toBe(200)
   })

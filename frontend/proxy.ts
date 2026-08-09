@@ -402,27 +402,40 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 /**
- * HEAD a backend URL and turn the result into a pass-through or a real 404.
+ * Probe a backend URL and turn the result into a pass-through or a real 404.
  *
- * Extracted so the scene-week routes can reuse the exact same fail-open
- * semantics as the generic `/<entity>/<slug>` check — a second copy would drift.
+ * ONE fail-open policy, for every branch above. Extracted originally so the
+ * scene-week routes could reuse the generic `/<entity>/<slug>` semantics rather
+ * than restate them — a second copy would drift — and widened by PSY-1756 for
+ * the one question a status cannot answer.
+ *
+ * `verdict` is what a caller supplies when a 2xx does not settle it. The venue
+ * year archive is that case: `/venues/{slug}/shows/years` answers 200 for any
+ * venue that exists, so its STATUS says nothing about the year and the answer
+ * has to come out of the body. Omitting it keeps the cheap default — HEAD, 2xx
+ * means it exists — which is what every other caller wants.
+ *
+ * Whatever `verdict` does, the fail-open rules around it stay here: a backend
+ * 404 is the only "missing", and anything else (5xx, 403, 429, a body that does
+ * not parse, a network error) lets the page render. Producing a 404 on a
+ * transient blip would mask a real outage as "not found".
  */
-async function existenceCheck(request: NextRequest, url: string): Promise<NextResponse> {
+async function existenceCheck(
+  request: NextRequest,
+  url: string,
+  verdict?: (body: unknown) => boolean | null
+): Promise<NextResponse> {
   try {
     const res = await fetch(url, {
-      method: 'HEAD',
+      // A body question needs a GET; everything else is answered by the status
+      // alone and pays for nothing more.
+      method: verdict ? 'GET' : 'HEAD',
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
       // we don't set it. `redirect: 'manual'` keeps the check cheap and avoids
       // following any backend redirect chain. A 2xx means the slug resolves;
       // only a backend 404 is treated as "missing".
       redirect: 'manual',
     })
-
-    // Backend reachable and slug resolves → let the page render normally
-    // (ISR / hydration path untouched).
-    if (res.ok) {
-      return NextResponse.next()
-    }
 
     // 404 from the backend = slug genuinely does not exist → real 404.
     if (res.status === 404) {
@@ -431,12 +444,22 @@ async function existenceCheck(request: NextRequest, url: string): Promise<NextRe
 
     // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN — let the
     // page render and apply its own handling (each page's server fetch reports
-    // 5xx to Sentry, renders its own not-found on null, etc.). Producing a 404
-    // here on a transient backend blip would mask real outages as "not found".
-    return NextResponse.next()
+    // 5xx to Sentry, renders its own not-found on null, etc.).
+    if (!res.ok) {
+      return NextResponse.next()
+    }
+
+    // Backend reachable and the slug resolves. Without a verdict that settles
+    // it; with one, the body decides — and a null verdict means "I could not
+    // tell", which must never be answered as "it is not there".
+    if (!verdict) {
+      return NextResponse.next()
+    }
+    const decided = verdict(await res.json())
+    return decided === false ? notFoundResponse(request) : NextResponse.next()
   } catch {
-    // Network error reaching the backend: fail OPEN. The proxy must never take
-    // the whole route down when the existence check itself fails.
+    // Network error reaching the backend, or a body that would not parse: fail
+    // OPEN. The proxy must never take a route down when the check itself fails.
     return NextResponse.next()
   }
 }
@@ -444,51 +467,40 @@ async function existenceCheck(request: NextRequest, url: string): Promise<NextRe
 /**
  * Whether a venue actually has past shows in `year`, per its own histogram.
  *
- * A GET rather than the HEAD every other check uses, because the question is
- * about the BODY: `/venues/{slug}/shows/years` answers 200 for any venue that
- * exists, so its status says nothing about the year. The response is one row
- * per year with shows — the smallest thing on the backend that can answer this,
- * and the same read the page then makes for itself.
+ * The histogram is the same authority the page renders from, the year strip is
+ * built from, and the `venue_years` sitemap family is projected from — so a
+ * year that 200s here is a year all four agree exists.
  *
- * Fail-OPEN on everything except the two definite answers (the venue is gone,
- * or the year is not in its histogram), matching `existenceCheck`: producing a
- * 404 on a transient backend blip would mask an outage as "not found". The
- * cost of failing open is a soft-404 for the duration of the blip, which is the
- * same bargain every other branch here makes.
+ * COST, stated because it is the one uncached read on a crawl surface:
+ * `/venues/{slug}/shows/years` aggregates the venue's whole past history behind
+ * the venue-local timezone lateral, proxy fetches get no Data Cache, and the
+ * page then reads it again through its own (cached) fetch. It is affordable
+ * because the shape and range checks above settle the walkable half of the URL
+ * space for free, so only a plausible year reaches it. A status-bearing
+ * existence endpoint on the backend would make it a HEAD; that is the shape to
+ * reach for if this ever shows up in the backend's latency profile.
  */
-async function venueArchiveYearCheck(
+function venueArchiveYearCheck(
   request: NextRequest,
   slug: string,
   year: number
 ): Promise<NextResponse> {
-  try {
-    const res = await fetch(
-      `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/years?time_filter=past`,
-      { redirect: 'manual' }
-    )
-    // The venue itself is gone: a real 404, and the generic `/venues/<slug>`
-    // check would have said the same thing one segment up.
-    if (res.status === 404) {
-      return notFoundResponse(request)
+  return existenceCheck(
+    request,
+    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/years?time_filter=past`,
+    body => {
+      // Untrusted wire data. An unrecognised shape returns null ("could not
+      // tell"), which existenceCheck reads as a pass-through, not a 404.
+      const years = (body as { years?: unknown })?.years
+      if (!Array.isArray(years)) return null
+      return years.some(entry => {
+        const row = entry as { year?: unknown; count?: unknown }
+        return (
+          row?.year === year && typeof row.count === 'number' && row.count > 0
+        )
+      })
     }
-    if (!res.ok) {
-      return NextResponse.next()
-    }
-    const body: unknown = await res.json()
-    const years = (body as { years?: unknown })?.years
-    // An unrecognised shape is a fail-open, not a 404. This is untrusted wire
-    // data, and "I could not tell" must never be answered as "it is not there".
-    if (!Array.isArray(years)) {
-      return NextResponse.next()
-    }
-    const found = years.some(entry => {
-      const row = entry as { year?: unknown; count?: unknown }
-      return row?.year === year && typeof row.count === 'number' && row.count > 0
-    })
-    return found ? NextResponse.next() : notFoundResponse(request)
-  } catch {
-    return NextResponse.next()
-  }
+  )
 }
 
 export const config = {
