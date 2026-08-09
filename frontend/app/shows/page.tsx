@@ -83,9 +83,13 @@ export const UPCOMING_SHOWS_LIMIT = 50
  *   fetch                          raw      base64   % cap   bounded by
  *   -----------------------------  -------  -------  ------  ------------------
  *   /shows/upcoming?limit=50        80,327  107,104    5.1%  this file's limit
- *   /shows/upcoming?timezone=…      80,327  107,104    5.1%  backend default:"50"
- *   /shows/cities?timezone=…         8,948   11,932    0.6%  one row per city
+ *   /shows/upcoming                 80,327  107,104    5.1%  backend default:"50"
+ *   /shows/cities                    8,948   11,932    0.6%  one row per city
  *   /scenes                          7,256    9,676    0.5%  UNBOUNDED
+ *
+ * The two seed URLs lost their `?timezone=` in PSY-1678 and are otherwise the
+ * same requests, so the measured sizes above still stand — the parameter never
+ * changed the row count, only which day's rows came back.
  *
  * So "the limit protects it" is true of the ItemList fetch only. The seed URL
  * deliberately omits `limit` (see the note above) and is held at 50 by the
