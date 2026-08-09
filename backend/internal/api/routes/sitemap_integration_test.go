@@ -58,6 +58,7 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 		} `json:"shows"`
 		Artists    []json.RawMessage `json:"artists"`
 		Venues     []json.RawMessage `json:"venues"`
+		VenueYears []json.RawMessage `json:"venue_years"`
 		Scenes     []json.RawMessage `json:"scenes"`
 		SceneWeeks []json.RawMessage `json:"scene_weeks"`
 		Labels     []json.RawMessage `json:"labels"`
@@ -80,7 +81,8 @@ func TestSitemapEntriesEndToEnd(t *testing.T) {
 	// iterates each list, and a null would need a nil check that is easy to omit
 	// and silent when forgotten.
 	for name, raw := range map[string][]json.RawMessage{
-		"artists": body.Artists, "venues": body.Venues, "scenes": body.Scenes,
+		"artists": body.Artists, "venues": body.Venues, "venue_years": body.VenueYears,
+		"scenes": body.Scenes,
 		"scene_weeks": body.SceneWeeks, "labels": body.Labels, "releases": body.Releases,
 		"festivals": body.Festivals, "tags": body.Tags,
 	} {

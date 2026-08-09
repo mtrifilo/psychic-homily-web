@@ -15795,6 +15795,7 @@ export interface components {
             scenes: components["schemas"]["SitemapEntry"][] | null;
             shows: components["schemas"]["SitemapEntry"][] | null;
             tags: components["schemas"]["SitemapEntry"][] | null;
+            venue_years: components["schemas"]["SitemapEntry"][] | null;
             venues: components["schemas"]["SitemapEntry"][] | null;
         };
         SitemapEntry: {
@@ -32274,7 +32275,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description When set, only this family is populated; others are empty arrays. */
-                family?: "shows" | "artists" | "venues" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags";
+                family?: "shows" | "artists" | "venues" | "venue_years" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags";
             };
             header?: never;
             path?: never;

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink, Flag } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
+import type { VenueShowYearsResponse } from '../types'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -25,6 +26,14 @@ import { Button } from '@/components/ui/button'
 
 interface VenueDetailProps {
   venueId: string | number
+  /**
+   * The venue's past-show year histogram, already fetched by the route so the
+   * archive's year strip reaches the served HTML (PSY-1756). Threaded down to
+   * `VenuePastShows` rather than seeded into the query cache, because that
+   * cache's keys are built in the browser and a key computed on the server
+   * would miss silently.
+   */
+  initialPastYears?: VenueShowYearsResponse
 }
 
 /**
@@ -73,7 +82,7 @@ function VenueGenreProfile({ venueId }: { venueId: number }) {
   )
 }
 
-export function VenueDetail({ venueId }: VenueDetailProps) {
+export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
@@ -336,6 +345,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
               venueTimezone={venue.timezone}
               venueAddress={venue.address}
               venueVerified={venue.verified}
+              initialPastYears={initialPastYears}
               onShowAdded={handleShowAdded}
             />
           </div>

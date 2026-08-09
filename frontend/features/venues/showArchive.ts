@@ -61,6 +61,57 @@ export function monthRangeLabel(
   return rowsMonthRangeLabel(rows, venueZoneResolver<ArchiveRow>(zone))
 }
 
+/**
+ * The fragment the venue page's past-shows section is addressed by.
+ *
+ * Declared here rather than imported from the component because this module
+ * owns the venue archive's URL SPACE, and `venueArchiveHref` below has to
+ * append it. The component re-exports it as `VENUE_PAST_SHOWS_ANCHOR` for the
+ * markup that carries the id.
+ */
+export const VENUE_PAST_SHOWS_FRAGMENT = 'venue-past-shows'
+
+/**
+ * THE address of one view of a venue's past-show archive. One function, so the
+ * client's navigation and the crawler's URLs are the same strings (PSY-1756).
+ *
+ * The space it defines, in full:
+ *
+ *   every year, page 1   /venues/{slug}#venue-past-shows
+ *   every year, page N   /venues/{slug}?page=N#venue-past-shows
+ *   one year,   page 1   /venues/{slug}/shows/{year}
+ *   one year,   page N   /venues/{slug}/shows/{year}?page=N
+ *
+ * A YEAR is a path segment because a venue's year archive is its own document:
+ * it gets a server-rendered body, a descriptive title and a self-referencing
+ * canonical, none of which a query variant of the venue route can carry (the
+ * venue page is ISR and reads no searchParams). A PAGE stays a query parameter
+ * because it is not a document — every `?page=` canonicalizes to the year root
+ * it slices, so minting path URLs for pages would advertise addresses that
+ * immediately point somewhere else.
+ *
+ * There is deliberately NO `?year=` form here. It existed before the year
+ * archives did, and leaving it in place would have put the same rows at two
+ * addresses with no canonical relationship between them — the duplicate-content
+ * shape PSY-1756 exists to avoid. `proxy.ts` 308s the old form to its year path
+ * so links already in the wild keep meaning what they said. The ARTIST archive
+ * still reads `?year=`, deliberately: it has no crawlable per-year route yet,
+ * so there is no second address for its query form to duplicate.
+ *
+ * The all-years URLs carry the fragment because the archive is one section of a
+ * long venue page; the year URLs do not, because there the archive IS the page.
+ */
+export function venueArchiveHref(
+  venueSlug: string,
+  year: number | null,
+  page: number
+): string {
+  const query = page > 1 ? `?page=${page}` : ''
+  return year === null
+    ? `/venues/${venueSlug}${query}#${VENUE_PAST_SHOWS_FRAGMENT}`
+    : `/venues/${venueSlug}/shows/${year}${query}`
+}
+
 /** {@link scopedDocumentTitle}, named for the venue it scopes. */
 export function archiveDocumentTitle({
   venueName,

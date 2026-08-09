@@ -204,6 +204,29 @@ function isChartArchiveQuarterSegment(segment: string): boolean {
 }
 
 /**
+ * The static segment between a venue slug and its year archive:
+ * `/venues/<slug>/shows/<year>` (PSY-1756).
+ */
+const VENUE_ARCHIVE_SEGMENT = 'shows'
+
+/** Shape of the year segment. Shape only — membership is a data question. */
+const VENUE_ARCHIVE_YEAR_SEGMENT = /^\d{4}$/
+
+/**
+ * The year window the archive route accepts. MUST stay in lockstep with
+ * `ARCHIVE_YEAR_RANGE` in features/venues/showArchive (asserted by
+ * proxy.venue-years.test.ts); the proxy keeps its own copy rather than
+ * importing `features/`, matching the scenes and charts branches.
+ *
+ * Not decoration, for exactly the reason FIRST_TRACKED_YEAR is not: the page
+ * 404s a year outside this window, and a `notFound()` the proxy waved through
+ * commits a 404 BODY at HTTP 200 — the soft-404 this whole file exists to
+ * prevent.
+ */
+const VENUE_ARCHIVE_MIN_YEAR = 1900
+const VENUE_ARCHIVE_MAX_YEAR = 9999
+
+/**
  * Returns the global 404 rewrite response (status 404 + render
  * `app/not-found.tsx` via the unmatched synthetic path).
  */
@@ -326,6 +349,39 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return notFoundResponse(request)
   }
 
+  // Venue year archives: `/venues/<slug>/shows/<year>` (PSY-1756). One level
+  // BELOW the entity-detail shape the generic check handles, so like the scene
+  // periods it needs its own branch or every bad year soft-404s.
+  //
+  // The URL space here is unbounded by construction — 8,100 in-range years for
+  // every venue in the catalogue — and only a handful of them are documents. So
+  // this branch is what stands between a crawler and an arbitrarily large field
+  // of 200-with-a-not-found-body.
+  //
+  // Membership is asked of the venue's PAST year histogram, which is the SAME
+  // authority the page renders from and the `venue_years` sitemap family is
+  // built from. Three surfaces, one source: a year in the sitemap resolves, and
+  // a year that resolves is in the strip.
+  if (
+    entityType === 'venues' &&
+    segments.length === 5 &&
+    slug &&
+    segments[3] === VENUE_ARCHIVE_SEGMENT
+  ) {
+    const year = segments[4]
+    // Shape and range are settled HERE, with no round trip: a segment that is
+    // not four in-range digits can never be an archive, whatever the database
+    // says, and this is the half of the space a crawler can walk for free.
+    if (
+      !VENUE_ARCHIVE_YEAR_SEGMENT.test(year) ||
+      Number(year) < VENUE_ARCHIVE_MIN_YEAR ||
+      Number(year) > VENUE_ARCHIVE_MAX_YEAR
+    ) {
+      return notFoundResponse(request)
+    }
+    return venueArchiveYearCheck(request, slug, Number(year))
+  }
+
   const buildCheckUrl = ENTITY_CHECKS[entityType]
 
   // Not a mapped entity, or a sub-route like `/<entity>/<slug>/edit`, or the
@@ -381,6 +437,56 @@ async function existenceCheck(request: NextRequest, url: string): Promise<NextRe
   } catch {
     // Network error reaching the backend: fail OPEN. The proxy must never take
     // the whole route down when the existence check itself fails.
+    return NextResponse.next()
+  }
+}
+
+/**
+ * Whether a venue actually has past shows in `year`, per its own histogram.
+ *
+ * A GET rather than the HEAD every other check uses, because the question is
+ * about the BODY: `/venues/{slug}/shows/years` answers 200 for any venue that
+ * exists, so its status says nothing about the year. The response is one row
+ * per year with shows — the smallest thing on the backend that can answer this,
+ * and the same read the page then makes for itself.
+ *
+ * Fail-OPEN on everything except the two definite answers (the venue is gone,
+ * or the year is not in its histogram), matching `existenceCheck`: producing a
+ * 404 on a transient backend blip would mask an outage as "not found". The
+ * cost of failing open is a soft-404 for the duration of the blip, which is the
+ * same bargain every other branch here makes.
+ */
+async function venueArchiveYearCheck(
+  request: NextRequest,
+  slug: string,
+  year: number
+): Promise<NextResponse> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/years?time_filter=past`,
+      { redirect: 'manual' }
+    )
+    // The venue itself is gone: a real 404, and the generic `/venues/<slug>`
+    // check would have said the same thing one segment up.
+    if (res.status === 404) {
+      return notFoundResponse(request)
+    }
+    if (!res.ok) {
+      return NextResponse.next()
+    }
+    const body: unknown = await res.json()
+    const years = (body as { years?: unknown })?.years
+    // An unrecognised shape is a fail-open, not a 404. This is untrusted wire
+    // data, and "I could not tell" must never be answered as "it is not there".
+    if (!Array.isArray(years)) {
+      return NextResponse.next()
+    }
+    const found = years.some(entry => {
+      const row = entry as { year?: unknown; count?: unknown }
+      return row?.year === year && typeof row.count === 'number' && row.count > 0
+    })
+    return found ? NextResponse.next() : notFoundResponse(request)
+  } catch {
     return NextResponse.next()
   }
 }

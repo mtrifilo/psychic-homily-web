@@ -193,6 +193,11 @@ const FAMILY_ROUTES: Record<
   shows: { changeFrequency: 'weekly', priority: 0.8 },
   artists: { changeFrequency: 'monthly', priority: 0.6 },
   venues: { changeFrequency: 'monthly', priority: 0.6 },
+  // A venue's year archive changes only while that year is the current one, and
+  // never again afterwards; `yearly` is the honest signal for a family that is
+  // overwhelmingly closed history. Priority sits below the venue page itself
+  // because the venue page is the entry point and the archive is a facet of it.
+  venue_years: { changeFrequency: 'yearly', priority: 0.4 },
   scenes: { changeFrequency: 'weekly', priority: 0.7 },
   scene_weeks: { changeFrequency: 'weekly', priority: 0.6 },
   labels: { changeFrequency: 'monthly', priority: 0.5 },

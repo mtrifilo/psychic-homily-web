@@ -314,3 +314,107 @@ func TestSitemapEntriesSceneWeeksExcludesZeroShowWeeks(t *testing.T) {
 		t.Errorf("scenes = %v, want [phoenix-az]", got)
 	}
 }
+
+// TestSitemapEntriesVenueYearsMatchesThePastHistogram is the load-bearing
+// guarantee of the venue_years family (PSY-1756): every year it announces has to
+// be a year /venues/{slug}/shows/{year} will actually render, and that page is
+// built from GetVenueShowYears(time_filter=past). A year announced here that the
+// histogram does not carry is a URL the site 404s — the failure this family
+// exists to avoid rather than cause.
+//
+// It also pins the two exclusion rules that fall out of the same query: an
+// UPCOMING-only year is not an archive, and a venue with no slug has no URL.
+func TestSitemapEntriesVenueYearsMatchesThePastHistogram(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	venue := &catalogm.Venue{
+		Name:     "Archive Room",
+		Slug:     strPtr("archive-room"),
+		City:     "Phoenix",
+		State:    "AZ",
+		Timezone: strPtr("America/Phoenix"),
+	}
+	if err := td.DB.Create(venue).Error; err != nil {
+		t.Fatalf("seed venue: %v", err)
+	}
+	// A venue with past shows but NO slug: it has no URL, so it must contribute
+	// no entry even though those shows are indexable in their own right.
+	unslugged := &catalogm.Venue{
+		Name:     "Unslugged Room",
+		City:     "Phoenix",
+		State:    "AZ",
+		Timezone: strPtr("America/Phoenix"),
+	}
+	if err := td.DB.Create(unslugged).Error; err != nil {
+		t.Fatalf("seed unslugged venue: %v", err)
+	}
+
+	loc, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("load loc: %v", err)
+	}
+	lastYear := time.Now().In(loc).Year() - 1
+
+	seed := []struct {
+		slug  string
+		when  time.Time
+		venue *catalogm.Venue
+	}{
+		// Two in the same past year: the grain is (venue, YEAR), not per show.
+		{"vy-past-a", time.Date(lastYear, time.March, 4, 20, 0, 0, 0, loc), venue},
+		{"vy-past-b", time.Date(lastYear, time.November, 9, 20, 0, 0, 0, loc), venue},
+		// Upcoming: not an archive, so its year must not be announced.
+		{"vy-upcoming", time.Now().In(loc).AddDate(1, 0, 0), venue},
+		// Past, but at the venue with no slug.
+		{"vy-unslugged", time.Date(lastYear, time.May, 1, 20, 0, 0, 0, loc), unslugged},
+	}
+	for _, s := range seed {
+		show := &catalogm.Show{
+			Title:     "Archive " + s.slug,
+			Slug:      strPtr(s.slug),
+			EventDate: s.when.UTC(),
+			Status:    catalogm.ShowStatusApproved,
+		}
+		if err := td.DB.Create(show).Error; err != nil {
+			t.Fatalf("seed show %s: %v", s.slug, err)
+		}
+		if err := td.DB.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: s.venue.ID}).Error; err != nil {
+			t.Fatalf("seed show_venue %s: %v", s.slug, err)
+		}
+	}
+
+	entries, err := NewSitemapService(td.DB).Entries(context.Background(), "venue_years")
+	if err != nil {
+		t.Fatalf("Entries(venue_years): %v", err)
+	}
+
+	got := sitemapSlugsOf(entries.VenueYears)
+	want := fmt.Sprintf("archive-room/shows/%d", lastYear)
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("venue_years = %v, want exactly [%s]", got, want)
+	}
+	if entries.VenueYears[0].UpdatedAt.IsZero() {
+		t.Error("venue-year entry has zero UpdatedAt — <lastmod> would be empty")
+	}
+
+	// The page's own authority on which years exist. Anything this family
+	// announces must appear here, or the URL 404s.
+	years, err := NewVenueService(td.DB).GetVenueShowYears(venue.ID, "past")
+	if err != nil {
+		t.Fatalf("GetVenueShowYears: %v", err)
+	}
+	histogram := map[int]bool{}
+	for _, y := range years {
+		histogram[y.Year] = true
+	}
+	if !histogram[lastYear] {
+		t.Fatalf("past histogram = %+v, want to carry %d", years, lastYear)
+	}
+	if len(histogram) != 1 {
+		t.Errorf("past histogram = %+v, want exactly one year (the upcoming show must not appear)", years)
+	}
+}

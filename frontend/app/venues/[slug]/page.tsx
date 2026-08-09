@@ -11,6 +11,7 @@ import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/js
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+import { getArchiveYears } from '@/features/venues/archiveApi'
 
 interface VenuePageProps {
   params: Promise<{ slug: string }>
@@ -100,6 +101,24 @@ export default async function VenuePage({ params }: VenuePageProps) {
     venueData,
   )
 
+  // The past-shows year strip, server-side (PSY-1756).
+  //
+  // Without it the archive section renders nothing until its first client
+  // fetch, so the links to a venue's year archives were in no served HTML and
+  // a crawler could only reach them through the sitemap. One row per year, so
+  // it is the cheapest thing that turns the venue page into the hub of its own
+  // archive.
+  //
+  // Passed as a PROP rather than seeded through the HydrationBoundary: the
+  // shows cache keys are built in the browser (see VENUE_SHOWS_VIEWER_TIMEZONE
+  // in features/venues/api), so a key computed here would be the server's and
+  // the client would look under its own and miss it silently.
+  //
+  // Null on a failed read. The strip then behaves exactly as it did before this
+  // ticket — it appears after the client fetch — instead of taking the venue
+  // page down with it.
+  const pastYears = await getArchiveYears(venueData.slug || slug)
+
   return (
     <>
       <JsonLd data={generateMusicVenueSchema({
@@ -116,7 +135,7 @@ export default async function VenuePage({ params }: VenuePageProps) {
       ])} />
       <HydrationBoundary state={dehydratedState}>
         <Suspense fallback={<VenueLoadingFallback />}>
-          <VenueDetail venueId={slug} />
+          <VenueDetail venueId={slug} initialPastYears={pastYears ?? undefined} />
         </Suspense>
       </HydrationBoundary>
     </>

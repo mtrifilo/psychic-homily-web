@@ -174,6 +174,23 @@ interface UseVenueShowsOptions {
    * on `isPlaceholderData` so stale rows are never presented as current.
    */
   keepPreviousPage?: boolean
+  /**
+   * Rows the SERVER already fetched for exactly this request, so the first
+   * client render has them and the archive reaches the HTML (PSY-1756).
+   *
+   * The caller is responsible for passing it ONLY when the current arguments
+   * describe the same request the server made — react-query attaches
+   * `initialData` to whatever key is current, so handing page 1's rows to a
+   * hook that is asking for page 2 would seed page 2 with page 1's content.
+   *
+   * Seeded rather than hydrated through a `HydrationBoundary` on purpose: the
+   * key is built here, in the browser, from the browser's own arguments, so it
+   * cannot miss the way a server-computed key can (see VENUE_SHOWS_VIEWER_TIMEZONE
+   * in ../api). No `initialDataUpdatedAt` — the rows are treated as fresh for
+   * the usual staleTime, which is the point: an archive page must not refetch
+   * what it just server-rendered.
+   */
+  initialData?: VenueShowsResponse
 }
 
 /**
@@ -190,6 +207,7 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
     offset = 0,
     year,
     keepPreviousPage = false,
+    initialData,
   } = options
 
   // Resolved ONCE, because the URL and the cache key have to be built from the
@@ -248,6 +266,7 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
     enabled: enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes
     placeholderData: keepPreviousPage ? keepPreviousData : undefined,
+    initialData,
   })
 }
 
@@ -256,6 +275,13 @@ interface UseVenueShowYearsOptions {
   /** Which side of "today" to count. Defaults to 'past'. */
   timeFilter?: TimeFilter
   enabled?: boolean
+  /**
+   * The histogram the SERVER already fetched, so the year strip renders in the
+   * HTML instead of appearing after the first client fetch (PSY-1756). Same
+   * contract as `useVenueShows`'s: pass it only for the arguments it was
+   * fetched under.
+   */
+  initialData?: VenueShowYearsResponse
 }
 
 /**
@@ -267,7 +293,7 @@ interface UseVenueShowYearsOptions {
  * reader visits, instead of being re-derived from each page's envelope.
  */
 export const useVenueShowYears = (options: UseVenueShowYearsOptions) => {
-  const { venueId, timeFilter = 'past', enabled = true } = options
+  const { venueId, timeFilter = 'past', enabled = true, initialData } = options
 
   const endpoint = `${venueEndpoints.SHOW_YEARS(venueId)}?time_filter=${timeFilter}`
 
@@ -279,6 +305,7 @@ export const useVenueShowYears = (options: UseVenueShowYearsOptions) => {
     enabled:
       enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it navigates
+    initialData,
   })
 }
 

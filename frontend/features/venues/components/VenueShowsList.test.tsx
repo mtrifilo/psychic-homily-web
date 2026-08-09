@@ -57,16 +57,15 @@ vi.mock('../hooks/useVenues', () => ({
 }))
 
 // nuqs throws without a NuqsAdapter, and the adapter would need a real router.
-// The component only READS these params (every write is an <a href>), so a
-// plain value stub is the whole contract.
-let queryYear: number | null = null
+// The component only READS `?page=` (every write is an <a href>), so a plain
+// value stub is the whole contract. There is no `?year=` any more: the year is
+// a path segment, so it arrives as a prop (PSY-1756).
 let queryPage = 1
 vi.mock('nuqs', async importOriginal => ({
   // Partial: the shared filter parsers elsewhere in this import graph build on
   // nuqs's real `createParser`, so only the hook is swapped out.
   ...(await importOriginal<typeof import('nuqs')>()),
-  useQueryState: (key: string) =>
-    key === 'year' ? [queryYear, vi.fn()] : [queryPage, vi.fn()],
+  useQueryState: () => [queryPage, vi.fn()],
 }))
 
 // ShowForm pulls in a lot of form/mutation plumbing the suite doesn't need.
@@ -108,6 +107,7 @@ vi.mock('@/features/notifications', () => ({
 // DenseTable are the behaviour under test here, not incidental chrome.
 
 import { VenueShowsList } from './VenueShowsList'
+import { VenuePastShows } from './VenuePastShows'
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -201,6 +201,31 @@ function renderList(overrides?: Partial<Parameters<typeof VenueShowsList>[0]>) {
   )
 }
 
+/**
+ * The archive on its own, scoped to one year — what the
+ * `/venues/{slug}/shows/{year}` route renders (PSY-1756).
+ *
+ * The venue page has no year scope any more, so a year-scoped case cannot go
+ * through `renderList`: it would be asserting a state that surface can no longer
+ * be in. Same component either way, which is the point.
+ */
+function renderArchive(
+  activeYear: number,
+  overrides?: Partial<Parameters<typeof VenuePastShows>[0]>
+) {
+  return renderWithProviders(
+    <VenuePastShows
+      venueId={7}
+      venueSlug="the-venue"
+      venueName="The Venue"
+      venueState="AZ"
+      venueTimezone="America/Phoenix"
+      activeYear={activeYear}
+      {...overrides}
+    />
+  )
+}
+
 /** The past section's `<section>`, scoped so upcoming rows never leak in. */
 const pastSection = () =>
   within(document.getElementById('venue-past-shows') as HTMLElement)
@@ -211,7 +236,6 @@ beforeEach(() => {
   setYears(null)
   mockAuthIsAuthenticated.value = false
   pastRequests.length = 0
-  queryYear = null
   queryPage = 1
 })
 
@@ -303,12 +327,16 @@ describe('VenuePastShows — presence', () => {
     expect(screen.queryByText('[Show]')).not.toBeInTheDocument()
   })
 
-  it('keeps the section for an empty hand-typed year and offers the way out', () => {
-    queryYear = 1999
+  it('keeps the section for an empty year and offers the way out', () => {
     setUpcoming({ shows: [] })
     setPast({ shows: [], total: 0 })
     setYears([{ year: 2025, count: 60 }])
-    renderList()
+    // The route 404s a year the histogram does not carry, so this state is not
+    // reachable by hand-editing the URL any more. It survives as a component
+    // contract because the histogram and the page can still disagree across a
+    // revalidation boundary, and the section must say what is empty rather than
+    // render a bare table with nothing in it.
+    renderArchive(1999)
     expect(screen.getByText(/No past shows in 1999/)).toBeInTheDocument()
     expect(
       pastSection().getByRole('link', { name: 'Show every year' })
@@ -534,9 +562,11 @@ describe('VenuePastShows — year and page state', () => {
     const strip = screen.getByRole('navigation', {
       name: 'Filter past shows by year',
     })
+    // A year is a PATH, not a query variant of the venue page: it is a document
+    // of its own, with its own canonical and title (PSY-1756).
     expect(within(strip).getByRole('link', { name: /2025/ })).toHaveAttribute(
       'href',
-      '/venues/the-venue?year=2025#venue-past-shows'
+      '/venues/the-venue/shows/2025'
     )
     expect(
       within(strip).getByRole('link', { name: 'All years' })
@@ -553,31 +583,20 @@ describe('VenuePastShows — year and page state', () => {
     )
   })
 
-  it('carries the active year into every page link', () => {
-    queryYear = 2025
+  it('pages within a year on the year path, never back onto ?year=', () => {
     setPast({ shows: [makeShow({ id: 5 })], total: 161 })
-    renderList()
+    renderArchive(2025)
     const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
     expect(within(pager).getByRole('link', { name: /^Page 2/ })).toHaveAttribute(
       'href',
-      '/venues/the-venue?year=2025&page=2#venue-past-shows'
+      '/venues/the-venue/shows/2025?page=2'
     )
   })
 
   it('translates the page param into an offset request', () => {
     queryPage = 3
-    queryYear = 2025
-    renderList()
+    renderArchive(2025)
     expect(pastRequests[0]).toMatchObject({ offset: 100, year: 2025, limit: 50 })
-  })
-
-  it('reads a hand-edited nonsense year as the unfiltered archive', () => {
-    queryYear = 1_759_000_000
-    renderList()
-    expect(pastRequests[0].year).toBeUndefined()
-    expect(
-      screen.getByRole('heading', { name: 'Past shows' })
-    ).toBeInTheDocument()
   })
 
   it('bounds a hand-edited runaway page instead of forwarding the offset', () => {
@@ -668,8 +687,7 @@ describe('VenuePastShows — filter reflection', () => {
   })
 
   it('rescopes the heading and count to the active year', () => {
-    queryYear = 2025
-    renderList()
+    renderArchive(2025)
     expect(
       screen.getByRole('heading', { name: 'Past shows in 2025' })
     ).toBeInTheDocument()
@@ -682,9 +700,8 @@ describe('VenuePastShows — filter reflection', () => {
   })
 
   it('carries the year and page in the document title', () => {
-    queryYear = 2025
     queryPage = 2
-    renderList()
+    renderArchive(2025)
     expect(document.title).toBe(
       'The Venue shows in 2025 (page 2 of 4) | Psychic Homily'
     )
@@ -694,8 +711,8 @@ describe('VenuePastShows — filter reflection', () => {
     // On a soft navigation the next route's <title> is committed before this
     // effect's cleanup runs, so an unconditional restore would relabel the page
     // the reader just opened.
-    queryYear = 2025
-    const { unmount } = renderList()
+    queryPage = 2
+    const { unmount } = renderArchive(2025)
     expect(document.title).toContain('shows in 2025')
     document.title = 'Some Other Page | Psychic Homily'
     unmount()
@@ -703,8 +720,8 @@ describe('VenuePastShows — filter reflection', () => {
   })
 
   it('restores the route title when the archive unmounts', () => {
-    queryYear = 2025
-    const { unmount } = renderList()
+    queryPage = 2
+    const { unmount } = renderArchive(2025)
     expect(document.title).toContain('shows in 2025')
     unmount()
     expect(document.title).toBe('The Venue | Psychic Homily')

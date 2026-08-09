@@ -4,6 +4,7 @@ import {
   archiveDocumentTitle,
   groupByMonth,
   monthRangeLabel,
+  venueArchiveHref,
 } from './showArchive'
 
 /**
@@ -241,5 +242,58 @@ describe('archiveDocumentTitle', () => {
         totalPages: 4,
       })
     ).toBe('The Van Buren shows in 2025 | Psychic Homily')
+  })
+})
+
+/**
+ * The archive's URL space, pinned in one place (PSY-1756). These strings are
+ * what the year strip, the pager, the sitemap family and the crawlable route all
+ * have to agree on, so a change here should be a deliberate migration rather
+ * than a passing edit.
+ */
+describe('venueArchiveHref', () => {
+  const slug = 'the-van-buren'
+
+  it('addresses every year, page 1 as the bare venue page', () => {
+    expect(venueArchiveHref(slug, null, 1)).toBe(
+      '/venues/the-van-buren#venue-past-shows'
+    )
+  })
+
+  it('keeps later all-year pages on the venue page as ?page=', () => {
+    expect(venueArchiveHref(slug, null, 3)).toBe(
+      '/venues/the-van-buren?page=3#venue-past-shows'
+    )
+  })
+
+  it('gives a year its own path, with no query and no fragment', () => {
+    expect(venueArchiveHref(slug, 2025, 1)).toBe(
+      '/venues/the-van-buren/shows/2025'
+    )
+  })
+
+  it('pages within a year with ?page=, never a deeper path segment', () => {
+    expect(venueArchiveHref(slug, 2025, 2)).toBe(
+      '/venues/the-van-buren/shows/2025?page=2'
+    )
+  })
+
+  /**
+   * The duplicate-content rule this ticket exists to enforce: a year is at
+   * exactly one address. A `?year=` form would put the same rows at a second
+   * URL with no canonical relationship to the first.
+   */
+  it('never emits a ?year= form', () => {
+    for (const page of [1, 2, 50]) {
+      for (const year of [null, 1999, 2025]) {
+        expect(venueArchiveHref(slug, year, page)).not.toContain('year=')
+      }
+    }
+  })
+
+  /** Page 1 is the canonical view of a scope, so it never carries ?page=1. */
+  it('leaves page 1 bare on both scopes', () => {
+    expect(venueArchiveHref(slug, null, 1)).not.toContain('page=')
+    expect(venueArchiveHref(slug, 2025, 1)).not.toContain('page=')
   })
 })
