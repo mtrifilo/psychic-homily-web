@@ -25,6 +25,15 @@ import (
 // next-show, the saved-shows list, and the main /shows feed
 // (catalog.ShowService.GetUpcomingShows and its GetShowCities picker counts).
 //
+// SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
+// rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
+// several of them draw their own boundary: tag-page enrichment counts
+// (catalog/tag_service.go), the /venues list's upcoming_show_count
+// (catalog/venue.go), /scenes' upcoming_count and this_week_count
+// (catalog/scene.go), catalog/venue_rail.go, graph_overview.go, charts_rank.go
+// and sitemap.go. Do not read a surface's absence here as a claim that it
+// already agrees with this file.
+//
 // NOT migrated — do not read the paragraph above as a description of the whole
 // repo, because these still draw their own boundary:
 //   - catalog/tag_intersection.go — the tag-page entity counts, start-of-today
@@ -54,19 +63,39 @@ import (
 //
 // BLAST RADIUS OF THE UNKNOWN-ZONE RAISE, re-derived because PSY-1678 changed
 // it. `AT TIME ZONE` RAISES on a name Postgres does not carry rather than
-// degrading (see VenueTZJoin for why the validating join is not in this path,
-// and for the two layers that keep the column clean). That was accepted when
-// every consumer was a single entity page: one poisoned venue row broke that
-// venue's page, that artist's list, or saved-shows. It is no longer: the main
-// /shows feed and its city picker now build through here, so ONE bad row takes
-// down /shows, the homepage list, /explore's picker and the account-settings
-// city picker at once. The mitigation is also weaker than it reads — the
-// VenueTimezoneSweep that re-validates stored zones is opt-in
-// (ENABLE_VENUE_TIMEZONE_SWEEP) on a 24h interval, so in an environment where
-// that flag was never set the outage does not self-heal at all. PSY-1761 owns
-// making the zone expression fail SOFT (fall through to the state CASE on an
-// unrecognized name) instead of raising; until it lands, treat the sweep flag
-// as a deployment prerequisite of this file, not an optimization.
+// degrading (see VenueTZJoin for why the validating join is not in this path).
+// That was accepted when every consumer was a single entity page: one poisoned
+// venue row broke that venue's page, that artist's list, or saved-shows. It is
+// no longer. The main /shows feed and its city picker now build through here,
+// so ONE bad row would take down /shows, the homepage list, /explore's picker
+// and the account-settings city picker at once.
+//
+// Three layers keep a bad row out, all verified rather than assumed:
+//  1. WRITE BOUNDARY (PSY-1707) — every path that writes venues.timezone
+//     validates against pg_timezone_names and stores NULL rather than a name
+//     this server does not carry.
+//  2. BACKFILL (migration 20260802043206) — normalized every pre-existing row,
+//     applied on stage and production.
+//  3. SWEEP (PSY-1695, VenueTimezoneSweep) — re-validates stored zones against
+//     the live catalog every 24h and NULLs the casualties, which is what covers
+//     the catalog CHANGING underneath a value that was valid when written (a
+//     Postgres upgrade, a tzdata refresh, a restore onto a differently-packaged
+//     build). ENABLE_VENUE_TIMEZONE_SWEEP was confirmed set on both stage and
+//     production on 2026-08-08; it is a deployment prerequisite of this file,
+//     not an optimization, so do not treat it as optional when standing up a
+//     new environment.
+//
+// Residual risk, stated so it is not rediscovered as a surprise: an out-of-band
+// SQL write of an invalid zone bypasses layer 1 and can sit until layer 3 runs,
+// so the window is up to 24h. During it the failure is a LOUD 500 with Sentry
+// signal on a read path, not silent corruption or a wrong answer — which is the
+// property that makes the window acceptable rather than merely tolerable.
+//
+// PSY-1761 owns the structural hardening: make the zone expression fail SOFT
+// (fall through to the state CASE on an unrecognized name) instead of raising.
+// It is deliberately NOT done inline, because the obvious implementation is the
+// one this file already measured at loops=17228 / 8.1s — see VenueTZJoin. That
+// ticket carries the measurement matrix any fix has to clear first.
 
 // PrimaryVenueLateralSQL renders the repo's primary-venue pick as a LATERAL
 // subquery: at most one deterministic venue per show, lowest venue_id first.

@@ -34,9 +34,8 @@ import { useShowCities, useUpcomingShows } from './useShows'
  * "Bare `/shows`" now means literally that: no filters and NO ARGUMENTS. Since
  * PSY-1678 the request carries no per-viewer input at all, so the hooks are
  * invoked below exactly as `ShowList` invokes them on a cold anon load. That is
- * a stronger contract than the one this file could assert before, when the
- * canonical timezone had to be passed in by hand to stand in for what
- * `useBrowserTimezone` reported through hydration.
+ * a stronger contract than the one this file could assert before, when a
+ * canonical timezone had to be passed in by hand to stand in for the viewer's.
  */
 describe('shows first-screen prefetch contract', () => {
   beforeEach(() => {

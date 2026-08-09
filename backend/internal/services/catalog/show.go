@@ -3,6 +3,7 @@ package catalog
 import (
 	"bufio"
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -1041,14 +1042,32 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 			Where(shared.VenueLocalDateCondition("upcoming"))
 	}
 
-	// The count and the page run inside ONE transaction so they share a single
-	// `now()`. Postgres' now() is transaction_timestamp(), and the venue-local
+	// The count and the page run inside ONE repeatable-read transaction, which
+	// buys two distinct guarantees that the previous autocommit pair did not
+	// have and that this partitioning made necessary.
+	//
+	// ONE CLOCK. Postgres' now() is transaction_timestamp(), and the venue-local
 	// boundary is evaluated per row against it rather than bound from Go, so
-	// under autocommit these two statements would each get their own clock. A
-	// request that straddles venue-local midnight in some venue's zone would
-	// then return a page and a total drawn from different partitions, and the
-	// count PSY-1653 put on screen would read "51 of 50". The old code could not
-	// hit this: it computed one startOfTodayUTC in Go and bound it into both.
+	// under autocommit these two statements would each get their own. A request
+	// straddling venue-local midnight in some venue's zone would return a page
+	// and a total drawn from different partitions, and the count PSY-1653 put on
+	// screen would read "51 of 50". The old code could not hit this: it computed
+	// one startOfTodayUTC in Go and bound it into both.
+	//
+	// ONE SNAPSHOT, which is why the isolation level is explicit. READ COMMITTED
+	// takes a FRESH snapshot per statement, so the default would leave the same
+	// "51 of 50" reachable by a different route: any approval, unpublish or
+	// ingest insert committing between the count and the page. This catalog gets
+	// all three continuously. RepeatableRead pins both statements to one
+	// snapshot; ReadOnly additionally lets Postgres skip XID assignment, and
+	// documents at the call site that nothing in here writes.
+	//
+	// The cost is a pooled connection held across four round trips (count, page,
+	// and the two Preloads) on the hottest read path, and this service takes no
+	// context, so an abandoned request cannot cancel it. Bounding that properly
+	// means threading ctx through ShowServiceInterface, which is a contract
+	// change this ticket does not make; until then the pool's own timeouts are
+	// the only bound.
 	var total int64
 	var shows []catalogm.Show
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -1084,7 +1103,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 			return fmt.Errorf("failed to get upcoming shows: %w", err)
 		}
 		return nil
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return nil, nil, 0, err
 	}

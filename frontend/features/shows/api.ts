@@ -102,6 +102,21 @@ export const showQueryKeys = {
  * cannot, because it `vi.mock`s this module and so never sees the real
  * constants. A drifted pair produces no error anywhere, just a page that quietly
  * stops being server-rendered.
+ *
+ * DEPLOY ORDERING: THIS URL REQUIRES THE PSY-1678 BACKEND. Sending no timezone
+ * is only correct against a backend that decides "upcoming" per venue; against
+ * the previous one it takes the API's `default:"UTC"`, and a UTC boundary
+ * re-admits the previous evening's finished US shows — measured against
+ * production on 2026-08-01, which is the whole reason the interim canonical zone
+ * existed. Vercel and Railway both react to the same `production` branch push
+ * and deploy in PARALLEL (a Next build beats a Go build plus `migrate up`), so
+ * the frontend can be live against the old backend for a few minutes, and the
+ * result is CACHED: this URL is fetched at ISR/Data-Cache time and seeded into
+ * the server-rendered first screen, so a payload fetched in that window outlives
+ * it. The same applies, without a time bound, to a backend-only rollback.
+ * Verify the backend is live before treating a release carrying this as done,
+ * and roll the frontend back with it. Same class as PSY-1621; see the
+ * backend-first section of the psy-deploy-prod runbook.
  */
 export const UPCOMING_SHOWS_FIRST_SCREEN_URL = showEndpoints.UPCOMING
 

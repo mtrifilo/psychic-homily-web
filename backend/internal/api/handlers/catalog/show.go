@@ -341,7 +341,7 @@ type GetShowsResponse struct {
 
 // GetUpcomingShowsRequest represents the HTTP request for listing upcoming shows
 type GetUpcomingShowsRequest struct {
-	Timezone string `query:"timezone" default:"UTC" doc:"Deprecated and ignored. Whether a show is still upcoming is decided against its OWN venue's timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only." example:"America/Phoenix"`
+	Timezone string `query:"timezone" default:"UTC" deprecated:"true" doc:"Deprecated and ignored. Whether a show is still upcoming is decided against its OWN venue's timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only."`
 	Cursor   string `query:"cursor" doc:"Pagination cursor from previous response. Omit for first page."`
 	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of shows per page (max 200). Defaults to 50."`
 	City     string `query:"city" doc:"Filter by city name (exact match). Legacy — prefer 'cities' param."`
@@ -353,7 +353,7 @@ type GetUpcomingShowsRequest struct {
 
 // GetShowCitiesRequest represents the HTTP request for listing show cities
 type GetShowCitiesRequest struct {
-	Timezone string `query:"timezone" default:"UTC" doc:"Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only." example:"America/Phoenix"`
+	Timezone string `query:"timezone" default:"UTC" deprecated:"true" doc:"Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only."`
 }
 
 // GetShowCitiesResponse represents the HTTP response for listing show cities
@@ -758,15 +758,6 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	user := middleware.GetUserFromContext(ctx)
 	includeNonApproved := user != nil && user.IsAdmin
 
-	// Echoed back in the response and handed to the service's deprecated
-	// parameter; it selects nothing. Normalized only because the echoed field is
-	// a contract obligation, and an explicitly-empty `?timezone=` would
-	// otherwise echo "", which no client built against the old shape ever saw.
-	timezone := req.Timezone
-	if timezone == "" {
-		timezone = "UTC"
-	}
-
 	// Validate limit
 	limit := req.Limit
 	if limit < 1 {
@@ -823,7 +814,7 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	)
 
 	// Get upcoming shows using service (admins see all, others see only approved)
-	shows, nextCursor, total, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit, includeNonApproved, filters)
+	shows, nextCursor, total, err := h.showService.GetUpcomingShows(req.Timezone, req.Cursor, limit, includeNonApproved, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("shows_upcoming_failed",
 			"error", err.Error(),
@@ -848,7 +839,7 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 			Pagination CursorPaginationMeta      `json:"pagination"`
 		}{
 			Shows:    shows,
-			Timezone: timezone,
+			Timezone: req.Timezone,
 			Total:    total,
 			Pagination: CursorPaginationMeta{
 				NextCursor: nextCursor,

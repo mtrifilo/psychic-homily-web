@@ -31385,10 +31385,7 @@ export interface operations {
     "get-shows-cities": {
         parameters: {
             query?: {
-                /**
-                 * @description Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only.
-                 * @example America/Phoenix
-                 */
+                /** @description Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only. */
                 timezone?: string;
             };
             header?: never;
@@ -31522,10 +31519,7 @@ export interface operations {
     "get-shows-upcoming": {
         parameters: {
             query?: {
-                /**
-                 * @description Deprecated and ignored. Whether a show is still upcoming is decided against its OWN venue's timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only.
-                 * @example America/Phoenix
-                 */
+                /** @description Deprecated and ignored. Whether a show is still upcoming is decided against its OWN venue's timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only. */
                 timezone?: string;
                 /** @description Pagination cursor from previous response. Omit for first page. */
                 cursor?: string;

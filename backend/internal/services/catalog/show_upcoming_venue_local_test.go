@@ -131,7 +131,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ExtremeVenueO
 		venue := newVenueInZone(suite.T(), suite.db, "Edge Room "+zone, "AZ", zone, true)
 		midnightToday := suite.createApprovedShowAt(venue.ID, user.ID, "Edgeville", "AZ",
 			venueLocalInstant(suite.T(), zone, 0, 0))
-		suite.createApprovedShowAt(venue.ID, user.ID, "Edgeville", "AZ",
+		yesterdayLate := suite.createApprovedShowAt(venue.ID, user.ID, "Edgeville", "AZ",
 			venueLocalInstant(suite.T(), zone, -1, 23))
 
 		ids, total := suite.upcomingShowIDs("UTC")
@@ -140,10 +140,21 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ExtremeVenueO
 			"zone %s: venue-local midnight today in, the last instant of yesterday out", zone)
 
 		// Each zone starts clean, so the assertions above stay exact rather than
-		// accumulating every earlier zone's rows.
-		suite.Require().NoError(suite.db.Exec("DELETE FROM show_venues").Error)
-		suite.Require().NoError(suite.db.Exec("DELETE FROM shows").Error)
+		// accumulating every earlier zone's rows. Scoped to the two ids this
+		// iteration created rather than truncating the tables: an unscoped wipe
+		// would also have to replicate TearDownTest's FK-safe order (bookmarks
+		// and show_artists before show_venues), and would silently destroy any
+		// suite-level fixture a later edit introduces.
+		suite.removeShows(midnightToday.ID, yesterdayLate.ID)
 	}
+}
+
+// removeShows deletes shows and their venue links by id, children first.
+func (suite *ShowServiceIntegrationTestSuite) removeShows(ids ...uint) {
+	suite.Require().NoError(
+		suite.db.Where("show_id IN ?", ids).Delete(&catalogm.ShowVenue{}).Error)
+	suite.Require().NoError(
+		suite.db.Where("id IN ?", ids).Delete(&catalogm.Show{}).Error)
 }
 
 // A venue predating the timezone backfill still has to partition, and on the
@@ -223,21 +234,34 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_VenuelessShow
 	suite.Equal(1, cities[0].ShowCount)
 }
 
-// The city predicates now sit alongside the lateral, which brings
-// `venue_tz.state` into scope beside `shows.state`. An unqualified predicate
-// raises "column reference is ambiguous" rather than returning a wrong answer,
-// so this guards the qualification rather than the filter semantics.
-func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_CityFilterIsUnambiguousBesideTheLateral() {
+// The city filters have to compose with the venue-local partition rather than
+// replace it, and they now run in a query that spans two relations.
+//
+// This does NOT test column disambiguation, despite where it sits. Postgres
+// cannot catch a `shows.`/`venue_tz.` mix-up here: shared.VenueTZJoin projects
+// under `venue_tz_*` aliases, so nothing the lateral exposes collides with a
+// `shows` column and an unqualified `city`/`state` resolves cleanly. That is
+// deliberate, and it is pinned where it is actually enforced —
+// shared/show_venue_local_sql_test.go asserts the aliases on both the lateral
+// and the state CASE. The `shows.` qualifiers in applyUpcomingFilters are
+// readability, not a constraint, and stripping them would leave this test green.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_CityFilterAppliesInsideTheVenueLocalPartition() {
 	venue := newVenueInZone(suite.T(), suite.db, "Filter Room", "AZ", "America/Phoenix", true)
 	user := suite.createTestUser()
-	at := venueLocalInstant(suite.T(), "America/Phoenix", 0, 23)
-	wanted := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", at)
-	suite.createApprovedShowAt(venue.ID, user.ID, "Mesa", "AZ", at)
+	tonight := venueLocalInstant(suite.T(), "America/Phoenix", 0, 23)
+	lastNight := venueLocalInstant(suite.T(), "America/Phoenix", -1, 23)
+
+	wanted := suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", tonight)
+	suite.createApprovedShowAt(venue.ID, user.ID, "Mesa", "AZ", tonight)
+	// Same city as `wanted`, but the venue's yesterday. The filter must not
+	// widen the partition to reach it — an AND that became an OR, or a date
+	// condition dropped when filters are present, both surface here.
+	suite.createApprovedShowAt(venue.ID, user.ID, "Phoenix", "AZ", lastNight)
 
 	shows, _, total, err := suite.showService.GetUpcomingShows("UTC", "", 50, false,
 		&contracts.UpcomingShowsFilter{Cities: []contracts.CityStateFilter{{City: "Phoenix", State: "AZ"}}})
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total)
+	suite.Equal(int64(1), total, "the filtered total is still bounded by the venue-local partition")
 	suite.Require().Len(shows, 1)
 	suite.Equal(wanted.ID, shows[0].ID)
 
