@@ -10,6 +10,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
+import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters'
 import type {
@@ -17,6 +18,7 @@ import type {
   ArtistsListResponse,
   ArtistCitiesResponse,
   ArtistShowsResponse,
+  ArtistShowYearsResponse,
   ArtistTimeFilter,
 } from '../types'
 
@@ -96,6 +98,25 @@ interface UseArtistShowsOptions {
   limit?: number
   enabled?: boolean
   timeFilter?: ArtistTimeFilter
+  /** Rows to skip. Defaults to 0 (the first page). */
+  offset?: number
+  /**
+   * Restrict to one venue-local calendar year. Omit (or pass 0) for every
+   * year — the backend treats 0 as "unfiltered", so an explicit 0 is never
+   * sent and never keyed.
+   */
+  year?: number
+  /**
+   * Hold the previous page's rows on screen while the next one loads, instead
+   * of collapsing to a spinner (`placeholderData: keepPreviousData`).
+   *
+   * OFF by default and deliberately opt-in: it is right for a pager, where the
+   * old rows and the new rows answer the same question one slice apart, and
+   * wrong for a panel whose artist changed, where it would show one artist's
+   * shows under another artist's name. Callers that turn it on must also dim
+   * on `isPlaceholderData` so stale rows are never presented as current.
+   */
+  keepPreviousPage?: boolean
 }
 
 /**
@@ -109,12 +130,39 @@ export function useArtistShows(options: UseArtistShowsOptions) {
     limit = 20,
     enabled = true,
     timeFilter = 'upcoming',
+    offset = 0,
+    year,
+    keepPreviousPage = false,
   } = options
+
+  // Resolved ONCE, because the URL and the cache key have to be built from the
+  // same values or they disagree about what is in the entry. A falsy limit or
+  // an empty timezone drops out of the URL and lets the backend default apply,
+  // so the key has to record that it was NOT sent rather than the argument the
+  // caller happened to pass — otherwise `limit: 0` and `limit: undefined` mint
+  // two entries for one identical request. Key on what was SENT.
+  const sentTimezone = timezone || undefined
+  const sentLimit = limit || undefined
+  const sentOffset = offset > 0 ? offset : undefined
+  // Last line of defence, not the URL guard. Callers own year validation —
+  // the artist archive runs `parseArchiveYear` over the raw `?year=` before it
+  // ever reaches here, against the same bounds the backend enforces. This drops
+  // anything outside those bounds so no caller can turn a stray argument into
+  // a 422.
+  const sentYear =
+    year !== undefined &&
+    Number.isInteger(year) &&
+    year >= ARCHIVE_YEAR_RANGE.min &&
+    year <= ARCHIVE_YEAR_RANGE.max
+      ? year
+      : undefined
 
   // Build query params
   const params = new URLSearchParams()
-  if (timezone) params.set('timezone', timezone)
-  if (limit) params.set('limit', limit.toString())
+  if (sentTimezone) params.set('timezone', sentTimezone)
+  if (sentLimit) params.set('limit', sentLimit.toString())
+  if (sentOffset) params.set('offset', sentOffset.toString())
+  if (sentYear) params.set('year', sentYear.toString())
   if (timeFilter) params.set('time_filter', timeFilter)
 
   const queryString = params.toString()
@@ -123,7 +171,16 @@ export function useArtistShows(options: UseArtistShowsOptions) {
     : artistEndpoints.SHOWS(artistId)
 
   return useQuery({
-    queryKey: [...artistQueryKeys.shows(artistId), timeFilter],
+    // Keyed on the request, not just the artist: `limit`, `timezone`, `year`
+    // and `offset` each change the response body, so callers asking different
+    // questions get different entries (PSY-1754).
+    queryKey: artistQueryKeys.showsPage(artistId, {
+      timeFilter,
+      limit: sentLimit,
+      timezone: sentTimezone,
+      year: sentYear,
+      offset: sentOffset,
+    }),
     queryFn: async (): Promise<ArtistShowsResponse> => {
       return apiRequest<ArtistShowsResponse>(endpoint, {
         method: 'GET',
@@ -131,5 +188,37 @@ export function useArtistShows(options: UseArtistShowsOptions) {
     },
     enabled: enabled && (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: keepPreviousPage ? keepPreviousData : undefined,
+  })
+}
+
+interface UseArtistShowYearsOptions {
+  artistId: string | number
+  /** Which side of "today" to count. Defaults to 'past'. */
+  timeFilter?: ArtistTimeFilter
+  enabled?: boolean
+}
+
+/**
+ * Venue-local calendar years in which this artist played at least one show,
+ * newest first, with per-year counts (PSY-1754).
+ *
+ * Cheap and stable relative to the pages it navigates — one row per year — so
+ * it is fetched once per artist and reused across every year and page the
+ * reader visits, instead of being re-derived from each page's envelope.
+ */
+export function useArtistShowYears(options: UseArtistShowYearsOptions) {
+  const { artistId, timeFilter = 'past', enabled = true } = options
+
+  const endpoint = `${artistEndpoints.SHOW_YEARS(artistId)}?time_filter=${timeFilter}`
+
+  return useQuery({
+    queryKey: artistQueryKeys.showYears(artistId, timeFilter),
+    queryFn: async (): Promise<ArtistShowYearsResponse> => {
+      return apiRequest<ArtistShowYearsResponse>(endpoint, { method: 'GET' })
+    },
+    enabled:
+      enabled && (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
+    staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it navigates
   })
 }

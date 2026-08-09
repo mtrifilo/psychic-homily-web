@@ -148,16 +148,16 @@ export function ArtistPanel({
     enabled: Boolean(nextStep),
   })
 
-  // Requests the SAME page the artist page does, and slices for display —
-  // deliberately not a `limit: 2` request for the two rows drawn.
-  // `artistQueryKeys.shows()` keys only on artist id + time filter, NOT on
-  // limit or timezone, so this shares one cache entry with the artist page's
-  // own shows list. Asking for two rows here would therefore hand the ARTIST
-  // PAGE a two-row list for the next five minutes whenever a reader arrived
-  // via this panel's own "Open artist page →" — silently hiding real upcoming
-  // shows on the artist's canonical surface. Same rule, same reason, as
-  // VenuePanel and VENUE_SHOWS_PAGE_LIMIT; the constants live beside the query
-  // key so the agreement can't drift.
+  // Requests one full page and slices for display, rather than a `limit: 2`
+  // request for the two rows drawn.
+  //
+  // Since PSY-1754 that is a bandwidth-for-latency trade, not a correctness
+  // requirement: `artistQueryKeys.showsPage()` now keys on limit, timezone,
+  // year and offset, so a narrower request here can no longer answer for the
+  // artist page. It stays a full page because a reader who steps through this
+  // panel and then follows "Open artist page →" arrives at a warm cache — and
+  // the artist page's own upcoming section asks for a page of its own size, so
+  // the two only share an entry when they genuinely ask the same question.
   const { data: showsData } = useArtistShows({
     artistId: current?.artistId ?? 0,
     limit: ARTIST_SHOWS_PAGE_LIMIT,

@@ -83,6 +83,8 @@ function makeShow(overrides: Partial<ArtistShow> = {}): ArtistShow {
     event_date: '2025-06-15T20:00:00Z',
     price: 15,
     age_requirement: null,
+    is_cancelled: false,
+    is_sold_out: false,
     venue: {
       id: 1,
       slug: 'test-venue',

@@ -3,6 +3,7 @@ export {
   useArtistCities,
   useArtist,
   useArtistShows,
+  useArtistShowYears,
 } from './useArtists'
 
 export { useArtistSearch, artistSearchQueryOptions } from './useArtistSearch'

@@ -166,17 +166,52 @@ export interface ArtistShow {
   event_date: string
   price: number | null
   age_requirement: string | null
+  /** Show was called off. Renders as a destructive badge on the bill. */
+  is_cancelled: boolean
+  /** No tickets left. Renders as an outline badge on the bill. */
+  is_sold_out: boolean
+  /**
+   * Null when the show has no venue link, or when its venue row could not be
+   * resolved. The wire schema types this non-nullable, but the service builds
+   * it from two separate lookups and leaves it nil when either misses, so rows
+   * with no venue do reach the client.
+   */
   venue: ArtistShowVenue | null
   artists: ArtistShowArtist[]
 }
 
 /**
  * Response from GET /artists/:id/shows
+ *
+ * `limit`/`offset`/`year` echo the query back, so a reader of the response can
+ * tell which slice it is without re-deriving it from the request.
  */
 export interface ArtistShowsResponse {
   shows: ArtistShow[]
   artist_id: number
+  /** Rows matching the time filter AND year, across every page. */
   total: number
+  limit: number
+  offset: number
+  /** Year filter applied, or 0 for "every year". */
+  year: number
+}
+
+/** One bar of the past-shows year histogram (PSY-1754). */
+export interface ArtistShowYearCount {
+  /** Venue-local calendar year. */
+  year: number
+  /** Shows the artist played that year, within the requested time filter. */
+  count: number
+}
+
+/** Response for `GET /artists/{id}/shows/years`. */
+export interface ArtistShowYearsResponse {
+  artist_id: number
+  /** Time filter the counts were taken under. */
+  time_filter: string
+  /** Years with at least one show, newest first. Never contains a zero count. */
+  years: ArtistShowYearCount[]
 }
 
 /**
