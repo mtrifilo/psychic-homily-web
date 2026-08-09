@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   parseAsInteger,
   parseAsString,
@@ -114,26 +115,35 @@ function ReferenceList({
 /**
  * Serializes a drilldown URL. The write half of the same contract
  * {@link resolveDrilldownWindow} parses, kept beside it and out of the
- * component so the param set can be pinned by a plain unit test.
+ * component so the param set can be pinned without rendering the page.
+ * Exported for exactly that reason; the page is its only caller.
  *
- * `window` is the raw URL value rather than the resolved one, so a page change
- * round-trips exactly what the reader arrived with. Page one drops `?page=`
- * entirely, keeping one canonical URL for the head of the list.
+ * Edits `currentQuery` rather than rebuilding from a fixed key list, so params
+ * this page knows nothing about — `utm_*`, `gclid`, share tokens — survive a
+ * page change. The nuqs setters this replaced preserved them for free; a
+ * from-scratch builder would drop them at the first pagination click.
  *
- * These three params are the whole vocabulary of `/charts/[module]`; anything
- * else on the URL is not carried into the pager links. Add a fourth and it must
- * be added here too, or every page click will silently drop it.
+ * `chartWindow` is the RESOLVED window, and the default is omitted, matching
+ * what `fullListHref` and `changeWindow` write. Round-tripping the raw value
+ * instead would give the head of the list two URLs (`?window=quarter` is a live
+ * inbound link via `chartRankHref`) and would multiply any unrecognized window
+ * across every page link, since an unparseable window silently renders the
+ * quarter chart rather than being cleared from the URL.
  */
-function drilldownHref(
+export function drilldownHref(
   module: ChartModuleSlug,
-  window: string | null,
-  scene: string | null,
+  currentQuery: string,
+  chartWindow: ChartWindow,
+  scene: string,
   page: number
 ): string {
-  const params = new URLSearchParams()
-  if (window) params.set('window', window)
+  const params = new URLSearchParams(currentQuery)
+  if (chartWindow === 'quarter') params.delete('window')
+  else params.set('window', chartWindow)
   if (scene) params.set('scene', scene)
+  else params.delete('scene')
   if (page > 1) params.set('page', String(page))
+  else params.delete('page')
   const query = params.toString()
   return query ? `/charts/${module}?${query}` : `/charts/${module}`
 }
@@ -159,9 +169,13 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     'scene',
     parseAsString.withOptions({ history: 'push', startTransition })
   )
+  const searchParams = useSearchParams()
+  // `replace`, not `push`: every remaining `setPage` call is a correction of an
+  // out-of-range URL, and pushing those made the back button walk the reader
+  // right back onto the page that was just rejected.
   const [rawPage, setPage] = useQueryState(
     'page',
-    pageParser.withOptions({ history: 'push', startTransition })
+    pageParser.withOptions({ history: 'replace', startTransition })
   )
   const page = Math.min(MAX_PAGE, Math.max(1, rawPage))
   const offset = (page - 1) * PAGE_SIZE
@@ -568,12 +582,12 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
 
   /**
    * The pager navigates by href alone: the `<Link>` writes `?page=` and nuqs
-   * reads it back off the URL. Writing the param from an `onNavigate` handler
-   * as well would push a second, identical history entry, so `setPage` stays
-   * for the clamp and snap-back corrections only.
+   * reads it back off the URL, so `setPage` is left to the clamp and snap-back
+   * corrections only. (`Pagination`'s `onNavigate` is not a URL writer — it is
+   * the focus hook; see the deferred a11y note in the PR.)
    */
   const pageHref = (nextPage: number) =>
-    drilldownHref(module, windowParam, scene, nextPage)
+    drilldownHref(module, searchParams.toString(), window, scene ?? '', nextPage)
   const changeWindow = (nextWindow: RollingChartWindow) => {
     void setPage(null)
     void setWindow(nextWindow === 'quarter' ? null : nextWindow)

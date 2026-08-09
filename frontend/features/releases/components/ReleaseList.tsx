@@ -146,13 +146,23 @@ export function ReleaseList() {
   }
 
   /**
-   * Page links are real URLs so the strip is crawlable and middle-clickable;
+   * Page links are real URLs so the strip is middle-clickable and shareable;
    * the `<Link>` navigation writes the param, and this component reads it back
    * off `useSearchParams`. Dropping `?page=1` is the builder's job, so page one
    * needs no special case here.
+   *
+   * Crawlers will follow these but will not index the deep pages: the route
+   * pins a static `canonical` at `/releases` for every query variant. Making
+   * pagination indexable is a separate call about indexing policy — see the PR.
    */
   const releasePageHref = (nextPage: number) =>
     buildReleasesHref({ page: String(nextPage) })
+
+  /**
+   * Restores the scroll-to-top the button pager did by hand. Reading page 2
+   * from wherever page 1's grid happened to end is the behavior this replaced.
+   */
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' })
 
   const handleTagsChange = useCallback(
     (nextTags: string[]) => {
@@ -447,6 +457,7 @@ export function ReleaseList() {
           ariaLabel="Releases pagination"
           previousLabel="Previous"
           nextLabel="Next"
+          onNavigate={scrollToTop}
           className="mt-8"
         />
       </div>
