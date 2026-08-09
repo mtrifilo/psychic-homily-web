@@ -57,3 +57,15 @@ export type {
 } from './StatsList'
 export { ShareButton, buildShareUrl } from './ShareButton'
 export type { ShareButtonProps } from './ShareButton'
+export {
+  Pagination,
+  paginationWindow,
+  usePaginationFocusTarget,
+} from './Pagination'
+export type {
+  PaginationProps,
+  PaginationCaptionRange,
+  PaginationWindowItem,
+} from './Pagination'
+export { YearStrip } from './YearStrip'
+export type { YearStripProps, YearStripEntry } from './YearStrip'
