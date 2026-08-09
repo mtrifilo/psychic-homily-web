@@ -1385,8 +1385,15 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		tx.Exec("DELETE FROM artist_reports WHERE artist_id = ? AND reported_by IN (SELECT reported_by FROM artist_reports WHERE artist_id = ?)", mergeFromID, canonicalID)
 		tx.Exec("UPDATE artist_reports SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
 
-		// 9. revisions: just update entity_id (no conflict key)
-		tx.Exec("UPDATE revisions SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+		// 9. revisions: no conflict key, but the re-point has to state what
+		// happens to the losing artist's read-time redaction. Artist history
+		// is published in full, so there is none to carry — see
+		// noRedactionCarryover for when that stops being true.
+		if _, err := repointRevisions(
+			tx, revisionEntityArtist, canonicalID, mergeFromID, noRedactionCarryover,
+		); err != nil {
+			return err
+		}
 
 		// 10. tag_votes for entity tags: delete conflicts, then update remaining
 		tx.Exec(`DELETE FROM tag_votes WHERE entity_type = 'artist' AND entity_id = ?

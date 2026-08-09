@@ -79,6 +79,12 @@
 // the column are not backfilled, because the evidence needed to do so was
 // deleted with the losing venue rows.
 //
+// Every merge re-points its revisions through catalog.repointRevisions, which
+// takes the provenance decision as a required argument. That is the choke
+// point to change when a new entity type gains a read-time gate: the artist
+// and show merges pass "nothing to carry" today, and it is a compile error to
+// add a merge path that never answers the question.
+//
 // # Privacy: the revision summary
 //
 // revisions.summary is contributor-authored free text served beside the diff on

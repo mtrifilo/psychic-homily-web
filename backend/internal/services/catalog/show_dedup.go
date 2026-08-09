@@ -245,7 +245,6 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		{"comments", `UPDATE comments SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.CommentsRepointed},
 		{"entity_reports", `UPDATE entity_reports SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.EntityReportsMoved},
 		{"pending_entity_edits", `UPDATE pending_entity_edits SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.PendingEditsMoved},
-		{"revisions", `UPDATE revisions SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.RevisionsMoved},
 		{"audit_logs", `UPDATE audit_logs SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.AuditLogsMoved},
 		// requests uses requested_entity_id, not entity_id.
 		{"requests", `UPDATE requests SET requested_entity_id = ? WHERE entity_type = 'show' AND requested_entity_id = ?`, &summary.RequestsMoved},
@@ -256,6 +255,17 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		}
 		*op.dst += res.RowsAffected
 	}
+
+	// revisions: a plain re-point today, but it has to say so. Show history is
+	// published in full, so there is no redaction to carry — and when that
+	// changes, THIS is the site the revisiondiff package doc names, because
+	// the dedup CLI deletes the show a read-time gate would have consulted.
+	// See noRedactionCarryover.
+	revisionsMoved, err := repointRevisions(tx, revisionEntityShow, winnerID, loserID, noRedactionCarryover)
+	if err != nil {
+		return err
+	}
+	summary.RevisionsMoved += revisionsMoved
 
 	// Polymorphic FK repoints WITH a uniqueness constraint —
 	// conflict-correlation columns vary per table.

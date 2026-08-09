@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -1089,6 +1090,28 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersRevisi
 	var count int64
 	suite.db.Raw("SELECT COUNT(*) FROM revisions WHERE entity_type = 'artist' AND entity_id = ?", canonical.ID).Scan(&count)
 	suite.Equal(int64(1), count)
+}
+
+// The artist merge re-points revisions through the shared helper, which
+// requires it to state a provenance decision. Its decision is
+// noRedactionCarryover, so the rows must arrive re-pointed and UNSTAMPED — a
+// stamp here would claim a venue-address protection for an artist edit and
+// silence its summary on the public history route.
+func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_RevisionsCarryNoRedactionStamp() {
+	canonical, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Stamp Canonical"})
+	mergeFrom, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Stamp MergeFrom"})
+	user := suite.createTestUser()
+
+	revisionID := seedRevision(suite.T(), suite.db, "artist", mergeFrom.ID, user.ID, "renamed the band")
+
+	_, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
+	suite.Require().NoError(err)
+
+	var moved adminm.Revision
+	suite.Require().NoError(suite.db.First(&moved, revisionID).Error)
+	suite.Equal(canonical.ID, moved.EntityID, "the revision must be re-pointed at the canonical artist")
+	suite.False(moved.FromUnverifiedVenue,
+		"an artist merge must not stamp the venue redaction marker on artist history")
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_TransfersBookmarks() {

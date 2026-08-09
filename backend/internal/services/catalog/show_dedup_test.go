@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
@@ -284,6 +285,38 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RepointsCollectionItems() {
 		Count(&n)
 	s.Equal(int64(1), n, "exactly one item should remain on winner per collection")
 	s.Equal(int64(1), summary.CollectionsSkipped)
+}
+
+// The show dedup CLI runs with no admin in the loop, so its revision re-point
+// goes through the shared helper and has to state a provenance decision. Its
+// decision is noRedactionCarryover — show history is published in full today —
+// so the rows must arrive re-pointed, counted, and UNSTAMPED.
+//
+// When shows gain a read-time gate this is the test that has to change with
+// the call site, because a stamped row is what the gate will need after the
+// losing show is deleted.
+func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RevisionsCarryNoRedactionStamp() {
+	a := s.seedArtist("Repoint")
+	v := s.seedVenue("Repoint Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)
+	winner := s.seedShow("W", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("L", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	u := s.seedUser("revisions@test.com")
+
+	revisionID := seedRevision(s.T(), s.db, "show", loser, u.ID, "fixed the door time")
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var moved adminm.Revision
+	s.Require().NoError(s.db.First(&moved, revisionID).Error)
+	s.Equal(winner, moved.EntityID, "the revision must be re-pointed at the surviving show")
+	s.False(moved.FromUnverifiedVenue,
+		"a show merge must not stamp the venue redaction marker on show history")
+	s.Equal(int64(1), summary.RevisionsMoved,
+		"the helper's row count must still reach the dedup summary the CLI reports")
 }
 
 // TestRecanonicaliseShowSlug rewrites a legacy (UTC-derived) slug to
