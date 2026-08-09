@@ -359,12 +359,10 @@ export function SceneMapCanvas({
         radius: isHub ? HUB_HALF_EXTENT : ARTIST_RADIUS,
         text: truncateLabel(node.name),
         // The hub's home city, when its label has one on file (PSY-1736).
-        // Gated on `isHub` as well as on the value: the snapshot leaves the
-        // column empty at artists today, but a later change that starts
-        // carrying artist locations must not silently caption every dot on the
-        // map. Truncated on the same ruler as the name, so a long city cannot
-        // widen a hub's collision box past what a name may claim.
-        caption: isHub && node.homeCity ? truncateLabel(node.homeCity) : undefined,
+        // `homeCity` is hub-scoped by `buildSceneMap`, so no `isHub` test is
+        // needed here. Truncated on the same ruler as the name, so a long city
+        // cannot widen a hub's collision box past what a name may claim.
+        caption: node.homeCity ? truncateLabel(node.homeCity) : undefined,
         fontSize: tier.fontSize,
         fontWeight: tier.fontWeight,
         // Rank 0 is the most central node, and `renderGraphLabels` keeps the

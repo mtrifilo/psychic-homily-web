@@ -88,10 +88,11 @@ export interface SceneMapNode {
   hasUpcomingShow: boolean
   hasPlayableAudio: boolean
   /**
-   * A label hub's home city, or null (PSY-1736). Null at every ARTIST node —
-   * the snapshot's `hub_city` column is the hub caption, not a location column
-   * — and null at a hub whose label has no city on file, which is the majority
-   * case and reads as no caption rather than a placeholder.
+   * A label hub's home city, or null (PSY-1736). ALWAYS null on an artist node
+   * — the snapshot's `hub_city` column is the hub caption, not a location
+   * column, and `buildSceneMap` enforces that rather than trusting it — and
+   * null at a hub whose label has no city on file, which is the majority case
+   * and reads as no caption rather than a placeholder.
    *
    * City only, by the locked caption rule: no state, no country, no fallback.
    * The backend has already trimmed it, so a non-null value is drawable text.
@@ -306,9 +307,14 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
       rank: ranks[i],
       hasUpcomingShow: (flags[i] & FLAG_UPCOMING_SHOW) !== 0,
       hasPlayableAudio: (flags[i] & FLAG_PLAYABLE_AUDIO) !== 0,
+      // HUB-SCOPED HERE, not at the caption. The column is empty at artists
+      // today, so the `kind` test is redundant against a correct snapshot —
+      // it is what stops a future payload that starts carrying artist
+      // locations from silently captioning every dot on the map.
+      //
       // `||`, not `??`: "" is how the backend spells an absent city, both at
       // artists and at a hub whose label has none on file.
-      homeCity: hubCities?.[i] || null,
+      homeCity: (kind === 'label' && hubCities?.[i]) || null,
       appear: appears ? appears[i] : 0,
     }
   }

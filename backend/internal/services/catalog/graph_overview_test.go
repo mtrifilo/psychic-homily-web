@@ -681,6 +681,12 @@ func (s *GraphOverviewSuite) TestBuild_HubCarriesItsLabelsHomeCity() {
 			"artist %q must carry no hub city: the column is the hub caption, not a location column",
 			payload.Nodes.Name[i])
 	}
+	// Both hubs must EXIST before their cities mean anything. Without this the
+	// negative case fails open: a missing "NoCityRecords" hub reads back as the
+	// zero value, which is exactly the "" the assertion below wants.
+	s.Require().Contains(cityByHub, "HubRecords")
+	s.Require().Contains(cityByHub, "NoCityRecords")
+
 	s.Assert().Equal("Austin", cityByHub["HubRecords"], "a label with a city on file captions it, trimmed")
 	s.Assert().Equal("", cityByHub["NoCityRecords"], "a label with no city on file captions nothing")
 }

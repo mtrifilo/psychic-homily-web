@@ -183,6 +183,22 @@ describe('buildSceneMap', () => {
     expect(map.nodes.map(node => node.homeCity)).toEqual([null, null, null, 'Brooklyn'])
   })
 
+  it('refuses a city on an artist node even when the snapshot supplies one', () => {
+    // The column is hub-scoped by contract, and the decode enforces it rather
+    // than trusting it: a later payload that starts carrying artist locations
+    // must not silently caption every dot on the map.
+    const map = buildSceneMap(
+      overviewFixture({
+        nodes: {
+          ...overviewFixture().nodes,
+          hub_city: ['Tempe', 'Mesa', 'Tucson', 'Brooklyn'],
+        },
+      }),
+    )!
+
+    expect(map.nodes.map(node => node.homeCity)).toEqual([null, null, null, 'Brooklyn'])
+  })
+
   it('reads an empty hub city as no city rather than an empty caption', () => {
     // The backend writes "" for a label with nothing on file, and an empty
     // string drawn as a caption is a blank line under the hub, not an absence.
