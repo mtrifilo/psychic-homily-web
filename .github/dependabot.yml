@@ -1,0 +1,53 @@
+# Dependabot: base-image bumps for the backend runtime.
+#
+# Why this file exists (PSY-1742): PSY-1735 pinned the runtime to
+# `node:<full-patch>-alpine<x.y>@sha256:<manifest-list digest>` so a V8 upgrade
+# can never silently rebase the graph-overview layout. A digest pin is immutable
+# by construction, which means Alpine's and Node's own security patches now stop
+# arriving unless something schedules the deliberate bump. That something is
+# this file. Without it the pin is not "reproducible", it is just frozen.
+#
+# Dependabot over Renovate, deliberately. The one thing Renovate offers here
+# that Dependabot cannot is customManagers: it could have matched the
+# `node-version:` literal in .github/workflows/ci.yml and grouped it with the
+# Dockerfile into a single lockstep PR. That advantage was designed away
+# instead: CI now DERIVES its Node version from backend/Dockerfile
+# (scripts/check_node_base_pin.sh --print-version), so a PR touching only the
+# Dockerfile is already a complete bump and there is nothing left to group.
+#
+# What remains is setup cost, and there Dependabot wins outright: Renovate needs
+# its GitHub App installed (or a self-hosted runner plus a PAT) before any
+# config here does anything, and a committed config that nothing reads is worse
+# than no config at all. GitHub reads this file natively, so it works the moment
+# it merges.
+version: 2
+
+updates:
+  - package-ecosystem: docker
+    # backend/Dockerfile is the only Dockerfile in the repo (the docker-compose
+    # files reference published images, which this ecosystem does not read).
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Phoenix
+    # Most PRs here will be digest-only: the official node images are
+    # republished under the same tag whenever their Alpine base is patched, and
+    # that republish is precisely the security fix the pin would otherwise
+    # freeze out. Weekly keeps that latency to days. The limit plus the group
+    # cap the noise at one open PR in practice.
+    open-pull-requests-limit: 2
+    groups:
+      backend-base-images:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(docker)"
+    ignore:
+      # The builder's `golang:1.24-alpine` floats ON PURPOSE (see the "Scope"
+      # paragraph of the NODE PIN comment in backend/Dockerfile). A Go bump is
+      # not a base-image bump: it has to move six `go-version` lines in the CI
+      # workflow in the same change, so an automated PR touching only the
+      # Dockerfile would be actively misleading. Bump Go as its own deliberate
+      # ticket.
+      - dependency-name: "golang"

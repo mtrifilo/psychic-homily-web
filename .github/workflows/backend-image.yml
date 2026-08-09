@@ -1,0 +1,178 @@
+# PSY-1742: build the backend runtime image on the changes that can break it.
+#
+# Before this workflow, nothing in CI ran `docker build`. A bad base digest, a
+# republished tag that no longer resolves, an apk package renamed out of the
+# Alpine index, a `npm ci` the pinned lockfile can no longer satisfy -- every
+# one of those first surfaced as a Railway deploy failure on main, after merge.
+# Dependabot (.github/dependabot.yml) makes digest changes a routine weekly
+# event, so "we find out at deploy time" stopped being an acceptable answer.
+#
+# ALWAYS-RUN, NOT PATH-FILTERED, and that is the whole design decision.
+#
+# The obvious shape for this is a `paths:` filter on backend/Dockerfile, and the
+# first draft had one. Two things killed it.
+#
+# First, the footgun. A path-filtered workflow does not report a neutral or
+# skipped status on PRs that miss the filter, it reports NOTHING, and a required
+# check that never reports blocks the PR forever (PSY-1720's closure note). A
+# path filter therefore permanently forecloses making this required, or quietly
+# bricks the merge queue for whoever tries.
+#
+# Second, the cost argument for filtering turned out to be false. Measured on
+# this workflow's own first CI run: 77 SECONDS end to end, cold, with no cache
+# to restore from. The Go build is 39s of that. (A local `docker build
+# --platform linux/amd64` on an arm64 laptop takes 25+ minutes, but that is QEMU
+# emulation, not a real signal -- GitHub's runners are native amd64.) That is
+# well under the E2E Smoke budget and it runs in parallel with the rest of CI,
+# so the wall-clock cost of always running it is approximately zero.
+#
+# Filtering also has to be RIGHT, and a path list is easy to get wrong: the
+# first draft's list silently omitted layout/fa2-layout.mjs. Always-run has no
+# list to maintain and no gap to miss, and it additionally covers the case a
+# file list cannot express -- a Go source change that builds under `go test` but
+# breaks the image.
+#
+# It is currently NOT in branch protection's required set (Backend Tests,
+# Frontend Unit Tests, E2E Smoke (PR), Frontend Lint), so today it reports and
+# goes red without blocking. Because there is no path filter, adding "Backend
+# Image Build" to that set is a safe, code-free change whenever the gate should
+# start blocking merges.
+#
+#   >>> If you ever reintroduce a `paths:` filter here, you MUST first remove
+#   >>> this check from branch protection. Required plus path-filtered is the
+#   >>> never-reports/blocks-forever combination this repo does not tolerate.
+name: Backend Image
+
+on:
+  pull_request:
+    branches: [main]
+  # Post-merge too. Two PRs can each be green alone and break the image together
+  # (a Dockerfile change on one, a lockfile change on the other), and while this
+  # check is not required a red PR run can also simply be merged past. This leg
+  # catches both, and the notify step below is what makes it a backstop rather
+  # than a red square nobody is subscribed to.
+  push:
+    branches: [main]
+
+# Superseded PR runs are cancelled: a branch that gets two fixup pushes should
+# not hold three concurrent builds. Main-branch runs are never cancelled, since
+# each one is the record for a distinct merged commit.
+concurrency:
+  group: backend-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  backend-image:
+    name: Backend Image Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # For the main-branch failure issue below. On pull_request events the
+      # token is read-only regardless, so this grant is only live on the push
+      # leg -- which is the only leg that files anything.
+      issues: write
+    # Measured at 77s cold on this workflow's first run. The ceiling is a hung
+    # registry pull, not slow compilation, so 10 minutes is already a wide
+    # margin -- and a job that has genuinely wedged should free its runner
+    # rather than sit for a third of an hour.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Authenticated pulls dodge Docker Hub's anonymous rate limit, which is
+      # shared per runner IP. `continue-on-error` mirrors the Backend Tests job:
+      # this is an optimization, not a dependency, and it MUST stay non-fatal
+      # because Dependabot-authored PRs run against the Dependabot secret store,
+      # where these two secrets do not exist. Those are exactly the PRs this job
+      # is here to check, so a login failure cannot be allowed to fail them.
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        continue-on-error: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Fails in ~10s on a digest that is pinned per-platform rather than
+      # per-index -- a break the amd64-only build below cannot see, because it
+      # only shows up on the other architecture.
+      - name: Assert the pinned digest is a multi-arch manifest list
+        run: bash scripts/check_node_base_manifest.sh
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          # linux/amd64 only -- it is what Railway builds and what the Go stage
+          # hardcodes via GOARCH. Building arm64 too would double the cost to
+          # validate a platform nothing deploys.
+          platforms: linux/amd64
+          # Nothing is published. The question this job answers is only "does
+          # this Dockerfile still build", so the result stays in the builder.
+          push: false
+          cache-from: type=gha,scope=backend-image
+          # Written only on main. GitHub's Actions cache is a 10GB per-repo LRU
+          # shared with six setup-go caches and the frontend caches in ci.yml,
+          # and `mode=max` exports every builder-stage layer (the compiled
+          # golang-migrate CLI, the module cache, the linked binary) -- hundreds
+          # of MB per run. A PR-ref cache is also unreadable by any other PR, so
+          # exporting one buys nothing and evicts caches other jobs depend on.
+          # mode=max stays on the main leg: with `push: false` there is no image
+          # export, so mode=min would drop exactly the builder layers that carry
+          # all the expensive work.
+          #
+          # This split is what keeps always-run cheap. The overwhelming majority
+          # of PRs do not touch the image's inputs at all, so they restore main's
+          # cache, hit on every layer, and cost seconds.
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=backend-image' || '' }}
+
+      # A red square in the Actions tab is not a backstop -- nobody is
+      # subscribed to it. ci.yml's notify-main-failure job cannot cover this
+      # workflow (it can only aggregate `needs:` within its own workflow), so
+      # this files into the same `main-ci-failure` triage queue, using only the
+      # built-in GITHUB_TOKEN. Deduped on the commit SHA so a rerun storm does
+      # not spam.
+      - name: File a tracking issue on main-branch failure
+        if: ${{ failure() && github.event_name == 'push' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const shortSha = context.sha.substring(0, 7)
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'main-ci-failure',
+              state: 'open',
+              per_page: 50,
+            })
+            if (existing.some(i => i.title.includes(shortSha))) {
+              core.info(`Open issue already references ${shortSha}; skipping.`)
+              return
+            }
+
+            const { data: created } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Backend image build failed on main (${shortSha})`,
+              body: [
+                'The backend runtime image no longer builds from `main`.',
+                '',
+                'Railway builds this same Dockerfile, so the next backend deploy will fail until this is fixed.',
+                '',
+                `**Run:** ${runUrl}`,
+                `**Commit:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha}`,
+                '',
+                '---',
+                '',
+                'Filed automatically by the `backend-image` workflow (PSY-1742).',
+              ].join('\n'),
+              labels: ['main-ci-failure'],
+            })
+            core.info(`Filed issue #${created.number}: ${created.html_url}`)
