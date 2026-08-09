@@ -116,8 +116,7 @@ export function UpcomingShowsList({
     citiesParser.withOptions({ history: 'push', startTransition }),
   )
 
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  const { data: citiesData } = useShowCities({ timezone })
+  const { data: citiesData } = useShowCities()
 
   // Map ShowCity → CityWithCount; only render the filter when there's
   // at least one city to choose between (matches the list pages).

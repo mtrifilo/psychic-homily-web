@@ -35,12 +35,7 @@ export function HomeShowList() {
     return prefs.favorite_cities
   }, [profileData?.user?.preferences])
 
-  const timezone =
-    typeof window !== 'undefined'
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : 'America/Phoenix'
-
-  const { data: citiesData } = useShowCities({ timezone })
+  const { data: citiesData } = useShowCities()
 
   const cities: CityWithCount[] = useMemo(
     () =>
@@ -90,13 +85,12 @@ export function HomeShowList() {
   )
 
   const { data, isLoading, isFetching, error } = useUpcomingShows({
-    timezone,
     limit: 5,
     cities: effectiveCities.length > 0 ? effectiveCities : undefined,
   })
 
   // Prefetch /shows and /venues data during idle time
-  usePrefetchRoutes(timezone)
+  usePrefetchRoutes()
 
   const showIds = useMemo(
     () => data?.shows?.map(s => s.id) ?? [],

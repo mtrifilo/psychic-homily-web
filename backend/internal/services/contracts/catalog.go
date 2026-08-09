@@ -1621,7 +1621,14 @@ type ShowServiceInterface interface {
 	// GetUpcomingShows returns one page of upcoming shows plus a next-page
 	// cursor and the filter-aware total matching set size (ignores cursor —
 	// total is always the full matching upcoming catalog for these filters).
+	//
+	// "Upcoming" is each show's own venue-local calendar day, so the answer is
+	// the same for every caller. The timezone parameter is accepted and IGNORED
+	// (PSY-1678); it survives only because removing it is a breaking change.
 	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, int64, error)
+	// GetShowCities counts the SAME venue-local upcoming partition
+	// GetUpcomingShows lists, so a non-zero city count cannot dead-end at an
+	// empty list. Its timezone parameter is inert for the same reason.
 	GetShowCities(timezone string) ([]ShowCityResponse, error)
 	DeleteShow(showID uint) error
 	// SearchShows returns up to 20 shows matching the query in show title or

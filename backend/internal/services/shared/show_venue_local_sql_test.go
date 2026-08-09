@@ -36,8 +36,21 @@ func TestVenueLocalStateCaseSQL_DefaultsToGetTimezoneForState(t *testing.T) {
 	if !strings.HasSuffix(sql, " ELSE 'UTC' END") {
 		t.Errorf("state CASE is not country-gated:\n%s", sql)
 	}
-	if !strings.Contains(sql, "venue_tz.country") {
-		t.Errorf("state CASE does not consult country:\n%s", sql)
+	// The ALIASED column, not `venue_tz.country`: the lateral projects under
+	// `venue_tz_*` names so nothing it exposes can collide with a `shows`
+	// column. A rename on one side and not the other compiles fine and fails at
+	// query time, so both sides are pinned here.
+	if !strings.Contains(sql, "venue_tz.venue_tz_country") {
+		t.Errorf("state CASE does not consult the aliased country column:\n%s", sql)
+	}
+	if !strings.Contains(VenueTZJoin, "AS venue_tz_country") {
+		t.Errorf("lateral does not project the aliased country column:\n%s", VenueTZJoin)
+	}
+	if !strings.Contains(VenueTZJoin, "AS venue_tz_state") {
+		t.Errorf("lateral does not project the aliased state column:\n%s", VenueTZJoin)
+	}
+	if !strings.Contains(VenueTZJoin, "AS venue_tz_timezone") {
+		t.Errorf("lateral does not project the aliased timezone column:\n%s", VenueTZJoin)
 	}
 }
 

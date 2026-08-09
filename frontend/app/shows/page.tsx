@@ -24,8 +24,6 @@ import {
 import type { ShowCitiesResponse, UpcomingShowsResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { API_ENDPOINTS } from '@/lib/api'
-import { API_BASE_URL } from '@/lib/api-base'
-import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 import { BUILD_TIME_API_FETCH_TIMEOUT_MS } from '@/lib/build-time-api'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
@@ -84,10 +82,15 @@ export const UPCOMING_SHOWS_LIMIT = 50
  *
  *   fetch                          raw      base64   % cap   bounded by
  *   -----------------------------  -------  -------  ------  ------------------
- *   /shows/upcoming?limit=50        80,327  107,104    5.1%  this file's limit
+ *   /shows/upcoming?timezone=…&…50  80,327  107,104    5.1%  this file's limit
  *   /shows/upcoming?timezone=…      80,327  107,104    5.1%  backend default:"50"
  *   /shows/cities?timezone=…         8,948   11,932    0.6%  one row per city
  *   /scenes                          7,256    9,676    0.5%  UNBOUNDED
+ *
+ * The `timezone` on the first three is inert as of PSY-1678 and is removed by
+ * PSY-1762; it is still in the URL, so it is still part of the cache KEY, but it
+ * cannot move any of the sizes above — it never changed the row count, only
+ * which day's rows came back.
  *
  * So "the limit protects it" is true of the ItemList fetch only. The seed URL
  * deliberately omits `limit` (see the note above) and is held at 50 by the
@@ -119,20 +122,26 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * visible in the other. What actually dedupes a repeated URL is Next's Data
  * Cache, and only when the URLs match.
  *
- * They also carry different bounds, which is why the URLs deliberately do NOT
- * match. This one sends the explicit `limit` argued at `UPCOMING_SHOWS_LIMIT`.
- * The seed sends exactly what the client hook sends, so that what it caches is
- * what the hook will later ask for. Two Data Cache entries, invalidated
- * together by `lib/proxy-revalidation.ts`.
+ * They also carry different bounds, which is why the URLs do NOT match. This
+ * one sends the explicit `limit` argued at `UPCOMING_SHOWS_LIMIT`; the seed
+ * sends exactly what the client hook sends, so that what it caches is what the
+ * hook will later ask for. Two Data Cache entries, invalidated together by
+ * `lib/proxy-revalidation.ts`.
+ *
+ * Since PSY-1678 that `limit` is the ONLY difference between the two URLs, and
+ * it happens to equal the endpoint's own `default:"50"` — so dropping it would
+ * collapse these into one cached backend read. That is deliberately not done
+ * here: `UPCOMING_SHOWS_LIMIT` argues at length for keeping the bound visible
+ * rather than inherited, and trading it for a cache hit is a product call about
+ * SEO coverage, not a cleanup.
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    // The canonical zone matters even here: it decides where start-of-today
-    // falls, so omitting it would advertise last night's shows to a crawler.
-    url: `${API_BASE_URL}/shows/upcoming?${new URLSearchParams({
-      limit: String(UPCOMING_SHOWS_LIMIT),
-      timezone: CANONICAL_FIRST_SCREEN_TIMEZONE,
-    })}`,
+    // `&`, not `?`: the first-screen URL already carries the transitional
+    // timezone query string. The endpoint decides "upcoming" against each show's
+    // own venue zone (PSY-1678) and ignores that parameter, so this JSON-LD
+    // block advertises exactly the rows the page renders.
+    url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}&limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
     timeoutMs: BUILD_TIME_API_FETCH_TIMEOUT_MS,
@@ -160,9 +169,13 @@ function getShowName(show: ShowListItem): string {
  * BOTH are required: `ShowList` returns its skeleton while EITHER query is
  * still loading, so seeding the rows alone server-renders the skeleton.
  *
- * The rows come from `getUpcomingShowsPayload`, the same `React.cache`'d fetch
- * the `ItemList` above reads, so the crawler's list and the reader's list are
- * one response rather than two that can disagree.
+ * The rows are a SEPARATE fetch from the `ItemList`'s `getUpcomingShowsPayload`
+ * above, against the bare first-screen URL rather than that one's explicit
+ * `limit`. That is deliberate on both counts and the reasoning is on
+ * `getUpcomingShowsPayload`: they need different abort budgets, and this one has
+ * to request exactly what the client hook will request or the seed is not the
+ * entry the hook reads. Two Data Cache entries, invalidated together. Do not
+ * "dedupe" them onto one call without reading that block first.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
  * component fetches for itself and owns the error state (see

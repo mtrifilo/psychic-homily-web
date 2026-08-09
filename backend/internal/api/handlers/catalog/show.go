@@ -341,7 +341,7 @@ type GetShowsResponse struct {
 
 // GetUpcomingShowsRequest represents the HTTP request for listing upcoming shows
 type GetUpcomingShowsRequest struct {
-	Timezone string `query:"timezone" default:"UTC" doc:"IANA timezone (e.g., 'America/Phoenix', 'America/New_York'). Defaults to UTC."`
+	Timezone string `query:"timezone" default:"UTC" deprecated:"true" doc:"Deprecated and ignored. Whether a show is still upcoming is decided against its OWN venue's timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only."`
 	Cursor   string `query:"cursor" doc:"Pagination cursor from previous response. Omit for first page."`
 	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of shows per page (max 200). Defaults to 50."`
 	City     string `query:"city" doc:"Filter by city name (exact match). Legacy — prefer 'cities' param."`
@@ -353,7 +353,7 @@ type GetUpcomingShowsRequest struct {
 
 // GetShowCitiesRequest represents the HTTP request for listing show cities
 type GetShowCitiesRequest struct {
-	Timezone string `query:"timezone" default:"UTC" doc:"IANA timezone for determining 'today'. Defaults to UTC."`
+	Timezone string `query:"timezone" default:"UTC" deprecated:"true" doc:"Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only."`
 }
 
 // GetShowCitiesResponse represents the HTTP response for listing show cities
@@ -374,7 +374,7 @@ type CursorPaginationMeta struct {
 type GetUpcomingShowsResponse struct {
 	Body struct {
 		Shows      []*contracts.ShowResponse `json:"shows"`
-		Timezone   string                    `json:"timezone" doc:"The timezone used for filtering"`
+		Timezone   string                    `json:"timezone" doc:"Deprecated. Echoes the request's timezone parameter, which no longer affects which shows are returned. Kept so existing clients keep parsing the response."`
 		Total      int64                     `json:"total" doc:"Total upcoming shows matching the current filters (not just this page)"`
 		Pagination CursorPaginationMeta      `json:"pagination"`
 	}
@@ -704,24 +704,22 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 }
 
 // GetShowCitiesHandler handles GET /shows/cities
+//
+// The `timezone` query parameter is INERT (PSY-1678): the service counts the
+// same venue-local upcoming partition /shows/upcoming lists, so no zone the
+// caller sends can move the boundary. It is still accepted so clients built
+// against the old contract keep working, and passed straight through to the
+// service's own deprecated parameter, matching GetArtistShowsHandler.
+// Removing it outright is a later cleanup.
 func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCitiesRequest) (*GetShowCitiesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	// Default timezone to UTC if not provided
-	timezone := req.Timezone
-	if timezone == "" {
-		timezone = "UTC"
-	}
+	logger.FromContext(ctx).Debug("show_cities_attempt")
 
-	logger.FromContext(ctx).Debug("show_cities_attempt",
-		"timezone", timezone,
-	)
-
-	cities, err := h.showService.GetShowCities(timezone)
+	cities, err := h.showService.GetShowCities(req.Timezone)
 	if err != nil {
 		logger.FromContext(ctx).Error("show_cities_failed",
 			"error", err.Error(),
-			"timezone", timezone,
 			"request_id", requestID,
 		)
 		return nil, huma.Error500InternalServerError(
@@ -743,18 +741,22 @@ func (h *ShowHandler) GetShowCitiesHandler(ctx context.Context, req *GetShowCiti
 }
 
 // GetUpcomingShowsHandler handles GET /shows/upcoming
+//
+// The `timezone` query parameter is INERT (PSY-1678). Whether a show is still
+// upcoming is decided per show against its own venue's zone, so this endpoint
+// returns the SAME page to every caller — which is the property that lets
+// /shows be server-rendered once and hydrate without a discarding refetch.
+//
+// It is still accepted, and still echoed in the response body, so clients built
+// against the old contract keep working; Huma's `default:"UTC"` means an omitted
+// parameter behaves identically to a sent one. Removing the parameter outright
+// is a later cleanup, not this change.
 func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
 	// Check if user is admin (for including non-approved shows)
 	user := middleware.GetUserFromContext(ctx)
 	includeNonApproved := user != nil && user.IsAdmin
-
-	// Default timezone to UTC if not provided
-	timezone := req.Timezone
-	if timezone == "" {
-		timezone = "UTC"
-	}
 
 	// Validate limit
 	limit := req.Limit
@@ -803,7 +805,6 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	}
 
 	logger.FromContext(ctx).Debug("shows_upcoming_attempt",
-		"timezone", timezone,
 		"limit", limit,
 		"has_cursor", req.Cursor != "",
 		"include_non_approved", includeNonApproved,
@@ -813,11 +814,10 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	)
 
 	// Get upcoming shows using service (admins see all, others see only approved)
-	shows, nextCursor, total, err := h.showService.GetUpcomingShows(timezone, req.Cursor, limit, includeNonApproved, filters)
+	shows, nextCursor, total, err := h.showService.GetUpcomingShows(req.Timezone, req.Cursor, limit, includeNonApproved, filters)
 	if err != nil {
 		logger.FromContext(ctx).Error("shows_upcoming_failed",
 			"error", err.Error(),
-			"timezone", timezone,
 			"request_id", requestID,
 		)
 		return nil, huma.Error500InternalServerError(
@@ -834,12 +834,12 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	return &GetUpcomingShowsResponse{
 		Body: struct {
 			Shows      []*contracts.ShowResponse `json:"shows"`
-			Timezone   string                    `json:"timezone" doc:"The timezone used for filtering"`
+			Timezone   string                    `json:"timezone" doc:"Deprecated. Echoes the request's timezone parameter, which no longer affects which shows are returned. Kept so existing clients keep parsing the response."`
 			Total      int64                     `json:"total" doc:"Total upcoming shows matching the current filters (not just this page)"`
 			Pagination CursorPaginationMeta      `json:"pagination"`
 		}{
 			Shows:    shows,
-			Timezone: timezone,
+			Timezone: req.Timezone,
 			Total:    total,
 			Pagination: CursorPaginationMeta{
 				NextCursor: nextCursor,

@@ -23,12 +23,25 @@ import (
 // built from utils.StateTimezones rather than restating it.
 //
 // MIGRATED so far: artist show lists, venue show lists, the artist graph card's
-// next-show, and the saved-shows list.
+// next-show, the saved-shows list, and the main /shows feed
+// (catalog.ShowService.GetUpcomingShows and its GetShowCities picker counts).
+//
+// SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
+// rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
+// several of them draw their own boundary: tag-page enrichment counts
+// (catalog/tag_service.go), the /venues list's upcoming_show_count
+// (catalog/venue.go), /scenes' upcoming_count and this_week_count
+// (catalog/scene.go), catalog/venue_rail.go, graph_overview.go, charts_rank.go
+// and sitemap.go. Do not read a surface's absence here as a claim that it
+// already agrees with this file.
 //
 // NOT migrated — do not read the paragraph above as a description of the whole
 // repo, because these still draw their own boundary:
-//   - catalog.ShowService.GetUpcomingShows / GetShowCities — the main /shows
-//     feed, still start-of-today in the CALLER's zone (PSY-1678 owns it).
+//   - catalog/tag_intersection.go — the tag-page entity counts, start-of-today
+//     in UTC. The reason it gave (no request timezone to work from) no longer
+//     applies now that the boundary needs no timezone at all. PSY-1760 owns it,
+//     deferred for SCOPE rather than risk (that ticket carries the measured
+//     cost of the same shape under GetShowCities).
 //   - engagement/venue_calendar.go upcomingShowsForVenue — the venue ICS feed,
 //     start-of-today in the QUERIED venue's zone, so it can disagree with the
 //     venue page for a show booked at two venues.
@@ -36,6 +49,54 @@ import (
 //     batchArtistNextShows — instant-based (event_date > NOW()), which is why a
 //     graph node can show no upcoming dot for a show that started earlier today
 //     while the card still calls it next.
+//
+// DELIBERATELY instant-bounded, and NOT candidates for this file — listed so an
+// audit does not mistake them for oversights:
+//   - services/explore/explore.go — `event_date >= now()` UTC. Already
+//     viewer-independent, and /explore is SSR-prefetched with no viewer
+//     context, so nothing forces the change. It does mean /explore's list can
+//     drop a show that started earlier today while the /shows/cities picker
+//     above it still counts that show; documented at its own call site.
+//   - catalog/charts_service.go mostAnticipatedHorizon and the scene-week
+//     counts — `time.Now().UTC().Truncate(24h)`. A public chart has no
+//     requester and ranks over a multi-week horizon, so a one-day boundary
+//     nudge does not change what it is measuring.
+//
+// BLAST RADIUS OF THE UNKNOWN-ZONE RAISE, re-derived because PSY-1678 changed
+// it. `AT TIME ZONE` RAISES on a name Postgres does not carry rather than
+// degrading (see VenueTZJoin for why the validating join is not in this path).
+// That was accepted when every consumer was a single entity page: one poisoned
+// venue row broke that venue's page, that artist's list, or saved-shows. It is
+// no longer. The main /shows feed and its city picker now build through here,
+// so ONE bad row would take down /shows, the homepage list, /explore's picker
+// and the account-settings city picker at once.
+//
+// Three layers keep a bad row out, all verified rather than assumed:
+//  1. WRITE BOUNDARY (PSY-1707) — every path that writes venues.timezone
+//     validates against pg_timezone_names and stores NULL rather than a name
+//     this server does not carry.
+//  2. BACKFILL (migration 20260802043206) — normalized every pre-existing row,
+//     applied on stage and production.
+//  3. SWEEP (PSY-1695, VenueTimezoneSweep) — re-validates stored zones against
+//     the live catalog every 24h and NULLs the casualties, which is what covers
+//     the catalog CHANGING underneath a value that was valid when written (a
+//     Postgres upgrade, a tzdata refresh, a restore onto a differently-packaged
+//     build). ENABLE_VENUE_TIMEZONE_SWEEP was confirmed set on both stage and
+//     production on 2026-08-08; it is a deployment prerequisite of this file,
+//     not an optimization, so do not treat it as optional when standing up a
+//     new environment.
+//
+// Residual risk, stated so it is not rediscovered as a surprise: an out-of-band
+// SQL write of an invalid zone bypasses layer 1 and can sit until layer 3 runs,
+// so the window is up to 24h. During it the failure is a LOUD 500 with Sentry
+// signal on a read path, not silent corruption or a wrong answer — which is the
+// property that makes the window acceptable rather than merely tolerable.
+//
+// PSY-1761 owns the structural hardening: make the zone expression fail SOFT
+// (fall through to the state CASE on an unrecognized name) instead of raising.
+// It is deliberately NOT done inline, because the obvious implementation is the
+// one this file already measured at loops=17228 / 8.1s — see VenueTZJoin. That
+// ticket carries the measurement matrix any fix has to clear first.
 
 // PrimaryVenueLateralSQL renders the repo's primary-venue pick as a LATERAL
 // subquery: at most one deterministic venue per show, lowest venue_id first.
@@ -91,9 +152,9 @@ func buildVenueLocalStateCaseSQL() string {
 	sort.Strings(states)
 
 	var b strings.Builder
-	b.WriteString("CASE WHEN venue_tz.country IS NULL OR btrim(venue_tz.country) = '' OR ")
-	b.WriteString("upper(btrim(venue_tz.country)) IN ('US', 'USA', 'UNITED STATES') THEN (")
-	b.WriteString("CASE upper(btrim(venue_tz.state))")
+	b.WriteString("CASE WHEN venue_tz.venue_tz_country IS NULL OR btrim(venue_tz.venue_tz_country) = '' OR ")
+	b.WriteString("upper(btrim(venue_tz.venue_tz_country)) IN ('US', 'USA', 'UNITED STATES') THEN (")
+	b.WriteString("CASE upper(btrim(venue_tz.venue_tz_state))")
 	for _, state := range states {
 		b.WriteString(" WHEN '")
 		b.WriteString(state)
@@ -152,8 +213,21 @@ func buildVenueLocalStateCaseSQL() string {
 // Postgres'. The two disagree in both directions: "localtime" and "Factory" pass
 // the write gate and fail time.LoadLocation. Those readers have their own
 // fallback and are not made safe by anything here.
+// The projected columns are ALIASED rather than carried under their source
+// names, and that prefix is load-bearing rather than decorative. `venues` and
+// `shows` both have a `state`, so a bare `venue_tz.state` beside `shows.state`
+// left two traps for every caller that queries `shows` directly: an unqualified
+// `state` in a WHERE/GROUP BY is ambiguous and Postgres raises, and a bare
+// `SELECT *` widens to include the lateral's `state`, which GORM then scans
+// over the show's own. The earlier migrated surfaces all happened to select an
+// id column and never hit either. Aliasing removes both structurally: no alias
+// here collides with a `shows` column, and none matches a field name on any
+// model, so a caller cannot reintroduce the collision by forgetting to qualify.
 var VenueTZJoin = `LEFT JOIN LATERAL ` +
-	PrimaryVenueLateralSQL("iv.timezone, iv.state, iv.country", "shows.id") + ` venue_tz ON true`
+	PrimaryVenueLateralSQL(
+		"iv.timezone AS venue_tz_timezone, iv.state AS venue_tz_state, iv.country AS venue_tz_country",
+		"shows.id",
+	) + ` venue_tz ON true`
 
 // venueLocalZoneSQL is the resolved zone for the primary venue, mirroring
 // utils.EventLocation's precedence: the stored venue timezone, then the US state
@@ -171,7 +245,7 @@ var VenueTZJoin = `LEFT JOIN LATERAL ` +
 // page, which is the class of disagreement this ticket exists to remove. It
 // costs nothing in the hot path: a CASE over two already-fetched columns is a
 // scalar expression, not a relation scan.
-var venueLocalZoneSQL = `COALESCE(NULLIF(btrim(venue_tz.timezone, E' \t\n\r\f\v'), ''), ` + venueLocalStateCaseSQL + `)`
+var venueLocalZoneSQL = `COALESCE(NULLIF(btrim(venue_tz.venue_tz_timezone, E' \t\n\r\f\v'), ''), ` + venueLocalStateCaseSQL + `)`
 
 // VenueLocalDateSQL is the show's calendar date in its venue's local zone.
 // event_date is TIMESTAMPTZ (migration 000028), so a single AT TIME ZONE shifts

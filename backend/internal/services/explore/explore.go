@@ -84,14 +84,14 @@ func (s *ExploreService) GetUpcomingShows(limit, offset int, cities []contracts.
 		offset = 0
 	}
 
-	// Timezone caveat (PSY-987): this list is deliberately UTC-bounded
-	// (event_date >= now UTC) rather than "start of today in the viewer's
-	// timezone" the way services/catalog.GetUpcomingShows is. /explore is
-	// SSR-prefetched with no viewer context, and keeping the query
-	// timezone-free is what lets that prefetch stay cacheable/seedable. The
-	// only observable difference is a show that already started earlier *today*
-	// in the viewer's zone but is still before UTC "now": it drops off this
-	// list slightly early. The picker-count vs row-count consequence of that is
+	// Timezone caveat (PSY-987): this list is deliberately instant-bounded
+	// (event_date >= now UTC) rather than partitioned on each show's venue-local
+	// calendar day the way services/catalog.GetUpcomingShows is (PSY-1678).
+	// /explore is SSR-prefetched with no viewer context, and this predicate is
+	// already viewer-independent, so nothing forces the change here. The
+	// observable difference is a show that started earlier TODAY in its venue's
+	// zone: /shows still lists it until venue-local midnight, this list drops it
+	// at its start instant. The picker-count vs row-count consequence of that is
 	// documented on applyUpcomingCityFilter below. Show *times* still render in
 	// venue-local zones everywhere via the venue timezone (PSY-985/986); only
 	// this list's day boundary is UTC.
@@ -183,13 +183,12 @@ func (s *ExploreService) GetUpcomingShows(limit, offset int, cities []contracts.
 // columns the /explore response surfaces and GetShowCities groups by, so
 // the picker offers exactly the cities this filter keys on (PSY-840).
 //
-// Count caveat: GetShowCities (the picker) counts with
-// event_date >= start-of-today in the viewer's timezone, while this list
-// uses event_date >= NOW() UTC — explore stays timezone-free so the
-// page's SSR prefetch stays seedable. A city's picker count can therefore
-// slightly exceed its filtered row count for a show that already started
-// earlier today; the empty-state "Show all cities" affordance recovers
-// the edge case where a selected city's only show has already started.
+// Count caveat: GetShowCities (the picker) counts every show whose
+// venue-local calendar day has not passed (PSY-1678), while this list uses
+// event_date >= NOW() UTC. A city's picker count can therefore slightly
+// exceed its filtered row count for a show that already started earlier
+// today; the empty-state "Show all cities" affordance recovers the edge
+// case where a selected city's only show has already started.
 //
 // Empty slice ⇒ q unchanged (all cities). The grouped OR-conditions are
 // built on a fresh s.db session per the GORM group-condition idiom.

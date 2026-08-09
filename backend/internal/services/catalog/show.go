@@ -3,6 +3,7 @@ package catalog
 import (
 	"bufio"
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -954,37 +955,47 @@ func decodeCursor(cursor string) (time.Time, uint, error) {
 
 // contracts.CityStateFilter represents a city+state pair for multi-city filtering
 
-// GetUpcomingShows retrieves shows from today onwards in the specified timezone with cursor pagination.
-// Includes tonight's shows by filtering from the start of today in the user's timezone.
-// If includeNonApproved is false, only approved shows are returned (public view).
-// If includeNonApproved is true, all shows are returned including pending/rejected (admin view).
-// Optional filters can be provided to filter by city and state.
-// Returns shows, next cursor (nil if no more), the filter-aware total size of
-// the full matching set (independent of the page cursor), and error.
+// GetUpcomingShows retrieves the shows whose venue-local calendar day has not
+// yet passed, with cursor pagination.
+//
+// "Today" is each show's OWN venue-local day (shared.VenueTZJoin), not one
+// boundary shared by the whole page and emphatically not the reader's. A
+// Phoenix date therefore stays listed until midnight in Phoenix however far away
+// the reader is, and the canonical list is the same list for every visitor —
+// which is what lets /shows be server-rendered once and hydrate without a
+// discarding refetch (PSY-1678).
+//
+// If includeNonApproved is false, only approved shows are returned (public
+// view). If includeNonApproved is true, all shows are returned including
+// pending/rejected (admin view). Optional filters can be provided to filter by
+// city, state and tags. Returns shows, next cursor (nil if no more), the
+// filter-aware total size of the full matching set (independent of the page
+// cursor), and error.
+//
+// Deprecated parameter: timezone is accepted and ignored, matching
+// GetShowsForArtist / GetShowsForVenue. It used to place the boundary in the
+// CALLER's zone, which made the same show upcoming for one reader and past for
+// another. Kept in the signature because removing it is a breaking change for
+// every caller. Do not add new callers that pass a meaningful value.
 func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, int64, error) {
 	if s.db == nil {
 		return nil, nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	// Load timezone, default to UTC
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		// Invalid timezone, fall back to UTC
-		loc = time.UTC
-	}
-
-	// Get start of today in the user's timezone, then convert to UTC for query
-	now := time.Now().In(loc)
-	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	startOfTodayUTC := startOfToday.UTC()
-
 	applyUpcomingFilters := func(query *gorm.DB) *gorm.DB {
+		// Every predicate below is table-qualified. The venue-local lateral
+		// aliases its own columns (shared.VenueTZJoin) so none of them can
+		// collide with a `shows` column, which means this is hygiene rather than
+		// load-bearing. It is still worth doing: this query now spans two
+		// relations, and a reader should not have to know the lateral's
+		// projection to tell which one a bare column came from.
+
 		// Filter by status for non-admin users (public view shows only approved)
 		if !includeNonApproved {
-			query = query.Where("status = ?", catalogm.ShowStatusApproved)
+			query = query.Where("shows.status = ?", catalogm.ShowStatusApproved)
 		} else {
 			// For admin view, still exclude private shows (those are personal to the submitter)
-			query = query.Where("status != ?", catalogm.ShowStatusPrivate)
+			query = query.Where("shows.status != ?", catalogm.ShowStatusPrivate)
 		}
 
 		// Apply city/state filters if provided
@@ -994,19 +1005,19 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 				conditions := s.db
 				for i, cs := range filters.Cities {
 					if i == 0 {
-						conditions = conditions.Where("(city = ? AND state = ?)", cs.City, cs.State)
+						conditions = conditions.Where("(shows.city = ? AND shows.state = ?)", cs.City, cs.State)
 					} else {
-						conditions = conditions.Or("(city = ? AND state = ?)", cs.City, cs.State)
+						conditions = conditions.Or("(shows.city = ? AND shows.state = ?)", cs.City, cs.State)
 					}
 				}
 				query = query.Where(conditions)
 			} else {
 				// Legacy single-city filter
 				if filters.City != "" {
-					query = query.Where("city = ?", filters.City)
+					query = query.Where("shows.city = ?", filters.City)
 				}
 				if filters.State != "" {
-					query = query.Where("state = ?", filters.State)
+					query = query.Where("shows.state = ?", filters.State)
 				}
 			}
 			if len(filters.TagSlugs) > 0 {
@@ -1025,39 +1036,76 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 			}
 		}
 
-		return query.Where("event_date >= ?", startOfTodayUTC)
+		// Partition on each show's own venue-local calendar day.
+		return query.
+			Joins(shared.VenueTZJoin).
+			Where(shared.VenueLocalDateCondition("upcoming"))
 	}
 
-	// Filter-aware total for the full matching set (ignores the page cursor).
+	// The count and the page run inside ONE repeatable-read transaction, which
+	// buys two distinct guarantees that the previous autocommit pair did not
+	// have and that this partitioning made necessary.
+	//
+	// ONE CLOCK. Postgres' now() is transaction_timestamp(), and the venue-local
+	// boundary is evaluated per row against it rather than bound from Go, so
+	// under autocommit these two statements would each get their own. A request
+	// straddling venue-local midnight in some venue's zone would return a page
+	// and a total drawn from different partitions, and the count PSY-1653 put on
+	// screen would read "51 of 50". The old code could not hit this: it computed
+	// one startOfTodayUTC in Go and bound it into both.
+	//
+	// ONE SNAPSHOT, which is why the isolation level is explicit. READ COMMITTED
+	// takes a FRESH snapshot per statement, so the default would leave the same
+	// "51 of 50" reachable by a different route: any approval, unpublish or
+	// ingest insert committing between the count and the page. This catalog gets
+	// all three continuously. RepeatableRead pins both statements to one
+	// snapshot; ReadOnly additionally lets Postgres skip XID assignment, and
+	// documents at the call site that nothing in here writes.
+	//
+	// The cost is a pooled connection held across four round trips (count, page,
+	// and the two Preloads) on the hottest read path, and this service takes no
+	// context, so an abandoned request cannot cancel it. Bounding that properly
+	// means threading ctx through ShowServiceInterface, which is a contract
+	// change this ticket does not make; until then the pool's own timeouts are
+	// the only bound.
 	var total int64
-	countQuery := applyUpcomingFilters(s.db.Model(&catalogm.Show{}))
-	if err := countQuery.Count(&total).Error; err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to count upcoming shows: %w", err)
-	}
-
-	// Build page query
-	query := applyUpcomingFilters(s.db.Preload("Venues").Preload("Artists"))
-
-	// Apply cursor filter if provided (narrows the page, not the total)
-	if cursor != "" {
-		cursorDate, cursorID, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, nil, 0, fmt.Errorf("invalid cursor: %w", err)
-		}
-		// Get shows after the cursor position (same date but higher ID, or later date)
-		query = query.Where(
-			"(event_date = ? AND id > ?) OR (event_date > ?)",
-			cursorDate, cursorID, cursorDate,
-		)
-	}
-
-	// Order by event_date ASC, then by ID ASC for stable ordering
-	// Fetch one extra to check if there are more results
-	query = query.Order("event_date ASC, id ASC").Limit(limit + 1)
-
 	var shows []catalogm.Show
-	if err := query.Find(&shows).Error; err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to get upcoming shows: %w", err)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// Filter-aware total for the full matching set (ignores the page cursor).
+		if err := applyUpcomingFilters(tx.Model(&catalogm.Show{})).Count(&total).Error; err != nil {
+			return fmt.Errorf("failed to count upcoming shows: %w", err)
+		}
+
+		// Build page query. `shows.*` is explicit so the lateral's columns
+		// cannot widen the projection: shared.VenueTZJoin's aliases match no
+		// Show field, so GORM would ignore them anyway, but naming the source
+		// relation keeps that true if the lateral ever projects something else.
+		query := applyUpcomingFilters(tx.Preload("Venues").Preload("Artists").Select("shows.*"))
+
+		// Apply cursor filter if provided (narrows the page, not the total)
+		if cursor != "" {
+			cursorDate, cursorID, err := decodeCursor(cursor)
+			if err != nil {
+				return fmt.Errorf("invalid cursor: %w", err)
+			}
+			// Get shows after the cursor position (same date but higher ID, or later date)
+			query = query.Where(
+				"(shows.event_date = ? AND shows.id > ?) OR (shows.event_date > ?)",
+				cursorDate, cursorID, cursorDate,
+			)
+		}
+
+		// Order by event_date ASC, then by ID ASC for stable ordering.
+		// Fetch one extra to check if there are more results.
+		query = query.Order("shows.event_date ASC, shows.id ASC").Limit(limit + 1)
+
+		if err := query.Find(&shows).Error; err != nil {
+			return fmt.Errorf("failed to get upcoming shows: %w", err)
+		}
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return nil, nil, 0, err
 	}
 
 	// Check if there are more results
@@ -1081,31 +1129,31 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 
 // GetShowCities retrieves cities that have upcoming approved shows, with counts.
 // Returns cities sorted by show count (descending).
+//
+// "Upcoming" is the SAME venue-local partition GetUpcomingShows lists, which is
+// what stops the picker from offering a city whose count then dead-ends at an
+// empty list (or hiding one that has shows). The two must be changed together.
+//
+// Deprecated parameter: timezone is accepted and ignored — see GetUpcomingShows.
 func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Load timezone, default to UTC
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		loc = time.UTC
-	}
-
-	// Get start of today in the user's timezone, then convert to UTC for query
-	now := time.Now().In(loc)
-	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	startOfTodayUTC := startOfToday.UTC()
-
 	var results []contracts.ShowCityResponse
 
-	err = s.db.Model(&catalogm.Show{}).
-		Select("city, state, COUNT(*) as show_count").
-		Where("status = ?", catalogm.ShowStatusApproved).
-		Where("event_date >= ?", startOfTodayUTC).
-		Where("city IS NOT NULL AND city != ''").
-		Where("state IS NOT NULL AND state != ''").
-		Group("city, state").
+	// Table-qualified throughout, and the SELECT aliases back to the bare names
+	// `contracts.ShowCityResponse` scans into. The venue-local lateral aliases
+	// its own columns, so nothing here is ambiguous; the qualification says
+	// which relation each column came from now that the query spans two.
+	err := s.db.Model(&catalogm.Show{}).
+		Select("shows.city AS city, shows.state AS state, COUNT(*) AS show_count").
+		Joins(shared.VenueTZJoin).
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where(shared.VenueLocalDateCondition("upcoming")).
+		Where("shows.city IS NOT NULL AND shows.city != ''").
+		Where("shows.state IS NOT NULL AND shows.state != ''").
+		Group("shows.city, shows.state").
 		Order("show_count DESC, city ASC").
 		Scan(&results).Error
 

@@ -3550,10 +3550,21 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_TotalIsCityFi
 	suite.Equal(int64(4), cityTotal, "total counts only the filtered city, not the full catalog")
 }
 
-func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactMidnight() {
+// The inclusive edge of the boundary: a show at the FIRST instant of its
+// venue's today is still upcoming.
+//
+// The fixture is anchored on the venue's calendar rather than UTC's (PSY-1678).
+// It used to read midnight UTC, and asserted that as "today" — but midnight UTC
+// is 17:00 the PREVIOUS DAY in Phoenix, so the old assertion was pinning the
+// defect the ticket removed: for most of the day a UTC-anchored boundary
+// re-admits the previous evening's finished shows. The boundary being tested is
+// the same one; only the calendar it is read on has changed.
+func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactVenueLocalMidnight() {
 	user := suite.createTestUser()
-	now := time.Now().UTC()
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// The venue is created by CreateShow with no geocoded zone, so it resolves
+	// through the state map's AZ arm — America/Phoenix, exactly as its own show
+	// page renders it.
+	midnight := venueLocalInstant(suite.T(), "America/Phoenix", 0, 0)
 
 	req := &contracts.CreateShowRequest{
 		Title:             "Midnight Show",
@@ -3578,13 +3589,18 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactMi
 			break
 		}
 	}
-	suite.True(found, "show at exact midnight today should be included in upcoming shows")
+	suite.True(found, "a show at the first instant of its venue's today is still upcoming")
 }
 
+// The exclusive edge: the last instant of the venue's yesterday is out.
+//
+// Also anchored on the venue's calendar. Reading it on UTC's still passed after
+// PSY-1678 (23:59 yesterday UTC is 16:59 yesterday in Phoenix, past either way),
+// which is precisely why it had to move: a fixture that passes under both
+// boundaries pins neither.
 func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactBoundary_Yesterday() {
 	user := suite.createTestUser()
-	now := time.Now().UTC()
-	yesterdayEnd := time.Date(now.Year(), now.Month(), now.Day()-1, 23, 59, 59, 0, time.UTC)
+	yesterdayEnd := venueLocalInstant(suite.T(), "America/Phoenix", -1, 23)
 
 	req := &contracts.CreateShowRequest{
 		Title:             "Yesterday Late Show",
@@ -3603,7 +3619,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ShowAtExactBo
 	suite.Require().NoError(err)
 
 	for _, s := range shows {
-		suite.NotEqual("Yesterday Late Show", s.Title, "show from yesterday should not appear in upcoming")
+		suite.NotEqual("Yesterday Late Show", s.Title, "the venue's yesterday must not appear in upcoming")
 	}
 }
 

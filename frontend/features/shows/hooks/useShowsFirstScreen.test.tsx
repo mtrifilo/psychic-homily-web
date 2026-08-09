@@ -19,7 +19,6 @@ import {
   UPCOMING_SHOWS_FIRST_SCREEN_KEY,
   UPCOMING_SHOWS_FIRST_SCREEN_URL,
 } from '@/features/shows/api'
-import { CANONICAL_FIRST_SCREEN_TIMEZONE } from '@/lib/canonicalTimezone'
 import { useShowCities, useUpcomingShows } from './useShows'
 
 /**
@@ -32,10 +31,11 @@ import { useShowCities, useUpcomingShows } from './useShows'
  * with no error anywhere. These tests are the only thing standing between that
  * regression and production.
  *
- * "Bare `/shows`" means no filters, and the canonical timezone rather than the
- * viewer's, because that is what `useBrowserTimezone` reports through the
- * hydration render. Passing it explicitly here is the point: these hooks must
- * land on the seeded entry when handed exactly what that render hands them.
+ * "Bare `/shows`" now means literally that: no filters and NO ARGUMENTS. Since
+ * PSY-1678 the request carries no per-viewer input at all, so the hooks are
+ * invoked below exactly as `ShowList` invokes them on a cold anon load. That is
+ * a stronger contract than the one this file could assert before, when a
+ * canonical timezone had to be passed in by hand to stand in for the viewer's.
  */
 describe('shows first-screen prefetch contract', () => {
   beforeEach(() => {
@@ -47,10 +47,9 @@ describe('shows first-screen prefetch contract', () => {
     mockApiRequest.mockResolvedValueOnce({ shows: [], pagination: {}, total: 0 })
     const queryClient = createTestQueryClient()
 
-    const { result } = renderHook(
-      () => useUpcomingShows({ timezone: CANONICAL_FIRST_SCREEN_TIMEZONE }),
-      { wrapper: createWrapperWithClient(queryClient) },
-    )
+    const { result } = renderHook(() => useUpcomingShows(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
@@ -70,10 +69,9 @@ describe('shows first-screen prefetch contract', () => {
     mockApiRequest.mockResolvedValueOnce({ cities: [] })
     const queryClient = createTestQueryClient()
 
-    const { result } = renderHook(
-      () => useShowCities({ timezone: CANONICAL_FIRST_SCREEN_TIMEZONE }),
-      { wrapper: createWrapperWithClient(queryClient) },
-    )
+    const { result } = renderHook(() => useShowCities(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
@@ -86,23 +84,85 @@ describe('shows first-screen prefetch contract', () => {
     expect(cached[0].queryHash).toBe(hashKey(SHOW_CITIES_FIRST_SCREEN_KEY))
   })
 
-  it('a DIFFERENT timezone moves the request off the first-screen entry', async () => {
+  // The seeded entry has to be a HIT — the hook must PAINT the server's rows
+  // rather than fall through to a loading state and fetch them again.
+  //
+  // Seeded at `updatedAt: 0`, which is what `seedFirstScreen` actually writes,
+  // so this reproduces production rather than a friendlier version of it. That
+  // distinction matters: seeding without it would make the entry fresh, suppress
+  // the revalidation, and let this test keep passing even if the real path
+  // degraded to a full miss. What production does is serve the seeded rows
+  // immediately AND revalidate the same key once, which is deliberate — the
+  // server fetch forwards no cookies, so the seed is always the anonymous
+  // payload and an admin's unapproved shows arrive only on that refetch (see
+  // `lib/query-hydration.ts`). So the property to pin is "data is present on the
+  // first commit, and any request that does go out is THIS key's", not "no
+  // request at all".
+  it('serves the seeded first-screen rows immediately, and only revalidates the same key', async () => {
+    const seeded = {
+      shows: [{ id: 1, title: 'Seeded Show' }],
+      pagination: {},
+      total: 1,
+    }
+    mockApiRequest.mockResolvedValue(seeded)
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(UPCOMING_SHOWS_FIRST_SCREEN_KEY, seeded, {
+      updatedAt: 0,
+    })
+
+    const { result } = renderHook(() => useUpcomingShows(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    // Present on the very first commit: no loading state, no waiting.
+    expect(result.current.data).toEqual(seeded)
+
+    await waitFor(() => expect(result.current.isFetching).toBe(false))
+
+    // The revalidation, if it ran, went to the first-screen URL and landed back
+    // on the first-screen key. A second, differently-keyed request is the
+    // regression this guards (it is what the viewer-timezone parameter caused).
+    for (const call of mockApiRequest.mock.calls) {
+      expect(call[0]).toBe(UPCOMING_SHOWS_FIRST_SCREEN_URL)
+    }
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(1)
+    expect(result.current.data).toEqual(seeded)
+  })
+
+  // The transitional timezone rides in the URL but must NEVER reach the key.
+  // That asymmetry is the whole reason the param is safe to send: the key is
+  // what decides whether the server-seeded entry is a hit, so a timezone in the
+  // key would re-fragment the cache per viewer and undo PSY-1678 while looking
+  // like a harmless compatibility shim. PSY-1762 deletes the param; this
+  // assertion is what makes its presence meanwhile provably inert.
+  it('carries the transitional timezone in the URL but not in the key', () => {
+    expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).toContain('timezone=')
+    expect(SHOW_CITIES_FIRST_SCREEN_URL).toContain('timezone=')
+    expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
+      'timezone'
+    )
+    expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
+      'America'
+    )
+    expect(JSON.stringify(SHOW_CITIES_FIRST_SCREEN_KEY)).not.toContain(
+      'timezone'
+    )
+  })
+
+  // The counterpart: a real filter still keys elsewhere, so the seed is a hit
+  // for the canonical list and a miss for a filtered deep link — degraded,
+  // never mismatched.
+  it('a city filter moves the request off the first-screen entry', async () => {
     mockApiRequest.mockResolvedValue({ shows: [], pagination: {}, total: 0 })
     const queryClient = createTestQueryClient()
 
     const { result } = renderHook(
-      () => useUpcomingShows({ timezone: 'America/New_York' }),
+      () => useUpcomingShows({ cities: [{ city: 'Phoenix', state: 'AZ' }] }),
       { wrapper: createWrapperWithClient(queryClient) },
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-    // The counterpart of the two tests above, and the reason the canonical zone
-    // has to be a shared constant rather than a value each side picks. This is
-    // the post-hydration refinement: a real viewer zone keys elsewhere, which
-    // is correct. It would also be what the SERVER produced if it read `Intl`
-    // directly, and then the server HTML and the hydration render would
-    // disagree.
     expect(queryClient.getQueryCache().getAll()[0].queryHash).not.toBe(
       hashKey(UPCOMING_SHOWS_FIRST_SCREEN_KEY),
     )

@@ -12097,7 +12097,7 @@ export interface components {
             readonly $schema?: string;
             pagination: components["schemas"]["CursorPaginationMeta"];
             shows: components["schemas"]["ShowResponse"][] | null;
-            /** @description The timezone used for filtering */
+            /** @description Deprecated. Echoes the request's timezone parameter, which no longer affects which shows are returned. Kept so existing clients keep parsing the response. */
             timezone: string;
             /**
              * Format: int64
@@ -31451,7 +31451,7 @@ export interface operations {
     "get-shows-cities": {
         parameters: {
             query?: {
-                /** @description IANA timezone for determining 'today'. Defaults to UTC. */
+                /** @description Deprecated and ignored. Counts cover the same venue-local upcoming partition /shows/upcoming lists, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only. */
                 timezone?: string;
             };
             header?: never;
@@ -31585,7 +31585,7 @@ export interface operations {
     "get-shows-upcoming": {
         parameters: {
             query?: {
-                /** @description IANA timezone (e.g., 'America/Phoenix', 'America/New_York'). Defaults to UTC. */
+                /** @description Deprecated and ignored. Whether a show is still upcoming is decided against its OWN venue's timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only. */
                 timezone?: string;
                 /** @description Pagination cursor from previous response. Omit for first page. */
                 cursor?: string;
