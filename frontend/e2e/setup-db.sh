@@ -11,7 +11,28 @@ E2E_DB_URL="${DATABASE_URL:-postgres://e2euser:e2epassword@localhost:5433/e2edb?
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-e2e}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.e2e.yml}"
 
-echo "==> Waiting for migrate service to finish..."
+# Seconds to wait for the migrate one-shot to exit. The budget covers the
+# WHOLE gate, not just the migrations: while the db container is doing
+# first-boot initdb, migrate sits in `created` (it waits on the db
+# healthcheck), so cold-start time is inside this window too.
+#
+# 300s is a deliberate over-provision, not a measurement: on this codebase's
+# migration set the migrate phase has been observed between ~8s and ~60s, and
+# whole-gate provisioning between ~12s and ~180s, at host load ~25. The point
+# of the ceiling is to catch a genuine hang, not to be a tight fit — a budget
+# tuned close to the observed time is what rotted the previous hardcoded 60s
+# as migrations accumulated. Raise it per-host without editing this file:
+#
+#   WAIT_MIGRATE_TIMEOUT=600 bash frontend/e2e/setup-db.sh
+WAIT_MIGRATE_TIMEOUT="${WAIT_MIGRATE_TIMEOUT:-300}"
+# Fail fast on a typo'd override: a non-integer would make the `-ge` test
+# below error every pass and the loop would never time out.
+if ! [[ "$WAIT_MIGRATE_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: WAIT_MIGRATE_TIMEOUT must be a positive integer (got '$WAIT_MIGRATE_TIMEOUT')"
+  exit 1
+fi
+
+echo "==> Waiting for migrate service to finish (budget ${WAIT_MIGRATE_TIMEOUT}s)..."
 # Block until the migrate container exits; propagates its exit code.
 #
 # `docker compose wait` is unreliable here: it returns "no containers for
@@ -22,7 +43,7 @@ echo "==> Waiting for migrate service to finish..."
 # Output format is one JSON object per service (NDJSON) — `--format json
 # <service>` filters to a single line. Tested against Docker Compose v5.0.1.
 wait_migrate_done() {
-  local timeout_sec="${1:-60}" start row state exit_code
+  local timeout_sec="$WAIT_MIGRATE_TIMEOUT" start row state exit_code
   start=$(date +%s)
   while true; do
     row=$(docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" \
@@ -46,14 +67,16 @@ wait_migrate_done() {
       esac
     fi
     if [ "$(($(date +%s) - start))" -ge "$timeout_sec" ]; then
-      echo "ERROR: timeout waiting for migrate to finish"
+      echo "ERROR: timeout waiting for migrate to finish after ${timeout_sec}s" \
+        "(last observed state: ${state:-<none>}). Raise the budget with" \
+        "WAIT_MIGRATE_TIMEOUT=<seconds> if the host is just slow."
       return 1
     fi
-    sleep 0.5
+    sleep 1
   done
 }
 
-if ! wait_migrate_done 60; then
+if ! wait_migrate_done; then
   echo "Container logs:"
   docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" logs migrate
   exit 1

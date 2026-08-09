@@ -127,21 +127,56 @@ async function startDatabase() {
       await new Promise((r) => setTimeout(r, attempt * 5000))
     }
   }
-  // Wait for DB to be healthy
+  // Wait for the DB to be healthy by READING the healthcheck docker already
+  // runs, rather than re-implementing the probe here. There is exactly one
+  // definition of "the E2E database is ready" and it lives in
+  // docker-compose.e2e.yml; a second copy in TypeScript would drift from it
+  // (and a naive `pg_isready` copy would reintroduce the initdb temp-server
+  // race the compose healthcheck exists to close).
+  //
+  // Strictly this gate is redundant — migrate is `depends_on: db:
+  // service_healthy`, so setup-db.sh waiting for migrate already implies a
+  // healthy db, which is why scripts/dispatch/stack-up.sh has no equivalent
+  // loop. It is kept because it fails with a DB-specific message before the
+  // seed script starts, instead of surfacing as a migrate timeout.
+  //
+  // Wall-clock deadline, not an iteration count: each poll costs a docker
+  // round trip, so counting iterations would silently overshoot the budget it
+  // claims under exactly the host load this guards against.
+  const DB_READY_TIMEOUT_MS = 120_000
   log('Waiting for PostgreSQL to be ready...')
-  for (let i = 0; i < 30; i++) {
+  const containerId = execSync(
+    'docker compose -p e2e -f docker-compose.e2e.yml ps -q db',
+    { cwd: BACKEND_DIR, encoding: 'utf8' }
+  ).trim()
+  if (!containerId) {
+    throw new Error('E2E db container is not running after docker compose up')
+  }
+  const deadline = Date.now() + DB_READY_TIMEOUT_MS
+  let health = 'unknown'
+  while (Date.now() < deadline) {
     try {
-      execSync(
-        'docker compose -p e2e -f docker-compose.e2e.yml exec -T db pg_isready -U e2euser -d e2edb',
-        { cwd: BACKEND_DIR, stdio: 'pipe' }
-      )
+      health = execSync(
+        `docker inspect -f '{{.State.Health.Status}}' ${containerId}`,
+        { encoding: 'utf8', stdio: 'pipe' }
+      ).trim()
+    } catch (err) {
+      // A loaded Docker daemon intermittently answers "Error response from
+      // daemon" for a container that is in fact fine. Treat a failed query as
+      // "not healthy yet" and let the deadline decide, rather than aborting
+      // the whole run on one flaky call.
+      health = `unreadable (${(err as Error).message.split('\n')[0]})`
+    }
+    if (health === 'healthy') {
       log('PostgreSQL is ready.')
       return
-    } catch {
-      await new Promise((r) => setTimeout(r, 1000))
     }
+    await new Promise((r) => setTimeout(r, 1000))
   }
-  throw new Error('Timeout waiting for PostgreSQL to be ready')
+  throw new Error(
+    `Timeout waiting for PostgreSQL to be ready after ` +
+      `${DB_READY_TIMEOUT_MS / 1000}s (last health status: ${health})`
+  )
 }
 
 async function seedDatabase() {
