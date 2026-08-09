@@ -74,6 +74,12 @@ export const LABEL_HUB_HALF_EXTENT = 11
  *
  * Delegates the city/state/country rule to the shared PSY-558/780 helper, so a
  * hub captions its home exactly the way artist and venue surfaces do.
+ *
+ * NOT THE ONLY HUB-CAPTION RULE. The Map of the Scene (`features/graph`)
+ * deliberately does not call this: its locked design (PSY-1721) captions the
+ * home CITY only, with no state or country fallback, and it reads the city off
+ * the nightly snapshot's `hub_city` column rather than off a node. Changing the
+ * rule here does not change that surface.
  */
 export function labelHubHomeCaption(node: {
   city?: string

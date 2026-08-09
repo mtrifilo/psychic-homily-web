@@ -9,9 +9,41 @@ services:
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U e2euser -d e2edb"]
-      interval: 2s
-      timeout: 5s
+      # Answer a real query over TCP. Two properties matter, and a plain
+      # `pg_isready` over the unix socket has neither:
+      #
+      #   TCP — the postgres entrypoint runs first-boot initdb behind a TEMP
+      #   server started with `listen_addresses=''` (see docker-entrypoint.sh,
+      #   docker_temp_server_start), which answers on the socket but never on
+      #   TCP. A socket probe therefore reports healthy for a server that is
+      #   about to be stopped and restarted, and the migrate one-shot — gated
+      #   on this healthcheck — races it and dies against a database that is
+      #   still starting up.
+      #
+      #   A query, not a ping — `pg_isready` only asks whether the postmaster
+      #   answers. `SELECT 1` proves the database itself is serving.
+      #
+      # Credentials come from the container's own POSTGRES_* env, so this
+      # string is identical in docker-compose.dispatch.yml. `$$` escapes
+      # Compose's host-side interpolation.
+      test:
+        [
+          'CMD-SHELL',
+          'PGPASSWORD="$$POSTGRES_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc "SELECT 1" > /dev/null',
+        ]
+      # A cold initdb under host load takes far longer than interval*retries.
+      # Probe failures inside start_period don't count toward `retries`, so a
+      # slow first boot no longer flips the container to `unhealthy` — which
+      # would strand migrate in `created` forever, since neither compose caller
+      # passes `--wait`. `start_interval` would let the probe run faster during
+      # start_period only; it is deliberately NOT used, because it is a newer
+      # schema field and this file has to parse on whatever Compose a CI runner
+      # or a contributor happens to have. `interval: 5s` is the compromise: it
+      # costs a few seconds of detection granularity on a cold boot and cuts
+      # the probe traffic the container generates for the rest of the run.
+      start_period: 120s
+      interval: 5s
+      timeout: 10s
       retries: 10
 
   migrate:

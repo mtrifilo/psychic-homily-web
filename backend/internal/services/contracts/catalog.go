@@ -715,14 +715,54 @@ type VenueListFilters struct {
 
 // VenueShowResponse represents a show in the venue shows endpoint
 type VenueShowResponse struct {
-	ID             uint             `json:"id"`
+	ID uint `json:"id"`
+	// Slug is the canonical /shows/{slug} target, matching ShowResponse.Slug.
+	// Empty when the show has no slug, and clients fall back to the id.
+	Slug           string           `json:"slug"`
 	Title          string           `json:"title"`
 	EventDate      time.Time        `json:"event_date"`
 	City           *string          `json:"city"`
 	State          *string          `json:"state"`
 	Price          *float64         `json:"price"`
 	AgeRequirement *string          `json:"age_requirement"`
-	Artists        []ArtistResponse `json:"artists"`
+	// Status flags, so a venue listing can strike through a cancelled date and
+	// badge a sold-out one without a second fetch per row.
+	IsCancelled bool             `json:"is_cancelled"`
+	IsSoldOut   bool             `json:"is_sold_out"`
+	Artists     []ArtistResponse `json:"artists"`
+}
+
+// VenueShowsQuery carries the paging and filtering knobs for one venue's show
+// list.
+//
+// A struct rather than positional arguments because Limit, Offset and Year are
+// all ints: a transposed pair at a call site compiles cleanly and silently pages
+// the wrong window. Grouping them also means the next knob is a field, not
+// another parameter every caller has to re-thread.
+type VenueShowsQuery struct {
+	// TimeFilter is "upcoming", "past" or "all". Any other value is treated as
+	// "upcoming", matching shared.VenueLocalDateCondition and the handler's own
+	// default for an omitted time_filter.
+	TimeFilter string
+	// Limit caps the page. Zero returns no rows while still reporting the full
+	// total. That is long-standing behaviour, which the handler shields callers
+	// from by defaulting an omitted limit to 20. Negative is clamped to zero
+	// rather than passed through, because GORM reads a negative limit as "no
+	// limit" and would return the venue's entire history.
+	Limit int
+	// Offset skips this many rows of the ordered page. Negative is clamped to 0.
+	Offset int
+	// Year narrows to a single VENUE-LOCAL calendar year, and is reflected in
+	// the total. Zero means every year.
+	Year int
+}
+
+// VenueShowYearCount is one bucket of a venue's show-year histogram: a
+// venue-local calendar year and how many of that venue's shows fall in it.
+// Only years with at least one show are emitted.
+type VenueShowYearCount struct {
+	Year  int   `json:"year" doc:"Venue-local calendar year"`
+	Count int64 `json:"count" doc:"Shows at this venue in that year, within the requested time filter"`
 }
 
 // VenueCityResponse represents a city with venue count for filtering
@@ -1653,8 +1693,12 @@ type VenueServiceInterface interface {
 	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error)
 	VerifyVenue(venueID uint) (*VenueDetailResponse, error)
 	GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error)
-	GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error)
-	GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*VenueShowResponse, int64, error)
+	GetShowsForVenue(venueID uint, timezone string, query VenueShowsQuery) ([]*VenueShowResponse, int64, error)
+	// GetVenueShowYears is the year histogram behind the show list's year
+	// picker. It deliberately ignores VenueShowsQuery.Year: the picker has to
+	// render every selectable year, including the ones the current page is
+	// filtered away from.
+	GetVenueShowYears(venueID uint, timeFilter string) ([]VenueShowYearCount, error)
 	GetVenueCities() ([]*VenueCityResponse, error)
 	GetVenueModel(venueID uint) (*catalogm.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)

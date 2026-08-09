@@ -43,6 +43,7 @@ func TestVenueSubRoutesShareOneParameterName(t *testing.T) {
 	for _, shape := range []string{
 		"/venues/{}",
 		"/venues/{}/shows",
+		"/venues/{}/shows/years",
 		"/venues/{}/genres",
 		"/venues/{}/bill-network",
 		"/venues/{}/calendar.ics",

@@ -909,7 +909,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_Upcoming() {
 	suite.db.Create(pastShow)
 	suite.db.Create(&catalogm.ShowVenue{ShowID: pastShow.ID, VenueID: venue.ID})
 
-	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "upcoming")
+	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -945,7 +945,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_Past() {
 	suite.db.Create(pastShow)
 	suite.db.Create(&catalogm.ShowVenue{ShowID: pastShow.ID, VenueID: venue.ID})
 
-	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "past")
+	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "past", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
@@ -970,7 +970,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_All() {
 		suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
 	}
 
-	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "all")
+	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "all", Limit: 10})
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
@@ -978,7 +978,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_All() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_NotFound() {
-	_, _, err := suite.venueService.GetShowsForVenue(99999, "UTC", 10, "upcoming")
+	_, _, err := suite.venueService.GetShowsForVenue(99999, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
 
 	suite.Require().Error(err)
 	var venueErr *apperrors.VenueError
@@ -1256,7 +1256,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_LimitZero() 
 	futureShow := &catalogm.Show{Title: "ZL Future Show", EventDate: time.Now().UTC().AddDate(0, 0, 7), City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: catalogm.ShowStatusApproved, SubmittedBy: &user.ID}
 	suite.db.Create(futureShow)
 	suite.db.Create(&catalogm.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
-	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 0, "upcoming")
+	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 0})
 	suite.Require().NoError(err)
 	suite.GreaterOrEqual(total, int64(1), "total should reflect shows")
 	suite.Empty(shows, "limit=0 should return no results")
@@ -1271,7 +1271,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_ShowAtExactM
 	midnightShow := &catalogm.Show{Title: "Venue Midnight Show", EventDate: midnight, City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: catalogm.ShowStatusApproved, SubmittedBy: &user.ID}
 	suite.db.Create(midnightShow)
 	suite.db.Create(&catalogm.ShowVenue{ShowID: midnightShow.ID, VenueID: venue.ID})
-	shows, _, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 50, "upcoming")
+	shows, _, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 50})
 	suite.Require().NoError(err)
 	found := false
 	for _, s := range shows {
@@ -1285,7 +1285,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_ShowAtExactM
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_EmptyVenue() {
 	venue := suite.createTestVenue("Empty ShowVenue", "Phoenix", "AZ", true)
-	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "upcoming")
+	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total)
 	suite.Empty(shows)

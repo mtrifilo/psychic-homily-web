@@ -371,8 +371,8 @@ func (s *GraphOverviewSuite) TestBuild_UnchangedStructureSkipsTheLayoutEntirely(
 }
 
 func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout() {
-	// Renaming a band changes the payload but must not move a single dot: the
-	// structure key covers the node and edge sets only.
+	// Renaming a band or moving a label changes the payload but must not move a
+	// single dot: the structure key covers the node and edge sets only.
 	artists := s.seedScene()
 
 	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
@@ -382,6 +382,9 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
 		Where("id = ?", artists[0].ID).
 		Update("name", "Renamed Band").Error)
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).
+		Where("name = ?", "HubRecords").
+		Update("city", "Austin").Error)
 
 	runner := &stubLayoutRunner{transform: rotateScaleTranslate}
 	_, err = s.build(runner, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
@@ -390,7 +393,9 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 
 	s.Assert().Equal(0, runner.calls, "an attribute-only change must not re-run the layout")
 	s.Assert().Equal(before.Nodes.X, after.Nodes.X)
+	s.Assert().Equal(before.Nodes.Y, after.Nodes.Y)
 	s.Assert().Contains(after.Nodes.Name, "Renamed Band", "the rename still reached the payload")
+	s.Assert().Contains(after.Nodes.HubCity, "Austin", "the city edit still reached the payload")
 }
 
 func (s *GraphOverviewSuite) TestBuild_WarmStartResumesFromThePreviousSnapshot() {
@@ -646,6 +651,44 @@ func (s *GraphOverviewSuite) labelIDFor(name string) uint {
 	var label catalogm.Label
 	s.Require().NoError(s.db.Where("name = ?", name).First(&label).Error)
 	return label.ID
+}
+
+func (s *GraphOverviewSuite) TestBuild_HubCarriesItsLabelsHomeCity() {
+	artists := s.seedScene()
+
+	// ONE HUB WITH A CITY AND ONE WITHOUT, in the same payload. "Only when set"
+	// is a claim about the difference between them, and a fixture carrying only
+	// the positive case would pass against a hardcoded string.
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).
+		Where("name = ?", "HubRecords").
+		Update("city", " Austin ").Error)
+	s.createLabelWithRoster("NoCityRecords", artists[5].ID, artists[6].ID, artists[7].ID)
+
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	payload := s.newestPayload()
+
+	s.Require().Len(payload.Nodes.HubCity, payload.NodeCount,
+		"hub_city must be a full-length column, like every other node column")
+
+	cityByHub := make(map[string]string)
+	for i, kind := range payload.Nodes.Kind {
+		if kind == contracts.GraphOverviewNodeLabelHub {
+			cityByHub[payload.Nodes.Name[i]] = payload.Nodes.HubCity[i]
+			continue
+		}
+		s.Assert().Empty(payload.Nodes.HubCity[i],
+			"artist %q must carry no hub city: the column is the hub caption, not a location column",
+			payload.Nodes.Name[i])
+	}
+	// Both hubs must EXIST before their cities mean anything. Without this the
+	// negative case fails open: a missing "NoCityRecords" hub reads back as the
+	// zero value, which is exactly the "" the assertion below wants.
+	s.Require().Contains(cityByHub, "HubRecords")
+	s.Require().Contains(cityByHub, "NoCityRecords")
+
+	s.Assert().Equal("Austin", cityByHub["HubRecords"], "a label with a city on file captions it, trimmed")
+	s.Assert().Equal("", cityByHub["NoCityRecords"], "a label with no city on file captions nothing")
 }
 
 // --- acceptance: failure posture ---

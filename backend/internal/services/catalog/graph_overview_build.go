@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"psychic-homily-backend/internal/services/contracts"
@@ -29,7 +30,11 @@ type overviewBuild struct {
 	nodeName      []string
 	nodeSlug      []string
 	nodeCommunity []int32
-	index         map[uint]int32
+	// nodeHubCity is the hub caption column: a label hub's home city, and ""
+	// at every artist index. See contracts.GraphOverviewNodes.HubCity for why
+	// it is hub-scoped and city-only.
+	nodeHubCity []string
+	index       map[uint]int32
 
 	// edge* describe each undirected edge ONCE, in canonical (min, max) index
 	// order. They are the input to the CSR expansion, not part of the payload.
@@ -78,6 +83,7 @@ func newOverviewBuild(
 		nodeName:      make([]string, 0, total),
 		nodeSlug:      make([]string, 0, total),
 		nodeCommunity: make([]int32, 0, total),
+		nodeHubCity:   make([]string, 0, total),
 		index:         make(map[uint]int32, total),
 		spokeArtists:  make(map[int32][]int32),
 	}
@@ -94,6 +100,7 @@ func newOverviewBuild(
 		b.nodeName = append(b.nodeName, meta.Name)
 		b.nodeSlug = append(b.nodeSlug, derefString(meta.Slug))
 		b.nodeCommunity = append(b.nodeCommunity, community)
+		b.nodeHubCity = append(b.nodeHubCity, "")
 	}
 	for _, hub := range hubNodes {
 		b.index[hub.ID] = int32(len(b.nodeIDs))
@@ -105,6 +112,11 @@ func newOverviewBuild(
 		// similarity, and a hub is a membership fact. -1 keeps it out of every
 		// region hull and every region's member count.
 		b.nodeCommunity = append(b.nodeCommunity, -1)
+		// Trimmed HERE rather than at the caption, so "  " and "" are the same
+		// absent city everywhere downstream and no client has to re-derive the
+		// rule. The hub node already carries the city the roster read selected;
+		// nothing extra is loaded for it.
+		b.nodeHubCity = append(b.nodeHubCity, strings.TrimSpace(hub.City))
 	}
 
 	// Canonical, deduplicated edge set. A pair could in principle arrive from
@@ -373,6 +385,7 @@ func (b *overviewBuild) payload(
 			Kind:      b.nodeKind,
 			Name:      b.nodeName,
 			Slug:      b.nodeSlug,
+			HubCity:   b.nodeHubCity,
 			X:         xs,
 			Y:         ys,
 			Community: b.nodeCommunity,
@@ -388,8 +401,10 @@ func (b *overviewBuild) payload(
 
 // structureKey digests everything the LAYOUT depends on: the node set and the
 // edge set, in the build's canonical order. It deliberately excludes names,
-// slugs, communities, appear times and every other attribute — those change the
-// payload but must not move a single dot.
+// slugs, hub cities, communities, appear times and every other attribute —
+// those change the payload but must not move a single dot. It is also why an
+// ADDITIVE column is free: a column the key does not read cannot invalidate a
+// warm start.
 //
 // It is what lets an unchanged night skip the physics entirely and reuse the
 // previous positions verbatim. Without it, 50 more relaxation iterations run on
