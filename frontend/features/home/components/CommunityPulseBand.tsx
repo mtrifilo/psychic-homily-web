@@ -54,11 +54,8 @@ export function CommunityPulseBand() {
         </div>
       ) : (
         <div className="flex gap-10 sm:gap-14">
-          {/* The count is a ROLLING [today, today+7d) window, not a
-              Monday-to-Sunday week, so the label says "next 7 days" (PSY-1732).
-              "this week" is reserved for the calendar-week surfaces that read
-              `shows_calendar_week` — the /scenes cards and the /shows by-city
-              block — whose numbers match the week page they link to. */}
+          {/* "next 7 days" because the count rolls — see
+              `CommunityPulseResponse.shows_this_week` (PSY-1732). */}
           <PulseStat
             value={data.shows_this_week}
             label="shows in the next 7 days"

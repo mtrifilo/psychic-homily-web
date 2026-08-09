@@ -16,10 +16,19 @@ export interface SceneListItem {
   upcoming_show_count: number
   total_show_count: number
   // The ≤7-day slice of upcoming_show_count (PSY-1309) — drives the globe's
-  // "happening in the next 7 days" pulse treatment. A ROLLING window from now,
-  // so it is NOT the number /scenes/{slug}/week prints; anything rendered beside
-  // a link to that page uses shows_calendar_week instead, and anything rendered
-  // FROM this field is worded "next 7 days", never "this week" (PSY-1732).
+  // "happening in the next 7 days" pulse treatment.
+  //
+  // THE AUTHORITY on rolling-vs-calendar for the whole frontend; the render
+  // sites point here rather than restating it, so this pair of comments is the
+  // one place to edit when the rule moves.
+  //
+  // A ROLLING window from now, so it is NOT the number /scenes/{slug}/week
+  // prints. Two rules follow, and they are separate:
+  //   1. WHICH FIELD: anything rendered beside a link to that page reads
+  //      shows_calendar_week, so the number agrees with its destination.
+  //   2. WHICH WORDS: anything rendered FROM this field is worded "next 7
+  //      days", never "this week" (PSY-1732) — the calendar phrasing is
+  //      reserved for shows_calendar_week, whose week really does reset.
   shows_this_week: number
   // The scene's Monday-to-Sunday total, resolved in its OWN venue timezone —
   // exactly what its /scenes/{slug}/week page reports (PSY-1623). The only

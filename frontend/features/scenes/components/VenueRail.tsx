@@ -123,10 +123,9 @@ export function VenueRail({
           {/* "metro venues" whenever the rows reach past the principal city
               (PSY-1574). The heading above names ONE city; a flat "12 venues"
               under it would read as a claim about Phoenix proper while the
-              list also holds Tempe and Mesa. */}
-          {/* "next 7 days", not "this week": thisWeekCount sums the venues'
-              ROLLING `shows_this_week` slice, which does not reset on Monday
-              (PSY-1732). */}
+              list also holds Tempe and Mesa. The last stat sums the venues'
+              rolling `shows_this_week`, hence "next 7 days" — see
+              `SceneListItem.shows_this_week`. */}
           {stats.venueCount} {spansMetro ? 'metro ' : ''}
           {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
           upcoming · {stats.thisWeekCount} next 7 days

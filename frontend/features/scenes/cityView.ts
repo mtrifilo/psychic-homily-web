@@ -300,11 +300,12 @@ export interface CityVenueFilters {
   /**
    * "Next 7 days" chip: only venues with a show in the next 7 days.
    *
-   * The field keeps its name while the chip reads "next 7 days" (PSY-1732) —
-   * the window it gates on (`shows_this_week`) is the API's, and renaming the
-   * flag without renaming the field it reads would trade one mismatch for
-   * another. The label is what a reader sees; the rolling window is what it
-   * has always meant.
+   * The NAME still says "this week" while the chip says "next 7 days"
+   * (PSY-1732, which was scoped to copy only). Nothing external pins the name
+   * — this shape is local `useState` in AtlasGlobe, not a URL param and not an
+   * API key — so renaming it to `nextSevenDaysOnly` is a mechanical follow-up
+   * with no compat cost, and worth doing. Until then, read the line below:
+   * `shows_this_week` is the ROLLING window, never the calendar week.
    */
   thisWeekOnly: boolean
   /** Genre-family key from the "All genres" chip, or null for all. */

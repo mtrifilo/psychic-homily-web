@@ -610,10 +610,9 @@ describe('AtlasGlobe', () => {
 
     // The render-phase orphan guard, exercised through the filter path it was
     // written for: Hideout has nothing booked in the next 7 days, so applying
-    // "Next 7 days"
-    // drops it from `filteredVenues` while its selection ID survives. An
-    // artist panel whose "← Hideout" returns to nothing is the dead end this
-    // prevents.
+    // "Next 7 days" drops it from `filteredVenues` while its selection ID
+    // survives. An artist panel whose "← Hideout" returns to nothing is the
+    // dead end this prevents.
     it('drops the drill-in when a filter excludes its venue', async () => {
       mockUseVenueShows.mockReturnValue({
         data: { shows: venueWeek, venue_id: 2, total: 2 },

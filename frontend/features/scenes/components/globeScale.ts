@@ -320,12 +320,10 @@ export function compareScenesByActivity<
  * unit test can reach — GlobeCanvas imports maplibre at module scope, so its
  * strings are otherwise only verifiable by reading them.
  *
- * The trailing segment counts `shows_this_week`, which is a ROLLING seven days
- * from now, NOT a Monday-to-Sunday week (see `sceneWeek.ts`). It therefore says
- * "next 7 days" and must keep saying so: the calendar-week wording belongs only
- * beside `shows_calendar_week`, which is the number the scene-week page prints.
- * The segment is dropped entirely at zero — a quiet scene shows its upcoming
- * total without a "0" that reads as dead.
+ * The trailing segment counts `shows_this_week`, so it says "next 7 days" —
+ * see `SceneListItem.shows_this_week` for why (PSY-1732). The segment is
+ * dropped entirely at zero: a quiet scene shows its upcoming total without a
+ * "0" that reads as dead.
  */
 export function sceneTooltipLabel(scene: {
   city: string

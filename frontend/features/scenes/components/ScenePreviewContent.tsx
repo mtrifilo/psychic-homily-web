@@ -66,11 +66,9 @@ export function ScenePreviewContent({
   const artists = data?.artists ?? []
   // "Next 7 days" (PSY-1309): the scene's next shows in the 7-day window —
   // backend-defaulted window/limit, metro-scoped (member-city shows included).
-  // The window ROLLS from now rather than resetting on Monday, so the heading
-  // says "next 7 days"; "this week" belongs only to the calendar-week surfaces
-  // (`/scenes` cards, the `/shows` by-city block) that read
-  // `shows_calendar_week`. Rendered only when non-empty; a quiet stretch simply
-  // has no section.
+  // That window rolls from now rather than resetting on Monday, which is why
+  // the heading is not "this week" (PSY-1732). Rendered only when non-empty; a
+  // quiet stretch simply has no section.
   const { data: showsData } = useSceneShows(scene.slug)
   const weekShows = showsData?.shows ?? []
 
