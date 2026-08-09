@@ -9,9 +9,18 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dispatchuser -d dispatchdb"]
-      interval: 2s
-      timeout: 5s
+      # Identical to the db healthcheck in docker-compose.e2e.yml — the
+      # rationale for every field lives there. Keep the two in sync; the probe
+      # reads the container's own POSTGRES_* env precisely so this block can be
+      # copied verbatim.
+      test:
+        [
+          'CMD-SHELL',
+          'PGPASSWORD="$$POSTGRES_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc "SELECT 1" > /dev/null',
+        ]
+      start_period: 120s
+      interval: 5s
+      timeout: 10s
       retries: 10
 
   migrate:
