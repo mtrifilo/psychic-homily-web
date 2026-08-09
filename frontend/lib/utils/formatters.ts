@@ -78,6 +78,25 @@ export function formatShowWeekday(
 }
 
 /**
+ * Format the venue-local month and year of a show: "Sep 2025".
+ *
+ * Doubles as the grouping KEY for month-grouped show lists, which is why it is
+ * one function rather than a formatter plus a separate key builder: two months
+ * share a heading exactly when they share this string, with no chance of the
+ * label and the key disagreeing about which timezone decided the boundary.
+ */
+export function formatShowMonth(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
+  return formatInTimezone(dateString, resolveShowTimezone(state, timezone), {
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+/**
  * Format a show time in the venue's timezone: "7:30 PM".
  * Pass the venue's `timezone` when available; `state` is the fallback.
  */

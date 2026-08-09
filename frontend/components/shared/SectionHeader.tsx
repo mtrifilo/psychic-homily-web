@@ -19,6 +19,19 @@ export interface SectionHeaderProps {
   variant?: 'caps' | 'title'
   /** Render a thin underline divider beneath the header. Defaults to true. */
   underline?: boolean
+  /**
+   * Extra props forwarded to the heading element itself, for callers that need
+   * to address it directly rather than the wrapper — chiefly moving focus to it
+   * after a client-side list update, where `usePaginationFocusTarget()`'s
+   * `targetProps` (a ref plus `tabIndex: -1`) spreads straight in.
+   *
+   * Deliberately narrow: this is not a general escape hatch for restyling the
+   * heading, which is what `size`/`variant`/`className` are for.
+   */
+  headingProps?: Pick<
+    React.ComponentPropsWithRef<'h2'>,
+    'ref' | 'tabIndex' | 'id'
+  >
   /** Additional CSS classes on the wrapping div. */
   className?: string
 }
@@ -47,6 +60,7 @@ export function SectionHeader({
   size = 'sm',
   underline = true,
   variant = 'caps',
+  headingProps,
   className,
 }: SectionHeaderProps) {
   return (
@@ -58,8 +72,13 @@ export function SectionHeader({
       )}
     >
       <Tag
+        {...headingProps}
         className={cn(
           'font-semibold',
+          // A programmatically focused heading gets a visible ring; without it
+          // a sighted keyboard user is left with no idea where focus landed.
+          headingProps?.tabIndex === -1 &&
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           variant === 'caps' && 'text-muted-foreground uppercase tracking-wider',
           variant === 'caps' && size === 'sm' && 'text-xs',
           variant === 'caps' && size === 'md' && 'text-sm',

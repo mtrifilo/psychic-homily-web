@@ -4,6 +4,10 @@ export { VenueDetail } from './VenueDetail'
 export { VenueList } from './VenueList'
 export { VenueLocationCard } from './VenueLocationCard'
 export { VenueShowsList } from './VenueShowsList'
+export {
+  VenuePastShows,
+  VENUE_PAST_SHOWS_ANCHOR,
+} from './VenuePastShows'
 // VenueEditForm / VenueInput are intentionally NOT barrel-exported: no
 // consumer needs the barrel edge (VenueCard imports ./VenueEditForm relatively;
 // ShowForm deep-imports VenueInput to avoid a shows<->venues value-import

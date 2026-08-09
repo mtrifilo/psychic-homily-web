@@ -171,16 +171,45 @@ export interface VenueShow {
   state: string | null
   price: number | null
   age_requirement: string | null
+  /** Show was called off. Renders as a destructive badge on the bill. */
+  is_cancelled: boolean
+  /** No tickets left. Renders as an outline badge on the bill. */
+  is_sold_out: boolean
   artists: ArtistResponse[]
 }
 
 /**
- * Response for the venue shows endpoint
+ * Response for the venue shows endpoint.
+ *
+ * `limit`/`offset`/`year` echo the query back, so a reader of the response
+ * can tell which slice it is without re-deriving it from the request.
  */
 export interface VenueShowsResponse {
   shows: VenueShow[]
   venue_id: number
+  /** Rows matching the time filter AND year, across every page. */
   total: number
+  limit: number
+  offset: number
+  /** Year filter applied, or 0 for "every year". */
+  year: number
+}
+
+/** One bar of the past-shows year histogram (PSY-1753). */
+export interface VenueShowYearCount {
+  /** Venue-local calendar year. */
+  year: number
+  /** Shows at this venue in that year, within the requested time filter. */
+  count: number
+}
+
+/** Response for `GET /venues/{id}/shows/years`. */
+export interface VenueShowYearsResponse {
+  venue_id: number
+  /** Time filter the counts were taken under. */
+  time_filter: string
+  /** Years with at least one show, newest first. Never contains a zero count. */
+  years: VenueShowYearCount[]
 }
 
 /**

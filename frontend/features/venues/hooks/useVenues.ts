@@ -17,6 +17,7 @@ import type {
   Venue,
   VenuesListResponse,
   VenueShowsResponse,
+  VenueShowYearsResponse,
   VenueCitiesResponse,
   VenueGenreResponse,
   VenueBillNetworkResponse,
@@ -153,6 +154,25 @@ interface UseVenueShowsOptions {
   limit?: number
   enabled?: boolean
   timeFilter?: TimeFilter
+  /** Rows to skip. Defaults to 0 (the first page). */
+  offset?: number
+  /**
+   * Restrict to one venue-local calendar year. Omit (or pass 0) for every
+   * year — the backend treats 0 as "unfiltered", so an explicit 0 is never
+   * sent and never keyed.
+   */
+  year?: number
+  /**
+   * Hold the previous page's rows on screen while the next one loads, instead
+   * of collapsing to a spinner (`placeholderData: keepPreviousData`).
+   *
+   * OFF by default and deliberately opt-in: it is right for a pager, where the
+   * old rows and the new rows answer the same question one slice apart, and
+   * wrong for a panel whose venue changed, where it would show one venue's
+   * shows under another venue's name. Callers that turn it on must also dim
+   * on `isPlaceholderData` so stale rows are never presented as current.
+   */
+  keepPreviousPage?: boolean
 }
 
 /**
@@ -166,6 +186,9 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
     limit = 20,
     enabled = true,
     timeFilter = 'upcoming',
+    offset = 0,
+    year,
+    keepPreviousPage = false,
   } = options
 
   // Resolved ONCE, because the URL and the cache key have to be built from the
@@ -177,22 +200,32 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   // above states for `metroRollup`: key on what was SENT.
   const sentTimezone = timezone || undefined
   const sentLimit = limit || undefined
+  const sentOffset = offset > 0 ? offset : undefined
+  // A non-positive or fractional year is not a year. Dropping it here rather
+  // than forwarding it means a hand-edited `?year=0`/`?year=-1` URL falls back
+  // to the unfiltered archive instead of asking the backend to reject it.
+  const sentYear =
+    year !== undefined && Number.isInteger(year) && year > 0 ? year : undefined
 
   const params = new URLSearchParams()
   if (sentTimezone) params.set('timezone', sentTimezone)
   if (sentLimit) params.set('limit', sentLimit.toString())
+  if (sentOffset) params.set('offset', sentOffset.toString())
+  if (sentYear) params.set('year', sentYear.toString())
   params.set('time_filter', timeFilter)
 
   const endpoint = `${venueEndpoints.SHOWS(venueId)}?${params.toString()}`
 
   return useQuery({
-    // Keyed on the request, not just the venue: `limit` and `timezone` both
-    // change the response body, so callers asking different questions get
-    // different entries (PSY-1698).
+    // Keyed on the request, not just the venue: `limit`, `timezone`, `year`
+    // and `offset` each change the response body, so callers asking different
+    // questions get different entries (PSY-1698, extended by PSY-1753).
     queryKey: venueQueryKeys.showsPage(venueId, {
       timeFilter,
       limit: sentLimit,
       timezone: sentTimezone,
+      year: sentYear,
+      offset: sentOffset,
     }),
     queryFn: async (): Promise<VenueShowsResponse> => {
       return apiRequest<VenueShowsResponse>(endpoint, {
@@ -201,6 +234,38 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
     },
     enabled: enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: keepPreviousPage ? keepPreviousData : undefined,
+  })
+}
+
+interface UseVenueShowYearsOptions {
+  venueId: string | number
+  /** Which side of "today" to count. Defaults to 'past'. */
+  timeFilter?: TimeFilter
+  enabled?: boolean
+}
+
+/**
+ * Venue-local calendar years that have at least one show, newest first, with
+ * per-year counts (PSY-1753).
+ *
+ * Cheap and stable relative to the pages it navigates — one row per year — so
+ * it is fetched once per venue and reused across every year and page the
+ * reader visits, instead of being re-derived from each page's envelope.
+ */
+export const useVenueShowYears = (options: UseVenueShowYearsOptions) => {
+  const { venueId, timeFilter = 'past', enabled = true } = options
+
+  const endpoint = `${venueEndpoints.SHOW_YEARS(venueId)}?time_filter=${timeFilter}`
+
+  return useQuery({
+    queryKey: venueQueryKeys.showYears(venueId, timeFilter),
+    queryFn: async (): Promise<VenueShowYearsResponse> => {
+      return apiRequest<VenueShowYearsResponse>(endpoint, { method: 'GET' })
+    },
+    enabled:
+      enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
+    staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it navigates
   })
 }
 

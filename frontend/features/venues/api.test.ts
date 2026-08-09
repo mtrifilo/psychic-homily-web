@@ -81,7 +81,53 @@ describe('venueQueryKeys', () => {
         limit: 50,
         timezone: 'America/Phoenix',
       }),
-    ).toEqual(['venues', 'shows', '42', 'upcoming', 50, 'America/Phoenix'])
+    ).toEqual([
+      'venues',
+      'shows',
+      '42',
+      'upcoming',
+      50,
+      'America/Phoenix',
+      null,
+      null,
+    ])
+  })
+
+  it('keys a shows page on its year and offset (PSY-1753)', () => {
+    // The past archive pages by offset within a year; without both in the key
+    // every page of every year would answer for the first one fetched.
+    const base = {
+      timeFilter: 'past',
+      limit: 50,
+      timezone: 'America/Phoenix',
+    } as const
+    const firstPage2025 = venueQueryKeys.showsPage(42, { ...base, year: 2025 })
+    const secondPage2025 = venueQueryKeys.showsPage(42, {
+      ...base,
+      year: 2025,
+      offset: 50,
+    })
+    const firstPage2024 = venueQueryKeys.showsPage(42, { ...base, year: 2024 })
+    const allYears = venueQueryKeys.showsPage(42, base)
+
+    expect(new Set([
+      JSON.stringify(firstPage2025),
+      JSON.stringify(secondPage2025),
+      JSON.stringify(firstPage2024),
+      JSON.stringify(allYears),
+    ]).size).toBe(4)
+  })
+
+  it('nests the year histogram under the shows() prefix without colliding with a page', () => {
+    const prefix = venueQueryKeys.shows(42)
+    const years = venueQueryKeys.showYears(42, 'past')
+    expect(years.slice(0, prefix.length)).toEqual([...prefix])
+    // The slot 'years' occupies on a page key holds a time filter, which is
+    // only ever upcoming/past/all — so the two shapes can never collide.
+    expect(years[prefix.length]).toBe('years')
+    expect(
+      venueQueryKeys.showsPage(42, { timeFilter: 'past' })[prefix.length],
+    ).toBe('past')
   })
 
   it('gives differently-parameterized shows requests distinct keys', () => {
@@ -108,12 +154,14 @@ describe('venueQueryKeys', () => {
   it('normalizes omitted params to null rather than a key hole', () => {
     expect(
       venueQueryKeys.showsPage(42, { timeFilter: 'upcoming', limit: 20 }),
-    ).toEqual(['venues', 'shows', '42', 'upcoming', 20, null])
+    ).toEqual(['venues', 'shows', '42', 'upcoming', 20, null, null, null])
     expect(venueQueryKeys.showsPage(42, { timeFilter: 'upcoming' })).toEqual([
       'venues',
       'shows',
       '42',
       'upcoming',
+      null,
+      null,
       null,
       null,
     ])
