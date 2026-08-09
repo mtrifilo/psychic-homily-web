@@ -190,6 +190,95 @@ describe('SceneMapZeroState', () => {
     expect(screen.queryByRole('button', { name: /Beta/ })).not.toBeInTheDocument()
   })
 
+  describe('the this-week share affordance', () => {
+    // The fixture's nodes all read `appear: 0`, which is how an undated snapshot
+    // arrives — so the default map has no week and the base cases above are the
+    // "no affordance" cases. These fixtures date the arrivals instead.
+    const EPOCH = new Date('2020-01-01T00:00:00Z')
+    const appearAt = (iso: string) =>
+      Math.floor((new Date(iso).getTime() - EPOCH.getTime()) / 1000)
+
+    /** A map whose window (JUL 27 - AUG 2) contains `count` arrivals. */
+    function datedMap(arrivals: string[]) {
+      const base = sceneMapFixture()
+      return sceneMapFixture({
+        nodes: base.nodes.map((entry, index) => ({
+          ...entry,
+          appear: appearAt(arrivals[index] ?? '2021-05-05T00:00:00Z'),
+        })),
+      })
+    }
+
+    it('offers the share link when something arrived this week', () => {
+      renderZeroState({ map: datedMap(['2026-07-30T00:00:00Z', '2026-08-01T00:00:00Z']) })
+
+      const link = screen.getByRole('link', { name: /Share this week in the graph/ })
+      expect(link).toHaveAttribute('href', '/graph/this-week')
+      // The accessible name carries the numbers, because the visible chip says
+      // only "This week" and the counts are the point.
+      expect(link).toHaveAccessibleName(
+        /2 new artists and 0 new connections joined the map, JUL 27 - AUG 2 2026\./,
+      )
+    })
+
+    it('stays out of the way on a week with nothing new', () => {
+      // Dateable, so `/graph/this-week` would render — but a `+0 ARTISTS` card is
+      // not something to invite anyone to share.
+      renderZeroState({ map: datedMap(['2021-01-01T00:00:00Z']) })
+
+      expect(
+        screen.queryByRole('link', { name: /Share this week in the graph/ }),
+      ).not.toBeInTheDocument()
+      // The rest of the freshness row is untouched.
+      expect(screen.getByText(/Mapped nightly · Last mapped/)).toBeInTheDocument()
+    })
+
+    it('stays out of the way when the snapshot carries no arrival dates', () => {
+      renderZeroState()
+
+      expect(
+        screen.queryByRole('link', { name: /Share this week in the graph/ }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('goes away with the rest of the freshness strip during a replay', () => {
+      const replay = {
+        timeline: { bins: [] },
+        isActive: true,
+        start: vi.fn(),
+        exit: vi.fn(),
+        readFrame: vi.fn(),
+        subscribe: vi.fn(() => () => {}),
+        seek: vi.fn(),
+        setScrubbing: vi.fn(),
+        togglePause: vi.fn(),
+        phase: 'playing',
+      } as unknown as React.ComponentProps<typeof SceneMapZeroState>['replay']
+
+      renderZeroState({
+        map: datedMap(['2026-07-30T00:00:00Z']),
+        replay,
+      })
+
+      expect(
+        screen.queryByRole('link', { name: /Share this week in the graph/ }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('is offered below the canvas breakpoint too', () => {
+      // Unlike the replay chip, sharing a card has nothing to do with there
+      // being a canvas — a phone is where a link gets posted.
+      renderZeroState({
+        canvasWidth: null,
+        map: datedMap(['2026-07-30T00:00:00Z']),
+      })
+
+      expect(
+        screen.getByRole('link', { name: /Share this week in the graph/ }),
+      ).toHaveAttribute('href', '/graph/this-week')
+    })
+  })
+
   describe('with no canvas (below the breakpoint)', () => {
     it('replaces the map with a pitch line carrying the live counts', () => {
       renderZeroState({ canvasWidth: null })

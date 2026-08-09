@@ -37,15 +37,21 @@ import type { SceneReplayController } from '../useSceneReplay'
 const MIN_BAR_FRACTION = 0.08
 
 /**
- * The mono primary-tinted chip both replay controls wear — the `WATCH IT GROW`
- * entry point on the freshness footer and this transport's pause control.
+ * The mono primary-tinted chip the map card's small controls wear: the
+ * `WATCH IT GROW` entry point and the `THIS WEEK` share link on the freshness
+ * footer, and this transport's pause control.
  *
- * One constant for the same reason `SHUFFLE_PILL_CLASS` is one: they are the same
- * affordance at two moments of the same feature, and a hover or focus-ring spec
- * copied into two files drifts (these two had already disagreed on their ring
- * offset before they landed). Add `shrink-0` at a call site inside a flex row.
+ * One constant for the same reason `SHUFFLE_PILL_CLASS` is one: a hover or
+ * focus-ring spec copied into two files drifts (the first two had already
+ * disagreed on their ring offset before they landed). Add `shrink-0` at a call
+ * site inside a flex row.
+ *
+ * Named for the ROW rather than for one feature. It started life as
+ * `REPLAY_CHIP_CLASS` and was renamed when the share link became the third
+ * wearer: a share link reaching for a constant named after the replay reads as
+ * a mistake every time someone finds it.
  */
-export const REPLAY_CHIP_CLASS =
+export const MAP_CARD_CHIP_CLASS =
   'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 
 export interface ReplayScrubberProps {
@@ -215,7 +221,7 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
         type="button"
         onClick={togglePause}
         aria-label={isPaused ? 'Resume the replay' : 'Pause the replay'}
-        className={`${REPLAY_CHIP_CLASS} shrink-0`}
+        className={`${MAP_CARD_CHIP_CLASS} shrink-0`}
       >
         {isPaused ? (
           <Play className="size-3" aria-hidden="true" />

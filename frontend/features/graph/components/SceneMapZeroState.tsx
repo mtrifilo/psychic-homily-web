@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Play } from 'lucide-react'
+import { ArrowRight, Play, Share2 } from 'lucide-react'
 
 import { EntityContextPanel } from '@/components/graph/EntityContextPanel'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
@@ -23,8 +23,14 @@ import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/Graph
 import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 
 import { groupNodesByRegion, type SceneMap, type SceneMapNode } from '../sceneMap'
+import {
+  GRAPH_WEEK_PATH,
+  graphWeekSummary,
+  isGraphWeekShareworthy,
+  resolveGraphWeek,
+} from '../graphWeek'
 import type { SceneReplayController } from '../useSceneReplay'
-import { REPLAY_CHIP_CLASS, ReplayScrubber } from './ReplayScrubber'
+import { MAP_CARD_CHIP_CLASS, ReplayScrubber } from './ReplayScrubber'
 import { SceneMapCanvas } from './SceneMapCanvas'
 
 /** Anchor shape the host re-roots on — the same one artist search produces. */
@@ -246,6 +252,28 @@ function FreshnessFooter({
   /** Absent when this snapshot has no watchable history, or below the canvas breakpoint. */
   onWatchItGrow?: () => void
 }) {
+  // The share affordance sits in THIS row rather than on the canvas, for the
+  // same reason the replay chip does: the at-rest map stays chrome-free, and the
+  // invitation belongs beside the other facts about the snapshot.
+  //
+  // Gated on the week being SHAREWORTHY, not merely resolvable. The page itself
+  // renders either way — it answers 200 with an empty state when there is no
+  // snapshot, because it cannot answer 404 (see `app/graph/this-week/page.tsx`)
+  // — so this gate is not protecting anyone from a dead link. It is a taste
+  // rule: a card reading `+0 ARTISTS · +0 CONNECTIONS` is truthful and is not
+  // something to invite anyone to post. Derived from the same
+  // `resolveGraphWeek` the card uses, so the chip and the card can never
+  // disagree about whether there is a week.
+  //
+  // Owned HERE rather than by the host, unlike the replay chip: that gate is
+  // shared with the page header's status line and the canvas, so it has to live
+  // upstream of all three. This one has a single consumer and needs only `map`,
+  // which is already a prop.
+  const shareableWeek = useMemo(() => {
+    const week = resolveGraphWeek(map)
+    return week && isGraphWeekShareworthy(week) ? week : null
+  }, [map])
+
   const lastMapped = Number.isNaN(map.lastMapped.getTime())
     ? null
     : map.lastMapped.toLocaleDateString(undefined, {
@@ -260,11 +288,24 @@ function FreshnessFooter({
           <button
             type="button"
             onClick={onWatchItGrow}
-            className={REPLAY_CHIP_CLASS}
+            className={MAP_CARD_CHIP_CLASS}
           >
             <Play className="size-3 fill-current" aria-hidden="true" />
             Watch it grow
           </button>
+        )}
+        {shareableWeek && (
+          // A plain link, not a copy-to-clipboard or a share-sheet button: the
+          // thing worth sharing is a URL, and handing someone the page it points
+          // at lets them see the card before they post it.
+          <Link
+            href={GRAPH_WEEK_PATH}
+            className={`${MAP_CARD_CHIP_CLASS} shrink-0`}
+            aria-label={`Share this week in the graph. ${graphWeekSummary(shareableWeek)}`}
+          >
+            <Share2 className="size-3" aria-hidden="true" />
+            This week
+          </Link>
         )}
         <span>Mapped nightly{lastMapped ? ` · Last mapped ${lastMapped}` : ''}</span>
       </span>

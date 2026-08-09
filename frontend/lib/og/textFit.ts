@@ -226,6 +226,35 @@ export function fitFontSize(
 }
 
 /**
+ * `fitFontSize`'s mono sibling: largest size in `[minSize, maxSize]` at which a
+ * Space Mono run fits `maxWidth`.
+ *
+ * Separate from `fitFontSize` rather than a `face` parameter on it, because the
+ * two differ in the unit of `tracking` and that difference changes the maths.
+ * `fitFontSize` takes EM tracking, which scales with the size, so width is
+ * linear in size and one proportional step lands on the fit. Mono cards set an
+ * ABSOLUTE px `letterSpacing` that does NOT scale, so width is affine —
+ * `advance * size + tracking * chars` — and the proportional step overshoots by
+ * the constant term. This solves the affine form directly, which is exact
+ * rather than merely closer.
+ */
+export function fitMonoSize(
+  text: string,
+  maxWidth: number,
+  maxSize: number,
+  minSize: number,
+  tracking = 0
+): number {
+  if (measureMono(text, maxSize, tracking) <= maxWidth) return maxSize
+  // Two measurements recover the affine coefficients without this function
+  // needing to know the advance table or how graphemes are counted.
+  const constant = measureMono(text, 0, tracking)
+  const perSize = measureMono(text, 1, 0)
+  if (perSize <= 0) return maxSize
+  return Math.max(minSize, Math.min(maxSize, Math.floor((maxWidth - constant) / perSize)))
+}
+
+/**
  * Fit as many list items as `maxWidth` allows, with an honest `+N` remainder.
  *
  * Truncation must never be silent — on the weekly card this names the venues

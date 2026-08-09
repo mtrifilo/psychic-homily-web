@@ -208,6 +208,19 @@ export const OG_CONTENT_TYPE = 'image/png'
  */
 export const OG_COLORS = {
   background: '#0d0805',
+  /**
+   * `background` at zero alpha — the far end of any fade that reveals what is
+   * painted under it.
+   *
+   * Sited here, next to the colour it must equal, because it IS that colour: a
+   * card that spelled the same rgb a second way would keep the old hue when the
+   * token moves, and a wrong gradient is invisible in review.
+   *
+   * An explicit `rgba` rather than the keyword `transparent`, which several
+   * renderers interpolate through `rgba(0,0,0,0)` — greying the middle of a
+   * fade from a warm near-black.
+   */
+  backgroundClear: 'rgba(13, 8, 5, 0)',
   foreground: '#eee7d9',
   primary: '#e89960',
   mutedForeground: '#9c8c7c',
