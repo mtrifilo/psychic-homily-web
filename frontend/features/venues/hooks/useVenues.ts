@@ -193,12 +193,17 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   } = options
 
   // Resolved ONCE, because the URL and the cache key have to be built from the
-  // same values or they disagree about what is in the entry. A falsy limit or
-  // an empty timezone drops out of the URL and lets the backend default apply,
-  // so the key has to record that it was NOT sent rather than the argument the
-  // caller happened to pass — otherwise `limit: 0` and `limit: undefined` mint
-  // two entries for one identical request. Same rule the venues list hook
-  // above states for `metroRollup`: key on what was SENT.
+  // same values or they disagree about what is in the entry. Anything falsy
+  // drops out of the URL and lets the backend default apply, so the key records
+  // what was SENT rather than the argument the caller passed: `timezone: ''` and
+  // an omitted timezone are one request and must be one entry. (`limit: 0` and
+  // an omitted limit are NOT — the hook defaults an omitted limit to 20 and
+  // sends it. They are two requests, and they get two entries.) Same rule the
+  // venues list hook above states for `metroRollup`: key on what was SENT.
+  //
+  // The load-bearing case is `offset`, for the same reason as the artist twin:
+  // page 1's zero offset must key as "not sent" or the past archive's cache
+  // peek never finds it.
   const sentTimezone = timezone || undefined
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined

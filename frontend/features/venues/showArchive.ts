@@ -17,13 +17,16 @@ import {
   groupByMonth as groupRowsByMonth,
   monthRangeLabel as rowsMonthRangeLabel,
   archiveDocumentTitle as scopedDocumentTitle,
+  type ArchiveRow as ShowArchiveRow,
   type ShowZoneResolver,
 } from '@/features/shows/showArchive'
 import type { VenueShowZone } from './types'
 
-/** The minimum a row needs before this module can place it in time. */
-export interface ArchiveRow {
-  event_date: string
+/**
+ * What the shared module needs, plus the one field only a venue row has: its
+ * own denormalized state.
+ */
+export interface ArchiveRow extends ShowArchiveRow {
   /** The show's own state, when it differs from the venue's. */
   state?: string | null
 }

@@ -32,6 +32,11 @@ function ArtistLink({
   artist: ShowBillArtist
   className?: string
 }) {
+  // Unlinked without a slug. It is nullable in the DB and the API sends "" for
+  // a missing one, and `/artists/` is not a 404 — it is the artists INDEX, so
+  // an unguarded link would quietly take the reader off the page they are on
+  // rather than failing visibly.
+  if (!artist.slug) return <span className={className}>{artist.name}</span>
   return (
     <Link href={`/artists/${artist.slug}`} className={className}>
       {artist.name}

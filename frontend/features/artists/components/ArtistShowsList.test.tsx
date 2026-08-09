@@ -62,6 +62,15 @@ vi.mock('../hooks/useArtists', () => ({
 // plain value stub is the whole contract.
 let queryYear: number | null = null
 let queryPage = 1
+// The archive builds its hrefs from the params already on the URL, so the test
+// controls that set directly. Kept separate from the nuqs stub above because it
+// is a different question: nuqs says what the archive IS showing, this says what
+// ELSE is on the URL that the archive has to carry through.
+let otherParams = ''
+vi.mock('next/navigation', async importOriginal => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useSearchParams: () => new URLSearchParams(otherParams),
+}))
 vi.mock('nuqs', async importOriginal => ({
   // Partial: the shared filter parsers elsewhere in this import graph build on
   // nuqs's real `createParser`, so only the hook is swapped out.
@@ -172,6 +181,7 @@ beforeEach(() => {
   pastRequests.length = 0
   queryYear = null
   queryPage = 1
+  otherParams = ''
 })
 
 afterEach(() => {
@@ -382,6 +392,52 @@ describe('ArtistPastShows — rows', () => {
     ).toBeNull()
   })
 
+  it('keeps the page artist on the bill instead of filtering them out', () => {
+    // A deliberate reversal of the pre-PSY-1754 list, which showed only "w/ …".
+    // Pinned rather than merely unpinned so the next reader can tell this was
+    // chosen: on a support slot the lead is the thing the reader came for, and
+    // filtering it out left the row starting with "w/" and no one to open for.
+    setPast({ shows: [makeShow({ id: 5 })], total: 1 })
+    renderList({ artistName: 'Main Artist' })
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(
+      within(table).getByRole('link', { name: 'Main Artist' })
+    ).toHaveAttribute('href', '/artists/main-artist')
+  })
+
+  it('leaves a bill artist with no slug unlinked rather than linking to /artists/', () => {
+    // `/artists/` is not a 404 — it is the artists INDEX, so an unguarded link
+    // would quietly take the reader off the page instead of failing visibly.
+    setPast({
+      shows: [
+        makeShow({
+          id: 5,
+          artists: [{ id: 42, slug: '', name: 'Unslugged Band' }],
+        }),
+      ],
+      total: 1,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(within(table).getByText('Unslugged Band')).toBeInTheDocument()
+    expect(
+      within(table).queryByRole('link', { name: 'Unslugged Band' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('heads the bill column for what the cell actually holds', () => {
+    // The cell carries the venue as well as the bill, and a screen reader
+    // announces the column header with every cell under it.
+    setPast({ shows: [makeShow({ id: 5 })], total: 1 })
+    renderList()
+    expect(
+      within(screen.getByRole('table', { name: 'Past shows' })).getByRole(
+        'columnheader',
+        { name: 'Bill · Venue' }
+      )
+    ).toBeInTheDocument()
+  })
+
   it('badges cancelled shows, and suppresses sold-out on a cancelled one', () => {
     setPast({
       shows: [
@@ -444,6 +500,37 @@ describe('ArtistPastShows — rows', () => {
     expect(headings).toEqual(['Sep 2025', 'Jun 2025'])
   })
 
+  it('can repeat a month heading when a page straddles a boundary', () => {
+    // The API orders on the absolute instant; each row is LABELLED in its own
+    // venue's zone. Inside the ~1-day band around a month boundary those two
+    // axes disagree, so the honest rendering repeats a heading rather than
+    // silently reordering rows under a merged one. Pinned so the next reader
+    // does not file it as a sorting bug.
+    const london = {
+      id: 2,
+      slug: 'the-lexington',
+      name: 'The Lexington',
+      city: 'London',
+      state: '',
+      timezone: 'Europe/London',
+    }
+    setPast({
+      shows: [
+        // 02:00Z on Nov 1 is still Oct 31 in Chicago...
+        makeShow({ id: 5, event_date: '2025-11-01T02:00:00Z' }),
+        // ...while 01:00Z, an hour EARLIER, is already Nov 1 in London.
+        makeShow({ id: 6, event_date: '2025-11-01T01:00:00Z', venue: london }),
+        makeShow({ id: 7, event_date: '2025-10-31T20:00:00Z' }),
+      ],
+      total: 3,
+    })
+    renderList()
+    const headings = within(screen.getByRole('table', { name: 'Past shows' }))
+      .getAllByRole('rowheader')
+      .map(cell => cell.textContent)
+    expect(headings).toEqual(['Oct 2025', 'Nov 2025', 'Oct 2025'])
+  })
+
   it('places each row in its OWN venue timezone, not one zone for the table', () => {
     // 2025-01-01T04:00:00Z is still Dec 31 in Chicago and already Jan 1 in
     // London. A single-zone table would file both rows under one month.
@@ -502,6 +589,19 @@ describe('ArtistPastShows — year and page state', () => {
     ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
   })
 
+  it('falls back to the artist id when the artist has no slug', () => {
+    // `/artists/` is the artists INDEX, not a 404, so an unguarded empty slug
+    // would make every link in the archive silently eject the reader.
+    renderList({ artistSlug: '' })
+    const strip = screen.getByRole('navigation', {
+      name: 'Filter past shows by year',
+    })
+    expect(within(strip).getByRole('link', { name: /2025/ })).toHaveAttribute(
+      'href',
+      '/artists/42?year=2025#artist-past-shows'
+    )
+  })
+
   it('never emits ?page=1: page 1 links are bare', () => {
     queryPage = 2
     renderList()
@@ -519,6 +619,61 @@ describe('ArtistPastShows — year and page state', () => {
     expect(
       within(pager).getByRole('link', { name: /^Page 2/ })
     ).toHaveAttribute('href', '/artists/turnstile?year=2025&page=2#artist-past-shows')
+  })
+
+  it('carries an unrelated query param through every link it builds', () => {
+    // The connections graph writes `?center=` onto this same URL and leaves it
+    // there, and IT preserves year/page. Building hrefs from a fresh param set
+    // would make that courtesy one-way and silently drop the reader's graph
+    // center the moment they paged the archive.
+    otherParams = 'center=some-other-artist'
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(
+      within(pager).getByRole('link', { name: /^Page 2/ })
+    ).toHaveAttribute(
+      'href',
+      '/artists/turnstile?center=some-other-artist&page=2#artist-past-shows'
+    )
+    const strip = screen.getByRole('navigation', {
+      name: 'Filter past shows by year',
+    })
+    expect(
+      within(strip).getByRole('link', { name: 'All years' })
+    ).toHaveAttribute(
+      'href',
+      '/artists/turnstile?center=some-other-artist#artist-past-shows'
+    )
+  })
+
+  it('still drops its OWN params from the canonical page-1, all-years link', () => {
+    // Carrying other people's params through must not turn "page 1 and all
+    // years are bare" into "whatever was on the URL stays on it".
+    otherParams = 'year=2024&page=7'
+    renderList()
+    const strip = screen.getByRole('navigation', {
+      name: 'Filter past shows by year',
+    })
+    expect(
+      within(strip).getByRole('link', { name: 'All years' })
+    ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
+  })
+
+  it('offers a way out of a year filter when the histogram request fails', () => {
+    // The year strip is the only exit from `?year=`, and it is built from a
+    // SEPARATE request that can fail while the page request succeeds. Without
+    // this the reader is left with correct rows and no control that clears the
+    // filter — the zero-rows "Show every year" link does not run, because there
+    // are rows.
+    queryYear = 2025
+    setYears(null)
+    yearsResult.isError = true
+    yearsResult.isPending = false
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    renderList()
+    expect(
+      pastSection().getByRole('link', { name: 'Show every year' })
+    ).toHaveAttribute('href', '/artists/turnstile#artist-past-shows')
   })
 
   it('translates the page param into an offset request', () => {

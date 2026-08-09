@@ -35,11 +35,12 @@ test.describe('Artist detail', () => {
     await expect(breadcrumbNav.getByRole('link', { name: 'Artists' })).toBeVisible()
 
     // ArtistShowsList renders the upcoming-shows heading unconditionally, while
-    // the past-shows `<section>` renders only when the year histogram reports a
-    // year with shows (PSY-1754). The E2E seed (setup-db.sh) inserts only
-    // future-dated shows, so the past-shows assertion would never resolve here;
-    // the archive's year strip, pager and URL state are covered by
-    // ArtistShowsList.test.tsx instead.
+    // the past-shows `<section>` renders only once EITHER the year histogram
+    // reports a year with shows OR, while that request is still in flight or
+    // has failed, the first page request reports a non-zero total (PSY-1754).
+    // The E2E seed (setup-db.sh) inserts only future-dated shows, so the
+    // past-shows assertion would never resolve here; the archive's year strip,
+    // pager and URL state are covered by ArtistShowsList.test.tsx instead.
     await expect(
       page.getByRole('heading', { name: /upcoming shows/i })
     ).toBeVisible()

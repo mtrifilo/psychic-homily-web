@@ -101,6 +101,13 @@ export interface ArtistShowsTableProps {
    * Only meaningful while the rows are in date order — the grouping walks runs
    * rather than collecting, so an unsorted list gets repeated headings instead
    * of silently reordered rows.
+   *
+   * The artist list is sorted, but on a different axis than it is grouped by:
+   * the API orders on the absolute instant, while each row is LABELLED in its
+   * own venue's zone. Inside the ~1-day band around a month boundary those two
+   * disagree, so a page covering it can show a heading twice or out of order.
+   * That is the honest rendering of the underlying rows and it is pinned by a
+   * test — it is not a sorting bug to go fix.
    */
   groupByMonthHeadings?: boolean
 }
@@ -138,7 +145,10 @@ export function ArtistShowsTable({
       <thead>
         <tr>
           <th>Date</th>
-          <th>Bill</th>
+          {/* Not just "Bill", which the venue twin can say: this cell also
+              carries the venue and city, and a screen reader announces the
+              column header with every cell in it. */}
+          <th>Bill · Venue</th>
           <th className="text-right">Price</th>
           <th className="text-right">Time</th>
         </tr>

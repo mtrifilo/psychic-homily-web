@@ -13,8 +13,11 @@ export { ArtistSearch } from './ArtistSearch'
 export { ArtistList } from './ArtistList'
 export { ArtistListSkeleton } from './ArtistListSkeleton'
 export { ArtistShowsList } from './ArtistShowsList'
-export { ArtistPastShows, ARTIST_PAST_SHOWS_ANCHOR } from './ArtistPastShows'
-export { ArtistShowsTable } from './ArtistShowsTable'
+// ArtistPastShows / ArtistShowsTable are deliberately NOT barrel-exported:
+// ArtistShowsList deep-imports both, and this file's PSY-950 warning above is
+// about exactly this — every export added here widens what Turbopack can reach
+// from more than one route. Add one when something outside this directory
+// actually needs it.
 export { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 export { BillComposition } from './BillComposition'
 export { ArtistGraphVisualization } from './ArtistGraph'

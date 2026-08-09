@@ -226,6 +226,46 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     expect(urls.some(u => !u.includes('limit='))).toBe(true)
     expect(urls.some(u => u.includes('limit=20'))).toBe(true)
     expect(urls.every(u => !u.includes('timezone='))).toBe(true)
+
+    // And the KEYS record the same thing. Asserting only the URLs would pass
+    // against the pre-PSY-1754 key too, which is the whole bug this file exists
+    // for: both hooks must land on a key built from the SENT values, with the
+    // empty timezone recorded as "not sent" rather than as ''.
+    const hashes = queryClient
+      .getQueryCache()
+      .getAll()
+      .map(entry => entry.queryHash)
+    expect(hashes).toHaveLength(2)
+    expect(new Set(hashes)).toEqual(
+      new Set([
+        hashKey(
+          artistQueryKeys.showsPage(ARTIST_ID, { timeFilter: 'upcoming' }),
+        ),
+        hashKey(
+          artistQueryKeys.showsPage(ARTIST_ID, {
+            timeFilter: 'upcoming',
+            limit: 20,
+          }),
+        ),
+      ]),
+    )
+  })
+
+  it('collapses an empty timezone and an omitted one onto ONE entry', () => {
+    // The mirror image of the collision this file opens with: keying on the raw
+    // argument would mint two entries for one byte-identical request. Asserted
+    // on the key builder directly, because the pair above differ in `limit` and
+    // would be two entries regardless.
+    expect(
+      hashKey(
+        artistQueryKeys.showsPage(ARTIST_ID, {
+          timeFilter: 'past',
+          timezone: undefined,
+        }),
+      ),
+    ).toBe(
+      hashKey(artistQueryKeys.showsPage(ARTIST_ID, { timeFilter: 'past' })),
+    )
   })
 
   it('never sends an out-of-range year the backend would reject', async () => {

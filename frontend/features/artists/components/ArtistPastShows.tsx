@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { parseAsInteger, useQueryState } from 'nuqs'
@@ -44,7 +45,10 @@ const MAX_PAGE = 1_000
 
 export interface ArtistPastShowsProps {
   artistId: number
-  /** Used to build page/year hrefs, so they are absolute and shareable. */
+  /**
+   * Used to build page/year hrefs, so they are absolute and shareable. May be
+   * empty — see `basePath` below, which is where that is handled.
+   */
   artistSlug: string
   /** Used in the document title while a year or page is active. */
   artistName: string
@@ -151,18 +155,42 @@ export function ArtistPastShows({
   const scopedTotal = histogramTotal ?? envelopeTotal
   const totalPages = Math.max(1, Math.ceil(scopedTotal / pageParams.limit))
 
-  const basePath = `/artists/${artistSlug}`
+  // Every href starts from the params already on the URL, not from an empty
+  // set, and then overwrites the two this section owns.
+  //
+  // The venue archive can build from scratch because it is the only query-param
+  // writer on its page. This one is not: the connections graph pushes
+  // `?center=<slug>` onto the same URL and leaves it there when its dialog
+  // closes, and IT already preserves `year`/`page`. A fresh `URLSearchParams`
+  // here would make that courtesy one-way — paging the archive would silently
+  // drop the reader's graph center, and a shared link would lose it too.
+  const searchParams = useSearchParams()
+  // Falls back to the id, which resolves on the same route.
+  //
+  // `slug` is nullable in the DB and the API sends "" for a missing one — and
+  // `GenerateSlug` returns "" for any name with no [a-z0-9] characters at all,
+  // so a band called `!!!` or `少年ナイフ` reaches this page slugless. An
+  // unguarded `/artists/${''}` is `/artists/`, which is not a 404 but the
+  // artists INDEX: every year link, every page link and both "back to the
+  // first page" links would silently eject the reader from the archive this
+  // ticket exists to make navigable. Resolved HERE rather than at the caller so
+  // no future caller can forget it.
+  const basePath = `/artists/${artistSlug || artistId}`
   const buildHref = useCallback(
     (year: number | null, targetPage: number) => {
-      const params = new URLSearchParams()
-      if (year !== null) params.set('year', String(year))
+      const params = new URLSearchParams(searchParams)
       // Page 1 and "all years" are bare URLs: one canonical address per view,
       // so a shared link and the link the pager builds are the same string.
+      // That rule is about OUR two params — anything else on the URL belongs to
+      // another owner and is carried through untouched.
+      if (year === null) params.delete('year')
+      else params.set('year', String(year))
       if (targetPage > 1) params.set('page', String(targetPage))
+      else params.delete('page')
       const query = params.toString()
       return `${basePath}${query ? `?${query}` : ''}#${ARTIST_PAST_SHOWS_ANCHOR}`
     },
-    [basePath]
+    [basePath, searchParams]
   )
 
   // Month-range page labels: what is behind a page number, before the reader
@@ -288,6 +316,12 @@ export function ArtistPastShows({
     // null — burning the flag there would strand the reader at the top of the
     // page once the histogram brought the section back.
     const section = sectionRef.current
+    // `hasPastShows` is in the dep array and read nowhere in this body ON
+    // PURPOSE, and eslint does not flag the reverse: its false -> true flip is
+    // the ONLY thing that re-runs this effect once the histogram brings the
+    // section into existence, which is what makes the null-ref bail above
+    // recoverable rather than terminal. Removing it as "unused" silently lands
+    // every deep link at the top of the page.
     if (hasHonoredAnchor.current || !archiveSettled || section === null) return
     hasHonoredAnchor.current = true
     if (window.location.hash === `#${ARTIST_PAST_SHOWS_ANCHOR}`) {
@@ -313,6 +347,17 @@ export function ArtistPastShows({
     activeYear !== null && haveHistogram
       ? `${formatCount(scopedTotal)} of ${formatCount(allTimeTotal)} all-time`
       : formatCount(scopedTotal)
+
+  // The year strip is the only way OUT of a `?year=` scope, and it is built
+  // from the histogram — a separate request that can fail on its own while the
+  // page request succeeds. Without this, a reader who opens a shared
+  // `?year=2025` link during that failure gets correct rows, a correct heading,
+  // and no control that clears the filter: the strip never renders (no years),
+  // and the "Show every year" link lives in the zero-rows branch, which does
+  // not run because there ARE rows. Same reasoning as the failed-page branch
+  // below, applied to the request that branch does not cover.
+  const yearFilterIsStranded =
+    activeYear !== null && !haveHistogram && yearsQuery.isError
 
   const renderPager = (position: 'top' | 'bottom') => (
     <Pagination
@@ -351,6 +396,18 @@ export function ArtistPastShows({
           </span>
         }
       />
+
+      {yearFilterIsStranded && (
+        <p className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted-foreground">
+          <span>Could not load the other years.</span>
+          <Link
+            href={buildHref(null, 1)}
+            className="font-mono text-xs text-primary hover:underline"
+          >
+            Show every year
+          </Link>
+        </p>
+      )}
 
       {yearEntries.length > 1 && (
         <YearStrip

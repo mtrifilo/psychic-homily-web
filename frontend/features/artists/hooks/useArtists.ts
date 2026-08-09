@@ -136,11 +136,16 @@ export function useArtistShows(options: UseArtistShowsOptions) {
   } = options
 
   // Resolved ONCE, because the URL and the cache key have to be built from the
-  // same values or they disagree about what is in the entry. A falsy limit or
-  // an empty timezone drops out of the URL and lets the backend default apply,
-  // so the key has to record that it was NOT sent rather than the argument the
-  // caller happened to pass — otherwise `limit: 0` and `limit: undefined` mint
-  // two entries for one identical request. Key on what was SENT.
+  // same values or they disagree about what is in the entry. Anything falsy
+  // drops out of the URL and lets the backend default apply, so the key records
+  // what was SENT rather than the argument the caller passed: `timezone: ''` and
+  // an omitted timezone are one request and must be one entry.
+  //
+  // The load-bearing case is `offset`. Page 1's offset is 0, which is not sent,
+  // and `artistPastShowsPageParams` says so with `undefined` — so the archive's
+  // cache PEEK at its neighbour pages only ever finds page 1 while this
+  // normalization and that helper agree. Nothing throws when they drift; the
+  // page labels just silently stop appearing.
   const sentTimezone = timezone || undefined
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined

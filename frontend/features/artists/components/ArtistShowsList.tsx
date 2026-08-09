@@ -36,10 +36,20 @@ function ShowsLoader() {
  * booking horizons and comes down in a single request; the past is unbounded
  * and lives in `ArtistPastShows`, which pages it by year.
  *
- * The venue twin is `VenueShowsList` (PSY-1753). The one deliberate divergence
- * is in the rows: an artist's shows span venues, so each row names where it
- * happened. There is no add-show affordance here, because a show is created
- * against a venue, not against a bill.
+ * The venue twin is `VenueShowsList` (PSY-1753). Two deliberate divergences,
+ * both in the rows:
+ *
+ *  - Each row names where it happened, because an artist's shows span venues.
+ *  - Each row carries the WHOLE bill, including this artist. The pre-PSY-1754
+ *    list filtered the page's own artist out and showed only "w/ …". That hid
+ *    the thing the reader most often wants from a past date — who they opened
+ *    for — and it made every row of a support slot start with "w/" and no lead.
+ *    The cost is the artist's own name repeating down the page when they
+ *    headline; the addendum accepted that trade. `ArtistShowsList.test.tsx`
+ *    pins it, so a future reader can tell this was chosen rather than lost.
+ *
+ * There is no add-show affordance here, because a show is created against a
+ * venue, not against a bill.
  */
 export function ArtistShowsList({
   artistId,
@@ -54,15 +64,22 @@ export function ArtistShowsList({
     limit: ARTIST_UPCOMING_SHOWS_LIMIT,
   })
 
-  // No `dedupArtistShows` here, and none in the past archive either. The
-  // duplicate class it filtered — the same artist, at the same venue, at the
-  // same instant — is enforced impossible by the PSY-576 structural unique
-  // index on `show_artists (artist_id, venue_id, event_date)`, verified clean
-  // on stage and on prod, and that index key IS the dedup key once the list is
-  // scoped to one artist. Filtering rows after the fact is also actively wrong
-  // in a server-paged list: it would render fewer rows than the pager's own
-  // "Showing 51-100 of 161" claims, and `total` and the year histogram would
-  // still count what the page dropped.
+  // No `dedupArtistShows` here, and none in the past archive either.
+  //
+  // Two reasons, and only the second is unconditional. The duplicate class it
+  // filtered — the same artist, at the same venue, at the same instant — is the
+  // key of the PSY-576 unique index on `show_artists (artist_id, venue_id,
+  // event_date)`, verified clean on stage and on prod. That index is PARTIAL
+  // (`WHERE event_date IS NOT NULL AND venue_id IS NOT NULL`), so it does not
+  // cover a show with no venue link, which this page does render ("Venue TBA").
+  // Duplicates in that residual class would now reach the reader.
+  //
+  // The unconditional reason is that filtering rows after the fact is actively
+  // WRONG in a server-paged list, residual class or not: it would render fewer
+  // rows than the pager's own "Showing 51-100 of 161" claims, while `total` and
+  // the year histogram still count what the page dropped. A client-side filter
+  // cannot be the answer here; closing the residual class belongs in the index
+  // or the ingest path.
   const upcomingShows = upcoming.data?.shows ?? []
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
 
