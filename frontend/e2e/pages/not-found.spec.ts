@@ -331,17 +331,20 @@ test.describe('Not-found pages — HTTP 404 status', () => {
 
     test('the permalink /tonight declares canonical returns HTTP 200', async ({ page }) => {
       // A canonical that 404s is worse than no canonical at all. Read the
-      // target OFF the page rather than hardcoding today's date: a fixed date
-      // would keep passing while quietly testing nothing, since any valid date
+      // target OFF the page rather than hardcoding this week's key: a fixed key
+      // would keep passing while quietly testing nothing, since any valid week
       // 200s. This way the assertion follows the real declared relationship.
       await page.goto('/scenes/phoenix-az/tonight')
       const href = await page.locator('link[rel="canonical"]').getAttribute('href')
 
       expect(href, '/tonight must declare a canonical').toBeTruthy()
+      // The WEEK permalink, not the dated day permalink: day permalinks are
+      // announced in no sitemap, so canonicalizing to one aimed crawlers at a
+      // URL the site never tells them about.
       expect(
         href,
-        'the canonical must be the DATED permalink, never the rolling URL'
-      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
+        'the canonical must be the WEEK permalink, never the rolling URL or a dated day'
+      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-W\d{2}$/)
 
       // The PATH, against the server under test. The canonical is absolute and
       // points at the production origin, so navigating to it verbatim would
@@ -352,6 +355,66 @@ test.describe('Not-found pages — HTTP 404 status', () => {
         response?.status(),
         `${pathname} must return 200 — it is what /tonight points every crawler at`
       ).toBe(200)
+    })
+
+    /**
+     * A real DATED day permalink still resolves.
+     *
+     * Kept as its own test now that the canonical probe above follows the week
+     * key. A dated permalink is no longer any rolling page's canonical, but it
+     * is still linked from every day page's prev/next chips, and this is the
+     * only place the assembled path (proxy.ts's date branch, then `[period]`'s
+     * `looksLikeCalendarDate` dispatch to the DAY view) is exercised against a
+     * date the server agrees exists. Without it, a change that 404s or
+     * soft-404s every dated permalink ships green.
+     */
+    test('a real dated day permalink returns HTTP 200 and renders the DAY view', async ({
+      page,
+    }) => {
+      // Read the date off the page rather than hardcoding today's: a fixed date
+      // would keep passing while testing nothing, since any valid date 200s.
+      //
+      // Parsed in the page rather than via a Playwright text filter because the
+      // day route emits SEVERAL ld+json blocks and one of them is a top-level
+      // ARRAY (the MusicEvent graph), so the block has to be identified by its
+      // parsed @type, not by matching source text.
+      await page.goto('/scenes/phoenix-az/tonight')
+      const leaf = await page.evaluate(() => {
+        const blocks = document.querySelectorAll('script[type="application/ld+json"]')
+        for (const block of Array.from(blocks)) {
+          const parsed = JSON.parse(block.textContent ?? 'null')
+          if (parsed && !Array.isArray(parsed) && parsed['@type'] === 'BreadcrumbList') {
+            return parsed.itemListElement[parsed.itemListElement.length - 1].item as string
+          }
+        }
+        return null
+      })
+
+      expect(leaf, '/tonight must emit a BreadcrumbList').toBeTruthy()
+      expect(
+        leaf,
+        'the breadcrumb leaf must name the dated day permalink'
+      ).toMatch(/\/scenes\/phoenix-az\/\d{4}-\d{2}-\d{2}$/)
+
+      const { pathname } = new URL(leaf!)
+      const response = await page.goto(pathname)
+      expect(
+        response?.status(),
+        `${pathname} must return 200 — it is linked from every day page`
+      ).toBe(200)
+      await expect(
+        page.getByRole('main').getByRole('heading', { level: 1 })
+      ).toContainText('Phoenix', { timeout: 10_000 })
+
+      // The DAY view, not the week view. `[period]` dispatches both shapes, so
+      // a branch-order regression there would otherwise ship green. Asserted on
+      // the canonical rather than on rendered prose: a dated day permalink is
+      // its own canonical, while the week view would declare a `-W##` key.
+      const served = await page.locator('link[rel="canonical"]').getAttribute('href')
+      expect(
+        served,
+        'a dated day permalink must self-canonicalize, proving the DAY branch ran'
+      ).toBe(`https://psychichomily.com${pathname}`)
     })
 
     test('a date that does not exist returns HTTP 404', async ({ page }) => {

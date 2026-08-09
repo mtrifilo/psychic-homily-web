@@ -46,9 +46,9 @@ const day = (over: Partial<SceneDayResponse> = {}): SceneDayResponse =>
 const NOW = new Date('2026-07-31T12:00:00Z')
 
 describe('buildSceneDayJsonLd', () => {
-  // The canonical is the DATED permalink even when this renders at /tonight, so
-  // the breadcrumb leaf must agree — a leaf pointing at the rolling URL would
-  // contradict the canonical tag and go stale tomorrow besides.
+  // The leaf names this NIGHT, from both day routes. /tonight would go stale
+  // tomorrow, and the week permalink the rolling route canonicalizes to names
+  // seven nights rather than this one.
   it('anchors the breadcrumb leaf on the dated permalink', () => {
     const { breadcrumb } = buildSceneDayJsonLd(day(), NOW)
     const items = breadcrumb.itemListElement

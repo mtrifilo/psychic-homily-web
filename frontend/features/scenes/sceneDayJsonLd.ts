@@ -38,10 +38,11 @@ export function buildSceneDayJsonLd(
   const shows = dayShows(day)
   const dateLabel = formatDayFull(day.date)
 
-  // The dated permalink is the canonical URL for BOTH day routes (see
-  // buildSceneDayMetadata), so the breadcrumb's leaf must point there too —
-  // pointing it at /tonight would contradict the canonical tag, and would go
-  // stale tomorrow besides.
+  // The leaf names the DATED permalink from both day routes. It is the only URL
+  // that identifies this night: /tonight would go stale tomorrow, and the week
+  // permalink the rolling route declares as its canonical (see
+  // buildSceneDayMetadata) names seven nights rather than this one. A
+  // breadcrumb trail is a location, not a canonical claim.
   const breadcrumb = generateBreadcrumbSchema([
     { name: 'Home', url: SITE_URL },
     { name: 'Scenes', url: `${SITE_URL}/scenes` },
