@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Venue-local upcoming/past partitioning for artist and venue show lists.
@@ -431,7 +432,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetNextShowForArtist_AgreesW
 
 func (suite *VenueServiceIntegrationTestSuite) venueShowIDs(venueID uint) listPartition {
 	return func(callerZone, timeFilter string) ([]uint, int64, error) {
-		shows, total, err := suite.venueService.GetShowsForVenue(venueID, callerZone, 50, timeFilter)
+		shows, total, err := suite.venueService.GetShowsForVenue(venueID, callerZone, contracts.VenueShowsQuery{TimeFilter: timeFilter, Limit: 50})
 		ids := make([]uint, 0, len(shows))
 		for _, s := range shows {
 			ids = append(ids, s.ID)
@@ -463,12 +464,12 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_VenueLocalYe
 	requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
 	suite.createApprovedShowAt(venue.ID, user.ID, at)
 
-	past, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "past")
+	past, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), pastTotal)
 	suite.Require().Len(past, 1)
 
-	upcoming, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "upcoming")
+	upcoming, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), upcomingTotal)
 	suite.Empty(upcoming)
@@ -483,12 +484,12 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_VenueLocalTo
 	requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
 	suite.createApprovedShowAt(venue.ID, user.ID, at)
 
-	upcoming, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "upcoming")
+	upcoming, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), upcomingTotal)
 	suite.Require().Len(upcoming, 1)
 
-	_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "past")
+	_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), pastTotal)
 }
@@ -511,11 +512,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_NullVenueTim
 	requireLocalAndUTCDatesDiffer(suite.T(), at, "Pacific/Honolulu")
 	suite.createApprovedShowAt(venue.ID, user.ID, at)
 
-	_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "past")
+	_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), pastTotal, "a NULL venue zone must resolve through the state map, not UTC")
 
-	_, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "upcoming")
+	_, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), upcomingTotal)
 }
@@ -538,12 +539,12 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_MultiVenueSh
 	show := suite.createApprovedShowAt(honolulu.ID, user.ID, at)
 	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: tokyo.ID}).Error)
 
-	upcoming, upcomingTotal, err := suite.venueService.GetShowsForVenue(tokyo.ID, "UTC", 10, "upcoming")
+	upcoming, upcomingTotal, err := suite.venueService.GetShowsForVenue(tokyo.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), upcomingTotal, "primary venue's zone decides, not the queried venue's")
 	suite.Empty(upcoming)
 
-	past, pastTotal, err := suite.venueService.GetShowsForVenue(tokyo.ID, "UTC", 10, "past")
+	past, pastTotal, err := suite.venueService.GetShowsForVenue(tokyo.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), pastTotal)
 	suite.Require().Len(past, 1)
@@ -563,11 +564,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_ExtremeVenue
 		suite.createApprovedShowAt(venue.ID, user.ID, venueLocalInstant(suite.T(), zone, 0, 0))
 		suite.createApprovedShowAt(venue.ID, user.ID, venueLocalInstant(suite.T(), zone, -1, 23))
 
-		_, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 50, "upcoming")
+		_, upcomingTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 50})
 		suite.Require().NoError(err, "zone %s", zone)
 		suite.Equal(int64(1), upcomingTotal, "zone %s: venue-local midnight today must be upcoming", zone)
 
-		_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 50, "past")
+		_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "past", Limit: 50})
 		suite.Require().NoError(err, "zone %s", zone)
 		suite.Equal(int64(1), pastTotal, "zone %s: the last instant of venue-local yesterday must be past", zone)
 	}
@@ -593,7 +594,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_NonUSVenueIg
 	// state map would have used.
 	suite.createApprovedShowAt(venue.ID, user.ID, venueLocalInstant(suite.T(), "UTC", -1, 12))
 
-	_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "past")
+	_, pastTotal, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), pastTotal, "a non-US venue must fall back to UTC, not the US state map")
 }

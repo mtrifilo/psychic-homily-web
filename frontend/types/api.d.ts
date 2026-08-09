@@ -6600,6 +6600,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/venues/{venue_id}/shows/years": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get venues by venue ID shows years */
+        get: operations["get-venues-by-venue-id-shows-years"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/{entity_type}/{entity_id}/follow": {
         parameters: {
             query?: never;
@@ -12188,6 +12205,23 @@ export interface components {
             /** @description List of cities with venue counts */
             cities: components["schemas"]["VenueCityResponse"][] | null;
         };
+        GetVenueShowYearsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetVenueShowYearsResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Time filter the counts were taken under */
+            time_filter: string;
+            /**
+             * Format: int64
+             * @description Venue ID
+             */
+            venue_id: number;
+            /** @description Venue-local calendar years that have at least one show, newest first */
+            years: components["schemas"]["VenueShowYearCount"][] | null;
+        };
         GetVenueShowsResponseBody: {
             /**
              * Format: uri
@@ -12195,11 +12229,21 @@ export interface components {
              * @example https://example.com/schemas/GetVenueShowsResponseBody.json
              */
             readonly $schema?: string;
-            /** @description List of upcoming shows */
+            /**
+             * Format: int64
+             * @description Limit used in query
+             */
+            limit: number;
+            /**
+             * Format: int64
+             * @description Offset used in query
+             */
+            offset: number;
+            /** @description Page of shows at this venue */
             shows: components["schemas"]["VenueShowResponse"][] | null;
             /**
              * Format: int64
-             * @description Total number of upcoming shows
+             * @description Total shows matching the time filter and year, across all pages
              */
             total: number;
             /**
@@ -12207,6 +12251,11 @@ export interface components {
              * @description Venue ID
              */
             venue_id: number;
+            /**
+             * Format: int64
+             * @description Year filter used in query (0 = all years)
+             */
+            year: number;
         };
         GraphOverview: {
             /**
@@ -17064,10 +17113,25 @@ export interface components {
             event_date: string;
             /** Format: int64 */
             id: number;
+            is_cancelled: boolean;
+            is_sold_out: boolean;
             /** Format: double */
             price: number | null;
+            slug: string;
             state: string | null;
             title: string;
+        };
+        VenueShowYearCount: {
+            /**
+             * Format: int64
+             * @description Shows at this venue in that year, within the requested time filter
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar year
+             */
+            year: number;
         };
         VenueWithShowCountResponse: {
             address: string | null;
@@ -33659,9 +33723,54 @@ export interface operations {
                 timezone?: string;
                 /** @description Maximum number of shows to return (max 200) */
                 limit?: number;
+                /** @description Offset for pagination */
+                offset?: number;
                 /**
                  * @description Filter shows by time: upcoming, past, or all
                  * @example upcoming
+                 */
+                time_filter?: "upcoming" | "past" | "all";
+                /** @description Filter to a single venue-local calendar year. 0 (default) returns every year. Use /venues/{venue_id}/shows/years to discover which years have shows. */
+                year?: number;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Venue ID or slug
+                 * @example valley-bar-phoenix-az
+                 */
+                venue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetVenueShowsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-venues-by-venue-id-shows-years": {
+        parameters: {
+            query?: {
+                /**
+                 * @description Count shows by time: upcoming, past, or all
+                 * @example past
                  */
                 time_filter?: "upcoming" | "past" | "all";
             };
@@ -33683,7 +33792,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GetVenueShowsResponseBody"];
+                    "application/json": components["schemas"]["GetVenueShowYearsResponseBody"];
                 };
             };
             /** @description Error */

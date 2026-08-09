@@ -3,6 +3,7 @@ package shared
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"psychic-homily-backend/internal/utils"
 )
@@ -178,6 +179,18 @@ var venueLocalZoneSQL = `COALESCE(NULLIF(btrim(venue_tz.timezone, E' \t\n\r\f\v'
 // the calendar and reminder services render it with time.Time.In(venueZone).
 var VenueLocalDateSQL = `(shows.event_date AT TIME ZONE ` + venueLocalZoneSQL + `)::date`
 
+// VenueLocalYearSQL is the calendar YEAR of the show's venue-local date, as an
+// int. It is the only year convention listing surfaces may use: the bill-network
+// window resolver (catalog/venue_bill_network.go) buckets by UTC year instead,
+// and those two already disagree for a late-night show near a New Year boundary.
+// Do not introduce a third.
+//
+// Like everything else derived from venueLocalZoneSQL it is a pure scalar
+// expression over VenueTZJoin's already-fetched columns, so it adds no relation
+// to the lateral path. See VenueTZJoin's note on the 8.1s regression that
+// joining one cost.
+var VenueLocalYearSQL = `EXTRACT(YEAR FROM ` + VenueLocalDateSQL + `)::int`
+
 // VenueLocalTodaySQL is "today" on the venue's local calendar. A show graduates
 // from upcoming to past when this date passes its venue-local event date, i.e.
 // at venue-local midnight, not at the event's start instant. A show already in
@@ -233,4 +246,51 @@ func VenueLocalDateCondition(timeFilter string) string {
 	default: // "upcoming"
 		return upcomingCoarseBound + " AND " + VenueLocalDateSQL + " >= " + VenueLocalTodaySQL
 	}
+}
+
+// yearCoarseMargin widens the sargable UTC bounds below far enough that no
+// venue-local instant of the requested year can fall outside them. The inhabited
+// UTC offset range is -12:00 to +14:00, so one day would already cover it; two
+// matches the margin the upcoming/past coarse bounds use, for the same reason
+// (historical offsets have been stranger than the present ones, and the extra
+// day costs nothing in selectivity).
+const yearCoarseMargin = 48 * time.Hour
+
+// maxCoarseBoundedYear is the largest year whose coarse bounds are worth
+// building. Above it the Go time.Time bounds stop round-tripping cleanly through
+// the driver, and since the bounds are a planner hint rather than a correctness
+// input, the honest move is to go without them. See VenueLocalYearCondition.
+const maxCoarseBoundedYear = 9999
+
+// VenueLocalYearCondition returns the WHERE fragment and bind arguments
+// narrowing a show list to a single VENUE-LOCAL calendar year, or ("", nil) when
+// year is zero or negative, which every caller reads as "all years".
+//
+// Requires the query to have joined VenueTZJoin: the exact half dereferences
+// venue_tz. Callers that would otherwise skip the join for timeFilter "all" must
+// add it back when a year is requested.
+//
+// The year is BOUND, not interpolated. The coarse UTC bounds carry no
+// correctness weight (the exact venue-local equality decides membership); they
+// exist only so the planner can start an index scan on idx_shows_event_date at
+// the boundary instead of walking the venue's whole history, exactly like
+// upcomingCoarseBound and pastCoarseBound above. An absurd year therefore
+// returns an empty page rather than a wrong one: it drops the unrepresentable
+// bounds and lets the exact equality match nothing, which is the answer the
+// caller asked for. Widening it to "" instead would silently return EVERY year.
+func VenueLocalYearCondition(year int) (string, []any) {
+	if year <= 0 {
+		return "", nil
+	}
+
+	exact := VenueLocalYearSQL + " = ?"
+	if year > maxCoarseBoundedYear {
+		return exact, []any{year}
+	}
+
+	lower := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC).Add(-yearCoarseMargin)
+	upper := time.Date(year+1, time.January, 1, 0, 0, 0, 0, time.UTC).Add(yearCoarseMargin)
+
+	return "shows.event_date >= ? AND shows.event_date < ? AND " + exact,
+		[]any{lower, upper, year}
 }
