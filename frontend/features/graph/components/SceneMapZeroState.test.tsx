@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { cleanup, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { renderWithProviders } from '@/test/utils'
@@ -46,6 +46,7 @@ function node(overrides: Partial<SceneMapNode> & Pick<SceneMapNode, 'id' | 'name
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
+    homeCity: null,
     appear: 0,
     ...overrides,
   }
@@ -63,6 +64,7 @@ function sceneMapFixture(overrides: Partial<SceneMap> = {}): SceneMap {
       kind: 'label',
       community: -1,
       degree: 4,
+      homeCity: 'Brooklyn',
     }),
   ]
   return {
@@ -149,6 +151,27 @@ describe('SceneMapZeroState', () => {
     expect(
       screen.queryByRole('region', { name: 'About Doom Records' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('states the hub home city in its panel, and omits the line when unset', async () => {
+    // The panel and the canvas caption read the SAME field (PSY-1736), so a
+    // label with nothing on file drops the line rather than saying "unknown".
+    const user = userEvent.setup()
+    renderZeroState()
+    await user.click(screen.getByRole('button', { name: 'Click hub' }))
+    expect(screen.getByRole('region', { name: 'About Doom Records' })).toHaveTextContent(
+      'Brooklyn',
+    )
+
+    cleanup()
+
+    const noCity = sceneMapFixture()
+    noCity.nodes[3] = { ...noCity.nodes[3], homeCity: null }
+    renderZeroState({ map: noCity })
+    await user.click(screen.getByRole('button', { name: 'Click hub' }))
+    expect(
+      screen.getByRole('region', { name: 'About Doom Records' }),
+    ).not.toHaveTextContent('Brooklyn')
   })
 
   it('does not open an entity panel for an artist dot', async () => {

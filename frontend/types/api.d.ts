@@ -12248,6 +12248,8 @@ export interface components {
             degree: number[] | null;
             /** @description Base64-encoded bitfield per node: bit 0 = has playable audio, bit 1 = has an upcoming show. Decode to a Uint8Array of length node_count. */
             flags: string;
+            /** @description Label hub's home city, empty at every artist index and at a hub with no city on file. Absent entirely on a snapshot built before the column existed. */
+            hub_city?: string[] | null;
             id: number[] | null;
             /** @description Base64-encoded byte per node: 0 = artist, 1 = label hub. Decode to a Uint8Array of length node_count. */
             kind: string;

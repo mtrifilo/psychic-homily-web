@@ -111,6 +111,25 @@ type GraphOverviewNodes struct {
 	// never empty: an unlinkable node is not emitted.
 	Name []string `json:"name"`
 	Slug []string `json:"slug"`
+	// HubCity is a LABEL HUB's home city, and is empty for everything else.
+	//
+	// The name says "hub" because the scope is the point: it is empty at every
+	// ARTIST index — not because artists have no city, but because the map does
+	// not carry theirs — and empty at a hub whose label has no city on file.
+	// Reading it as "this node's location" would silently claim that most of
+	// the catalog is from nowhere.
+	//
+	// City ONLY: no state, no country, no "City, ST" composition. That is the
+	// locked caption rule for this surface, and composing a fallback here would
+	// put the presentation decision in the payload where a client cannot undo
+	// it.
+	//
+	// OPTIONAL, like Appear. A snapshot written before this column existed
+	// carries no `hub_city` at all — the payload version is unchanged, because
+	// an absent additive column costs a client its captions and nothing else,
+	// whereas a version bump would 503 the whole map until the next nightly
+	// build. Length is NodeCount whenever the column is present.
+	HubCity []string `json:"hub_city,omitempty" doc:"Label hub's home city, empty at every artist index and at a hub with no city on file. Absent entirely on a snapshot built before the column existed."`
 	// X and Y are quantized positions; see GraphOverviewCoordinateScale.
 	X []int16 `json:"x"`
 	Y []int16 `json:"y"`

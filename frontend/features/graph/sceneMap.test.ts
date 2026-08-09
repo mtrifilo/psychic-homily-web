@@ -39,6 +39,9 @@ function overviewFixture(overrides: Partial<GraphOverview> = {}): GraphOverview 
       kind: encodeBytes([0, 0, 0, 1]),
       name: ['Alpha', 'Beta', 'Gamma', 'Doom Records'],
       slug: ['alpha', 'beta', 'gamma', 'doom-records'],
+      // Hub-scoped: empty at every artist index, set only where a label has a
+      // city on file.
+      hub_city: ['', '', '', 'Brooklyn'],
       x: [0, QUANT_SCALE, -QUANT_SCALE, 0],
       y: [0, 0, 0, QUANT_SCALE],
       community: [7, 7, 7, -1],
@@ -173,6 +176,46 @@ describe('buildSceneMap', () => {
     expect(map!.edges.every(edge => edge.appear === 0)).toBe(true)
   })
 
+  // ── The label hub's home city (PSY-1736) ───────────────────────────────
+  it('carries a hub home city only where the snapshot sets one', () => {
+    const map = buildSceneMap(overviewFixture())!
+
+    expect(map.nodes.map(node => node.homeCity)).toEqual([null, null, null, 'Brooklyn'])
+  })
+
+  it('reads an empty hub city as no city rather than an empty caption', () => {
+    // The backend writes "" for a label with nothing on file, and an empty
+    // string drawn as a caption is a blank line under the hub, not an absence.
+    const map = buildSceneMap(
+      overviewFixture({
+        nodes: { ...overviewFixture().nodes, hub_city: ['', '', '', ''] },
+      }),
+    )!
+
+    expect(map.nodes[3].homeCity).toBeNull()
+  })
+
+  it('still draws a map whose hub city column is missing or the wrong length', () => {
+    // A snapshot written before the column existed carries none at all. That is
+    // the NORMAL state on the deploy that ships this, not a corruption: the map
+    // draws, it just has no captions until the next nightly build.
+    const missing = buildSceneMap(
+      overviewFixture({
+        nodes: { ...overviewFixture().nodes, hub_city: undefined },
+      }),
+    )
+    const short = buildSceneMap(
+      overviewFixture({
+        nodes: { ...overviewFixture().nodes, hub_city: ['Brooklyn'] },
+      }),
+    )
+
+    expect(missing).not.toBeNull()
+    expect(missing!.nodes.every(node => node.homeCity === null)).toBe(true)
+    expect(short).not.toBeNull()
+    expect(short!.nodes.every(node => node.homeCity === null)).toBe(true)
+  })
+
   it('emits each CSR edge exactly once, keyed by entity id', () => {
     const map = buildSceneMap(overviewFixture())!
 
@@ -298,6 +341,7 @@ function node(
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
+    homeCity: null,
     appear: 0,
     ...overrides,
   }

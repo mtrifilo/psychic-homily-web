@@ -358,6 +358,10 @@ export function SceneMapCanvas({
         y: node.y,
         radius: isHub ? HUB_HALF_EXTENT : ARTIST_RADIUS,
         text: truncateLabel(node.name),
+        // Only a hub has one, and only when its label has a city on file
+        // (PSY-1736). Truncated on the same ruler as the name so a long city
+        // cannot widen a hub's collision box past what a name may claim.
+        caption: node.homeCity ? truncateLabel(node.homeCity) : undefined,
         fontSize: tier.fontSize,
         fontWeight: tier.fontWeight,
         // Rank 0 is the most central node, and `renderGraphLabels` keeps the

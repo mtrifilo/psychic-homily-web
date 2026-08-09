@@ -648,6 +648,63 @@ func (s *GraphOverviewSuite) labelIDFor(name string) uint {
 	return label.ID
 }
 
+func (s *GraphOverviewSuite) TestBuild_HubCarriesItsLabelsHomeCity() {
+	artists := s.seedScene()
+
+	// ONE HUB WITH A CITY AND ONE WITHOUT, in the same payload. "Only when set"
+	// is a claim about the difference between them, and a fixture carrying only
+	// the positive case would pass against a hardcoded string.
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).
+		Where("name = ?", "HubRecords").
+		Update("city", " Austin ").Error)
+	s.createLabelWithRoster("NoCityRecords", artists[5].ID, artists[6].ID, artists[7].ID)
+
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	payload := s.newestPayload()
+
+	s.Require().Len(payload.Nodes.HubCity, payload.NodeCount,
+		"hub_city must be a full-length column, like every other node column")
+
+	cityByHub := make(map[string]string)
+	for i, kind := range payload.Nodes.Kind {
+		if kind == contracts.GraphOverviewNodeLabelHub {
+			cityByHub[payload.Nodes.Name[i]] = payload.Nodes.HubCity[i]
+			continue
+		}
+		s.Assert().Empty(payload.Nodes.HubCity[i],
+			"artist %q must carry no hub city: the column is the hub caption, not a location column",
+			payload.Nodes.Name[i])
+	}
+	s.Assert().Equal("Austin", cityByHub["HubRecords"], "a label with a city on file captions it, trimmed")
+	s.Assert().Equal("", cityByHub["NoCityRecords"], "a label with no city on file captions nothing")
+}
+
+func (s *GraphOverviewSuite) TestBuild_ACityEditDoesNotMoveTheMap() {
+	// The stability contract, end to end for this column: editing a label's
+	// city changes the payload and must not move a dot. The unit test pins the
+	// structure key itself; this one pins that the whole pipeline agrees.
+	s.seedScene()
+
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	before := s.newestPayload()
+
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).
+		Where("name = ?", "HubRecords").
+		Update("city", "Austin").Error)
+
+	runner := &stubLayoutRunner{transform: rotateScaleTranslate}
+	_, err = s.build(runner, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	after := s.newestPayload()
+
+	s.Assert().Equal(0, runner.calls, "a city edit is an attribute change and must not re-run the layout")
+	s.Assert().Equal(before.Nodes.X, after.Nodes.X)
+	s.Assert().Equal(before.Nodes.Y, after.Nodes.Y)
+	s.Assert().Contains(after.Nodes.HubCity, "Austin", "the edit still reached the payload")
+}
+
 // --- acceptance: failure posture ---
 
 func (s *GraphOverviewSuite) TestBuild_PreviousSnapshotSurvivesAFailedRun() {

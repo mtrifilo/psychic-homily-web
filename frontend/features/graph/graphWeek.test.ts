@@ -35,6 +35,7 @@ function node(overrides: Partial<SceneMapNode> & { id: number; appear: number })
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
+    homeCity: null,
     ...overrides,
   }
 }

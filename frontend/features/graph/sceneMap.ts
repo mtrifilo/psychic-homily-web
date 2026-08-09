@@ -88,6 +88,16 @@ export interface SceneMapNode {
   hasUpcomingShow: boolean
   hasPlayableAudio: boolean
   /**
+   * A label hub's home city, or null (PSY-1736). Null at every ARTIST node —
+   * the snapshot's `hub_city` column is the hub caption, not a location column
+   * — and null at a hub whose label has no city on file, which is the majority
+   * case and reads as no caption rather than a placeholder.
+   *
+   * City only, by the locked caption rule: no state, no country, no fallback.
+   * The backend has already trimmed it, so a non-null value is drawable text.
+   */
+  homeCity: string | null
+  /**
    * When this node entered the catalog, in seconds after `SceneMap.epoch` —
    * the clock the growth replay runs on (PSY-1737). The backend derives it
    * from the entity's `created_at` and its earliest show date, never from a
@@ -271,6 +281,12 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
   // it should still DRAW — it just cannot be replayed, which is the decision
   // `buildReplayTimeline` makes on its own.
   const appears = appearColumn(overview.nodes.appear, nodeCount)
+  // Optional for the same reason `appear` is, and then some: a snapshot built
+  // before the column existed carries none at all, and the map is worth drawing
+  // without its hub captions. Length-checked so a short column cannot caption
+  // the wrong hub — an off-by-one here would put a real city under a label that
+  // is not from there, which is worse than no caption at all.
+  const hubCities = stringColumn(overview.nodes.hub_city, nodeCount)
 
   const nodes: SceneMapNode[] = new Array(nodeCount)
   let artistCount = 0
@@ -291,6 +307,7 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
       rank: ranks[i],
       hasUpcomingShow: (flags[i] & FLAG_UPCOMING_SHOW) !== 0,
       hasPlayableAudio: (flags[i] & FLAG_PLAYABLE_AUDIO) !== 0,
+      homeCity: hubCities?.[i] || null,
       appear: appears ? appears[i] : 0,
     }
   }
@@ -316,6 +333,22 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
  * to 0 and hides those nodes for the whole run, silently.
  */
 function appearColumn(column: number[] | null | undefined, expectedLength: number): number[] | null {
+  if (!column || column.length !== expectedLength) return null
+  return column
+}
+
+/**
+ * An optional string column, or null when the snapshot does not carry a usable
+ * one — the `appear` rule applied to `hub_city`.
+ *
+ * Absent is the NORMAL state for a snapshot older than the column, not a
+ * corruption, which is why this returns null instead of failing the payload the
+ * way a short `x` column does.
+ */
+function stringColumn(
+  column: string[] | null | undefined,
+  expectedLength: number,
+): string[] | null {
   if (!column || column.length !== expectedLength) return null
   return column
 }
