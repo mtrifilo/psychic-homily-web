@@ -100,7 +100,8 @@ func NormalizeIANATimezone(db *gorm.DB, tz *string) (*string, error) {
 // comments and only one got updated:
 //
 //   - catalog.VenueService.applyGeocoding (venue create + update)
-//   - admin.applyDerivedVenueLocation (pending-edit approval AND revision rollback)
+//   - admin.applyDerivedVenueLocation, reached through admin.applyDerivedLocation
+//     (pending-edit approval AND revision rollback)
 //   - admin.data_sync importVenue and importShow (two seams)
 //   - catalog.backfillVenuePass (the backfill CLI)
 //
