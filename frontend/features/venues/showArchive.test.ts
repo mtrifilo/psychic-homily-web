@@ -144,7 +144,9 @@ describe('parseArchiveYear', () => {
     expect(parseArchiveYear(0)).toBeNull()
     expect(parseArchiveYear(-2025)).toBeNull()
     expect(parseArchiveYear(1899)).toBeNull()
-    expect(parseArchiveYear(3000)).toBeNull()
+    // The ceiling is the backend's own (`maximum:"9999"`), so anything above it
+    // is dropped here rather than sent and rejected with a 422.
+    expect(parseArchiveYear(10_000)).toBeNull()
     expect(parseArchiveYear(1_759_000_000)).toBeNull()
   })
 
@@ -202,6 +204,20 @@ describe('archiveDocumentTitle', () => {
         totalPages: 9,
       })
     ).toBe('The Van Buren shows (page 3 of 9) | Psychic Homily')
+  })
+
+  it('splits on the LAST separator, so a piped venue name survives', () => {
+    // Venue names are contributor-supplied free text; splitting on the first
+    // ' | ' would fold half the name into the brand suffix.
+    expect(
+      archiveDocumentTitle({
+        baseTitle: 'Sunshine | Studios | Psychic Homily',
+        venueName: 'Sunshine | Studios',
+        year: 2025,
+        page: 2,
+        totalPages: 3,
+      })
+    ).toBe('Sunshine | Studios shows in 2025 (page 2 of 3) | Psychic Homily')
   })
 
   it('survives a route title with no brand suffix', () => {

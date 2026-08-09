@@ -61,55 +61,62 @@ function ShowRow({
         </Link>
       </td>
       <td>
-        {headliners.length > 0 ? (
-          <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-            <span
-              className={cn(
-                'font-medium text-foreground',
-                show.is_cancelled && 'line-through'
-              )}
-            >
-              {headliners.map((artist, index) => (
-                <span key={artist.id}>
-                  {index > 0 && ', '}
-                  <ArtistLink
-                    artist={artist}
-                    className="hover:text-primary hover:underline"
-                  />
-                </span>
-              ))}
-            </span>
-            {support.length > 0 && (
-              <span className="text-muted-foreground">
-                w/{' '}
-                {support.map((artist, index) => (
+        {/* The badges sit OUTSIDE the bill branch on purpose. A show can reach
+            this table with an empty `artists` array (the backend's minimum-one
+            validation tag is inert, and its artist resolution skips ids it
+            cannot resolve), and a cancelled show with no bill is the one row
+            where the status is the only thing the row has to say. */}
+        <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+          {headliners.length > 0 ? (
+            <>
+              <span
+                className={cn(
+                  'font-medium text-foreground',
+                  show.is_cancelled && 'line-through'
+                )}
+              >
+                {headliners.map((artist, index) => (
                   <span key={artist.id}>
                     {index > 0 && ', '}
                     <ArtistLink
                       artist={artist}
-                      className="hover:text-foreground hover:underline"
+                      className="hover:text-primary hover:underline"
                     />
                   </span>
                 ))}
               </span>
-            )}
-            {show.is_cancelled && (
-              <Badge variant="destructive" className="text-[10px]">
-                CANCELLED
-              </Badge>
-            )}
-            {/* A cancelled show's ticket status is moot, and two badges on one
-                row read as two separate facts about a show that is not
-                happening. */}
-            {!show.is_cancelled && show.is_sold_out && (
-              <Badge variant="outline" className="text-[10px]">
-                SOLD OUT
-              </Badge>
-            )}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">{ABSENT}</span>
-        )}
+              {support.length > 0 && (
+                <span className="text-muted-foreground">
+                  w/{' '}
+                  {support.map((artist, index) => (
+                    <span key={artist.id}>
+                      {index > 0 && ', '}
+                      <ArtistLink
+                        artist={artist}
+                        className="hover:text-foreground hover:underline"
+                      />
+                    </span>
+                  ))}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-muted-foreground">{ABSENT}</span>
+          )}
+          {show.is_cancelled && (
+            <Badge variant="destructive" className="text-[10px]">
+              CANCELLED
+            </Badge>
+          )}
+          {/* A cancelled show's ticket status is moot, and two badges on one
+              row read as two separate facts about a show that is not
+              happening. */}
+          {!show.is_cancelled && show.is_sold_out && (
+            <Badge variant="outline" className="text-[10px]">
+              SOLD OUT
+            </Badge>
+          )}
+        </span>
       </td>
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
         {typeof show.price === 'number' ? formatPrice(show.price) : ABSENT}

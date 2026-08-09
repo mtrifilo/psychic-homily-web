@@ -28,7 +28,12 @@ const yearsResult = {
 // The past section asks for a page by offset; record what it asked for so the
 // URL-to-request wiring can be asserted directly rather than inferred from
 // which rows happened to render.
-const pastRequests: Array<{ offset?: number; year?: number; limit?: number }> = []
+const pastRequests: Array<{
+  offset?: number
+  year?: number
+  limit?: number
+  enabled?: boolean
+}> = []
 
 vi.mock('../hooks/useVenues', () => ({
   useVenueShows: ({
@@ -36,14 +41,16 @@ vi.mock('../hooks/useVenues', () => ({
     offset,
     year,
     limit,
+    enabled,
   }: {
     timeFilter: TimeFilter
     offset?: number
     year?: number
     limit?: number
+    enabled?: boolean
   }) => {
     if (timeFilter !== 'past') return upcomingResult
-    pastRequests.push({ offset, year, limit })
+    pastRequests.push({ offset, year, limit, enabled })
     return pastResult
   },
   useVenueShowYears: () => yearsResult,
@@ -311,13 +318,17 @@ describe('VenuePastShows — presence', () => {
   it('says so rather than redirecting when the page is past the end', () => {
     queryPage = 40
     setUpcoming({ shows: [] })
-    setPast({ shows: [], total: 60 })
+    setPast(null, { isPending: true })
     setYears([{ year: 2025, count: 60 }])
     renderList()
     expect(screen.getByText(/past the end of this archive/)).toBeInTheDocument()
     expect(
       pastSection().getByRole('link', { name: 'Back to the first page' })
     ).toHaveAttribute('href', '/venues/the-venue#venue-past-shows')
+    // And the histogram already knew, so no 50,000-row offset scan was spent
+    // proving it. A spinner must never be the terminal state here.
+    expect(pastRequests[0].enabled).toBe(false)
+    expect(document.querySelector('.animate-spin')).toBeNull()
   })
 })
 
@@ -454,6 +465,20 @@ describe('VenuePastShows — rows', () => {
     const table = screen.getByRole('table', { name: 'Past shows' })
     expect(within(table).getAllByText('CANCELLED')).toHaveLength(1)
     expect(within(table).getAllByText('SOLD OUT')).toHaveLength(1)
+  })
+
+  it('still badges a cancelled show that has no bill at all', () => {
+    // The backend's minimum-one-artist validation is inert and its artist
+    // resolution skips ids it cannot resolve, so an empty bill reaches this
+    // table — and a cancelled show with no bill is the one row where the
+    // status is the only thing the row has to say.
+    setPast({
+      shows: [makeShow({ id: 5, artists: [], is_cancelled: true })],
+      total: 1,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(within(table).getByText('CANCELLED')).toBeInTheDocument()
   })
 
   it('renders a price, and an en dash (never an em dash) when there is none', () => {
@@ -665,12 +690,60 @@ describe('VenuePastShows — filter reflection', () => {
     )
   })
 
+  it('leaves a title another writer has replaced alone on unmount', () => {
+    // On a soft navigation the next route's <title> is committed before this
+    // effect's cleanup runs, so an unconditional restore would relabel the page
+    // the reader just opened.
+    queryYear = 2025
+    const { unmount } = renderList()
+    expect(document.title).toContain('shows in 2025')
+    document.title = 'Some Other Page | Psychic Homily'
+    unmount()
+    expect(document.title).toBe('Some Other Page | Psychic Homily')
+  })
+
   it('restores the route title when the archive unmounts', () => {
     queryYear = 2025
     const { unmount } = renderList()
     expect(document.title).toContain('shows in 2025')
     unmount()
     expect(document.title).toBe('The Venue | Psychic Homily')
+  })
+
+  it('states no row range while the rows belong to the previous page', () => {
+    // `keepPreviousData` holds the outgoing page on screen. A caption is an
+    // exact claim ("Showing 51-100 of 412") and would be WRONG, not merely
+    // stale, over rows 1-50 — and the pager latches its announcement on that
+    // first render, so a label taken from them is never corrected.
+    queryPage = 2
+    setPast(
+      { shows: [makeShow({ id: 5 })], total: 412 },
+      { isFetching: true, isPlaceholderData: true }
+    )
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(within(pager).getAllByText(/Page 2 of/).length).toBeGreaterThan(0)
+    expect(within(pager).queryByText(/Showing/)).not.toBeInTheDocument()
+    // No month-span label for the current page either, for the same reason:
+    // the accessible name stays a bare "Page 2".
+    expect(
+      within(pager).getByRole('link', { name: 'Page 2' })
+    ).toBeInTheDocument()
+  })
+
+  it('keeps a way out of a failed page', () => {
+    // A venue with one year renders no year strip, so without these the only
+    // escape from a failed page 2 is hand-editing the URL.
+    queryPage = 2
+    setYears([{ year: 2025, count: 412 }])
+    setPast(null, { error: new Error('boom') })
+    renderList()
+    expect(
+      pastSection().getByRole('button', { name: /Try again/i })
+    ).toBeInTheDocument()
+    expect(
+      pastSection().getByRole('link', { name: 'Back to the first page' })
+    ).toHaveAttribute('href', '/venues/the-venue#venue-past-shows')
   })
 
   it('dims the rows only while they answer a different question', () => {

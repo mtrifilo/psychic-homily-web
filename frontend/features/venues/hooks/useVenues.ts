@@ -10,6 +10,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
+import { ARCHIVE_YEAR_RANGE } from '@/features/venues/showArchive'
 import type { VenueShowsTimeFilter } from '@/features/venues/api'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters/CityFilters'
@@ -201,11 +202,18 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   const sentTimezone = timezone || undefined
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined
-  // A non-positive or fractional year is not a year. Dropping it here rather
-  // than forwarding it means a hand-edited `?year=0`/`?year=-1` URL falls back
-  // to the unfiltered archive instead of asking the backend to reject it.
+  // Last line of defence, not the URL guard. Callers own year validation —
+  // the venue archive runs `parseArchiveYear` (showArchive.ts) over the raw
+  // `?year=` before it ever reaches here, against the same bounds the backend
+  // enforces. This drops anything outside those bounds so no caller can turn a
+  // stray argument into a 422.
   const sentYear =
-    year !== undefined && Number.isInteger(year) && year > 0 ? year : undefined
+    year !== undefined &&
+    Number.isInteger(year) &&
+    year >= ARCHIVE_YEAR_RANGE.min &&
+    year <= ARCHIVE_YEAR_RANGE.max
+      ? year
+      : undefined
 
   const params = new URLSearchParams()
   if (sentTimezone) params.set('timezone', sentTimezone)

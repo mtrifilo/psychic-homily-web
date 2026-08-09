@@ -668,8 +668,9 @@ export function venuePanelIdentityLine(
  * How many upcoming shows to CLAIM the venue has.
  *
  * `total` is the endpoint's unfiltered `COUNT(*)` and `listed` is what
- * survived client-side de-duplication of the fetched page (the venue page's
- * shared `dedupVenueShows`). When rows exist beyond the page, `total` is the
+ * survived this panel's client-side de-duplication of the fetched page (the
+ * shared `dedupVenueShows`; the venue page dropped it in PSY-1753, this panel
+ * still applies it). When rows exist beyond the page, `total` is the
  * only honest number available. When they don't, the deduped length is the
  * more honest one — `total` would double-count the duplicate rows the reader
  * can plainly see are gone.

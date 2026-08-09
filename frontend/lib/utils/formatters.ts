@@ -40,17 +40,19 @@ export function isShowTimezoneResolved(
   return (!!timezone && isValidTimeZone(timezone)) || hasTimezoneForState(state)
 }
 
+/** IANA zone name -> does it exist. See {@link isValidTimeZone}. */
+const timeZoneValidity = new Map<string, boolean>()
+
 /**
  * Whether an IANA zone name exists, memoized.
  *
  * The answer is a property of the string and of the runtime's tz database, so
- * it can never change within a session. The probe is not free — constructing an
- * `Intl.DateTimeFormat` costs ~20µs, and this sits on the path every single
+ * it can never change within a session, and the key domain is bounded by the
+ * zones the venue table holds. The probe is not free — constructing an
+ * `Intl.DateTimeFormat` costs ~20us, and this sits on the path every single
  * date and time on an entity page takes, several times per row. A dense table
  * of 50 shows asks the same question 150 times about the same venue.
  */
-const timeZoneValidity = new Map<string, boolean>()
-
 function isValidTimeZone(tz: string): boolean {
   const known = timeZoneValidity.get(tz)
   if (known !== undefined) return known

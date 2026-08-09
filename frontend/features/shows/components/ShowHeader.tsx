@@ -10,7 +10,7 @@ import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatt
 import { ShowAddToCalendar } from './ShowAddToCalendar'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
 import { flyerCredit, flyerImageSrc } from './showFlyer'
-import { showTimingInput } from '../utils'
+import { showTimingInput, splitBill } from '../utils'
 import type {
   ArtistResponse,
   SetType,
@@ -258,15 +258,8 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
   // would otherwise pass the truthiness check and render a blank indented line.
   const venueAddress = venue?.address?.trim()
 
-  const headliners = artists.filter(
-    a => a.set_type === 'headliner' || a.is_headliner === true
-  )
-  const support = artists.filter(
-    a => a.set_type !== 'headliner' && a.is_headliner !== true
-  )
-  const effectiveHeadliners =
-    headliners.length > 0 ? headliners : artists.length > 0 ? [artists[0]] : []
-  const effectiveSupport = headliners.length > 0 ? support : artists.slice(1)
+  const { headliners: effectiveHeadliners, support: effectiveSupport } =
+    splitBill(artists)
 
   return (
     <div

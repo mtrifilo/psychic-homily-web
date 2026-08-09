@@ -119,6 +119,16 @@ export function clampPage(page: number, maxPage: number): number {
 }
 
 /**
+ * The range a `?year=` param is accepted in.
+ *
+ * The upper bound is the backend's own (`maximum:"9999"` on the venue-shows
+ * year param): anything above it would be rejected with a 422 rather than
+ * answered, so it is filtered out here instead of being sent. The lower bound
+ * is older than recorded live music.
+ */
+export const ARCHIVE_YEAR_RANGE = { min: 1900, max: 9999 } as const
+
+/**
  * The year a `?year=` param should be read as, or null for "every year".
  *
  * Anything that is not a plausible calendar year — a non-integer, a negative,
@@ -130,7 +140,9 @@ export function clampPage(page: number, maxPage: number): number {
  */
 export function parseArchiveYear(raw: number | null): number | null {
   if (raw === null || !Number.isInteger(raw)) return null
-  return raw >= 1900 && raw <= 2999 ? raw : null
+  return raw >= ARCHIVE_YEAR_RANGE.min && raw <= ARCHIVE_YEAR_RANGE.max
+    ? raw
+    : null
 }
 
 /**
@@ -155,7 +167,9 @@ export function archiveDocumentTitle({
 }): string {
   if (year === null && page === 1) return baseTitle
 
-  const separatorIndex = baseTitle.indexOf(' | ')
+  // LAST separator, not the first: the brand is the trailing segment, and a
+  // venue name is contributor-supplied free text that can itself contain " | ".
+  const separatorIndex = baseTitle.lastIndexOf(' | ')
   const suffix = separatorIndex === -1 ? '' : baseTitle.slice(separatorIndex)
 
   const scope = year === null ? 'shows' : `shows in ${year}`

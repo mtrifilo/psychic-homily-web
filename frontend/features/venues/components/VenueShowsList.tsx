@@ -67,10 +67,20 @@ export function VenueShowsList({
     limit: VENUE_UPCOMING_SHOWS_LIMIT,
   })
 
+  // No `dedupVenueShows` here, and none in the past archive either (PSY-1753).
+  // The duplicate class it filtered — same headliner, same instant, at this
+  // venue — is enforced impossible by the PSY-576 structural unique index,
+  // verified clean on stage and on prod. Filtering rows after the fact is also
+  // actively wrong once a list is paged server-side: it would render fewer rows
+  // than the pager's own "Showing 51-100 of 161" claims, and `total` and the
+  // year histogram would still count what the page dropped. The Atlas venue
+  // panel still dedups because it fetches one unpaged page.
   const upcomingShows = upcoming.data?.shows ?? []
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
-  // Stable identity: `VenueShowsTable` keys its month grouping on this, so a
-  // fresh object per render would defeat that memo.
+  // Stable identity so `VenueShowsTable`'s memos key on it cleanly. This
+  // section does not group by month (that is the past archive's treatment), so
+  // nothing expensive hangs off it here — it is kept stable to match the past
+  // section, where it does matter, rather than to fix a cost on this path.
   const zone: VenueShowZone = useMemo(
     () => ({ venueState, venueTimezone }),
     [venueState, venueTimezone]

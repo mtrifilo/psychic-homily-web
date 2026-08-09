@@ -31,8 +31,12 @@ export function showTimingInput(show: ShowResponse): ShowTimingInput {
 }
 
 /**
- * Render-time dedup helpers for show lists shown on artist + venue
- * detail pages (PSY-559).
+ * Render-time dedup helpers for show lists (PSY-559).
+ *
+ * Callers as of PSY-1753: the artist detail list and the Atlas venue panel.
+ * The VENUE PAGE no longer dedups — see `VenueShowsList` for why (the
+ * structural unique index makes the class impossible, and a filtered page
+ * would render fewer rows than its own pager claims).
  *
  * The dedup key MUST include time (full ISO event_date), not just
  * the date — matinee + evening sets at the same venue on the same
