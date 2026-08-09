@@ -7,63 +7,56 @@
 # Dependabot (.github/dependabot.yml) makes digest changes a routine weekly
 # event, so "we find out at deploy time" stopped being an acceptable answer.
 #
-# NOT A REQUIRED CHECK, and the `paths:` filter is why. A path-filtered workflow
-# does not report a neutral or skipped status on PRs that miss the filter -- it
-# reports NOTHING, and a required check that never reports blocks the PR
-# forever. So this stays out of branch protection's required set (currently
-# Backend Tests, Frontend Unit Tests, E2E Smoke (PR), Frontend Lint). It runs and
-# goes visibly red on exactly the PRs that can break the image, without arming a
-# merge-blocking trap on every unrelated PR. The alternative -- an always-run job
-# inside ci.yml that skips its own expensive steps -- would be requireable, and
-# is the right move if this ever needs to block merges.
+# ALWAYS-RUN, NOT PATH-FILTERED, and that is the whole design decision.
 #
-#   >>> Making "Backend Image Build" REQUIRED means FIRST deleting the `paths:`
-#   >>> filters below and letting it run on every PR. Required and path-filtered
-#   >>> is the never-reports/blocks-forever bug PSY-1720's closure note calls
-#   >>> out, and this repo does not tolerate that combination.
+# The obvious shape for this is a `paths:` filter on backend/Dockerfile, and the
+# first draft had one. Two things killed it.
 #
-# The two `paths:` lists are duplicated on purpose: a YAML anchor would say it
-# better, but GitHub Actions does not support anchors in workflow files, and
-# `on.pull_request.paths` and `on.push.paths` cannot share a list. Keep them
-# identical.
+# First, the footgun. A path-filtered workflow does not report a neutral or
+# skipped status on PRs that miss the filter, it reports NOTHING, and a required
+# check that never reports blocks the PR forever (PSY-1720's closure note). A
+# path filter therefore permanently forecloses making this required, or quietly
+# bricks the merge queue for whoever tries.
+#
+# Second, the cost argument for filtering turned out to be false. Measured on
+# this workflow's own first CI run: 77 SECONDS end to end, cold, with no cache
+# to restore from. The Go build is 39s of that. (A local `docker build
+# --platform linux/amd64` on an arm64 laptop takes 25+ minutes, but that is QEMU
+# emulation, not a real signal -- GitHub's runners are native amd64.) That is
+# well under the E2E Smoke budget and it runs in parallel with the rest of CI,
+# so the wall-clock cost of always running it is approximately zero.
+#
+# Filtering also has to be RIGHT, and a path list is easy to get wrong: the
+# first draft's list silently omitted layout/fa2-layout.mjs. Always-run has no
+# list to maintain and no gap to miss, and it additionally covers the case a
+# file list cannot express -- a Go source change that builds under `go test` but
+# breaks the image.
+#
+# It is currently NOT in branch protection's required set (Backend Tests,
+# Frontend Unit Tests, E2E Smoke (PR), Frontend Lint), so today it reports and
+# goes red without blocking. Because there is no path filter, adding "Backend
+# Image Build" to that set is a safe, code-free change whenever the gate should
+# start blocking merges.
+#
+#   >>> If you ever reintroduce a `paths:` filter here, you MUST first remove
+#   >>> this check from branch protection. Required plus path-filtered is the
+#   >>> never-reports/blocks-forever combination this repo does not tolerate.
 name: Backend Image
 
 on:
   pull_request:
     branches: [main]
-    paths:
-      # Everything the image's build graph reads that is not already compiled by
-      # the Backend Tests job. Go sources are excluded on purpose: `go test ./...`
-      # there fails on anything that would fail `go build` here.
-      - 'backend/Dockerfile'
-      - 'backend/docker-entrypoint.sh'
-      - 'backend/layout/package.json'
-      - 'backend/layout/package-lock.json'
-      - 'backend/layout/fa2-layout.mjs'
-      - '.github/workflows/backend-image.yml'
-      - 'scripts/check_node_base_pin.sh'
-      - 'scripts/check_node_base_manifest.sh'
-  # Post-merge, same filter. Two PRs can each be green alone and break the image
-  # together (a Dockerfile change here, a lockfile change there), and because
-  # this check is not required, a red PR run can also simply be merged past.
-  # This leg catches both, and the notify job below is what makes it a backstop
-  # rather than a red square nobody is subscribed to.
+  # Post-merge too. Two PRs can each be green alone and break the image together
+  # (a Dockerfile change on one, a lockfile change on the other), and while this
+  # check is not required a red PR run can also simply be merged past. This leg
+  # catches both, and the notify step below is what makes it a backstop rather
+  # than a red square nobody is subscribed to.
   push:
     branches: [main]
-    paths:
-      - 'backend/Dockerfile'
-      - 'backend/docker-entrypoint.sh'
-      - 'backend/layout/package.json'
-      - 'backend/layout/package-lock.json'
-      - 'backend/layout/fa2-layout.mjs'
-      - '.github/workflows/backend-image.yml'
-      - 'scripts/check_node_base_pin.sh'
-      - 'scripts/check_node_base_manifest.sh'
 
-# This is the most expensive job in the repo, so superseded PR runs are
-# cancelled -- a bump branch that gets two fixup pushes should not hold three
-# concurrent multi-minute builds. Main-branch runs are never cancelled: each one
-# is the record for a distinct merged commit.
+# Superseded PR runs are cancelled: a branch that gets two fixup pushes should
+# not hold three concurrent builds. Main-branch runs are never cancelled, since
+# each one is the record for a distinct merged commit.
 concurrency:
   group: backend-image-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -81,9 +74,11 @@ jobs:
       # token is read-only regardless, so this grant is only live on the push
       # leg -- which is the only leg that files anything.
       issues: write
-    # A cold build measured ~4 min locally (the Go link step dominates); the
-    # ceiling here is a hung registry pull, not slow compilation.
-    timeout-minutes: 20
+    # Measured at 77s cold on this workflow's first run. The ceiling is a hung
+    # registry pull, not slow compilation, so 10 minutes is already a wide
+    # margin -- and a job that has genuinely wedged should free its runner
+    # rather than sit for a third of an hour.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -130,6 +125,10 @@ jobs:
           # mode=max stays on the main leg: with `push: false` there is no image
           # export, so mode=min would drop exactly the builder layers that carry
           # all the expensive work.
+          #
+          # This split is what keeps always-run cheap. The overwhelming majority
+          # of PRs do not touch the image's inputs at all, so they restore main's
+          # cache, hit on every layer, and cost seconds.
           cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=backend-image' || '' }}
 
       # A red square in the Actions tab is not a backstop -- nobody is
