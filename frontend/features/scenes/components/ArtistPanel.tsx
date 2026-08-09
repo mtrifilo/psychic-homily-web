@@ -148,16 +148,19 @@ export function ArtistPanel({
     enabled: Boolean(nextStep),
   })
 
-  // Requests the SAME page the artist page does, and slices for display —
-  // deliberately not a `limit: 2` request for the two rows drawn.
-  // `artistQueryKeys.shows()` keys only on artist id + time filter, NOT on
-  // limit or timezone, so this shares one cache entry with the artist page's
-  // own shows list. Asking for two rows here would therefore hand the ARTIST
-  // PAGE a two-row list for the next five minutes whenever a reader arrived
-  // via this panel's own "Open artist page →" — silently hiding real upcoming
-  // shows on the artist's canonical surface. Same rule, same reason, as
-  // VenuePanel and VENUE_SHOWS_PAGE_LIMIT; the constants live beside the query
-  // key so the agreement can't drift.
+  // Requests one full page and slices for display, rather than a `limit: 2`
+  // request for the two rows drawn.
+  //
+  // That USED to be load-bearing: `artistQueryKeys.shows()` keyed only on
+  // artist id and time filter, so a narrow request here silently handed the
+  // artist page a two-row list for the whole staleTime. PSY-1754 put every
+  // response-shaping param in the key, and the artist page now asks for a
+  // larger page than this one, so the two no longer share an entry either way.
+  //
+  // It stays a full page only because nothing has measured whether narrowing it
+  // is worth the loss on a reader who opens the artist page from here. Deciding
+  // that is a follow-up, not a drive-by: what matters at this call site is that
+  // the page it asks for is a whole one, which is what the test below pins.
   const { data: showsData } = useArtistShows({
     artistId: current?.artistId ?? 0,
     limit: ARTIST_SHOWS_PAGE_LIMIT,

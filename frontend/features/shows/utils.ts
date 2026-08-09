@@ -31,12 +31,13 @@ export function showTimingInput(show: ShowResponse): ShowTimingInput {
 }
 
 /**
- * Render-time dedup helpers for show lists (PSY-559).
+ * Render-time dedup helper for show lists (PSY-559).
  *
- * Callers as of PSY-1753: the artist detail list and the Atlas venue panel.
- * The VENUE PAGE no longer dedups — see `VenueShowsList` for why (the
+ * One caller left as of PSY-1754: the Atlas venue panel, which fetches a
+ * single unpaged page. Neither DETAIL page dedups any more — see
+ * `VenueShowsList` (PSY-1753) and `ArtistShowsList` (PSY-1754) for why: the
  * structural unique index makes the class impossible, and a filtered page
- * would render fewer rows than its own pager claims).
+ * would render fewer rows than its own pager claims.
  *
  * The dedup key MUST include time (full ISO event_date), not just
  * the date — matinee + evening sets at the same venue on the same
@@ -57,11 +58,6 @@ interface ArtistInList {
   is_headliner?: boolean | null
   set_type?: string
   position?: number
-}
-
-interface ShowWithVenueAndArtists extends ShowLike {
-  venue?: { id: number } | null
-  artists: ArtistInList[]
 }
 
 interface ShowWithArtists extends ShowLike {
@@ -105,14 +101,6 @@ function pickWinners<T extends ShowLike>(
   const winnerIds = new Set<number>()
   for (const v of winnersByKey.values()) winnerIds.add(v.id)
   return shows.filter(s => winnerIds.has(s.id))
-}
-
-/**
- * Dedup shows on an ARTIST detail page. Each show carries its own
- * `venue.id`, so the key is `(venue.id, event_date)`.
- */
-export function dedupArtistShows<T extends ShowWithVenueAndArtists>(shows: T[]): T[] {
-  return pickWinners(shows, show => `${show.venue?.id ?? 0}|${show.event_date}`)
 }
 
 /**

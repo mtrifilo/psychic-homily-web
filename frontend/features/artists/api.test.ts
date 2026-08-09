@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { API_BASE_URL } from '@/lib/api-base'
-import { artistEndpoints, artistQueryKeys } from './api'
+import {
+  ARTIST_PAST_SHOWS_PAGE_LIMIT,
+  artistEndpoints,
+  artistPastShowsPageParams,
+  artistQueryKeys,
+} from './api'
 
 describe('artistEndpoints', () => {
   it('exposes static collection endpoints rooted at the API base URL', () => {
@@ -19,6 +24,9 @@ describe('artistEndpoints', () => {
   it('builds nested relation endpoints from an id or slug', () => {
     expect(artistEndpoints.SHOWS('gatecreeper')).toBe(
       `${API_BASE_URL}/artists/gatecreeper/shows`
+    )
+    expect(artistEndpoints.SHOW_YEARS('gatecreeper')).toBe(
+      `${API_BASE_URL}/artists/gatecreeper/shows/years`
     )
     expect(artistEndpoints.LABELS('gatecreeper')).toBe(
       `${API_BASE_URL}/artists/gatecreeper/labels`
@@ -86,6 +94,71 @@ describe('artistQueryKeys', () => {
     ])
     expect(artistQueryKeys.shows(42)).toEqual(['artists', 'shows', '42'])
     expect(artistQueryKeys.labels(42)).toEqual(['artists', 'labels', '42'])
+  })
+
+  it('records every response-shaping param in the showsPage key', () => {
+    expect(
+      artistQueryKeys.showsPage(42, {
+        timeFilter: 'past',
+        limit: 50,
+        timezone: 'America/Phoenix',
+        year: 2025,
+        offset: 100,
+      }),
+    ).toEqual([
+      'artists',
+      'shows',
+      '42',
+      'past',
+      50,
+      'America/Phoenix',
+      2025,
+      100,
+    ])
+  })
+
+  it('normalizes every unsent param to one null slot', () => {
+    // "Not sent" has to hash as ONE key. An omitted `offset` and an `offset` the
+    // caller passed as undefined describe the same request, and page 1's zero
+    // offset is never sent at all.
+    expect(artistQueryKeys.showsPage(42, { timeFilter: 'upcoming' })).toEqual([
+      'artists',
+      'shows',
+      '42',
+      'upcoming',
+      null,
+      null,
+      null,
+      null,
+    ])
+  })
+
+  it('nests showsPage and showYears under the shows() invalidation prefix', () => {
+    // `createInvalidateQueries` reaches one artist's pages through `shows()`.
+    // Both of these are only reachable while they EXTEND it.
+    const prefix = artistQueryKeys.shows(42)
+    for (const key of [
+      artistQueryKeys.showsPage(42, { timeFilter: 'past', limit: 50 }),
+      artistQueryKeys.showYears(42, 'past'),
+    ]) {
+      expect(key.slice(0, prefix.length)).toEqual([...prefix])
+    }
+  })
+
+  it('builds the past-archive page params page 1 sends and page 3 sends', () => {
+    // Page 1's offset must be `undefined`, not 0: the request omits it, and the
+    // key distinguishes the two. A peek that disagreed here would silently
+    // never find page 1 in the cache.
+    expect(artistPastShowsPageParams(1, null)).toMatchObject({
+      timeFilter: 'past',
+      limit: ARTIST_PAST_SHOWS_PAGE_LIMIT,
+      year: undefined,
+      offset: undefined,
+    })
+    expect(artistPastShowsPageParams(3, 2025)).toMatchObject({
+      year: 2025,
+      offset: 2 * ARTIST_PAST_SHOWS_PAGE_LIMIT,
+    })
   })
 
   it('produces identical detail keys for a numeric id and its string form', () => {

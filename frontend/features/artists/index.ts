@@ -17,6 +17,8 @@ export type {
   ArtistShowArtist,
   ArtistShow,
   ArtistShowsResponse,
+  ArtistShowYearCount,
+  ArtistShowYearsResponse,
   ArtistTimeFilter,
   MyArtistReportResponse,
   ArtistAlias,
@@ -35,6 +37,7 @@ export {
   useArtistCities,
   useArtist,
   useArtistShows,
+  useArtistShowYears,
 } from './hooks'
 
 export { useArtistSearch, artistSearchQueryOptions } from './hooks'

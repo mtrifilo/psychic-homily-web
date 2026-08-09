@@ -19,12 +19,42 @@ vi.mock('@/features/artists/api', () => ({
     CITIES: '/artists/cities',
     GET: (artistId: string | number) => `/artists/${artistId}`,
     SHOWS: (artistId: string | number) => `/artists/${artistId}/shows`,
+    SHOW_YEARS: (artistId: string | number) => `/artists/${artistId}/shows/years`,
   },
   artistQueryKeys: {
     list: (filters?: Record<string, unknown>) => ['artists', 'list', filters],
     cities: ['artists', 'cities'],
     detail: (id: string | number) => ['artists', 'detail', String(id)],
     shows: (artistId: string | number) => ['artists', 'shows', String(artistId)],
+    // Mirrors the real builder. This file mocks the api module, so it cannot
+    // assert the real key — useArtistShowsCacheKey.test.tsx does that against
+    // the genuine one.
+    showsPage: (
+      artistId: string | number,
+      params: {
+        timeFilter: string
+        limit?: number
+        timezone?: string
+        year?: number
+        offset?: number
+      },
+    ) => [
+      'artists',
+      'shows',
+      String(artistId),
+      params.timeFilter,
+      params.limit ?? null,
+      params.timezone ?? null,
+      params.year ?? null,
+      params.offset ?? null,
+    ],
+    showYears: (artistId: string | number, timeFilter: string) => [
+      'artists',
+      'shows',
+      String(artistId),
+      'years',
+      timeFilter,
+    ],
   },
 }))
 

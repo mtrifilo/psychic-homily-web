@@ -331,13 +331,16 @@ describe('ArtistPanel', () => {
       )
     })
 
-    // Regression (adversarial review): `artistQueryKeys.shows()` keys only on
-    // artist id + time filter, so this panel and the artist page's own shows
-    // list SHARE one cache entry. Asking for two rows here would hand the
+    // Requests a full page and slices for display, rather than a two-row page.
+    //
+    // Originally a correctness requirement: `artistQueryKeys.shows()` keyed
+    // only on artist id + time filter, so a two-row request here handed the
     // artist page a two-row list for the whole 5-minute staleTime whenever a
-    // reader arrived via "Open artist page →". Request the shared page; slice
-    // for display.
-    it('requests the same page the artist page does, so the two share one cache entry', () => {
+    // reader arrived via "Open artist page →". PSY-1754 put every
+    // response-shaping param in the key, so it is now a warm-cache trade
+    // instead — but the panel must still not silently ask for a partial page,
+    // which is what this pins.
+    it('requests a full page of shows and slices it for display', () => {
       renderPanel()
       expect(mockUseArtistShows).toHaveBeenCalledWith(
         expect.objectContaining({

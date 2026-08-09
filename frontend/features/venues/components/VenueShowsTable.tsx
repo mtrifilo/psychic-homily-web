@@ -3,40 +3,25 @@
 import { Fragment, useMemo } from 'react'
 import Link from 'next/link'
 import { DenseTable, DenseTableGroupHeader } from '@/components/shared'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 // Deep import, not the barrel: `@/features/shows`'s barrel edge drags in
-// ShowForm and the whole mutation graph for one pure function, and pulls a
+// ShowForm and the whole mutation graph for one component, and pulls a
 // venues -> shows -> venues value cycle in behind it (the same reason ShowForm
 // deep-imports VenueInput). See features/venues/components/index.ts.
-import { splitBill } from '@/features/shows/utils'
+import { ShowBill } from '@/features/shows/components/ShowBill'
 import {
   formatPrice,
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
-import { groupByMonth, type MonthGroup } from '../showArchive'
+import { EN_DASH, type MonthGroup } from '@/features/shows/showArchive'
+import { groupByMonth } from '../showArchive'
 import type { VenueShow, VenueShowZone } from '../types'
 
 /** Date, Bill, Price, Time. Group headings must span all of them. */
 const COLUMN_COUNT = 4
 
-/** Stands in for a price nobody has recorded. An en dash, never an em dash. */
-const ABSENT = '–'
-
-function ArtistLink({
-  artist,
-  className,
-}: {
-  artist: VenueShow['artists'][number]
-  className?: string
-}) {
-  return (
-    <Link href={`/artists/${artist.slug}`} className={className}>
-      {artist.name}
-    </Link>
-  )
-}
+/** Stands in for a price nobody has recorded. */
+const ABSENT = EN_DASH
 
 function ShowRow({
   show,
@@ -48,7 +33,6 @@ function ShowRow({
   // A show's own state wins over the venue's for date/time formatting; the
   // venue's resolved timezone (when known) wins over the state map (PSY-986).
   const state = show.state ?? zone.venueState
-  const { headliners, support } = splitBill(show.artists)
 
   return (
     <tr>
@@ -61,62 +45,11 @@ function ShowRow({
         </Link>
       </td>
       <td>
-        {/* The badges sit OUTSIDE the bill branch on purpose. A show can reach
-            this table with an empty `artists` array (the backend's minimum-one
-            validation tag is inert, and its artist resolution skips ids it
-            cannot resolve), and a cancelled show with no bill is the one row
-            where the status is the only thing the row has to say. */}
-        <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-          {headliners.length > 0 ? (
-            <>
-              <span
-                className={cn(
-                  'font-medium text-foreground',
-                  show.is_cancelled && 'line-through'
-                )}
-              >
-                {headliners.map((artist, index) => (
-                  <span key={artist.id}>
-                    {index > 0 && ', '}
-                    <ArtistLink
-                      artist={artist}
-                      className="hover:text-primary hover:underline"
-                    />
-                  </span>
-                ))}
-              </span>
-              {support.length > 0 && (
-                <span className="text-muted-foreground">
-                  w/{' '}
-                  {support.map((artist, index) => (
-                    <span key={artist.id}>
-                      {index > 0 && ', '}
-                      <ArtistLink
-                        artist={artist}
-                        className="hover:text-foreground hover:underline"
-                      />
-                    </span>
-                  ))}
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="text-muted-foreground">{ABSENT}</span>
-          )}
-          {show.is_cancelled && (
-            <Badge variant="destructive" className="text-[10px]">
-              CANCELLED
-            </Badge>
-          )}
-          {/* A cancelled show's ticket status is moot, and two badges on one
-              row read as two separate facts about a show that is not
-              happening. */}
-          {!show.is_cancelled && show.is_sold_out && (
-            <Badge variant="outline" className="text-[10px]">
-              SOLD OUT
-            </Badge>
-          )}
-        </span>
+        <ShowBill
+          artists={show.artists}
+          isCancelled={show.is_cancelled}
+          isSoldOut={show.is_sold_out}
+        />
       </td>
       <td className="whitespace-nowrap text-right font-mono text-xs text-muted-foreground">
         {typeof show.price === 'number' ? formatPrice(show.price) : ABSENT}
