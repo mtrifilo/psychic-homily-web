@@ -165,6 +165,12 @@ func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest
 	return &GetVenueResponse{Body: venue}, nil
 }
 
+// defaultVenueShowsTimeFilter is what an omitted time_filter means on BOTH the
+// venue show list and its year histogram. One constant because the histogram
+// drives the list's year picker: if the two defaulted differently, a caller that
+// omitted the param would get a picker counting a set the list never shows.
+const defaultVenueShowsTimeFilter = "upcoming"
+
 // GetVenueShowsRequest represents the request parameters for getting shows at a venue
 type GetVenueShowsRequest struct {
 	VenueID    string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
@@ -201,7 +207,7 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 
 	timeFilter := req.TimeFilter
 	if timeFilter == "" {
-		timeFilter = "upcoming"
+		timeFilter = defaultVenueShowsTimeFilter
 	}
 
 	venueID, err := h.resolveVenueID(req.VenueID)
@@ -261,7 +267,7 @@ type GetVenueShowYearsResponse struct {
 func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVenueShowYearsRequest) (*GetVenueShowYearsResponse, error) {
 	timeFilter := req.TimeFilter
 	if timeFilter == "" {
-		timeFilter = "upcoming"
+		timeFilter = defaultVenueShowsTimeFilter
 	}
 
 	venueID, err := h.resolveVenueID(req.VenueID)

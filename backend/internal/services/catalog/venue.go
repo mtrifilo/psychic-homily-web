@@ -1106,10 +1106,23 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, query con
 		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
 	}
 
-	// A negative offset is a caller bug, not a request for the tail: GORM would
-	// emit `OFFSET -1`, which Postgres rejects. Clamp at this boundary so the
-	// handler's own minimum:"0" is not the only thing standing between a stray
-	// value and a 500.
+	// Both page bounds are clamped here because GORM reads a negative value in
+	// each as a DIFFERENT instruction, and neither is what a caller with a
+	// miscomputed page size means:
+	//
+	//   - a negative offset becomes `OFFSET -1`, which Postgres rejects outright
+	//     (a 500);
+	//   - a negative limit CANCELS the limit clause entirely, which is worse
+	//     because it succeeds: the venue's whole history comes back hydrated
+	//     with every bill, silently.
+	//
+	// Clamping to zero matches what limit 0 already means on this path (no rows,
+	// real total) and keeps the handler's own minimum tags from being the only
+	// thing between a stray value and either outcome.
+	limit := query.Limit
+	if limit < 0 {
+		limit = 0
+	}
 	offset := query.Offset
 	if offset < 0 {
 		offset = 0
@@ -1121,7 +1134,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, query con
 	if err := baseQuery().
 		Select("show_venues.show_id").
 		Order(orderDirection).
-		Limit(query.Limit).
+		Limit(limit).
 		Offset(offset).
 		Pluck("show_venues.show_id", &showIDs).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get show IDs: %w", err)

@@ -746,7 +746,9 @@ type VenueShowsQuery struct {
 	TimeFilter string
 	// Limit caps the page. Zero returns no rows while still reporting the full
 	// total. That is long-standing behaviour, which the handler shields callers
-	// from by defaulting an omitted limit to 20.
+	// from by defaulting an omitted limit to 20. Negative is clamped to zero
+	// rather than passed through, because GORM reads a negative limit as "no
+	// limit" and would return the venue's entire history.
 	Limit int
 	// Offset skips this many rows of the ordered page. Negative is clamped to 0.
 	Offset int

@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"fmt"
 	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -19,22 +18,12 @@ import (
 // fixture would silently change which bucket it lands in as the year turns.
 
 // seedShowsForVenue creates approved shows at the given instants and returns
-// their ids in creation order. Titles carry the index so a failed assertion says
-// which fixture is missing rather than just how many.
+// their ids in creation order. It is the plural of createApprovedShowAt, which
+// already owns the fixture's shape.
 func (suite *VenueServiceIntegrationTestSuite) seedShowsForVenue(venueID, userID uint, at ...time.Time) []uint {
 	ids := make([]uint, 0, len(at))
-	for i, when := range at {
-		show := &catalogm.Show{
-			Title:       fmt.Sprintf("Paged Show %02d", i),
-			EventDate:   when,
-			City:        stringPtr("Phoenix"),
-			State:       stringPtr("AZ"),
-			Status:      catalogm.ShowStatusApproved,
-			SubmittedBy: &userID,
-		}
-		suite.Require().NoError(suite.db.Create(show).Error)
-		suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
-		ids = append(ids, show.ID)
+	for _, when := range at {
+		ids = append(ids, suite.createApprovedShowAt(venueID, userID, when).ID)
 	}
 	return ids
 }
@@ -121,9 +110,11 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_OffsetPastTo
 	suite.Equal(int64(1), total, "...but still reports what the caller overran")
 }
 
-// A negative offset is a caller bug. Postgres rejects OFFSET -1 outright, so
-// without the clamp this is a 500 rather than the first page.
-func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_NegativeOffsetClampsToFirstPage() {
+// Negative page bounds are caller bugs, and GORM reads each as a different
+// instruction: a negative offset becomes OFFSET -1, which Postgres rejects, and
+// a negative limit CANCELS the limit, which succeeds while returning the venue's
+// whole history. The second is the dangerous one because it looks like it worked.
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_NegativePageBoundsClamp() {
 	venue := suite.createTestVenue("Negative Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
 	ids := suite.seedShowsForVenue(venue.ID, user.ID,
@@ -135,7 +126,14 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_NegativeOffs
 		TimeFilter: "all", Limit: 1, Offset: -5,
 	})
 	suite.Require().NoError(err)
-	suite.Equal([]uint{ids[0]}, showIDsOf(page))
+	suite.Equal([]uint{ids[0]}, showIDsOf(page), "a negative offset must read as the first page")
+
+	page, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{
+		TimeFilter: "all", Limit: -1,
+	})
+	suite.Require().NoError(err)
+	suite.Empty(page, "a negative limit must not fall through to an unbounded read")
+	suite.Equal(int64(2), total, "...and still report the real total, like limit 0")
 }
 
 // The whole reason the order carries `shows.id ASC`: shows sharing an event_date
@@ -244,11 +242,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_YearIsVenueL
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_YearComposesWithTimeFilter() {
 	venue := suite.createTestVenue("Composed Room", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
-	thisYear := time.Now().UTC().Year()
-	suite.seedShowsForVenue(venue.ID, user.ID,
-		fixedUTC(2019, time.October, 1, 20),
-		time.Now().UTC().AddDate(0, 0, 30),
-	)
+	upcomingAt := time.Now().UTC().AddDate(0, 0, 30)
+	suite.seedShowsForVenue(venue.ID, user.ID, fixedUTC(2019, time.October, 1, 20), upcomingAt)
 
 	_, pastInOldYear, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{
 		TimeFilter: "past", Limit: 50, Year: 2019,
@@ -262,15 +257,18 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_YearComposes
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), upcomingInOldYear, "a 2019 date cannot be upcoming")
 
-	// Guard the fixture: the +30d show can land in the next calendar year in
-	// December, which would make the assertion below vacuous.
-	if time.Now().UTC().AddDate(0, 0, 30).Year() == thisYear {
-		_, upcomingThisYear, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{
-			TimeFilter: "upcoming", Limit: 50, Year: thisYear,
-		})
-		suite.Require().NoError(err)
-		suite.Equal(int64(1), upcomingThisYear)
-	}
+	// The upcoming show's own year, taken in the VENUE's zone rather than
+	// assuming it matches UTC's: run this in the last hours of December 31 UTC
+	// and a Phoenix venue is still in the previous year.
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	suite.Require().NoError(err)
+	upcomingYear := upcomingAt.In(phoenix).Year()
+
+	_, upcomingInItsYear, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{
+		TimeFilter: "upcoming", Limit: 50, Year: upcomingYear,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), upcomingInItsYear, "year %d", upcomingYear)
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_YearWithNoShowsIsEmpty() {
