@@ -148,11 +148,11 @@ export function ReleaseList() {
   /**
    * Page links are real URLs so the strip is crawlable and middle-clickable;
    * the `<Link>` navigation writes the param, and this component reads it back
-   * off `useSearchParams`. Page one drops `?page=` to keep one canonical URL
-   * for the head of the list.
+   * off `useSearchParams`. Dropping `?page=1` is the builder's job, so page one
+   * needs no special case here.
    */
   const releasePageHref = (nextPage: number) =>
-    buildReleasesHref({ page: nextPage > 1 ? String(nextPage) : null })
+    buildReleasesHref({ page: String(nextPage) })
 
   const handleTagsChange = useCallback(
     (nextTags: string[]) => {

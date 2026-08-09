@@ -305,11 +305,12 @@ describe('ReleaseList', () => {
     )
   })
 
-  function multiPageReleases() {
+  /** One page of rows out of `total`, which is what drives the page count. */
+  function mockReleasesTotal(total: number) {
     mockUseReleases.mockReturnValue({
       data: {
         releases: [makeRelease()],
-        total: 120,
+        total,
         limit: 50,
         offset: 0,
       },
@@ -321,7 +322,7 @@ describe('ReleaseList', () => {
   }
 
   it('renders pagination controls when there is more than one page', () => {
-    multiPageReleases()
+    mockReleasesTotal(120)
     renderWithProviders(<ReleaseList />)
     const desktop = within(screen.getByTestId('pagination-desktop'))
     expect(desktop.getByText('Page 1 of 3')).toBeInTheDocument()
@@ -329,7 +330,7 @@ describe('ReleaseList', () => {
   })
 
   it('renders every page as a crawlable link rather than a button', () => {
-    multiPageReleases()
+    mockReleasesTotal(120)
     renderWithProviders(<ReleaseList />)
     const desktop = within(screen.getByTestId('pagination-desktop'))
     // Page one drops `?page=` so the head of the list has one canonical URL.
@@ -351,7 +352,7 @@ describe('ReleaseList', () => {
       if (key === 'tags') return 'post-punk'
       return null
     })
-    multiPageReleases()
+    mockReleasesTotal(120)
     renderWithProviders(<ReleaseList />)
     const desktop = within(screen.getByTestId('pagination-desktop'))
     expect(desktop.getByRole('link', { name: 'Page 3' })).toHaveAttribute(
@@ -361,18 +362,7 @@ describe('ReleaseList', () => {
   })
 
   it('does not render pagination for a single page of results', () => {
-    mockUseReleases.mockReturnValue({
-      data: {
-        releases: [makeRelease()],
-        total: 10,
-        limit: 50,
-        offset: 0,
-      },
-      isLoading: false,
-      isFetching: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockReleasesTotal(10)
     renderWithProviders(<ReleaseList />)
     expect(screen.queryByTestId('pagination')).not.toBeInTheDocument()
   })

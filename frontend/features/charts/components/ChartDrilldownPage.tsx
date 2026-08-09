@@ -111,6 +111,33 @@ function ReferenceList({
   ))
 }
 
+/**
+ * Serializes a drilldown URL. The write half of the same contract
+ * {@link resolveDrilldownWindow} parses, kept beside it and out of the
+ * component so the param set can be pinned by a plain unit test.
+ *
+ * `window` is the raw URL value rather than the resolved one, so a page change
+ * round-trips exactly what the reader arrived with. Page one drops `?page=`
+ * entirely, keeping one canonical URL for the head of the list.
+ *
+ * These three params are the whole vocabulary of `/charts/[module]`; anything
+ * else on the URL is not carried into the pager links. Add a fourth and it must
+ * be added here too, or every page click will silently drop it.
+ */
+function drilldownHref(
+  module: ChartModuleSlug,
+  window: string | null,
+  scene: string | null,
+  page: number
+): string {
+  const params = new URLSearchParams()
+  if (window) params.set('window', window)
+  if (scene) params.set('scene', scene)
+  if (page > 1) params.set('page', String(page))
+  const query = params.toString()
+  return query ? `/charts/${module}?${query}` : `/charts/${module}`
+}
+
 function resolveDrilldownWindow(raw: string | null): ChartWindow {
   if (!raw) return 'quarter'
   if ((CHART_WINDOWS as readonly string[]).includes(raw)) {
@@ -540,25 +567,13 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
   }, [pageOutOfRange, setPage, totalPages])
 
   /**
-   * Page links are real URLs, so the strip is crawlable and middle-clickable
-   * and the `<Link>` navigation itself writes `?page=` — nuqs reads it back
-   * from the URL. Writing the param from an `onNavigate` handler as well would
-   * push a second, identical history entry, so this surface navigates by href
-   * alone; `setPage` stays for the clamp and snap-back corrections only.
-   *
-   * The window and scene filters are re-serialized here so they survive a page
-   * change, and page one drops `?page=` entirely to keep one canonical URL for
-   * the head of the list. Only the three params this page owns round-trip;
-   * anything else on the URL is not carried into the pager links.
+   * The pager navigates by href alone: the `<Link>` writes `?page=` and nuqs
+   * reads it back off the URL. Writing the param from an `onNavigate` handler
+   * as well would push a second, identical history entry, so `setPage` stays
+   * for the clamp and snap-back corrections only.
    */
-  const drilldownPageHref = (nextPage: number) => {
-    const params = new URLSearchParams()
-    if (windowParam) params.set('window', windowParam)
-    if (scene) params.set('scene', scene)
-    if (nextPage > 1) params.set('page', String(nextPage))
-    const query = params.toString()
-    return query ? `/charts/${module}?${query}` : `/charts/${module}`
-  }
+  const pageHref = (nextPage: number) =>
+    drilldownHref(module, windowParam, scene, nextPage)
   const changeWindow = (nextWindow: RollingChartWindow) => {
     void setPage(null)
     void setWindow(nextWindow === 'quarter' ? null : nextWindow)
@@ -758,9 +773,10 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
       {showPagination ? (
         <div className="space-y-3 border-t border-border pt-4">
           {/*
-            The row summary sits outside the pager: it is the answer to "how
-            much is here", which a single-page chart still needs, and the pager
-            hides itself entirely at one page.
+            The row summary stays outside the pager rather than riding along as
+            `captionRange`, which cannot express either half of it: the pager
+            returns null at one page and would take the summary with it, and
+            the MAX_PAGE cap note has no slot in that prop.
           */}
           <p className="font-mono text-xs text-muted-foreground">
             Showing {showingStart}–{showingEnd} of {total.toLocaleString()}
@@ -771,7 +787,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
           <Pagination
             currentPage={page}
             totalPages={totalPages}
-            pageHref={drilldownPageHref}
+            pageHref={pageHref}
             ariaLabel="Chart pagination"
             previousLabel="Previous"
             nextLabel="Next"
