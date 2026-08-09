@@ -13,17 +13,16 @@ import (
 // Revision privacy is decided at READ time from the entity the revision points
 // at (see the revisiondiff package doc). A merge breaks that: it moves the
 // loser's revisions onto the winner and then deletes the row the gate would
-// have read. The venue merge closes it with a provenance stamp written before
-// the re-point. Nothing structural stopped the next merge path from omitting
-// the same stamp, and there are two others — MergeArtists, and
-// MergeDuplicateShow, which runs from cmd/dedup-shows with no admin in the
-// loop.
+// have read. The venue merge closes it with a provenance stamp. Nothing
+// structural stopped the next merge path from omitting the same stamp, and
+// there are two others: MergeArtists, and MergeDuplicateShow, which runs from
+// cmd/dedup-shows with no admin in the loop.
 //
 // repointRevisions takes the decision as a REQUIRED parameter, so a merge
 // cannot be routed through it without its author picking one of the values
 // below. What keeps a merge from bypassing it altogether is
-// TestNoRevisionRepointOutsideTheHelper, which fails on an UPDATE against
-// revisions written anywhere else in the backend.
+// TestNoRevisionRepointOutsideTheHelper, which fails on an entity_id write
+// against revisions anywhere else in the backend.
 
 // revisionEntityType is the revisions.entity_type value a merge re-points.
 //

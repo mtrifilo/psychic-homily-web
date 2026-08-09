@@ -82,11 +82,16 @@ func TestRepointRevisions_RejectsZeroIDs(t *testing.T) {
 // The same idiom as TestVenueEntityRefsCoverSchema — a hand-maintained
 // invariant whose failure mode is silent, checked at the only cheap moment.
 //
-// It reads SQL, so it catches the idiom all three merges used and not a GORM
-// builder chain. That is the shape to extend it to if one ever appears.
+// Two shapes are checked, because the raw UPDATE every merge used today is not
+// the only way to write one: a GORM chain setting entity_id would compile,
+// bypass the helper, and read nothing like SQL. The second check is scoped to
+// files that also name the revisions table or model, so re-pointing some other
+// polymorphic table through the builder does not trip it.
 func TestNoRevisionRepointOutsideTheHelper(t *testing.T) {
 	root := backendRoot(t)
 	updateRevisions := regexp.MustCompile(`(?is)\bupdate\s+revisions\b`)
+	builderSetsEntityID := regexp.MustCompile(`Updates?\(\s*"entity_id"`)
+	namesRevisions := regexp.MustCompile(`adminm?\.Revision\{|Table\("revisions"\)`)
 
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -113,11 +118,15 @@ func TestNoRevisionRepointOutsideTheHelper(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
-		if updateRevisions.Match(source) {
+		rawUpdate := updateRevisions.Match(source)
+		builderUpdate := builderSetsEntityID.Match(source) && namesRevisions.Match(source)
+		if rawUpdate || builderUpdate {
 			rel, _ := filepath.Rel(root, path)
-			t.Errorf("%s writes an UPDATE against revisions. Re-pointing revisions must go "+
-				"through catalog.repointRevisions, which requires a provenance decision — "+
-				"without it a merge silently republishes history that was being withheld.", rel)
+			t.Errorf("%s writes an entity_id update against revisions. Re-pointing revisions "+
+				"must go through catalog.repointRevisions, which requires a provenance "+
+				"decision — without it a merge silently republishes history that was being "+
+				"withheld. If this write is not a re-point, narrow this guard rather than "+
+				"deleting it.", rel)
 		}
 		return nil
 	})
