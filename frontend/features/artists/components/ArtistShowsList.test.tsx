@@ -328,16 +328,50 @@ describe('ArtistPastShows — rows', () => {
     )
   })
 
-  it('names the venue and city after the bill, linked to the venue page', () => {
+  it('names the venue and its location after the bill, linked to the venue page', () => {
     // The one deliberate divergence from the venue archive: an artist's rows
-    // span venues, so the place is part of the row.
+    // span venues, so the place is part of the row. Asserted as the full
+    // string, not a loose /Chicago/ — the STATE is the point. An artist's rows
+    // span metros, so "Portland" alone does not say which Portland, and the
+    // PSY-558/780 rule is what decides that.
     setPast({ shows: [makeShow({ id: 5 })], total: 1 })
     renderList()
     const table = screen.getByRole('table', { name: 'Past shows' })
     expect(
       within(table).getByRole('link', { name: 'Empty Bottle' })
     ).toHaveAttribute('href', '/venues/empty-bottle')
-    expect(within(table).getByText(/Chicago/)).toBeInTheDocument()
+    // Asserted on the cell, because the location is a text node sitting beside
+    // the venue link rather than an element of its own.
+    expect(within(table).getAllByRole('cell')[1]).toHaveTextContent(
+      'Empty Bottle, Chicago, IL'
+    )
+  })
+
+  it('drops the location entirely when the venue has none to place', () => {
+    // `formatLocation` returns its "Location Unknown" placeholder for an
+    // unplaceable venue. That is a FIELD placeholder; printed mid-line after a
+    // venue name it would read as part of the sentence.
+    setPast({
+      shows: [
+        makeShow({
+          id: 5,
+          venue: {
+            id: 9,
+            slug: 'nowhere',
+            name: 'Nowhere Room',
+            city: '',
+            state: '',
+            timezone: null,
+          },
+        }),
+      ],
+      total: 1,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    const cell = within(table).getAllByRole('cell')[1]
+    expect(cell).toHaveTextContent('Nowhere Room')
+    expect(cell).not.toHaveTextContent('Location Unknown')
   })
 
   it('leaves a venue with no slug unlinked rather than linking to /venues/', () => {

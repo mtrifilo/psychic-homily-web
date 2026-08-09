@@ -13,6 +13,7 @@ import {
   groupByMonth,
   type MonthGroup,
 } from '@/features/shows/showArchive'
+import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
   formatPrice,
   formatShowDate,
@@ -38,6 +39,13 @@ function VenueContext({ venue }: { venue: ArtistShow['venue'] }) {
   if (!venue) {
     return <span className="text-muted-foreground">· Venue TBA</span>
   }
+  // The locked PSY-558/780 rule, not a hand-rolled `${city}, ${state}` — which
+  // is the exact drift PSY-780 consolidated away. It matters most here: an
+  // artist's rows span metros, so "Portland" alone does not say which Portland.
+  // `LOCATION_UNKNOWN` is a field placeholder and must not print mid-line, so a
+  // venue with no placeable location contributes nothing (the helper exports
+  // the constant for precisely this composition case).
+  const location = formatLocation({ city: venue.city, state: venue.state })
   return (
     <span className="text-muted-foreground">
       {'· '}
@@ -53,7 +61,7 @@ function VenueContext({ venue }: { venue: ArtistShow['venue'] }) {
       ) : (
         venue.name
       )}
-      {venue.city ? `, ${venue.city}` : ''}
+      {location === LOCATION_UNKNOWN ? '' : `, ${location}`}
     </span>
   )
 }
