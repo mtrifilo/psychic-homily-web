@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useTransition, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   parseAsInteger,
   parseAsString,
@@ -10,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import {
   FollowButton,
+  Pagination,
   ReleaseSaveButton,
   SaveButton,
 } from '@/components/shared'
@@ -110,20 +112,40 @@ function ReferenceList({
   ))
 }
 
-function paginationItems(currentPage: number, totalPages: number) {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1)
-  }
-  const pages = new Set([1, totalPages, currentPage])
-  if (currentPage > 1) pages.add(currentPage - 1)
-  if (currentPage < totalPages) pages.add(currentPage + 1)
-  const sorted = [...pages].sort((a, b) => a - b)
-  const items: Array<number | 'ellipsis'> = []
-  sorted.forEach((page, index) => {
-    if (index > 0 && page - sorted[index - 1] > 1) items.push('ellipsis')
-    items.push(page)
-  })
-  return items
+/**
+ * Serializes a drilldown URL. The write half of the same contract
+ * {@link resolveDrilldownWindow} parses, kept beside it and out of the
+ * component so the param set can be pinned without rendering the page.
+ * Exported for exactly that reason; the page is its only caller.
+ *
+ * Edits `currentQuery` rather than rebuilding from a fixed key list, so params
+ * this page knows nothing about — `utm_*`, `gclid`, share tokens — survive a
+ * page change. The nuqs setters this replaced preserved them for free; a
+ * from-scratch builder would drop them at the first pagination click.
+ *
+ * `chartWindow` is the RESOLVED window, and the default is omitted, matching
+ * what `fullListHref` and `changeWindow` write. Round-tripping the raw value
+ * instead would give the head of the list two URLs (`?window=quarter` is a live
+ * inbound link via `chartRankHref`) and would multiply any unrecognized window
+ * across every page link, since an unparseable window silently renders the
+ * quarter chart rather than being cleared from the URL.
+ */
+export function drilldownHref(
+  module: ChartModuleSlug,
+  currentQuery: string,
+  chartWindow: ChartWindow,
+  scene: string,
+  page: number
+): string {
+  const params = new URLSearchParams(currentQuery)
+  if (chartWindow === 'quarter') params.delete('window')
+  else params.set('window', chartWindow)
+  if (scene) params.set('scene', scene)
+  else params.delete('scene')
+  if (page > 1) params.set('page', String(page))
+  else params.delete('page')
+  const query = params.toString()
+  return query ? `/charts/${module}?${query}` : `/charts/${module}`
 }
 
 function resolveDrilldownWindow(raw: string | null): ChartWindow {
@@ -147,9 +169,13 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     'scene',
     parseAsString.withOptions({ history: 'push', startTransition })
   )
+  const searchParams = useSearchParams()
+  // `replace`, not `push`: every remaining `setPage` call is a correction of an
+  // out-of-range URL, and pushing those made the back button walk the reader
+  // right back onto the page that was just rejected.
   const [rawPage, setPage] = useQueryState(
     'page',
-    pageParser.withOptions({ history: 'push', startTransition })
+    pageParser.withOptions({ history: 'replace', startTransition })
   )
   const page = Math.min(MAX_PAGE, Math.max(1, rawPage))
   const offset = (page - 1) * PAGE_SIZE
@@ -554,8 +580,14 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     if (pageOutOfRange) void setPage(totalPages)
   }, [pageOutOfRange, setPage, totalPages])
 
-  const goToPage = (nextPage: number) =>
-    void setPage(nextPage === 1 ? null : nextPage)
+  /**
+   * The pager navigates by href alone: the `<Link>` writes `?page=` and nuqs
+   * reads it back off the URL, so `setPage` is left to the clamp and snap-back
+   * corrections only. (`Pagination`'s `onNavigate` is not a URL writer — it is
+   * the focus hook; see the deferred a11y note in the PR.)
+   */
+  const pageHref = (nextPage: number) =>
+    drilldownHref(module, searchParams.toString(), window, scene ?? '', nextPage)
   const changeWindow = (nextWindow: RollingChartWindow) => {
     void setPage(null)
     void setWindow(nextWindow === 'quarter' ? null : nextWindow)
@@ -753,58 +785,28 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
       </div>
 
       {showPagination ? (
-        <nav
-          aria-label="Chart pagination"
-          className="flex flex-col gap-3 border-t border-border pt-4 font-mono text-xs sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p className="text-muted-foreground">
+        <div className="space-y-3 border-t border-border pt-4">
+          {/*
+            The row summary stays outside the pager rather than riding along as
+            `captionRange`, which cannot express either half of it: the pager
+            returns null at one page and would take the summary with it, and
+            the MAX_PAGE cap note has no slot in that prop.
+          */}
+          <p className="font-mono text-xs text-muted-foreground">
             Showing {showingStart}–{showingEnd} of {total.toLocaleString()}
             {total > reachableTotal
               ? ` · first ${reachableTotal.toLocaleString()} accessible`
               : ''}
           </p>
-          <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => goToPage(page - 1)}
-              className="px-2 py-1 text-primary disabled:text-muted-foreground"
-            >
-              Previous
-            </button>
-            {paginationItems(page, totalPages).map((item, index) =>
-              item === 'ellipsis' ? (
-                <span
-                  key={`ellipsis-${index}`}
-                  className="px-1 text-muted-foreground"
-                >
-                  …
-                </span>
-              ) : (
-                <button
-                  key={item}
-                  type="button"
-                  aria-current={page === item ? 'page' : undefined}
-                  onClick={() => goToPage(item)}
-                  className={cn(
-                    'min-w-7 px-2 py-1 text-primary',
-                    page === item && 'bg-primary text-primary-foreground'
-                  )}
-                >
-                  {item}
-                </button>
-              )
-            )}
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => goToPage(page + 1)}
-              className="px-2 py-1 text-primary disabled:text-muted-foreground"
-            >
-              Next
-            </button>
-          </div>
-        </nav>
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            pageHref={pageHref}
+            ariaLabel="Chart pagination"
+            previousLabel="Previous"
+            nextLabel="Next"
+          />
+        </div>
       ) : null}
     </div>
   )

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ChartDrilldownPage } from './ChartDrilldownPage'
+import { ChartDrilldownPage, drilldownHref } from './ChartDrilldownPage'
 import type { ChartModuleSlug } from '../moduleConfig'
 
 const mockSetWindow = vi.fn()
@@ -26,6 +26,13 @@ function query<T>(data: T, enabled = true) {
     refetch: vi.fn(),
   }
 }
+
+// The pager seeds its hrefs from the live query string so unknown params
+// survive a page change; this stands in for the URL the reader arrived on.
+let liveQuery = 'window=quarter&scene=38060'
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(liveQuery),
+}))
 
 vi.mock('nuqs', () => ({
   parseAsInteger: { withDefault: () => ({ withOptions: () => ({}) }) },
@@ -60,17 +67,26 @@ vi.mock('@/features/releases', () => ({
   useReleaseSaveCountBatch: () => query({}),
 }))
 
-vi.mock('@/components/shared', () => ({
-  FollowButton: ({ entityId }: { entityId: number }) => (
-    <button>follow-{entityId}</button>
-  ),
-  SaveButton: ({ showId }: { showId: number }) => (
-    <button>save-show-{showId}</button>
-  ),
-  ReleaseSaveButton: ({ releaseId }: { releaseId: number }) => (
-    <button>save-release-{releaseId}</button>
-  ),
-}))
+// The inline action buttons are stubbed to keep their own suites' concerns out
+// of this one; the pager is spliced back in from its module because this suite
+// asserts the URLs it emits.
+vi.mock('@/components/shared', async () => {
+  const { Pagination } = await vi.importActual<
+    typeof import('@/components/shared/Pagination')
+  >('@/components/shared/Pagination')
+  return {
+    Pagination,
+    FollowButton: ({ entityId }: { entityId: number }) => (
+      <button>follow-{entityId}</button>
+    ),
+    SaveButton: ({ showId }: { showId: number }) => (
+      <button>save-show-{showId}</button>
+    ),
+    ReleaseSaveButton: ({ releaseId }: { releaseId: number }) => (
+      <button>save-release-{releaseId}</button>
+    ),
+  }
+})
 
 const payloads = {
   'most-active-artists': {
@@ -256,12 +272,82 @@ vi.mock('../hooks', () => ({
   ) => moduleQuery('openers-to-watch', options),
 }))
 
+describe('drilldownHref', () => {
+  it('carries the window and scene filters through a page change', () => {
+    expect(
+      drilldownHref('busiest-venues', 'window=all_time&scene=38060', 'all_time', '38060', 4)
+    ).toBe('/charts/busiest-venues?window=all_time&scene=38060&page=4')
+  })
+
+  it('drops the page param on page one so the head of the list has one URL', () => {
+    expect(
+      drilldownHref('busiest-venues', 'window=all_time&scene=38060&page=4', 'all_time', '38060', 1)
+    ).toBe('/charts/busiest-venues?window=all_time&scene=38060')
+  })
+
+  it('omits the query string entirely when nothing is set', () => {
+    expect(drilldownHref('new-releases', '', 'quarter', '', 1)).toBe(
+      '/charts/new-releases'
+    )
+    expect(drilldownHref('new-releases', '', 'quarter', '', 2)).toBe(
+      '/charts/new-releases?page=2'
+    )
+  })
+
+  it('omits the default window so the head of the list has a single URL', () => {
+    // `chartRankHref` links in with an explicit `?window=quarter`; echoing that
+    // back would give page one two URLs for identical content.
+    expect(
+      drilldownHref('new-releases', 'window=quarter', 'quarter', '', 2)
+    ).toBe('/charts/new-releases?page=2')
+  })
+
+  it('collapses an unrecognized window onto the chart that actually rendered', () => {
+    // The caller passes the RESOLVED window, so `?window=banana` (which renders
+    // the quarter chart) cannot multiply itself across every page link.
+    expect(
+      drilldownHref('new-releases', 'window=banana', 'quarter', '', 2)
+    ).toBe('/charts/new-releases?page=2')
+  })
+
+  it('keeps an archive window, which is a real chart and not the default', () => {
+    expect(
+      drilldownHref('new-releases', 'window=2025-q1', '2025-q1', '', 2)
+    ).toBe('/charts/new-releases?window=2025-q1&page=2')
+  })
+
+  it('preserves params it knows nothing about, as the nuqs writer did', () => {
+    expect(
+      drilldownHref(
+        'new-releases',
+        'utm_source=newsletter&window=month',
+        'month',
+        '',
+        3
+      )
+    ).toBe('/charts/new-releases?utm_source=newsletter&window=month&page=3')
+  })
+
+  it('clears a scene that is no longer selected', () => {
+    expect(
+      drilldownHref('new-releases', 'scene=38060&page=2', 'quarter', '', 2)
+    ).toBe('/charts/new-releases?page=2')
+  })
+
+  it('percent-encodes filter values instead of splicing them raw', () => {
+    expect(drilldownHref('new-releases', '', 'all_time', 'a&b=c', 2)).toBe(
+      '/charts/new-releases?window=all_time&scene=a%26b%3Dc&page=2'
+    )
+  })
+})
+
 describe('ChartDrilldownPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     queryWindow = 'quarter'
     queryScene = '38060'
     queryPage = 1
+    liveQuery = 'window=quarter&scene=38060'
     sceneQueryError = false
     sceneQueryDataAvailable = true
     moduleQueryError = false
@@ -306,8 +392,24 @@ describe('ChartDrilldownPage', () => {
       expect.objectContaining({ offset: 50, enabled: true, scene: '38060' })
     )
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    expect(mockSetPage).toHaveBeenCalledWith(3)
+    // The pager navigates by href, not by a nuqs write: `?page=` is set by the
+    // link, and the scene filter rides along so a page change never silently
+    // drops it. `window=quarter` is the default and is normalized away, so the
+    // strip agrees with what the window tabs write.
+    const pager = within(screen.getByTestId('pagination-desktop'))
+    expect(pager.getByRole('link', { name: /Next/ })).toHaveAttribute(
+      'href',
+      '/charts/most-active-artists?scene=38060&page=3'
+    )
+    expect(pager.getByRole('link', { name: 'Page 1' })).toHaveAttribute(
+      'href',
+      '/charts/most-active-artists?scene=38060'
+    )
+    expect(pager.getByRole('link', { name: 'Page 2' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+
     await user.click(screen.getByRole('button', { name: 'All Time' }))
     expect(mockSetPage).toHaveBeenCalledWith(null)
     expect(mockSetWindow).toHaveBeenCalledWith('all_time')
@@ -345,12 +447,22 @@ describe('ChartDrilldownPage', () => {
     payloads['most-active-artists'].total = 20_000
     render(<ChartDrilldownPage module="most-active-artists" />)
 
-    expect(screen.getByRole('button', { name: '201' })).toHaveAttribute(
+    const pager = within(screen.getByTestId('pagination-desktop'))
+    expect(pager.getByRole('link', { name: 'Page 201' })).toHaveAttribute(
       'aria-current',
       'page'
     )
-    expect(screen.queryByRole('button', { name: '400' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(
+      pager.queryByRole('link', { name: 'Page 400' })
+    ).not.toBeInTheDocument()
+    // The last reachable page offers no onward link at all, so there is no href
+    // pointing past the backend's offset cap.
+    expect(
+      within(screen.getByTestId('pagination-desktop')).getByTestId(
+        'pagination-next-disabled'
+      )
+    ).toBeInTheDocument()
+    expect(pager.queryByRole('link', { name: /Next/ })).not.toBeInTheDocument()
     expect(
       screen.getByText(/first 10,050 accessible/)
     ).toBeInTheDocument()
