@@ -170,19 +170,29 @@ type GetVenueShowsRequest struct {
 	VenueID    string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
 	Timezone   string `query:"timezone" doc:"Deprecated and ignored. The upcoming/past split is made in each show's own venue-local timezone, so a caller's zone no longer moves the boundary. Accepted for backward compatibility only." example:"America/Phoenix"`
 	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"200" doc:"Maximum number of shows to return (max 200)"`
+	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
+	// Bounded rather than open so a nonsense year is a 422 naming the field
+	// rather than an empty page the caller has to diagnose. The ceiling matches
+	// shared.VenueLocalYearCondition's own, above which it stops emitting the
+	// sargable bounds because the Go timestamps stop round-tripping.
+	Year int `query:"year" default:"0" minimum:"0" maximum:"9999" doc:"Filter to a single venue-local calendar year. 0 (default) returns every year. Use /venues/{venue_id}/shows/years to discover which years have shows."`
 }
 
 // GetVenueShowsResponse represents the response for the venue shows endpoint
 type GetVenueShowsResponse struct {
 	Body struct {
-		Shows   []*contracts.VenueShowResponse `json:"shows" doc:"List of upcoming shows"`
+		Shows   []*contracts.VenueShowResponse `json:"shows" doc:"Page of shows at this venue"`
 		VenueID uint                           `json:"venue_id" doc:"Venue ID"`
-		Total   int64                          `json:"total" doc:"Total number of upcoming shows"`
+		Total   int64                          `json:"total" doc:"Total shows matching the time filter and year, across all pages"`
+		Limit   int                            `json:"limit" doc:"Limit used in query"`
+		Offset  int                            `json:"offset" doc:"Offset used in query"`
+		Year    int                            `json:"year" doc:"Year filter used in query (0 = all years)"`
 	}
 }
 
-// GetVenueShowsHandler handles GET /venues/{venue_id}/shows - returns shows at a venue
+// GetVenueShowsHandler handles GET /venues/{venue_id}/shows - returns a page of
+// shows at a venue.
 func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueShowsRequest) (*GetVenueShowsResponse, error) {
 	limit := req.Limit
 	if limit == 0 {
@@ -194,24 +204,17 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 		timeFilter = "upcoming"
 	}
 
-	// Resolve venue ID from ID or slug
-	var venueID uint
-	if id, parseErr := strconv.ParseUint(req.VenueID, 10, 32); parseErr == nil {
-		venueID = uint(id)
-	} else {
-		// Look up by slug to get the ID
-		venue, err := h.venueService.GetVenueBySlug(req.VenueID)
-		if err != nil {
-			var venueErr *apperrors.VenueError
-			if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
-				return nil, huma.Error404NotFound("Venue not found")
-			}
-			return nil, huma.Error500InternalServerError("Failed to fetch venue", err)
-		}
-		venueID = venue.ID
+	venueID, err := h.resolveVenueID(req.VenueID)
+	if err != nil {
+		return nil, err
 	}
 
-	shows, total, err := h.venueService.GetShowsForVenue(venueID, req.Timezone, limit, timeFilter)
+	shows, total, err := h.venueService.GetShowsForVenue(venueID, req.Timezone, contracts.VenueShowsQuery{
+		TimeFilter: timeFilter,
+		Limit:      limit,
+		Offset:     req.Offset,
+		Year:       req.Year,
+	})
 	if err != nil {
 		var venueErr *apperrors.VenueError
 		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
@@ -224,8 +227,83 @@ func (h *VenueHandler) GetVenueShowsHandler(ctx context.Context, req *GetVenueSh
 	resp.Body.Shows = shows
 	resp.Body.VenueID = venueID
 	resp.Body.Total = total
+	resp.Body.Limit = limit
+	resp.Body.Offset = req.Offset
+	resp.Body.Year = req.Year
 
 	return resp, nil
+}
+
+// GetVenueShowYearsRequest represents the request parameters for a venue's
+// show-year histogram.
+type GetVenueShowYearsRequest struct {
+	VenueID    string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
+	TimeFilter string `query:"time_filter" doc:"Count shows by time: upcoming, past, or all" example:"past" enum:"upcoming,past,all"`
+}
+
+// GetVenueShowYearsResponse represents the response for the venue show-years endpoint
+type GetVenueShowYearsResponse struct {
+	Body struct {
+		Years      []contracts.VenueShowYearCount `json:"years" doc:"Venue-local calendar years that have at least one show, newest first"`
+		VenueID    uint                           `json:"venue_id" doc:"Venue ID"`
+		TimeFilter string                         `json:"time_filter" doc:"Time filter the counts were taken under"`
+	}
+}
+
+// GetVenueShowYearsHandler handles GET /venues/{venue_id}/shows/years - returns
+// the venue-local year histogram behind the show list's year picker.
+//
+// A sibling of the show list rather than a field on it: the picker has to offer
+// every year, so the histogram must NOT narrow to the list's `year` param, and
+// it does not change as the reader pages, so recomputing it per page would be
+// waste. Both surfaces take the same time_filter, and must be requested with the
+// same one or the picker will offer years the list cannot show.
+func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVenueShowYearsRequest) (*GetVenueShowYearsResponse, error) {
+	timeFilter := req.TimeFilter
+	if timeFilter == "" {
+		timeFilter = "upcoming"
+	}
+
+	venueID, err := h.resolveVenueID(req.VenueID)
+	if err != nil {
+		return nil, err
+	}
+
+	years, err := h.venueService.GetVenueShowYears(venueID, timeFilter)
+	if err != nil {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to count shows by year", err)
+	}
+
+	resp := &GetVenueShowYearsResponse{}
+	resp.Body.Years = years
+	resp.Body.VenueID = venueID
+	resp.Body.TimeFilter = timeFilter
+
+	return resp, nil
+}
+
+// resolveVenueID turns the shared {venue_id} path parameter, a numeric id or a
+// slug, into an id, returning a ready-to-surface huma error. Shared by the
+// venue sub-resource reads so they cannot drift apart on what a bad venue
+// reference returns.
+func (h *VenueHandler) resolveVenueID(idOrSlug string) (uint, error) {
+	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
+		return uint(id), nil
+	}
+
+	venue, err := h.venueService.GetVenueBySlug(idOrSlug)
+	if err != nil {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
+			return 0, huma.Error404NotFound("Venue not found")
+		}
+		return 0, huma.Error500InternalServerError("Failed to fetch venue", err)
+	}
+	return venue.ID, nil
 }
 
 // GetVenueCitiesRequest represents the request for getting venue cities (empty, no params needed)

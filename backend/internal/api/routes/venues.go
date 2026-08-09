@@ -17,6 +17,10 @@ func setupVenueRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/venues/search", venueHandler.SearchVenuesHandler)
 	huma.Get(rc.API, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)
+	// Sibling of the list rather than a field on it: the year picker must offer
+	// every year regardless of which one the list is filtered to, and the
+	// histogram does not change as the reader pages. See the handler's note.
+	huma.Get(rc.API, "/venues/{venue_id}/shows/years", venueHandler.GetVenueShowYearsHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/bill-network", venueHandler.GetVenueBillNetworkHandler)
 

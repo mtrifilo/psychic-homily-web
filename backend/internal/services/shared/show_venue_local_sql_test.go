@@ -104,3 +104,60 @@ func TestVenueLocalDateCondition(t *testing.T) {
 		}
 	}
 }
+
+// The year filter's two halves, and the one case where widening it would be a
+// silent data leak rather than an empty page.
+func TestVenueLocalYearCondition(t *testing.T) {
+	// Non-positive means "all years", which is the ONLY input allowed to
+	// produce an empty fragment.
+	for _, year := range []int{0, -1, -2026} {
+		got, args := VenueLocalYearCondition(year)
+		if got != "" || args != nil {
+			t.Errorf("year %d must not filter, got %q %v", year, got, args)
+		}
+	}
+
+	sql, args := VenueLocalYearCondition(2019)
+	if !strings.Contains(sql, VenueLocalYearSQL) {
+		t.Errorf("year filter lost its venue-local bucket expression, got %q", sql)
+	}
+	if !strings.Contains(sql, "shows.event_date >= ?") || !strings.Contains(sql, "shows.event_date < ?") {
+		t.Errorf("year filter lost its sargable bounds, got %q", sql)
+	}
+	// Three binds, and the year itself is the last of them: an interpolated
+	// year would be the one injection hole in this file.
+	if len(args) != 3 {
+		t.Fatalf("year filter must bind 3 arguments, got %v", args)
+	}
+	if args[2] != 2019 {
+		t.Errorf("year filter must BIND the year, got args %v and sql %q", args, sql)
+	}
+	if strings.Contains(sql, "2019") {
+		t.Errorf("year filter interpolated the year into %q", sql)
+	}
+
+	// A year past the representable range keeps the exact predicate and drops
+	// only the bounds. Returning "" here would answer "every year" to a caller
+	// who asked for one.
+	sql, args = VenueLocalYearCondition(maxCoarseBoundedYear + 1)
+	if sql == "" {
+		t.Fatal("an out-of-range year must still filter, not widen to all years")
+	}
+	// The bucket expression itself mentions shows.event_date, so look for the
+	// bound comparisons rather than the column name.
+	if strings.Contains(sql, "shows.event_date >= ?") || strings.Contains(sql, "shows.event_date < ?") {
+		t.Errorf("an out-of-range year must drop its unrepresentable bounds, got %q", sql)
+	}
+	if len(args) != 1 || args[0] != maxCoarseBoundedYear+1 {
+		t.Errorf("out-of-range year must still bind the year, got %v", args)
+	}
+}
+
+// The bucket expression and the partitioning date must resolve the zone the same
+// way. If they drifted, a show could be listed under one year and partitioned by
+// another zone's calendar.
+func TestVenueLocalYearSQL_BuildsOnTheSharedDateExpression(t *testing.T) {
+	if !strings.Contains(VenueLocalYearSQL, VenueLocalDateSQL) {
+		t.Errorf("VenueLocalYearSQL does not derive from VenueLocalDateSQL: %q", VenueLocalYearSQL)
+	}
+}

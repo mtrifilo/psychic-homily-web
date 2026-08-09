@@ -4293,24 +4293,24 @@ func (m *MockVenueMergeService) MergeVenues(canonicalID uint, mergeFromID uint, 
 // ============================================================================
 
 type MockVenueService struct {
-	CreateVenueFn              func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
-	GetVenueFn                 func(uint) (*contracts.VenueDetailResponse, error)
-	GetVenueBySlugFn           func(string) (*contracts.VenueDetailResponse, error)
-	GetVenueDetailFn           func(string) (*contracts.VenueDetailResponse, error)
-	GetVenuesFn                func(map[string]interface{}) ([]*contracts.VenueDetailResponse, error)
-	UpdateVenueFn              func(uint, *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error)
-	DeleteVenueFn              func(uint) error
-	SearchVenuesFn             func(string) ([]*contracts.VenueDetailResponse, error)
-	FindOrCreateVenueFn        func(string, string, string, *string, *string, *gorm.DB, bool) (*catalogm.Venue, bool, error)
-	VerifyVenueFn              func(uint) (*contracts.VenueDetailResponse, error)
-	GetVenuesWithShowCountsFn  func(contracts.VenueListFilters, int, int) ([]*contracts.VenueWithShowCountResponse, int64, error)
-	GetUpcomingShowsForVenueFn func(uint, string, int) ([]*contracts.VenueShowResponse, int64, error)
-	GetShowsForVenueFn         func(uint, string, int, string) ([]*contracts.VenueShowResponse, int64, error)
-	GetVenueCitiesFn           func() ([]*contracts.VenueCityResponse, error)
-	GetVenueModelFn            func(uint) (*catalogm.Venue, error)
-	GetUnverifiedVenuesFn      func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
-	GetVenueGenreProfileFn     func(uint) ([]contracts.GenreCount, error)
-	GetVenueBillNetworkFn      func(uint, string, *int) (*contracts.VenueBillNetworkResponse, error)
+	CreateVenueFn             func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
+	GetVenueFn                func(uint) (*contracts.VenueDetailResponse, error)
+	GetVenueBySlugFn          func(string) (*contracts.VenueDetailResponse, error)
+	GetVenueDetailFn          func(string) (*contracts.VenueDetailResponse, error)
+	GetVenuesFn               func(map[string]interface{}) ([]*contracts.VenueDetailResponse, error)
+	UpdateVenueFn             func(uint, *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error)
+	DeleteVenueFn             func(uint) error
+	SearchVenuesFn            func(string) ([]*contracts.VenueDetailResponse, error)
+	FindOrCreateVenueFn       func(string, string, string, *string, *string, *gorm.DB, bool) (*catalogm.Venue, bool, error)
+	VerifyVenueFn             func(uint) (*contracts.VenueDetailResponse, error)
+	GetVenuesWithShowCountsFn func(contracts.VenueListFilters, int, int) ([]*contracts.VenueWithShowCountResponse, int64, error)
+	GetShowsForVenueFn        func(uint, string, contracts.VenueShowsQuery) ([]*contracts.VenueShowResponse, int64, error)
+	GetVenueShowYearsFn       func(uint, string) ([]contracts.VenueShowYearCount, error)
+	GetVenueCitiesFn          func() ([]*contracts.VenueCityResponse, error)
+	GetVenueModelFn           func(uint) (*catalogm.Venue, error)
+	GetUnverifiedVenuesFn     func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
+	GetVenueGenreProfileFn    func(uint) ([]contracts.GenreCount, error)
+	GetVenueBillNetworkFn     func(uint, string, *int) (*contracts.VenueBillNetworkResponse, error)
 }
 
 func (m *MockVenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
@@ -4379,17 +4379,17 @@ func (m *MockVenueService) GetVenuesWithShowCounts(filters contracts.VenueListFi
 	}
 	return nil, 0, nil
 }
-func (m *MockVenueService) GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*contracts.VenueShowResponse, int64, error) {
-	if m.GetUpcomingShowsForVenueFn != nil {
-		return m.GetUpcomingShowsForVenueFn(venueID, timezone, limit)
+func (m *MockVenueService) GetShowsForVenue(venueID uint, timezone string, query contracts.VenueShowsQuery) ([]*contracts.VenueShowResponse, int64, error) {
+	if m.GetShowsForVenueFn != nil {
+		return m.GetShowsForVenueFn(venueID, timezone, query)
 	}
 	return nil, 0, nil
 }
-func (m *MockVenueService) GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*contracts.VenueShowResponse, int64, error) {
-	if m.GetShowsForVenueFn != nil {
-		return m.GetShowsForVenueFn(venueID, timezone, limit, timeFilter)
+func (m *MockVenueService) GetVenueShowYears(venueID uint, timeFilter string) ([]contracts.VenueShowYearCount, error) {
+	if m.GetVenueShowYearsFn != nil {
+		return m.GetVenueShowYearsFn(venueID, timeFilter)
 	}
-	return nil, 0, nil
+	return nil, nil
 }
 func (m *MockVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
 	if m.GetVenueCitiesFn != nil {

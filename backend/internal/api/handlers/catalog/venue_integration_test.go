@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -186,6 +187,88 @@ func (s *VenueHandlerIntegrationSuite) TestGetVenueShows_Success() {
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(venue.ID, resp.Body.VenueID)
+}
+
+// The envelope has to echo the window the server actually used, not the window
+// the caller typed: a client computing "is there a next page" from its own
+// request cannot see the handler's default-limit substitution (PSY-1750).
+func (s *VenueHandlerIntegrationSuite) TestGetVenueShows_EchoesTheWindowActuallyUsed() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Echo Bar", "Phoenix", "AZ")
+	for i := 0; i < 3; i++ {
+		show := testhelpers.CreateFutureApprovedShow(s.deps.DB, user.ID, fmt.Sprintf("Echo Show %d", i), 7+i)
+		s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	}
+
+	req := &GetVenueShowsRequest{
+		VenueID:    fmt.Sprintf("%d", venue.ID),
+		Limit:      2,
+		Offset:     2,
+		TimeFilter: "upcoming",
+	}
+	resp, err := s.handler.GetVenueShowsHandler(s.deps.Ctx, req)
+	s.Require().NoError(err)
+	s.Equal(2, resp.Body.Limit)
+	s.Equal(2, resp.Body.Offset)
+	s.Equal(0, resp.Body.Year)
+	s.Equal(int64(3), resp.Body.Total, "total spans every page, not just this one")
+	s.Len(resp.Body.Shows, 1, "the third show is the whole last page")
+
+	// An omitted limit is substituted server-side, and the echo must say 20
+	// rather than the 0 the caller sent.
+	defaulted, err := s.handler.GetVenueShowsHandler(s.deps.Ctx, &GetVenueShowsRequest{
+		VenueID: fmt.Sprintf("%d", venue.ID), TimeFilter: "upcoming",
+	})
+	s.Require().NoError(err)
+	s.Equal(20, defaulted.Body.Limit)
+	s.Equal(0, defaulted.Body.Offset)
+}
+
+func (s *VenueHandlerIntegrationSuite) TestGetVenueShows_VenueNotFound() {
+	_, err := s.handler.GetVenueShowsHandler(s.deps.Ctx, &GetVenueShowsRequest{
+		VenueID: "no-such-venue-slug", TimeFilter: "upcoming",
+	})
+	s.Require().Error(err)
+	var statusErr huma.StatusError
+	s.Require().ErrorAs(err, &statusErr)
+	s.Equal(404, statusErr.GetStatus())
+}
+
+// --- GetVenueShowYearsHandler ---
+
+func (s *VenueHandlerIntegrationSuite) TestGetVenueShowYears_ResolvesBySlugAndEchoesFilter() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Years Bar", "Phoenix", "AZ")
+	show := testhelpers.CreateFutureApprovedShow(s.deps.DB, user.ID, "Years Show", 14)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+
+	resp, err := s.handler.GetVenueShowYearsHandler(s.deps.Ctx, &GetVenueShowYearsRequest{
+		VenueID: fmt.Sprintf("%d", venue.ID), TimeFilter: "upcoming",
+	})
+	s.Require().NoError(err)
+	s.Equal(venue.ID, resp.Body.VenueID)
+	s.Equal("upcoming", resp.Body.TimeFilter)
+	s.Require().Len(resp.Body.Years, 1)
+	s.Equal(int64(1), resp.Body.Years[0].Count)
+
+	// An omitted time_filter must land on the same default the list uses, or the
+	// picker and the list it drives would be counting different sets.
+	defaulted, err := s.handler.GetVenueShowYearsHandler(s.deps.Ctx, &GetVenueShowYearsRequest{
+		VenueID: fmt.Sprintf("%d", venue.ID),
+	})
+	s.Require().NoError(err)
+	s.Equal("upcoming", defaulted.Body.TimeFilter)
+	s.Equal(resp.Body.Years, defaulted.Body.Years)
+}
+
+func (s *VenueHandlerIntegrationSuite) TestGetVenueShowYears_VenueNotFound() {
+	_, err := s.handler.GetVenueShowYearsHandler(s.deps.Ctx, &GetVenueShowYearsRequest{
+		VenueID: "no-such-venue-slug", TimeFilter: "all",
+	})
+	s.Require().Error(err)
+	var statusErr huma.StatusError
+	s.Require().ErrorAs(err, &statusErr)
+	s.Equal(404, statusErr.GetStatus())
 }
 
 // --- GetVenueCitiesHandler ---
