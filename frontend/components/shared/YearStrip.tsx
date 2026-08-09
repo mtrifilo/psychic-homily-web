@@ -46,6 +46,12 @@ const linkClass =
 const currentClass = 'font-bold text-primary underline underline-offset-4'
 
 /**
+ * Locale is pinned so the server and client render identical digit grouping;
+ * see the same note in Pagination.tsx.
+ */
+const formatCount = (value: number) => value.toLocaleString('en-US')
+
+/**
  * Year filter strip for archive lists: `All years · 2026 (34) · 2025 (161) …`.
  * Composes above a {@link Pagination} row rather than being part of it — the
  * two navigate different axes and consumers mix and match.
@@ -81,18 +87,29 @@ export function YearStrip({
     collapseAt !== null && visibleYears.length > collapseAt + 1
   const headCount = isCollapsible ? collapseAt : visibleYears.length
 
-  // Land expanded when the selected year is in the hidden tail, so the reader
-  // can always see where they are without opening the disclosure first.
   // Multiple strips can share a page (top and bottom of a list), so the
   // disclosure's aria-controls target has to be per-instance.
   const yearListId = useId()
-  const [expanded, setExpanded] = useState(
-    () =>
-      isCollapsible &&
-      visibleYears
-        .slice(headCount)
-        .some((entry) => entry.year === currentYear)
-  )
+
+  // Land expanded when the selected year is in the hidden tail, so the reader
+  // can always see where they are without opening the disclosure first.
+  const currentYearIsInTail =
+    isCollapsible &&
+    visibleYears.slice(headCount).some((entry) => entry.year === currentYear)
+
+  const [expanded, setExpanded] = useState(currentYearIsInTail)
+
+  // These are <Link>s, so a click is usually a soft navigation that re-renders
+  // this component rather than remounting it. Without this, the mount-time
+  // initializer above is the only thing that ever opens the disclosure, and
+  // selecting a tail year would leave the reader on a strip where nothing is
+  // marked current. Re-checked only when the selected year actually changes,
+  // so a reader's manual collapse is not fought on every render.
+  const [trackedYear, setTrackedYear] = useState(currentYear)
+  if (trackedYear !== currentYear) {
+    setTrackedYear(currentYear)
+    if (currentYearIsInTail) setExpanded(true)
+  }
 
   if (visibleYears.length === 0) return null
 
@@ -141,7 +158,7 @@ export function YearStrip({
               // between the year and its count (engines disagree about
               // separators between sibling text elements). The visible text
               // stays a subset of the name, so voice control still works.
-              aria-label={`${entry.year} (${entry.count.toLocaleString()})`}
+              aria-label={`${entry.year} (${formatCount(entry.count)})`}
               className={cn(
                 linkClass,
                 entry.year === currentYear && currentClass
@@ -150,7 +167,7 @@ export function YearStrip({
               {entry.year}
               {/* Counts are the first casualty of a narrow viewport. */}
               <span className="hidden sm:inline">
-                {` (${entry.count.toLocaleString()})`}
+                {` (${formatCount(entry.count)})`}
               </span>
             </Link>
           </li>

@@ -287,6 +287,15 @@ describe('Pagination', () => {
     ).toHaveAttribute('aria-current', 'page')
   })
 
+  it('groups large caption numbers deterministically rather than by runtime locale', () => {
+    // Locale-dependent grouping would hydrate into a mismatch for viewers whose
+    // browser groups digits differently from the server.
+    renderPager({ captionRange: { start: 1001, end: 2000, total: 12345 } })
+    expect(
+      desktop().getByText('Showing 1,001–2,000 of 12,345 · Page 2 of 4')
+    ).toBeInTheDocument()
+  })
+
   it('forwards custom className onto the nav', () => {
     renderPager({ className: 'mt-6' })
     expect(screen.getByTestId('pagination').className).toContain('mt-6')

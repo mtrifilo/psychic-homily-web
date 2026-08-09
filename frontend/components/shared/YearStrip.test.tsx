@@ -195,6 +195,55 @@ describe('YearStrip', () => {
     ).toHaveAttribute('aria-expanded', 'false')
   })
 
+  it('opens the disclosure when a soft navigation selects a tail year', () => {
+    // Soft navigation re-renders rather than remounting, so the mount-time
+    // initializer never runs again.
+    const { rerender } = renderStrip({ collapseAfter: 1, currentYear: 2026 })
+    expect(screen.getByRole('button', { name: /older/ })).toBeInTheDocument()
+    rerender(
+      <YearStrip
+        years={years}
+        allYearsHref="/venues/rebel#past-shows"
+        ariaLabel="Filter shows by year"
+        collapseAfter={1}
+        currentYear={2024}
+      />
+    )
+    expect(screen.getByRole('button', { name: /fewer/ })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    )
+    expect(screen.getByRole('link', { name: '2024 (98)' })).toBeVisible()
+  })
+
+  it('does not reopen a manually collapsed strip on unrelated re-renders', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderStrip({ collapseAfter: 1, currentYear: 2024 })
+    await user.click(screen.getByRole('button', { name: /fewer/ }))
+    rerender(
+      <YearStrip
+        years={years}
+        allYearsHref="/venues/rebel#past-shows"
+        ariaLabel="Filter shows by year"
+        collapseAfter={1}
+        currentYear={2024}
+      />
+    )
+    expect(screen.getByRole('button', { name: /older/ })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+  })
+
+  it('groups large counts deterministically rather than by runtime locale', () => {
+    renderStrip({
+      years: [{ year: 2025, count: 12345, href: '/venues/rebel?year=2025' }],
+    })
+    expect(
+      screen.getByRole('link', { name: '2025 (12,345)' })
+    ).toBeInTheDocument()
+  })
+
   it('forwards custom className onto the nav', () => {
     renderStrip({ className: 'mb-4' })
     expect(screen.getByTestId('year-strip').className).toContain('mb-4')

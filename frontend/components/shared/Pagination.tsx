@@ -47,6 +47,14 @@ export function paginationWindow(
   return items
 }
 
+/**
+ * Locale is pinned rather than left to the runtime: this caption renders on the
+ * server and again on the client, and a viewer whose browser locale groups
+ * digits differently ("1.234" vs "1,234") would hydrate into a mismatch. The
+ * same reason the date helpers in `lib/utils` pin `en-US`.
+ */
+const formatCount = (value: number) => value.toLocaleString('en-US')
+
 /** Row-count summary rendered in the pager caption. */
 export interface PaginationCaptionRange {
   /** 1-based index of the first row on the current page. */
@@ -219,7 +227,7 @@ export function Pagination({
   const positionText = `Page ${current} of ${total}`
   const currentRangeLabel = rangeLabels?.[current]
   const captionText = captionRange
-    ? `Showing ${captionRange.start.toLocaleString()}–${captionRange.end.toLocaleString()} of ${captionRange.total.toLocaleString()} · ${positionText}`
+    ? `Showing ${formatCount(captionRange.start)}–${formatCount(captionRange.end)} of ${formatCount(captionRange.total)} · ${positionText}`
     : positionText
 
   // The live region ships here so every consumer gets the announcement for
