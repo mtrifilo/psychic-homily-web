@@ -29,10 +29,14 @@ describe('getUpcomingShows', () => {
 
     await expect(getUpcomingShows()).resolves.toEqual(shows)
     expect(fetchListPayload).toHaveBeenCalledWith({
-      // `limit` and nothing else, anchored: the timezone this used to append is
-      // gone (PSY-1678), and the anchor is what keeps it from creeping back.
+      // Anchored, and `&limit=` not `?limit=`: the first-screen URL this is
+      // built from already carries the transitional timezone query string, so a
+      // `?` here would produce a malformed second `?` and silently drop the
+      // bound. The anchor also keeps any other param from creeping in.
       url: expect.stringMatching(
-        new RegExp(`/shows/upcoming\\?limit=${UPCOMING_SHOWS_LIMIT}$`)
+        new RegExp(
+          `/shows/upcoming\\?timezone=America%2FLos_Angeles&limit=${UPCOMING_SHOWS_LIMIT}$`
+        )
       ),
       collection: 'shows',
       service: 'shows-listing',

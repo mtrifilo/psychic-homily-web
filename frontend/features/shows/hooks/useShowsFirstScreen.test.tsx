@@ -129,6 +129,26 @@ describe('shows first-screen prefetch contract', () => {
     expect(result.current.data).toEqual(seeded)
   })
 
+  // The transitional timezone rides in the URL but must NEVER reach the key.
+  // That asymmetry is the whole reason the param is safe to send: the key is
+  // what decides whether the server-seeded entry is a hit, so a timezone in the
+  // key would re-fragment the cache per viewer and undo PSY-1678 while looking
+  // like a harmless compatibility shim. PSY-1762 deletes the param; this
+  // assertion is what makes its presence meanwhile provably inert.
+  it('carries the transitional timezone in the URL but not in the key', () => {
+    expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).toContain('timezone=')
+    expect(SHOW_CITIES_FIRST_SCREEN_URL).toContain('timezone=')
+    expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
+      'timezone'
+    )
+    expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
+      'America'
+    )
+    expect(JSON.stringify(SHOW_CITIES_FIRST_SCREEN_KEY)).not.toContain(
+      'timezone'
+    )
+  })
+
   // The counterpart: a real filter still keys elsewhere, so the seed is a hit
   // for the canonical list and a miss for a filtered deep link — degraded,
   // never mismatched.

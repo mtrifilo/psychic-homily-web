@@ -13,15 +13,26 @@ vi.mock('@/lib/api', () => ({
 }))
 
 // Mock the feature api module
+// The transitional timezone is stubbed with the REAL value rather than a
+// placeholder: several assertions below pin the exact query string, and a stub
+// that disagreed with the module would make them pass against a URL production
+// never sends. The pairing against the real constants is enforced separately by
+// useShowsFirstScreen.test.tsx, which does not mock this module.
+const TZ = 'timezone=America%2FLos_Angeles'
+
 vi.mock('@/features/shows/api', () => ({
   showEndpoints: {
     UPCOMING: '/shows/upcoming',
+    CITIES: '/shows/cities',
     GET: (id: string | number) => `/shows/${id}`,
   },
   showQueryKeys: {
     list: (filters?: Record<string, unknown>) => ['shows', 'list', filters],
     detail: (id: string) => ['shows', 'detail', id],
+    cities: () => ['shows', 'cities'],
   },
+  TRANSITIONAL_TIMEZONE_PARAM: 'timezone=America%2FLos_Angeles',
+  SHOW_CITIES_FIRST_SCREEN_URL: '/shows/cities?timezone=America%2FLos_Angeles',
 }))
 
 // Import hooks after mocks are set up
@@ -52,18 +63,20 @@ describe('useShows', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(mockApiRequest).toHaveBeenCalledWith('/shows/upcoming', {
+      expect(mockApiRequest).toHaveBeenCalledWith(`/shows/upcoming?${TZ}`, {
         method: 'GET',
       })
     })
 
-    // The hook must send NO timezone, ever (PSY-1678). A default-options call
-    // hitting the bare endpoint is what makes the server-seeded first screen a
-    // cache hit rather than an approximation the client refetches; the contract
-    // between the URL and the seeded key is pinned in
-    // useShowsFirstScreen.test.tsx, which uses the real api module.
-    it('sends no timezone parameter on a default call', async () => {
+    // The timezone the hook sends must be the FIXED transitional one and never
+    // the viewer's — a per-viewer value is what PSY-1678 removed, and it would
+    // land back in the cache key and undo the change. It is also absent from the
+    // key here, which is what keeps the server-seeded entry a hit; the URL/key
+    // pairing against the real constants is pinned in
+    // useShowsFirstScreen.test.tsx, which does not mock this module.
+    it('sends the fixed transitional timezone, not the viewer\'s', async () => {
       mockApiRequest.mockResolvedValueOnce({ shows: [], has_more: false })
+      const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
       const { result } = renderHook(() => useUpcomingShows(), {
         wrapper: createWrapper(),
@@ -71,10 +84,12 @@ describe('useShows', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(mockApiRequest).toHaveBeenCalledWith('/shows/upcoming', {
-        method: 'GET',
-      })
-      expect(mockApiRequest.mock.calls[0][0]).not.toContain('timezone')
+      const url = mockApiRequest.mock.calls[0][0] as string
+      expect(url).toBe(`/shows/upcoming?${TZ}`)
+      expect(url).toContain('America%2FLos_Angeles')
+      if (viewerZone !== 'America/Los_Angeles') {
+        expect(url).not.toContain(encodeURIComponent(viewerZone))
+      }
     })
 
     it('includes cursor for pagination', async () => {
@@ -88,7 +103,7 @@ describe('useShows', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/shows/upcoming?cursor=abc123',
+        `/shows/upcoming?${TZ}&cursor=abc123`,
         { method: 'GET' }
       )
     })
@@ -103,7 +118,7 @@ describe('useShows', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/shows/upcoming?limit=10',
+        `/shows/upcoming?${TZ}&limit=10`,
         { method: 'GET' }
       )
     })

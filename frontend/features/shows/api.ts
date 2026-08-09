@@ -88,13 +88,18 @@ export const showQueryKeys = {
  * cacheable route, which is a separate decision.
  *
  * WHAT MAKES THE SEED LAND, and the reason PSY-1678 could delete the machinery
- * PSY-1624 needed: these requests now carry NO per-viewer input. `GET
+ * PSY-1624 needed: these requests carry no PER-VIEWER input. `GET
  * /shows/upcoming` decides "upcoming" against each show's own venue timezone, so
- * one canonical answer is the correct answer for every visitor. The bare URL and
- * the filterless key below are therefore exactly what the hooks ask for on a
- * cold anon `/shows` — the seeded entry is a hit, and the hydration commit has
- * nothing to refetch. Under the old viewer-timezone contract they could only
- * ever be an approximation that the client then re-fetched and discarded.
+ * one canonical answer is the correct answer for every visitor. The filterless
+ * KEY below is therefore exactly what the hooks ask for on a cold anon `/shows`
+ * — the seeded entry is a hit, and the hydration commit has nothing to refetch.
+ * Under the old viewer-timezone contract the key varied per viewer, so it could
+ * only ever be an approximation the client re-fetched and discarded.
+ *
+ * Note the asymmetry, because it is the load-bearing detail: the transitional
+ * timezone below rides in the URL but NOT in the key. The key is what decides
+ * whether the seed is a hit, so the zero-refetch property depends on the key
+ * being viewer-independent, not on the URL being bare.
  *
  * The URL and the key have to stay a matched pair, and that is unenforceable at
  * the type level: `useShowsFirstScreen.test.tsx` asserts the hooks really do
@@ -103,22 +108,39 @@ export const showQueryKeys = {
  * constants. A drifted pair produces no error anywhere, just a page that quietly
  * stops being server-rendered.
  *
- * DEPLOY ORDERING: THIS URL REQUIRES THE PSY-1678 BACKEND. Sending no timezone
- * is only correct against a backend that decides "upcoming" per venue; against
- * the previous one it takes the API's `default:"UTC"`, and a UTC boundary
- * re-admits the previous evening's finished US shows — measured against
- * production on 2026-08-01, which is the whole reason the interim canonical zone
- * existed. Vercel and Railway both react to the same `production` branch push
- * and deploy in PARALLEL (a Next build beats a Go build plus `migrate up`), so
- * the frontend can be live against the old backend for a few minutes, and the
- * result is CACHED: this URL is fetched at ISR/Data-Cache time and seeded into
- * the server-rendered first screen, so a payload fetched in that window outlives
- * it. The same applies, without a time bound, to a backend-only rollback.
- * Verify the backend is live before treating a release carrying this as done,
- * and roll the frontend back with it. Same class as PSY-1621; see the
- * backend-first section of the psy-deploy-prod runbook.
+ * TRANSITIONAL, DELETE AFTER THIS RELEASE SHIPS (tracked in PSY-1762).
  */
-export const UPCOMING_SHOWS_FIRST_SCREEN_URL = showEndpoints.UPCOMING
+// The current backend IGNORES this parameter — PSY-1678 made "upcoming" a
+// per-venue decision, and both handlers document the param as inert. It is sent
+// anyway, for exactly one release, to make the deploy order not matter.
+//
+// Vercel and Railway both react to the same `production` branch push and build
+// in PARALLEL, and a Next build finishes well before a Go build plus
+// `migrate up` plus healthcheck (the runbook's backend-first note, and the
+// mechanism behind PSY-1621). So a frontend that sent NO timezone could serve
+// against the previous backend for minutes, where the API's `default:"UTC"`
+// applies — and a UTC boundary re-admits the previous evening's finished US
+// shows, measured against production on 2026-08-01. Worse, it is CACHED: these
+// URLs are fetched at Data-Cache time and seeded into the server render, so a
+// payload fetched in that window outlives the window. A backend-only rollback
+// has the same effect with no time bound at all.
+//
+// Sending a FIXED `America/Los_Angeles` removes all of that. Against the old
+// backend it reproduces the shipped PSY-1624 interim behaviour exactly — a
+// known-good state, not a regression. Against the new one it is inert. The
+// release therefore has no ordering constraint and no rollback hazard, which is
+// worth more than the one constant it costs.
+//
+// FIXED, never the viewer's: a per-viewer value is what PSY-1678 removed, and
+// reintroducing one here would put it back in the key and undo the whole change.
+// Built with URLSearchParams so the encoding matches the hooks byte for byte —
+// `America/Los_Angeles` contains a slash that has to arrive as %2F on both
+// sides, or the seeded URL and the hook's URL are two different requests.
+export const TRANSITIONAL_TIMEZONE_PARAM = new URLSearchParams({
+  timezone: 'America/Los_Angeles',
+}).toString()
+
+export const UPCOMING_SHOWS_FIRST_SCREEN_URL = `${showEndpoints.UPCOMING}?${TRANSITIONAL_TIMEZONE_PARAM}`
 
 export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
   cursor: undefined,
@@ -130,6 +152,6 @@ export const UPCOMING_SHOWS_FIRST_SCREEN_KEY = showQueryKeys.list({
   tagMatch: undefined,
 })
 
-export const SHOW_CITIES_FIRST_SCREEN_URL = showEndpoints.CITIES
+export const SHOW_CITIES_FIRST_SCREEN_URL = `${showEndpoints.CITIES}?${TRANSITIONAL_TIMEZONE_PARAM}`
 
 export const SHOW_CITIES_FIRST_SCREEN_KEY = showQueryKeys.cities()
