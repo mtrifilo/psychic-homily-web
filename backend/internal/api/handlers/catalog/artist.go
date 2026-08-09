@@ -382,9 +382,13 @@ func (h *ArtistHandler) GetArtistShowYearsHandler(ctx context.Context, req *GetA
 }
 
 // resolveArtistID turns the shared {artist_id} path parameter, a numeric id or a
-// slug, into an id, returning a ready-to-surface huma error. Shared by the
-// artist sub-resource reads so they cannot drift apart on what a bad artist
-// reference returns.
+// slug, into an id, returning a ready-to-surface huma error.
+//
+// Used by exactly three reads: the show list, its year histogram, and the label
+// list. It is NOT a family-wide invariant, and do not read it as one:
+// GetArtistAliasesHandler still parses the parameter itself and answers a slug
+// with 400 rather than resolving it, so /artists/{slug}/aliases fails where its
+// three path-siblings succeed. Widening that is an API decision, not a cleanup.
 //
 // The slug path goes through GetArtistSummaryBySlug, not GetArtistBySlug: the
 // two differ only in the stats block, which is five scalar subqueries this

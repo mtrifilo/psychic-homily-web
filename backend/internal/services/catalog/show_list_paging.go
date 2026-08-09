@@ -52,10 +52,23 @@ func clampPageWindow(limit, offset int) (int, int) {
 	return limit, offset
 }
 
+// showYearBucket is the scan target for the histogram below: one venue-local
+// calendar year and how many rows fell in it.
+//
+// Concrete rather than a type parameter on the scan, deliberately. A generic
+// scan would let any caller's struct through, and GORM answers a column/field
+// mismatch by leaving the fields zero rather than erroring — a picker rendering
+// "0 (0)" with nothing logged anywhere. Each service maps these two fields into
+// its own response type, so a mismatch is a compile error instead.
+type showYearBucket struct {
+	Year  int
+	Count int64
+}
+
 // scanVenueLocalYearBuckets counts baseQuery's rows per VENUE-LOCAL calendar
-// year, newest year first, into T — a struct of a `year` int and a `count`
-// int64. Years with no rows are absent rather than zero, because the consumer is
-// a year picker and an empty year is not a selectable option.
+// year, newest year first. Years with no rows are absent rather than zero,
+// because the consumer is a year picker and an empty year is not a selectable
+// option.
 //
 // baseQuery must already have joined shared.VenueTZJoin (pass
 // venueZoneNeededBySelect to whichever factory builds it): the year expression
@@ -64,19 +77,14 @@ func clampPageWindow(limit, offset int) (int, int) {
 // Aliases are quoted and the ORDER BY repeats the expression rather than naming
 // the alias: `year` and `count` are both keywords Postgres would otherwise be
 // free to resolve against something else.
-func scanVenueLocalYearBuckets[T any](baseQuery func() *gorm.DB) ([]T, error) {
-	var buckets []T
+func scanVenueLocalYearBuckets(baseQuery func() *gorm.DB) ([]showYearBucket, error) {
+	var buckets []showYearBucket
 	if err := baseQuery().
 		Select(shared.VenueLocalYearSQL + ` AS "year", COUNT(*) AS "count"`).
 		Group(shared.VenueLocalYearSQL).
 		Order(shared.VenueLocalYearSQL + " DESC").
 		Scan(&buckets).Error; err != nil {
 		return nil, fmt.Errorf("failed to count shows by year: %w", err)
-	}
-
-	// An empty histogram must serialize as [] rather than null.
-	if buckets == nil {
-		buckets = []T{}
 	}
 	return buckets, nil
 }

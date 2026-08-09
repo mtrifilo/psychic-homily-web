@@ -1285,7 +1285,17 @@ func (s *VenueService) GetVenueShowYears(venueID uint, timeFilter string) ([]con
 	// be narrowed to one.
 	baseQuery := s.venueShowsBaseQuery(venueID, timeFilter, 0, venueZoneNeededBySelect)
 
-	return scanVenueLocalYearBuckets[contracts.VenueShowYearCount](baseQuery)
+	buckets, err := scanVenueLocalYearBuckets(baseQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	// Non-nil even when empty: the histogram must serialize as [] rather than null.
+	years := make([]contracts.VenueShowYearCount, len(buckets))
+	for i, bucket := range buckets {
+		years[i] = contracts.VenueShowYearCount{Year: bucket.Year, Count: bucket.Count}
+	}
+	return years, nil
 }
 
 // contracts.VenueCityResponse represents a city with venue count for filtering

@@ -446,6 +446,40 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowYears_RespectsT
 	suite.Len(all, 2)
 }
 
+// The one case the venue histogram structurally cannot have: a show with no
+// show_venues row at all. GetShowsForArtist returns those (see
+// TestGetShowsForArtist_VenuelessShows), and VenueTZJoin is a LEFT JOIN
+// LATERAL, so they must still be counted exactly once and land in the year the
+// state-map fallback dates them to (America/Phoenix, via the NULL-country arm of
+// venueLocalStateCaseSQL) rather than being dropped or double-counted.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowYears_VenuelessShowIsBucketedNotDropped() {
+	artist := suite.createTestArtist("Venueless Histogram Artist")
+	user := suite.createTestUser()
+
+	// Midday UTC, mid-year: no venue zone can move this off 2017.
+	show := &catalogm.Show{
+		Title:       "Venueless Gig",
+		EventDate:   fixedUTC(2017, time.June, 15, 12),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0}).Error)
+
+	years, err := suite.artistService.GetArtistShowYears(artist.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowYearCount{{Year: 2017, Count: 1}}, years)
+
+	// ...and the year the histogram offered actually returns it, venue and all.
+	page, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{
+		TimeFilter: "all", Limit: 10, Year: 2017,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "the year filter must not drop a venueless show either")
+	suite.Require().Len(page, 1)
+	suite.Nil(page[0].Venue, "a venueless show still has no venue in the projection")
+}
+
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowYears_NoShowsReturnsEmptySlice() {
 	artist := suite.createTestArtist("Silent Artist")
 

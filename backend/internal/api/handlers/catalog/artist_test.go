@@ -543,7 +543,7 @@ func TestGetArtistShows_PassesThePagingWindowThrough(t *testing.T) {
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
 
-	_, err := h.GetArtistShowsHandler(context.Background(), &GetArtistShowsRequest{
+	resp, err := h.GetArtistShowsHandler(context.Background(), &GetArtistShowsRequest{
 		ArtistID: "5", Limit: 7, Offset: 14, Year: 2019, TimeFilter: "past",
 	})
 	if err != nil {
@@ -552,6 +552,15 @@ func TestGetArtistShows_PassesThePagingWindowThrough(t *testing.T) {
 	want := contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 7, Offset: 14, Year: 2019}
 	if got != want {
 		t.Errorf("service received %+v, want %+v", got, want)
+	}
+
+	// ...and comes back out. A client renders "showing 2019" from this echo, so
+	// a dropped or hardcoded year here silently relabels the page as all-years.
+	if resp.Body.Year != 2019 {
+		t.Errorf("echoed year = %d, want 2019", resp.Body.Year)
+	}
+	if resp.Body.Limit != 7 || resp.Body.Offset != 14 {
+		t.Errorf("echoed window = limit %d offset %d, want 7/14", resp.Body.Limit, resp.Body.Offset)
 	}
 }
 

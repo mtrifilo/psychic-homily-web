@@ -78,13 +78,17 @@ func TestEntityShowsPaginationTags(t *testing.T) {
 
 			// Ranging the map rather than a parallel list of names: a knob added
 			// to wantTag must be asserted, not silently skipped.
+			// Errorf, not Fatalf: map iteration order is randomised, so aborting
+			// on the first mismatch would report an arbitrary one of several
+			// drifted knobs and make the failure output differ run to run.
 			for name, want := range tc.wantTag {
 				field, ok := requestType.FieldByName(name)
 				if !ok {
-					t.Fatalf("%s is missing %s field", requestType.Name(), name)
+					t.Errorf("%s is missing %s field", requestType.Name(), name)
+					continue
 				}
 				if got := string(field.Tag); got != want {
-					t.Fatalf("%s tag mismatch:\ngot:  %s\nwant: %s", name, got, want)
+					t.Errorf("%s tag mismatch:\ngot:  %s\nwant: %s", name, got, want)
 				}
 			}
 		})
