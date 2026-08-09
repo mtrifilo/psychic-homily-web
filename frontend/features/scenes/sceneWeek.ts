@@ -71,8 +71,11 @@ export function resolveRequestedWeek(segment: string | undefined): string | unde
  * Every caller now passes a Monday-to-Sunday total in the scene's own timezone:
  * the share card reads it off the week payload, the scene cards and the
  * `/shows` by-city index read `shows_calendar_week` from `GET /scenes`. The
- * rolling `shows_this_week` is a different seven days and must not be spelled
- * with these words next to a link to a week page.
+ * rolling `shows_this_week` is a different seven days and must NEVER be spelled
+ * with these words — not merely "not next to a link to a week page", which is
+ * how this said it before PSY-1732 and which read as permission to say "76
+ * shows this week" anywhere no such link happened to sit. A rolling count is
+ * worded "next 7 days"; this function is for calendar weeks only.
  *
  * The suffix is dropped for an archived share card, which carries its date
  * range directly above this line: that reads correctly for a week shared months

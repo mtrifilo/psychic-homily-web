@@ -12,7 +12,7 @@ import type { SceneListItem } from '../types'
  * first. Each row expands in place — the app expands in place rather than
  * modally (cf. StationShowsDirectory's in-place view-all; the only Sheet
  * primitive is modal and would bury the list) — into the same payoff the
- * desktop preview panel shows: playable embed, this-week shows, top local
+ * desktop preview panel shows: playable embed, next-7-days shows, top local
  * artists, scene link (PSY-1311).
  */
 export function MobileSceneList({

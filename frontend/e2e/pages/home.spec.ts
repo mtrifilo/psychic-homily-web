@@ -27,7 +27,7 @@ test.describe('Homepage', () => {
     await expect(
       page.getByRole('region', { name: /current stats/i })
     ).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText('shows this week')).toBeVisible()
+    await expect(page.getByText('shows in the next 7 days')).toBeVisible()
     await expect(page.getByText('entities in the graph')).toBeVisible()
 
     // "Upcoming shows" section heading

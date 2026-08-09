@@ -54,7 +54,12 @@ export function CommunityPulseBand() {
         </div>
       ) : (
         <div className="flex gap-10 sm:gap-14">
-          <PulseStat value={data.shows_this_week} label="shows this week" />
+          {/* "next 7 days" because the count rolls — see
+              `CommunityPulseResponse.shows_this_week` (PSY-1732). */}
+          <PulseStat
+            value={data.shows_this_week}
+            label="shows in the next 7 days"
+          />
           <PulseStat
             value={data.entities_in_graph}
             label="entities in the graph"

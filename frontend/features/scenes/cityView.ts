@@ -297,7 +297,19 @@ export function venuesSpanMetro(
 // ── Filters ───────────────────────────────────────────────────────────────
 
 export interface CityVenueFilters {
-  /** "This week" chip: only venues with a show in the next 7 days. */
+  /**
+   * "Next 7 days" chip: only venues with a show in the next 7 days.
+   *
+   * The NAME still says "this week" while the chip says "next 7 days"
+   * (PSY-1732, which was scoped to copy only). Nothing external pins the name
+   * — this shape is local `useState` in AtlasGlobe, not a URL param and not an
+   * API key — so a rename to `nextSevenDaysOnly` would cost nothing but the
+   * five files that mention it.
+   *
+   * Read the filter body below before "fixing" the label to match the name:
+   * `shows_this_week` is the ROLLING window, so the label is the correct half
+   * of this mismatch and the name is the stale half.
+   */
   thisWeekOnly: boolean
   /** Genre-family key from the "All genres" chip, or null for all. */
   genreFamily: string | null
@@ -345,6 +357,11 @@ export function cityGenreFamilies(
 export interface CityRailStats {
   venueCount: number
   upcomingCount: number
+  /**
+   * Sum of the venues' ROLLING `shows_this_week`. Same name-vs-label mismatch
+   * as `CityVenueFilters.thisWeekOnly` above, and the same fix: the rail
+   * renders this as "in the next 7 days", never "this week" (PSY-1732).
+   */
   thisWeekCount: number
 }
 

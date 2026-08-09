@@ -123,10 +123,15 @@ export function VenueRail({
           {/* "metro venues" whenever the rows reach past the principal city
               (PSY-1574). The heading above names ONE city; a flat "12 venues"
               under it would read as a claim about Phoenix proper while the
-              list also holds Tempe and Mesa. */}
+              list also holds Tempe and Mesa. The last stat sums the venues'
+              rolling `shows_this_week`, hence "in the next 7 days" — see
+              `VenueWithShowCount.shows_this_week`. Same phrasing as the pulse
+              band and the globe tooltip; the "in" keeps "9 IN THE NEXT 7 DAYS"
+              from setting two numerals side by side in this uppercase-mono
+              strip, where every other segment reads "<number> <noun>". */}
           {stats.venueCount} {spansMetro ? 'metro ' : ''}
           {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
-          upcoming · {stats.thisWeekCount} this week
+          upcoming · {stats.thisWeekCount} in the next 7 days
           {localArtistCount !== undefined && (
             <> · {localArtistCount} local artists</>
           )}
@@ -148,7 +153,7 @@ export function VenueRail({
               onFiltersChange({ ...filters, thisWeekOnly: !filters.thisWeekOnly })
             }
           >
-            This week
+            Next 7 days
           </FilterChip>
 
           {/* A native select styled as a chip: the menu is a list of the

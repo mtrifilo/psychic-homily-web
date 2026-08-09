@@ -609,10 +609,10 @@ describe('AtlasGlobe', () => {
     })
 
     // The render-phase orphan guard, exercised through the filter path it was
-    // written for: Hideout has no shows this week, so applying "This week"
-    // drops it from `filteredVenues` while its selection ID survives. An
-    // artist panel whose "← Hideout" returns to nothing is the dead end this
-    // prevents.
+    // written for: Hideout has nothing booked in the next 7 days, so applying
+    // "Next 7 days" drops it from `filteredVenues` while its selection ID
+    // survives. An artist panel whose "← Hideout" returns to nothing is the
+    // dead end this prevents.
     it('drops the drill-in when a filter excludes its venue', async () => {
       mockUseVenueShows.mockReturnValue({
         data: { shows: venueWeek, venue_id: 2, total: 2 },
@@ -623,21 +623,21 @@ describe('AtlasGlobe', () => {
       await screen.findByTestId('globe-canvas')
       settleCamera(-87.63, 41.88, 13)
       act(() => {
-        lastCanvasProps.onVenueSelect?.(2) // Hideout: 0 shows this week
+        lastCanvasProps.onVenueSelect?.(2) // Hideout: 0 in the next 7 days
       })
       fireEvent.click(
         screen.getByRole('button', { name: /Bottle Fest night one/ }),
       )
       expect(screen.getByTestId('atlas-artist-panel')).toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
 
       expect(screen.queryByTestId('atlas-artist-panel')).not.toBeInTheDocument()
       expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
 
       // Clearing the filter restores the VENUE panel — the user's own
       // selection coming back — but NOT the drill-in, which was discarded.
-      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
       expect(
         screen.getByRole('heading', { name: 'Hideout' }),
       ).toBeInTheDocument()
@@ -764,7 +764,7 @@ describe('AtlasGlobe', () => {
       await screen.findByTestId('globe-canvas')
       settleCamera(-87.63, 41.88, 13)
 
-      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
 
       // One rail row, one pin — the same array feeds both.
       expect(screen.getAllByRole('button', { name: /Empty Bottle/ })).toHaveLength(1)
@@ -839,17 +839,17 @@ describe('AtlasGlobe', () => {
       await screen.findByTestId('globe-canvas')
       settleCamera(-87.63, 41.88, 13)
       act(() => {
-        lastCanvasProps.onVenueSelect?.(2) // Hideout: 0 shows this week
+        lastCanvasProps.onVenueSelect?.(2) // Hideout: 0 in the next 7 days
       })
       expect(screen.getByTestId('atlas-venue-panel')).toBeInTheDocument()
 
       // Hideout loses its pin and its row, so its panel must go too rather
       // than describe a venue the user can no longer see beside it.
-      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
       expect(screen.queryByTestId('atlas-venue-panel')).not.toBeInTheDocument()
 
       // The selection itself survives — clearing the filter restores it.
-      fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
       expect(
         screen.getByRole('heading', { name: 'Hideout' }),
       ).toBeInTheDocument()

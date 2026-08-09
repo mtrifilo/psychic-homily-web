@@ -58,7 +58,9 @@ describe('VenueRail', () => {
         venue({ id: 2, upcoming_show_count: 11, shows_this_week: 0 }),
       ],
     })
-    expect(screen.getByText(/2 venues · 25 upcoming · 3 this week/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/2 venues · 25 upcoming · 3 in the next 7 days/i),
+    ).toBeInTheDocument()
   })
 
   it('adds the scene-level roster size when it has loaded', () => {
@@ -162,19 +164,19 @@ describe('VenueRail', () => {
     ).not.toHaveTextContent(/phoenix/i)
   })
 
-  it('toggles the This week filter', () => {
+  it('toggles the Next 7 days filter', () => {
     const onFiltersChange = vi.fn()
     renderRail({ onFiltersChange })
-    fireEvent.click(screen.getByRole('button', { name: 'This week' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next 7 days' }))
     expect(onFiltersChange).toHaveBeenCalledWith({
       thisWeekOnly: true,
       genreFamily: null,
     })
   })
 
-  it('reflects an active This week filter as pressed', () => {
+  it('reflects an active Next 7 days filter as pressed', () => {
     renderRail({ filters: { thisWeekOnly: true, genreFamily: null } })
-    expect(screen.getByRole('button', { name: 'This week' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Next 7 days' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )

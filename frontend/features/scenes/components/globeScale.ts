@@ -1,6 +1,12 @@
 /**
- * Pure dot-size, label-size, and label-visibility scaling for the Atlas globe
- * (PSY-1223).
+ * Pure dot-size, label-size, label-visibility scaling AND tooltip copy for the
+ * Atlas globe (PSY-1223).
+ *
+ * Copy lives here too, not just geometry (PSY-1732): the same argument that
+ * keeps the scaling out of the canvas keeps the wording out of it, and this is
+ * the only globe module a unit test can import. The venue tooltip's meta line
+ * is still composed inline in GlobeCanvas — it predates this and is not a
+ * counter-precedent; new globe copy belongs here.
  *
  * Kept free of the rendering library (like globeTypes.ts) so it unit-tests
  * without loading WebGL. GlobeCanvas binds these to its MapLibre layers; the
@@ -309,6 +315,38 @@ export function compareScenesByActivity<
     : -Infinity
   if (av === bv) return 0
   return bv - av
+}
+
+/**
+ * The globe's hover tooltip line for a scene.
+ *
+ * Lives here rather than inline in GlobeCanvas for the same reason VenuePin
+ * carries a preformatted `nextShowLabel`: the canvas draws what it is handed
+ * and does not decide how a count is worded. It also puts the copy somewhere a
+ * unit test can reach — GlobeCanvas imports maplibre at module scope, so its
+ * strings are otherwise only verifiable by reading them.
+ *
+ * The trailing segment counts `shows_this_week`, so it says "in the next 7
+ * days" — see `SceneListItem.shows_this_week` for why (PSY-1732). The "in" is
+ * load-bearing rather than decorative: the segment sits after "N upcoming", so
+ * the bare "76 next 7 days" the ticket first specified put two numerals side by
+ * side and scanned as two figures. Amended on the ticket to match the pulse
+ * band, which is now the one phrasing every rolling surface uses.
+ *
+ * The segment is dropped entirely at zero: a quiet scene shows its upcoming
+ * total without a "0" that reads as dead.
+ */
+export function sceneTooltipLabel(scene: {
+  city: string
+  state: string
+  upcoming_show_count: number
+  shows_this_week: number
+}): string {
+  const week =
+    scene.shows_this_week > 0
+      ? ` · ${scene.shows_this_week} in the next 7 days`
+      : ''
+  return `${scene.city}, ${scene.state} · ${scene.upcoming_show_count} upcoming${week}`
 }
 
 // The shape visibleLabelScenes / declutterByProximity need: a show count for the

@@ -29,7 +29,7 @@ function formatShowDate(isoDate: string): string {
 // band ranked below the shown few (the PSY-1224 deferred complete fix, now done).
 // Exported for the fetch-contract tests.
 export const PREVIEW_ARTIST_LIMIT = 6
-// Cap the bill names in a "This week" row — the panel is one narrow column
+// Cap the bill names in a "Next 7 days" row — the panel is one narrow column
 // and a festival-sized bill would wrap it into a paragraph.
 const SHOW_BILL_NAME_LIMIT = 3
 
@@ -43,7 +43,7 @@ function sceneShowRowTitle(show: SceneShowSummary): string {
 }
 
 /**
- * The scene-preview payoff body — playable embed, "This week" shows, top local
+ * The scene-preview payoff body — playable embed, "Next 7 days" shows, top local
  * artists, and the link into the full scene page. Shared between the desktop
  * globe's ScenePreviewPanel and the mobile list's expanded rows (PSY-1311), so
  * the two surfaces can't fork. Fetches on mount: mount it only when the
@@ -64,9 +64,11 @@ export function ScenePreviewContent({
     limit: PREVIEW_ARTIST_LIMIT,
   })
   const artists = data?.artists ?? []
-  // "This week" (PSY-1309): the scene's next shows in the 7-day window —
+  // "Next 7 days" (PSY-1309): the scene's next shows in the 7-day window —
   // backend-defaulted window/limit, metro-scoped (member-city shows included).
-  // Rendered only when non-empty; a quiet week simply has no section.
+  // That window rolls from now rather than resetting on Monday, which is why
+  // the heading is not "this week" (PSY-1732). Rendered only when non-empty; a
+  // quiet stretch simply has no section.
   const { data: showsData } = useSceneShows(scene.slug)
   const weekShows = showsData?.shows ?? []
 
@@ -108,7 +110,7 @@ export function ScenePreviewContent({
       {weekShows.length > 0 && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            This week
+            Next 7 days
           </h3>
           <ul className="mt-2 flex flex-col gap-1.5">
             {weekShows.map((show) => (

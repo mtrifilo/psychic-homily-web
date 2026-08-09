@@ -27,7 +27,7 @@ describe('CommunityPulseBand', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Current stats')).toBeInTheDocument()
     expect(screen.getByText('84')).toBeInTheDocument()
-    expect(screen.getByText('shows this week')).toBeInTheDocument()
+    expect(screen.getByText('shows in the next 7 days')).toBeInTheDocument()
     expect(screen.getByText('18,432')).toBeInTheDocument()
     expect(screen.getByText('entities in the graph')).toBeInTheDocument()
   })
@@ -46,7 +46,9 @@ describe('CommunityPulseBand', () => {
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(
       0
     )
-    expect(screen.queryByText('shows this week')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('shows in the next 7 days')
+    ).not.toBeInTheDocument()
   })
 
   it('self-hides on error so the homepage never breaks on a pulse outage', () => {

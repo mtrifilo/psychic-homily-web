@@ -130,7 +130,14 @@ export interface VenueSearchResponse {
  */
 export interface VenueWithShowCount extends Venue {
   upcoming_show_count: number
-  /** The <=7-day slice of `upcoming_show_count`. Drives the "This week" chip. */
+  /**
+   * The <=7-day slice of `upcoming_show_count`. Drives the "Next 7 days" chip
+   * and the rail's header stat.
+   *
+   * ROLLING from now, not a Monday-to-Sunday week — which is why both of those
+   * say "next 7 days" rather than "this week" (PSY-1732). Same rule and same
+   * trap as `SceneListItem.shows_this_week`, at venue scope instead of scene.
+   */
   shows_this_week?: number
   /** Soonest upcoming show, `YYYY-MM-DD`, ALREADY in the venue's timezone. */
   next_show_date?: string

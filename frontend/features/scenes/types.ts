@@ -16,9 +16,22 @@ export interface SceneListItem {
   upcoming_show_count: number
   total_show_count: number
   // The ≤7-day slice of upcoming_show_count (PSY-1309) — drives the globe's
-  // "happening this week" pulse treatment. A ROLLING window from now, so it is
-  // NOT the number /scenes/{slug}/week prints; anything rendered beside a link
-  // to that page uses shows_calendar_week instead.
+  // "happening in the next 7 days" pulse treatment.
+  //
+  // The authority for the WORDING rule below: the surfaces that render this
+  // field point here instead of restating it. It is NOT the only place the
+  // rolling-vs-calendar distinction is written down — `sceneWeek.ts`,
+  // `SceneList.tsx` and `ThisWeekByCity.tsx` each carry a calendar-side
+  // account with measurements this one does not, and `CommunityPulseResponse`
+  // has its own separate field. Do not assume editing here is sufficient.
+  //
+  // A ROLLING window from now, so it is NOT the number /scenes/{slug}/week
+  // prints. Two rules follow, and they are separate:
+  //   1. WHICH FIELD: anything rendered beside a link to that page reads
+  //      shows_calendar_week, so the number agrees with its destination.
+  //   2. WHICH WORDS: anything rendered FROM this field is worded "next 7
+  //      days", never "this week" (PSY-1732) — the calendar phrasing is
+  //      reserved for shows_calendar_week, whose week really does reset.
   shows_this_week: number
   // The scene's Monday-to-Sunday total, resolved in its OWN venue timezone —
   // exactly what its /scenes/{slug}/week page reports (PSY-1623). The only
@@ -101,7 +114,7 @@ export interface SceneArtistsResponse {
 }
 
 /**
- * One upcoming show in the scene preview's "This week" row (PSY-1309).
+ * One upcoming show in the scene preview's "Next 7 days" row (PSY-1309).
  *
  * DERIVED from the generated OpenAPI schema, not hand-written. The hand-written
  * copy that used to live here had already fallen two fields behind the API
