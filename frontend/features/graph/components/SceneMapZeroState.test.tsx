@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { cleanup, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { renderWithProviders } from '@/test/utils'
@@ -153,22 +153,29 @@ describe('SceneMapZeroState', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('states the hub home city in its panel, and omits the line when unset', async () => {
-    // The panel and the canvas caption read the SAME field (PSY-1736), so a
-    // label with nothing on file drops the line rather than saying "unknown".
+  it('states the hub home city in its panel', async () => {
+    // The panel and the canvas caption read the SAME field (PSY-1736), so the
+    // dot and the card cannot disagree about where a label is from.
     const user = userEvent.setup()
     renderZeroState()
+
     await user.click(screen.getByRole('button', { name: 'Click hub' }))
+
     expect(screen.getByRole('region', { name: 'About Doom Records' })).toHaveTextContent(
       'Brooklyn',
     )
+  })
 
-    cleanup()
+  it('omits the panel city line for a hub with no city on file', async () => {
+    // No placeholder: a label known only by name drops the line rather than
+    // saying "location unknown".
+    const user = userEvent.setup()
+    const map = sceneMapFixture()
+    map.nodes[3] = { ...map.nodes[3], homeCity: null }
+    renderZeroState({ map })
 
-    const noCity = sceneMapFixture()
-    noCity.nodes[3] = { ...noCity.nodes[3], homeCity: null }
-    renderZeroState({ map: noCity })
     await user.click(screen.getByRole('button', { name: 'Click hub' }))
+
     expect(
       screen.getByRole('region', { name: 'About Doom Records' }),
     ).not.toHaveTextContent('Brooklyn')

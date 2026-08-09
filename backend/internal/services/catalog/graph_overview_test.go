@@ -371,8 +371,8 @@ func (s *GraphOverviewSuite) TestBuild_UnchangedStructureSkipsTheLayoutEntirely(
 }
 
 func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout() {
-	// Renaming a band changes the payload but must not move a single dot: the
-	// structure key covers the node and edge sets only.
+	// Renaming a band or moving a label changes the payload but must not move a
+	// single dot: the structure key covers the node and edge sets only.
 	artists := s.seedScene()
 
 	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
@@ -382,6 +382,9 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
 		Where("id = ?", artists[0].ID).
 		Update("name", "Renamed Band").Error)
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).
+		Where("name = ?", "HubRecords").
+		Update("city", "Austin").Error)
 
 	runner := &stubLayoutRunner{transform: rotateScaleTranslate}
 	_, err = s.build(runner, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
@@ -390,7 +393,9 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 
 	s.Assert().Equal(0, runner.calls, "an attribute-only change must not re-run the layout")
 	s.Assert().Equal(before.Nodes.X, after.Nodes.X)
+	s.Assert().Equal(before.Nodes.Y, after.Nodes.Y)
 	s.Assert().Contains(after.Nodes.Name, "Renamed Band", "the rename still reached the payload")
+	s.Assert().Contains(after.Nodes.HubCity, "Austin", "the city edit still reached the payload")
 }
 
 func (s *GraphOverviewSuite) TestBuild_WarmStartResumesFromThePreviousSnapshot() {
@@ -678,31 +683,6 @@ func (s *GraphOverviewSuite) TestBuild_HubCarriesItsLabelsHomeCity() {
 	}
 	s.Assert().Equal("Austin", cityByHub["HubRecords"], "a label with a city on file captions it, trimmed")
 	s.Assert().Equal("", cityByHub["NoCityRecords"], "a label with no city on file captions nothing")
-}
-
-func (s *GraphOverviewSuite) TestBuild_ACityEditDoesNotMoveTheMap() {
-	// The stability contract, end to end for this column: editing a label's
-	// city changes the payload and must not move a dot. The unit test pins the
-	// structure key itself; this one pins that the whole pipeline agrees.
-	s.seedScene()
-
-	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
-	s.Require().NoError(err)
-	before := s.newestPayload()
-
-	s.Require().NoError(s.db.Model(&catalogm.Label{}).
-		Where("name = ?", "HubRecords").
-		Update("city", "Austin").Error)
-
-	runner := &stubLayoutRunner{transform: rotateScaleTranslate}
-	_, err = s.build(runner, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
-	s.Require().NoError(err)
-	after := s.newestPayload()
-
-	s.Assert().Equal(0, runner.calls, "a city edit is an attribute change and must not re-run the layout")
-	s.Assert().Equal(before.Nodes.X, after.Nodes.X)
-	s.Assert().Equal(before.Nodes.Y, after.Nodes.Y)
-	s.Assert().Contains(after.Nodes.HubCity, "Austin", "the edit still reached the payload")
 }
 
 // --- acceptance: failure posture ---

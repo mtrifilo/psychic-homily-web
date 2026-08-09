@@ -471,9 +471,10 @@ func TestOverviewBuild_HubCityIsHubScopedAndTrimmed(t *testing.T) {
 
 	// And it reaches the payload at full node length, which is the invariant
 	// every columnar consumer indexes against.
-	payload := b.payload(time.Now(), 1, make([]int16, 5), make([]int16, 5),
-		make([]int32, 5), contracts.GraphOverviewRankBetweenness, make([]int32, 5),
-		make([]uint8, 5), nil, 0)
+	n := len(b.nodeIDs)
+	payload := b.payload(time.Now(), 1, make([]int16, n), make([]int16, n),
+		make([]int32, n), contracts.GraphOverviewRankBetweenness, make([]int32, n),
+		make([]uint8, n), nil, 0)
 	if len(payload.Nodes.HubCity) != payload.NodeCount {
 		t.Errorf("payload hub_city has %d entries, want node_count = %d",
 			len(payload.Nodes.HubCity), payload.NodeCount)

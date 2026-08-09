@@ -100,8 +100,6 @@ func newOverviewBuild(
 		b.nodeName = append(b.nodeName, meta.Name)
 		b.nodeSlug = append(b.nodeSlug, derefString(meta.Slug))
 		b.nodeCommunity = append(b.nodeCommunity, community)
-		// An artist's own city is deliberately NOT emitted here — the column is
-		// the hub caption, not a location column (see the contract).
 		b.nodeHubCity = append(b.nodeHubCity, "")
 	}
 	for _, hub := range hubNodes {
@@ -404,11 +402,9 @@ func (b *overviewBuild) payload(
 // structureKey digests everything the LAYOUT depends on: the node set and the
 // edge set, in the build's canonical order. It deliberately excludes names,
 // slugs, hub cities, communities, appear times and every other attribute —
-// those change the payload but must not move a single dot.
-//
-// That exclusion is why an ADDITIVE payload column is free: a column the key
-// does not read cannot invalidate a warm start, so the night this one first
-// ships reuses the stored positions verbatim and every dot stays where it was.
+// those change the payload but must not move a single dot. It is also why an
+// ADDITIVE column is free: a column the key does not read cannot invalidate a
+// warm start.
 //
 // It is what lets an unchanged night skip the physics entirely and reuse the
 // previous positions verbatim. Without it, 50 more relaxation iterations run on

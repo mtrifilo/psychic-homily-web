@@ -280,13 +280,12 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
   // wrong; `appear` only feeds the optional growth replay. A snapshot missing
   // it should still DRAW — it just cannot be replayed, which is the decision
   // `buildReplayTimeline` makes on its own.
-  const appears = appearColumn(overview.nodes.appear, nodeCount)
-  // Optional for the same reason `appear` is, and then some: a snapshot built
-  // before the column existed carries none at all, and the map is worth drawing
-  // without its hub captions. Length-checked so a short column cannot caption
-  // the wrong hub — an off-by-one here would put a real city under a label that
-  // is not from there, which is worse than no caption at all.
-  const hubCities = stringColumn(overview.nodes.hub_city, nodeCount)
+  const appears = optionalColumn(overview.nodes.appear, nodeCount)
+  // Optional for the same reason, and then some: a snapshot built before this
+  // column existed carries none at all. The length check earns its keep here —
+  // an off-by-one would put a real city under a label that is not from there,
+  // which is worse than no caption at all.
+  const hubCities = optionalColumn(overview.nodes.hub_city, nodeCount)
 
   const nodes: SceneMapNode[] = new Array(nodeCount)
   let artistCount = 0
@@ -307,6 +306,8 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
       rank: ranks[i],
       hasUpcomingShow: (flags[i] & FLAG_UPCOMING_SHOW) !== 0,
       hasPlayableAudio: (flags[i] & FLAG_PLAYABLE_AUDIO) !== 0,
+      // `||`, not `??`: "" is how the backend spells an absent city, both at
+      // artists and at a hub whose label has none on file.
       homeCity: hubCities?.[i] || null,
       appear: appears ? appears[i] : 0,
     }
@@ -325,30 +326,20 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
 }
 
 /**
- * An `appear` column, or null when the snapshot does not carry a usable one.
+ * An OPTIONAL column, or null when the snapshot does not carry a usable one.
  *
- * Length is checked against the count the column is indexed by for the same
- * reason every other column is: a short one would surface as `undefined` on the
- * tail entries, and `undefined` in the reveal maths is NaN — which smoothsteps
- * to 0 and hides those nodes for the whole run, silently.
+ * Absent is a normal state for these columns — a snapshot written before one
+ * existed simply has none — so this returns null rather than failing the whole
+ * payload the way a short `x` column does. Length is still checked, because a
+ * SHORT column is not absence: it surfaces as `undefined` on the tail entries,
+ * which the reveal maths turns into NaN (smoothsteps to 0 and hides those nodes
+ * for a whole replay) and the caption path turns into the wrong hub's city.
+ * Each call site documents why ITS column is optional.
  */
-function appearColumn(column: number[] | null | undefined, expectedLength: number): number[] | null {
-  if (!column || column.length !== expectedLength) return null
-  return column
-}
-
-/**
- * An optional string column, or null when the snapshot does not carry a usable
- * one — the `appear` rule applied to `hub_city`.
- *
- * Absent is the NORMAL state for a snapshot older than the column, not a
- * corruption, which is why this returns null instead of failing the payload the
- * way a short `x` column does.
- */
-function stringColumn(
-  column: string[] | null | undefined,
+function optionalColumn<T>(
+  column: T[] | null | undefined,
   expectedLength: number,
-): string[] | null {
+): T[] | null {
   if (!column || column.length !== expectedLength) return null
   return column
 }
@@ -375,7 +366,7 @@ function decodeEdges(overview: GraphOverview, nodes: SceneMapNode[]): SceneMapEd
   const kinds = decodeByteColumn(overview.edges.kind, targets.length)
   // Per SLOT, index-aligned with `targets` — not per edge. Reading it with an
   // edge index would date every line by whatever unrelated slot sat there.
-  const appears = appearColumn(overview.edges.appear, targets.length)
+  const appears = optionalColumn(overview.edges.appear, targets.length)
   const edges: SceneMapEdge[] = []
   for (let source = 0; source < nodes.length; source += 1) {
     const start = offsets[source]

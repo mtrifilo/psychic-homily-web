@@ -69,12 +69,7 @@ export interface SceneMapLabelCandidate {
   radius: number
   /** Already truncated. */
   text: string
-  /**
-   * Optional second line under `text` — a label hub's home city (PSY-1736), so
-   * an out-of-town anchor reads as out-of-town on the canvas rather than only
-   * in its panel. `renderGraphLabels` measures it into the collision box, so a
-   * caption can never overlap a neighbouring label.
-   */
+  /** Already truncated. Second line under `text`; see `GraphLabelSpec.caption`. */
   caption?: string
   /** SCREEN px at the tier — counter-scaled by zoom at draw time. */
   fontSize: number
