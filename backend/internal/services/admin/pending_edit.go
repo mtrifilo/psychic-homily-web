@@ -16,10 +16,8 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
-	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
-	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 	"psychic-homily-backend/internal/utils/urlguard"
@@ -269,15 +267,35 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 	return s.toResponses(edits), total, nil
 }
 
-// updatedString returns the pending-edit's new value for key when it is present
-// and a string, otherwise the fallback (the entity's current value). Used to
-// build the effective post-edit location for re-geocoding.
+// updatedString returns the EFFECTIVE post-write value of key: the write's own
+// value when it carries one, the fallback (the entity's current value) when it
+// does not. Used to build the location the derived columns are recomputed from.
+//
+// A key present with an explicit nil is a write that CLEARS the column, so it
+// resolves to the empty string, not the fallback. That case is real on the
+// rollback path — artists and festivals have nullable city/state/country, so
+// undoing "admin added a city" restores SQL NULL — and falling back to the
+// current value there would derive the new metro from a city the same write is
+// about to erase, which is the stale pairing the derivation exists to prevent.
 func updatedString(updates map[string]interface{}, key, fallback string) string {
-	if v, ok := updates[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
+	v, ok := updates[key]
+	if !ok {
+		return fallback
 	}
+	if v == nil {
+		return ""
+	}
+	if s, isString := v.(string); isString {
+		return s
+	}
+	// Both nil shapes clear the column: an untyped nil from JSONB (the rollback
+	// path) and a typed nil the map is built with directly (the shape the venue
+	// branch already uses for the street-geocode fields).
+	if p, isPtr := v.(*string); isPtr {
+		return derefOrEmpty(p)
+	}
+	// A non-string value is a shape this function cannot interpret; leaving the
+	// derivation on the current value beats deriving from a guess.
 	return fallback
 }
 
@@ -602,62 +620,14 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		applyDerivedVenueLocation(s.db, edit.EntityID, updates)
 	}
 
-	// metro is derived from an artist's (city, state, country) too — keep it fresh
-	// when a contribution / trusted-tier inline edit relocates the artist, the same
-	// way UpdateArtist does (this path bypasses the service). (PSY-1255 step B)
-	if edit.EntityType == "artist" {
-		_, cityChanged := updates["city"]
-		_, stateChanged := updates["state"]
-		_, countryChanged := updates["country"]
-		if cityChanged || stateChanged || countryChanged {
-			var current catalogm.Artist
-			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {
-				curCity, curState, curCountry := "", "", ""
-				if current.City != nil {
-					curCity = *current.City
-				}
-				if current.State != nil {
-					curState = *current.State
-				}
-				if current.Country != nil {
-					curCountry = *current.Country
-				}
-				updates["metro"] = geo.MetroPointer(geo.Default(),
-					updatedString(updates, "city", curCity),
-					updatedString(updates, "state", curState),
-					updatedString(updates, "country", curCountry))
-			}
-		}
-	}
-
-	// Festivals carry the same derived metro key (PSY-1278) — keep it fresh when
-	// a contribution edit relocates the festival, mirroring the artist branch
-	// above (festivals have no lat/lng/timezone columns, so metro is the only
-	// derived sibling to forward).
-	if edit.EntityType == "festival" {
-		_, cityChanged := updates["city"]
-		_, stateChanged := updates["state"]
-		_, countryChanged := updates["country"]
-		if cityChanged || stateChanged || countryChanged {
-			var current catalogm.Festival
-			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {
-				curCity, curState, curCountry := "", "", ""
-				if current.City != nil {
-					curCity = *current.City
-				}
-				if current.State != nil {
-					curState = *current.State
-				}
-				if current.Country != nil {
-					curCountry = *current.Country
-				}
-				updates["metro"] = geo.MetroPointer(geo.Default(),
-					updatedString(updates, "city", curCity),
-					updatedString(updates, "state", curState),
-					updatedString(updates, "country", curCountry))
-			}
-		}
-	}
+	// Artists (PSY-1255 step B) and festivals (PSY-1278) carry a derived metro of
+	// their own — keep it fresh when a contribution / trusted-tier inline edit
+	// relocates one, the same way UpdateArtist does (this path bypasses the
+	// service). Shared with RevisionService.Rollback, which needs the identical
+	// re-derivation: see applyDerivedEntityMetro for why the two must not have
+	// separate copies. Entity types that derive nothing from their location fall
+	// through it untouched.
+	applyDerivedEntityMetro(s.db, edit.EntityType, edit.EntityID, updates)
 
 	// The closure returns typed errors directly: a vanished entity is a 422
 	// (the edit can no longer be applied), everything else is a 500.

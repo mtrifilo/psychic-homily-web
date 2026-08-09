@@ -224,17 +224,16 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 		return err
 	}
 
-	// A venue rollback that restores city/state must re-derive the columns the
-	// system derives FROM that location, or the venue lands back in its old city
-	// still carrying the other city's timezone. Shared with the approve path;
-	// see applyDerivedVenueLocation.
-	//
-	// NOT covered, deliberately (same class, different entities, own ticket):
-	// artists and festivals carry a derived metro that a rollback of their
-	// city/state leaves just as stale.
+	// A rollback that restores city/state must re-derive the columns the system
+	// derives FROM that location, or the entity lands back in its old city still
+	// carrying what was derived for the city it was moved away from: a venue's
+	// timezone (PSY-1709) and an artist's or festival's metro (PSY-1744). Both
+	// helpers are shared with the approve path and no-op on a rollback that
+	// touches no location field.
 	if revision.EntityType == "venue" {
 		applyDerivedVenueLocation(s.db, revision.EntityID, updates)
 	}
+	applyDerivedEntityMetro(s.db, revision.EntityType, revision.EntityID, updates)
 
 	result := s.db.Table(tableName).Where("id = ?", revision.EntityID).Updates(updates)
 	if result.Error != nil {
