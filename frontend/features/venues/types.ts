@@ -195,6 +195,19 @@ export interface VenueShowsResponse {
   year: number
 }
 
+/**
+ * What a venue's show rows need in order to be placed on a calendar.
+ *
+ * Rendering a show's date, time or month is always done in the VENUE's zone,
+ * never the reader's (PSY-985/986). `venueTimezone` is the resolved IANA zone
+ * and wins when it is known; `venueState` is the fallback for venues that
+ * predate the backfill, and is itself overridden by a row's own `state`.
+ */
+export interface VenueShowZone {
+  venueState: string
+  venueTimezone?: string | null
+}
+
 /** One bar of the past-shows year histogram (PSY-1753). */
 export interface VenueShowYearCount {
   /** Venue-local calendar year. */

@@ -1,40 +1,28 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useMemo } from 'react'
 import Link from 'next/link'
 import { DenseTable, DenseTableGroupHeader } from '@/components/shared'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+// Deep import, not the barrel: `@/features/shows`'s barrel edge drags in
+// ShowForm and the whole mutation graph for one pure function, and pulls a
+// venues -> shows -> venues value cycle in behind it (the same reason ShowForm
+// deep-imports VenueInput). See features/venues/components/index.ts.
+import { splitBill } from '@/features/shows/utils'
 import {
   formatPrice,
   formatShowDate,
   formatShowTime,
 } from '@/lib/utils/formatters'
-import { groupByMonth, type ArchiveZone } from '../showArchive'
-import type { VenueShow } from '../types'
+import { groupByMonth, type MonthGroup } from '../showArchive'
+import type { VenueShow, VenueShowZone } from '../types'
 
 /** Date, Bill, Price, Time. Group headings must span all of them. */
 const COLUMN_COUNT = 4
 
 /** Stands in for a price nobody has recorded. An en dash, never an em dash. */
 const ABSENT = '–'
-
-/**
- * The act at the top of the bill, and everyone else in listed order.
- *
- * `is_headliner` is the only bill role the frontend surfaces (`set_type` also
- * carries 'performer', which means "on the bill, slot unknown" and must not be
- * rendered as a role). When no act claims the slot the first listed one leads,
- * matching how every other surface in the app reads a bill.
- */
-function splitBill(artists: VenueShow['artists']) {
-  if (artists.length === 0) return { headliner: null, support: [] }
-  const headliner = artists.find(artist => artist.is_headliner) ?? artists[0]
-  return {
-    headliner,
-    support: artists.filter(artist => artist !== headliner),
-  }
-}
 
 function ArtistLink({
   artist,
@@ -55,12 +43,12 @@ function ShowRow({
   zone,
 }: {
   show: VenueShow
-  zone: ArchiveZone
+  zone: VenueShowZone
 }) {
   // A show's own state wins over the venue's for date/time formatting; the
   // venue's resolved timezone (when known) wins over the state map (PSY-986).
   const state = show.state ?? zone.venueState
-  const { headliner, support } = splitBill(show.artists)
+  const { headliners, support } = splitBill(show.artists)
 
   return (
     <tr>
@@ -73,15 +61,24 @@ function ShowRow({
         </Link>
       </td>
       <td>
-        {headliner ? (
+        {headliners.length > 0 ? (
           <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-            <ArtistLink
-              artist={headliner}
+            <span
               className={cn(
-                'font-medium text-foreground hover:text-primary hover:underline',
+                'font-medium text-foreground',
                 show.is_cancelled && 'line-through'
               )}
-            />
+            >
+              {headliners.map((artist, index) => (
+                <span key={artist.id}>
+                  {index > 0 && ', '}
+                  <ArtistLink
+                    artist={artist}
+                    className="hover:text-primary hover:underline"
+                  />
+                </span>
+              ))}
+            </span>
             {support.length > 0 && (
               <span className="text-muted-foreground">
                 w/{' '}
@@ -126,7 +123,7 @@ function ShowRow({
 
 export interface VenueShowsTableProps {
   shows: VenueShow[]
-  zone: ArchiveZone
+  zone: VenueShowZone
   /** Accessible name for the table. Unique per page. */
   ariaLabel: string
   /**
@@ -139,7 +136,6 @@ export interface VenueShowsTableProps {
    * of silently reordered rows.
    */
   groupByMonthHeadings?: boolean
-  className?: string
 }
 
 /**
@@ -155,18 +151,18 @@ export function VenueShowsTable({
   zone,
   ariaLabel,
   groupByMonthHeadings = false,
-  className,
 }: VenueShowsTableProps) {
-  const groups = groupByMonthHeadings
-    ? groupByMonth(shows, zone)
-    : [{ label: '', rows: shows }]
+  // `null` is "one ungrouped run", the single representation of not grouping —
+  // and the memo matters: grouping resolves a timezone and formats a month per
+  // row, and `keepPreviousData` re-renders this table with referentially
+  // identical rows while the next page is in flight.
+  const groups: MonthGroup<VenueShow>[] | null = useMemo(
+    () => (groupByMonthHeadings ? groupByMonth(shows, zone) : null),
+    [groupByMonthHeadings, shows, zone]
+  )
 
   return (
-    <DenseTable
-      variant="alternating"
-      aria-label={ariaLabel}
-      className={className}
-    >
+    <DenseTable variant="alternating" aria-label={ariaLabel}>
       <thead>
         <tr>
           <th>Date</th>
@@ -176,21 +172,23 @@ export function VenueShowsTable({
         </tr>
       </thead>
       <tbody>
-        {groups.map((group, index) => (
-          // Indexed because a month label is only unique while the rows are in
-          // date order, and this component does not get to assume they are.
-          <Fragment key={`${group.label}-${index}`}>
-            {groupByMonthHeadings && (
-              <DenseTableGroupHeader
-                title={group.label}
-                colSpan={COLUMN_COUNT}
-              />
-            )}
-            {group.rows.map(show => (
+        {groups === null
+          ? shows.map(show => (
               <ShowRow key={show.id} show={show} zone={zone} />
+            ))
+          : groups.map((group, index) => (
+              // Indexed because a month label is only unique while the rows are
+              // in date order, which this component does not get to assume.
+              <Fragment key={index}>
+                <DenseTableGroupHeader
+                  title={group.label}
+                  colSpan={COLUMN_COUNT}
+                />
+                {group.rows.map(show => (
+                  <ShowRow key={show.id} show={show} zone={zone} />
+                ))}
+              </Fragment>
             ))}
-          </Fragment>
-        ))}
       </tbody>
     </DenseTable>
   )

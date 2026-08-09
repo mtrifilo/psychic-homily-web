@@ -75,10 +75,10 @@ export function SectionHeader({
         {...headingProps}
         className={cn(
           'font-semibold',
-          // A programmatically focused heading gets a visible ring; without it
-          // a sighted keyboard user is left with no idea where focus landed.
-          headingProps?.tabIndex === -1 &&
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          // Inert unless a caller made the heading focusable, and then it is
+          // the only signal a sighted keyboard user gets that focus moved here
+          // after a list updated under them.
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           variant === 'caps' && 'text-muted-foreground uppercase tracking-wider',
           variant === 'caps' && size === 'sm' && 'text-xs',
           variant === 'caps' && size === 'md' && 'text-sm',

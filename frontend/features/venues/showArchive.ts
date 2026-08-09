@@ -7,21 +7,18 @@
  * against fixtures rather than through a rendered table.
  */
 
-import { formatShowMonth } from '@/lib/utils/formatters'
+import { toPageNumber } from '@/components/shared/paginationChrome'
+import {
+  formatShowMonth,
+  formatShowMonthParts,
+} from '@/lib/utils/formatters'
+import type { VenueShowZone } from './types'
 
 /** The minimum a row needs before this module can place it in time. */
 export interface ArchiveRow {
   event_date: string
   /** The show's own state, when it differs from the venue's. */
   state?: string | null
-}
-
-/** How to resolve a row's venue-local timezone. */
-export interface ArchiveZone {
-  /** Fallback state for rows that carry none. */
-  venueState: string
-  /** The venue's resolved IANA zone; wins over the state map when known. */
-  venueTimezone?: string | null
 }
 
 /**
@@ -32,7 +29,7 @@ export interface ArchiveZone {
 const EN_DASH = '–'
 
 /** The month label a row belongs under, in the venue's own zone. */
-function monthOf(row: ArchiveRow, zone: ArchiveZone): string {
+function monthOf(row: ArchiveRow, zone: VenueShowZone): string {
   return formatShowMonth(
     row.event_date,
     row.state ?? zone.venueState,
@@ -58,7 +55,7 @@ export interface MonthGroup<T> {
  */
 export function groupByMonth<T extends ArchiveRow>(
   rows: T[],
-  zone: ArchiveZone
+  zone: VenueShowZone
 ): MonthGroup<T>[] {
   const groups: MonthGroup<T>[] = []
   for (const row of rows) {
@@ -87,45 +84,38 @@ export function groupByMonth<T extends ArchiveRow>(
  */
 export function monthRangeLabel(
   rows: ArchiveRow[],
-  zone: ArchiveZone
+  zone: VenueShowZone
 ): string | null {
   if (rows.length === 0) return null
-  const first = monthOf(rows[0], zone)
-  const last = monthOf(rows[rows.length - 1], zone)
-  if (first === last) return stripYear(first)
+  const partsOf = (row: ArchiveRow) =>
+    formatShowMonthParts(
+      row.event_date,
+      row.state ?? zone.venueState,
+      zone.venueTimezone
+    )
+  const first = partsOf(rows[0])
+  const last = partsOf(rows[rows.length - 1])
+
+  if (first.month === last.month && first.year === last.year) return first.month
   // Page labels sit inside a year-scoped pager, and the year is already in the
   // strip above and the month headings below, so repeating it in every label
   // is noise. Dropped only when both ends agree on the year — an all-years page
   // that straddles a new year keeps both, because there the year IS the news.
-  const firstYear = yearPart(first)
-  return firstYear !== null && firstYear === yearPart(last)
-    ? `${stripYear(first)}${EN_DASH}${stripYear(last)}`
-    : `${first}${EN_DASH}${last}`
-}
-
-/** "Sep 2025" -> "2025"; null when the label has no trailing year. */
-function yearPart(monthLabel: string): string | null {
-  const parts = monthLabel.split(' ')
-  return parts.length > 1 ? parts[parts.length - 1] : null
-}
-
-/** "Sep 2025" -> "Sep". */
-function stripYear(monthLabel: string): string {
-  const parts = monthLabel.split(' ')
-  return parts.length > 1 ? parts.slice(0, -1).join(' ') : monthLabel
+  return first.year === last.year
+    ? `${first.month}${EN_DASH}${last.month}`
+    : `${first.month} ${first.year}${EN_DASH}${last.month} ${last.year}`
 }
 
 /**
  * The 1-based page a row offset falls on.
  *
- * Bounded below at 1 and above at `maxPage` so a hand-edited `?page=` cannot
- * turn into an unbounded offset the backend has to reject. A non-integer or
- * non-finite input resolves to page 1 rather than propagating NaN into the
- * offset arithmetic.
+ * Composed on the pagination family's own {@link toPageNumber} so the "a
+ * non-finite page is page 1, a fractional one floors" contract has exactly one
+ * definition, and adds the upper bound this surface needs: a hand-edited
+ * `?page=` must not turn into an unbounded offset the backend has to reject.
  */
 export function clampPage(page: number, maxPage: number): number {
-  if (!Number.isFinite(page)) return 1
-  return Math.min(Math.max(1, Math.floor(page)), maxPage)
+  return Math.min(toPageNumber(page, 1), maxPage)
 }
 
 /**

@@ -1,9 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Loader2, Plus } from 'lucide-react'
-import { SectionHeader } from '@/components/shared'
-import { formatCount } from '@/components/shared/paginationChrome'
+import { formatCount, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { NotifyMeButton } from '@/features/notifications'
@@ -15,6 +14,7 @@ import {
 } from '../api'
 import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
+import type { VenueShowZone } from '../types'
 
 interface VenueShowsListProps {
   venueId: number
@@ -69,7 +69,12 @@ export function VenueShowsList({
 
   const upcomingShows = upcoming.data?.shows ?? []
   const upcomingTotal = upcoming.data?.total ?? upcomingShows.length
-  const zone = { venueState, venueTimezone }
+  // Stable identity: `VenueShowsTable` keys its month grouping on this, so a
+  // fresh object per render would defeat that memo.
+  const zone: VenueShowZone = useMemo(
+    () => ({ venueState, venueTimezone }),
+    [venueState, venueTimezone]
+  )
 
   return (
     <div className={className}>

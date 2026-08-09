@@ -351,13 +351,13 @@ describe('VenuePastShows — rows', () => {
     setPast({ shows: [makeShow({ id: 5 })], total: 1 })
     renderList()
     const table = screen.getByRole('table', { name: 'Past shows' })
-    expect(within(table).getByRole('link', { name: 'Main Artist' })).toHaveClass(
-      'font-medium'
-    )
+    expect(
+      within(table).getByRole('link', { name: 'Main Artist' }).closest('.font-medium')
+    ).not.toBeNull()
     expect(within(table).getByText(/w\//)).toBeInTheDocument()
     expect(
-      within(table).getByRole('link', { name: 'The Opener' })
-    ).not.toHaveClass('font-medium')
+      within(table).getByRole('link', { name: 'The Opener' }).closest('.font-medium')
+    ).toBeNull()
   })
 
   it('leads with the flagged headliner even when it is not listed first', () => {
@@ -391,9 +391,51 @@ describe('VenuePastShows — rows', () => {
     })
     renderList()
     const table = screen.getByRole('table', { name: 'Past shows' })
-    expect(within(table).getByRole('link', { name: 'Top Billing' })).toHaveClass(
-      'font-medium'
-    )
+    expect(
+      within(table).getByRole('link', { name: 'Top Billing' }).closest('.font-medium')
+    ).not.toBeNull()
+    expect(
+      within(table).getByRole('link', { name: 'Opener' }).closest('.font-medium')
+    ).toBeNull()
+  })
+
+  it('leads with the curated set_type when only that names the headliner', () => {
+    // `set_type` is authoritative over the older `is_headliner` flag, and shows
+    // written before the roles existed carry only the flag. Both have to count,
+    // or the same show headlines differently here and on a show card.
+    setPast({
+      shows: [
+        makeShow({
+          id: 5,
+          artists: [
+            {
+              id: 1,
+              slug: 'opener',
+              name: 'Opener',
+              set_type: 'opener',
+              position: 1,
+              is_headliner: false,
+              socials: {},
+            },
+            {
+              id: 2,
+              slug: 'curated',
+              name: 'Curated Lead',
+              set_type: 'headliner',
+              position: 2,
+              is_headliner: false,
+              socials: {},
+            },
+          ],
+        }),
+      ],
+      total: 1,
+    })
+    renderList()
+    const table = screen.getByRole('table', { name: 'Past shows' })
+    expect(
+      within(table).getByRole('link', { name: 'Curated Lead' }).closest('.font-medium')
+    ).not.toBeNull()
   })
 
   it('badges cancelled shows, and suppresses sold-out on a cancelled one', () => {

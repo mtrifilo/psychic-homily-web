@@ -15,6 +15,7 @@ vi.mock('@/lib/api', () => ({
 import {
   VENUE_SHOWS_PAGE_LIMIT,
   VENUE_SHOWS_VIEWER_TIMEZONE,
+  venuePastShowsPageParams,
   venueQueryKeys,
 } from '@/features/venues/api'
 import { useVenueShows } from './useVenues'
@@ -46,11 +47,15 @@ function twentyShows() {
  * resolved first answered for all of them for the full 5-minute staleTime.
  *
  * The live instance: `VenueCard`'s expanded preview (20 rows) and the venue
- * page's `VenueShowsList` (VENUE_SHOWS_PAGE_LIMIT rows) both key on the
- * numeric venue id, so expanding a card on /venues and then opening that venue
- * handed the venue page the 20-row list. Which list you got depended purely on
- * the order you navigated in, which is why this has to be asserted rather than
- * reviewed.
+ * page's shows list (50 rows at the time) both keyed on the numeric venue id,
+ * so expanding a card on /venues and then opening that venue handed the venue
+ * page the 20-row list. Which list you got depended purely on the order you
+ * navigated in, which is why this has to be asserted rather than reviewed.
+ *
+ * PSY-1753 widened the key again, with `year` and `offset`, and added a second
+ * way to get it wrong: the past archive both ISSUES a page request and PEEKS
+ * at the cache for its neighbours, through two different code paths that must
+ * agree on the key exactly. The last case here pins them together.
  */
 describe('venue-shows cache key isolates differently-parameterized callers', () => {
   beforeEach(() => {
@@ -224,5 +229,42 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
     await waitFor(() => expect(withoutZone.result.current.isSuccess).toBe(true))
 
     expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
+  })
+
+  it('lands the past archive on the key its own neighbour peek constructs', async () => {
+    const queryClient = createTestQueryClient()
+    mockApiRequest.mockResolvedValue(fiftyShows())
+
+    // `VenuePastShows` labels each page button with the months it covers by
+    // reading sibling pages straight out of the cache, keyed from
+    // `venuePastShowsPageParams`. If the key the hook registers and the key the
+    // peek builds ever drift, nothing throws: the labels just silently stop
+    // appearing. Both paths are pinned here, on page 1 (where offset is 0 and
+    // must be keyed as "not sent") and on a later page.
+    for (const [page, year] of [[1, null], [3, 2025]] as const) {
+      const params = venuePastShowsPageParams(page, year)
+      const { result } = renderHook(
+        () =>
+          useVenueShows({
+            venueId: VENUE_ID,
+            timeFilter: 'past',
+            timezone: params.timezone,
+            limit: params.limit,
+            offset: params.offset ?? 0,
+            year: params.year,
+          }),
+        { wrapper: createWrapperWithClient(queryClient) },
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const peekKey = venueQueryKeys.showsPage(VENUE_ID, params)
+      expect(queryClient.getQueryData(peekKey)).toBeDefined()
+      expect(
+        queryClient
+          .getQueryCache()
+          .getAll()
+          .some(entry => entry.queryHash === hashKey(peekKey)),
+      ).toBe(true)
+    }
   })
 })

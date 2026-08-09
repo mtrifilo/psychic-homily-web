@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { parseAsInteger, useQueryState } from 'nuqs'
 import {
+  formatCount,
   Pagination,
   paginationWindow,
   SectionHeader,
@@ -13,7 +14,6 @@ import {
   usePaginationFocusTarget,
   type YearStripEntry,
 } from '@/components/shared'
-import { formatCount } from '@/components/shared/paginationChrome'
 import { cn } from '@/lib/utils'
 import { useVenueShowYears, useVenueShows } from '../hooks/useVenues'
 import { venueQueryKeys, venuePastShowsPageParams } from '../api'
@@ -22,10 +22,9 @@ import {
   clampPage,
   monthRangeLabel,
   parseArchiveYear,
-  type ArchiveZone,
 } from '../showArchive'
 import { VenueShowsTable } from './VenueShowsTable'
-import type { VenueShowsResponse } from '../types'
+import type { VenueShow, VenueShowZone, VenueShowsResponse } from '../types'
 
 /**
  * Anchor the past-shows pager and year strip land on. Deliberately its own id
@@ -98,36 +97,38 @@ export function VenuePastShows({
 
   const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLHeadingElement>()
 
-  const zone: ArchiveZone = useMemo(
+  const zone: VenueShowZone = useMemo(
     () => ({ venueState, venueTimezone }),
     [venueState, venueTimezone]
   )
 
   const yearCounts = yearsQuery.data?.years ?? []
   // Memoized on the response rather than recomputed: this array is a dependency
-  // of the page-label memo below, and a fresh `[]` on every render would make
-  // that memo recompute (and its cache lookups re-run) forever.
+  // of the page-label memo below and of the table's month grouping, and a fresh
+  // `[]` on every render would make both recompute forever.
   const pastData = pastQuery.data
-  const rows = useMemo(() => pastData?.shows ?? [], [pastData])
+  const rows: VenueShow[] = useMemo(() => pastData?.shows ?? [], [pastData])
 
-  // The histogram is the authority on counts: it is keyed on the venue alone,
-  // so switching years never leaves it briefly describing the previous year the
-  // way the page envelope does under `keepPreviousData`. Until it resolves, the
-  // envelope is the only count there is — and it is already year-scoped, so the
-  // fallback is right in both the filtered and unfiltered cases.
-  const allTimeTotal = yearCounts.reduce((sum, entry) => sum + entry.count, 0)
+  // The envelope's own count, which is already scoped to whatever year was
+  // requested — the only count there is until the histogram resolves.
+  const envelopeTotal = pastData?.total ?? 0
+
+  // The histogram is the authority on counts once it lands: it is keyed on the
+  // venue alone, so switching years never leaves it briefly describing the
+  // previous year the way the envelope does under `keepPreviousData`.
   const haveHistogram = yearCounts.length > 0
-  const scopedTotal = haveHistogram
-    ? activeYear === null
+  const allTimeTotal = yearCounts.reduce((sum, entry) => sum + entry.count, 0)
+  const scopedTotal = !haveHistogram
+    ? envelopeTotal
+    : activeYear === null
       ? allTimeTotal
       : (yearCounts.find(entry => entry.year === activeYear)?.count ?? 0)
-    : (pastQuery.data?.total ?? 0)
 
   const totalPages = Math.max(1, Math.ceil(scopedTotal / pageParams.limit))
 
   const basePath = `/venues/${venueSlug}`
-  const buildHref = useMemo(
-    () => (year: number | null, targetPage: number) => {
+  const buildHref = useCallback(
+    (year: number | null, targetPage: number) => {
       const params = new URLSearchParams()
       if (year !== null) params.set('year', String(year))
       // Page 1 and "all years" are bare URLs: one canonical address per view,
@@ -222,9 +223,7 @@ export function VenuePastShows({
   // A venue with no past shows carries no archive. Asked of the histogram, not
   // of the current page: a hand-typed year with nothing in it must still render
   // the section that says so, with the strip that leads back out of it.
-  const hasPastShows = yearsQuery.isSuccess
-    ? haveHistogram
-    : (pastQuery.data?.total ?? 0) > 0 || rows.length > 0
+  const hasPastShows = yearsQuery.isSuccess ? haveHistogram : envelopeTotal > 0
   if (!hasPastShows) return null
 
   const yearEntries: YearStripEntry[] = yearCounts.map(entry => ({
@@ -244,7 +243,7 @@ export function VenuePastShows({
       ? `${formatCount(scopedTotal)} of ${formatCount(allTimeTotal)} all-time`
       : formatCount(scopedTotal)
 
-  const pager = (position: 'top' | 'bottom') => (
+  const renderPager = (position: 'top' | 'bottom') => (
     <Pagination
       currentPage={page}
       totalPages={totalPages}
@@ -295,15 +294,14 @@ export function VenuePastShows({
 
       <PastShowsBody
         activeYear={activeYear}
-        allYearsHref={buildHref(null, 1)}
-        firstPageHref={buildHref(activeYear, 1)}
+        buildHref={buildHref}
         isError={pastQuery.isError}
+        isPastEnd={page > totalPages}
         isPending={pastQuery.isPending}
         isUpdating={isUpdating}
-        page={page}
-        pager={pager}
+        pagerBottom={renderPager('bottom')}
+        pagerTop={renderPager('top')}
         rows={rows}
-        totalPages={totalPages}
         zone={zone}
       />
     </section>
@@ -317,28 +315,27 @@ export function VenuePastShows({
  */
 function PastShowsBody({
   activeYear,
-  allYearsHref,
-  firstPageHref,
+  buildHref,
   isError,
+  isPastEnd,
   isPending,
   isUpdating,
-  page,
-  pager,
+  pagerBottom,
+  pagerTop,
   rows,
-  totalPages,
   zone,
 }: {
   activeYear: number | null
-  allYearsHref: string
-  firstPageHref: string
+  buildHref: (year: number | null, page: number) => string
   isError: boolean
+  /** The URL asks for a page beyond the last one this scope has. */
+  isPastEnd: boolean
   isPending: boolean
   isUpdating: boolean
-  page: number
-  pager: (position: 'top' | 'bottom') => ReactNode
+  pagerBottom: ReactNode
+  pagerTop: ReactNode
   rows: VenueShowsResponse['shows']
-  totalPages: number
-  zone: ArchiveZone
+  zone: VenueShowZone
 }) {
   if (isError) {
     return (
@@ -357,11 +354,14 @@ function PastShowsBody({
   if (rows.length === 0) {
     // Past the end of the archive: say so and offer the way back, rather than
     // silently rewriting the URL the reader typed or shared.
-    if (page > totalPages) {
+    if (isPastEnd) {
       return (
         <p className="py-3 text-sm text-muted-foreground">
           That page is past the end of this archive.{' '}
-          <Link href={firstPageHref} className="text-primary hover:underline">
+          <Link
+            href={buildHref(activeYear, 1)}
+            className="text-primary hover:underline"
+          >
             Back to the first page
           </Link>
           .
@@ -378,7 +378,10 @@ function PastShowsBody({
         ) : (
           <>
             No past shows in {activeYear}.{' '}
-            <Link href={allYearsHref} className="text-primary hover:underline">
+            <Link
+              href={buildHref(null, 1)}
+              className="text-primary hover:underline"
+            >
               Show every year
             </Link>
             .
@@ -390,14 +393,14 @@ function PastShowsBody({
 
   return (
     <div className={cn('space-y-3', isUpdating && 'opacity-60')}>
-      {pager('top')}
+      {pagerTop}
       <VenueShowsTable
         shows={rows}
         zone={zone}
         ariaLabel="Past shows"
         groupByMonthHeadings
       />
-      {pager('bottom')}
+      {pagerBottom}
     </div>
   )
 }

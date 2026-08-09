@@ -11,6 +11,7 @@ export type {
   VenuesListResponse,
   VenueShow,
   VenueShowsResponse,
+  VenueShowZone,
   VenueShowYearCount,
   VenueShowYearsResponse,
   VenueCity,

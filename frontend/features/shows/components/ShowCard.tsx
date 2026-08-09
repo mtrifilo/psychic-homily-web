@@ -27,6 +27,7 @@ import { ExportShowButton } from './ExportShowButton'
 import { ShowStatusBadge } from './ShowStatusBadge'
 import { SHOW_LIST_FEATURE_POLICY } from './showListFeaturePolicy'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { splitBill } from '../utils'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 /**
@@ -45,29 +46,6 @@ function artistHasMusic(artist: ArtistResponse): boolean {
  */
 function showHasArtistMusic(artists: ArtistResponse[]): boolean {
   return artists.some(artistHasMusic)
-}
-
-/**
- * Split artists into headliners and support acts based on set_type.
- * Falls back to is_headliner flag for backward compatibility.
- * If no headliner flags are set, treat the first artist as the headliner.
- */
-function splitBill(artists: ArtistResponse[]): {
-  headliners: ArtistResponse[]
-  support: ArtistResponse[]
-} {
-  const headliners = artists.filter(a => a.set_type === 'headliner' || a.is_headliner === true)
-  const support = artists.filter(a => a.set_type !== 'headliner' && a.is_headliner !== true)
-
-  // If no explicit headliners, treat first artist as headliner
-  if (headliners.length === 0 && artists.length > 0) {
-    return {
-      headliners: [artists[0]],
-      support: artists.slice(1),
-    }
-  }
-
-  return { headliners, support }
 }
 
 function ArtistLink({ artist, className }: { artist: ArtistResponse; className?: string }) {
