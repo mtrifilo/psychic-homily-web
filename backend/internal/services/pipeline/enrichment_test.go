@@ -492,8 +492,11 @@ func (m *mockArtistServiceForEnrichment) SearchArtists(query string) ([]*contrac
 	}
 	return []*contracts.ArtistDetailResponse{}, nil
 }
-func (m *mockArtistServiceForEnrichment) GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
+func (m *mockArtistServiceForEnrichment) GetShowsForArtist(artistID uint, timezone string, query contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 	return nil, 0, nil
+}
+func (m *mockArtistServiceForEnrichment) GetArtistShowYears(artistID uint, timeFilter string) ([]contracts.ArtistShowYearCount, error) {
+	return nil, nil
 }
 func (m *mockArtistServiceForEnrichment) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
 	return nil, nil

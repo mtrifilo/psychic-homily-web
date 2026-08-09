@@ -2135,6 +2135,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/artists/{artist_id}/shows/years": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get artists by artist ID shows years */
+        get: operations["get-artists-by-artist-id-shows-years"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/artists/{entity_id}/my-report": {
         parameters: {
             query?: never;
@@ -8002,8 +8019,11 @@ export interface components {
             event_date: string;
             /** Format: int64 */
             id: number;
+            is_cancelled: boolean;
+            is_sold_out: boolean;
             /** Format: double */
             price: number | null;
+            slug: string;
             title: string;
             venue: components["schemas"]["ArtistShowVenueResponse"];
         };
@@ -8015,6 +8035,18 @@ export interface components {
             slug: string;
             state: string;
             timezone: string | null;
+        };
+        ArtistShowYearCount: {
+            /**
+             * Format: int64
+             * @description Shows the artist played in that year, within the requested time filter
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar year
+             */
+            year: number;
         };
         ArtistStatsResponse: {
             /** Format: int64 */
@@ -11103,6 +11135,23 @@ export interface components {
             /** @description List of releases with artist roles */
             releases: components["schemas"]["ArtistReleaseListResponse"][] | null;
         };
+        GetArtistShowYearsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetArtistShowYearsResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Artist ID (resolved from slug if provided)
+             */
+            artist_id: number;
+            /** @description Time filter the counts were taken under */
+            time_filter: string;
+            /** @description Venue-local calendar years that have at least one show, newest first */
+            years: components["schemas"]["ArtistShowYearCount"][] | null;
+        };
         GetArtistShowsResponseBody: {
             /**
              * Format: uri
@@ -11115,13 +11164,28 @@ export interface components {
              * @description Artist ID (resolved from slug if provided)
              */
             artist_id: number;
-            /** @description List of shows */
+            /**
+             * Format: int64
+             * @description Limit used in query
+             */
+            limit: number;
+            /**
+             * Format: int64
+             * @description Offset used in query
+             */
+            offset: number;
+            /** @description Page of shows for this artist */
             shows: components["schemas"]["ArtistShowResponse"][] | null;
             /**
              * Format: int64
-             * @description Total number of shows matching filter
+             * @description Total shows matching the time filter and year, across all pages
              */
             total: number;
+            /**
+             * Format: int64
+             * @description Year filter used in query (0 = all years)
+             */
+            year: number;
         };
         GetAuditLogsResponseBody: {
             /**
@@ -21991,9 +22055,54 @@ export interface operations {
                 timezone?: string;
                 /** @description Maximum number of shows to return (max 200) */
                 limit?: number;
+                /** @description Offset for pagination */
+                offset?: number;
                 /**
                  * @description Filter shows by time: upcoming, past, or all
                  * @example upcoming
+                 */
+                time_filter?: "upcoming" | "past" | "all";
+                /** @description Filter to a single venue-local calendar year. 0 (default) returns every year. Use /artists/{artist_id}/shows/years to discover which years have shows. */
+                year?: number;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Artist ID or slug
+                 * @example the-national
+                 */
+                artist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetArtistShowsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-artists-by-artist-id-shows-years": {
+        parameters: {
+            query?: {
+                /**
+                 * @description Count shows by time: upcoming, past, or all
+                 * @example past
                  */
                 time_filter?: "upcoming" | "past" | "all";
             };
@@ -22015,7 +22124,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GetArtistShowsResponseBody"];
+                    "application/json": components["schemas"]["GetArtistShowYearsResponseBody"];
                 };
             };
             /** @description Error */

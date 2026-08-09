@@ -138,7 +138,7 @@ func assertSamePartitionForEveryCallerZone(t *testing.T, wantShowID uint, list l
 
 func (suite *ArtistServiceIntegrationTestSuite) artistShowIDs(artistID uint) listPartition {
 	return func(callerZone, timeFilter string) ([]uint, int64, error) {
-		shows, total, err := suite.artistService.GetShowsForArtist(artistID, callerZone, 50, timeFilter)
+		shows, total, err := suite.artistService.GetShowsForArtist(artistID, callerZone, contracts.ArtistShowsQuery{TimeFilter: timeFilter, Limit: 50})
 		ids := make([]uint, 0, len(shows))
 		for _, s := range shows {
 			ids = append(ids, s.ID)
@@ -161,12 +161,12 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_VenueLocal
 	requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, at)
 
-	past, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
+	past, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), pastTotal, "venue-local yesterday belongs to past")
 	suite.Require().Len(past, 1)
 
-	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), upcomingTotal, "UTC's calendar must not pull the show back into upcoming")
 	suite.Empty(upcoming)
@@ -185,12 +185,12 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_VenueLocal
 	requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, at)
 
-	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), upcomingTotal)
 	suite.Require().Len(upcoming, 1)
 
-	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
+	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), pastTotal)
 }
@@ -213,11 +213,11 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_AlreadySta
 		"fixture should be at or before now for most of the venue's day")
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, at)
 
-	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), upcomingTotal, "a show already in progress is still an upcoming listing")
 
-	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
+	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), pastTotal)
 }
@@ -251,11 +251,11 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_NullVenueT
 	requireLocalAndUTCDatesDiffer(suite.T(), at, "Pacific/Honolulu")
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, at)
 
-	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
+	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), pastTotal, "a NULL venue zone must resolve through the state map, not UTC")
 
-	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), upcomingTotal)
 }
@@ -284,7 +284,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_DriftedVen
 	suite.Require().NoError(suite.db.Table("venues").Where("id = ?", venue.ID).
 		Update("timezone", "Pacific/Atlantis").Error)
 
-	_, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	_, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().Error(err, "a drifted zone must surface loudly, not silently mis-partition")
 	suite.Contains(err.Error(), "not recognized")
 
@@ -295,7 +295,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_DriftedVen
 	suite.Equal("Pacific/Atlantis", report.Drifted[0].Timezone)
 
 	// After the sweep the venue falls back to the state map and listings work.
-	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err, "the sweep must restore a queryable state")
 	suite.Equal(int64(1), upcomingTotal)
 }
@@ -321,13 +321,13 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_VenuelessS
 	upcomingShow := newShow("Venueless Upcoming", venueLocalInstant(suite.T(), "America/Phoenix", 1, 12))
 	pastShow := newShow("Venueless Past", venueLocalInstant(suite.T(), "America/Phoenix", -1, 12))
 
-	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), upcomingTotal)
 	suite.Require().Len(upcoming, 1)
 	suite.Equal(upcomingShow.ID, upcoming[0].ID)
 
-	past, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "past")
+	past, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), pastTotal)
 	suite.Require().Len(past, 1)
@@ -352,19 +352,19 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_LimitAndTo
 		suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, venueLocalInstant(suite.T(), zone, i, 23))
 	}
 
-	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 1, "upcoming")
+	upcoming, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 1})
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), upcomingTotal, "total counts the whole venue-local partition")
 	suite.Require().Len(upcoming, 1, "limit pages the venue-local partition")
 
-	past, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 1, "past")
+	past, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 1})
 	suite.Require().NoError(err)
 	suite.Equal(int64(3), pastTotal)
 	suite.Require().Len(past, 1)
 
 	// "all" keeps every row and is deliberately not venue-zone aware: there is
 	// no boundary to draw.
-	_, allTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "all")
+	_, allTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "all", Limit: 50})
 	suite.Require().NoError(err)
 	suite.Equal(int64(5), allTotal)
 }
@@ -387,16 +387,16 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_ExtremeVen
 		suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, venueLocalInstant(suite.T(), zone, -1, 23))
 	}
 
-	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "upcoming")
+	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 50})
 	suite.Require().NoError(err)
 	suite.Equal(int64(4), upcomingTotal, "the coarse lower bound must not clip a venue-local midnight at an extreme offset")
 
-	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "past")
+	_, pastTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 50})
 	suite.Require().NoError(err)
 	suite.Equal(int64(4), pastTotal, "the coarse upper bound must not clip the last instant of venue-local yesterday")
 
 	// Nothing fell through the gap between the two partitions.
-	_, allTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 50, "all")
+	_, allTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "all", Limit: 50})
 	suite.Require().NoError(err)
 	suite.Equal(int64(8), allTotal)
 }
@@ -415,7 +415,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetNextShowForArtist_AgreesW
 	// Venue-local today, already started: still tonight's listing on both.
 	tonight := suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, venueLocalInstant(suite.T(), zone, 0, 0))
 
-	upcoming, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
+	upcoming, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
 	suite.Require().NoError(err)
 	suite.Require().NotEmpty(upcoming)
 

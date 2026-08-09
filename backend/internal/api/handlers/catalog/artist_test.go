@@ -463,7 +463,7 @@ func TestGetArtist_ServiceError(t *testing.T) {
 
 func TestGetArtistShows_ByID(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetShowsForArtistFn: func(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
+		GetShowsForArtistFn: func(artistID uint, timezone string, query contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 			if artistID != 5 {
 				t.Errorf("expected artistID=5, got %d", artistID)
 			}
@@ -489,7 +489,7 @@ func TestGetArtistShows_BySlug(t *testing.T) {
 		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 10}, nil
 		},
-		GetShowsForArtistFn: func(artistID uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
+		GetShowsForArtistFn: func(artistID uint, _ string, _ contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 			if artistID != 10 {
 				t.Errorf("expected resolved artistID=10, got %d", artistID)
 			}
@@ -509,7 +509,7 @@ func TestGetArtistShows_BySlug(t *testing.T) {
 
 func TestGetArtistShows_ArtistNotFound(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
+		GetShowsForArtistFn: func(_ uint, _ string, _ contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 			return nil, 0, apperrors.ErrArtistNotFound(99)
 		},
 	}
@@ -521,13 +521,122 @@ func TestGetArtistShows_ArtistNotFound(t *testing.T) {
 
 func TestGetArtistShows_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
+		GetShowsForArtistFn: func(_ uint, _ string, _ contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
 
 	_, err := h.GetArtistShowsHandler(context.Background(), &GetArtistShowsRequest{ArtistID: "5", Limit: 20})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// Every paging knob has to reach the service unchanged. A dropped offset is
+// invisible in the response, which would just look like the first page again.
+func TestGetArtistShows_PassesThePagingWindowThrough(t *testing.T) {
+	var got contracts.ArtistShowsQuery
+	mock := &testhelpers.MockArtistService{
+		GetShowsForArtistFn: func(_ uint, _ string, query contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
+			got = query
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.GetArtistShowsHandler(context.Background(), &GetArtistShowsRequest{
+		ArtistID: "5", Limit: 7, Offset: 14, Year: 2019, TimeFilter: "past",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := contracts.ArtistShowsQuery{TimeFilter: "past", Limit: 7, Offset: 14, Year: 2019}
+	if got != want {
+		t.Errorf("service received %+v, want %+v", got, want)
+	}
+}
+
+// ============================================================================
+// Mock-based tests: GetArtistShowYearsHandler
+// ============================================================================
+
+// The histogram drives the list's year picker, so it must never narrow to a
+// year itself and must default its time filter to the same thing the list does.
+func TestGetArtistShowYears_DefaultsToTheListsTimeFilter(t *testing.T) {
+	var gotArtistID uint
+	var gotTimeFilter string
+	mock := &testhelpers.MockArtistService{
+		GetArtistShowYearsFn: func(artistID uint, timeFilter string) ([]contracts.ArtistShowYearCount, error) {
+			gotArtistID, gotTimeFilter = artistID, timeFilter
+			return []contracts.ArtistShowYearCount{{Year: 2019, Count: 3}}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.GetArtistShowYearsHandler(context.Background(), &GetArtistShowYearsRequest{ArtistID: "5"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotArtistID != 5 {
+		t.Errorf("expected artistID=5, got %d", gotArtistID)
+	}
+	if gotTimeFilter != defaultArtistShowsTimeFilter {
+		t.Errorf("time filter = %q, want the list's default %q", gotTimeFilter, defaultArtistShowsTimeFilter)
+	}
+	if resp.Body.TimeFilter != defaultArtistShowsTimeFilter {
+		t.Errorf("echoed time_filter = %q, want %q", resp.Body.TimeFilter, defaultArtistShowsTimeFilter)
+	}
+	if resp.Body.ArtistID != 5 {
+		t.Errorf("expected artist_id=5, got %d", resp.Body.ArtistID)
+	}
+	if len(resp.Body.Years) != 1 || resp.Body.Years[0].Year != 2019 {
+		t.Errorf("years = %+v, want one 2019 bucket", resp.Body.Years)
+	}
+}
+
+func TestGetArtistShowYears_BySlug(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+			return &contracts.ArtistDetailResponse{ID: 10}, nil
+		},
+		GetArtistShowYearsFn: func(artistID uint, _ string) ([]contracts.ArtistShowYearCount, error) {
+			if artistID != 10 {
+				t.Errorf("expected resolved artistID=10, got %d", artistID)
+			}
+			return nil, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.GetArtistShowYearsHandler(context.Background(), &GetArtistShowYearsRequest{ArtistID: "the-national", TimeFilter: "all"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.ArtistID != 10 {
+		t.Errorf("expected artist_id=10, got %d", resp.Body.ArtistID)
+	}
+}
+
+func TestGetArtistShowYears_ArtistNotFound(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistShowYearsFn: func(_ uint, _ string) ([]contracts.ArtistShowYearCount, error) {
+			return nil, apperrors.ErrArtistNotFound(99)
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.GetArtistShowYearsHandler(context.Background(), &GetArtistShowYearsRequest{ArtistID: "99", TimeFilter: "all"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetArtistShowYears_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistShowYearsFn: func(_ uint, _ string) ([]contracts.ArtistShowYearCount, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.GetArtistShowYearsHandler(context.Background(), &GetArtistShowYearsRequest{ArtistID: "5", TimeFilter: "all"})
 	testhelpers.AssertHumaError(t, err, 500)
 }
 

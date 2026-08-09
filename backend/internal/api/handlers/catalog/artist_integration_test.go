@@ -356,6 +356,91 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_NotFound() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
+// bookArtist creates an approved show `daysOut` days from now, at a venue, with
+// the artist on the bill, and returns it. The three-row shape is what every
+// paging assertion below needs and what the older tests here open-code.
+func (s *ArtistHandlerIntegrationSuite) bookArtist(artistID uint, title string, daysOut int) *catalogm.Show {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, fmt.Sprintf("%s Venue", title), "Phoenix", "AZ")
+	show := &catalogm.Show{
+		Title:       title,
+		EventDate:   time.Now().UTC().AddDate(0, 0, daysOut),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	return show
+}
+
+// The envelope has to echo the window the server actually used, not the window
+// the caller typed: a client computing "is there a next page" from its own
+// request cannot see the handler's default-limit substitution (PSY-1751).
+func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_EchoesTheWindowActuallyUsed() {
+	artistID := s.createArtistViaService("Echo Artist")
+	for i := 0; i < 3; i++ {
+		s.bookArtist(artistID, fmt.Sprintf("Echo Show %d", i), 7+i)
+	}
+
+	req := &GetArtistShowsRequest{
+		ArtistID:   fmt.Sprintf("%d", artistID),
+		Limit:      2,
+		Offset:     2,
+		TimeFilter: "upcoming",
+	}
+	resp, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, req)
+	s.Require().NoError(err)
+	s.Equal(2, resp.Body.Limit)
+	s.Equal(2, resp.Body.Offset)
+	s.Equal(0, resp.Body.Year)
+	s.Equal(int64(3), resp.Body.Total, "total spans every page, not just this one")
+	s.Len(resp.Body.Shows, 1, "the third show is the whole last page")
+
+	// An omitted limit is substituted server-side, and the echo must say 20
+	// rather than the 0 the caller sent.
+	defaulted, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, &GetArtistShowsRequest{
+		ArtistID: fmt.Sprintf("%d", artistID), TimeFilter: "upcoming",
+	})
+	s.Require().NoError(err)
+	s.Equal(20, defaulted.Body.Limit)
+	s.Equal(0, defaulted.Body.Offset)
+}
+
+// --- GetArtistShowYearsHandler ---
+
+func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowYears_ResolvesBySlugAndEchoesFilter() {
+	artistID := s.createArtistViaService("Years Artist")
+	s.bookArtist(artistID, "Years Show", 14)
+
+	resp, err := s.handler.GetArtistShowYearsHandler(s.deps.Ctx, &GetArtistShowYearsRequest{
+		ArtistID: "years-artist", TimeFilter: "upcoming",
+	})
+	s.Require().NoError(err)
+	s.Equal(artistID, resp.Body.ArtistID, "the slug must resolve to the same artist the list uses")
+	s.Equal("upcoming", resp.Body.TimeFilter)
+	s.Require().Len(resp.Body.Years, 1)
+	s.Equal(int64(1), resp.Body.Years[0].Count)
+
+	// An omitted time_filter must land on the same default the list uses, or the
+	// picker and the list it drives would be counting different sets.
+	defaulted, err := s.handler.GetArtistShowYearsHandler(s.deps.Ctx, &GetArtistShowYearsRequest{
+		ArtistID: fmt.Sprintf("%d", artistID),
+	})
+	s.Require().NoError(err)
+	s.Equal("upcoming", defaulted.Body.TimeFilter)
+	s.Equal(resp.Body.Years, defaulted.Body.Years)
+}
+
+func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowYears_ArtistNotFound() {
+	_, err := s.handler.GetArtistShowYearsHandler(s.deps.Ctx, &GetArtistShowYearsRequest{
+		ArtistID: "no-such-artist-slug", TimeFilter: "all",
+	})
+	testhelpers.AssertHumaError(s.T(), err, 404)
+}
+
 // --- DeleteArtistHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestDeleteArtist_Success() {
