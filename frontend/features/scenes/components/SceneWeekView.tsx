@@ -106,11 +106,9 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
             >
               ← {week.prev_week}
             </Link>
-            {/* The reciprocal of the nightly page's "Full week" chip, and
-                currently the ONLY route into that page from anywhere in the
-                app — do not drop it in a restyle without adding another.
-                Kept on archived weeks too: a reader who lands on last March
-                still wants the way back to what is on now. */}
+            {/* The reciprocal of the nightly page's "Full week" chip. Kept on
+                archived weeks too: a reader who lands on last March still
+                wants the way back to what is on now. */}
             <Link
               href={`/scenes/${week.slug}/tonight`}
               className={`flex-1 sm:flex-none ${SCENE_NAV_CHIP_CLASS}`}

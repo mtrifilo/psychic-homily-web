@@ -69,7 +69,7 @@ import type { SceneGraphNode } from '@/features/scenes/types'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { formatShowWeekday } from '@/lib/utils/formatters'
 import { pickDefaultScene, pickSurpriseScene } from './homeSceneGraphScenes'
-import { useGeoDefaultScene } from '../hooks/useGeoDefaultScene'
+import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
 import { buildHomeSceneGraphMap } from './homeSceneGraphMap'
 
 const GRAPH_HEIGHT_PX = 560

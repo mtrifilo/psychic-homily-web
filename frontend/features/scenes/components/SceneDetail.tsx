@@ -4,9 +4,9 @@ import Link from 'next/link'
 import {
   MapPin, Building2, Mic2, Calendar, Tent, ArrowRight, Loader2, Music,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { TagPill } from '@/components/shared'
+import { BracketLink, TagPill } from '@/components/shared'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
 import { ScenePulse } from './ScenePulse'
@@ -222,10 +222,32 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
         {/* Upcoming Shows */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex min-w-0 items-center gap-2 text-base">
               <Calendar className="h-4 w-4 text-muted-foreground" />
               Upcoming Shows
             </CardTitle>
+            {/* The scene's nightly listing. On the section header as a bare
+                bracket link, not a verb in an action row: the action row is
+                for auth-gated relationship verbs (Follow / Notify me), and a
+                link that syndicates a list belongs on that list's header.
+
+                TONIGHT ONLY, deliberately. The week already has its edge from
+                the stats line above (PSY-1623), and the pair reads better
+                split than it would as a second link to the same page a few
+                lines down. The two period pages link to each other, so this is
+                the entry point the whole nightly sub-site hangs off.
+
+                `scene.slug`, not the route param: a metro member spelling
+                resolves to its principal city, and building the href from what
+                the reader typed would mint a second URL for a page that
+                already has one. */}
+            <CardAction className="flex flex-wrap items-center gap-3">
+              <BracketLink
+                label="Tonight"
+                href={`/scenes/${scene.slug}/tonight`}
+                ariaLabel={`Tonight in ${scene.city}`}
+              />
+            </CardAction>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-3">

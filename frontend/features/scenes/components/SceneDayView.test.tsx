@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, within, waitFor } from '@testing-library/react'
+import { fireEvent } from '@testing-library/dom'
 import { SceneDayView } from './SceneDayView'
 import type { SceneDayResponse, SceneDayShow, SceneTrackedVenue } from '../sceneDay'
 
@@ -40,6 +41,86 @@ const day = (over: Partial<SceneDayResponse> = {}): SceneDayResponse =>
     tracked_venues: [room(), room({ name: 'Crescent Ballroom', slug: 'crescent-ballroom' })],
     ...over,
   }) as SceneDayResponse
+
+describe('SceneDayView — share affordance', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'clipboard')
+    vi.restoreAllMocks()
+  })
+
+  it('shares the DATED permalink, never the rolling /tonight URL', async () => {
+    // This page is reachable at both `/scenes/{slug}/{date}` and the rolling
+    // `/scenes/{slug}/tonight`. Sharing the rolling URL would hand a friend a
+    // page whose contents change tomorrow, so the control must emit the dated
+    // permalink regardless of which route rendered it.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    })
+
+    render(<SceneDayView day={day()} />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Share this night' })
+    )
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
+      )
+    )
+  })
+
+  // An archived night is the most shareable page in the family, so the control
+  // is not gated on the night being tonight.
+  it('offers the same control on a night that has already happened', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    })
+
+    render(
+      <SceneDayView
+        day={day({ date: '2024-03-15', is_tonight: false, is_past_day: true })}
+      />
+    )
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Share this night' })
+    )
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        'https://psychichomily.com/scenes/phoenix-az/2024-03-15'
+      )
+    )
+  })
+
+  // Both halves in one test on purpose. jsdom exposes neither `navigator.share`
+  // nor `navigator.clipboard`, so the absence alone would also pass with the
+  // control deleted outright — the presence half is what makes the absence mean
+  // "no mechanism" rather than "no component".
+  it('renders no share control when the browser can neither share nor copy', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+      writable: true,
+    })
+    const withClipboard = render(<SceneDayView day={day()} />)
+    expect(
+      await screen.findByRole('button', { name: 'Share this night' })
+    ).toBeInTheDocument()
+    withClipboard.unmount()
+
+    Reflect.deleteProperty(navigator, 'clipboard')
+    render(<SceneDayView day={day()} />)
+    expect(
+      screen.queryByRole('button', { name: 'Share this night' })
+    ).not.toBeInTheDocument()
+  })
+})
 
 describe('SceneDayView — a night with shows', () => {
   it('renders the city with its state alongside', () => {

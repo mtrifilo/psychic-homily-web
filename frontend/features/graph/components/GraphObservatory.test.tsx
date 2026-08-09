@@ -58,10 +58,13 @@ const { fetchGraph, graphs, reviewState, shuffleRefetch, shuffleTarget } = vi.ho
   }
 })
 
-const { searchRequest, scenesState, motionState } = vi.hoisted(() => ({
+const { searchRequest, scenesState, geoState, motionState } = vi.hoisted(() => ({
   searchRequest: vi.fn(),
   scenesState: {
     scenes: [] as Array<Record<string, unknown>>,
+  },
+  geoState: {
+    geo: null as { city: string; state: string } | null,
   },
   motionState: { reduced: true },
 }))
@@ -104,6 +107,12 @@ vi.mock('@/features/scenes/hooks/useScenes', () => ({
     isLoading: false,
     isError: false,
   }),
+}))
+
+// The visitor's IP-derived place. Mocked at the hook boundary so no test here
+// reaches the `/api/geo` route or the sessionStorage cache behind it.
+vi.mock('@/lib/hooks/common/useGeoDefaultScene', () => ({
+  useGeoDefaultScene: () => geoState.geo,
 }))
 
 vi.mock('@sentry/nextjs', () => ({
@@ -294,6 +303,7 @@ describe('GraphObservatory', () => {
     reviewState.throwGraph = false
     reviewState.graphPending = false
     scenesState.scenes = []
+    geoState.geo = null
     motionState.reduced = true
     overviewState.data = undefined
     overviewState.isPending = false
@@ -865,6 +875,68 @@ describe('GraphObservatory', () => {
         screen.getByRole('navigation', { name: 'Graph traversal history' }),
       ).toBeInTheDocument()
       expect(screen.queryByText(/The whole map/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('the "Tonight’s shows" escape hatch', () => {
+    const phoenix = {
+      city: 'Phoenix',
+      state: 'AZ',
+      slug: 'phoenix-az',
+      venue_count: 10,
+      upcoming_show_count: 12,
+      total_show_count: 400,
+      shows_this_week: 4,
+      shows_calendar_week: 6,
+      latitude: 33.45,
+      longitude: -112.07,
+    }
+    const inPhoenix = { city: 'Phoenix', state: 'AZ' }
+
+    // The EXACT accessible name, shared by every case below: the label is
+    // fixed on purpose and only the href moves. This link sits in a wrap row
+    // ahead of the shuffle pill, so a label that grew a city name when geo
+    // landed would drag its siblings sideways after the reader had aimed.
+    const tonightLink = () =>
+      screen.getByRole('link', { name: 'Tonight’s shows' })
+
+    // The scenes list and the geo suggestion both arrive after mount, so the
+    // global listing is what the link is until they do — and what it stays for
+    // a visitor we cannot place.
+    it('points at the global listing when no scene can be resolved', () => {
+      renderWithProviders(<GraphObservatory />)
+
+      expect(tonightLink()).toHaveAttribute('href', '/shows')
+    })
+
+    it('points at the visitor’s own scene for the night once geo resolves', () => {
+      scenesState.scenes = [phoenix]
+      geoState.geo = inPhoenix
+      renderWithProviders(<GraphObservatory />)
+
+      expect(tonightLink()).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
+    })
+
+    // Placing the visitor is not enough. A scene that has been dark all week
+    // has a nightly page that is correct and empty, which is a worse answer
+    // than the listing the reader already had.
+    it('keeps the listing when the visitor’s scene has been quiet all week', () => {
+      scenesState.scenes = [{ ...phoenix, shows_this_week: 0 }]
+      geoState.geo = inPhoenix
+      renderWithProviders(<GraphObservatory />)
+
+      expect(tonightLink()).toHaveAttribute('href', '/shows')
+    })
+
+    // Nothing on this row names a city, so a neighbouring-metro guess would
+    // move the reader somewhere no part of the page mentioned. The city
+    // filter's uncapped nearest-match rule deliberately does NOT reach here.
+    it('keeps the listing for a suburb rather than guessing the metro', () => {
+      scenesState.scenes = [phoenix]
+      geoState.geo = { city: 'Tempe', state: 'AZ' }
+      renderWithProviders(<GraphObservatory />)
+
+      expect(tonightLink()).toHaveAttribute('href', '/shows')
     })
   })
 })

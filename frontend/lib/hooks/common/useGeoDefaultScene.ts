@@ -6,23 +6,31 @@ import type { GeoLocation } from '@/lib/geo-default'
 import { GEO_CACHE_KEY, toGeoLocation } from '@/lib/geo-client'
 
 /**
- * Client-side geo suggestion for the homepage graph's default scene (PSY-1346).
+ * Client-side geo suggestion for surfaces that key on the visitor's place
+ * rather than on a city filter (the homepage graph's default scene, the
+ * Observatory's nightly link).
  *
  * Reuses the SAME `/api/geo` edge route + sessionStorage cache as the shows
  * city filter's `useGeoDefaultCity` (via the shared `@/lib/geo-client`
  * primitives), so once one consumer has warmed the cache this session, the
- * other reads it instead of re-fetching. (It is NOT a hard single-flight
- * guarantee: on a cold cache both consumers can fire `/api/geo` before either
- * write lands — one extra idempotent edge hit, not a correctness issue.)
+ * others read it instead of re-fetching. (It is NOT a hard single-flight
+ * guarantee: on a cold cache several consumers can fire `/api/geo` before any
+ * write lands — an extra idempotent edge hit, not a correctness issue.)
  *
  * Non-blocking, exactly like `useGeoDefaultCity`: it returns `null` until geo
  * arrives, so the section renders its liveliest-scene default immediately and
  * swaps to the visitor's scene when the suggestion resolves (via the section's
  * existing scene-rotation path). A warm session cache resolves synchronously in
  * the initializer, so the common case shows the geo scene on the first render
- * with no swap. Reading the cache in the initializer (not an effect) is safe
- * because the section is client-only lazy-mounted (never SSR'd), so `window`
- * exists and there's no hydration to mismatch.
+ * with no swap.
+ *
+ * CALLER CONTRACT: the returned value can differ between a server render and
+ * the hydration render that follows it, because a warm sessionStorage cache is
+ * visible only to the browser. A caller that is server-rendered must therefore
+ * not let this value reach its markup until after hydration — the homepage
+ * section is client-only lazy-mounted so the question never arises for it, but
+ * the Observatory's nightly link IS server-rendered and gates on hydration for
+ * exactly this reason.
  *
  * Deliberately NOT auth/favorites-gated (unlike `useGeoDefaultCity`): the graph
  * has no per-user "favorite scene", so geo is an overridable default for every

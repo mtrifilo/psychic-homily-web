@@ -225,6 +225,55 @@ describe('SceneDetailView', () => {
       expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBeInTheDocument()
     })
 
+    // The scene page is where a reader arrives; the nightly and weekly pages
+    // link to each other but to little else, so the links from here are what
+    // connect that sub-site to the rest of the app.
+    it('links to the scene’s own night from the upcoming-shows header', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene(),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+
+      expect(
+        screen.getByRole('link', { name: 'Tonight in Phoenix' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
+    })
+
+    // Guards the split, not just the link: the week's edge lives on the stats
+    // line, and a second one on the card header would be two links to one page
+    // a few lines apart.
+    it('leaves the week to the single link on the stats line', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene(),
+        isLoading: false,
+        error: null,
+      })
+      const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+
+      const weekLinks = [...container.querySelectorAll('a[href]')].filter(
+        a => a.getAttribute('href') === '/scenes/phoenix-az/week'
+      )
+      expect(weekLinks).toHaveLength(1)
+    })
+
+    // A metro member spelling resolves to its principal city, so a link built
+    // from what the reader typed would mint a second URL for a page that
+    // already has one.
+    it('builds the nightly href from the resolved scene, not the route param', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene(),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="mesa-az" />)
+
+      expect(
+        screen.getByRole('link', { name: 'Tonight in Phoenix' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
+    })
+
     it('renders the scene description when present', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene({ description: 'A desert DIY scene.' }),

@@ -49,12 +49,15 @@ import {
   type RandomArtistTargetResponse,
 } from '@/features/discovery/useRandomArtistTarget'
 import { useScenes } from '@/features/scenes/hooks/useScenes'
+import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
+import { pickVisitorScene } from './visitorScene'
 
 interface GraphAnchor {
   id: number
@@ -455,8 +458,10 @@ function AccessibleGraphList({
 /**
  * Escape hatches for the no-connections empty state (PSY-1474 F4): two scene
  * links anchored on the artist's metro plus the random rabbit hole. Mounted
- * only while the empty state is visible, so the scenes list is fetched only
- * when a hatch can actually render (it's cached for 10 minutes anyway).
+ * only while the empty state is visible, though that no longer saves the
+ * request it once did — the footer's nightly link reads the same 10-minute
+ * scenes query on every visit, so by the time this mounts the list is already
+ * in cache.
  */
 function EmptyGraphEscapeHatches({
   city,
@@ -628,6 +633,47 @@ function ReplayStatusLine({ replay }: { replay: SceneReplayController }) {
   // announcing it would flood a screen reader. The scrubber's slider carries the
   // accessible position instead, where it can be read on demand.
   return <span ref={textRef} className="text-foreground" />
+}
+
+// Shared by the serendipity footer's two plain links, which must not drift
+// apart: they read as one row of alternatives.
+const SERENDIPITY_FOOTER_LINK_CLASS =
+  'inline-flex items-center gap-1 text-muted-foreground hover:text-foreground'
+
+/**
+ * "Tonight's shows" — the visitor's own scene when we can name one, the global
+ * listing otherwise.
+ *
+ * A nightly scene page is the better answer for a visitor we can place: one
+ * city, tonight, at the rooms we track, rather than every city at once. What
+ * counts as "can place" is deliberately strict — see `pickVisitorScene`, which
+ * refuses the neighbouring-metro guess precisely because this link is silent
+ * about where it is sending anyone.
+ *
+ * The LABEL is fixed; only the href moves. This link sits in a wrap row ahead
+ * of the shuffle pill and the resolution lands after mount, so a label that
+ * grew a city name would drag its siblings sideways under the reader's cursor.
+ *
+ * `useHydrated` is what makes it safe to derive an href from browser-only
+ * state at all: this page is server-rendered, and the geo suggestion comes out
+ * of a sessionStorage cache the server cannot see. Without the gate the server
+ * HTML and the hydration render could disagree about where this link points.
+ */
+function TonightShowsLink() {
+  const hydrated = useHydrated()
+  const geo = useGeoDefaultScene()
+  const scenesQuery = useScenes()
+  const scene = useMemo(
+    () => pickVisitorScene(scenesQuery.data?.scenes ?? [], geo),
+    [scenesQuery.data, geo],
+  )
+  const href = hydrated && scene ? `/scenes/${scene.slug}/tonight` : '/shows'
+
+  return (
+    <Link href={href} className={SERENDIPITY_FOOTER_LINK_CLASS}>
+      Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
+    </Link>
+  )
 }
 
 export function GraphObservatory() {
@@ -1126,12 +1172,10 @@ export function GraphObservatory() {
 
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border/50 pt-4 text-sm">
         <span className="font-display text-base font-medium">No artist in mind?</span>
-        <Link href="/scenes" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+        <Link href="/scenes" className={SERENDIPITY_FOOTER_LINK_CLASS}>
           Your scene <ArrowRight className="size-3.5" aria-hidden="true" />
         </Link>
-        <Link href="/shows" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-          Tonight’s shows <ArrowRight className="size-3.5" aria-hidden="true" />
-        </Link>
+        <TonightShowsLink />
         <ShufflePill onClick={handleShuffle} busy={isShuffleBusy} />
         {/* The lookup error renders beside the affordance the user most
             likely clicked: the hero when it is mounted (the fallback zero
