@@ -486,7 +486,7 @@ func TestGetArtistShows_ByID(t *testing.T) {
 
 func TestGetArtistShows_BySlug(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		GetArtistSummaryBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 10}, nil
 		},
 		GetShowsForArtistFn: func(artistID uint, _ string, _ contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
@@ -595,7 +595,7 @@ func TestGetArtistShowYears_DefaultsToTheListsTimeFilter(t *testing.T) {
 
 func TestGetArtistShowYears_BySlug(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		GetArtistSummaryBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 10}, nil
 		},
 		GetArtistShowYearsFn: func(artistID uint, _ string) ([]contracts.ArtistShowYearCount, error) {
@@ -1493,7 +1493,7 @@ func TestGetArtistLabels_ByID(t *testing.T) {
 
 func TestGetArtistLabels_BySlug(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		GetArtistSummaryBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 10, Slug: slug}, nil
 		},
 		GetLabelsForArtistFn: func(artistID uint) ([]*contracts.ArtistLabelResponse, error) {
@@ -1516,7 +1516,7 @@ func TestGetArtistLabels_BySlug(t *testing.T) {
 
 func TestGetArtistLabels_SlugNotFound(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistBySlugFn: func(_ string) (*contracts.ArtistDetailResponse, error) {
+		GetArtistSummaryBySlugFn: func(_ string) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(0)
 		},
 	}

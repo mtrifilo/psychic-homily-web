@@ -385,12 +385,17 @@ func (h *ArtistHandler) GetArtistShowYearsHandler(ctx context.Context, req *GetA
 // slug, into an id, returning a ready-to-surface huma error. Shared by the
 // artist sub-resource reads so they cannot drift apart on what a bad artist
 // reference returns.
+//
+// The slug path goes through GetArtistSummaryBySlug, not GetArtistBySlug: the
+// two differ only in the stats block, which is five scalar subqueries this
+// caller discards. An artist page fetches both the show list and its year
+// histogram by slug, so the difference is ten wasted aggregates per load.
 func (h *ArtistHandler) resolveArtistID(idOrSlug string) (uint, error) {
 	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
 		return uint(id), nil
 	}
 
-	artist, err := h.artistService.GetArtistBySlug(idOrSlug)
+	artist, err := h.artistService.GetArtistSummaryBySlug(idOrSlug)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {

@@ -959,10 +959,11 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 //
 // Deprecated parameter: timezone is accepted and ignored. It used to set the
 // boundary from the CALLER's zone, which made the same show upcoming for one
-// reader and past for another. Kept in the signature because it is the only
-// thing assertSamePartitionForEveryCallerZone can vary to prove the boundary no
-// longer moves with the reader; frontend call sites drop the query param in
-// PSY-1698. Do not add new callers that pass a meaningful value.
+// reader and past for another. Kept in the signature because removing it is a
+// breaking change for every caller; frontend call sites drop the query param in
+// PSY-1698. Do not add new callers that pass a meaningful value. (It is also
+// the only knob assertSamePartitionForEveryCallerZone can vary to prove the
+// boundary no longer moves with the reader, so the tests outlive the callers.)
 func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, query contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -999,27 +1000,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, query 
 		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
 	}
 
-	// Both page bounds are clamped here because GORM reads a negative value in
-	// each as a DIFFERENT instruction, and neither is what a caller with a
-	// miscomputed page size means:
-	//
-	//   - a negative offset becomes `OFFSET -1`, which Postgres rejects outright
-	//     (a 500);
-	//   - a negative limit CANCELS the limit clause entirely, which is worse
-	//     because it succeeds: the artist's whole history comes back hydrated
-	//     with every bill, silently.
-	//
-	// Clamping to zero matches what limit 0 already means on this path (no rows,
-	// real total) and keeps the handler's own minimum tags from being the only
-	// thing between a stray value and either outcome.
-	limit := query.Limit
-	if limit < 0 {
-		limit = 0
-	}
-	offset := query.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	limit, offset := clampPageWindow(query.Limit, query.Offset)
 
 	// Get the page of show IDs. Offset(0) is a no-op in GORM's clause builder,
 	// so the unpaged first page plans exactly as it did before.
@@ -1047,8 +1028,15 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, query 
 		showIDsList[i] = show.ID
 	}
 
+	// Guarded on an empty page, which offset paging makes an ordinary request
+	// rather than an edge case: unguarded, an overrun offset still costs two
+	// `WHERE show_id IN (NULL)` round trips that can only return nothing.
 	var allShowVenues []catalogm.ShowVenue
-	s.db.Where("show_id IN ?", showIDsList).Find(&allShowVenues)
+	var allShowArtists []catalogm.ShowArtist
+	if len(showIDsList) > 0 {
+		s.db.Where("show_id IN ?", showIDsList).Find(&allShowVenues)
+		s.db.Where("show_id IN ?", showIDsList).Order("position ASC").Find(&allShowArtists)
+	}
 
 	// Batch-fetch all venue models
 	venueIDs := make([]uint, 0, len(allShowVenues))
@@ -1066,9 +1054,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, query 
 		}
 	}
 
-	// Batch-load all ShowArtist records
-	var allShowArtists []catalogm.ShowArtist
-	s.db.Where("show_id IN ?", showIDsList).Order("position ASC").Find(&allShowArtists)
+	// Index the bill rows loaded above
 	showArtistsMap := make(map[uint][]catalogm.ShowArtist)
 	var allArtistIDs []uint
 	for _, sa := range allShowArtists {
@@ -1122,14 +1108,9 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, query 
 			}
 		}
 
-		var showSlug string
-		if show.Slug != nil {
-			showSlug = *show.Slug
-		}
-
 		responses[i] = &contracts.ArtistShowResponse{
 			ID:             show.ID,
-			Slug:           showSlug,
+			Slug:           shared.DerefOrEmpty(show.Slug),
 			Title:          show.Title,
 			EventDate:      show.EventDate,
 			Price:          show.Price,
@@ -1222,22 +1203,7 @@ func (s *ArtistService) GetArtistShowYears(artistID uint, timeFilter string) ([]
 	// be narrowed to one.
 	baseQuery := s.artistShowsBaseQuery(artistID, timeFilter, 0, venueZoneNeededBySelect)
 
-	// Aliases are quoted and the ORDER BY repeats the expression rather than
-	// naming the alias: `year` and `count` are both keywords Postgres would
-	// otherwise be free to resolve against something else.
-	var buckets []contracts.ArtistShowYearCount
-	if err := baseQuery().
-		Select(shared.VenueLocalYearSQL + ` AS "year", COUNT(*) AS "count"`).
-		Group(shared.VenueLocalYearSQL).
-		Order(shared.VenueLocalYearSQL + " DESC").
-		Scan(&buckets).Error; err != nil {
-		return nil, fmt.Errorf("failed to count shows by year: %w", err)
-	}
-
-	if buckets == nil {
-		buckets = []contracts.ArtistShowYearCount{}
-	}
-	return buckets, nil
+	return scanVenueLocalYearBuckets[contracts.ArtistShowYearCount](baseQuery)
 }
 
 // GetNextShowForArtist returns the artist's SOONEST upcoming approved show (with
@@ -1278,17 +1244,12 @@ func (s *ArtistService) GetNextShowForArtist(artistID uint, timezone string) (*c
 		return nil, fmt.Errorf("failed to get next show: %w", err)
 	}
 
-	var showSlug string
-	if show.Slug != nil {
-		showSlug = *show.Slug
-	}
-
 	// Slug and the status flags come off the row already fetched, so the card
 	// pays nothing for them. Leaving them at their zero values would be worse
 	// than omitting them: a cancelled show would render as a live one.
 	resp := &contracts.ArtistShowResponse{
 		ID:             show.ID,
-		Slug:           showSlug,
+		Slug:           shared.DerefOrEmpty(show.Slug),
 		Title:          show.Title,
 		EventDate:      show.EventDate,
 		Price:          show.Price,

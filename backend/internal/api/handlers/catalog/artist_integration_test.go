@@ -289,23 +289,8 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtist_NotFound() {
 // --- GetArtistShowsHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_Success() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Test Venue", "Phoenix", "AZ")
-
 	artistID := s.createArtistViaService("Show Artist")
-
-	// Create an approved show and associate the artist
-	show := &catalogm.Show{
-		Title:       "Future Gig",
-		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
-		City:        testhelpers.StringPtr("Phoenix"),
-		State:       testhelpers.StringPtr("AZ"),
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &user.ID,
-	}
-	s.deps.DB.Create(show)
-	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	s.bookArtist(artistID, "Future Gig", 30)
 
 	req := &GetArtistShowsRequest{ArtistID: fmt.Sprintf("%d", artistID), TimeFilter: "upcoming"}
 	resp, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, req)
@@ -326,22 +311,8 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_Empty() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_BySlug() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
-	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Slug Venue", "Phoenix", "AZ")
-
 	artistID := s.createArtistViaService("Slug Artist")
-
-	show := &catalogm.Show{
-		Title:       "Slug Show",
-		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
-		City:        testhelpers.StringPtr("Phoenix"),
-		State:       testhelpers.StringPtr("AZ"),
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &user.ID,
-	}
-	s.deps.DB.Create(show)
-	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	s.bookArtist(artistID, "Slug Show", 30)
 
 	req := &GetArtistShowsRequest{ArtistID: "slug-artist", TimeFilter: "upcoming"}
 	resp, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, req)
@@ -358,7 +329,7 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_NotFound() {
 
 // bookArtist creates an approved show `daysOut` days from now, at a venue, with
 // the artist on the bill, and returns it. The three-row shape is what every
-// paging assertion below needs and what the older tests here open-code.
+// artist-shows assertion in this file needs.
 func (s *ArtistHandlerIntegrationSuite) bookArtist(artistID uint, title string, daysOut int) *catalogm.Show {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, fmt.Sprintf("%s Venue", title), "Phoenix", "AZ")

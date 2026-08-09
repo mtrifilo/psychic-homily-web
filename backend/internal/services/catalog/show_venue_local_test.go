@@ -139,11 +139,7 @@ func assertSamePartitionForEveryCallerZone(t *testing.T, wantShowID uint, list l
 func (suite *ArtistServiceIntegrationTestSuite) artistShowIDs(artistID uint) listPartition {
 	return func(callerZone, timeFilter string) ([]uint, int64, error) {
 		shows, total, err := suite.artistService.GetShowsForArtist(artistID, callerZone, contracts.ArtistShowsQuery{TimeFilter: timeFilter, Limit: 50})
-		ids := make([]uint, 0, len(shows))
-		for _, s := range shows {
-			ids = append(ids, s.ID)
-		}
-		return ids, total, err
+		return artistShowIDsOf(shows), total, err
 	}
 }
 

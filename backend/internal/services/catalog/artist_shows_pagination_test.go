@@ -37,6 +37,27 @@ func artistShowIDsOf(shows []*contracts.ArtistShowResponse) []uint {
 	return ids
 }
 
+// seedFlaggedShow creates an approved show that is slugged, cancelled AND sold
+// out, so a projection assertion fails on a field that was dropped rather than
+// on one that merely happens to be false.
+func (suite *ArtistServiceIntegrationTestSuite) seedFlaggedShow(artistID, venueID, userID uint, slug string, at time.Time) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:       slug,
+		Slug:        stringPtr(slug),
+		EventDate:   at,
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &userID,
+		IsCancelled: true,
+		IsSoldOut:   true,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error)
+	return show
+}
+
 // =============================================================================
 // Offset paging
 // =============================================================================
@@ -299,20 +320,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_Projection
 	venue := suite.createTestVenue("Projection Room", "Phoenix", "AZ")
 	user := suite.createTestUser()
 
-	show := &catalogm.Show{
-		Title:       "Flagged Artist Show",
-		Slug:        stringPtr("flagged-show-projection-artist-2019"),
-		EventDate:   fixedUTC(2019, time.December, 1, 20),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &user.ID,
-		IsCancelled: true,
-		IsSoldOut:   true,
-	}
-	suite.Require().NoError(suite.db.Create(show).Error)
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0}).Error)
+	suite.seedFlaggedShow(artist.ID, venue.ID, user.ID,
+		"flagged-show-projection-artist-2019", fixedUTC(2019, time.December, 1, 20))
 
 	page, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{
 		TimeFilter: "all", Limit: 10,
@@ -351,20 +360,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetNextShowForArtist_Carries
 	venue := suite.createTestVenue("Next Show Projection Room", "Phoenix", "AZ")
 	user := suite.createTestUser()
 
-	show := &catalogm.Show{
-		Title:       "Flagged Next Show",
-		Slug:        stringPtr("flagged-next-show-projection"),
-		EventDate:   time.Now().UTC().AddDate(0, 0, 21),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
-		Status:      catalogm.ShowStatusApproved,
-		SubmittedBy: &user.ID,
-		IsCancelled: true,
-		IsSoldOut:   true,
-	}
-	suite.Require().NoError(suite.db.Create(show).Error)
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
-	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0}).Error)
+	suite.seedFlaggedShow(artist.ID, venue.ID, user.ID,
+		"flagged-next-show-projection", time.Now().UTC().AddDate(0, 0, 21))
 
 	next, err := suite.artistService.GetNextShowForArtist(artist.ID, "UTC")
 	suite.Require().NoError(err)
