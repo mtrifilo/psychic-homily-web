@@ -99,8 +99,13 @@ export {
 } from './utils'
 
 // Components
+// NOTE: ShowDetail is intentionally omitted (PSY-1772, same recipe as PSY-950's
+// ArtistDetail). `app/shows/[slug]/page.tsx` imports it directly via `dynamic()`
+// from '@/features/shows/components/ShowDetail' so Turbopack evicts it from the
+// global shared client chunk that loads on every route. This barrel has 30+
+// importers across other routes, so re-adding ShowDetail here makes it
+// multi-route-reachable again and silently re-hoists it into that chunk.
 export {
-  ShowDetail,
   ShowCard,
   ShowForm,
   ShowList,
