@@ -9,6 +9,7 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import type {
   AddCollectionTagResponse,
   Collection,
@@ -131,9 +132,18 @@ export function useCollectionStats(slug: string, options?: { enabled?: boolean }
  * disables the predicate and returns the full library. The query key is
  * scoped per-search so distinct searches don't share a cache entry, but
  * the bare prefix matches mutation invalidations on `queryKeys.collections.my`.
+ *
+ * `/auth/collections` requires a session, so the query is gated on
+ * `isAuthenticated` — the gate belongs HERE, not at each call site, because
+ * every caller of an auth-only endpoint needs it and callers kept forgetting:
+ * AddToCollectionButton calls this above its `!isAuthenticated` early return
+ * (hooks must run unconditionally), and CollectionList calls it on every tab
+ * despite a comment claiming otherwise. Both fired a guaranteed 401 round trip
+ * for anonymous visitors on entity pages and /collections.
  */
 export function useMyCollections(params?: { search?: string }) {
   const search = params?.search?.trim() || undefined
+  const { isAuthenticated } = useAuthContext()
   return useQuery({
     queryKey: queryKeys.collections.myList({ search }),
     queryFn: () => {
@@ -147,6 +157,7 @@ export function useMyCollections(params?: { search?: string }) {
         })
       )
     },
+    enabled: isAuthenticated,
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   })
@@ -165,12 +176,17 @@ export function useMyCollections(params?: { search?: string }) {
  * an already-in row (PSY-829's uncheck→remove affordance). `enabled` defaults
  * to `true`; pass `false` to defer the request until the popover opens —
  * saves a fetch on every entity page render.
+ *
+ * `/auth/collections/contains` requires a session, so an anonymous viewer is
+ * gated out regardless of what the caller passes — the caller-supplied
+ * `enabled` can only narrow this further, never widen it.
  */
 export function useUserCollectionsContaining(
   entityType: string,
   entityId: number,
   options?: { enabled?: boolean }
 ) {
+  const { isAuthenticated } = useAuthContext()
   return useQuery({
     queryKey: queryKeys.collections.containing(entityType, entityId),
     queryFn: async () => {
@@ -182,7 +198,7 @@ export function useUserCollectionsContaining(
         (data.items ?? []).map((i) => [i.collection_id, i.item_id])
       )
     },
-    enabled: (options?.enabled ?? true) && entityId > 0,
+    enabled: isAuthenticated && (options?.enabled ?? true) && entityId > 0,
     staleTime: 5 * 60 * 1000,
   })
 }

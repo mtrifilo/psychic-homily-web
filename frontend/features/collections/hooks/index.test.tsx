@@ -28,6 +28,19 @@ vi.mock('@/lib/api', () => ({
   API_BASE_URL: 'http://localhost:8080',
 }))
 
+// PSY-1779: the auth-only hooks (`useMyCollections`,
+// `useUserCollectionsContaining`) read auth state to gate their query, so an
+// anonymous visitor never fires a guaranteed-401 request. Default the mock to
+// authenticated; the anonymous cases override it per test.
+const mockIsAuthenticated = vi.fn(() => true)
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({
+    isAuthenticated: mockIsAuthenticated(),
+    user: { id: '1' },
+    isLoading: false,
+  }),
+}))
+
 vi.mock('@/lib/queryClient', () => ({
   queryKeys: {
     collections: {
@@ -84,6 +97,7 @@ describe('Collection query hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
+    mockIsAuthenticated.mockReturnValue(true)
   })
 
   describe('useCollections', () => {
@@ -232,6 +246,56 @@ describe('Collection query hooks', () => {
         '/auth/collections?search=post-punk%20%26%20jazz'
       )
     })
+
+    // PSY-1779 regression. `/auth/collections` 401s without a session, and
+    // AddToCollectionButton must call this hook ABOVE its `!isAuthenticated`
+    // early return (Rules of Hooks), so an ungated query fired one guaranteed
+    // 401 per anonymous entity-page view. The gate lives in the hook, so the
+    // assertion belongs here rather than at any one call site.
+    it('does not fetch when the viewer is not authenticated', () => {
+      mockIsAuthenticated.mockReturnValue(false)
+
+      const { result } = renderHook(() => useMyCollections(), {
+        wrapper: createWrapper(),
+      })
+
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    // The anonymous gate must not swallow a search-scoped call either — the
+    // Yours tab passes a search term straight through.
+    it('does not fetch a searched list when unauthenticated', () => {
+      mockIsAuthenticated.mockReturnValue(false)
+
+      const { result } = renderHook(
+        () => useMyCollections({ search: 'shoegaze' }),
+        { wrapper: createWrapper() }
+      )
+
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    // The gate must OPEN once auth resolves — AuthContext reports
+    // `isAuthenticated: false` during the pre-hydration window while
+    // /auth/profile is in flight, so a gate that never re-enabled would
+    // silently break the logged-in popover.
+    it('fetches once auth resolves from anonymous to authenticated', async () => {
+      mockIsAuthenticated.mockReturnValue(false)
+      mockApiRequest.mockResolvedValue({ collections: [], total: 0 })
+
+      const { result, rerender } = renderHook(() => useMyCollections(), {
+        wrapper: createWrapper(),
+      })
+      expect(mockApiRequest).not.toHaveBeenCalled()
+
+      mockIsAuthenticated.mockReturnValue(true)
+      rerender()
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith('/auth/collections')
+    })
   })
 
   describe('useUserCollectionsContaining', () => {
@@ -287,6 +351,22 @@ describe('Collection query hooks', () => {
 
       // Idle = no request fired. Without this gate the popover would fetch
       // on every entity page render even when the user never opens it.
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    // PSY-1779: `/auth/collections/contains` also 401s without a session, and
+    // this hook's `enabled` DEFAULTS to true — so any caller that forgot to
+    // pass it would leak an anonymous request. The auth gate cannot be widened
+    // by a caller, only narrowed.
+    it('skips the request when unauthenticated even if the caller enables it', () => {
+      mockIsAuthenticated.mockReturnValue(false)
+
+      const { result } = renderHook(
+        () => useUserCollectionsContaining('artist', 42, { enabled: true }),
+        { wrapper: createWrapper() }
+      )
+
       expect(result.current.fetchStatus).toBe('idle')
       expect(mockApiRequest).not.toHaveBeenCalled()
     })
