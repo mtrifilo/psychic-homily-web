@@ -15,10 +15,12 @@ import (
 
 // Scheduled venue-timezone integrity sweep (PSY-1695).
 //
-// The show-list partition reads venues.timezone straight into `AT TIME ZONE`
-// with no runtime validation, because validating per row cost 8.1s on a
-// 20k-show venue (see shared.VenueTZJoin). What makes that safe is a two-layer
-// guarantee, and this sweep is the second layer.
+// The show-list partition tests venues.timezone against a snapshot of the
+// server's zone catalog and falls back to the state map when it misses
+// (PSY-1761, shared.VenueTZJoin). It no longer RAISES on an unknown name, which
+// changes what this sweep is FOR: it is no longer the thing standing between a
+// drifted zone and an outage, it is the thing standing between a drifted zone
+// and a silently wrong date. Its log line is the operator's cue to re-geocode.
 //
 // Layer one is the WRITE GATE (PSY-1707): every path that writes the column
 // validates against pg_timezone_names first and stores NULL rather than a name
@@ -34,12 +36,12 @@ import (
 // 2020b), or a restore onto a differently-packaged build — and a value that was
 // valid when written silently becomes one that RAISES.
 //
-// The failure it prevents is not subtle: `AT TIME ZONE` on an unknown name does
-// not degrade, it errors (SQLSTATE 22023), so a single drifted venue takes down
-// every artist and venue listing query that touches it. This sweep re-validates
-// stored zones against the LIVE catalog and NULLs the casualties, which is a
-// shape every reader already handles (it is what a geocode miss produces, and
-// it falls back to the US state map).
+// This sweep re-validates stored zones against the LIVE catalog and NULLs the
+// casualties, which is a shape every reader already handles (it is what a
+// geocode miss produces, and it falls back to the US state map). Since PSY-1761
+// it also refreshes timezone_names_snapshot on the same cycle, so the read
+// guard and this sweep are judging against one catalog read rather than two
+// that can disagree.
 //
 // Design points:
 //
@@ -175,29 +177,18 @@ func SweepVenueTimezones(ctx context.Context, database *gorm.DB) (*VenueTimezone
 	}
 	report.Scanned = int(scanned)
 
-	// Identify first, then clear, so the log names exactly what changed. The
-	// blank arm is belt-and-braces: the write gate stores NULL for blank input,
-	// but a blank reaching AT TIME ZONE raises just as an unknown name does.
-	const driftPredicate = `timezone IS NOT NULL AND (
-		btrim(timezone, E' \t\n\r\f\v') = ''
-		OR NOT EXISTS (
-			SELECT 1 FROM pg_timezone_names t
-			WHERE lower(t.name) = lower(btrim(venues.timezone, E' \t\n\r\f\v'))
-		)
-	)`
-
-	if err := database.WithContext(ctx).Table("venues").
-		Select("id, name, timezone").
-		Where(driftPredicate).
-		Scan(&report.Drifted).Error; err != nil {
+	// Identify first, then clear, so the log names exactly what changed.
+	drifted, err := detectVenueTimezoneDrift(database.WithContext(ctx))
+	if err != nil {
 		return nil, err
 	}
+	report.Drifted = drifted
 	if len(report.Drifted) == 0 {
 		return report, nil
 	}
 
 	res := database.WithContext(ctx).Table("venues").
-		Where(driftPredicate).
+		Where(venueTimezoneDriftPredicate).
 		Update("timezone", nil)
 	if res.Error != nil {
 		return nil, res.Error
@@ -206,8 +197,52 @@ func SweepVenueTimezones(ctx context.Context, database *gorm.DB) (*VenueTimezone
 	return report, nil
 }
 
+// venueTimezoneDriftPredicate matches every venue whose stored zone this server
+// can no longer resolve. The blank arm is belt-and-braces: the write gate stores
+// NULL for blank input, but a blank reaching AT TIME ZONE is as unusable as an
+// unknown name.
+//
+// Compared case-insensitively against the LIVE catalog, and both halves of that
+// matter. Live, because this is the thing that decides whether
+// timezone_names_snapshot has fallen behind — testing against the snapshot would
+// make the check agree with itself by construction. Case-insensitively, because
+// shared.venueTZValidatedZoneSQL accepts a stored value case-insensitively; a
+// detector stricter than the guard would report venues that are being dated
+// correctly.
+const venueTimezoneDriftPredicate = `timezone IS NOT NULL AND (
+	btrim(timezone, E' \t\n\r\f\v') = ''
+	OR NOT EXISTS (
+		SELECT 1 FROM pg_timezone_names t
+		WHERE lower(t.name) = lower(btrim(venues.timezone, E' \t\n\r\f\v'))
+	)
+)`
+
+// detectVenueTimezoneDrift lists the venues the predicate above matches.
+//
+// Shared by the sweep (which then NULLs them) and by the snapshot refresh
+// (which only reports them), so the set an operator is told about and the set
+// that gets cleared cannot drift apart. Takes the scope rather than a *gorm.DB
+// so a caller inside a transaction sees its own uncommitted snapshot.
+func detectVenueTimezoneDrift(scope *gorm.DB) ([]VenueTimezoneDrift, error) {
+	var drifted []VenueTimezoneDrift
+	if err := scope.Table("venues").
+		Select("id, name, timezone").
+		Where(venueTimezoneDriftPredicate).
+		Scan(&drifted).Error; err != nil {
+		return nil, err
+	}
+	return drifted, nil
+}
+
 // runCycle runs one pass and logs its outcome.
 func (s *VenueTimezoneSweep) runCycle(ctx context.Context) {
+	// Refresh the read guard's allowlist first. This is the cadence that covers
+	// the database being replaced underneath a server that keeps running — the
+	// boot-time reconcile in cmd/server covers the ordinary upgrade, where the
+	// process restarts anyway. Doing it before the sweep also means the two
+	// agree: both are then judging against the same catalog read.
+	ReconcileTimezoneNamesSnapshot(ctx, s.db, s.logger)
+
 	report, err := SweepVenueTimezones(ctx, s.db)
 	if err != nil {
 		logFn := s.logger.Error

@@ -82,6 +82,42 @@ func TestStateTimezones_AreSafeToInterpolate(t *testing.T) {
 	}
 }
 
+// The fail-soft guard (PSY-1761). These pin the three properties that make an
+// unresolvable venues.timezone degrade instead of raising; each one is a silent
+// failure if it regresses, which is why they are asserted on the SQL text
+// rather than left to the integration suite alone.
+func TestVenueTZJoin_ValidatesTheStoredZoneBeforeProjectingIt(t *testing.T) {
+	// Without the membership test, AT TIME ZONE raises on an unknown name and
+	// takes the whole /shows feed down with it.
+	if !strings.Contains(VenueTZJoin, "IN (SELECT name_lower FROM timezone_names_snapshot)") {
+		t.Errorf("the lateral no longer validates the stored zone:\n%s", VenueTZJoin)
+	}
+	// Case-insensitively, matching AT TIME ZONE and the drift sweep. A stricter
+	// guard mis-dates rows the sweep calls healthy, with nothing logged.
+	if !strings.Contains(VenueTZJoin, "lower(NULLIF(btrim(iv.timezone") {
+		t.Errorf("the guard is not case-insensitive:\n%s", VenueTZJoin)
+	}
+	// The guard belongs in the LATERAL, not beside the COALESCE it feeds:
+	// venueLocalZoneSQL is dereferenced two to three times per query and
+	// Postgres plans a separate SubPlan for each occurrence of an identical
+	// uncorrelated subquery. One occurrence here is one SubPlan per query.
+	if strings.Contains(venueLocalZoneSQL, "timezone_names_snapshot") {
+		t.Errorf("the guard leaked into the per-occurrence zone expression:\n%s", venueLocalZoneSQL)
+	}
+	if got := strings.Count(VenueTZJoin, "timezone_names_snapshot"); got != 1 {
+		t.Errorf("expected exactly one membership test in the lateral, got %d:\n%s", got, VenueTZJoin)
+	}
+}
+
+// The trim applied to the value being VALIDATED and the trim applied to the
+// value being PROJECTED must strip the same characters. Trimming one and not
+// the other would validate a string that is not the one AT TIME ZONE receives.
+func TestVenueTZJoin_ValidatesAndProjectsTheSameTrimmedValue(t *testing.T) {
+	if got := strings.Count(venueTZValidatedZoneSQL, "btrim(iv.timezone, "+venueTZWhitespace+")"); got != 2 {
+		t.Errorf("the validated and projected values are not trimmed identically:\n%s", venueTZValidatedZoneSQL)
+	}
+}
+
 // The date and today fragments must resolve the zone identically, or a show
 // could be compared against a boundary computed in a different timezone than
 // its own event date.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -195,6 +196,19 @@ func main() {
 	if err := db.AssertRequiredSchema(database); err != nil {
 		log.Fatalf("PSY-1384 schema assertion: %v", err)
 	}
+
+	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
+	// this server's catalog before serving a request. Boot is the moment it is
+	// most likely to have moved — a Postgres upgrade, a base-image bump or a
+	// restore is what changes pg_timezone_names, and all three restart this
+	// process. Unconditional and non-fatal: the table is already seeded by its
+	// migration, so a failed refresh is stale-allowlist telemetry rather than a
+	// reason to refuse traffic. Bounded, for the same reason: a slow database
+	// must delay the boot by a known amount, not by however long it takes to
+	// notice.
+	tzSnapshotCtx, cancelTZSnapshot := context.WithTimeout(context.Background(), 30*time.Second)
+	catalog.ReconcileTimezoneNamesSnapshot(tzSnapshotCtx, database, slog.Default())
+	cancelTZSnapshot()
 
 	// Setup Goth authentication
 	if err := auth.SetupGoth(cfg); err != nil {
