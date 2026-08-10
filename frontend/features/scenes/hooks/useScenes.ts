@@ -91,18 +91,38 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
   })
 }
 
+interface UseSceneShowsOptions {
+  /** Window in days, `[now, now+days)`. Backend maximum is 30. */
+  days?: number
+  /** Rows to return, soonest first. Backend maximum is 20. */
+  limit?: number
+}
+
 /**
- * Hook to fetch a scene's next upcoming shows — the preview panel's "Next 7 days"
- * row (PSY-1309). Backend defaults: 7-day window, 3 shows, soonest first;
- * metro-scoped so member-city shows count (a Tempe show shows under Phoenix).
- * Don't re-default the window here — the backend owns it (same rule as
- * useSceneArtists' period).
+ * Hook to fetch a scene's next upcoming shows: the preview panel's "Next 7 days"
+ * row (PSY-1309) and the scene page's four-week calendar (PSY-1783).
+ * Metro-scoped so member-city shows count (a Tempe show shows under Phoenix).
+ *
+ * Both parameters are OMITTED from the request when the caller does not pass
+ * them, so the backend's own defaults (7 days, 3 shows) still own the preview's
+ * window, the same rule as useSceneArtists' period. A caller that wants a
+ * different window states it, and the query key carries it.
  */
-export function useSceneShows(slug: string) {
+export function useSceneShows(slug: string, options: UseSceneShowsOptions = {}) {
+  const { days, limit } = options
+
+  const params = new URLSearchParams()
+  if (days) params.set('days', days.toString())
+  if (limit) params.set('limit', limit.toString())
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${API_ENDPOINTS.SCENES.SHOWS(slug)}?${queryString}`
+    : API_ENDPOINTS.SCENES.SHOWS(slug)
+
   return useQuery({
-    queryKey: queryKeys.scenes.shows(slug),
+    queryKey: queryKeys.scenes.shows(slug, days, limit),
     queryFn: async (): Promise<SceneShowsResponse> => {
-      return apiRequest<SceneShowsResponse>(API_ENDPOINTS.SCENES.SHOWS(slug), {
+      return apiRequest<SceneShowsResponse>(endpoint, {
         method: 'GET',
       })
     },
