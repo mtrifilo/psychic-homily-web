@@ -90,6 +90,21 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
       active_venues_this_month: 10,
       shows_by_month: [20, 22, 25, 28, 30, 30],
     },
+    // Tracked rooms, busiest first. The zero-count, slugless second room is the
+    // sparse shape the API really sends, so a component that renders this list
+    // is exercised against it by default rather than only against the happy row.
+    venues: [
+      {
+        id: 1,
+        name: 'Crescent Ballroom',
+        slug: 'crescent-ballroom',
+        website: 'https://crescentphx.com',
+        city: 'Phoenix',
+        state: 'AZ',
+        upcoming_show_count: 12,
+      },
+      { id: 2, name: 'Quiet Room', city: 'Tempe', state: 'AZ', upcoming_show_count: 0 },
+    ],
     ...overrides,
   }
 }

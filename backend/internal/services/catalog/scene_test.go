@@ -1086,6 +1086,325 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseNewArtist
 }
 
 // =============================================================================
+// GetSceneDetail rooms-leaderboard Tests (PSY-1780)
+// =============================================================================
+
+// The leaderboard's headline claim: busiest room first, by UPCOMING shows.
+// seedSceneData books v1 twice, v2 twice and v3 once, so a third booking at v1
+// breaks the v1/v2 tie and leaves one order that can pass.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesRankedByUpcomingCount() {
+	venues, artists := suite.seedSceneData()
+	user := suite.createUser()
+	suite.createApprovedShow("Extra At Crescent", venues[0].ID, artists[0].ID, user.ID,
+		time.Now().UTC().AddDate(0, 0, 9))
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 3)
+
+	suite.Equal("Crescent Ballroom", detail.Venues[0].Name)
+	suite.Equal(3, detail.Venues[0].UpcomingShowCount)
+	suite.Equal("Valley Bar", detail.Venues[1].Name)
+	suite.Equal(2, detail.Venues[1].UpcomingShowCount)
+	suite.Equal("The Rebel Lounge", detail.Venues[2].Name)
+	suite.Equal(1, detail.Venues[2].UpcomingShowCount)
+
+	// The room's own city rides along — the leaderboard has to say where a
+	// reader would be going, and it is not always the scene's principal city.
+	suite.Equal("Phoenix", detail.Venues[0].City)
+}
+
+// A tracked room with nothing booked is still a room the scene covers. It ranks
+// last, but dropping it would quietly redefine the list as "rooms with shows" —
+// and it is the whole shape of a sparse scene.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesIncludeZeroCountRooms() {
+	suite.seedSceneData()
+	suite.createVerifiedVenue("Quiet Room", "Phoenix", "AZ")
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 4)
+
+	last := detail.Venues[3]
+	suite.Equal("Quiet Room", last.Name)
+	suite.Equal(0, last.UpcomingShowCount)
+}
+
+// The sparse case end to end: a scene that clears the venue gate but has nothing
+// upcoming anywhere. The leaderboard must still come back — every room, every
+// count zero, alphabetical — rather than empty or nil.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesOnSparseScene() {
+	// One room clear of the existence gate, so raising sceneMinVenues later
+	// fails the tests that are ABOUT the gate rather than this one, which would
+	// otherwise die as a bare ErrSceneNotFound pointing nowhere near a
+	// leaderboard.
+	suite.Require().Equal(2, sceneMinVenues, "fixture sized against the gate")
+	suite.createVerifiedVenue("Zebra Room", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Aardvark Hall", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Mango Lounge", "Phoenix", "AZ")
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail.Venues)
+	suite.Require().Len(detail.Venues, 3)
+
+	// All tied at zero, so this also pins the name tiebreak.
+	suite.Equal("Aardvark Hall", detail.Venues[0].Name)
+	suite.Equal(0, detail.Venues[0].UpcomingShowCount)
+	suite.Equal("Mango Lounge", detail.Venues[1].Name)
+	suite.Equal("Zebra Room", detail.Venues[2].Name)
+	suite.Equal(0, detail.Venues[2].UpcomingShowCount)
+}
+
+// The list is capped to the TRACKED set, which is the same set the day payload
+// names: verified rooms only. An unverified room with a packed calendar would
+// otherwise top the leaderboard on a page that claims to cover curated rooms.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesExcludeUnverifiedRooms() {
+	_, artists := suite.seedSceneData()
+	user := suite.createUser()
+	sketchy := suite.createUnverifiedVenue("Sketchy Bar", "Phoenix", "AZ")
+	future := time.Now().UTC().AddDate(0, 0, 5)
+	suite.createApprovedShow("Sketchy 1", sketchy.ID, artists[0].ID, user.ID, future)
+	suite.createApprovedShow("Sketchy 2", sketchy.ID, artists[1].ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Sketchy 3", sketchy.ID, artists[2].ID, user.ID, future.AddDate(0, 0, 2))
+	suite.createApprovedShow("Sketchy 4", sketchy.ID, artists[0].ID, user.ID, future.AddDate(0, 0, 3))
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 3)
+	for _, v := range detail.Venues {
+		suite.NotEqual("Sketchy Bar", v.Name)
+	}
+	// The leaderboard and the headline venue_count now count through ONE
+	// predicate, so this equality is structural rather than a coincidence.
+	suite.Equal(detail.Stats.VenueCount, len(detail.Venues))
+
+	// And it pins the divergence the contract spends a paragraph defending: the
+	// scene TOTAL still counts the unverified room's 4 shows (5 seeded + 4), so
+	// the per-room counts fall short of it on purpose. Without this, someone
+	// "reconciles" the two numbers and silently changes a published figure.
+	suite.Equal(9, detail.Stats.UpcomingShowCount)
+	roomSum := 0
+	for _, v := range detail.Venues {
+		roomSum += v.UpcomingShowCount
+	}
+	suite.Equal(5, roomSum)
+}
+
+// The id tiebreak, which nothing else exercises: two rooms of the same name in
+// one metro are legal (uniqueness is per city), and with both on zero the only
+// thing separating them is `v.id ASC`. Drop it and the order goes
+// implementation-defined with the rest of the suite still green.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesOrderIsStableForDuplicateNames() {
+	first := suite.createVerifiedVenue("The Lounge", "Phoenix", "AZ")
+	second := suite.createVerifiedVenue("The Lounge", "Tempe", "AZ") // same name, different city
+	suite.Require().NotEqual(first.ID, second.ID)
+
+	for i := 0; i < 2; i++ {
+		detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+		suite.Require().NoError(err)
+		suite.Require().Len(detail.Venues, 2)
+		suite.Equal("The Lounge", detail.Venues[0].Name)
+		suite.Equal("The Lounge", detail.Venues[1].Name)
+		// Identical names and identical zero counts — id is the only thing left.
+		suite.Equal(first.ID, detail.Venues[0].ID, "call %d", i)
+		suite.Equal(second.ID, detail.Venues[1].ID, "call %d", i)
+		// The rows are distinguishable on the wire, which is the whole point of
+		// shipping an id: without it these two are byte-identical objects.
+		suite.Equal("Phoenix", detail.Venues[0].City)
+		suite.Equal("Tempe", detail.Venues[1].City)
+	}
+}
+
+// A show billed to TWO tracked rooms counts for both, so the per-room counts sum
+// past the scene total. The contract says so; this is what stops a future reader
+// from "fixing" the double count.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenueCountsDoubleCountSharedBills() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Room One", "Phoenix", "AZ")
+	v2 := suite.createVerifiedVenue("Room Two", "Phoenix", "AZ")
+	band := suite.createArtist("Split Bill Band")
+
+	show := suite.createApprovedShow("Two Room Fest", v1.ID, band.ID, user.ID,
+		time.Now().UTC().AddDate(0, 0, 3))
+	// The same show, billed to the second room as well.
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: v2.ID}).Error)
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 2)
+
+	suite.Equal(1, detail.Venues[0].UpcomingShowCount)
+	suite.Equal(1, detail.Venues[1].UpcomingShowCount)
+	// One show, counted once by the scene and twice across the rooms.
+	suite.Equal(1, detail.Stats.UpcomingShowCount)
+}
+
+// A date-only show is stored at UTC midnight, so an instant bound would drop
+// TODAY's shows the moment that midnight passes — a room whose only booking is
+// tonight would read 0 and rank last. This is the shape of a production row, not
+// the mid-afternoon instants the other fixtures use.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenueCountsIncludeTodaysMidnightShows() {
+	user := suite.createUser()
+	v := suite.createVerifiedVenue("Tonight Only", "Phoenix", "AZ")
+	suite.createVerifiedVenue("Dark Tonight", "Phoenix", "AZ")
+	band := suite.createArtist("Tonight Band")
+
+	// Midnight UTC today: already in the past as an instant, still to come as a date.
+	todayMidnight := time.Now().UTC().Truncate(24 * time.Hour)
+	suite.Require().True(todayMidnight.Before(time.Now().UTC()), "the bug only bites once the instant has passed")
+	suite.createApprovedShow("Tonight Show", v.ID, band.ID, user.ID, todayMidnight)
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 2)
+
+	suite.Equal("Tonight Only", detail.Venues[0].Name)
+	suite.Equal(1, detail.Venues[0].UpcomingShowCount, "tonight's show must still count")
+	suite.Equal("Dark Tonight", detail.Venues[1].Name)
+	suite.Equal(0, detail.Venues[1].UpcomingShowCount)
+}
+
+// UPCOMING, not lifetime. A room whose entire history is behind it reads zero,
+// so the leaderboard answers "where is something on" rather than "which room has
+// been around longest" — the roster already ranks by total shows.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenueCountsExcludePastShows() {
+	venues, artists := suite.seedSceneData()
+	user := suite.createUser()
+	faded := suite.createVerifiedVenue("Faded Palace", "Phoenix", "AZ")
+	past := time.Now().UTC().AddDate(0, 0, -30)
+	suite.createApprovedShow("Long Gone 1", faded.ID, artists[0].ID, user.ID, past)
+	suite.createApprovedShow("Long Gone 2", faded.ID, artists[1].ID, user.ID, past.AddDate(0, 0, 1))
+	// A past show at a room that also has upcoming ones must not inflate it.
+	suite.createApprovedShow("Old Crescent", venues[0].ID, artists[0].ID, user.ID, past)
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	byName := map[string]int{}
+	for _, v := range detail.Venues {
+		byName[v.Name] = v.UpcomingShowCount
+	}
+	suite.Equal(0, byName["Faded Palace"])
+	suite.Equal(2, byName["Crescent Ballroom"])
+}
+
+// A metro scene's rooms are the METRO's rooms: a Tempe venue belongs to the
+// Phoenix scene, and its City field says Tempe, not Phoenix.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesRollUpMemberCities() {
+	_, artists := suite.seedSceneData()
+	user := suite.createUser()
+	tempe := suite.createVerifiedVenue("Yucca Tap Room", "Tempe", "AZ") // Phoenix-CBSA member city
+	// Assert the premise, so a geo-dataset change fails as "Tempe stopped
+	// resolving" rather than as an unexplained off-by-one in the row count.
+	suite.Require().NotNil(tempe.Metro, "Tempe must resolve to the Phoenix CBSA")
+	future := time.Now().UTC().AddDate(0, 0, 2)
+	suite.createApprovedShow("Tempe 1", tempe.ID, artists[0].ID, user.ID, future)
+	suite.createApprovedShow("Tempe 2", tempe.ID, artists[1].ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Tempe 3", tempe.ID, artists[2].ID, user.ID, future.AddDate(0, 0, 2))
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 4)
+
+	suite.Equal("Yucca Tap Room", detail.Venues[0].Name)
+	suite.Equal(3, detail.Venues[0].UpcomingShowCount)
+	suite.Equal("Tempe", detail.Venues[0].City)
+}
+
+// Each room has to be linkable. Website is genuinely absent for most production
+// rows; slug is backfilled for all of them but still NULLABLE in the schema, and
+// this fixture bypasses the service that generates one. So both columns exercise
+// the projection that turns a NULL into "", alongside the pass-through of a set
+// value: a client distinguishes "render it unlinked" from "link it" on the empty
+// string alone.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesCarryLinkFields() {
+	venues, _ := suite.seedSceneData()
+	suite.Require().NoError(suite.db.Model(venues[0]).Updates(map[string]any{
+		"slug":    "crescent-ballroom",
+		"website": "https://crescentphx.com",
+	}).Error)
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 3)
+
+	byName := map[string]contracts.SceneVenueSummary{}
+	for _, v := range detail.Venues {
+		byName[v.Name] = v
+	}
+	suite.Equal("crescent-ballroom", byName["Crescent Ballroom"].Slug)
+	suite.Equal("https://crescentphx.com", byName["Crescent Ballroom"].Website)
+	// The untouched rooms keep NULL in both columns and must come back as "",
+	// not as a scan error and not as "null".
+	suite.Equal("", byName["Valley Bar"].Slug)
+	suite.Equal("", byName["Valley Bar"].Website)
+}
+
+// The no-CBSA branch, which every other leaderboard test misses: Phoenix
+// resolves to a metro, so those all exercise the one-arg venue predicate. The
+// fallback branch binds TWO args, and the leaderboard's own placeholders are
+// bound BEFORE them (the counts are aggregated in a derived table that precedes
+// the WHERE). A positional-binding slip would land here and nowhere else —
+// silently counting a scene's rooms against the wrong city, or erroring outright.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesOnNoCBSAFallbackScene() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Club One", "Faketown", "ZZ")
+	v2 := suite.createVerifiedVenue("Club Two", "Faketown", "ZZ")
+	suite.Require().Nil(v1.Metro, "a no-CBSA place has a NULL metro")
+	band := suite.createArtistIn("Faketown Band", "Faketown", "ZZ")
+
+	// A same-named room in ANOTHER city must not leak in: the fallback predicate
+	// keys on (city, state), and venue names are unique only WITHIN a city.
+	elsewhere := suite.createVerifiedVenue("Club One", "Othertown", "ZZ")
+
+	future := time.Now().UTC().AddDate(0, 0, 7)
+	suite.createApprovedShow("F1", v1.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("F2", v1.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("F3", v2.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+	suite.createApprovedShow("F4", elsewhere.ID, band.ID, user.ID, future.AddDate(0, 0, 3))
+
+	detail, err := suite.sceneService.GetSceneDetail("Faketown", "ZZ")
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Venues, 2)
+
+	suite.Equal("Club One", detail.Venues[0].Name)
+	suite.Equal(2, detail.Venues[0].UpcomingShowCount) // NOT 3 — Othertown's room is a different scene
+	suite.Equal("Faketown", detail.Venues[0].City)
+	suite.Equal("Club Two", detail.Venues[1].Name)
+	suite.Equal(1, detail.Venues[1].UpcomingShowCount)
+}
+
+// The leaderboard and the day payload's tracked-venue footer must never name
+// different rooms for one city — they read the same definition, and this is the
+// assertion that keeps it that way if one query is edited alone.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesMatchTrackedVenueSet() {
+	suite.seedSceneData()
+	suite.createVerifiedVenue("Quiet Room", "Phoenix", "AZ")
+	suite.createUnverifiedVenue("Sketchy Bar", "Phoenix", "AZ")
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+
+	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+
+	leaderboard := make([]string, 0, len(detail.Venues))
+	for _, v := range detail.Venues {
+		leaderboard = append(leaderboard, v.Name)
+	}
+	tracked := make([]string, 0, len(day.TrackedVenues))
+	for _, v := range day.TrackedVenues {
+		tracked = append(tracked, v.Name)
+	}
+	// Pin the size first: ElementsMatch of two EMPTY lists passes, so a shared
+	// predicate broken to match nothing would turn the one test whose whole job
+	// is "these two surfaces agree" into a green vacuous truth.
+	suite.Require().Len(leaderboard, 4)
+	suite.ElementsMatch(tracked, leaderboard)
+}
+
+// =============================================================================
 // GetActiveArtists Tests
 // =============================================================================
 

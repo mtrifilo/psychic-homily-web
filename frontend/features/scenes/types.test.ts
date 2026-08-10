@@ -64,6 +64,20 @@ describe('scene types contract', () => {
       description: null,
       stats,
       pulse,
+      venues: [
+        {
+          id: 1,
+          name: 'Crescent Ballroom',
+          slug: 'crescent-ballroom',
+          website: 'https://crescentphx.com',
+          city: 'Phoenix',
+          state: 'AZ',
+          upcoming_show_count: 12,
+        },
+        // A tracked room with nothing booked, no slug and no site: the sparse
+        // shape the API really sends, which the UI has to render unlinked.
+        { id: 2, name: 'Quiet Room', city: 'Tempe', state: 'AZ', upcoming_show_count: 0 },
+      ],
     }
 
     // description is explicitly nullable.
@@ -71,6 +85,12 @@ describe('scene types contract', () => {
     const described: SceneDetail = { ...detail, description: 'A desert scene.' }
     expect(described.description).toBe('A desert scene.')
     expect(detail.pulse.shows_by_month).toHaveLength(6)
+
+    // Busiest first, and a zero-count room is still on the list.
+    expect(detail.venues[0].upcoming_show_count).toBe(12)
+    expect(detail.venues[1].upcoming_show_count).toBe(0)
+    // The room's own city, which for a metro scene is not the scene's city.
+    expect(detail.venues[1].city).toBe('Tempe')
   })
 
   it('SceneArtist / SceneArtistsResponse', () => {

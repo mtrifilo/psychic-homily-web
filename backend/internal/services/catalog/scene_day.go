@@ -252,16 +252,17 @@ func dayHasEnded(nowLocal, end time.Time, date, tonight calendarDate) bool {
 // trackedVenueDetails lists the scene's verified rooms alphabetically, each with
 // enough to link it.
 //
-// The ONE definition of "a room this scene tracks": trackedVenues projects the
-// names out of this for the week payload rather than running its own query, so
-// the weekly and nightly pages cannot end up naming different rooms for the
-// same city. The two PAYLOADS still differ in shape — the week sends bare
-// strings — because that is a wire-format decision, not a definition.
+// trackedVenues projects the names out of this for the week payload rather than
+// running its own query, so the weekly and nightly pages cannot end up naming
+// different rooms for the same city. The two PAYLOADS still differ in shape —
+// the week sends bare strings — because that is a wire-format decision, not a
+// definition. The definition itself is trackedVenuePredicate, which the detail
+// page's rooms leaderboard selects on too.
 func (s *SceneService) trackedVenueDetails(scope sceneScope) ([]contracts.SceneTrackedVenue, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	vp, vargs := scope.venuePredicate("v")
+	tp, vargs := trackedVenuePredicate(scope, "v")
 	var venues []contracts.SceneTrackedVenue
 	// `website` lives on the venue row itself but is projected away by the venue
 	// LIST endpoints, so it has to be selected explicitly here — a client cannot
@@ -271,8 +272,7 @@ func (s *SceneService) trackedVenueDetails(scope sceneScope) ([]contracts.SceneT
 		       COALESCE(v.slug, '') AS slug,
 		       COALESCE(v.website, '') AS website
 		FROM venues v
-		WHERE `+vp+`
-		  AND v.verified = true
+		WHERE `+tp+`
 		ORDER BY v.name ASC
 	`, vargs...).Scan(&venues).Error; err != nil {
 		return nil, fmt.Errorf("failed to list tracked venues: %w", err)
