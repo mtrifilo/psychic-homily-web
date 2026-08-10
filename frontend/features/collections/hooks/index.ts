@@ -137,9 +137,15 @@ export function useCollectionStats(slug: string, options?: { enabled?: boolean }
  * viewer gets a guaranteed 401. The gate lives here, not at the call sites,
  * because this hook exposes no `enabled` option and every caller of an
  * auth-only endpoint needs the same gate — putting it here covers the current
- * callers and future ones by construction. Both callers had in fact missed it:
- * AddToCollectionButton fired one 401 per anonymous entity-page view, and
- * CollectionList one per anonymous /collections view.
+ * callers and future ones by construction.
+ *
+ * Four callers, two of which leaked: AddToCollectionButton fired one 401 per
+ * anonymous entity-page view and CollectionList one per anonymous /collections
+ * view. CreateCollectionForm and /users/me were already render-gated behind
+ * auth. Note CreateCollectionForm derives its tier cap from this data, so it
+ * reads an owned-count of 0 while the query is disabled — harmless only
+ * because its drawer cannot open for an anonymous viewer. Re-check all four
+ * before changing `enabled`.
  */
 export function useMyCollections(params?: { search?: string }) {
   const search = params?.search?.trim() || undefined

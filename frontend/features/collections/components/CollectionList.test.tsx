@@ -420,6 +420,10 @@ describe('CollectionList', () => {
       const searchCalls = mockUseMyCollections.mock.calls.filter(
         (args: unknown[]) => args[0] !== undefined
       )
+      // Guard the loop: it is non-vacuous today because the list view always
+      // passes an object, but a future change that stops calling the hook on
+      // public tabs would silently turn this assertion into a no-op.
+      expect(searchCalls.length).toBeGreaterThan(0)
       for (const call of searchCalls) {
         expect(call[0]).toEqual({ search: undefined })
       }

@@ -120,6 +120,13 @@ export function CollectionList() {
   // match across title / description / item notes / tag names+aliases). Left
   // unsearched, the bare key stays warm from any tab, so switching to Yours is
   // still instant for one request per session.
+  //
+  // Known trade-off: arriving on Yours WITH a search term active is now a
+  // cache miss, and `keepPreviousData` fills that round trip with the
+  // unsearched library while the search box already reads the term. It
+  // resolves itself on arrival and reports `isPlaceholderData`, so a future
+  // ticket can dim or spin on that flag if it proves distracting. Not styled
+  // here — that is a design call, not an implementation detail.
   // PSY-580: on the Yours tab the term matches what the public-browse hook
   // receives, so both tabs filter identically. Empty / whitespace short-
   // circuits inside the hook.
