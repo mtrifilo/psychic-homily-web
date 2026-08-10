@@ -371,6 +371,11 @@ describe('CollectionList', () => {
         error: null,
       })
 
+      // This test is named for the Yours tab, so it has to actually be on it.
+      // It previously rendered the default (All) tab and asserted the search
+      // term was forwarded anyway — codifying the wasted request PSY-1779
+      // removed.
+      mockSearchParams.set('tab', 'yours')
       render(<CollectionList />)
       const searchInput = screen.getByPlaceholderText('Search collections...')
       await user.type(searchInput, 'shoegaze')
@@ -383,6 +388,41 @@ describe('CollectionList', () => {
       expect(searchCalls.length).toBeGreaterThan(0)
       const lastSearchCall = searchCalls[searchCalls.length - 1]
       expect(lastSearchCall[0]).toEqual({ search: 'shoegaze' })
+    })
+
+    // PSY-1779: `myList` keys on `search`, so forwarding the term from a
+    // public tab mints a cache entry per debounced keystroke and fires a
+    // `/auth/collections?search=` that tab never renders.
+    it('does NOT forward the search term from a public tab', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionList />)
+      const searchInput = screen.getByPlaceholderText('Search collections...')
+      await user.type(searchInput, 'shoegaze')
+
+      const searchCalls = mockUseMyCollections.mock.calls.filter(
+        (args: unknown[]) => args[0] !== undefined
+      )
+      for (const call of searchCalls) {
+        expect(call[0]).toEqual({ search: undefined })
+      }
     })
 
     // No search → list view passes `{ search: undefined }`. Confirms the

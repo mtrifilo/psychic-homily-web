@@ -108,23 +108,30 @@ export function CollectionList() {
     tag: tagFilter || undefined,
   })
 
+  const isYoursTab = activeTab === 'yours'
+
   // Fetch the user's own collections. The hook self-gates on authentication,
-  // so an anonymous visitor to this public page fires nothing (PSY-1779). It
-  // is NOT gated on the active tab, though: an authenticated viewer prefetches
-  // the Yours list from any tab, which makes the tab switch instant and costs
-  // one cached request.
-  // PSY-580: pass the same search term the public-browse hook receives so the
-  // Yours tab filters via the backend's expanded search (title / description /
-  // item notes / tag names+aliases — PSY-355). Empty / whitespace short-
+  // so an anonymous visitor to this public page fires nothing (PSY-1779).
+  //
+  // The search term is forwarded ONLY on the Yours tab. `myList` keys on
+  // `search`, so passing it from a public tab would mint a fresh cache entry
+  // per debounced keystroke and fire a `/auth/collections?search=` the tab
+  // never renders — and that request is the expensive one (PSY-355 expands the
+  // match across title / description / item notes / tag names+aliases). Left
+  // unsearched, the bare key stays warm from any tab, so switching to Yours is
+  // still instant for one request per session.
+  // PSY-580: on the Yours tab the term matches what the public-browse hook
+  // receives, so both tabs filter identically. Empty / whitespace short-
   // circuits inside the hook.
   const {
     data: myData,
     isLoading: myLoading,
     error: myError,
-  } = useMyCollections({ search: searchTerm || undefined })
+  } = useMyCollections({
+    search: isYoursTab ? searchTerm || undefined : undefined,
+  })
 
   // Determine which data to use based on active tab
-  const isYoursTab = activeTab === 'yours'
   const isLoading = isYoursTab ? myLoading : publicLoading
   const error = isYoursTab ? myError : publicError
   const rawCollections = isYoursTab

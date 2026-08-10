@@ -133,10 +133,13 @@ export function useCollectionStats(slug: string, options?: { enabled?: boolean }
  * scoped per-search so distinct searches don't share a cache entry, but
  * the bare prefix matches mutation invalidations on `queryKeys.collections.my`.
  *
- * PSY-1779: `/auth/collections` requires a session. The gate lives here rather
- * than at each call site so no caller can fire a guaranteed 401 for an
- * anonymous visitor — AddToCollectionButton in particular *cannot* gate it,
- * since Rules of Hooks force the call above its `!isAuthenticated` return.
+ * PSY-1779: `/auth/collections` requires a session, so an unauthenticated
+ * viewer gets a guaranteed 401. The gate lives here, not at the call sites,
+ * because this hook exposes no `enabled` option and every caller of an
+ * auth-only endpoint needs the same gate — putting it here covers the current
+ * callers and future ones by construction. Both callers had in fact missed it:
+ * AddToCollectionButton fired one 401 per anonymous entity-page view, and
+ * CollectionList one per anonymous /collections view.
  */
 export function useMyCollections(params?: { search?: string }) {
   const search = params?.search?.trim() || undefined
@@ -156,7 +159,12 @@ export function useMyCollections(params?: { search?: string }) {
     },
     enabled: isAuthenticated,
     staleTime: 5 * 60 * 1000,
-    placeholderData: keepPreviousData,
+    // Drop the placeholder while logged out. `keepPreviousData` reads an
+    // OBSERVER-scoped snapshot that `queryClient.clear()` on logout does not
+    // reach, and a disabled query never leaves `pending` — so the pair would
+    // hand the next viewer the previous user's collection titles indefinitely
+    // instead of for the one round trip it took the old 401 to arrive.
+    placeholderData: isAuthenticated ? keepPreviousData : undefined,
   })
 }
 
@@ -170,13 +178,18 @@ export function useMyCollections(params?: { search?: string }) {
  * Returns a `Map<number, number>` (collectionId → collection_item id),
  * constructed once per response. Callers use `.has(id)` for the O(1)
  * pre-check and `.get(id)` for the item id to DELETE when the user unchecks
- * an already-in row (PSY-829's uncheck→remove affordance). `enabled` defaults
- * to `true`; pass `false` to defer the request until the popover opens —
- * saves a fetch on every entity page render.
+ * an already-in row (PSY-829's uncheck→remove affordance).
  *
- * PSY-1779: `/auth/collections/contains` also requires a session, so an
- * anonymous viewer is gated out regardless of what the caller passes — the
- * caller-supplied `enabled` can only narrow this further, never widen it.
+ * Fetches only when the viewer is authenticated, `entityId > 0`, and the
+ * caller's `enabled` (default `true`) is not `false` — the sole caller passes
+ * `enabled: open` to defer the request until the popover opens, saving a fetch
+ * on every entity page render.
+ *
+ * PSY-1779: the auth term is DEFENSIVE, not a fixed leak. `/auth/collections/
+ * contains` requires a session, and today's only caller is already unreachable
+ * for anonymous viewers (the popover cannot open). But `enabled` defaults to
+ * `true`, so a future caller that omits it would fire a guaranteed 401. The
+ * caller's flag can only narrow the auth gate, never widen it.
  */
 export function useUserCollectionsContaining(
   entityType: string,

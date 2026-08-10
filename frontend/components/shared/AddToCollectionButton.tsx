@@ -120,12 +120,14 @@ export function AddToCollectionButton({
     })
   }
 
-  // The contains query is gated on `open` so we don't fetch on every
-  // entity page render — only when the user actually opens the popover.
+  // Self-gates on authentication inside the hook, so the anonymous render
+  // below fires nothing (PSY-1779).
   const { data: myCollectionsData, isLoading: collectionsLoading } =
     useMyCollections()
   // collectionId → collection_item id (PSY-829): the Map keys drive the
   // pre-check; the values give the item id to DELETE on uncheck→remove.
+  // Gated on `open` so we don't fetch on every entity page render — only when
+  // the user actually opens the popover.
   const { data: containing, isLoading: containingLoading } =
     useUserCollectionsContaining(entityType, entityId, { enabled: open })
   const addMutation = useAddCollectionItem()
