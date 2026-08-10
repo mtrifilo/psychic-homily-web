@@ -25,8 +25,16 @@ import (
 // The four columns are on no editor's field list, so recomputing them can never
 // clobber a value a human chose — they are ours.
 //
-// A geocode MISS writes NULL across all four rather than leaving the old values,
-// for the reason spelled out on VenueService.UpdateVenue's re-geocode branch.
+// The derivation itself — which columns, the geocode-miss policy, the PSY-1707
+// timezone write-boundary — is shared.DeriveVenueLocation, the same code
+// catalog.VenueService and the data-sync import seams resolve through since
+// PSY-1747. This function is only the read-current-row-and-overlay-the-write
+// half, which is specific to applying an edit as an untyped map.
+//
+// The timezone write-boundary matters most on THIS path of all the ones that
+// share the derivation: a CONTRIBUTOR's city/state edit is what triggers the
+// re-derivation here, so this is the one an outsider can aim, even though the
+// resolved zone itself is ours and never theirs to supply.
 //
 // db is the handle to read and validate through. Both callers pass s.db, and for
 // both that is correct rather than accidental: Rollback writes through s.db too,
@@ -45,7 +53,7 @@ import (
 // no timezone, so they go through applyDerivedEntityMetro — the metro-only
 // sibling of this function, reached through the same dispatcher.
 func applyDerivedVenueLocation(db *gorm.DB, venueID uint, updates map[string]interface{}) {
-	if !locationChanged(updates) {
+	if !shared.LocationTouched(updates) {
 		return
 	}
 
@@ -55,20 +63,10 @@ func applyDerivedVenueLocation(db *gorm.DB, venueID uint, updates map[string]int
 			"venue_id", venueID, "error", err.Error())
 		return
 	}
+
 	// The effective POST-write location: the incoming value where this write
 	// carries one, the venue's current value otherwise.
-	city := updatedString(updates, "city", current.City)
-	state := updatedString(updates, "state", current.State)
-	country := updatedString(updates, "country", shared.DerefOrEmpty(current.Country))
-
-	lat, lng, tz := geo.LookupPointers(geo.Default(), city, state, country)
-	updates["latitude"] = lat
-	updates["longitude"] = lng
-	// The PSY-1707 write-boundary invariant. It matters most on the approve path:
-	// a CONTRIBUTOR's city/state edit is what triggers the re-derivation, so that
-	// is the one an outsider can aim, even though the zone itself is ours.
-	updates["timezone"] = shared.NormalizedGeocodedTimezoneOrNull(db, tz, "venue_id", venueID)
-	// metro is a sibling of the geocoding (PSY-1255 step B) and goes just as stale
-	// when a write relocates the venue.
-	updates["metro"] = geo.MetroPointer(geo.Default(), city, state, country)
+	loc := shared.EffectiveLocation(updates, shared.VenueLocation(&current))
+	shared.DeriveVenueLocation(db, geo.Default(), loc, "venue_id", venueID).
+		ApplyToUpdates(updates)
 }

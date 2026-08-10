@@ -363,30 +363,6 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts
 	return responses, nil
 }
 
-// locationFieldChanged reports whether a UpdateArtist updates map touches any
-// location column, i.e. whether the artist's metro may need recomputing.
-func locationFieldChanged(updates map[string]interface{}) bool {
-	for _, k := range []string{"city", "state", "country"} {
-		if _, ok := updates[k]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// effectiveLocField returns the post-update value of a location field: the value
-// just staged in the updates map (a *string from NilIfEmpty, possibly nil) when
-// the request changed it, else the current stored value.
-func effectiveLocField(updates map[string]interface{}, key string, current *string) string {
-	if v, ok := updates[key]; ok {
-		if p, ok := v.(*string); ok {
-			return derefString(p)
-		}
-		return "" // unreachable: location keys are always staged as *string (NilIfEmpty)
-	}
-	return derefString(current)
-}
-
 // UpdateArtist updates an existing artist
 func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
@@ -431,16 +407,18 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 	}
 	// metro is derived from (city, state, country) — recompute it when this admin
 	// edit relocates the artist, so it stays a sibling of the location (like the
-	// venue write paths, PSY-1255 step B). cmd/backfill-entity-metro is the
-	// backstop for the background enrichment / state-correction passes that change
-	// location without going through here.
-	if locationFieldChanged(updates) {
+	// venue write paths, PSY-1255 step B). The gate, the effective-location
+	// overlay and the resolution are shared.* since PSY-1747, so this path and the
+	// admin apply-an-edit paths cannot answer "where is this artist now?"
+	// differently. cmd/backfill-entity-metro is the backstop for the background
+	// enrichment / state-correction passes that change location without going
+	// through here.
+	if shared.LocationTouched(updates) {
 		var cur catalogm.Artist
 		if err := s.db.Select("city", "state", "country").First(&cur, artistID).Error; err == nil {
-			updates["metro"] = geo.MetroPointer(geo.Default(),
-				effectiveLocField(updates, "city", cur.City),
-				effectiveLocField(updates, "state", cur.State),
-				effectiveLocField(updates, "country", cur.Country))
+			loc := shared.EffectiveLocation(updates,
+				shared.NullableLocation(cur.City, cur.State, cur.Country))
+			updates["metro"] = shared.DeriveMetro(geo.Default(), loc)
 		}
 	}
 	if req.Description != nil {

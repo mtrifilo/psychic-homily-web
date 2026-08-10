@@ -63,7 +63,8 @@ func FindOrCreateArtistTx(tx *gorm.DB, name string, apply func(*catalogm.Artist)
 	// passes no location resolves to nil, which is correct. Foreground updates
 	// (UpdateArtist, the contribution-edit apply) recompute it; the reconciler
 	// (cmd/backfill-entity-metro) is the backstop for background location writers.
-	artist.Metro = geo.MetroPointer(geo.Default(), derefString(artist.City), derefString(artist.State), derefString(artist.Country))
+	artist.Metro = shared.DeriveMetro(geo.Default(),
+		shared.NullableLocation(artist.City, artist.State, artist.Country))
 	slug := uniqueArtistSlugTx(tx, artist.Name)
 	artist.Slug = &slug
 

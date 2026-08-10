@@ -19,6 +19,7 @@ import (
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
+	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -203,9 +204,15 @@ func CreateAdminUser(db *gorm.DB) *authm.User {
 
 // MetroFor resolves a (city, state) to its CBSA code for fixtures, mirroring the
 // production venue/artist write paths that denormalize metro via the geocoder
-// (PSY-1255 step C). nil for a non-US / no-CBSA place.
+// (PSY-1255 step C). Since PSY-1747 it mirrors them through the very function
+// they call, so a change to the production derivation moves the fixtures with it
+// instead of silently disagreeing. nil for a non-US / no-CBSA place.
+//
+// The country is pinned to "US" here — unlike the write paths, which read the
+// entity's own column — because these fixtures exist to produce a CBSA and CBSAs
+// are US-only.
 func MetroFor(city, state string) *string {
-	return geo.MetroPointer(geo.Default(), city, state, "US")
+	return shared.DeriveMetro(geo.Default(), shared.Location{City: city, State: state, Country: "US"})
 }
 
 // CreateVerifiedVenue inserts a verified venue and returns it.

@@ -70,6 +70,13 @@ func (s *VenueService) WithAddressGeocoder(ag geo.AddressGeocoder) *VenueService
 // of writers lives on shared.NormalizedGeocodedTimezoneOrNull; don't re-list it
 // here, because two copies of that list is how a writer went missing (PSY-1709).
 //
+// Since PSY-1747 this is a thin adapter over shared.DeriveVenueLocation rather
+// than its own derivation: the admin apply-an-edit paths and the data-sync import
+// seams resolve the same four columns through that same function, so a change to
+// what a venue derives lands everywhere at once instead of in whichever copies
+// the author found. Keep the behaviour here in the adapter and the policy down
+// there.
+//
 // Deliberately NOT a GORM BeforeSave hook on the model, which looks like the
 // obvious way to make this automatic: two of the writers update through
 // db.Table("venues").Updates(map) with no model bound, so no hook fires for them
@@ -85,16 +92,9 @@ func (s *VenueService) WithAddressGeocoder(ag geo.AddressGeocoder) *VenueService
 // that carries the write it guards (and take a second pooled connection while
 // the first is held). Callers with no transaction of their own pass s.db.
 func (s *VenueService) applyGeocoding(db *gorm.DB, v *catalogm.Venue) {
-	country := ""
-	if v.Country != nil {
-		country = *v.Country
-	}
-	v.Latitude, v.Longitude, v.Timezone = geo.LookupPointers(s.geocoder, v.City, v.State, country)
-	v.Metro = geo.MetroPointer(s.geocoder, v.City, v.State, country)
-	// PSY-1707 write-boundary invariant. Policy lives in one place; see
-	// shared.NormalizedGeocodedTimezoneOrNull for why it degrades instead of failing.
-	v.Timezone = shared.NormalizedGeocodedTimezoneOrNull(db, v.Timezone,
-		"venue_name", v.Name, "city", v.City, "state", v.State)
+	shared.DeriveVenueLocation(db, s.geocoder, shared.VenueLocation(v),
+		"venue_name", v.Name, "city", v.City, "state", v.State).
+		ApplyTo(v)
 }
 
 // streetGeocodeTimeout caps ONE inline street-geocode for a venue, including
@@ -506,29 +506,38 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 		updates["image_url"] = utils.NilIfEmpty(*req.ImageURL)
 	}
 
-	// Re-geocode when any location field changes so latitude/longitude/timezone
-	// stay consistent with the new city/state/country (PSY-985). Reuses the
-	// create-path resolver (applyGeocoding) on the effective post-update values
-	// (checkCity already coalesced city); a miss clears all three to NULL (below).
-	if req.City != nil || req.State != nil || req.Country != nil {
-		effective := catalogm.Venue{City: checkCity, State: currentVenue.State, Country: currentVenue.Country}
+	// Re-geocode when any location field changes so the derived columns stay
+	// consistent with the new city/state/country (PSY-985, metro PSY-1255 step B).
+	//
+	// ApplyToUpdates writes the whole derived set unconditionally, nils included:
+	// on a geocode miss GORM's map Updates turns those into SQL NULL, so a
+	// relocated-but-unresolvable venue falls back to the legacy state->tz map
+	// instead of keeping the OLD location's stale timezone/coordinates and the OLD
+	// metro's CBSA. This block used to name the four columns itself, which meant a
+	// fifth derived column would have been silently dropped on the update path
+	// while the create path picked it up — the PSY-1709/PSY-1744 shape. Since
+	// PSY-1747 the column set is known only to shared.DerivedVenueLocation.
+	if shared.LocationTouched(updates) {
+		// The effective post-update location. City comes from checkCity rather than
+		// updates["city"] because the duplicate-name check above already coalesced
+		// it; that is the one component this path resolves differently from the
+		// generic EffectiveLocation overlay, which is why it is built by hand.
+		loc := shared.Location{
+			City:    checkCity,
+			State:   currentVenue.State,
+			Country: shared.DerefOrEmpty(currentVenue.Country),
+		}
 		if req.State != nil {
-			effective.State = *req.State
+			loc.State = *req.State
 		}
 		if req.Country != nil {
-			effective.Country = req.Country
+			loc.Country = *req.Country
 		}
-		s.applyGeocoding(s.db, &effective)
-		// Write unconditionally: on a geocode miss the pointers are nil and GORM's
-		// map Updates writes SQL NULL, so a relocated-but-unresolvable venue falls
-		// back to the legacy state->tz map instead of keeping the OLD location's
-		// stale timezone/coordinates (mirrors the create path's miss->NULL). metro
-		// is a sibling here — forward it too, or a relocated venue keeps the OLD
-		// metro's CBSA and is mis-rostered in the Atlas scene (PSY-1255 step B).
-		updates["latitude"] = effective.Latitude
-		updates["longitude"] = effective.Longitude
-		updates["timezone"] = effective.Timezone
-		updates["metro"] = effective.Metro
+		// currentVenue.Name, not the bare struct this used to build, so a rejected
+		// timezone logs the venue an operator can actually look up.
+		shared.DeriveVenueLocation(s.db, s.geocoder, loc,
+			"venue_name", currentVenue.Name, "city", loc.City, "state", loc.State).
+			ApplyToUpdates(updates)
 	}
 
 	// Street-level geocode (PSY-1536): recompute when any component of the

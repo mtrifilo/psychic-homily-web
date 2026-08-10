@@ -99,11 +99,18 @@ func NormalizeIANATimezone(db *gorm.DB, tz *string) (*string, error) {
 // a silently-stale writer (PSY-1709) precisely because the count lived in two
 // comments and only one got updated:
 //
-//   - catalog.VenueService.applyGeocoding (venue create + update)
-//   - admin.applyDerivedVenueLocation, reached through admin.applyDerivedLocation
-//     (pending-edit approval AND revision rollback)
-//   - admin.data_sync importVenue and importShow (two seams)
-//   - catalog.backfillVenuePass (the backfill CLI)
+//   - DeriveVenueLocation, in this package — since PSY-1747 the single derivation
+//     every venue WRITE path runs through, so a new write path inherits the
+//     invariant by construction rather than by remembering. It covers what used to
+//     be four separate callers: catalog.VenueService.applyGeocoding (create,
+//     update, find-or-create), admin.applyDerivedVenueLocation (pending-edit
+//     approval AND revision rollback), and admin.data_sync importVenue + importShow.
+//   - catalog.backfillVenuePass (the backfill CLI), which still calls directly:
+//     it needs the raw geocoder hit/miss to classify each venue for its report,
+//     and it leaves existing values alone on a miss rather than nulling them.
+//
+// So the rule for a new writer is: derive through DeriveVenueLocation and you are
+// covered; bypass it and you owe this call yourself, plus a line here.
 //
 // Degrades rather than failing the write, deliberately: the value is ours, not
 // the caller's, so a bad one is our bug and refusing the user's venue would be
