@@ -65,12 +65,25 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
             <MobileNav />
             <Link href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
               <div className="relative size-[36px] overflow-hidden rounded-md">
+                {/* Raster, not vector, on purpose (PSY-1771): the predecessor
+                    `/PsychicHomilyLogov2.svg` put 166 KB on the wire of every
+                    route because `next/image` cannot optimize SVG. Same artwork
+                    at 144x144, i.e. 4x the 36px display size, so it holds up
+                    to a 4x DPR. Regenerate from the vector source in git
+                    history.
+
+                    `unoptimized` spends ~3 KB per fetch to buy cacheability;
+                    next.config.ts has the measurement and pins the header. It
+                    also means one file serves every client with no `Accept`
+                    negotiation, which is why this is PNG and not the smaller
+                    WebP. */}
                 <Image
-                  src="/PsychicHomilyLogov2.svg"
+                  src="/psychic-homily-logo-v1.png"
                   alt=""
                   width={36}
                   height={36}
                   priority
+                  unoptimized
                   className="rounded-md"
                   style={{ filter: 'url(#glitch)' }}
                 />

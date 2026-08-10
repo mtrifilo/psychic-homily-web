@@ -169,6 +169,29 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      // The TopBar logo is `priority`-preloaded on every route, so it is worth
+      // pinning (PSY-1771). Files under `public/` are served
+      // `max-age=0, must-revalidate` by default, which is why the logo used to
+      // be re-fetched on every cold load.
+      //
+      // This rule is what makes the logo cacheable at all: `/_next/image` does
+      // NOT inherit it. Measured both ways: an `immutable` upstream still
+      // comes back out of the optimizer as `max-age=0, must-revalidate`, and
+      // prod serves the same for `/_next/image?url=%2Fog-image.jpg`. That is
+      // why TopBar renders this one `unoptimized`, so the browser requests the
+      // file below directly and actually gets these headers.
+      //
+      // Versioning the filename is what makes freezing it safe: a new logo
+      // ships as `-v2` rather than mutating a URL clients were told to hold for
+      // a year. The rule matches the whole `-vN` family on purpose: pinning
+      // `-v1` literally would mean a future bump silently drops back to
+      // `max-age=0` if whoever renames the file misses this line.
+      {
+        source: '/psychic-homily-logo-:version(v\\d+).png',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
       {
         source: '/(.*)',
         headers: [
