@@ -776,14 +776,15 @@ func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now ti
 	}
 
 	type row struct {
-		ID   uint   `gorm:"column:id"`
-		Slug string `gorm:"column:slug"`
-		Name string `gorm:"column:name"`
+		ID        uint      `gorm:"column:id"`
+		Slug      string    `gorm:"column:slug"`
+		Name      string    `gorm:"column:name"`
+		CreatedAt time.Time `gorm:"column:created_at"`
 	}
 	args := append(append([]any{}, aargs...), since, now, limit)
 	var rows []row
 	if err := s.db.Raw(`
-		SELECT a.id, COALESCE(a.slug, '') AS slug, a.name
+		SELECT a.id, COALESCE(a.slug, '') AS slug, a.name, a.created_at
 		FROM artists a
 		WHERE `+ap+`
 		  AND a.created_at > ?
@@ -796,7 +797,7 @@ func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now ti
 
 	out := make([]contracts.SceneNewArtist, len(rows))
 	for i, r := range rows {
-		out[i] = contracts.SceneNewArtist{ID: r.ID, Slug: r.Slug, Name: r.Name}
+		out[i] = contracts.SceneNewArtist{ID: r.ID, Slug: r.Slug, Name: r.Name, FirstListedAt: r.CreatedAt}
 	}
 	return out, int(total), nil
 }

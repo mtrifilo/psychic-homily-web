@@ -5668,6 +5668,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenes/{slug}/new-artists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug new artists */
+        get: operations["get-scenes-by-slug-new-artists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scenes/{slug}/shows": {
         parameters: {
             query?: never;
@@ -12076,6 +12093,21 @@ export interface components {
              */
             total: number;
         };
+        GetSceneNewArtistsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetSceneNewArtistsResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Bands based in the scene first listed inside the window, most recently listed first */
+            artists: components["schemas"]["SceneNewArtistRow"][] | null;
+            /**
+             * Format: int64
+             * @description Total bands first listed in the window, before the limit is applied
+             */
+            total: number;
+        };
         GetSceneShowsResponseBody: {
             /**
              * Format: uri
@@ -15028,6 +15060,26 @@ export interface components {
             upcoming_show_count: number;
             /** Format: int64 */
             venue_count: number;
+        };
+        SceneNewArtistRow: {
+            /** Format: date-time */
+            first_listed_at: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            show: components["schemas"]["SceneNewArtistShow"];
+            slug?: string;
+        };
+        SceneNewArtistShow: {
+            event_date: string;
+            /** Format: int64 */
+            id: number;
+            is_upcoming: boolean;
+            slug?: string;
+            /** Format: date-time */
+            starts_at: string;
+            venue_name?: string;
+            venue_slug?: string;
         };
         ScenePulse: {
             /** Format: int64 */
@@ -31241,6 +31293,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SceneGraphResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-scenes-by-slug-new-artists": {
+        parameters: {
+            query?: {
+                /** @description Window in days — bands first listed inside [now-days, now] */
+                days?: number;
+                /** @description Maximum number of bands to return, most recently listed first */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetSceneNewArtistsResponseBody"];
                 };
             };
             /** @description Error */
