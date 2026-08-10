@@ -24,6 +24,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
+
 import {
   buildReplayTimeline,
   replayReadoutText,
@@ -60,6 +62,16 @@ export interface SceneReplayController {
   /** Null when this snapshot has no watchable history — then there is no affordance. */
   timeline: ReplayTimeline | null
   phase: SceneReplayPhase
+  /**
+   * Whether this transport ever moves on its own (PSY-1743).
+   *
+   * False under `prefers-reduced-motion`, where a run is a SCRUBBER rather than
+   * a movie: it opens settled at now and the playhead moves only where the
+   * visitor puts it. Consumers read this rather than the media query so the
+   * transport and its controls cannot disagree about which kind of run is on
+   * screen.
+   */
+  autoplays: boolean
   /** True whenever the replay layer is on screen (playing, paused, or settling). */
   isActive: boolean
   /**
@@ -101,6 +113,17 @@ function clamp01(value: number): number {
 export function useSceneReplay(map: SceneMap | null): SceneReplayController {
   const timeline = useMemo(() => (map ? buildReplayTimeline(map) : null), [map])
   const [phase, setPhase] = useState<SceneReplayPhase>('rest')
+  // The one reduced-motion decision the feature makes, taken here rather than at
+  // each control, so `start` and `exit` and the scrubber's chrome all read the
+  // same answer (PSY-1743).
+  //
+  // Read live rather than captured at entry, which means flipping the system
+  // setting DURING a run leaves that run mid-flight in the other mode: an
+  // already-playing run keeps playing, minus its pause chip. Deliberately not
+  // handled — it needs an OS setting changed inside a 25-second window, Escape
+  // and the close chip both still end the run, and the state machine that would
+  // catch it costs more than the case is worth.
+  const autoplays = !useReducedMotion()
 
   const frameRef = useRef<SceneReplayFrame>({ progress: 0, decorationAlpha: 1, active: false })
   const listenersRef = useRef(new Set<(frame: SceneReplayFrame) => void>())
@@ -231,28 +254,57 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
     // silently dead feature is worth one assignment to rule out.
     isScrubbingRef.current = false
     const frame = frameRef.current
-    frame.progress = 0
-    frame.decorationAlpha = 1
+    // A REDUCED-MOTION RUN OPENS SETTLED AT NOW (PSY-1743). Same surface, same
+    // seek, same way out — it simply starts at the end of the history instead of
+    // the beginning, and paused instead of playing, so the visitor gets the
+    // scrubber without being shown 25 seconds of unrequested motion. Standard
+    // motion is untouched: it still opens at t0 and plays.
+    frame.progress = autoplays ? 0 : 1
+    frame.decorationAlpha = autoplays ? 1 : 0
     frame.active = true
-    enterStartRef.current = performance.now()
-    setPhaseBoth('playing')
+    // Backdating the entry clock past its own duration makes the loop compute
+    // the alpha the decoration fade would have ENDED on, so the clear happens in
+    // no frames rather than in a second code path — the same
+    // `motion-reduce:transition-none` the isolate band already applies,
+    // expressed as a clock instead of a class.
+    enterStartRef.current = performance.now() - (autoplays ? 0 : ENTER_MS)
+    setPhaseBoth(autoplays ? 'playing' : 'paused')
     publish()
+    // Started in BOTH modes, even though a paused run has nothing to advance.
+    // The loop is what `exit` settles on, and a transport that only sometimes
+    // has one is a transport that sometimes strands itself in `settling` when
+    // the mode changes under it. The cost is a paused run's rAF chain — which a
+    // standard run already pays for as long as the visitor leaves it paused.
     runLoop()
-  }, [publish, runLoop, setPhaseBoth, timeline])
+  }, [autoplays, publish, runLoop, setPhaseBoth, timeline])
 
   const exit = useCallback(() => {
     if (phaseRef.current === 'rest' || phaseRef.current === 'settling') return
     const frame = frameRef.current
+    isScrubbingRef.current = false
+    if (!autoplays) {
+      // Reduced motion skips the settle for the reason it skips the autoplay:
+      // the settle SWEEPS whatever history is left onto the map and crossfades
+      // the furniture back over 600ms, which is the largest single piece of
+      // motion this feature has. Land on the finished state in one frame
+      // instead — the same picture, none of the sweep.
+      stopLoop()
+      frame.progress = 1
+      frame.decorationAlpha = 1
+      frame.active = false
+      publish()
+      setPhaseBoth('rest')
+      return
+    }
     settleStartRef.current = performance.now()
     settleFromRef.current = {
       progress: frame.progress,
       decorationAlpha: frame.decorationAlpha,
     }
-    isScrubbingRef.current = false
     setPhaseBoth('settling')
     // The loop is already running in every phase this is reachable from, so it
     // picks the settle up on its next tick.
-  }, [setPhaseBoth])
+  }, [autoplays, publish, setPhaseBoth, stopLoop])
 
   const togglePause = useCallback(() => {
     if (phaseRef.current === 'playing') setPhaseBoth('paused')
@@ -319,6 +371,7 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
     () => ({
       timeline,
       phase,
+      autoplays,
       // Derived against the timeline as well as the phase, so the surface's
       // chrome cannot survive one render longer than the map does. The teardown
       // effect above lands on the same tick, but this is what makes the header
@@ -333,7 +386,7 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
       seek,
       setScrubbing,
     }),
-    [timeline, phase, readFrame, subscribe, start, exit, togglePause, seek, setScrubbing],
+    [timeline, phase, autoplays, readFrame, subscribe, start, exit, togglePause, seek, setScrubbing],
   )
 }
 

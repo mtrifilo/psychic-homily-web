@@ -60,7 +60,7 @@ export interface ReplayScrubberProps {
 }
 
 export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
-  const { subscribe, seek, setScrubbing, togglePause, exit, phase, readFrame } = replay
+  const { subscribe, seek, setScrubbing, togglePause, exit, phase, readFrame, autoplays } = replay
 
   const trackRef = useRef<HTMLDivElement>(null)
   const playedRef = useRef<HTMLDivElement>(null)
@@ -215,26 +215,42 @@ export function ReplayScrubber({ replay, timeline }: ReplayScrubberProps) {
 
   const isPaused = phase === 'paused'
 
+  const readout = (
+    <span
+      ref={readoutRef}
+      // Reserved so the strip does not resize as the date and the count
+      // grow digits under the playhead.
+      className="min-w-[13ch] text-left tabular-nums"
+    />
+  )
+
   return (
     <div className="flex items-center gap-3 border-t border-border/50 px-4 py-2">
-      <button
-        type="button"
-        onClick={togglePause}
-        aria-label={isPaused ? 'Resume the replay' : 'Pause the replay'}
-        className={`${MAP_CARD_CHIP_CLASS} shrink-0`}
-      >
-        {isPaused ? (
-          <Play className="size-3" aria-hidden="true" />
-        ) : (
-          <Pause className="size-3" aria-hidden="true" />
-        )}
-        <span
-          ref={readoutRef}
-          // Reserved so the strip does not resize as the date and the count
-          // grow digits under the playhead.
-          className="min-w-[13ch] text-left tabular-nums"
-        />
-      </button>
+      {autoplays ? (
+        <button
+          type="button"
+          onClick={togglePause}
+          aria-label={isPaused ? 'Resume the replay' : 'Pause the replay'}
+          className={`${MAP_CARD_CHIP_CLASS} shrink-0`}
+        >
+          {isPaused ? (
+            <Play className="size-3" aria-hidden="true" />
+          ) : (
+            <Pause className="size-3" aria-hidden="true" />
+          )}
+          {readout}
+        </button>
+      ) : (
+        // NO PLAY CONTROL UNDER REDUCED MOTION (PSY-1743). A transport that
+        // never runs on its own has nothing to pause, and a play chip here
+        // would be worse than absent either way: at the position this run opens
+        // in — the end — pressing it advances nothing and closes the replay.
+        // The readout stays, because it is the label for where the playhead is,
+        // and it keeps the strip's geometry identical in both modes.
+        <span className="inline-flex shrink-0 items-center px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          {readout}
+        </span>
+      )}
 
       <div
         ref={trackRef}
