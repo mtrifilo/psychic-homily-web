@@ -18,6 +18,32 @@ export const metadata = {
   },
 }
 
+/**
+ * The `ItemList` await stays in the page body, above the `Suspense` boundary,
+ * exactly as it does on `/shows` and `/venues`.
+ *
+ * It was worth checking whether moving it below would shrink the RSC flight
+ * payload, since that payload is what `<Link>` prefetch leaks onto `/`,
+ * `/atlas` and `/shows`. It would not: the flight carries a subtree's rendered
+ * output whether that subtree streamed or was in the shell, so relocating the
+ * await changes when the bytes arrive and not how many there are. What made
+ * this route's flight enormous was the SIZE of the block, and that is bounded
+ * at `ARTIST_ITEM_LIST_LIMIT`. Keeping the await here also keeps the JSON-LD in
+ * the prerendered shell, which is where a crawler should find it.
+ *
+ * WHAT IS STILL MISSING, so the next reader does not conclude it was
+ * considered and rejected: `ArtistList` is the last list page whose rows a
+ * human reads are client-only. `/shows` and `/venues` server-render their first
+ * screen by fetching what their client hook requests and seeding that exact
+ * cache key (`HydratedShowList`, `HydratedVenueList`). The same cannot be done
+ * here yet. `useArtists` sends no `limit`, because `GET /artists` has none to
+ * send — `ListArtistsRequest` declares only the filter parameters — so seeding
+ * its key would mean fetching the whole 3.17 MB catalogue server-side, which
+ * (a) is over the Data Cache raw budget and would fail the build gate in
+ * lib/data-cache-budget, and (b) would put the entire catalogue back into the
+ * flight payload this change just removed it from. Bounding the browse request
+ * is PSY-1774; the seed follows it, not the other way around.
+ */
 export default async function ArtistsPage() {
   const artists = await getArtistsForMetadata()
 
