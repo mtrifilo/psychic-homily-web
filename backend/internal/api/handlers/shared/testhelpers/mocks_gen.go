@@ -3284,6 +3284,7 @@ type MockSceneService struct {
 	GetSceneGraphFn             func(string, string, []string, string) (*contracts.SceneGraphResponse, error)
 	GetSceneUpcomingShowsFn     func(string, string, int, int) ([]contracts.SceneShowSummary, error)
 	GetSceneNewArtistsSinceFn   func(string, string, time.Time, time.Time, int) ([]contracts.SceneNewArtist, int, error)
+	GetSceneNewArtistsFn        func(string, string, time.Time, time.Time, int) ([]contracts.SceneNewArtistRow, int, error)
 	GetSceneShowsInRangeFn      func(string, string, time.Time, time.Time, *time.Location, int) ([]contracts.SceneShowSummary, error)
 	GetSceneWeekFn              func(string, string, string) (*contracts.SceneWeekResponse, error)
 	GetSceneDayFn               func(string, string, string) (*contracts.SceneDayResponse, error)
@@ -3359,6 +3360,12 @@ func (m *MockSceneService) GetSceneUpcomingShows(city string, state string, wind
 func (m *MockSceneService) GetSceneNewArtistsSince(city string, state string, since time.Time, now time.Time, limit int) ([]contracts.SceneNewArtist, int, error) {
 	if m.GetSceneNewArtistsSinceFn != nil {
 		return m.GetSceneNewArtistsSinceFn(city, state, since, now, limit)
+	}
+	return nil, 0, nil
+}
+func (m *MockSceneService) GetSceneNewArtists(city string, state string, since time.Time, now time.Time, limit int) ([]contracts.SceneNewArtistRow, int, error) {
+	if m.GetSceneNewArtistsFn != nil {
+		return m.GetSceneNewArtistsFn(city, state, since, now, limit)
 	}
 	return nil, 0, nil
 }

@@ -1430,11 +1430,55 @@ type ShowAlsoTonightResponse struct {
 }
 
 // SceneNewArtist is one "new band based here" row for the weekly scene digest
-// (PSY-1342) — just enough to render a linked name.
+// (PSY-1342) — just enough to render a linked name, plus the moment the band
+// entered the catalog.
 type SceneNewArtist struct {
 	ID   uint   `json:"id"`
 	Slug string `json:"slug,omitempty"`
 	Name string `json:"name"`
+	// FirstListedAt is the band's catalog created_at — the same instant the
+	// window is tested against, so a row can always state the date that put it
+	// in the window. The digest ignores it; the scene page's new-bands module
+	// renders it ("first listed Aug 10").
+	FirstListedAt time.Time `json:"first_listed_at"`
+}
+
+// SceneNewArtistShow is the one show attached to a new-band row: the band's
+// soonest UPCOMING approved show, or — when it has none — its most recent past
+// one, which is why IsUpcoming exists. Any approved show counts, including one
+// outside the scene: a band based here that is currently on tour still answers
+// "where can I see them", and the venue fields say where.
+type SceneNewArtistShow struct {
+	ID   uint   `json:"id"`
+	Slug string `json:"slug,omitempty"` // canonical /shows/{slug} target; "" → clients fall back to the id
+	// EventDate is the calendar date at the VENUE (its own zone, UTC when
+	// unknown). StartsAt is the same show as an absolute instant — EventDate
+	// cannot be parsed back into one (see SceneShowSummary).
+	EventDate string    `json:"event_date"`
+	StartsAt  time.Time `json:"starts_at"`
+	VenueName string    `json:"venue_name,omitempty"`
+	VenueSlug string    `json:"venue_slug,omitempty"`
+	// IsUpcoming compares EventDate against today ON THE VENUE'S OWN CALENDAR,
+	// so a show graduates to past at venue-local midnight rather than at its
+	// start instant — the site-wide listing boundary (shared.VenueLocalTodaySQL).
+	// A show in progress therefore still reads as upcoming, and the flag can
+	// never contradict the EventDate printed beside it.
+	IsUpcoming bool `json:"is_upcoming"`
+}
+
+// SceneNewArtistRow is one row of the scene page's named new-bands module
+// (PSY-1781): the digest's SceneNewArtist plus the show that makes the name
+// actionable. Same definition of "new" as the digest, by construction — the
+// rows come from GetSceneNewArtistsSince and are only enriched here.
+type SceneNewArtistRow struct {
+	SceneNewArtist
+	// Show is absent when the band has no approved show at all — a real state
+	// for a band added by an enrichment pass before its first booking lands.
+	// `omitempty` is load-bearing: without it huma publishes the field as
+	// REQUIRED and non-nullable while the wire sends `null`, and the generated
+	// client type would promise an object that isn't there (the same shape
+	// SceneVenueSummary.NextShow and ArtistGraphCardResponse.NextShow use).
+	Show *SceneNewArtistShow `json:"show,omitempty"`
 }
 
 // SceneDetailResponse represents the full computed scene for a metro (or a
@@ -1997,6 +2041,12 @@ type SceneServiceInterface interface {
 	// drop bands the cursor then advances past). The weekly digest's "new
 	// bands based here" stream (PSY-1342). Same roster scope as GetActiveArtists.
 	GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]SceneNewArtist, int, error)
+	// GetSceneNewArtists is the scene page's named new-bands module (PSY-1781):
+	// the SAME rows GetSceneNewArtistsSince returns for the window — it calls
+	// it rather than re-deriving "new" — each enriched with the band's next
+	// (or, failing that, most recent) approved show. Returns the uncapped
+	// total alongside, for the digest's "+N more" affordance.
+	GetSceneNewArtists(city, state string, since, now time.Time, limit int) ([]SceneNewArtistRow, int, error)
 	// GetSceneShowsInRange returns the scene's approved shows in the half-open
 	// window [from, to), rendering dates in loc. Shared by the digest email and
 	// the weekly city page so the two can never disagree about a scene's shows.

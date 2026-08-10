@@ -17,6 +17,10 @@ func setupSceneRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/scenes/{slug}/shows", sceneHandler.GetSceneShowsHandler)
 	huma.Get(rc.API, "/scenes/{slug}/genres", sceneHandler.GetSceneGenresHandler)
 	huma.Get(rc.API, "/scenes/{slug}/graph", sceneHandler.GetSceneGraphHandler)
+	// Named new bands (PSY-1781). A data sub-resource of the scene page, not a
+	// reader-facing path — no HEAD sibling, unlike the week/day families below,
+	// because frontend/proxy.ts never existence-checks it.
+	huma.Get(rc.API, "/scenes/{slug}/new-artists", sceneHandler.GetSceneNewArtistsHandler)
 	// Two routes with SEPARATE request types — huma treats every declared path
 	// param as required, so sharing one type would 422 the bare form before the
 	// handler runs. The bare form resolves the scene's CURRENT week server-side
