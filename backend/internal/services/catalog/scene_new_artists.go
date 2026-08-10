@@ -105,6 +105,16 @@ func (s *SceneService) newArtistShows(artistIDs []uint, now time.Time) (map[uint
 	// `now` is passed twice: once to split upcoming from past, once to order
 	// within each half. Both must be the SAME instant or a show could sort as
 	// upcoming and then be ranked as past.
+	//
+	// The SQL split is on the START INSTANT, while the IsUpcoming the caller
+	// reads is on the venue's own calendar (below). They differ only for a show
+	// in progress right now, and only in PREFERENCE: such a show sorts into the
+	// past half, so a band that also has a future booking gets the future one.
+	// The label is never wrong either way. The instant is used here rather than
+	// shared.VenueLocalDateCondition because that fragment requires
+	// VenueTZJoin's lateral, whose primary-venue pick would disagree with this
+	// query's alphabetical display-venue pick — two venue choices in one row is
+	// a worse defect than a ranking preference in a rare tie.
 	err := s.db.Raw(`
 		SELECT DISTINCT ON (sa.artist_id)
 		       sa.artist_id,
@@ -126,7 +136,8 @@ func (s *SceneService) newArtistShows(artistIDs []uint, now time.Time) (map[uint
 		         CASE WHEN s.event_date >= ? THEN s.event_date END ASC NULLS LAST,
 		         s.event_date DESC,
 		         s.id ASC,
-		         v.name ASC
+		         v.name ASC,
+		         v.id ASC
 	`, artistIDs, catalogm.ShowStatusApproved, now, now).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get shows for scene new artists: %w", err)
@@ -138,14 +149,20 @@ func (s *SceneService) newArtistShows(artistIDs []uint, now time.Time) (map[uint
 		if r.VenueTimezone != "" {
 			tz = &r.VenueTimezone
 		}
+		// Both dates are rendered through the SAME zone resolution, so the
+		// comparison is the site-wide listing boundary — a show graduates to
+		// past at venue-local midnight, not at its start instant — and the flag
+		// cannot contradict the EventDate printed next to it. ISO dates compare
+		// correctly as strings.
+		eventDate := venueLocalDate(r.EventDate, tz)
 		out[r.ArtistID] = contracts.SceneNewArtistShow{
 			ID:         r.ID,
 			Slug:       r.Slug,
-			EventDate:  venueLocalDate(r.EventDate, tz),
+			EventDate:  eventDate,
 			StartsAt:   r.EventDate.UTC(),
 			VenueName:  r.VenueName,
 			VenueSlug:  r.VenueSlug,
-			IsUpcoming: !r.EventDate.Before(now),
+			IsUpcoming: eventDate >= venueLocalDate(now, tz),
 		}
 	}
 	return out, nil

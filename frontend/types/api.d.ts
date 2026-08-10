@@ -15067,7 +15067,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             name: string;
-            show: components["schemas"]["SceneNewArtistShow"];
+            show?: components["schemas"]["SceneNewArtistShow"];
             slug?: string;
         };
         SceneNewArtistShow: {

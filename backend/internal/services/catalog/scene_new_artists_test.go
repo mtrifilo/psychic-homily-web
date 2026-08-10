@@ -27,6 +27,39 @@ func (suite *SceneServiceIntegrationTestSuite) createArtistListedAt(name string,
 	return artist
 }
 
+// createPendingShow seeds an unreviewed submission — the status the show pick
+// must never surface.
+func (suite *SceneServiceIntegrationTestSuite) createPendingShow(title string, venueID, artistID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:       title,
+		EventDate:   eventDate,
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusPending,
+		SubmittedBy: &userID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error)
+	return show
+}
+
+// createVenuelessApprovedShow seeds an approved show with NO show_venues row —
+// a booking announced before the room is settled.
+func (suite *SceneServiceIntegrationTestSuite) createVenuelessApprovedShow(title string, artistID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:       title,
+		EventDate:   eventDate,
+		City:        stringPtr("Phoenix"),
+		State:       stringPtr("AZ"),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &userID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error)
+	return show
+}
+
 // The definition pin. Two definitions of "new to the scene" exist and they
 // disagree; PSY-1781 chose the DIGEST one (catalog row created in the window)
 // over the PULSE one (MIN(event_date) of the band's approved shows in the
@@ -94,6 +127,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNe
 	suite.createApprovedShow("past", nile.ID, upcoming.ID, user.ID, now.AddDate(0, 0, -4))
 	nextShow := suite.createApprovedShow("next", rebel.ID, upcoming.ID, user.ID, now.AddDate(0, 0, 10))
 	suite.createApprovedShow("later", rebel.ID, upcoming.ID, user.ID, now.AddDate(0, 0, 40))
+	// A second room on the same bill: the display venue is the alphabetically
+	// first one, so this must flip the reported name off The Rebel Lounge.
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: nextShow.ID, VenueID: nile.ID}).Error)
+	// An UNAPPROVED show sooner than the real one — a dropped status filter
+	// would surface a submission nobody has reviewed.
+	suite.createPendingShow("unreviewed", rebel.ID, upcoming.ID, user.ID, now.AddDate(0, 0, 2))
 
 	pastOnly := suite.createArtistListedAt("Played Already", now.AddDate(0, 0, -2))
 	suite.createApprovedShow("older", nile.ID, pastOnly.ID, user.ID, now.AddDate(0, 0, -20))
@@ -101,9 +140,14 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNe
 
 	suite.createArtistListedAt("Not Booked Yet", now.AddDate(0, 0, -3))
 
+	// A booking with no room attached yet: the venue joins must stay LEFT, or
+	// the whole show vanishes rather than just its venue name.
+	venueless := suite.createArtistListedAt("Venue TBA", now.AddDate(0, 0, -4))
+	tba := suite.createVenuelessApprovedShow("tba", venueless.ID, user.ID, now.AddDate(0, 0, 12))
+
 	rows, _, err := suite.sceneService.GetSceneNewArtists("Phoenix", "AZ", since, now, 10)
 	suite.Require().NoError(err)
-	suite.Require().Len(rows, 3)
+	suite.Require().Len(rows, 4)
 
 	byName := map[string]int{}
 	for i, r := range rows {
@@ -112,10 +156,12 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNe
 
 	withUpcoming := rows[byName["Has Upcoming"]]
 	suite.Require().NotNil(withUpcoming.Show)
-	suite.Equal(nextShow.ID, withUpcoming.Show.ID, "the SOONEST upcoming show, not the later one")
+	suite.Equal(nextShow.ID, withUpcoming.Show.ID, "the SOONEST APPROVED upcoming show, not the later or the pending one")
 	suite.True(withUpcoming.Show.IsUpcoming)
-	suite.Equal("The Rebel Lounge", withUpcoming.Show.VenueName)
+	suite.Equal("Nile Theater", withUpcoming.Show.VenueName, "a multi-room bill reports its alphabetically first venue")
 	suite.Equal(now.AddDate(0, 0, 10).Format("2006-01-02"), withUpcoming.Show.EventDate)
+	suite.WithinDuration(now.AddDate(0, 0, 10), withUpcoming.Show.StartsAt, time.Second,
+		"starts_at is the absolute instant, since event_date cannot be parsed back into one")
 
 	withPast := rows[byName["Played Already"]]
 	suite.Require().NotNil(withPast.Show)
@@ -124,6 +170,11 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNe
 	suite.Equal("Nile Theater", withPast.Show.VenueName)
 
 	suite.Nil(rows[byName["Not Booked Yet"]].Show, "a band with no approved show carries no show")
+
+	withoutVenue := rows[byName["Venue TBA"]]
+	suite.Require().NotNil(withoutVenue.Show, "a venueless show still attaches — the venue joins are LEFT")
+	suite.Equal(tba.ID, withoutVenue.Show.ID)
+	suite.Empty(withoutVenue.Show.VenueName)
 }
 
 // A cancelled show is not an answer to "where can I see this band", in either
@@ -136,7 +187,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_SkipsCance
 	now := time.Now().UTC()
 
 	band := suite.createArtistListedAt("Cancelled Tour", now.AddDate(0, 0, -1))
-	real := suite.createApprovedShow("played", nile.ID, band.ID, user.ID, now.AddDate(0, 0, -6))
+	played := suite.createApprovedShow("played", nile.ID, band.ID, user.ID, now.AddDate(0, 0, -6))
 	cancelled := suite.createApprovedShow("called off", rebel.ID, band.ID, user.ID, now.AddDate(0, 0, 5))
 	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
 
@@ -155,7 +206,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_SkipsCance
 
 	fellBack := rows[byName["Cancelled Tour"]]
 	suite.Require().NotNil(fellBack.Show)
-	suite.Equal(real.ID, fellBack.Show.ID, "the cancelled upcoming show must not outrank a real past one")
+	suite.Equal(played.ID, fellBack.Show.ID, "the cancelled upcoming show must not outrank a real past one")
 	suite.False(fellBack.Show.IsUpcoming)
 
 	suite.Nil(rows[byName["Nothing Left"]].Show, "a band whose only show is cancelled carries no show")

@@ -1386,11 +1386,16 @@ type SceneNewArtistShow struct {
 	// EventDate is the calendar date at the VENUE (its own zone, UTC when
 	// unknown). StartsAt is the same show as an absolute instant — EventDate
 	// cannot be parsed back into one (see SceneShowSummary).
-	EventDate  string    `json:"event_date"`
-	StartsAt   time.Time `json:"starts_at"`
-	VenueName  string    `json:"venue_name,omitempty"`
-	VenueSlug  string    `json:"venue_slug,omitempty"`
-	IsUpcoming bool      `json:"is_upcoming"`
+	EventDate string    `json:"event_date"`
+	StartsAt  time.Time `json:"starts_at"`
+	VenueName string    `json:"venue_name,omitempty"`
+	VenueSlug string    `json:"venue_slug,omitempty"`
+	// IsUpcoming compares EventDate against today ON THE VENUE'S OWN CALENDAR,
+	// so a show graduates to past at venue-local midnight rather than at its
+	// start instant — the site-wide listing boundary (shared.VenueLocalTodaySQL).
+	// A show in progress therefore still reads as upcoming, and the flag can
+	// never contradict the EventDate printed beside it.
+	IsUpcoming bool `json:"is_upcoming"`
 }
 
 // SceneNewArtistRow is one row of the scene page's named new-bands module
@@ -1399,9 +1404,13 @@ type SceneNewArtistShow struct {
 // rows come from GetSceneNewArtistsSince and are only enriched here.
 type SceneNewArtistRow struct {
 	SceneNewArtist
-	// Show is nil when the band has no approved show at all — a real state for
-	// a band added by an enrichment pass before its first booking lands.
-	Show *SceneNewArtistShow `json:"show"`
+	// Show is absent when the band has no approved show at all — a real state
+	// for a band added by an enrichment pass before its first booking lands.
+	// `omitempty` is load-bearing: without it huma publishes the field as
+	// REQUIRED and non-nullable while the wire sends `null`, and the generated
+	// client type would promise an object that isn't there (the same shape
+	// SceneVenueSummary.NextShow and ArtistGraphCardResponse.NextShow use).
+	Show *SceneNewArtistShow `json:"show,omitempty"`
 }
 
 // SceneDetailResponse represents the full computed scene for a metro (or a

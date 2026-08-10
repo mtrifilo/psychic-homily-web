@@ -141,6 +141,9 @@ func TestGetSceneNewArtists_UnknownSlugIsNotFound(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
+// Wiring only: the service behind this endpoint has no venue-count gate, so it
+// does not raise SceneError today. This pins that the mapper is in the path, so
+// a future gate cannot arrive as an accidental 500.
 func TestGetSceneNewArtists_SceneNotFoundFromServiceIsNotFound(t *testing.T) {
 	mock := newArtistsMock(func(string, string, time.Time, time.Time, int) ([]contracts.SceneNewArtistRow, int, error) {
 		return nil, 0, apperrors.ErrSceneNotFound("scene not found: Phoenix, AZ")

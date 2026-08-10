@@ -43,9 +43,14 @@ type GetSceneNewArtistsResponse struct {
 // pulse's first-approved-show-in-30-days so the rendered date ("first listed
 // Aug 10") states the same fact the window selected on.
 //
-// An unknown scene slug is a 404. A KNOWN scene with no new bands is a 200 with
-// an empty list: the module hides itself client-side, and a 404 here would take
-// the whole scene page down with it.
+// A slug that does not PARSE is a 404. A parseable slug with no new bands is a
+// 200 with an empty list: the module hides itself client-side, and a 404 here
+// would take the whole scene page down with it.
+//
+// Note this is deliberately MORE permissive than GET /scenes/{slug}: it inherits
+// GetSceneNewArtistsSince's lack of a venue-count gate, so a place that parses
+// but has not yet cleared the scene threshold answers 200 with `[]` here while
+// the detail route answers 404.
 func (h *SceneHandler) GetSceneNewArtistsHandler(ctx context.Context, req *GetSceneNewArtistsRequest) (*GetSceneNewArtistsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {
