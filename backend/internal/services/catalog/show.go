@@ -370,54 +370,98 @@ func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error
 	return resp, nil
 }
 
-// GetShows retrieves shows with optional filtering
-func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.ShowResponse, error) {
+// GetShows returns one page of approved shows matching filters, plus the
+// filter-aware total across all pages.
+//
+// The page window is what makes this method affordable. Unbounded it loaded
+// every approved show ever recorded (past included, since nothing here
+// imposes a date floor), and then ran buildShowResponse over the whole result,
+// which costs two queries per show. Measured against production 2026-08-08
+// that was 10,161,875 bytes and ~1+2N round trips for a single anonymous
+// request, and it grew with every show added (PSY-1748).
+func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Preload("Venues").Preload("Artists").
-		Where("status = ?", catalogm.ShowStatusApproved)
+	// A factory rather than one *gorm.DB shared by both reads: the count and
+	// the page have to apply exactly the same predicates, and reusing a single
+	// builder would carry the first call's clauses into the second. Same shape
+	// as the artist and venue show lists for the same reason.
+	//
+	// No Preload here. Count ignores them, and the page adds its own below, so
+	// hanging them on the base would make the count's plan look like it needed
+	// associations it never reads.
+	baseQuery := func() *gorm.DB {
+		query := s.db.Model(&catalogm.Show{}).
+			Where("status = ?", catalogm.ShowStatusApproved)
 
-	// Apply filters
-	if city, ok := filters["city"].(string); ok && city != "" {
-		query = query.Where("city = ?", city)
-	}
-	if state, ok := filters["state"].(string); ok && state != "" {
-		query = query.Where("state = ?", state)
-	}
-	// Timezone note (PSY-987): from_date/to_date are matched against the stored
-	// UTC event_date verbatim — this endpoint does NOT reinterpret a bare
-	// calendar date into a venue-local day window. Callers that want a
-	// "venue-local calendar day" window must convert the boundaries to UTC
-	// themselves before calling, the way the ph CLI's showDedupWindow does
-	// (PSY-999): a date-only show is stored at 20:00 venue-local -> UTC, which
-	// lands on the next UTC day for US zones, so a naive midnight-UTC window
-	// would miss it.
-	if fromDate, ok := filters["from_date"].(time.Time); ok {
-		query = query.Where("event_date >= ?", fromDate.UTC())
-	}
-	if toDate, ok := filters["to_date"].(time.Time); ok {
-		query = query.Where("event_date <= ?", toDate.UTC())
-	}
-	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		// PSY-499: Shows are not directly tagged with genre/locale tags — they
-		// inherit meaning from the billed artists. Filter shows whose lineup
-		// includes artists matching the tag filter.
-		query = ApplyTransitiveArtistTagFilter(
-			query, s.db,
-			"show_artists", "show_id", "artist_id",
-			"shows.id", tf,
-		)
+		// Apply filters
+		if city, ok := filters["city"].(string); ok && city != "" {
+			query = query.Where("city = ?", city)
+		}
+		if state, ok := filters["state"].(string); ok && state != "" {
+			query = query.Where("state = ?", state)
+		}
+		// Timezone note (PSY-987): from_date/to_date are matched against the stored
+		// UTC event_date verbatim — this endpoint does NOT reinterpret a bare
+		// calendar date into a venue-local day window. Callers that want a
+		// "venue-local calendar day" window must convert the boundaries to UTC
+		// themselves before calling, the way the ph CLI's showDedupWindow does
+		// (PSY-999): a date-only show is stored at 20:00 venue-local -> UTC, which
+		// lands on the next UTC day for US zones, so a naive midnight-UTC window
+		// would miss it.
+		if fromDate, ok := filters["from_date"].(time.Time); ok {
+			query = query.Where("event_date >= ?", fromDate.UTC())
+		}
+		if toDate, ok := filters["to_date"].(time.Time); ok {
+			query = query.Where("event_date <= ?", toDate.UTC())
+		}
+		if tf, ok := filters["tag_filter"].(TagFilter); ok {
+			// PSY-499: Shows are not directly tagged with genre/locale tags — they
+			// inherit meaning from the billed artists. Filter shows whose lineup
+			// includes artists matching the tag filter.
+			//
+			// A subquery on shows.id, not a join, so the outer statement stays a
+			// plain scan over shows: nothing below needs to disambiguate a column
+			// name, and the count cannot double-count a show with two matching
+			// artists.
+			query = ApplyTransitiveArtistTagFilter(
+				query, s.db,
+				"show_artists", "show_id", "artist_id",
+				"shows.id", tf,
+			)
+		}
+		return query
 	}
 
-	// Default ordering by event date
-	query = query.Order("event_date ASC")
+	var total int64
+	if err := baseQuery().Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count shows: %w", err)
+	}
 
+	limit, offset := clampPageWindow(page.Limit, page.Offset)
+
+	// `shows.id ASC` is not decoration: event_date alone is not unique, and
+	// under OFFSET paging an implementation-defined order among tied rows lets
+	// one show appear on two pages while another appears on none. It makes
+	// paging safe against TIES only, not against the clock, since a show
+	// created or approved between two page requests still shifts the rows after
+	// it. The artist and venue lists carry the same tiebreak and the same
+	// caveat; closing the second one needs a keyset cursor, which is what
+	// /shows/upcoming uses.
+	//
+	// Columns are table-qualified because the tag filter's subquery references
+	// show_artists, and an unqualified event_date would read ambiguously to
+	// anyone extending that filter into a join later.
 	var shows []catalogm.Show
-	err := query.Find(&shows).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to get shows: %w", err)
+	if err := baseQuery().
+		Preload("Venues").Preload("Artists").
+		Order("shows.event_date ASC, shows.id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&shows).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get shows: %w", err)
 	}
 
 	// Build responses
@@ -426,7 +470,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.Sho
 		responses[i] = s.buildShowResponse(&show)
 	}
 
-	return responses, nil
+	return responses, total, nil
 }
 
 // GetUserSubmissions returns all shows submitted by a specific user

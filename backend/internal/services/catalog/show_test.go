@@ -1889,10 +1889,14 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByCity() {
 	_, err = suite.showService.CreateShow(req2)
 	suite.Require().NoError(err)
 
-	resp, err := suite.showService.GetShows(map[string]interface{}{"city": "Phoenix"})
+	resp, total, err := suite.showService.GetShows(
+		map[string]interface{}{"city": "Phoenix"},
+		contracts.ShowsQuery{Limit: 50},
+	)
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
+	suite.Equal(int64(1), total)
 	suite.Equal("Phoenix Show", resp[0].Title)
 }
 
@@ -1920,14 +1924,105 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShows_FilterByDateRange() {
 		suite.Require().NoError(err)
 	}
 
-	resp, err := suite.showService.GetShows(map[string]interface{}{
+	resp, total, err := suite.showService.GetShows(map[string]interface{}{
 		"from_date": time.Date(2026, 12, 6, 0, 0, 0, 0, time.UTC),
 		"to_date":   time.Date(2026, 12, 15, 0, 0, 0, 0, time.UTC),
-	})
+	}, contracts.ShowsQuery{Limit: 50})
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
+	suite.Equal(int64(1), total)
 	suite.Equal("Date Show 1", resp[0].Title)
+}
+
+// A negative page window must not reopen the unbounded read PSY-1748 closed.
+//
+// This is the guard that matters most here, because GORM's two failure modes
+// differ: a negative OFFSET produces `OFFSET -1` and Postgres rejects the
+// statement, which is loud; a negative LIMIT silently CANCELS the limit clause
+// and hands back the entire approved catalog hydrated with every bill, a 200
+// indistinguishable from a working response. The huma `minimum:` tags only
+// cover the HTTP path, so the clamp lives in the service and is pinned here.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShows_NegativePageWindowIsClamped() {
+	user := suite.createTestUser()
+
+	for i := 0; i < 3; i++ {
+		req := &contracts.CreateShowRequest{
+			Title:             fmt.Sprintf("Clamp Show %d", i),
+			EventDate:         time.Date(2026, 12, 1+i, 20, 0, 0, 0, time.UTC),
+			City:              "Phoenix",
+			State:             "AZ",
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Clamp Venue %d", i), City: "Phoenix", State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Clamp Artist %d", i), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		_, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+	}
+
+	// Negative limit: clamped to 0 (no rows), NOT passed through as "unlimited".
+	resp, total, err := suite.showService.GetShows(
+		map[string]interface{}{},
+		contracts.ShowsQuery{Limit: -1},
+	)
+	suite.Require().NoError(err)
+	suite.Empty(resp, "a negative limit must not return the whole table")
+	suite.Equal(int64(3), total, "clamping the window must not change the reported total")
+
+	// Negative offset: clamped to 0 rather than reaching Postgres as OFFSET -1.
+	resp, total, err = suite.showService.GetShows(
+		map[string]interface{}{},
+		contracts.ShowsQuery{Limit: 2, Offset: -5},
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+	suite.Equal("Clamp Show 0", resp[0].Title)
+	suite.Equal(int64(3), total)
+}
+
+// The page window bounds the rows while the total keeps describing the whole
+// matching set, so a caller can page a filtered list.
+func (suite *ShowServiceIntegrationTestSuite) TestGetShows_PagesWithFilterAwareTotal() {
+	user := suite.createTestUser()
+
+	for i := 0; i < 4; i++ {
+		city := "Phoenix"
+		if i == 3 {
+			city = "Tucson"
+		}
+		req := &contracts.CreateShowRequest{
+			Title:             fmt.Sprintf("Page Show %d", i),
+			EventDate:         time.Date(2026, 11, 1+i, 20, 0, 0, 0, time.UTC),
+			City:              city,
+			State:             "AZ",
+			Venues:            []contracts.CreateShowVenue{{Name: fmt.Sprintf("Page Venue %d", i), City: city, State: "AZ"}},
+			Artists:           []contracts.CreateShowArtist{{Name: fmt.Sprintf("Page Artist %d", i), IsHeadliner: boolPtr(true)}},
+			SubmittedByUserID: &user.ID,
+			SubmitterIsAdmin:  true,
+		}
+		_, err := suite.showService.CreateShow(req)
+		suite.Require().NoError(err)
+	}
+
+	first, total, err := suite.showService.GetShows(
+		map[string]interface{}{"city": "Phoenix"},
+		contracts.ShowsQuery{Limit: 2},
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(first, 2)
+	suite.Equal(int64(3), total, "total counts the filtered set, not the page and not the table")
+	suite.Equal("Page Show 0", first[0].Title)
+	suite.Equal("Page Show 1", first[1].Title)
+
+	second, total, err := suite.showService.GetShows(
+		map[string]interface{}{"city": "Phoenix"},
+		contracts.ShowsQuery{Limit: 2, Offset: 2},
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(second, 1)
+	suite.Equal(int64(3), total)
+	suite.Equal("Page Show 2", second[0].Title)
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestGetUserSubmissions_Success() {

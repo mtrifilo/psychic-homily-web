@@ -273,11 +273,14 @@ func (s *TagFilterIntegrationTestSuite) TestShows_GetShows_AND_Transitive() {
 	s.tag("artist", aPhx, "phoenix")
 	s.tag("artist", aPPOnly, "post-punk")
 
-	resp, err := s.showService.GetShows(map[string]interface{}{
+	resp, total, err := s.showService.GetShows(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"post-punk", "phoenix"}},
-	})
+	}, contracts.ShowsQuery{Limit: 50})
 	s.Require().NoError(err)
 	s.Require().Len(resp, 1)
+	// The tag filter is a subquery, so a show whose lineup matches on two
+	// artists is counted once.
+	s.Equal(int64(1), total)
 	s.Equal("A", resp[0].Title)
 }
 

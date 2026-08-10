@@ -197,7 +197,8 @@ func (s *ShowHandlerIntegrationSuite) TestGetShows_Success() {
 	resp, err := s.handler.GetShowsHandler(context.Background(), req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.GreaterOrEqual(len(resp.Body), 2)
+	s.GreaterOrEqual(len(resp.Body.Shows), 2)
+	s.GreaterOrEqual(resp.Body.Total, int64(2))
 }
 
 func (s *ShowHandlerIntegrationSuite) TestGetShows_Empty() {
@@ -205,7 +206,83 @@ func (s *ShowHandlerIntegrationSuite) TestGetShows_Empty() {
 	resp, err := s.handler.GetShowsHandler(context.Background(), req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Empty(resp.Body)
+	s.Empty(resp.Body.Shows)
+	s.Equal(int64(0), resp.Body.Total)
+}
+
+// The point of PSY-1748: a caller that sends no limit gets a bounded page, not
+// the whole approved table. Seeded past the default so "everything" and "one
+// page" are distinguishable.
+func (s *ShowHandlerIntegrationSuite) TestGetShows_OmittedLimitIsBounded() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	const seeded = defaultShowsLimit + 5
+	for i := 0; i < seeded; i++ {
+		testhelpers.CreateApprovedShow(s.deps.DB, user.ID, fmt.Sprintf("Bounded Show %02d", i))
+	}
+
+	resp, err := s.handler.GetShowsHandler(context.Background(), &GetShowsRequest{})
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Len(resp.Body.Shows, defaultShowsLimit, "an omitted limit must not mean 'all rows'")
+	s.Equal(defaultShowsLimit, resp.Body.Limit)
+	// The total still describes the whole matching set, so the caller can tell
+	// there is more without having asked for it.
+	s.GreaterOrEqual(resp.Body.Total, int64(seeded))
+}
+
+// Offset walks the ordered list without repeating or dropping a row.
+//
+// Every seeded show is forced onto the SAME event_date, because that is the
+// case offset paging gets wrong without a tiebreak: ordering by event_date
+// alone leaves the order among tied rows implementation-defined, and Postgres
+// is free to answer two OFFSET windows inconsistently, showing one row twice
+// and another never. `shows.id ASC` is what closes it. Left to
+// CreateApprovedShow's own `time.Now()` the dates would differ by microseconds
+// and the test would pass with or without the fix.
+func (s *ShowHandlerIntegrationSuite) TestGetShows_OffsetPagesWithoutOverlap() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	const seeded = 7
+	for i := 0; i < seeded; i++ {
+		testhelpers.CreateApprovedShow(s.deps.DB, user.ID, fmt.Sprintf("Paged Show %02d", i))
+	}
+	tied := time.Now().UTC().AddDate(0, 0, 7).Truncate(time.Hour)
+	s.Require().NoError(
+		s.deps.DB.Model(&catalogm.Show{}).
+			Where("title LIKE ?", "Paged Show%").
+			Update("event_date", tied).Error,
+	)
+
+	seen := make(map[uint]bool)
+	for offset := 0; offset < seeded; offset += 3 {
+		resp, err := s.handler.GetShowsHandler(context.Background(), &GetShowsRequest{
+			Limit:  3,
+			Offset: offset,
+		})
+		s.Require().NoError(err)
+		s.Equal(int64(seeded), resp.Body.Total)
+		for _, show := range resp.Body.Shows {
+			s.False(seen[show.ID], "show %d returned on two pages", show.ID)
+			seen[show.ID] = true
+		}
+	}
+	s.Len(seen, seeded, "offset paging must reach every row exactly once")
+}
+
+// An offset past the end is an ordinary request under offset paging, not an
+// error: empty page, real total.
+func (s *ShowHandlerIntegrationSuite) TestGetShows_OffsetPastEndIsEmptyNotError() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Only Show")
+
+	resp, err := s.handler.GetShowsHandler(context.Background(), &GetShowsRequest{
+		Limit:  10,
+		Offset: 5000,
+	})
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.NotNil(resp.Body.Shows, "an empty page must serialize as [] rather than null")
+	s.Empty(resp.Body.Shows)
+	s.Equal(int64(1), resp.Body.Total)
 }
 
 // --- GetUpcomingShowsHandler ---

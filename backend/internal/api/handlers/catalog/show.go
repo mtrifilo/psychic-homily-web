@@ -307,10 +307,29 @@ type GetShowResponse struct {
 	Body contracts.ShowResponse `json:"body"`
 }
 
+// defaultShowsLimit is the page size GET /shows serves when a caller sends no
+// limit.
+//
+// 50 rather than the 20 the per-entity show lists default to, because those two
+// numbers are sized by different things. An artist's or a venue's archive is
+// sized by the UI page that renders it, twenty rows to a screen. /shows has no
+// reader-facing page at all (the site's own /shows route is served by
+// /shows/upcoming), so what is left to be consistent with is the other
+// catalog-wide show list on this path, which has defaulted to 50 since it was
+// written. A client moving between /shows and /shows/upcoming gets one page
+// size, and the shared ceiling of 200 is the same on all four endpoints.
+const defaultShowsLimit = 50
+
 // GetShowsRequest represents the HTTP request for listing shows
 type GetShowsRequest struct {
-	City     string    `query:"city" doc:"Filter by city"`
-	State    string    `query:"state" doc:"Filter by state"`
+	City  string `query:"city" doc:"Filter by city"`
+	State string `query:"state" doc:"Filter by state"`
+	// Bounded rather than open, and bounded at the same ceiling as the artist,
+	// venue and upcoming show lists so the four agree on what a big page is.
+	// Below the floor is a 422 naming the field rather than an empty page the
+	// caller has to diagnose.
+	Limit    int       `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Maximum number of shows to return (max 200). Defaults to 50."`
+	Offset   int       `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	FromDate time.Time `query:"from_date" doc:"Filter shows from this date"`
 	ToDate   time.Time `query:"to_date" doc:"Filter shows until this date"`
 	Tags     string    `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
@@ -334,9 +353,22 @@ type SearchShowsResponse struct {
 	}
 }
 
-// GetShowsResponse represents the HTTP response for listing shows
+// GetShowsResponse represents the HTTP response for listing shows.
+//
+// An object rather than the bare array this endpoint used to return. The array
+// was only honest while the response was the whole table: once a caller gets a
+// page, it needs to know how much it did not get, and the four fields below are
+// the same ones the artist and venue show lists report. This is a BREAKING
+// response-shape change, taken deliberately. Nothing in this repo reads it
+// (the site's /shows route is served by /shows/upcoming), and a bounded array
+// with no total would be strictly harder to page than either sibling.
 type GetShowsResponse struct {
-	Body []*contracts.ShowResponse `json:"body"`
+	Body struct {
+		Shows  []*contracts.ShowResponse `json:"shows" doc:"Page of approved shows matching the filters"`
+		Total  int64                     `json:"total" doc:"Total shows matching the filters, across all pages"`
+		Limit  int                       `json:"limit" doc:"Limit used in query"`
+		Offset int                       `json:"offset" doc:"Offset used in query"`
+	}
 }
 
 // GetUpcomingShowsRequest represents the HTTP request for listing upcoming shows
@@ -658,9 +690,26 @@ func (h *ShowHandler) SearchShowsHandler(ctx context.Context, req *SearchShowsRe
 	return resp, nil
 }
 
-// GetShowsHandler handles GET /shows
+// GetShowsHandler handles GET /shows - returns a page of approved shows.
+//
+// The limit is not optional in effect: an omitted one takes defaultShowsLimit
+// rather than meaning "all". That is the whole point of PSY-1748: before it,
+// a bare GET /shows serialized the entire approved catalog, 10 MB and counting,
+// to any anonymous caller.
 func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest) (*GetShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
+
+	// Huma applies the `default:"50"` tag for an ABSENT parameter, so this only
+	// fires for a caller that reaches the handler with a zero limit some other
+	// way, such as a direct handler call in a test or a future non-HTTP caller. It is
+	// here rather than left implicit because zero means "no rows" to the
+	// service, and inheriting that as the endpoint's default would turn the fix
+	// for an oversized response into an always-empty one. Matches the artist and
+	// venue handlers.
+	limit := req.Limit
+	if limit == 0 {
+		limit = defaultShowsLimit
+	}
 
 	// Build filters
 	filters := make(map[string]interface{})
@@ -682,10 +731,15 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 
 	logger.FromContext(ctx).Debug("shows_list_attempt",
 		"filter_count", len(filters),
+		"limit", limit,
+		"offset", req.Offset,
 	)
 
 	// Get shows using service
-	shows, err := h.showService.GetShows(filters)
+	shows, total, err := h.showService.GetShows(filters, contracts.ShowsQuery{
+		Limit:  limit,
+		Offset: req.Offset,
+	})
 	if err != nil {
 		logger.FromContext(ctx).Error("shows_list_failed",
 			"error", err.Error(),
@@ -698,9 +752,21 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 
 	logger.FromContext(ctx).Debug("shows_list_success",
 		"count", len(shows),
+		"total", total,
 	)
 
-	return &GetShowsResponse{Body: shows}, nil
+	resp := &GetShowsResponse{}
+	// Never nil: a nil slice marshals to `null`, and a client that pages until
+	// the array is empty would have to special-case it.
+	resp.Body.Shows = shows
+	if resp.Body.Shows == nil {
+		resp.Body.Shows = []*contracts.ShowResponse{}
+	}
+	resp.Body.Total = total
+	resp.Body.Limit = limit
+	resp.Body.Offset = req.Offset
+
+	return resp, nil
 }
 
 // GetShowCitiesHandler handles GET /shows/cities

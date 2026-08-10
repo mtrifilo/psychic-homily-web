@@ -1795,12 +1795,40 @@ type VenueBillNetworkLink struct {
 // Show Service Interfaces
 // ──────────────────────────────────────────────
 
+// ShowsQuery carries the page window for the catalog-wide show list behind
+// GET /shows. The per-entity twins are ArtistShowsQuery and VenueShowsQuery;
+// this one has no TimeFilter or Year because /shows scopes with from_date and
+// to_date instead, which are strictly more expressive and already shipped.
+//
+// A struct rather than two positional ints for the same reason its twins are
+// structs: Limit and Offset are both ints, so a transposed pair at a call site
+// compiles cleanly and silently pages the wrong window.
+type ShowsQuery struct {
+	// Limit caps the page. Zero returns no rows while still reporting the full
+	// total, matching the twins. Negative is clamped to zero rather than
+	// handed to GORM, which reads a negative limit as "no limit at all" and
+	// would serialize the entire approved catalog, the 10 MB response this
+	// window exists to make impossible (PSY-1748).
+	Limit int
+	// Offset skips this many rows of the ordered page. Negative is clamped to
+	// 0; GORM emits `OFFSET -1` verbatim and Postgres rejects the statement.
+	Offset int
+}
+
 // ShowServiceInterface defines the contract for core show CRUD and search operations.
 type ShowServiceInterface interface {
 	CreateShow(req *CreateShowRequest) (*ShowResponse, error)
 	GetShow(showID uint) (*ShowResponse, error)
 	GetShowBySlug(slug string) (*ShowResponse, error)
-	GetShows(filters map[string]interface{}) ([]*ShowResponse, error)
+	// GetShows returns ONE PAGE of approved shows matching filters, plus the
+	// filter-aware total across all pages.
+	//
+	// The page window is mandatory rather than optional. Before PSY-1748 this
+	// method had no bound at all: it loaded every approved show ever, past
+	// included, and ran buildShowResponse (two queries per show) over the lot:
+	// 10,161,875 bytes and ~1+2N queries per request, measured against
+	// production 2026-08-08, growing monotonically with the catalog.
+	GetShows(filters map[string]interface{}, page ShowsQuery) ([]*ShowResponse, int64, error)
 	GetUserSubmissions(userID uint, limit, offset int) ([]ShowResponse, int, error)
 	UpdateShow(showID uint, req *UpdateShowRequest) (*ShowResponse, error)
 	UpdateShowWithRelations(showID uint, req *UpdateShowRequest, venues []CreateShowVenue, artists []CreateShowArtist, isAdmin bool) (*ShowResponse, []OrphanedArtist, error)

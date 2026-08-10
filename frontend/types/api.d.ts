@@ -5745,8 +5745,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List shows */
-        get: operations["list-shows"];
+        /** Get shows */
+        get: operations["get-shows"];
         put?: never;
         /** Post shows */
         post: operations["post-shows"];
@@ -12126,6 +12126,31 @@ export interface components {
              */
             readonly $schema?: string;
             cities: components["schemas"]["ShowCityResponse"][] | null;
+        };
+        GetShowsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetShowsResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Limit used in query
+             */
+            limit: number;
+            /**
+             * Format: int64
+             * @description Offset used in query
+             */
+            offset: number;
+            /** @description Page of approved shows matching the filters */
+            shows: components["schemas"]["ShowResponse"][] | null;
+            /**
+             * Format: int64
+             * @description Total shows matching the filters, across all pages
+             */
+            total: number;
         };
         GetSimilarFestivalsResponseBody: {
             /**
@@ -31548,13 +31573,17 @@ export interface operations {
             };
         };
     };
-    "list-shows": {
+    "get-shows": {
         parameters: {
             query?: {
                 /** @description Filter by city */
                 city?: string;
                 /** @description Filter by state */
                 state?: string;
+                /** @description Maximum number of shows to return (max 200). Defaults to 50. */
+                limit?: number;
+                /** @description Offset for pagination */
+                offset?: number;
                 /** @description Filter shows from this date */
                 from_date?: string;
                 /** @description Filter shows until this date */
@@ -31582,7 +31611,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ShowResponse"][] | null;
+                    "application/json": components["schemas"]["GetShowsResponseBody"];
                 };
             };
             /** @description Error */

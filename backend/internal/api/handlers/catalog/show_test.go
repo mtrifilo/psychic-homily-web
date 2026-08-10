@@ -421,8 +421,47 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 
 func TestGetShowsHandler_Success(t *testing.T) {
 	mock := &testhelpers.MockShowService{
-		GetShowsFn: func(filters map[string]interface{}) ([]*contracts.ShowResponse, error) {
-			return []*contracts.ShowResponse{{ID: 1}, {ID: 2}}, nil
+		GetShowsFn: func(filters map[string]interface{}, _ contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
+			return []*contracts.ShowResponse{{ID: 1}, {ID: 2}}, 2, nil
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+
+	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{Limit: 50})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Shows) != 2 {
+		t.Errorf("expected 2 shows, got %d", len(resp.Body.Shows))
+	}
+	if resp.Body.Total != 2 {
+		t.Errorf("expected total 2, got %d", resp.Body.Total)
+	}
+}
+
+func TestGetShowsHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockShowService{
+		GetShowsFn: func(_ map[string]interface{}, _ contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
+			return nil, 0, fmt.Errorf("db error")
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+
+	_, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// A zero limit reaching the handler must become the endpoint's default, not be
+// passed through as "no rows". Huma supplies `default:"50"` for an absent HTTP
+// parameter, so this pins the guard that covers every other route into the
+// handler: the one that stops the fix for a 10 MB response from turning into
+// an always-empty one (PSY-1748).
+func TestGetShowsHandler_ZeroLimitTakesDefault(t *testing.T) {
+	var got contracts.ShowsQuery
+	mock := &testhelpers.MockShowService{
+		GetShowsFn: func(_ map[string]interface{}, page contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
+			got = page
+			return []*contracts.ShowResponse{}, 0, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
@@ -431,21 +470,66 @@ func TestGetShowsHandler_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(resp.Body) != 2 {
-		t.Errorf("expected 2 shows, got %d", len(resp.Body))
+	if got.Limit != defaultShowsLimit {
+		t.Errorf("expected service to receive limit %d, got %d", defaultShowsLimit, got.Limit)
+	}
+	if resp.Body.Limit != defaultShowsLimit {
+		t.Errorf("expected response to echo limit %d, got %d", defaultShowsLimit, resp.Body.Limit)
 	}
 }
 
-func TestGetShowsHandler_ServiceError(t *testing.T) {
+// The page window reaches the service verbatim and is echoed back, so a caller
+// can page without restating what it asked for.
+func TestGetShowsHandler_PassesAndEchoesPageWindow(t *testing.T) {
+	var got contracts.ShowsQuery
 	mock := &testhelpers.MockShowService{
-		GetShowsFn: func(_ map[string]interface{}) ([]*contracts.ShowResponse, error) {
-			return nil, fmt.Errorf("db error")
+		GetShowsFn: func(_ map[string]interface{}, page contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
+			got = page
+			return []*contracts.ShowResponse{{ID: 7}}, 931, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
-	_, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
-	testhelpers.AssertHumaError(t, err, 500)
+	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{Limit: 25, Offset: 100})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Limit != 25 || got.Offset != 100 {
+		t.Errorf("expected service to receive {25,100}, got {%d,%d}", got.Limit, got.Offset)
+	}
+	if resp.Body.Limit != 25 || resp.Body.Offset != 100 {
+		t.Errorf("expected echo {25,100}, got {%d,%d}", resp.Body.Limit, resp.Body.Offset)
+	}
+	if resp.Body.Total != 931 {
+		t.Errorf("expected total 931, got %d", resp.Body.Total)
+	}
+}
+
+// An empty page must serialize as `[]`, not `null`: a client paging until the
+// array runs out should not have to special-case a nil slice.
+func TestGetShowsHandler_EmptyPageIsNotNull(t *testing.T) {
+	mock := &testhelpers.MockShowService{
+		GetShowsFn: func(_ map[string]interface{}, _ contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
+			return nil, 931, nil
+		},
+	}
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+
+	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{Limit: 50, Offset: 100000})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Shows == nil {
+		t.Fatal("expected an empty slice, got nil")
+	}
+	if len(resp.Body.Shows) != 0 {
+		t.Errorf("expected 0 shows, got %d", len(resp.Body.Shows))
+	}
+	// The total describes the whole matching set, not the page, so an overrun
+	// offset still tells the caller how far it overran.
+	if resp.Body.Total != 931 {
+		t.Errorf("expected total 931, got %d", resp.Body.Total)
+	}
 }
 
 // ============================================================================
