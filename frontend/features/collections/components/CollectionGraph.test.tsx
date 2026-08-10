@@ -205,4 +205,52 @@ describe('CollectionGraph (PSY-1446 states)', () => {
       screen.getByRole('link', { name: /Browse the collection/i }),
     ).toHaveAttribute('href', '#items')
   })
+
+  // ------------------------------------------------------------------
+  // PSY-1777: the viewport gate must precede the fetch, not follow it.
+  // ------------------------------------------------------------------
+  describe('viewport-gated fetching (PSY-1777)', () => {
+    it('DISABLES the collection-graph query below the 640px breakpoint', async () => {
+      ro.setWidth(390)
+      const hooks = await import('../hooks')
+      vi.mocked(hooks.useCollectionGraph).mockImplementation(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => ({ data: undefined, isLoading: false, error: null }) as any,
+      )
+
+      renderWithProviders(
+        <CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />,
+      )
+
+      // Every call must have been gated off — asserting on the LAST call alone
+      // would still pass if an earlier render had already fetched.
+      const calls = vi.mocked(hooks.useCollectionGraph).mock.calls
+      expect(calls.length).toBeGreaterThan(0)
+      for (const [options] of calls) {
+        expect(options.enabled).toBe(false)
+      }
+
+      // The teaser must survive the missing payload — it no longer waits on
+      // `data`, so the visitor gets the pitch rather than a bare header.
+      expect(screen.getByText(/Desert Doom as a map/i)).toBeInTheDocument()
+      // ...and the header must not claim the collection is empty just because
+      // we never asked.
+      expect(screen.queryByText(/No items/i)).not.toBeInTheDocument()
+    })
+
+    it('ENABLES the collection-graph query once measured at desktop width', async () => {
+      ro.setWidth(1280)
+      const hooks = await import('../hooks')
+
+      renderWithProviders(
+        <CollectionGraph slug="desert-doom" collectionTitle="Desert Doom" />,
+      )
+
+      // The pre-measurement first render is legitimately disabled
+      // (containerWidth is null before the ResizeObserver reports).
+      const calls = vi.mocked(hooks.useCollectionGraph).mock.calls
+      expect(calls[calls.length - 1][0].enabled).toBe(true)
+      expect(screen.getByTestId('collection-graph-canvas')).toBeInTheDocument()
+    })
+  })
 })

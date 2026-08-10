@@ -45,10 +45,23 @@ interface StationGraphProps {
 }
 
 export function StationGraph({ slug, stationName }: StationGraphProps) {
-  // The hook owns the empty-slug guard (enabled: Boolean(slug) internally).
-  const { data, isLoading, isError } = useStationGraph({ slug })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+
+  // Viewport gate, computed BEFORE the query so it can feed `enabled`
+  // (PSY-1777). Below the breakpoint this section renders a static teaser that
+  // reads no graph data, so fetching the airplay graph there is pure waste.
+  // `containerWidth === null` (first paint, before the ResizeObserver reports)
+  // gates off too; the measuring node below is mounted unconditionally, so the
+  // measurement lands on the next commit. Mirrors HomeSceneGraph.
+  const viewportAllowsGraph =
+    containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  // The hook owns the empty-slug guard (enabled: Boolean(slug) internally).
+  const { data, isLoading, isError } = useStationGraph({
+    slug,
+    enabled: viewportAllowsGraph,
+  })
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -60,8 +73,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   const hasEnoughForGraph = nodeCount >= MIN_GRAPH_NODES
   // Mobile gating: <640px hides the graph entirely; the playlists feed +
   // shows directory remain the only surfaces (PSY-369 / PSY-511).
-  const graphAvailable =
-    hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  const graphAvailable = viewportAllowsGraph && hasEnoughForGraph
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -84,40 +96,8 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     document.getElementById('graph')?.scrollIntoView()
   }, [hash, data])
 
-  // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
-  // of returning null — a null here shifts every section below when the
-  // canvas lands. The header stays put so only the box swaps on settle.
-  if (isLoading) {
-    return (
-      <div id="graph" className="scroll-mt-20">
-        <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
-        <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-      </div>
-    )
-  }
-
-  // A settled fetch error leaves `data` undefined. Rendering nothing here
-  // would make an API failure indistinguishable from a sparse station —
-  // keep the section shell and say so (scene-page convention, PSY-1446).
-  if (!data && isError) {
-    return (
-      <div id="graph" className="scroll-mt-20">
-        <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
-        <GraphStateCard
-          role="alert"
-          message="This view couldn't load. Refresh the page to try again."
-        />
-      </div>
-    )
-  }
-
-  // Sparse state: a station needs at least MIN_GRAPH_NODES charted artists to
-  // be worth a graph section — below that, render nothing at all (a bare
-  // "2 artists" header with no canvas under it reads as broken). Note the
-  // graph QUERY still fetches; only the render is gated.
-  if (!data || nodeCount < MIN_GRAPH_NODES) return null
-
-  const windowLabel = data.station.window === 'all_time' ? 'all time' : 'the last 12 months'
+  const windowLabel =
+    data?.station.window === 'all_time' ? 'all time' : 'the last 12 months'
 
   const toggleCluster = (clusterID: string) => {
     setHiddenClusters(prev => {
@@ -133,7 +113,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
 
   // Cluster legend pills — one per station show; the shared component keeps
   // toggle behavior, ARIA, and colors identical inline and in the overlay.
-  const clusterLegend = (
+  const clusterLegend = data && (
     <ClusterLegend
       clusters={data.clusters}
       hiddenClusterIDs={hiddenClusters}
@@ -176,48 +156,86 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     </div>
   )
 
-  return (
-    <>
-      <div
-        ref={containerRefCallback}
-        // `id="graph"` enables `#graph` deep-links, matching the scene page.
-        id="graph"
-        className="scroll-mt-20"
-        // While the overlay is open, hide + inert the inline copy so the
-        // overlay is the single graph surface for assistive tech (PSY-517).
-        aria-hidden={isFullscreen || undefined}
-        inert={isFullscreen || undefined}
-      >
+  // One branch per settled state. All of them render INSIDE the always-mounted
+  // measuring node below, so nothing can unmount the ref — PSY-1777 made that
+  // load-bearing twice over: the measured width now gates the FETCH, so losing
+  // the ref would deadlock the query (no measurement → never enabled → no
+  // data) on top of the old remount-loop hazard.
+  const sectionContent = (() => {
+    // Below the gate the query is disabled, so there is no payload to
+    // describe: heading + static teaser only. Matches HomeSceneGraph, whose
+    // teaser likewise reads no graph data.
+    if (!viewportAllowsGraph) {
+      return (
+        <>
+          <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+          {containerWidth === null ? (
+            // Pre-measurement: hold the box height so the settle can't shift
+            // the sections below (HomeSceneGraph precedent).
+            <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+          ) : (
+            // Sub-640px: shared teaser card — says WHY + gives a way forward
+            // (PSY-1472). Link-out scrolls to the station's playlists feed on
+            // this page (#recent-playlists, StationDetail).
+            <GraphStateCard
+              className={GRAPH_TEASER_HEIGHT_CLASS}
+              message={`${stationName}'s airplay as a map — artists linked by how often they're played together. Needs a larger screen.`}
+              linkHref={`#${STATION_PLAYLISTS_ANCHOR}`}
+              linkLabel="See recent playlists →"
+            />
+          )}
+        </>
+      )
+    }
+
+    // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
+    // of collapsing — collapsing here shifts every section below when the
+    // canvas lands. The header stays put so only the box swaps on settle.
+    if (isLoading) {
+      return (
+        <>
+          <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+        </>
+      )
+    }
+
+    // A settled fetch error leaves `data` undefined. Rendering nothing here
+    // would make an API failure indistinguishable from a sparse station —
+    // keep the section shell and say so (scene-page convention, PSY-1446).
+    if (!data && isError) {
+      return (
+        <>
+          <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+          <GraphStateCard
+            role="alert"
+            message="This view couldn't load. Refresh the page to try again."
+          />
+        </>
+      )
+    }
+
+    // Sparse state: a station needs at least MIN_GRAPH_NODES charted artists to
+    // be worth a graph section — below that, render nothing at all (a bare
+    // "2 artists" header with no canvas under it reads as broken).
+    if (!data || nodeCount < MIN_GRAPH_NODES) return null
+
+    // `graphAvailable` reduces to true here (viewport + node-count legs are
+    // both already satisfied), so only the overlay check remains.
+    return (
+      <>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           {stationHeader}
           {expandButton}
         </div>
 
-        {/* Pre-measurement: hold the box height so the settle can't shift
-            the sections below (HomeSceneGraph precedent). */}
-        {containerWidth === null && (
-          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-        )}
-
-        {/* Sub-640px: shared teaser card — says WHY + gives a way forward
-            (PSY-1472). Link-out scrolls to the station's playlists feed on this
-            page (#recent-playlists, StationDetail). */}
-        {containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && (
-          <GraphStateCard
-            className={GRAPH_TEASER_HEIGHT_CLASS}
-            message={`${stationName}'s airplay as a map — artists linked by how often they're played together. Needs a larger screen.`}
-            linkHref={`#${STATION_PLAYLISTS_ANCHOR}`}
-            linkLabel="See recent playlists →"
-          />
-        )}
-
-        {graphAvailable && !isFullscreen && (
+        {!isFullscreen && (
           <div className="space-y-3">
             {clusterLegend}
 
             <StationGraphVisualization
               data={data}
-              // Safe non-null: graphAvailable requires containerWidth !== null
+              // Safe non-null: viewportAllowsGraph requires containerWidth !== null
               containerWidth={containerWidth!}
               hiddenClusterIDs={hiddenClusters}
             />
@@ -230,6 +248,23 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
             </p>
           </div>
         )}
+      </>
+    )
+  })()
+
+  return (
+    <>
+      <div
+        ref={containerRefCallback}
+        // `id="graph"` enables `#graph` deep-links, matching the scene page.
+        id="graph"
+        className="scroll-mt-20"
+        // While the overlay is open, hide + inert the inline copy so the
+        // overlay is the single graph surface for assistive tech (PSY-517).
+        aria-hidden={isFullscreen || undefined}
+        inert={isFullscreen || undefined}
+      >
+        {sectionContent}
       </div>
 
       {isFullscreen && graphAvailable && (

@@ -71,11 +71,22 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   const [yearSelection, setYearSelection] = useState<number>(() => new Date().getFullYear())
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
 
+  // Viewport gate, computed BEFORE the query so it can feed `enabled`
+  // (PSY-1777). Below the breakpoint this section renders a static teaser that
+  // reads no graph data, so fetching the bill-network payload there buys
+  // nothing but bytes. `containerWidth === null` (the first paint, before the
+  // ResizeObserver reports) also gates off — the measuring wrapper below is
+  // mounted unconditionally, so the measurement lands on the commit right
+  // after mount and desktop starts fetching one frame later than it used to.
+  // Mirrors HomeSceneGraph's `graphAvailable` shape.
+  const viewportAllowsGraph =
+    containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
   const { data, isLoading, isError } = useVenueBillNetwork({
     venueIdOrSlug,
     window,
     year: window === 'year' ? yearSelection : undefined,
-    enabled: Boolean(venueIdOrSlug),
+    enabled: Boolean(venueIdOrSlug) && viewportAllowsGraph,
   })
 
   // Pre-compute years for the picker. Stable across renders so the <select>
@@ -103,13 +114,23 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   //      the network to be informative (PSY-365 acceptance criterion).
   //   2. Connected-artist count below MIN_GRAPH_NODES — same threshold as
   //      the SceneGraph empty state so the gating is symmetrical.
+  //
+  // Sparseness is a property of the PAYLOAD, so it is only knowable once the
+  // fetch has settled. Below the viewport gate we deliberately never fetch
+  // (PSY-1777), so `data` is undefined there and this stays false — the mobile
+  // teaser doesn't claim to know how dense the venue is. That is the one
+  // behavior trade the gate forces: a sub-640px visitor to a sparse venue now
+  // sees the teaser (which links out to the venue's show list) where they
+  // previously saw nothing. Knowing otherwise would cost the exact request
+  // this ticket removes.
   const connectedNodeCount = nodeCount - isolateCount
-  const tooSparse = showCount < MIN_GRAPH_SHOWS || connectedNodeCount < MIN_GRAPH_NODES
+  const tooSparse =
+    data !== undefined &&
+    (showCount < MIN_GRAPH_SHOWS || connectedNodeCount < MIN_GRAPH_NODES)
 
-  // Mobile gating: < sm breakpoint hides the canvas. `containerWidth === null`
-  // (pre-measurement) also gates off so we never flash an oversized canvas.
-  const graphAvailable =
-    !tooSparse && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  // The canvas draws only when the viewport allows it AND a settled payload is
+  // dense enough to be informative.
+  const graphAvailable = viewportAllowsGraph && data !== undefined && !tooSparse
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -168,57 +189,6 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     </div>
   )
 
-  // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
-  // of returning null — a null here shifts every section below when the
-  // canvas lands. keepPreviousData means this only fires on the initial load.
-  if (isLoading) {
-    return (
-      <div className="mt-8 px-4 md:px-0">
-        <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
-        <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-      </div>
-    )
-  }
-
-  // A settled fetch error leaves `data` undefined (keepPreviousData only
-  // bridges the pending window). Keep the section shell + window filter
-  // rendered — the filter is the user's path back to a window that worked —
-  // with a visible notice instead of vanishing (scene-page convention).
-  if (!data) {
-    if (isError) {
-      return (
-        <div className="mt-8 px-4 md:px-0">
-          <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
-          <div className="space-y-2">
-            {windowFilter}
-            <GraphStateCard
-              role="alert"
-              message="This view couldn't load. Try a different window above."
-            />
-          </div>
-        </div>
-      )
-    }
-    return null
-  }
-
-  // Mobile + sparse: render nothing visible, but do NOT `return null` here.
-  // Returning null would unmount the `useContainerWidth` ref node, and the
-  // hook's cleanup resets the measured width to null on unmount — so the node
-  // would remount → remeasure (< breakpoint) → return null → unmount … in an
-  // infinite loop (React #185 "Maximum update depth exceeded"). It only
-  // reproduced on mobile: this branch needs a sub-breakpoint measured width,
-  // and the graph canvas never renders below the breakpoint, so desktop never
-  // reached it. Instead we keep a stable, zero-height measuring wrapper
-  // mounted (see the return below) and gate the section CONTENT on this flag.
-  // This matches the six peer graph surfaces (SceneGraph, StationGraph,
-  // CollectionGraph, InlineGraph, HomeSceneGraph, BillComposition): the ref
-  // node lives for the component's lifetime; only its children are width-gated.
-  // Desktop still shows the header + filter (below) so the user understands
-  // WHY the graph isn't drawing and can re-scope the window.
-  const hideSection =
-    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX && tooSparse
-
   // PSY-1476: a capped roster must say so — "150 artists" on a 312-artist
   // venue reads as the whole history. Mirrors the scene graph's shipped
   // treatment (sceneArtistCountPhrase → truncatedCountPhrase): the leading
@@ -258,6 +228,8 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     </div>
   )
 
+  const heading = <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
+
   const expandButton = graphAvailable && !isFullscreen && (
     <button
       type="button"
@@ -270,13 +242,126 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     </button>
   )
 
+  // One branch per settled state. Every branch renders INSIDE the always-
+  // mounted measuring wrapper below, so no state can unmount the ref node.
+  const sectionContent = (() => {
+    // Below the viewport gate the query is disabled (PSY-1777), so there is no
+    // payload to describe: heading + static teaser only, matching
+    // HomeSceneGraph's teaser (which likewise reads no graph data). The window
+    // filter is deliberately omitted here — with the query disabled it would
+    // be a dead control.
+    if (!viewportAllowsGraph) {
+      return (
+        <>
+          {heading}
+          {containerWidth === null ? (
+            // Pre-measurement (first paint, before the ResizeObserver reports).
+            // GRAPH_BOX_HEIGHT_CLASS is h-[240px] below `sm` — the teaser's
+            // exact height — so on mobile the settle is a swap, not a jump; on
+            // desktop it holds the 400/560 box straight through the fetch into
+            // the canvas. No hydration layout shift on either path.
+            <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+          ) : (
+            // Sub-640px: shared teaser card (PSY-1446) — says WHY + gives a way
+            // forward (PSY-1472). Link-out scrolls to the venue's show list on
+            // this page (#venue-shows, VenueDetail).
+            <GraphStateCard
+              className={GRAPH_TEASER_HEIGHT_CLASS}
+              message={`Who plays ${venueName} together, mapped by shared bills here. Needs a larger screen.`}
+              linkHref={`#${VENUE_SHOWS_ANCHOR}`}
+              linkLabel={`Browse shows at ${venueName} →`}
+            />
+          )}
+        </>
+      )
+    }
+
+    // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
+    // of collapsing — collapsing here shifts every section below when the
+    // canvas lands. keepPreviousData means this only fires on the initial load.
+    if (isLoading) {
+      return (
+        <>
+          {heading}
+          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+        </>
+      )
+    }
+
+    // A settled fetch error leaves `data` undefined (keepPreviousData only
+    // bridges the pending window). Keep the heading + window filter rendered —
+    // the filter is the user's path back to a window that worked — with a
+    // visible notice instead of vanishing (scene-page convention).
+    if (!data) {
+      if (!isError) return null
+      return (
+        <>
+          {heading}
+          <div className="space-y-2">
+            {windowFilter}
+            <GraphStateCard
+              role="alert"
+              message="This view couldn't load. Try a different window above."
+            />
+          </div>
+        </>
+      )
+    }
+
+    // Settled payload above the gate: header + filter, then either the
+    // sparse notice or the canvas. (`graphAvailable` reduces to `!tooSparse`
+    // here — the viewport and data legs are both already true.)
+    return (
+      <>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          {sectionHeader}
+          {expandButton}
+        </div>
+
+        <div className="mb-3">{windowFilter}</div>
+
+        {tooSparse ? (
+          <p className="text-sm text-muted-foreground mt-2">
+            Not enough booked-together activity yet to draw the network. Try a
+            wider window or check back as more shows are approved.
+          </p>
+        ) : (
+          !isFullscreen && (
+            <div className="space-y-3 mt-2">
+              <SceneGraphVisualizationStyleAdapter
+                data={data}
+                venueName={venueName}
+                countPhrase={artistCountPhrase}
+                containerWidth={containerWidth!}
+              />
+
+              <p className="text-xs text-muted-foreground">
+                Showing artists who&apos;ve played approved shows at {venueName}. Edge weight =
+                shared shows AT THIS VENUE in the active window. Click any artist for their
+                details.
+              </p>
+            </div>
+          )
+        )}
+      </>
+    )
+  })()
+
   return (
     <>
       {/* Measuring wrapper — ALWAYS mounted so the useContainerWidth ref never
-          detaches (see the `hideSection` note above). Its box is intentionally
-          bare (no padding/margin) so the measured width is a pure function of
-          the grid track, never of `hideSection`; a state-dependent box could
-          straddle the breakpoint and reintroduce the measure↔gate loop.
+          detaches. This is load-bearing, not incidental: the hook's cleanup
+          resets the measured width to null on unmount, so a state that
+          returned null out here would unmount the node → remount → remeasure →
+          return null → unmount, an infinite loop (React #185 "Maximum update
+          depth exceeded"). Since PSY-1777 the measured width also gates the
+          FETCH, so an unmounted ref would additionally deadlock the query: no
+          measurement → never enabled → no data → nothing to render. Every
+          state renders inside this node (see `sectionContent`). Its box is
+          intentionally bare (no padding/margin) so the measured width is a
+          pure function of the grid track, never of the section's own state; a
+          state-dependent box could straddle the breakpoint and reintroduce the
+          measure↔gate loop.
           PSY-1034/PSY-949: `min-w-0` is load-bearing here — the ResizeObserver
           feeds THIS element's measured width to the graph as an explicit pixel
           width. Without it the canvas's min-content width can push this node
@@ -290,7 +375,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
         aria-hidden={isFullscreen || undefined}
         inert={isFullscreen || undefined}
       >
-        {!hideSection && (
+        {sectionContent && (
           <div
             // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
             // palette (`/venues/{slug}#graph`). `scroll-mt-20` accounts for the
@@ -299,56 +384,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
             id="graph"
             className="mt-8 px-4 md:px-0 scroll-mt-20 min-w-0"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              {sectionHeader}
-              {expandButton}
-            </div>
-
-            <div className="mb-3">{windowFilter}</div>
-
-            {tooSparse && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Not enough booked-together activity yet to draw the network. Try a
-                wider window or check back as more shows are approved.
-              </p>
-            )}
-
-            {/* Pre-measurement: hold the box height so the settle can't
-                shift the sections below (HomeSceneGraph precedent). */}
-            {!tooSparse && containerWidth === null && (
-              <GraphSkeleton className={`mt-2 ${GRAPH_BOX_HEIGHT_CLASS}`} />
-            )}
-
-            {/* Sub-640px, non-sparse: shared teaser card (PSY-1446) — says WHY
-                + gives a way forward (PSY-1472). Link-out scrolls to the
-                venue's show list on this page (#venue-shows, VenueDetail). */}
-            {!tooSparse &&
-              containerWidth !== null &&
-              containerWidth < GRAPH_BREAKPOINT_PX && (
-                <GraphStateCard
-                  className={`mt-2 ${GRAPH_TEASER_HEIGHT_CLASS}`}
-                  message={`Who plays ${venueName} together, mapped by shared bills here. Needs a larger screen.`}
-                  linkHref={`#${VENUE_SHOWS_ANCHOR}`}
-                  linkLabel={`Browse shows at ${venueName} →`}
-                />
-              )}
-
-            {graphAvailable && !isFullscreen && (
-              <div className="space-y-3 mt-2">
-                <SceneGraphVisualizationStyleAdapter
-                  data={data}
-                  venueName={venueName}
-                  countPhrase={artistCountPhrase}
-                  containerWidth={containerWidth!}
-                />
-
-                <p className="text-xs text-muted-foreground">
-                  Showing artists who&apos;ve played approved shows at {venueName}. Edge weight =
-                  shared shows AT THIS VENUE in the active window. Click any artist for their
-                  details.
-                </p>
-              </div>
-            )}
+            {sectionContent}
           </div>
         )}
       </div>

@@ -213,9 +213,49 @@ describe('StationGraph', () => {
     expect(anchor).toContainElement(screen.getByText('Airplay graph'))
   })
 
+  // ------------------------------------------------------------------
+  // PSY-1777: the viewport gate must precede the fetch, not follow it.
+  // ------------------------------------------------------------------
+  describe('viewport-gated fetching (PSY-1777)', () => {
+    it('DISABLES the airplay-graph query below the 640px breakpoint', async () => {
+      setMockContainerWidth(390)
+      const hooks = await import('../hooks/useStationGraph')
+      vi.mocked(hooks.useStationGraph).mockImplementation(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => ({ data: undefined, isLoading: false, error: null }) as any,
+      )
+
+      renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+
+      // Every call must have been gated off — asserting on the LAST call alone
+      // would still pass if an earlier render had already fetched.
+      const calls = vi.mocked(hooks.useStationGraph).mock.calls
+      expect(calls.length).toBeGreaterThan(0)
+      for (const [options] of calls) {
+        expect(options.enabled).toBe(false)
+      }
+
+      // ...and the visitor gets the teaser, not a stuck skeleton.
+      expect(screen.getByText(/Needs a larger screen/i)).toBeInTheDocument()
+    })
+
+    it('ENABLES the airplay-graph query once measured at desktop width', async () => {
+      setMockContainerWidth(1280)
+      const hooks = await import('../hooks/useStationGraph')
+
+      renderWithProviders(<StationGraph slug="kexp" stationName="KEXP" />)
+
+      // The pre-measurement first render is legitimately disabled
+      // (containerWidth is null before the ResizeObserver reports).
+      const calls = vi.mocked(hooks.useStationGraph).mock.calls
+      expect(calls[calls.length - 1][0].enabled).toBe(true)
+      expect(screen.getByTestId('station-graph-canvas')).toBeInTheDocument()
+    })
+  })
+
   it('renders nothing below MIN_GRAPH_NODES (no dangling header)', async () => {
     const hooks = await import('../hooks/useStationGraph')
-    vi.mocked(hooks.useStationGraph).mockReturnValueOnce({
+    vi.mocked(hooks.useStationGraph).mockReturnValue({
       data: {
         ...mockData,
         station: { ...mockData.station, artist_count: 2, edge_count: 1 },
@@ -230,12 +270,17 @@ describe('StationGraph', () => {
     const { container } = renderWithProviders(
       <StationGraph slug="kexp" stationName="KEXP" />,
     )
-    expect(container.firstChild).toBeNull()
+    // PSY-1777: the measuring wrapper stays mounted (it is what measures the
+    // width that now gates the fetch), but it must hold nothing — the point of
+    // this test is that no dangling header/canvas survives the sparse gate.
+    expect(screen.queryByText('Airplay graph')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
+    expect(container.querySelector('#graph')).toBeEmptyDOMElement()
   })
 
   it('renders nothing when there are zero nodes', async () => {
     const hooks = await import('../hooks/useStationGraph')
-    vi.mocked(hooks.useStationGraph).mockReturnValueOnce({
+    vi.mocked(hooks.useStationGraph).mockReturnValue({
       data: { ...mockData, nodes: [], links: [], clusters: [] },
       isLoading: false,
       error: null,
@@ -244,12 +289,14 @@ describe('StationGraph', () => {
     const { container } = renderWithProviders(
       <StationGraph slug="kexp" stationName="KEXP" />,
     )
-    expect(container.firstChild).toBeNull()
+    expect(screen.queryByText('Airplay graph')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('station-graph-canvas')).not.toBeInTheDocument()
+    expect(container.querySelector('#graph')).toBeEmptyDOMElement()
   })
 
   it('renders the header + a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
     const hooks = await import('../hooks/useStationGraph')
-    vi.mocked(hooks.useStationGraph).mockReturnValueOnce({
+    vi.mocked(hooks.useStationGraph).mockReturnValue({
       data: undefined,
       isLoading: true,
       error: null,

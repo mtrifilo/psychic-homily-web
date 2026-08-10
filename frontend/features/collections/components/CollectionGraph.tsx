@@ -73,8 +73,20 @@ interface CollectionGraphProps {
 }
 
 export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps) {
-  const { data, isLoading, isError } = useCollectionGraph({ slug, enabled: Boolean(slug) })
   const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+
+  // Mobile gate: same 640px threshold as SceneGraph. Computed BEFORE the query
+  // so it can feed `enabled` (PSY-1777) — below the breakpoint this section
+  // renders a static teaser that reads no graph data, so fetching the payload
+  // there is pure waste. `containerWidth === null` (first paint, before the
+  // ResizeObserver reports) gates off too; the wrapper below is mounted
+  // unconditionally, so the measurement lands on the next commit.
+  const graphAvailable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  const { data, isLoading, isError } = useCollectionGraph({
+    slug,
+    enabled: Boolean(slug) && graphAvailable,
+  })
 
   const isolateCount = useMemo(() => {
     if (!data) return 0
@@ -136,11 +148,11 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   }, [data])
 
   // Always render the wrapper so the callback ref fires even before data
-  // arrives — otherwise we'd never measure the container.
+  // arrives — otherwise we'd never measure the container. Since PSY-1777 that
+  // is doubly load-bearing: the measurement gates the fetch, so an unmounted
+  // ref would deadlock the query outright.
   const nodeCount = data?.nodes.length ?? 0
   const edgeCount = data?.collection.edge_count ?? 0
-  // Mobile gate: same 640px threshold as SceneGraph.
-  const graphAvailable = containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -200,6 +212,18 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     </div>
   )
 
+  // No payload means no counts to state. Below the viewport gate the query is
+  // deliberately never issued (PSY-1777), so the subtitle's "No items" fallback
+  // would be a false claim about the collection rather than a description of
+  // it; the same applies while the fetch is still in flight.
+  const headerBlock = data ? (
+    sectionHeader
+  ) : (
+    <div>
+      <h2 className="text-lg font-semibold">Collection graph</h2>
+    </div>
+  )
+
   const expandButton = graphAvailable && !isFullscreen && data && nodeCount > 0 && (
     <button
       type="button"
@@ -223,73 +247,80 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
         inert={isFullscreen || undefined}
       >
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          {sectionHeader}
+          {headerBlock}
           {expandButton}
         </div>
 
-        {/* Loading reserves the graph box (shared GraphSkeleton, PSY-1347)
-            instead of bare text — bare text collapses the slot and shifts
-            the page when the canvas lands. */}
-        {isLoading && <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />}
-
-        {/* A settled fetch error leaves `data` undefined — say so instead of
-            rendering an empty slot (scene-page convention, PSY-1446). */}
-        {!isLoading && !data && isError && (
-          <GraphStateCard
-            role="alert"
-            message="This view couldn't load. Refresh the page to try again."
-          />
-        )}
-
-        {/* Post-load, pre-measurement: hold the box height until the width
-            gate can resolve (HomeSceneGraph precedent). */}
-        {!isLoading && data && nodeCount > 0 && containerWidth === null && (
-          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-        )}
-
-        {!isLoading && data && nodeCount === 0 && (
-          <p className="text-sm text-muted-foreground">
-            No items yet — add an artist, venue, release, label, festival, or
-            show to this collection to see its graph.
-          </p>
-        )}
-
-        {/* Sub-640px: shared teaser card (PSY-1446) — says WHY + gives a way
-            forward (PSY-1472). Link-out scrolls to the collection's item list.
-            Unlike the scene/station/venue anchors (new PSY-1472 constants),
-            "#items" is the pre-existing, load-bearing CollectionAnchorNav anchor
-            (ANCHOR_SECTIONS in CollectionDetail + the id on CollectionItemsList),
-            reused here deliberately rather than duplicated as a new constant. */}
-        {!isLoading && data && nodeCount > 0 && !graphAvailable && containerWidth !== null && (
-          <GraphStateCard
-            className={GRAPH_TEASER_HEIGHT_CLASS}
-            message={`${collectionTitle} as a map — how its artists, venues, releases, labels, festivals and shows connect. Needs a larger screen.`}
-            linkHref="#items"
-            linkLabel="Browse the collection →"
-          />
-        )}
-
-        {!isLoading && data && nodeCount > 0 && graphAvailable && !isFullscreen && (
-          <div className="space-y-3">
-            <CollectionGraphVisualization
-              nodes={renderNodes}
-              sourceNodes={data.nodes}
-              links={data.links}
-              clusters={clusters}
-              containerWidth={containerWidth!}
-              collectionTitle={collectionTitle}
-              countPhrase={itemsCountPhrase}
-              edgeCount={edgeCount}
+        {/* The viewport gate comes FIRST (PSY-1777): below it the query is
+            disabled, so every branch under it that reads `data` would render
+            nothing at all and leave the visitor with a bare header. */}
+        {!graphAvailable ? (
+          containerWidth === null ? (
+            /* Pre-measurement: hold the box height until the width gate can
+               resolve (HomeSceneGraph precedent). */
+            <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+          ) : (
+            /* Sub-640px: shared teaser card (PSY-1446) — says WHY + gives a way
+               forward (PSY-1472). Link-out scrolls to the collection's item list.
+               Unlike the scene/station/venue anchors (new PSY-1472 constants),
+               "#items" is the pre-existing, load-bearing CollectionAnchorNav anchor
+               (ANCHOR_SECTIONS in CollectionDetail + the id on CollectionItemsList),
+               reused here deliberately rather than duplicated as a new constant.
+               It no longer waits on `data`: with the query gated off there is no
+               payload to wait for. */
+            <GraphStateCard
+              className={GRAPH_TEASER_HEIGHT_CLASS}
+              message={`${collectionTitle} as a map — how its artists, venues, releases, labels, festivals and shows connect. Needs a larger screen.`}
+              linkHref="#items"
+              linkLabel="Browse the collection →"
             />
-            <p className="text-xs text-muted-foreground">
-              {nodesTruncated
-                ? `Showing the ${itemsCountPhrase} in this collection`
-                : 'Showing every item in this collection'}{' '}
-              and the relationships between them — artists, venues they’ve
-              played, releases they’ve made, labels they’re on, festivals
-              they’ve played, and shows. Click any node for its details.
-            </p>
-          </div>
+          )
+        ) : (
+          <>
+            {/* Loading reserves the graph box (shared GraphSkeleton, PSY-1347)
+                instead of bare text — bare text collapses the slot and shifts
+                the page when the canvas lands. */}
+            {isLoading && <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />}
+
+            {/* A settled fetch error leaves `data` undefined — say so instead of
+                rendering an empty slot (scene-page convention, PSY-1446). */}
+            {!isLoading && !data && isError && (
+              <GraphStateCard
+                role="alert"
+                message="This view couldn't load. Refresh the page to try again."
+              />
+            )}
+
+            {!isLoading && data && nodeCount === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No items yet — add an artist, venue, release, label, festival, or
+                show to this collection to see its graph.
+              </p>
+            )}
+
+            {!isLoading && data && nodeCount > 0 && !isFullscreen && (
+              <div className="space-y-3">
+                <CollectionGraphVisualization
+                  nodes={renderNodes}
+                  sourceNodes={data.nodes}
+                  links={data.links}
+                  clusters={clusters}
+                  containerWidth={containerWidth!}
+                  collectionTitle={collectionTitle}
+                  countPhrase={itemsCountPhrase}
+                  edgeCount={edgeCount}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {nodesTruncated
+                    ? `Showing the ${itemsCountPhrase} in this collection`
+                    : 'Showing every item in this collection'}{' '}
+                  and the relationships between them — artists, venues they’ve
+                  played, releases they’ve made, labels they’re on, festivals
+                  they’ve played, and shows. Click any node for its details.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -81,10 +81,24 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // makes community clusters scene-meaningful (2026-07-02 gamma sweep:
   // both eyeball scenes rendered 100% "other").
   const [clusterBy, setClusterBy] = useState<SceneGraphClusterBy>('venue')
+  // Width measurement uses a callback ref, not useRef + useEffect — the full
+  // rationale lives in useContainerWidth.ts. It is declared BEFORE the query
+  // because the measured width now gates the fetch (PSY-1777).
+  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
+
+  // Viewport gate, computed before the query so it can feed `enabled`. Below
+  // the breakpoint this section renders a static teaser that reads no graph
+  // data, so fetching the scene graph there is pure waste — and `clusterBy` is
+  // user-togglable, so an ungated query can be re-issued from a viewport that
+  // can never draw a canvas. `containerWidth === null` (first paint, before
+  // the ResizeObserver reports) gates off too. Mirrors HomeSceneGraph.
+  const viewportAllowsGraph =
+    containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
   const { data, isLoading, isError, isPlaceholderData } = useSceneGraph({
     slug,
     clusterBy,
-    enabled: Boolean(slug),
+    enabled: Boolean(slug) && viewportAllowsGraph,
   })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
 
@@ -95,10 +109,6 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     // across modes would silently hide nothing — reset with the switch.
     setHiddenClusters(new Set())
   }
-  // Width measurement uses a callback ref, not useRef + useEffect — the full
-  // rationale lives in useContainerWidth.ts.
-  const { refCallback: containerRefCallback, containerWidth } = useContainerWidth()
-
   const isolateCount = useMemo(() => {
     if (!data) return 0
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
@@ -109,9 +119,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   const hasEnoughForGraph = nodeCount >= MIN_GRAPH_NODES
   // Mobile gating: < sm breakpoint (640px) hides the graph entirely; the
   // existing scene page list view remains the only surface (PSY-369 / PSY-511).
-  // `containerWidth === null` (pre-measurement) also gates off.
-  const graphAvailable =
-    hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  const graphAvailable = viewportAllowsGraph && hasEnoughForGraph
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -123,17 +131,6 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
-  // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
-  // of returning null — a null here shifts every section below when the
-  // canvas lands. The header stays put so only the box swaps on settle.
-  if (isLoading) {
-    return (
-      <div id="graph" className="mt-2 scroll-mt-20">
-        <h2 className="text-lg font-semibold mb-2">Scene graph</h2>
-        <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-      </div>
-    )
-  }
 
   // Cluster-by mode toggle — radio-style pills (VenueBillNetwork's window
   // filter pattern), rendered above the legend inline and in the overlay.
@@ -164,30 +161,6 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     </div>
   )
 
-  // A settled fetch error leaves `data` undefined (keepPreviousData only
-  // bridges the pending window). Unmounting here would strand the user: the
-  // toggle is their only path back to the mode that worked, so keep the
-  // section shell + toggle rendered with an inline notice instead of
-  // vanishing (code-review finding, PSY-1320).
-  if (!data && isError) {
-    return (
-      <div id="graph" className="mt-2 scroll-mt-20">
-        <h2 className="text-lg font-semibold mb-2">Scene graph</h2>
-        <div className="space-y-2">
-          {clusterByToggle}
-          <GraphStateCard
-            role="alert"
-            message="This view couldn't load. Try switching clusters above."
-          />
-        </div>
-      </div>
-    )
-  }
-
-  // Section is rendered (with the header) so users get scale info even when
-  // the graph is unavailable (e.g. mobile). Empty state: scene has < 3
-  // connected artists — render nothing rather than a confusing skeleton.
-  if (!data || nodeCount === 0) return null
 
   const toggleCluster = (clusterID: string) => {
     setHiddenClusters(prev => {
@@ -203,7 +176,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
   // Cluster legend pills — the shared component keeps toggle behavior, ARIA,
   // and color mapping identical inline and in the overlay.
-  const clusterLegend = (
+  const clusterLegend = data && (
     <ClusterLegend
       clusters={data.clusters}
       hiddenClusterIDs={hiddenClusters}
@@ -243,13 +216,21 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // and the canvas aria-label can't state different numbers; only the leading
   // cap differs (sentence-cased here, mid-sentence in the aria-label). A
   // digit-leading plain count is a toUpperCase no-op.
-  const artistPhrase = sentenceCase(sceneArtistCountPhrase(data.scene))
+  const artistPhrase = data ? sentenceCase(sceneArtistCountPhrase(data.scene)) : null
   // PSY-1530: label hubs are a second population on the canvas, so the header
   // names them. Null (not "0 labels") on a hub-less scene, which reads exactly
   // as it did before hubs shipped.
-  const labelPhrase = sceneLabelCountPhrase(data.scene)
+  const labelPhrase = data ? sceneLabelCountPhrase(data.scene) : null
 
-  const sceneHeader = (
+  // No payload means no counts to state. Below the viewport gate the query is
+  // deliberately never issued (PSY-1777), so rendering the count line would
+  // claim "0 artists" about a scene we never asked about; same while the
+  // fetch is still in flight.
+  const sceneHeader = !data ? (
+    <div>
+      <h2 className="text-lg font-semibold">Scene graph</h2>
+    </div>
+  ) : (
     <div>
       <h2 className="text-lg font-semibold">Scene graph</h2>
       <p className="text-sm text-muted-foreground">
@@ -276,41 +257,36 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     </div>
   )
 
-  return (
-    <>
-      <div
-        ref={containerRefCallback}
-        // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
-        // palette (`/scenes/{slug}#graph`). `scroll-mt-20` accounts for the
-        // sticky header on the entity layout.
-        id="graph"
-        className="mt-2 scroll-mt-20"
-        // While the overlay is open, hide the inline copy from assistive tech
-        // and inert it for keyboard focus — the overlay's own header is the
-        // single source of truth for scene-graph navigation in that mode.
-        // `inert` is a React 19 boolean prop; aria-hidden is the sibling
-        // affordance for screen readers.
-        aria-hidden={isFullscreen || undefined}
-        inert={isFullscreen || undefined}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          {sceneHeader}
-          {expandButton}
-        </div>
+  const headerRow = (
+    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+      {sceneHeader}
+      {expandButton}
+    </div>
+  )
 
-        {/* Pre-measurement: hold the box height so the settle can't shift
-            the sections below (HomeSceneGraph precedent). */}
-        {containerWidth === null && hasEnoughForGraph && (
-          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-        )}
-
-        {/* Sub-640px: shared teaser card instead of the old silent hide
-            (PSY-369/511 kept the canvas off; the card says WHY + gives a way
-            forward, PSY-1472). Link-out scrolls to the scene's artist list on
-            this page (#scene-artists, SceneDetail). */}
-        {containerWidth !== null &&
-          containerWidth < GRAPH_BREAKPOINT_PX &&
-          hasEnoughForGraph && (
+  // One branch per settled state. All of them render INSIDE the always-mounted
+  // measuring node below, so nothing can unmount the ref — PSY-1777 made that
+  // load-bearing twice over: the measured width now gates the FETCH, so losing
+  // the ref would deadlock the query (no measurement → never enabled → no
+  // data) on top of the old remount-loop hazard.
+  const sectionContent = (() => {
+    // Below the gate the query is disabled, so nothing that reads `data` can
+    // render — the teaser has to stand on its own. It therefore no longer
+    // waits on `hasEnoughForGraph`: node counts are unknowable without the
+    // payload this gate exists to avoid fetching.
+    if (!viewportAllowsGraph) {
+      return (
+        <>
+          {headerRow}
+          {containerWidth === null ? (
+            /* Pre-measurement: hold the box height so the settle can't shift
+               the sections below (HomeSceneGraph precedent). */
+            <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+          ) : (
+            /* Sub-640px: shared teaser card instead of the old silent hide
+               (PSY-369/511 kept the canvas off; the card says WHY + gives a way
+               forward, PSY-1472). Link-out scrolls to the scene's artist list
+               on this page (#scene-artists, SceneDetail). */
             <GraphStateCard
               className={GRAPH_TEASER_HEIGHT_CLASS}
               message={`The ${city}${state ? `, ${state}` : ''} scene is a map of who plays with whom. Needs a larger screen.`}
@@ -318,7 +294,51 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
               linkLabel={`Browse ${city} artists →`}
             />
           )}
+        </>
+      )
+    }
 
+    // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
+    // of collapsing — collapsing here shifts every section below when the
+    // canvas lands. The header stays put so only the box swaps on settle.
+    if (isLoading) {
+      return (
+        <>
+          {headerRow}
+          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
+        </>
+      )
+    }
+
+    // A settled fetch error leaves `data` undefined (keepPreviousData only
+    // bridges the pending window). Collapsing here would strand the user: the
+    // toggle is their only path back to the mode that worked, so keep the
+    // section shell + toggle rendered with an inline notice instead of
+    // vanishing (code-review finding, PSY-1320).
+    if (!data && isError) {
+      return (
+        <>
+          {headerRow}
+          <div className="space-y-2">
+            {clusterByToggle}
+            <GraphStateCard
+              role="alert"
+              message="This view couldn't load. Try switching clusters above."
+            />
+          </div>
+        </>
+      )
+    }
+
+    // Empty state: scene has no nodes — render nothing rather than a
+    // confusing skeleton.
+    if (!data || nodeCount === 0) return null
+
+    // Header always renders so users get scale info even when the canvas
+    // can't (1-2 nodes clears `nodeCount > 0` but not `hasEnoughForGraph`).
+    return (
+      <>
+        {headerRow}
         {graphAvailable && !isFullscreen && (
           <div className="space-y-3">
             {clusterByToggle}
@@ -330,7 +350,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
               <SceneGraphVisualization
                 data={data}
-                // Safe non-null: graphAvailable requires containerWidth !== null
+                // Safe non-null: viewportAllowsGraph requires containerWidth !== null
                 containerWidth={containerWidth!}
                 hiddenClusterIDs={hiddenClusters}
               />
@@ -352,6 +372,28 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             </div>
           </div>
         )}
+      </>
+    )
+  })()
+
+  return (
+    <>
+      <div
+        ref={containerRefCallback}
+        // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
+        // palette (`/scenes/{slug}#graph`). `scroll-mt-20` accounts for the
+        // sticky header on the entity layout.
+        id="graph"
+        className="mt-2 scroll-mt-20"
+        // While the overlay is open, hide the inline copy from assistive tech
+        // and inert it for keyboard focus — the overlay's own header is the
+        // single source of truth for scene-graph navigation in that mode.
+        // `inert` is a React 19 boolean prop; aria-hidden is the sibling
+        // affordance for screen readers.
+        aria-hidden={isFullscreen || undefined}
+        inert={isFullscreen || undefined}
+      >
+        {sectionContent}
       </div>
 
       {isFullscreen && graphAvailable && (

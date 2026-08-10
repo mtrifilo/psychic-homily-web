@@ -230,28 +230,85 @@ describe('SceneGraph', () => {
     )
   })
 
+  // ------------------------------------------------------------------
+  // PSY-1777: the viewport gate must precede the fetch, not follow it.
+  // ------------------------------------------------------------------
+  describe('viewport-gated fetching (PSY-1777)', () => {
+    it('DISABLES the scene-graph query below the 640px breakpoint', async () => {
+      resizeObserver.setWidth(390)
+      const hooks = await import('../hooks/useScenes')
+      vi.mocked(hooks.useSceneGraph).mockImplementation(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => ({ data: undefined, isLoading: false, error: null }) as any,
+      )
+
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      // Every call must have been gated off — asserting on the LAST call alone
+      // would still pass if an earlier render had already fetched.
+      const calls = vi.mocked(hooks.useSceneGraph).mock.calls
+      expect(calls.length).toBeGreaterThan(0)
+      for (const [options] of calls) {
+        expect(options.enabled).toBe(false)
+      }
+
+      // The teaser must survive the missing payload — it no longer waits on a
+      // node count, so the visitor gets the pitch rather than a bare header.
+      expect(screen.getByText(/Needs a larger screen/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
+    })
+
+    it('ENABLES the scene-graph query once measured at desktop width', async () => {
+      resizeObserver.setWidth(1280)
+      const hooks = await import('../hooks/useScenes')
+
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+
+      // The pre-measurement first render is legitimately disabled
+      // (containerWidth is null before the ResizeObserver reports).
+      const calls = vi.mocked(hooks.useSceneGraph).mock.calls
+      expect(calls[calls.length - 1][0].enabled).toBe(true)
+      expect(screen.getByTestId('scene-graph-canvas')).toBeInTheDocument()
+    })
+  })
+
   it('renders nothing when there are zero nodes', async () => {
     const hooks = await import('../hooks/useScenes')
-    vi.mocked(hooks.useSceneGraph).mockReturnValueOnce({
-      data: { ...mockData, nodes: [], links: [], clusters: [] },
-      isLoading: false,
-      error: null,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any)
+    // mockImplementation (not ...Once): the width-measurement setState
+    // re-renders the component, so the hook is called more than once.
+    vi.mocked(hooks.useSceneGraph).mockImplementation(
+      () =>
+        ({
+          data: { ...mockData, nodes: [], links: [], clusters: [] },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
     const { container } = renderWithProviders(
       <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
     )
-    expect(container.firstChild).toBeNull()
+    // PSY-1777: the measuring wrapper stays mounted (it is what measures the
+    // width that now gates the fetch), but it must hold nothing — the point of
+    // this test is that no dangling header/canvas survives the empty gate.
+    expect(screen.queryByText('Scene graph')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
+    expect(container.querySelector('#graph')).toBeEmptyDOMElement()
   })
 
   it('renders the header + a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
     const hooks = await import('../hooks/useScenes')
-    vi.mocked(hooks.useSceneGraph).mockReturnValueOnce({
-      data: undefined,
-      isLoading: true,
-      error: null,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any)
+    // mockImplementation (not ...Once): the width-measurement setState
+    // re-renders the component, so the hook is called more than once.
+    vi.mocked(hooks.useSceneGraph).mockImplementation(
+      () =>
+        ({
+          data: undefined,
+          isLoading: true,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
     const { container } = renderWithProviders(
       <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
     )
@@ -433,14 +490,19 @@ describe('SceneGraph', () => {
 
     it('keeps the toggle rendered when a mode fetch settles in error', async () => {
       const hooks = await import('../hooks/useScenes')
-      vi.mocked(hooks.useSceneGraph).mockReturnValueOnce({
-        data: undefined,
-        isLoading: false,
-        isError: true,
-        isPlaceholderData: false,
-        error: new Error('boom'),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any)
+      // mockImplementation (not ...Once): the width-measurement setState
+      // re-renders the component, so the hook is called more than once.
+      vi.mocked(hooks.useSceneGraph).mockImplementation(
+        () =>
+          ({
+            data: undefined,
+            isLoading: false,
+            isError: true,
+            isPlaceholderData: false,
+            error: new Error('boom'),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          }) as any,
+      )
       renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
 
       // The section must NOT unmount: the toggle is the only path back to the

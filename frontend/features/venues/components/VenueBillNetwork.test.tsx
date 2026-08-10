@@ -265,26 +265,25 @@ describe('VenueBillNetwork', () => {
     expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
   })
 
-  it('does not infinite-loop on mobile widths for sparse venues (React #185 regression)', async () => {
-    // Regression for the venue-page mobile crash. At < 640px with a sparse
-    // venue the section used to `return null`, which unmounted the
-    // useContainerWidth ref node; the hook's cleanup resets the measured width
-    // to null on unmount, so the node remounted → remeasured (< 640) →
-    // returned null → unmounted … forever ("Maximum update depth exceeded",
-    // React #185). Desktop never hit it: the early-return required a
-    // sub-breakpoint measured width, and the canvas never renders on mobile.
-    // The measuring wrapper must now stay mounted; only its content is gated.
+  it('does not infinite-loop on mobile widths (React #185 regression)', async () => {
+    // Regression for the venue-page mobile crash. At < 640px the section used
+    // to `return null`, which unmounted the useContainerWidth ref node; the
+    // hook's cleanup resets the measured width to null on unmount, so the node
+    // remounted → remeasured (< 640) → returned null → unmounted … forever
+    // ("Maximum update depth exceeded", React #185). The measuring wrapper
+    // must stay mounted; only its content is gated.
+    //
+    // PSY-1777 raised the stakes: the measured width now also gates the FETCH,
+    // so an unmounted ref would additionally deadlock the query (no
+    // measurement → never enabled → no data). Mobile therefore has NO payload,
+    // which is what this fixture models — sparseness is unknowable here, so
+    // the teaser is the correct state rather than the old blank section.
     ro.setWidth(400)
     const hooks = await import('../hooks/useVenues')
     vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
-      data: {
-        ...mockData,
-        // 9 shows (< MIN_GRAPH_SHOWS=10) AND all-isolate → tooSparse=true,
-        // mirroring the real Valley Bar payload that crashed on mobile.
-        venue: { ...mockData.venue, show_count: 9, edge_count: 0 },
-        nodes: mockData.nodes.map(n => ({ ...n, is_isolate: true })),
-        links: [],
-      },
+      // The disabled-query shape react-query reports at mobile widths:
+      // pending forever, never fetching, so `isLoading` is false.
+      data: undefined,
       isLoading: false,
       error: null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -297,10 +296,61 @@ describe('VenueBillNetwork', () => {
       ),
     ).not.toThrow()
 
-    // Mobile + sparse hides the whole section (content + canvas), matching the
-    // prior "return null" behavior — just without unmounting the measuring node.
+    // No canvas, and no infinite skeleton: the teaser is the terminal mobile
+    // state even with no payload to describe.
     expect(screen.queryByTestId('venue-bill-network-canvas')).not.toBeInTheDocument()
-    expect(screen.queryByText(/Who plays together here/)).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/mapped by shared bills here\. Needs a larger screen/i),
+    ).toBeInTheDocument()
+  })
+
+  // ------------------------------------------------------------------
+  // PSY-1777: the viewport gate must precede the fetch, not follow it.
+  // ------------------------------------------------------------------
+  describe('viewport-gated fetching (PSY-1777)', () => {
+    it('DISABLES the bill-network query below the 640px breakpoint', async () => {
+      ro.setWidth(390)
+      const hooks = await import('../hooks/useVenues')
+      vi.mocked(hooks.useVenueBillNetwork).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        error: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      renderWithProviders(
+        <VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />,
+      )
+
+      // Every call the component made must have been gated off — asserting on
+      // the LAST call alone would pass even if an early render had fetched.
+      const calls = vi.mocked(hooks.useVenueBillNetwork).mock.calls
+      expect(calls.length).toBeGreaterThan(0)
+      for (const [options] of calls) {
+        expect(options.enabled).toBe(false)
+      }
+
+      // ...and the visitor still gets the teaser, not a stuck skeleton.
+      expect(
+        screen.getByText(/mapped by shared bills here\. Needs a larger screen/i),
+      ).toBeInTheDocument()
+    })
+
+    it('ENABLES the bill-network query once measured at desktop width', async () => {
+      ro.setWidth(1280)
+      const hooks = await import('../hooks/useVenues')
+
+      renderWithProviders(
+        <VenueBillNetwork venueIdOrSlug={1} venueName="Valley Bar" />,
+      )
+
+      // The settled render must be enabled (the pre-measurement first render
+      // is legitimately disabled — containerWidth is null before the
+      // ResizeObserver reports).
+      const calls = vi.mocked(hooks.useVenueBillNetwork).mock.calls
+      expect(calls[calls.length - 1][0].enabled).toBe(true)
+      expect(screen.getByTestId('venue-bill-network-canvas')).toBeInTheDocument()
+    })
   })
 
   it('renders the header + a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
