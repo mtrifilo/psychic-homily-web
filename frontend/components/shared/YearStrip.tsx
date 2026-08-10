@@ -58,9 +58,9 @@ export interface YearStripProps {
  * Usage:
  *   <YearStrip
  *     ariaLabel="Filter shows by year"
- *     allYearsHref="/venues/the-rebel-lounge#past-shows"
+ *     allYearsHref="/venues/the-rebel-lounge#venue-past-shows"
  *     currentYear={2025}
- *     years={[{ year: 2026, count: 34, href: '?year=2026#past-shows' }]}
+ *     years={[{ year: 2026, count: 34, href: '/venues/the-rebel-lounge/shows/2026' }]}
  *   />
  */
 export function YearStrip({

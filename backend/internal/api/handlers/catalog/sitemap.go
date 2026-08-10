@@ -46,7 +46,7 @@ type GetSitemapEntriesRequest struct {
 	// Family, when set, returns only that family's entries (others empty). The
 	// frontend shards by family so each Data Cache entry stays under Next's
 	// ~1.5 MB effective budget (PSY-1622). Omit to receive every family.
-	Family string `query:"family" required:"false" enum:"shows,artists,venues,scenes,scene_weeks,labels,releases,festivals,tags" doc:"When set, only this family is populated; others are empty arrays."`
+	Family string `query:"family" required:"false" enum:"shows,artists,venues,venue_years,scenes,scene_weeks,labels,releases,festivals,tags" doc:"When set, only this family is populated; others are empty arrays."`
 }
 
 type GetSitemapEntriesResponse struct {

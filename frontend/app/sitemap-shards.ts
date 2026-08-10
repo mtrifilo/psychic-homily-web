@@ -26,6 +26,7 @@ export const FAMILY_SHARD_IDS = [
   'shows',
   'artists',
   'venues',
+  'venue_years',
   'scenes',
   'scene_weeks',
   'labels',
@@ -77,15 +78,24 @@ export function shardRoutePath(id: string): string {
  * guards catch a family being ADDED; only a shared table catches a prefix
  * being CHANGED.
  *
- * `scenes` and `scene_weeks` deliberately share `/scenes`: a scene is
- * `/scenes/{city}` and a scene week is `/scenes/{city}/{iso-week}`. Anything
- * mapping a URL back to a family has to disambiguate those two by segment
- * count, not by prefix.
+ * TWO prefixes are shared, and both for the same reason — a family addressing a
+ * SLICE of an entity lives under that entity's prefix:
+ *
+ *   - `scenes` / `scene_weeks` share `/scenes`: `/scenes/{city}` vs
+ *     `/scenes/{city}/{iso-week}`.
+ *   - `venues` / `venue_years` share `/venues`: `/venues/{slug}` vs
+ *     `/venues/{slug}/shows/{year}` (PSY-1756).
+ *
+ * Anything mapping a URL back to a family has to disambiguate each pair by
+ * segment count, not by prefix — see `classifyLoc` in lib/sitemap-monitor/parse,
+ * whose SHARED_CLAIMANTS guard fails the day any family joins a shared prefix
+ * without a rule.
  */
 export const FAMILY_URL_PREFIXES = {
   shows: '/shows',
   artists: '/artists',
   venues: '/venues',
+  venue_years: '/venues',
   scenes: '/scenes',
   scene_weeks: '/scenes',
   labels: '/labels',

@@ -17,17 +17,33 @@ import {
 import { cn } from '@/lib/utils'
 import { useVenueShowYears, useVenueShows } from '../hooks/useVenues'
 import { venueQueryKeys, venuePastShowsPageParams } from '../api'
-import { clampPage, parseArchiveYear } from '@/features/shows/showArchive'
-import { archiveDocumentTitle, monthRangeLabel } from '../showArchive'
+// `clampPage` is entity-agnostic and shared with the artist archive (PSY-1754);
+// the year is no longer read from the URL here, so `parseArchiveYear` moved to
+// the route that owns the `{year}` path segment (PSY-1756).
+import { clampPage } from '@/features/shows/showArchive'
+import {
+  archiveDocumentTitle,
+  monthRangeLabel,
+  venueArchiveHref,
+  VENUE_PAST_SHOWS_FRAGMENT,
+} from '../showArchive'
 import { VenueShowsTable } from './VenueShowsTable'
-import type { VenueShow, VenueShowZone, VenueShowsResponse } from '../types'
+import type {
+  VenueShow,
+  VenueShowZone,
+  VenueShowsResponse,
+  VenueShowYearsResponse,
+} from '../types'
 
 /**
  * Anchor the past-shows pager and year strip land on. Deliberately its own id
  * rather than `VENUE_SHOWS_ANCHOR`, which sits on the whole shows block and
  * would drop a reader who just changed page at the top of the UPCOMING list.
+ *
+ * Re-exported from `showArchive`, which owns the archive's URL space and has to
+ * append this fragment when it builds the all-years hrefs.
  */
-export const VENUE_PAST_SHOWS_ANCHOR = 'venue-past-shows'
+export const VENUE_PAST_SHOWS_ANCHOR = VENUE_PAST_SHOWS_FRAGMENT
 
 /**
  * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes
@@ -45,6 +61,25 @@ export interface VenuePastShowsProps {
   venueName: string
   venueState: string
   venueTimezone?: string | null
+  /**
+   * The year this archive is scoped to, or null for every year.
+   *
+   * A PROP, not a `?year=` read: the year lives in the path
+   * (`/venues/{slug}/shows/{year}`), so the route already knows it before this
+   * component mounts, and the server can render the right rows into the HTML.
+   * See `venueArchiveHref` for the whole URL space and why the year is a
+   * segment while the page is not.
+   */
+  activeYear?: number | null
+  /**
+   * Page 1's rows and the year histogram, when the SERVER already fetched them
+   * for this exact scope (the year-archive route does; the venue page does
+   * not). Seeded into the query cache so the first render — server AND
+   * client — has them, which is what puts the rows and the year links in the
+   * served HTML.
+   */
+  initialShows?: VenueShowsResponse
+  initialYears?: VenueShowYearsResponse
   className?: string
 }
 
@@ -52,12 +87,19 @@ export interface VenuePastShowsProps {
  * The venue's past-show archive: a year strip, a paged table, and pagers above
  * and below it (PSY-1753).
  *
+ * Mounted on TWO surfaces, and the difference between them is one prop
+ * (PSY-1756): the venue page renders it with no `activeYear` (every year, paged)
+ * and the year-archive route renders it scoped to a year, with the first page
+ * and the histogram already fetched server-side. One component rather than two
+ * so the archive cannot drift between the surface a reader browses and the
+ * surface a crawler indexes.
+ *
  * URL-driven and read-only about it. Every page and year is a real `<a href>`
- * built by this component, and navigation happens through Next's router when
+ * built by `venueArchiveHref`, and navigation happens through Next's router when
  * one is clicked; nothing here WRITES the query string. That is deliberate —
  * calling a nuqs setter alongside a `<Link>` navigation puts two writers on the
- * same URL in one tick, which is the PSY-1388 failure. The nuqs hooks below
- * read the result; the hrefs decide it.
+ * same URL in one tick, which is the PSY-1388 failure. The nuqs hook below
+ * reads the result; the hrefs decide it.
  *
  * The section renders nothing at all for a venue with no past shows, so the
  * page does not carry an empty archive.
@@ -68,17 +110,22 @@ export function VenuePastShows({
   venueName,
   venueState,
   venueTimezone,
+  activeYear = null,
+  initialShows,
+  initialYears,
   className,
 }: VenuePastShowsProps) {
-  const [rawYear] = useQueryState('year', parseAsInteger)
   const [rawPage] = useQueryState('page', parseAsInteger.withDefault(1))
-  const activeYear = parseArchiveYear(rawYear)
   const page = clampPage(rawPage, MAX_PAGE)
 
   const pageParams = venuePastShowsPageParams(page, activeYear)
   const offset = pageParams.offset ?? 0
 
-  const yearsQuery = useVenueShowYears({ venueId, timeFilter: 'past' })
+  const yearsQuery = useVenueShowYears({
+    venueId,
+    timeFilter: 'past',
+    initialData: initialYears,
+  })
   const yearCounts = yearsQuery.data?.years ?? []
 
   // The histogram is the authority on counts. It is keyed on the venue alone,
@@ -112,6 +159,11 @@ export function VenuePastShows({
     // The old page stays on screen (dimmed) while the next one loads, so
     // paging does not collapse the section to a spinner and bounce the layout.
     keepPreviousPage: true,
+    // ONLY on the page the server actually fetched. `initialData` attaches to
+    // whatever key is current, so handing page 1's rows to a hook asking for
+    // page 2 would seed page 2 with the wrong slice — and unlike a stale page
+    // that would never correct itself, because it would look like a hit.
+    initialData: page === 1 ? initialShows : undefined,
   })
 
   const { targetProps, focusTarget } = usePaginationFocusTarget<HTMLHeadingElement>()
@@ -148,18 +200,12 @@ export function VenuePastShows({
   const scopedTotal = histogramTotal ?? envelopeTotal
   const totalPages = Math.max(1, Math.ceil(scopedTotal / pageParams.limit))
 
-  const basePath = `/venues/${venueSlug}`
+  // One definition of the archive's URL space, shared with the sitemap and the
+  // route that serves the year pages — see `venueArchiveHref`.
   const buildHref = useCallback(
-    (year: number | null, targetPage: number) => {
-      const params = new URLSearchParams()
-      if (year !== null) params.set('year', String(year))
-      // Page 1 and "all years" are bare URLs: one canonical address per view,
-      // so a shared link and the link the pager builds are the same string.
-      if (targetPage > 1) params.set('page', String(targetPage))
-      const query = params.toString()
-      return `${basePath}${query ? `?${query}` : ''}#${VENUE_PAST_SHOWS_ANCHOR}`
-    },
-    [basePath]
+    (year: number | null, targetPage: number) =>
+      venueArchiveHref(venueSlug, year, targetPage),
+    [venueSlug]
   )
 
   // Month-range page labels: what is behind a page number, before the reader
@@ -218,11 +264,21 @@ export function VenuePastShows({
   // not on the page.
   const hasPastShows = yearsQuery.isSuccess ? haveHistogram : envelopeTotal > 0
 
-  // Reflect the active scope in the document title. The venue route is ISR and
-  // reads no `searchParams` on the server, so this is the only place the year
-  // and page can reach the title. The brand suffix is carried over from what
-  // the route's own metadata rendered rather than restated, so it cannot drift
-  // from the root layout's title template.
+  // Reflect the active scope in the document title.
+  //
+  // What is left for this to do is the PAGE, and only the page. The year is in
+  // the path, so both routes render a correct title server-side already
+  // ("Venue" / "Venue shows in 2025") — but neither reads `searchParams`, by
+  // design: a `?page=` that reached `generateMetadata` would make the year
+  // archive's canonical vary per page, and every page canonicalizes to the year
+  // root. So the page number can only reach the title here.
+  //
+  // `archiveDocumentTitle` rebuilds the whole string from `venueName` + the
+  // active scope, so passing the path's year is correct on both surfaces and
+  // cannot double it up: on the year route page 1 recomputes exactly the title
+  // the server rendered, and the equality check below then writes nothing. The
+  // brand suffix is carried over from what the route's own metadata rendered
+  // rather than restated, so it cannot drift from the root layout's template.
   //
   // This is a SECOND writer of a global the framework already owns, so it only
   // ever touches what it put there:
@@ -262,11 +318,13 @@ export function VenuePastShows({
 
   // Land a cold `#venue-past-shows` link on the archive.
   //
-  // The browser resolves a fragment once, at load, and at that moment this
-  // section does not exist: the venue route is prerendered without it, and the
-  // archive only appears after its first client fetch. A shared or bookmarked
-  // deep link would otherwise open at the top of the page, which is the one
-  // place its `?year=`/`?page=` says nothing about.
+  // The browser resolves a fragment once, at load, and on the VENUE page this
+  // section does not exist at that moment: the route is prerendered without it,
+  // and the archive only appears after its first client fetch. A shared or
+  // bookmarked deep link would otherwise open at the top of the page, which is
+  // the one place its `?page=` says nothing about. (The year-archive route
+  // needs none of this — it carries no fragment, because there the archive is
+  // the page.)
   //
   // Fires ONCE per mount, and only for OUR fragment, so it can never fight a
   // reader who has already scrolled. The cost of that restraint is that it is
@@ -351,7 +409,13 @@ export function VenuePastShows({
         }
       />
 
-      {yearEntries.length > 1 && (
+      {/* Rendered for a SINGLE year too, which it was not before PSY-1756.
+          A one-year venue's archive is still a document with its own URL, and
+          the sitemap announces it — so suppressing the strip left that URL with
+          no inbound link anywhere on the site, next to a venue page carrying
+          the identical rows. An orphaned near-duplicate is the worst of both,
+          and one link is what resolves it. */}
+      {yearEntries.length > 0 && (
         <YearStrip
           ariaLabel="Filter past shows by year"
           allYearsHref={buildHref(null, 1)}
@@ -360,10 +424,11 @@ export function VenuePastShows({
           // Deep archives would otherwise turn the strip into a long
           // horizontal scroll on mobile; the tail stays in the DOM as real
           // links rather than being unmounted, so a reader who lands mid-strip
-          // still has every year one tab away. (Crawler reach is a separate
-          // question this section does not answer today: it renders only after
-          // its first client fetch, so the archive is not in the server HTML.
-          // Server-rendered year archives are their own ticket.)
+          // still has every year one tab away — and so does a crawler, which
+          // reads the markup and never opens a disclosure. On the year-archive
+          // route the whole strip IS in the served HTML (the histogram is
+          // seeded server-side), which is what makes every year of a venue's
+          // history reachable by following links (PSY-1756).
           collapseAfter={8}
           onNavigate={focusTarget}
           className="mb-3"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -62,6 +64,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		Shows:      []contracts.SitemapEntry{},
 		Artists:    []contracts.SitemapEntry{},
 		Venues:     []contracts.SitemapEntry{},
+		VenueYears: []contracts.SitemapEntry{},
 		Scenes:     []contracts.SitemapEntry{},
 		SceneWeeks: []contracts.SitemapEntry{},
 		Labels:     []contracts.SitemapEntry{},
@@ -73,7 +76,7 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	known := map[string]bool{
 		// Keep in sync with the Huma `family` enum on GetSitemapEntriesRequest
 		// and frontend/app/sitemap-shards.ts FAMILY_SHARD_IDS.
-		"shows": true, "artists": true, "venues": true,
+		"shows": true, "artists": true, "venues": true, "venue_years": true,
 		"scenes": true, "scene_weeks": true,
 		"labels": true, "releases": true, "festivals": true, "tags": true,
 	}
@@ -114,6 +117,14 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 			return nil, fmt.Errorf("failed to collect venue sitemap entries: %w", err)
 		}
 		out.Venues = venues
+	}
+
+	if want("venue_years") {
+		venueYears, err := s.venueYearEntries(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to collect venue-year sitemap entries: %w", err)
+		}
+		out.VenueYears = venueYears
 	}
 
 	if want("scenes") {
@@ -198,6 +209,91 @@ func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]cont
 	if err != nil {
 		return nil, err
 	}
+	return entries, nil
+}
+
+// venueYearEntries projects one SitemapEntry per venue-local calendar year that
+// venue has at least one approved PAST show in — the crawlable year archives at
+// /venues/{slug}/shows/{year} (PSY-1756).
+//
+// PAST only, and that is the whole definition of the surface rather than a
+// filter applied to it: the archive page renders the same `time_filter=past`
+// histogram the venue page's year strip is built from, so a year announced here
+// that the histogram does not carry would be a URL the site itself 404s. The two
+// must be derived the same way, which is why this builds the year through
+// shared.VenueLocalYearSQL and the boundary through
+// shared.VenueLocalDateCondition rather than restating either.
+//
+// Unlike the entity families this is NOT one row per table row, so entriesFor
+// cannot serve it: the grain is (venue, year) and the slug is composite.
+// UpdatedAt is MAX(show.updated_at) within the bucket — the closest durable
+// "this page's content changed" signal, matching sceneWeekEntries.
+//
+// Venues with no past shows produce NO rows, so a venue whose archive would be
+// empty is never advertised. That is the same rule the page enforces (it 404s a
+// year the histogram does not carry); both sides fall out of this one query
+// shape rather than needing to be kept in sync by hand.
+//
+// COST, recorded rather than discovered later. This family is the most
+// expensive one in Entries and the only one whose input set grows without
+// bound: it scans every approved PAST show (the coarse `event_date < now()`
+// bound prunes nothing on an archive) with one lateral execution per row, and
+// past shows never age out. The other families are either single-table scans
+// (entriesFor) or windowed (sceneWeekEntries, 8 weeks per scene). Two thresholds
+// to watch as the catalogue grows, neither of which is close today: the ~1.5 MB
+// Next Data Cache budget per shard (app/sitemap.ts weighs it and fails the
+// build), and the 50,000-URL sitemap limit — this family is venues x years, so
+// it will reach both before any other. The proportionate fix at that point is a
+// rollup refreshed on the same hourly cadence, not a cleverer query here.
+func (s *SitemapService) venueYearEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
+	type row struct {
+		Slug      string    `gorm:"column:slug"`
+		Year      int       `gorm:"column:year"`
+		UpdatedAt time.Time `gorm:"column:updated_at"`
+	}
+
+	var rows []row
+	// The lateral in VenueTZJoin correlates on shows.id, so `shows` must already
+	// be joined when it lands — hence the join order here. Its inner alias is
+	// `iv`; the archive's own venue is aliased `av` so the two cannot collide.
+	//
+	// NOTE the asymmetry this inherits from VenueTZJoin, which is deliberate and
+	// shared with every other venue-local surface: a show billed at two venues is
+	// bucketed in the PRIMARY venue's zone even when listed under the secondary
+	// one. Bucketing it here in `av`'s zone instead would put this family half a
+	// day away from the page it points at, for the shows that straddle a New Year
+	// boundary.
+	err := s.db.WithContext(ctx).
+		Table("show_venues").
+		Joins("JOIN shows ON show_venues.show_id = shows.id").
+		Joins("JOIN venues av ON av.id = show_venues.venue_id").
+		Joins(shared.VenueTZJoin).
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where("av.slug IS NOT NULL AND av.slug <> ''").
+		Where(shared.VenueLocalDateCondition("past")).
+		Select("av.slug AS slug, " + shared.VenueLocalYearSQL + " AS year, MAX(shows.updated_at) AS updated_at").
+		Group("av.slug, " + shared.VenueLocalYearSQL).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]contracts.SitemapEntry, 0, len(rows))
+	for _, r := range rows {
+		entries = append(entries, contracts.SitemapEntry{
+			Slug:      r.Slug + "/shows/" + strconv.Itoa(r.Year),
+			UpdatedAt: r.UpdatedAt,
+		})
+	}
+	// Deterministic order, so two fetches of an unchanged catalogue diff cleanly
+	// — the same reason entriesFor sorts. Sorted in Go rather than SQL because
+	// the composite slug is assembled here, and the two orders are not the same:
+	// ordering by (slug, year) in SQL groups a venue's years together, while
+	// ordering the assembled string interleaves venues whose slugs are prefixes
+	// of one another ("club-2/shows/2025" sorts before "club-2-x/shows/1999",
+	// because '/' is below '-'). The emitted document has to be sorted the way
+	// it is read.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
 	return entries, nil
 }
 

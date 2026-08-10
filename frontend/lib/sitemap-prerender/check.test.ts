@@ -7,9 +7,13 @@ import {
 } from '@/app/sitemap-shards'
 import {
   findShardsWithoutFallback,
+  formatPendingShards,
   formatShardFailures,
   looksLikeManifestShapeChange,
+  partitionShardFailures,
   shardBodyPath,
+  shardIdFromRoute,
+  type FamilyVerdict,
   type PrerenderManifestLike,
 } from './check'
 
@@ -158,5 +162,132 @@ describe('formatShardFailures', () => {
 
     expect(message).toContain('Next.js upgrade')
     expect(message).not.toContain('GET /sitemap/entries')
+  })
+})
+
+/**
+ * The deploy-order excuse (PSY-1756).
+ *
+ * A family lands in the frontend and the backend in one PR but deploys on two
+ * pipelines, so for one window Vercel builds against an API that has never
+ * heard of it. Measured on this ticket's own preview builds: `1 of 11 shards`
+ * failed while the other ten prerendered from the same healthy backend.
+ *
+ * The excuse must be narrow enough that a real outage still fails the build,
+ * which is what most of these cases pin.
+ */
+describe('partitionShardFailures', () => {
+  const failureFor = (id: string) => ({
+    route: shardRoutePath(id),
+    reason: 'no prerender-manifest entry — the route fell back to Dynamic',
+  })
+
+  const probeReturning =
+    (verdicts: Record<string, FamilyVerdict>) =>
+    async (shardId: string): Promise<FamilyVerdict> =>
+      verdicts[shardId] ?? 'served'
+
+  it('excuses a family the backend says it does not serve', async () => {
+    const { blocking, pending } = await partitionShardFailures(
+      [failureFor('venue_years')],
+      probeReturning({ venue_years: 'unknown' })
+    )
+
+    expect(pending.map(f => f.route)).toEqual([shardRoutePath('venue_years')])
+    expect(blocking).toEqual([])
+  })
+
+  /**
+   * The case the gate exists for. A backend that is down cannot say "I do not
+   * serve shows", so every family it fails to answer stays blocking.
+   */
+  it('blocks every shard when the backend is unreachable', async () => {
+    const failures = FAMILY_SHARD_IDS.map(failureFor)
+
+    const { blocking, pending } = await partitionShardFailures(failures, async () => 'unreachable')
+
+    expect(blocking).toHaveLength(FAMILY_SHARD_IDS.length)
+    expect(pending).toEqual([])
+  })
+
+  it('blocks a family the backend DOES serve — that is a real prerender failure', async () => {
+    const { blocking, pending } = await partitionShardFailures(
+      [failureFor('shows')],
+      probeReturning({ shows: 'served' })
+    )
+
+    expect(blocking.map(f => f.route)).toEqual([shardRoutePath('shows')])
+    expect(pending).toEqual([])
+  })
+
+  /** The pages shard makes no network call, so the backend cannot explain it. */
+  it('never excuses the pages shard, whatever the probe says', async () => {
+    const { blocking, pending } = await partitionShardFailures(
+      [failureFor(PAGES_SHARD_ID)],
+      async () => 'unknown'
+    )
+
+    expect(blocking.map(f => f.route)).toEqual([shardRoutePath(PAGES_SHARD_ID)])
+    expect(pending).toEqual([])
+    })
+
+  it('never excuses a route it cannot map back to a shard', async () => {
+    const { blocking, pending } = await partitionShardFailures(
+      [{ route: '/sitemap/mystery.xml', reason: 'whatever' }],
+      async () => 'unknown'
+    )
+
+    expect(blocking).toHaveLength(1)
+    expect(pending).toEqual([])
+  })
+
+  it('splits a mixed build into both buckets', async () => {
+    const { blocking, pending } = await partitionShardFailures(
+      [failureFor('venue_years'), failureFor('shows')],
+      probeReturning({ venue_years: 'unknown', shows: 'unreachable' })
+    )
+
+    expect(pending.map(f => f.route)).toEqual([shardRoutePath('venue_years')])
+    expect(blocking.map(f => f.route)).toEqual([shardRoutePath('shows')])
+  })
+
+  it('passes a build with no failures without probing at all', async () => {
+    let probed = 0
+    const { blocking, pending } = await partitionShardFailures([], async () => {
+      probed += 1
+      return 'unknown'
+    })
+
+    expect(blocking).toEqual([])
+    expect(pending).toEqual([])
+    expect(probed).toBe(0)
+  })
+})
+
+describe('shardIdFromRoute', () => {
+  it.each(ALL_SHARD_IDS)('maps %s back from its route path', id => {
+    expect(shardIdFromRoute(shardRoutePath(id))).toBe(id)
+  })
+
+  it('returns null for a path that is not a shard route', () => {
+    expect(shardIdFromRoute('/sitemap/mystery.xml')).toBeNull()
+    expect(shardIdFromRoute('/venues/a-venue')).toBeNull()
+  })
+})
+
+describe('formatPendingShards', () => {
+  it('says nothing when nothing is pending', () => {
+    expect(formatPendingShards([])).toBe('')
+  })
+
+  it('names the shard and what to check if it never clears', () => {
+    const message = formatPendingShards([
+      { route: shardRoutePath('venue_years'), reason: 'whatever' },
+    ])
+
+    expect(message).toContain('/sitemap/venue_years.xml')
+    expect(message).toContain('backend does not serve that family yet')
+    // The reader has to be told this is temporary AND how to tell when it is not.
+    expect(message).toContain('FAMILY_SHARD_IDS')
   })
 })

@@ -23,10 +23,13 @@ describe('proxy entity existence checks', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/entities/shows/e2e-attendance-test/exists',
-      {
+      // objectContaining, not an exact init: every probe also carries an
+      // AbortSignal now, and pinning the whole object would make adding one
+      // more fetch option a test failure in three files.
+      expect.objectContaining({
         method: 'HEAD',
         redirect: 'manual',
-      }
+      })
     )
   })
 

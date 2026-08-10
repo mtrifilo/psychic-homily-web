@@ -124,10 +124,11 @@ const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
  * First path segment → the families claiming it, derived from the shared
  * FAMILY_URL_PREFIXES table rather than restated.
  *
- * Most prefixes have exactly one claimant. `/scenes` has two, which is why this
- * is a list: the collision is DETECTED here rather than assumed, so a future
- * family sharing an existing prefix surfaces in `SHARED_PREFIXES` (and fails
- * the guard test in parse.test.ts) instead of being silently misbucketed.
+ * Most prefixes have exactly one claimant. `/scenes` and `/venues` have two
+ * each, which is why this is a list: the collision is DETECTED here rather than
+ * assumed, so a future family sharing an existing prefix surfaces in
+ * `SHARED_CLAIMANTS` (and fails the guard test in parse.test.ts) instead of
+ * being silently misbucketed.
  */
 const FAMILIES_BY_PREFIX = new Map<string, Family[]>()
 for (const family of FAMILY_SHARD_IDS) {
@@ -137,13 +138,37 @@ for (const family of FAMILY_SHARD_IDS) {
   else FAMILIES_BY_PREFIX.set(prefix, [family])
 }
 
-/** Prefixes claimed by more than one family; each needs a rule in `classifyLoc`. */
-export const SHARED_PREFIXES = [...FAMILIES_BY_PREFIX]
-  .filter(([, claimants]) => claimants.length > 1)
-  .map(([prefix]) => prefix)
+/**
+ * Every shared prefix and the exact families claiming it, sorted so the guard
+ * test does not depend on FAMILY_SHARD_IDS' declaration order.
+ *
+ * The CLAIMANTS, not just the prefix list: `classifyLoc` needs a rule per
+ * family under a shared prefix, not per prefix. A list of prefixes alone stops
+ * catching anything once a prefix is already shared — a third family under
+ * `/venues` would leave it unchanged, and the new family would silently
+ * classify as `other` with every test still green.
+ */
+export const SHARED_CLAIMANTS: Record<string, Family[]> = Object.fromEntries(
+  [...FAMILIES_BY_PREFIX]
+    .filter(([, claimants]) => claimants.length > 1)
+    .map(([prefix, claimants]) => [prefix, [...claimants].sort()])
+)
 
 /** The `/scenes` prefix without its slash, as `classifyLoc` compares segments. */
 const bareScenesPrefix = FAMILY_URL_PREFIXES.scenes.replace(/^\//, '')
+
+/** The `/venues` prefix without its slash. Same comparison, same reason. */
+const bareVenuesPrefix = FAMILY_URL_PREFIXES.venues.replace(/^\//, '')
+
+/**
+ * The segment a venue-year URL carries between the venue slug and the year:
+ * `/venues/{slug}/shows/{year}`. Checked rather than assumed, so a future
+ * `/venues/{slug}/{something-else}` route does not silently count as an archive.
+ */
+const VENUE_YEAR_SEGMENT = 'shows'
+
+/** A four-digit calendar year, the only tail a venue-year URL may end in. */
+const VENUE_YEAR_PATTERN = /^\d{4}$/
 
 /**
  * Bucket a `<loc>` by its URL path.
@@ -176,12 +201,29 @@ export function classifyLoc(loc: string): LocBucket {
     return segments.length === 2 ? claimants[0] : 'other'
   }
 
-  // The one shared prefix: `/scenes/{city}` is a scene, `/scenes/{city}/{week}`
-  // a scene week. Keyed off the shared table rather than the literal 'scenes',
-  // so renaming the prefix moves the generator and this rule together — which
-  // is the whole point of FAMILY_URL_PREFIXES having one owner.
+  // The shared prefixes. Keyed off the shared table rather than the literals,
+  // so renaming a prefix moves the generator and this rule together — which is
+  // the whole point of FAMILY_URL_PREFIXES having one owner.
+
+  // `/scenes/{city}` is a scene, `/scenes/{city}/{week}` a scene week.
   if (prefix === bareScenesPrefix) {
     return segments.length === 2 ? 'scenes' : 'scene_weeks'
+  }
+
+  // `/venues/{slug}` is a venue, `/venues/{slug}/shows/{year}` a year archive
+  // (PSY-1756). Stricter than the scenes rule on purpose: `/venues` has room for
+  // other child routes, so anything that is not exactly the archive shape is
+  // 'other' rather than being counted as an archive the generator never emitted.
+  if (prefix === bareVenuesPrefix) {
+    if (segments.length === 2) return 'venues'
+    if (
+      segments.length === 4 &&
+      segments[2] === VENUE_YEAR_SEGMENT &&
+      VENUE_YEAR_PATTERN.test(segments[3])
+    ) {
+      return 'venue_years'
+    }
+    return 'other'
   }
 
   return 'other'

@@ -25,9 +25,13 @@
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ALL_SHARD_IDS } from '@/app/sitemap-shards'
+import { API_BASE_URL } from '@/lib/api-base'
 import {
   findShardsWithoutFallback,
+  formatPendingShards,
   formatShardFailures,
+  partitionShardFailures,
+  type FamilyVerdict,
   type PrerenderManifestLike,
 } from './check'
 
@@ -58,13 +62,58 @@ function readManifest(): PrerenderManifestLike {
 const hasBody = (bodyPath: string): boolean =>
   (statSync(join(BUILD_DIR, bodyPath), { throwIfNoEntry: false })?.size ?? 0) > 0
 
+/**
+ * How long the gate will wait for the backend to explain a missing shard.
+ *
+ * Short on purpose. This runs only when a shard has ALREADY failed, and the
+ * question is a cheap one the backend answers from its request validator; a
+ * backend too slow to answer it is a backend that cannot excuse anything, which
+ * is the same verdict a timeout produces here.
+ */
+const PROBE_TIMEOUT_MS = 5_000
+
+/**
+ * Ask the backend whether it serves a family at all.
+ *
+ * The build has already run, so this cannot use the route's fetch — it goes
+ * straight to the same endpoint with the same base URL the build used. Anything
+ * other than a definite "I do not serve that" is `unreachable`, which excuses
+ * nothing: a probe that errors, times out, 404s or 5xxs leaves the shard
+ * blocking, so a genuine outage still fails the build.
+ */
+async function probeFamily(shardId: string): Promise<FamilyVerdict> {
+  const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(shardId)}`
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+    // Keep this list identical to UNKNOWN_FAMILY_STATUSES in app/sitemap.ts:
+    // the two answer the same question, one at render time and one after the
+    // build, and a shard excused here must be one the route degrades to empty.
+    if (res.status === 400 || res.status === 422) return 'unknown'
+    return res.ok ? 'served' : 'unreachable'
+  } catch {
+    return 'unreachable'
+  }
+}
+
 const manifest = readManifest()
 const failures = findShardsWithoutFallback(manifest, hasBody)
 
-if (failures.length > 0) {
-  fail(formatShardFailures(failures, manifest))
+const { blocking, pending } = await partitionShardFailures(failures, probeFamily)
+
+if (blocking.length > 0) {
+  fail(formatShardFailures(blocking, manifest))
+}
+
+if (pending.length > 0) {
+  console.warn(`\n${formatPendingShards(pending)}\n`)
 }
 
 console.log(
-  `Sitemap prerender check OK: ${ALL_SHARD_IDS.length} shards have a fallback document.`
+  `Sitemap prerender check OK: ${ALL_SHARD_IDS.length - pending.length} of ` +
+    `${ALL_SHARD_IDS.length} shards have a fallback document` +
+    (pending.length > 0
+      ? `; ${pending.length} awaiting a backend deploy (see above).`
+      : '.')
 )

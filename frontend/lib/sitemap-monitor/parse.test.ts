@@ -6,7 +6,7 @@ import {
   parseSitemapIndex,
   parseUrlset,
   showDateFromLoc,
-  SHARED_PREFIXES,
+  SHARED_CLAIMANTS,
 } from './parse'
 
 const INDEX_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -113,6 +113,30 @@ describe('classifyLoc', () => {
     )
   })
 
+  // The two /venues families split the same way (PSY-1756), but the archive
+  // shape is matched exactly rather than by segment count alone: /venues has
+  // room for other child routes, and one of them must not be counted as an
+  // archive the generator never emitted.
+  it('separates a venue from a venue year archive', () => {
+    expect(classifyLoc('https://psychichomily.com/venues/the-van-buren')).toBe(
+      'venues'
+    )
+    expect(
+      classifyLoc('https://psychichomily.com/venues/the-van-buren/shows/2025')
+    ).toBe('venue_years')
+  })
+
+  it.each([
+    // Right depth, wrong middle segment.
+    'https://psychichomily.com/venues/the-van-buren/events/2025',
+    // Right shape, tail is not a year.
+    'https://psychichomily.com/venues/the-van-buren/shows/last-year',
+    // The archive index, which the generator does not emit.
+    'https://psychichomily.com/venues/the-van-buren/shows',
+  ])('%s → other', loc => {
+    expect(classifyLoc(loc)).toBe('other')
+  })
+
   it.each([
     'https://psychichomily.com',
     'https://psychichomily.com/',
@@ -139,9 +163,13 @@ describe('classifyLoc', () => {
    * `classifyLoc` silently bucketed the renamed family as `other`.
    */
   it('classifies every family from the shared prefix table', () => {
+    // The composite-slug families, whose slug is itself a path tail.
+    const compositeSlugs: Partial<Record<(typeof FAMILY_SHARD_IDS)[number], string>> = {
+      scene_weeks: 'austin-tx/2026-W28',
+      venue_years: 'the-van-buren/shows/2025',
+    }
     for (const family of FAMILY_SHARD_IDS) {
-      // scene_weeks is the one family whose slug is itself composite.
-      const slug = family === 'scene_weeks' ? 'austin-tx/2026-W28' : 'a-slug'
+      const slug = compositeSlugs[family] ?? 'a-slug'
       const loc = `https://psychichomily.com${FAMILY_URL_PREFIXES[family]}/${slug}`
       expect(classifyLoc(loc), `misclassified ${family} (${loc})`).toBe(family)
     }
@@ -149,12 +177,16 @@ describe('classifyLoc', () => {
 
   /**
    * `classifyLoc` can only split families that share a prefix if it has an
-   * explicit rule for that prefix. Today `/scenes` is the only collision. If a
-   * new family adds a second one, this fails loudly instead of letting the new
-   * family be silently misbucketed.
+   * explicit rule for each CLAIMANT of that prefix. Asserting the claimants
+   * rather than the prefix list is what keeps this a live guard: once `/venues`
+   * is shared, a prefix-only assertion stops changing when a THIRD family joins
+   * it, and that family would classify as `other` with every test still green.
    */
-  it('has a disambiguation rule for every shared prefix', () => {
-    expect(SHARED_PREFIXES).toEqual(['scenes'])
+  it('has a disambiguation rule for every family under a shared prefix', () => {
+    expect(SHARED_CLAIMANTS).toEqual({
+      venues: ['venue_years', 'venues'],
+      scenes: ['scene_weeks', 'scenes'],
+    })
   })
 })
 

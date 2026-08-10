@@ -14,7 +14,7 @@ import {
 } from '../api'
 import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
-import type { VenueShowZone } from '../types'
+import type { VenueShowYearsResponse, VenueShowZone } from '../types'
 
 interface VenueShowsListProps {
   venueId: number
@@ -25,6 +25,12 @@ interface VenueShowsListProps {
   venueTimezone?: string | null
   venueAddress?: string | null
   venueVerified?: boolean
+  /**
+   * The past-show year histogram the ROUTE already fetched, so the archive's
+   * year strip is in the served HTML instead of appearing after the first
+   * client fetch (PSY-1756). Passed straight through to `VenuePastShows`.
+   */
+  initialPastYears?: VenueShowYearsResponse
   className?: string
   onShowAdded?: () => void
 }
@@ -54,6 +60,7 @@ export function VenueShowsList({
   venueTimezone,
   venueAddress,
   venueVerified,
+  initialPastYears,
   className,
   onShowAdded,
 }: VenueShowsListProps) {
@@ -141,6 +148,7 @@ export function VenueShowsList({
         venueName={venueName}
         venueState={venueState}
         venueTimezone={venueTimezone}
+        initialYears={initialPastYears}
         className="mt-8"
       />
 

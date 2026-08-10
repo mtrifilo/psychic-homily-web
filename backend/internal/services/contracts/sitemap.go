@@ -54,13 +54,21 @@ import "time"
 //   - Empty families serialise as [], never null. Asserted over real HTTP in
 //     the routes integration test.
 //
-// # Scene-weeks
+// # Composite slugs (scene-weeks, venue-years)
 //
-// Scene-weeks have two dynamic path segments and no backing row with a slug
-// column. Their SitemapEntry.Slug is the composite "{scene-slug}/{iso-week}"
-// (e.g. "phoenix-az/2026-W31") so the generator can keep one prefix map for
-// every family. UpdatedAt is MAX(show.updated_at) among approved shows in that
-// week window.
+// Some families address a SLICE of an entity rather than a row, so they have
+// more than one dynamic path segment and no backing table with a slug column.
+// Their SitemapEntry.Slug is the whole path tail under the family's prefix, so
+// the generator can keep one prefix map for every family:
+//
+//   - scene_weeks: "{scene-slug}/{iso-week}" (e.g. "phoenix-az/2026-W31").
+//     UpdatedAt is MAX(show.updated_at) among approved shows in that week.
+//   - venue_years: "{venue-slug}/shows/{year}" (e.g. "the-van-buren/shows/2025").
+//     UpdatedAt is MAX(show.updated_at) among that venue's approved past shows
+//     in that venue-local year.
+//
+// Anything mapping a URL back to a family has to disambiguate families sharing
+// a prefix by segment count — see FAMILY_URL_PREFIXES in the frontend.
 type SitemapEntry struct {
 	Slug      string    `json:"slug"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -77,6 +85,7 @@ type SitemapEntries struct {
 	Shows      []SitemapEntry `json:"shows"`
 	Artists    []SitemapEntry `json:"artists"`
 	Venues     []SitemapEntry `json:"venues"`
+	VenueYears []SitemapEntry `json:"venue_years"`
 	Scenes     []SitemapEntry `json:"scenes"`
 	SceneWeeks []SitemapEntry `json:"scene_weeks"`
 	Labels     []SitemapEntry `json:"labels"`
@@ -96,6 +105,7 @@ func (e SitemapEntries) Counts() map[string]int {
 		"shows":       len(e.Shows),
 		"artists":     len(e.Artists),
 		"venues":      len(e.Venues),
+		"venue_years": len(e.VenueYears),
 		"scenes":      len(e.Scenes),
 		"scene_weeks": len(e.SceneWeeks),
 		"labels":      len(e.Labels),

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BadgeCheck, Pencil, Trash2, Loader2, ExternalLink, Flag } from 'lucide-react'
 import { useVenue, useVenueGenres } from '../hooks/useVenues'
+import type { VenueShowYearsResponse } from '../types'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import type { ApiError } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -25,6 +26,24 @@ import { Button } from '@/components/ui/button'
 
 interface VenueDetailProps {
   venueId: string | number
+  /**
+   * The venue's past-show year histogram, already fetched by the route so the
+   * archive's year strip reaches the served HTML (PSY-1756).
+   *
+   * Threaded to `VenuePastShows` as a prop rather than seeded through the
+   * page's `HydrationBoundary`, and the reason is freshness rather than key
+   * mechanics — `venueQueryKeys.showYears` carries no viewer timezone, so
+   * unlike the shows pages it CAN be keyed on the server. `seedFirstScreen`
+   * stamps `dataUpdatedAt: 0`, which would make every venue page refetch a
+   * histogram it just rendered; `initialData` is treated as fresh for the usual
+   * staleTime, which is what a server-rendered strip should be. The cost is
+   * this prop passing through two components that do nothing else with it, and
+   * a strip that can lag by up to the server read's own window (an hour): on
+   * the day a venue's newest show graduates from upcoming to past, the current
+   * year can be missing from the strip for that long. Acceptable for an archive
+   * index; it would not be for the rows themselves.
+   */
+  initialPastYears?: VenueShowYearsResponse
 }
 
 /**
@@ -73,7 +92,7 @@ function VenueGenreProfile({ venueId }: { venueId: number }) {
   )
 }
 
-export function VenueDetail({ venueId }: VenueDetailProps) {
+export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
   const [isEditingVenue, setIsEditingVenue] = useState(false)
   const [isDeleteVenueOpen, setIsDeleteVenueOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
@@ -336,6 +355,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
               venueTimezone={venue.timezone}
               venueAddress={venue.address}
               venueVerified={venue.verified}
+              initialPastYears={initialPastYears}
               onShowAdded={handleShowAdded}
             />
           </div>

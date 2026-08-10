@@ -51,10 +51,10 @@ describe('proxy — scene period routes', () => {
 
     const response = await proxy(requestFor(path))
 
-    expect(fetchMock).toHaveBeenCalledWith(expected, {
-      method: 'HEAD',
-      redirect: 'manual',
-    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expected,
+      expect.objectContaining({ method: 'HEAD', redirect: 'manual' })
+    )
     expect(response.status).toBe(200)
   })
 
@@ -175,7 +175,7 @@ describe('proxy — scene period routes', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/scenes/phoenix-az%26x/week/2026-W31',
-      { method: 'HEAD', redirect: 'manual' }
+      expect.objectContaining({ method: 'HEAD', redirect: 'manual' })
     )
   })
 })
