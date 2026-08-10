@@ -100,7 +100,12 @@ interface SeoListOptions {
  * Every non-OK status is reported, not just 5xx: a 4xx here is a defect in our
  * own request rather than a backend outage, both ends being ours. Treating one
  * as unremarkable is how `/venues?limit=200` rendered without its `ItemList` in
- * production for months — see the note on `VENUE_LIST_LIMIT`.
+ * production for months — see `app/venues/venuesMetadata.ts`.
+ *
+ * A SHORT LIST IS REPORTED TOO, which is the other half of the same lesson. The
+ * 422 above was noticed eventually; the truncation that replaced it was not,
+ * because a 200 carrying 100 of 297 venues looks exactly like a 200 carrying all
+ * of them from here. See `reportShortfall`.
  */
 export async function fetchSeoList<T>({
   url,
@@ -132,7 +137,9 @@ export async function fetchSeoList<T>({
         // every caller dereferences `item.slug` OUTSIDE this try block, so one
         // null element would 500 the page — with no Sentry event, since the
         // throw escapes this catch. `app/sitemap.ts` guards the same hazard.
-        return items.filter(item => item != null) as T[]
+        const list = items.filter(item => item != null) as T[]
+        reportShortfall({ url, service, collection, received: list.length, body })
+        return list
       }
       Sentry.captureMessage(`${service}: response has no "${collection}" array`, {
         level: 'error',
@@ -157,4 +164,59 @@ export async function fetchSeoList<T>({
     })
   }
   return []
+}
+
+/**
+ * Report a list that came back shorter than the response says the set is.
+ *
+ * THIS IS THE DEFECT PSY-1764 EXISTED TO REMOVE, generalised to the one place
+ * every SEO list passes through. `/venues` fed its `ItemList` from
+ * `GET /venues?limit=100` against a set of 297; the response carried `total` and
+ * the call discarded it, so a third of the catalogue went unadvertised and every
+ * signal available — HTTP status, JSON shape, rendered page — said healthy. The
+ * fix for that page was a projection endpoint with no limit at all, which makes
+ * the truncation impossible rather than merely visible. This makes it visible
+ * for whatever is pointed at a paginated endpoint next.
+ *
+ * It reads `total` because that is what the paginated list endpoints report, and
+ * treats its absence as "the endpoint does not claim to know a total" rather
+ * than as a shortfall of zero — the listing projections carry no `total` in the
+ * sense of a set larger than the array, and `/venues/listing`'s `total` counts
+ * the browse set BEFORE unslugged rows are dropped, so a gap there means venues
+ * that cannot form a URL. Both are worth the same event: something in the set
+ * the page claims to enumerate is missing from the enumeration.
+ *
+ * It does NOT fail the render, for the reason the whole helper fails open: a
+ * partial `ItemList` is worth more to a crawler than none, and a page humans can
+ * read is worth more than either. The event is the point.
+ *
+ * The message deliberately carries NO numbers, so Sentry groups every occurrence
+ * into one issue per service rather than a new one per revalidation; the counts
+ * ride in `extra`.
+ */
+function reportShortfall({
+  url,
+  service,
+  collection,
+  received,
+  body,
+}: {
+  url: string
+  service: string
+  collection: string
+  received: number
+  body: Record<string, unknown> | null | undefined
+}): void {
+  const total = body?.total
+  if (typeof total !== 'number' || !Number.isFinite(total)) return
+  if (received >= total) return
+
+  Sentry.captureMessage(
+    `${service}: list is short of the total the API reports — the ${collection} ItemList is advertising a subset`,
+    {
+      level: 'error',
+      tags: { service },
+      extra: { url, received, total, missing: total - received },
+    }
+  )
 }

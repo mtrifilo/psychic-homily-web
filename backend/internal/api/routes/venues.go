@@ -14,6 +14,7 @@ func setupVenueRoutes(rc RouteContext) {
 	// Note: Static routes must come before parameterized routes
 	huma.Get(rc.API, "/venues", venueHandler.ListVenuesHandler)
 	huma.Get(rc.API, "/venues/cities", venueHandler.GetVenueCitiesHandler)
+	huma.Get(rc.API, "/venues/listing", venueHandler.ListVenueListingHandler)
 	huma.Get(rc.API, "/venues/search", venueHandler.SearchVenuesHandler)
 	huma.Get(rc.API, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)

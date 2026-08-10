@@ -139,6 +139,55 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 	return resp, nil
 }
 
+// ListVenueListingRequest is deliberately empty.
+//
+// No filters, and none should be added without a consumer that needs them: this
+// endpoint exists to be small and complete, and every query parameter is another
+// cache key whose payload nobody is watching. A `limit` in particular is what
+// this endpoint was created to remove. Filtering belongs on GET /venues.
+type ListVenueListingRequest struct{}
+
+// ListVenueListingResponse is the slug+name projection of the venue list.
+//
+// Count and Total are both here on purpose and are NOT the same number. Count
+// describes the array beside it; Total is the whole browse set, counted by its
+// own query. Equal today, and a caller that finds them unequal has found venues
+// it cannot advertise — which is the condition that went unreported while the
+// ItemList sat at 100 of 297.
+type ListVenueListingResponse struct {
+	Body struct {
+		Venues []contracts.VenueListingEntry `json:"venues" doc:"Venues reduced to slug and name"`
+		Count  int                           `json:"count" doc:"Number of venues in this response"`
+		Total  int64                         `json:"total" doc:"Total venues in the browse set, before unslugged rows are dropped. Equal to count unless some venue cannot form a URL."`
+	}
+}
+
+// ListVenueListingHandler handles GET /venues/listing.
+//
+// The narrow twin of ListVenuesHandler, for callers that build one link per
+// venue and read nothing else — see contracts.VenueListingEntry for the measured
+// reason that distinction earns its own endpoint rather than a wider `maximum`
+// on GET /venues.
+func (h *VenueHandler) ListVenueListingHandler(ctx context.Context, _ *ListVenueListingRequest) (*ListVenueListingResponse, error) {
+	entries, total, err := h.venueService.GetVenueListing()
+	if err != nil {
+		logger.FromContext(ctx).Error("venue_listing_failed",
+			"error", err.Error(),
+			"request_id", logger.GetRequestID(ctx),
+		)
+		// The error is logged, not returned: it would be serialised into the
+		// body for an unauthenticated caller, handing over raw driver text.
+		return nil, huma.Error500InternalServerError("Failed to fetch venue listing")
+	}
+
+	resp := &ListVenueListingResponse{}
+	resp.Body.Venues = entries
+	resp.Body.Count = len(entries)
+	resp.Body.Total = total
+
+	return resp, nil
+}
+
 // GetVenueRequest represents the request parameters for getting a single venue
 type GetVenueRequest struct {
 	VenueID string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`

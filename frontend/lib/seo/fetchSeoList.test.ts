@@ -149,6 +149,84 @@ describe('fetchSeoList', () => {
   })
 })
 
+// PSY-1764. The truncation that replaced the 422 above: `/venues?limit=100`
+// answered 200 with 100 of 297 venues, the response carried `total`, the call
+// discarded it, and the ItemList advertised a third of the catalogue while every
+// available signal said healthy. `/venues` no longer asks for a page at all, so
+// these tests guard the NEXT list pointed at a paginated endpoint rather than
+// that one — which is the only reason the condition was worth generalising into
+// this helper instead of fixing at the one call site.
+describe('fetchSeoList and a short list', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('reports a list shorter than the total the response reports', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }], total: 297 }))
+
+    // Still returns what it got: a partial ItemList beats none, exactly as a
+    // failed fetch still renders the page. The event is what changes.
+    await expect(call(fetchImpl)).resolves.toEqual([{ slug: 'a' }])
+    expect(captureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('venues-listing: list is short of the total'),
+      expect.objectContaining({
+        level: 'error',
+        tags: { service: 'venues-listing' },
+        extra: expect.objectContaining({ received: 1, total: 297, missing: 296 }),
+      })
+    )
+  })
+
+  // The numbers ride in `extra` so Sentry groups every revalidation into one
+  // issue. A message carrying "100 of 297" would open a new issue on each
+  // catalogue change, which is how a real signal becomes noise and gets muted.
+  it('keeps the counts out of the message so the events group', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }], total: 297 }))
+
+    await call(fetchImpl)
+    expect(captureMessage.mock.calls[0][0]).not.toMatch(/\d/)
+  })
+
+  it('says nothing when the list covers the reported total', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }, { slug: 'b' }], total: 2 }))
+
+    await expect(call(fetchImpl)).resolves.toHaveLength(2)
+    expect(captureMessage).not.toHaveBeenCalled()
+  })
+
+  // A projection endpoint that reports no total is not claiming a larger set, so
+  // absence must read as "unknown", never as a total of zero — which would make
+  // every such response look complete OR make an empty one look short, depending
+  // on which way the comparison was written.
+  it('says nothing when the response reports no total at all', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }] }))
+
+    await expect(call(fetchImpl)).resolves.toHaveLength(1)
+    expect(captureMessage).not.toHaveBeenCalled()
+  })
+
+  // Counted AFTER the null filter above, because a null element is not an entry
+  // the ItemList can advertise either. Two venues, one of them null, against a
+  // total of two is a shortfall of one.
+  it('counts what the caller can actually use, not what the array held', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ venues: [null, { slug: 'a' }], total: 2 }))
+
+    await expect(call(fetchImpl)).resolves.toEqual([{ slug: 'a' }])
+    expect(captureMessage).toHaveBeenCalledWith(
+      expect.stringContaining('list is short of the total'),
+      expect.objectContaining({ extra: expect.objectContaining({ received: 1, total: 2 }) })
+    )
+  })
+})
+
 // PSY-1674. This helper fails open on every other error by design, and the ONE
 // exception is what the Data Cache budget gate is built on: a build-time budget
 // breach must ESCAPE the catch, because absorbing it turns the gate into a

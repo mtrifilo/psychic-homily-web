@@ -12,11 +12,10 @@ import type {
   VenuesListResponse,
 } from '@/features/venues/types'
 import { JsonLd } from '@/components/seo/JsonLd'
-import { API_BASE_URL } from '@/lib/api-base'
-import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { getVenuesForMetadata, type VenueListItem } from './venuesMetadata'
 
 export const metadata = {
   title: 'Venues',
@@ -30,64 +29,6 @@ export const metadata = {
     url: '/venues',
     type: 'website',
   },
-}
-
-interface VenueListItem {
-  slug: string
-  name: string
-}
-
-/**
- * The endpoint's ceiling, not a product choice. `GET /venues` declares
- * `maximum:"100"` on `limit`, and huma enforces that as a 422 before the
- * handler runs. This call asked for 200, so it 422'd on every render and the
- * fail-open below dropped the `ItemList` — verified absent from the production
- * `/venues` HTML on 2026-07-29, and reproduced directly against the API. Raising
- * this past 100 needs the backend maximum raised first.
- *
- * This ALREADY truncates: production reports `total: 198` (2026-07-29), so the
- * `ItemList` covers 100 of 198, and the 98 omitted are the least active — the
- * list is sorted by upcoming show count. Nothing reports the shortfall; the
- * response carries `total` and this call discards it. That is a quieter version
- * of the same failure class, and it is why the fix is to raise the backend
- * maximum or paginate with `offset`, not to leave the cap here. Going from
- * "none" to "the 100 most active" is still strictly better than the 422 this
- * replaces, which is the only reason it ships in this state.
- *
- * NOT consolidated with the first-screen fetch below, unlike `/shows`, which
- * reads one response for both consumers. The two genuinely differ here: the
- * `ItemList` wants the 100 most active venues, the browse page's first screen
- * wants the 50 the client hook asks for. So `/venues` does keep two Data Cache
- * entries with independently expiring windows, and the two lists can disagree
- * across a window boundary. Harmless — one is schema, one is rows — but it is
- * a real divergence from the shows page, recorded so the next reader does not
- * assume the consolidation was applied everywhere.
- */
-export const VENUE_LIST_LIMIT = 100
-
-/**
- * Data Cache exposure, measured against production 2026-08-08 (PSY-1674), when
- * `/artists` was found 206% over the 2 MB cache-item cap and silently uncached:
- *
- *   GET /venues?limit=100    71,172 raw    94,896 base64     4.5% of the cap
- *   GET /venues?limit=50     35,226 raw    46,968 base64     2.2%
- *   GET /venues/cities        5,668 raw     7,560 base64     0.4%
- *
- * `/venues` is not exposed, and the reason is structural rather than luck: the
- * two list fetches carry an explicit `limit`, so they grow with the page size
- * rather than the catalogue. (`/venues/cities` carries none, but it is a facet
- * aggregate — one row per city — so it grows with cities, not venues.)
- * `GET /artists` had no limit at all, which is what let it run away.
- *
- * The truncation described on the constant above is a SEPARATE, live defect and
- * is now tracked as PSY-1764 rather than only recorded here.
- */
-export function getVenues(): Promise<VenueListItem[]> {
-  return fetchSeoList<VenueListItem>({
-    url: `${API_BASE_URL}/venues?limit=${VENUE_LIST_LIMIT}`,
-    collection: 'venues',
-    service: 'venues-listing',
-  })
 }
 
 function VenueListLoading() {
@@ -140,8 +81,24 @@ async function HydratedVenueList() {
   )
 }
 
+/**
+ * Data Cache exposure of everything this route fetches, measured against
+ * production on 2026-08-09 at 297 verified venues. The cap is 2 MB per item and
+ * the body is stored base64-encoded; see `lib/data-cache-budget/budget.ts`.
+ *
+ *   GET /venues/listing (all 297)   18,289 raw    24,385 base64     1.2% of the cap
+ *   GET /venues?limit=50            35,226 raw    46,968 base64     2.2%
+ *   GET /venues/cities               5,668 raw     7,560 base64     0.4%
+ *
+ * None is exposed, and only the middle one is bounded by a `limit` — the other
+ * two grow with the catalogue and with the number of cities respectively. The
+ * listing's growth is the one that matters and is measured beside the fetch that
+ * owns it, in `venuesMetadata.ts`. Both `fetchSeoList` and `fetchListPayload`
+ * weigh their response against the budget on the way through, so a breach fails
+ * a build rather than going quiet.
+ */
 export default async function VenuesPage() {
-  const venues = await getVenues()
+  const venues = await getVenuesForMetadata()
 
   const venuesWithSlugs = venues.filter(
     (v): v is VenueListItem & { slug: string } => !!v.slug

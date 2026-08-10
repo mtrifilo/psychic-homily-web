@@ -941,6 +941,77 @@ func (s *VenueService) metroRollupPredicate(filters contracts.VenueListFilters) 
 	return "(" + pred + " OR (" + cityPred + "))", all, true
 }
 
+// venueBrowseOrder is the order the /venues browse page lists venues in: most
+// upcoming shows first, ties broken by name. Shared with GetVenueListing rather
+// than restated there, so the ItemList cannot drift out of the page's order
+// because someone remembered a comment.
+const venueBrowseOrder = "upcoming_show_count DESC, venues.name ASC"
+
+// upcomingShowCountSubquery counts each venue's upcoming approved shows as of
+// `now`, keyed by venue_id. LEFT JOINed by the callers below, because a venue
+// with no upcoming show is still a listed venue — unlike the artist equivalent,
+// whose browse gate IS having one.
+func (s *VenueService) upcomingShowCountSubquery(now time.Time) *gorm.DB {
+	return s.db.Table("show_venues").
+		Select("show_venues.venue_id, COUNT(*) as show_count").
+		Joins("JOIN shows ON show_venues.show_id = shows.id").
+		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
+		Group("show_venues.venue_id")
+}
+
+// GetVenueListing returns the slug+name projection behind GET /venues/listing,
+// plus the size of the browse set it was projected from.
+//
+// It answers the same question as an unfiltered GetVenuesWithShowCounts — which
+// venues does the browse page list, in what order — while reading two columns
+// instead of hydrating a full response per row, and without a limit. Both halves
+// matter: the width is what stops the response fitting a cache entry, and the
+// missing limit is what stops the JSON-LD ItemList advertising a prefix of the
+// catalogue. See contracts.VenueListingEntry for the measurements.
+//
+// The gate and the sort are SHARED with that default path rather than restated,
+// so the only deliberate difference is the slug filter. Rows with a NULL or
+// empty slug are dropped here rather than by the caller: a slug is what builds
+// the URL, so an entry without one is unusable to any consumer.
+//
+// THE SECOND RETURN IS COUNTED SEPARATELY, AND THAT IS THE POINT. It is the
+// browse set BEFORE the slug filter — the same number `GET /venues` reports as
+// `total` — so it comes from a different query than the entries do and comparing
+// the two is a real assertion rather than a tautology. A caller that renders one
+// link per entry can then tell a complete listing from a short one, which is
+// exactly what nothing did while the ItemList sat at 100 of 297.
+func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	var total int64
+	if err := s.db.Table("venues").Where("verified = ?", true).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
+	}
+
+	// Non-nil even when empty: the handler serialises this straight to JSON, and
+	// a null collection is indistinguishable from a failed fetch to the caller.
+	entries := []contracts.VenueListingEntry{}
+
+	// The count is selected so the SHARED order clause applies verbatim, but it
+	// never reaches the wire: VenueListingEntry has no field for it, and GORM
+	// drops columns it cannot map. COALESCE because this is a LEFT JOIN — a
+	// venue with no upcoming show has a NULL show_count and must still sort.
+	err := s.db.Table("venues").
+		Select("venues.slug, venues.name, COALESCE(sc.show_count, 0) as upcoming_show_count").
+		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", s.upcomingShowCountSubquery(time.Now().UTC())).
+		Where("venues.verified = ?", true).
+		Where("venues.slug IS NOT NULL AND venues.slug != ''").
+		Order(venueBrowseOrder).
+		Find(&entries).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get venue listing: %w", err)
+	}
+
+	return entries, total, nil
+}
+
 // GetVenuesWithShowCounts retrieves verified venues with their upcoming show counts.
 // Results are sorted by upcoming show count (descending), then by name (ascending),
 // so venues with upcoming shows appear first.
@@ -953,11 +1024,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Build the base query with show count subquery
 	// This allows us to sort by show count while also paginating correctly
-	subquery := s.db.Table("show_venues").
-		Select("show_venues.venue_id, COUNT(*) as show_count").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
-		Group("show_venues.venue_id")
+	subquery := s.upcomingShowCountSubquery(now)
 
 	// Start with verified venues only for public display
 	query := s.db.Table("venues").
@@ -1027,7 +1094,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Get venues with pagination, sorted by show count (desc) then name (asc)
 	var venuesWithCount []VenueWithCount
-	if err := query.Order("upcoming_show_count DESC, venues.name ASC").Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
+	if err := query.Order(venueBrowseOrder).Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get venues: %w", err)
 	}
 
