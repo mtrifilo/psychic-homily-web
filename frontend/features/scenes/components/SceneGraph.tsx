@@ -23,7 +23,7 @@
  * Expand / Exit button that opens a CSS viewport overlay (not the Browser
  * Fullscreen API) containing the same graph + cluster legend. Esc closes;
  * body scroll is locked while open. The overlay inherits the inline
- * `graphAvailable` gate, so mobile users never see the Expand button.
+ * `canDrawCanvas` gate, so mobile users never see the Expand button.
  *
  * Decision: inline on the existing `/scenes/{slug}` page rather than a
  * separate `/scenes/{slug}/graph` route. Reasons:
@@ -92,13 +92,13 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // user-togglable, so an ungated query can be re-issued from a viewport that
   // can never draw a canvas. `containerWidth === null` (first paint, before
   // the ResizeObserver reports) gates off too. Mirrors HomeSceneGraph.
-  const viewportAllowsGraph =
+  const graphAvailable =
     containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   const { data, isLoading, isError, isPlaceholderData } = useSceneGraph({
     slug,
     clusterBy,
-    enabled: Boolean(slug) && viewportAllowsGraph,
+    enabled: Boolean(slug) && graphAvailable,
   })
   const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(new Set())
 
@@ -119,17 +119,17 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   const hasEnoughForGraph = nodeCount >= MIN_GRAPH_NODES
   // Mobile gating: < sm breakpoint (640px) hides the graph entirely; the
   // existing scene page list view remains the only surface (PSY-369 / PSY-511).
-  const graphAvailable = viewportAllowsGraph && hasEnoughForGraph
+  const canDrawCanvas = graphAvailable && hasEnoughForGraph
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
-  // graphAvailable flips false mid-overlay) lives in the shared hook.
+  // canDrawCanvas flips false mid-overlay) lives in the shared hook.
   const {
     isFullscreen,
     open: openFullscreen,
     close: closeFullscreen,
     overlayWidth,
     overlayHeight,
-  } = useFullscreenGraphOverlay(graphAvailable)
+  } = useFullscreenGraphOverlay(canDrawCanvas)
 
   // Cluster-by mode toggle — radio-style pills (VenueBillNetwork's window
   // filter pattern), rendered above the legend inline and in the overlay.
@@ -194,10 +194,10 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   const transitionDim = isPlaceholderData ? 'opacity-60 pointer-events-none' : ''
 
   // The Expand button lives inside the header's gap-2 row; it's only rendered
-  // when graphAvailable, which inherits the mobile gate (containerWidth must
+  // when canDrawCanvas, which inherits the mobile gate (containerWidth must
   // be ≥ 640px). That single source of truth means mobile users never see the
   // Expand button — there's no separate mobile branch to maintain.
-  const expandButton = graphAvailable && !isFullscreen && (
+  const expandButton = canDrawCanvas && !isFullscreen && (
     <button
       type="button"
       onClick={openFullscreen}
@@ -272,7 +272,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     // render — the teaser has to stand on its own. It therefore no longer
     // waits on `hasEnoughForGraph`: node counts are unknowable without the
     // payload this gate exists to avoid fetching.
-    if (!viewportAllowsGraph) {
+    if (!graphAvailable) {
       return (
         <>
           {headerRow}
@@ -337,7 +337,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     return (
       <>
         {headerRow}
-        {graphAvailable && !isFullscreen && (
+        {canDrawCanvas && !isFullscreen && (
           <div className="space-y-3">
             {clusterByToggle}
 
@@ -348,7 +348,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
               <SceneGraphVisualization
                 data={data}
-                // Safe non-null: viewportAllowsGraph requires containerWidth !== null
+                // Safe non-null: graphAvailable requires containerWidth !== null
                 containerWidth={containerWidth!}
                 hiddenClusterIDs={hiddenClusters}
               />
@@ -394,7 +394,13 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
         {sectionContent}
       </div>
 
-      {isFullscreen && graphAvailable && (
+      {/* `data &&` is not redundant: `canDrawCanvas` implies a payload at
+          runtime (nodeCount > 0 requires one) but that is derived through
+          `data?.nodes.length ?? 0`, which TypeScript cannot see through. The
+          density guard used to be a top-level early return that narrowed
+          `data` for everything below it; it now lives inside `sectionContent`,
+          so the narrowing has to be restated here. */}
+      {isFullscreen && data && canDrawCanvas && (
         <div
           // Full-opacity backdrop so nothing peeks through; the overlay is its
           // own surface, not a translucent modal. z-[60] sits above the cookie

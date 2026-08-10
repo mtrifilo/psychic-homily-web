@@ -54,13 +54,13 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   // `containerWidth === null` (first paint, before the ResizeObserver reports)
   // gates off too; the measuring node below is mounted unconditionally, so the
   // measurement lands on the next commit. Mirrors HomeSceneGraph.
-  const viewportAllowsGraph =
+  const graphAvailable =
     containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   // The hook owns the empty-slug guard (enabled: Boolean(slug) internally).
   const { data, isLoading, isError } = useStationGraph({
     slug,
-    enabled: viewportAllowsGraph,
+    enabled: graphAvailable,
   })
 
   const isolateCount = useMemo(() => {
@@ -73,17 +73,17 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
   const hasEnoughForGraph = nodeCount >= MIN_GRAPH_NODES
   // Mobile gating: <640px hides the graph entirely; the playlists feed +
   // shows directory remain the only surfaces (PSY-369 / PSY-511).
-  const graphAvailable = viewportAllowsGraph && hasEnoughForGraph
+  const canDrawCanvas = graphAvailable && hasEnoughForGraph
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
-  // graphAvailable flips false mid-overlay) lives in the shared hook.
+  // canDrawCanvas flips false mid-overlay) lives in the shared hook.
   const {
     isFullscreen,
     open: openFullscreen,
     close: closeFullscreen,
     overlayWidth,
     overlayHeight,
-  } = useFullscreenGraphOverlay(graphAvailable)
+  } = useFullscreenGraphOverlay(canDrawCanvas)
 
   // Deliver the `#graph` deep-link: the anchor mounts only after two async
   // fetches (station, then graph), so the browser's native fragment scroll
@@ -121,9 +121,9 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     />
   )
 
-  // Expand only renders when graphAvailable, which inherits the mobile gate —
+  // Expand only renders when canDrawCanvas, which inherits the mobile gate —
   // mobile users never see the button (single source of truth, per SceneGraph).
-  const expandButton = graphAvailable && !isFullscreen && (
+  const expandButton = canDrawCanvas && !isFullscreen && (
     <button
       type="button"
       onClick={openFullscreen}
@@ -167,7 +167,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     // Below the gate the query is disabled, so there is no payload to
     // describe: heading + static teaser only. Matches HomeSceneGraph, whose
     // teaser likewise reads no graph data.
-    if (!viewportAllowsGraph) {
+    if (!graphAvailable) {
       return (
         <>
           {heading}
@@ -222,7 +222,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     // "2 artists" header with no canvas under it reads as broken).
     if (!data || nodeCount < MIN_GRAPH_NODES) return null
 
-    // `graphAvailable` reduces to true here (viewport + node-count legs are
+    // `canDrawCanvas` reduces to true here (viewport + node-count legs are
     // both already satisfied), so only the overlay check remains.
     return (
       <>
@@ -237,7 +237,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
 
             <StationGraphVisualization
               data={data}
-              // Safe non-null: viewportAllowsGraph requires containerWidth !== null
+              // Safe non-null: graphAvailable requires containerWidth !== null
               containerWidth={containerWidth!}
               hiddenClusterIDs={hiddenClusters}
             />
@@ -269,7 +269,13 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
         {sectionContent}
       </div>
 
-      {isFullscreen && graphAvailable && (
+      {/* `data &&` is not redundant: `canDrawCanvas` implies a payload at
+          runtime (nodeCount > 0 requires one) but that is derived through
+          `data?.nodes.length ?? 0`, which TypeScript cannot see through. The
+          density guard used to be a top-level early return that narrowed
+          `data` for everything below it; it now lives inside `sectionContent`,
+          so the narrowing has to be restated here. */}
+      {isFullscreen && data && canDrawCanvas && (
         <div
           // z-[60] sits above the cookie-consent banner (z-50) so first-time
           // visitors don't see the banner painted over the canvas (PSY-518).

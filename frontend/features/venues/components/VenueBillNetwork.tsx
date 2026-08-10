@@ -78,15 +78,15 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
   // ResizeObserver reports) also gates off — the measuring wrapper below is
   // mounted unconditionally, so the measurement lands on the commit right
   // after mount and desktop starts fetching one frame later than it used to.
-  // Mirrors HomeSceneGraph's `graphAvailable` shape.
-  const viewportAllowsGraph =
+  // Mirrors HomeSceneGraph's `canDrawCanvas` shape.
+  const graphAvailable =
     containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
 
   const { data, isLoading, isError } = useVenueBillNetwork({
     venueIdOrSlug,
     window,
     year: window === 'year' ? yearSelection : undefined,
-    enabled: Boolean(venueIdOrSlug) && viewportAllowsGraph,
+    enabled: Boolean(venueIdOrSlug) && graphAvailable,
   })
 
   // Pre-compute years for the picker. Stable across renders so the <select>
@@ -130,17 +130,17 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
 
   // The canvas draws only when the viewport allows it AND a settled payload is
   // dense enough to be informative.
-  const graphAvailable = viewportAllowsGraph && data !== undefined && !tooSparse
+  const canDrawCanvas = graphAvailable && data !== undefined && !tooSparse
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
-  // graphAvailable flips false mid-overlay) lives in the shared hook.
+  // canDrawCanvas flips false mid-overlay) lives in the shared hook.
   const {
     isFullscreen,
     open: openFullscreen,
     close: closeFullscreen,
     overlayWidth,
     overlayHeight,
-  } = useFullscreenGraphOverlay(graphAvailable)
+  } = useFullscreenGraphOverlay(canDrawCanvas)
 
   // Time-window filter — three radio-style buttons + the year picker.
   // Inline keeps the markup co-located with the `setWindow` handler; the
@@ -230,7 +230,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
 
   const heading = <h2 className="text-lg font-semibold mb-2">Who plays together here</h2>
 
-  const expandButton = graphAvailable && !isFullscreen && (
+  const expandButton = canDrawCanvas && !isFullscreen && (
     <button
       type="button"
       onClick={openFullscreen}
@@ -250,7 +250,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     // HomeSceneGraph's teaser (which likewise reads no graph data). The window
     // filter is deliberately omitted here — with the query disabled it would
     // be a dead control.
-    if (!viewportAllowsGraph) {
+    if (!graphAvailable) {
       return (
         <>
           {heading}
@@ -309,7 +309,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     }
 
     // Settled payload above the gate: header + filter, then either the
-    // sparse notice or the canvas. (`graphAvailable` reduces to `!tooSparse`
+    // sparse notice or the canvas. (`canDrawCanvas` reduces to `!tooSparse`
     // here — the viewport and data legs are both already true.)
     return (
       <>
@@ -389,7 +389,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
         )}
       </div>
 
-      {isFullscreen && graphAvailable && (
+      {isFullscreen && canDrawCanvas && (
         <div
           role="dialog"
           aria-modal="true"
