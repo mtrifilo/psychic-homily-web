@@ -131,7 +131,8 @@ type UserPreferences struct {
 	NotifyOnCollectionDigest bool `json:"notify_on_collection_digest" gorm:"column:notify_on_collection_digest;not null;default:false"`
 
 	// PSY-1342: weekly scene digest email preference — a once-per-week batched
-	// email of this-week shows + new bands for every scene the user follows.
+	// email of the next 7 days of shows + new bands for every scene the user
+	// follows. Weekly is the SEND CADENCE; the show window inside it rolls.
 	// Opt-IN (default FALSE) for the same bulk-sender reason as the collection
 	// digest: following a scene implicitly subscribes to a recurring email, so
 	// the column defaults OFF and users opt in via the settings toggle.

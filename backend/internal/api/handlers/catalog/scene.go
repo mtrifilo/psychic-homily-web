@@ -214,8 +214,8 @@ type GetSceneShowsResponse struct {
 }
 
 // GetSceneShowsHandler handles GET /scenes/{slug}/shows — the Atlas preview
-// panel's "This week" row. Metro-scoped (unlike the literal-city upcoming-shows
-// endpoint), so a Tempe show counts toward the Phoenix scene.
+// panel's "Next 7 days" row. Metro-scoped (unlike the literal-city
+// upcoming-shows endpoint), so a Tempe show counts toward the Phoenix scene.
 func (h *SceneHandler) GetSceneShowsHandler(ctx context.Context, req *GetSceneShowsRequest) (*GetSceneShowsResponse, error) {
 	city, state, err := h.sceneService.ParseSceneSlug(req.Slug)
 	if err != nil {

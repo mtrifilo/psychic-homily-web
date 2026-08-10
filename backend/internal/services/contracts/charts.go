@@ -521,7 +521,8 @@ type ChartsServiceInterface interface {
 	GetTopTags(window ChartWindow, scene string, limit, offset int) ([]TopTag, int, error)
 	GetChartsSummary(window ChartWindow, scene string) (*ChartsSummary, error)
 	// GetCommunityPulse returns the homepage global pulse counts
-	// (shows-this-week + entities-in-graph). TTL-cached; viewer-independent.
+	// (the rolling next-7-days show count + entities-in-graph). TTL-cached;
+	// viewer-independent.
 	GetCommunityPulse() (*CommunityPulse, error)
 	GetFreshlyAdded(scene string, limit int) ([]FreshlyAddedItem, error)
 	GetChartScenes(window ChartWindow) ([]ChartScene, error)
