@@ -8,6 +8,15 @@ import { API_BASE_URL } from '@/lib/api-base'
 export const graphEndpoints = {
   /** The nightly precomputed "Map of the Scene" (PSY-1723). */
   OVERVIEW: `${API_BASE_URL}/graph/overview`,
+  /**
+   * Connectivity-ranked artists the zero state suggests as a starting point
+   * (PSY-1749).
+   *
+   * A SEPARATE RESOURCE FROM THE MAP, and that is the point: the hero asks for
+   * these exactly when the overview is unavailable, so they cannot live in a
+   * payload that is missing in that state.
+   */
+  STARTING_POINTS: `${API_BASE_URL}/graph/starting-points`,
 } as const
 
 /**
@@ -26,4 +35,5 @@ export const GRAPH_OVERVIEW_NOT_BUILT_STATUS = 503
 export const graphQueryKeys = {
   all: ['graph'] as const,
   overview: () => [...graphQueryKeys.all, 'overview'] as const,
+  startingPoints: () => [...graphQueryKeys.all, 'starting-points'] as const,
 }

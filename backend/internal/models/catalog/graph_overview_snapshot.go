@@ -27,6 +27,14 @@ type GraphOverviewSnapshot struct {
 	EdgeCount    int `gorm:"column:edge_count"`
 	IsolateCount int `gorm:"column:isolate_count"`
 
+	// StartingPointArtistIDs is the top slice of this build's centrality
+	// ranking — artist ids, most central first — for the /graph fallback
+	// hero's suggestions. Ids only: the display name and slug are read from
+	// `artists` at request time so a suggestion can never promise an artist
+	// that was renamed or removed since the build. Nil is legal and means
+	// "nothing to suggest"; see the column's migration comment.
+	StartingPointArtistIDs json.RawMessage `gorm:"column:starting_point_artist_ids;type:jsonb"`
+
 	// ContentHash identifies the snapshot and is served as the response ETag.
 	ContentHash string `gorm:"column:content_hash"`
 

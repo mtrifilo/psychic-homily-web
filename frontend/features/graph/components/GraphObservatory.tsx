@@ -9,7 +9,6 @@ import {
   type Ref,
 } from 'react'
 import Link from 'next/link'
-import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Loader2, RotateCcw, Shuffle } from 'lucide-react'
 
 import { ArtistContextPanel } from '@/components/graph/ArtistContextPanel'
@@ -27,7 +26,6 @@ import {
 import {
   ArtistSearch,
   ArtistGraphVisualization,
-  artistSearchQueryOptions,
   useArtistGraph,
   useArtistGraphCard,
   useFetchArtistGraph,
@@ -55,6 +53,8 @@ import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
 import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
+import { useGraphStartingPoints } from '../hooks/useGraphStartingPoints'
+import { pickRotationSuggestions } from '../startingSuggestions'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
 import { pickVisitorScene } from './visitorScene'
@@ -65,14 +65,6 @@ interface GraphAnchor {
   name: string
 }
 
-// The three artists in the approved /graph concept trail. The names are
-// editorial copy, but the click handler resolves them against the live
-// catalog — a production-data dependency — so RotatingExample offers only
-// the entries that currently resolve to an exact match, falling back to a
-// random catalog artist when none do. Adding a name here is safe: an entry
-// the catalog can't honor drops out of the rotation instead of rendering a
-// suggestion whose click would fail.
-const CURATED_EXAMPLES = ['Diners', 'Gatecreeper', 'Playboy Manbaby'] as const
 const RANDOM_GRAPH_ATTEMPTS = 3
 
 // Refinement-board pill for "A random rabbit hole" (PSY-1474 F2): primary-
@@ -105,27 +97,24 @@ function anchorFromRandomTarget(
   return { id: target.artist_id, slug: target.artist_slug, name: target.artist_name }
 }
 
-// Exact (case-insensitive) match only: the zero-state example button's
-// accessible name promises a specific artist — silently substituting a fuzzy
-// hit would center a graph the user didn't ask for. Shared by mount-time
-// validation and click-time resolution so the two rules can't drift.
-function findExactArtistMatch(
-  artists: Artist[] | undefined,
-  name: string,
-): Artist | undefined {
-  return artists?.find(
-    artist => artist.name.toLowerCase() === name.toLowerCase(),
-  )
-}
-
+/**
+ * The zero state's "Try searching for {artist}" line.
+ *
+ * WHERE THE NAMES COME FROM (PSY-1749): the nightly build's connectivity
+ * ranking, served by /graph/starting-points and already resolved against the
+ * live catalog, so every offered name is a click that lands. This replaced a
+ * hardcoded editorial trio whose names were validated by a fuzzy artist search
+ * per name — a search that could reject a real artist for being past the result
+ * cutoff, which collapsed the rotation to whichever single name happened to
+ * survive and made the same suggestion the answer on every visit.
+ *
+ * When the endpoint has nothing to offer (a catalog before its first nightly
+ * build), the surface falls back to a random catalog artist exactly as before.
+ */
 function RotatingExample({
   onPick,
-  onPickAnchor,
-  disabled,
 }: {
-  onPick: (name: string) => void
-  onPickAnchor: (anchor: GraphAnchor) => void
-  disabled?: boolean
+  onPick: (anchor: GraphAnchor) => void
 }) {
   const reducedMotion = useReducedMotion()
   const [index, setIndex] = useState(0)
@@ -134,18 +123,24 @@ function RotatingExample({
   // paused screen reader) mid-crossfade.
   const [isPaused, setIsPaused] = useState(false)
 
-  // Resolve every curated name through the SAME query the click handler uses
-  // (shared cache key and lifetimes, so the click is then served from cache)
-  // and offer only the names the catalog can honor right now.
-  const validationQueries = useQueries({
-    queries: CURATED_EXAMPLES.map(name => artistSearchQueryOptions(name)),
-  })
-  const validatedNames = CURATED_EXAMPLES.filter(
-    (name, queryIndex) =>
-      findExactArtistMatch(validationQueries[queryIndex]?.data?.artists, name) !== undefined,
+  // Drawn ONCE PER MOUNT, which is what makes the rotation vary across visits:
+  // the pool the endpoint returns is stable for an hour, so if the draw were
+  // stable too every visit in that window would open on the same name.
+  //
+  // Safe in a `useState` initializer despite this surface being server-rendered.
+  // The suggestion query cannot have resolved by the hydration render, so both
+  // the server HTML and the first client render are the skeleton below — the
+  // seed cannot change any rendered output until after hydration has committed.
+  const [rotationSeed] = useState(() => Math.floor(Math.random() * 0x7fffffff))
+
+  const startingPointsQuery = useGraphStartingPoints()
+  const pool = startingPointsQuery.data?.artists
+  const suggestions = useMemo(
+    () => pickRotationSuggestions(pool ?? [], rotationSeed),
+    [pool, rotationSeed],
   )
-  const isValidationSettled = validationQueries.every(query => !query.isPending)
-  const needsFallback = isValidationSettled && validatedNames.length === 0
+  const isPoolSettled = !startingPointsQuery.isPending
+  const needsFallback = isPoolSettled && suggestions.length === 0
 
   const { refetch: refetchFallback } = useRandomArtistTarget()
   const [fallback, setFallback] = useState<GraphAnchor | null>(null)
@@ -153,7 +148,7 @@ function RotatingExample({
 
   // Fetching IS the effect here — the fallback name comes from the network,
   // not from anything derivable during render. `cancelled` drops a late
-  // result if the surface unmounts or a curated name becomes valid again.
+  // result if the surface unmounts or the pool arrives after all.
   useEffect(() => {
     if (!needsFallback) return
     let cancelled = false
@@ -177,26 +172,25 @@ function RotatingExample({
     }
   }, [needsFallback, refetchFallback])
 
-  // One shape for both sources so the sentence, pause wrapper, crossfade,
-  // and busy treatment can't fork between the curated and fallback paths.
-  // The fallback anchor came straight from the catalog, so it activates by
-  // centering directly instead of a name search that could fail.
-  const choices =
-    validatedNames.length > 0
-      ? validatedNames.map(name => ({
-          key: name,
-          name,
-          activate: () => onPick(name),
+  // One shape for both sources so the sentence, pause wrapper and crossfade
+  // can't fork between the ranked and fallback paths. BOTH are catalog anchors
+  // (id + slug + name), so activating either centers the graph directly — there
+  // is no name lookup left that could fail on a name just promised.
+  const anchors: GraphAnchor[] =
+    suggestions.length > 0
+      ? suggestions.map(suggestion => ({
+          id: suggestion.artist_id,
+          slug: suggestion.artist_slug,
+          name: suggestion.artist_name,
         }))
       : fallback
-        ? [
-            {
-              key: `random-${fallback.id}`,
-              name: fallback.name,
-              activate: () => onPickAnchor(fallback),
-            },
-          ]
+        ? [fallback]
         : []
+  const choices = anchors.map(anchor => ({
+    key: `artist-${anchor.id}`,
+    name: anchor.name,
+    activate: () => onPick(anchor),
+  }))
 
   useEffect(() => {
     if (reducedMotion || isPaused || choices.length < 2) return
@@ -206,18 +200,19 @@ function RotatingExample({
     return () => window.clearInterval(timer)
   }, [reducedMotion, isPaused, choices.length])
 
-  // Modulo guard: the validated subset can shrink between renders (a click
-  // failure evicts the name's cache entry and it revalidates empty), and a
-  // stale index past the new length must never render undefined.
+  // Modulo guard: the offered set can shrink between renders (a background
+  // refetch returns a smaller pool, or the ranked path gives way to the single
+  // fallback), and a stale index past the new length must never render
+  // undefined.
   const activeIndex = choices.length > 0 ? index % choices.length : 0
   const active = choices[activeIndex]
 
   if (!active) {
-    // Nothing offerable yet: hold the name slot open while validation or the
-    // fallback lookup is in flight (no flash of an unvalidated name that then
-    // vanishes), and drop the sentence entirely — never a fragment promising
-    // nothing — if both come back empty.
-    if (!isValidationSettled || (needsFallback && !isFallbackSettled)) {
+    // Nothing offerable yet: hold the name slot open while the pool or the
+    // fallback lookup is in flight (no flash of a name that then vanishes),
+    // and drop the sentence entirely — never a fragment promising nothing —
+    // if both come back empty.
+    if (!isPoolSettled || (needsFallback && !isFallbackSettled)) {
       return (
         <p className="text-sm text-muted-foreground">
           Try searching for{' '}
@@ -234,10 +229,9 @@ function RotatingExample({
   return (
     <p className="text-sm text-muted-foreground">
       Try searching for{' '}
-      {/* Pause handlers live on the WRAPPER (React focus events bubble as
-          focusin/focusout): a disabled button reliably dispatches neither
-          mouseleave nor blur, so tracking either on the button itself could
-          strand isPaused=true after a failed lookup. */}
+      {/* Pause handlers live on the WRAPPER, not on the button: React focus
+          events bubble as focusin/focusout, so one pair of handlers here covers
+          the button without depending on the button staying interactive. */}
       <span
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
@@ -247,10 +241,8 @@ function RotatingExample({
         <button
           type="button"
           onClick={active.activate}
-          disabled={disabled}
           aria-label={`Search for ${active.name}`}
-          aria-busy={disabled || undefined}
-          className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none disabled:opacity-60"
+          className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none"
         >
           {/* All offered names share one grid cell so the line crossfades in
               place (and reserves the widest name's width — no layout jitter).
@@ -268,9 +260,6 @@ function RotatingExample({
             </span>
           ))}
         </button>
-        {disabled && (
-          <Loader2 className="ml-1.5 inline size-3.5 animate-spin align-[-2px] text-muted-foreground" aria-hidden="true" />
-        )}
       </span>
     </p>
   )
@@ -547,16 +536,12 @@ export function resolveZeroStateView({
 function ZeroStateHero({
   onShuffle,
   isShuffleBusy,
-  onPickExample,
-  onPickExampleAnchor,
-  isExampleBusy,
+  onPickSuggestion,
   lookupError,
 }: {
   onShuffle: () => void
   isShuffleBusy: boolean
-  onPickExample: (name: string) => void
-  onPickExampleAnchor: (anchor: GraphAnchor) => void
-  isExampleBusy: boolean
+  onPickSuggestion: (anchor: GraphAnchor) => void
   lookupError: string | null
 }) {
   return (
@@ -586,11 +571,7 @@ function ZeroStateHero({
       </button>
       <div className="space-y-1">
         <h2 className="font-display text-2xl font-medium">Explore the graph.</h2>
-        <RotatingExample
-          onPick={onPickExample}
-          onPickAnchor={onPickExampleAnchor}
-          disabled={isExampleBusy}
-        />
+        <RotatingExample onPick={onPickSuggestion} />
         {lookupError && (
           <p role="status" className="text-xs text-destructive">{lookupError}</p>
         )}
@@ -687,10 +668,13 @@ export function GraphObservatory() {
   const [selectedNode, setSelectedNode] = useState<ArtistGraphSelection | null>(null)
   const [selectionSource, setSelectionSource] = useState<'canvas' | 'list' | null>(null)
   const [lookupError, setLookupError] = useState<string | null>(null)
-  // At most one async discovery lookup is in flight (guarded by the
-  // generation counter); the tag says which button owns the busy treatment.
-  const [pendingLookup, setPendingLookup] = useState<'shuffle' | 'example' | null>(null)
-  const queryClient = useQueryClient()
+  // The random rabbit hole is the ONLY async lookup left on this surface (the
+  // zero state's suggestions now arrive as catalog anchors and center
+  // synchronously), so this is a plain flag rather than the tagged union it was
+  // when two buttons competed for the busy treatment. The generation counter
+  // below still guards it: a search, reset, or hop mid-lookup must not be
+  // overwritten by the result that lands afterwards.
+  const [isShuffleLookupPending, setIsShuffleLookupPending] = useState(false)
   const panelRef = useRef<HTMLElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const listTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -721,11 +705,11 @@ export function GraphObservatory() {
   } = useRandomArtistTarget()
   const fetchArtistGraph = useFetchArtistGraph()
 
-  // Cancels any in-flight async lookup (random rabbit hole OR example
-  // search) — bumping the generation makes the pending promise a no-op.
+  // Cancels an in-flight random-rabbit-hole lookup — bumping the generation
+  // makes the pending promise a no-op.
   const cancelPendingLookup = useCallback(() => {
     lookupGeneration.current += 1
-    setPendingLookup(null)
+    setIsShuffleLookupPending(false)
   }, [])
 
   const startAt = useCallback((next: GraphAnchor) => {
@@ -833,7 +817,7 @@ export function GraphObservatory() {
     const requestGeneration = lookupGeneration.current + 1
     lookupGeneration.current = requestGeneration
     setLookupError(null)
-    setPendingLookup('shuffle')
+    setIsShuffleLookupPending(true)
     try {
       for (let attempt = 0; attempt < RANDOM_GRAPH_ATTEMPTS; attempt += 1) {
         const result = await refetchShuffle()
@@ -856,7 +840,7 @@ export function GraphObservatory() {
       // collapse either failure into the same recoverable inline state.
     } finally {
       if (requestGeneration === lookupGeneration.current) {
-        setPendingLookup(null)
+        setIsShuffleLookupPending(false)
       }
     }
     if (requestGeneration === lookupGeneration.current) {
@@ -864,47 +848,12 @@ export function GraphObservatory() {
     }
   }, [fetchArtistGraph, refetchShuffle, startAt])
 
-  // Zero-state clickable example (PSY-1474 F1): resolve the curated name via
-  // the shared artist-search query options (same cache key and lifetimes as
-  // the search box), then center the graph on the best match. Shares the
-  // random-lookup generation counter so search/reset/shuffle clicks cancel a
-  // pending example lookup too.
-  const handleExampleSearch = useCallback(async (name: string) => {
-    const requestGeneration = lookupGeneration.current + 1
-    lookupGeneration.current = requestGeneration
-    setLookupError(null)
-    setPendingLookup('example')
-    try {
-      const searchOptions = artistSearchQueryOptions(name)
-      const result = await queryClient.fetchQuery(searchOptions)
-      if (requestGeneration !== lookupGeneration.current) return
-      // Exact-match rule shared with the mount-time validation — see
-      // findExactArtistMatch.
-      const match = findExactArtistMatch(result.artists, name)
-      if (match) {
-        startAt(anchorFromArtist(match))
-        return
-      }
-      // Drop the cache entry so a retry re-queries. The result may be a
-      // valid (non-empty) fuzzy set — it just contains no exact match, and
-      // keeping it would pin this outcome for the next five minutes.
-      queryClient.removeQueries({ queryKey: searchOptions.queryKey, exact: true })
-      setLookupError(`Couldn’t find ${name} right now — try the search box.`)
-    } catch {
-      if (requestGeneration === lookupGeneration.current) {
-        setLookupError(`Couldn’t find ${name} right now — try the search box.`)
-      }
-    } finally {
-      if (requestGeneration === lookupGeneration.current) {
-        setPendingLookup(null)
-      }
-    }
-  }, [queryClient, startAt])
-
-  // Fallback example click: the random target came straight from the catalog
-  // (id + slug + name), so center on it directly — no search round-trip that
-  // could fail on a name the sentence just promised.
-  const handleExampleAnchor = useCallback((anchor: GraphAnchor) => {
+  // Zero-state suggestion click (PSY-1474 F1, re-sourced in PSY-1749). Both the
+  // ranked suggestions and the random fallback arrive as catalog anchors
+  // (id + slug + name), so this centers directly — there is no lookup left that
+  // could fail on a name the sentence just promised, and therefore no busy
+  // state and no error copy for this affordance.
+  const handlePickSuggestion = useCallback((anchor: GraphAnchor) => {
     cancelPendingLookup()
     startAt(anchor)
   }, [cancelPendingLookup, startAt])
@@ -944,7 +893,7 @@ export function GraphObservatory() {
     !center && zeroStateView === 'map' && isCanvasUsable ? sceneMap : null
   const replay = useSceneReplay(replayableMap)
 
-  const isShuffleBusy = isShuffleFetching || pendingLookup === 'shuffle'
+  const isShuffleBusy = isShuffleFetching || isShuffleLookupPending
   const graph = graphQuery.data
   const hasCenterConnections = graph?.links.some(link =>
     link.source_id === graph.center.id || link.target_id === graph.center.id,
@@ -968,9 +917,7 @@ export function GraphObservatory() {
     <ZeroStateHero
       onShuffle={handleShuffle}
       isShuffleBusy={isShuffleBusy}
-      onPickExample={handleExampleSearch}
-      onPickExampleAnchor={handleExampleAnchor}
-      isExampleBusy={pendingLookup === 'example'}
+      onPickSuggestion={handlePickSuggestion}
       lookupError={lookupError}
     />
   )

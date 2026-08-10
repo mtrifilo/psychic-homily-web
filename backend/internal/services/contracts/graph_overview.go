@@ -248,6 +248,45 @@ type GraphOverview struct {
 	Regions []GraphOverviewRegion `json:"regions"`
 }
 
+// ──────────────────────────────────────────────
+// Graph starting points
+// ──────────────────────────────────────────────
+//
+// The handful of well-connected artists the /graph fallback hero offers as
+// "try searching for …". Ranked by the nightly build, hydrated from the live
+// catalog on every read.
+//
+// WHY THIS IS NOT PART OF GraphOverview. The hero exists precisely for the
+// states where the overview is NOT available — a catalog before its first
+// nightly build, a payload version the running code refuses, a decode failure —
+// and on every phone, where the map's canvas is a smear and the hero renders
+// above its list. A suggestion list carried inside the map payload would be
+// missing in exactly the three states that need it most, which is why this is a
+// separate resource with its own read path and no version gate.
+
+// GraphStartingPoint is one suggestion: an artist anchor the client can center
+// on directly. Every field is populated from the `artists` row that is live AT
+// READ TIME, not from the snapshot — the ranking is a night old, the identity
+// never is.
+type GraphStartingPoint struct {
+	ArtistID   uint   `json:"artist_id"`
+	ArtistName string `json:"artist_name"`
+	ArtistSlug string `json:"artist_slug"`
+}
+
+// GraphStartingPointsResponse is the body of GET /graph/starting-points.
+//
+// AN EMPTY LIST IS A 200, not a 503. Unlike the map — where an empty payload is
+// indistinguishable from "the scene is empty" and would be cached as truth — an
+// empty suggestion list has a graceful client answer that already exists: fall
+// back to a random catalog artist. Failing the request instead would turn the
+// ordinary cold-start state into an error the client has to special-case.
+type GraphStartingPointsResponse struct {
+	// Artists is ordered most-connected first. It is never nil (an empty list
+	// encodes as `[]`, not `null`) and is capped by the nightly build.
+	Artists []GraphStartingPoint `json:"artists" doc:"Well-connected artists to suggest as a starting point, most connected first. Empty before the first nightly build."`
+}
+
 // GraphOverviewServiceInterface is the read side of the overview map. The
 // nightly build lives on the radio/catalog compute path and is deliberately not
 // on this interface — nothing over HTTP may trigger a rebuild.
@@ -257,4 +296,10 @@ type GraphOverviewServiceInterface interface {
 	// database before the first nightly run), which callers surface as a 503
 	// rather than an empty map.
 	GetGraphOverview() (*GraphOverview, string, error)
+
+	// GetGraphStartingPoints returns the nightly-ranked starting suggestions,
+	// resolved against the live catalog. An empty slice with a nil error means
+	// there is nothing to suggest yet (no snapshot, or none of the ranked
+	// artists still exist) — a normal state, not a failure.
+	GetGraphStartingPoints() ([]GraphStartingPoint, error)
 }

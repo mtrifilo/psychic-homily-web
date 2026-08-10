@@ -154,6 +154,69 @@ func rankByScore(scores []float64) []int32 {
 	return ranks
 }
 
+// graphOverviewStartingPoints is how many top-connected artists each build
+// stores for the /graph fallback hero (PSY-1749).
+//
+// Sized for the CLIENT'S rotation, not for a browse list: the hero shows a
+// small random subset per visit, so the pool only has to be deep enough that
+// two consecutive visits rarely draw the same names, and shallow enough that
+// every entry is genuinely one of the map's hubs. A pool the size of a page of
+// search results would put the graph's mediocre middle into a sentence that
+// says "start here".
+const graphOverviewStartingPoints = 12
+
+// pickStartingPointArtists returns the most connected ARTIST ids on the map,
+// most connected first, capped at graphOverviewStartingPoints.
+//
+// THE SAME CENTRALITY THAT TIERS THE MAP'S LABELS. The suggestion a visitor is
+// offered when the map cannot be drawn is therefore the same band the map would
+// have drawn largest if it could — one ranking, not two ideas of "important"
+// that drift apart. Betweenness also answers the question the hero actually
+// asks: a leaf scores exactly 0 and can never enter the pool, while a band that
+// sits between otherwise-distant parts of the scene scores highest, and its ego
+// graph is the dense first neighbourhood the hero is promising.
+//
+// LABEL HUBS ARE EXCLUDED. A hub is a membership fact with a very high degree
+// by construction (every roster member is a spoke), so it would dominate this
+// ranking — and it is not an artist, so its id would center nothing.
+//
+// Ties break on degree and then node index, so an all-zero centrality (a tiny
+// dev catalog where every path is unique) still yields the best-connected
+// artists rather than the lowest ids, and two runs over unchanged data pick the
+// same set in the same order.
+func pickStartingPointArtists(b *overviewBuild, centrality []float64) []uint {
+	if b == nil || len(centrality) != len(b.nodeIDs) {
+		return nil
+	}
+
+	candidates := make([]int, 0, len(b.nodeIDs))
+	for i, kind := range b.nodeKind {
+		if kind != contracts.GraphOverviewNodeArtist {
+			continue
+		}
+		candidates = append(candidates, i)
+	}
+	sort.SliceStable(candidates, func(x, y int) bool {
+		i, j := candidates[x], candidates[y]
+		if centrality[i] != centrality[j] {
+			return centrality[i] > centrality[j]
+		}
+		if len(b.neighbors[i]) != len(b.neighbors[j]) {
+			return len(b.neighbors[i]) > len(b.neighbors[j])
+		}
+		return i < j
+	})
+
+	if len(candidates) > graphOverviewStartingPoints {
+		candidates = candidates[:graphOverviewStartingPoints]
+	}
+	ids := make([]uint, len(candidates))
+	for i, idx := range candidates {
+		ids[i] = b.nodeIDs[idx]
+	}
+	return ids
+}
+
 // convexHull returns the convex hull of a point set in counter-clockwise order,
 // without repeating the first point, using Andrew's monotone chain.
 //

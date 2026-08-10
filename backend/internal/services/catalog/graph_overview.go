@@ -293,15 +293,35 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 	}
 	sum := sha256.Sum256(payloadJSON)
 
+	// The /graph hero's starting suggestions (PSY-1749). Stored in their own
+	// column, NOT in the payload: content_hash digests payloadJSON and the
+	// stability contract is asserted against it, so a list derived from the same
+	// centrality must not be able to change the map's identity stamp.
+	//
+	// A failure here is NON-FATAL and degrades to "no suggestions", which the
+	// client already answers with a random catalog artist. Losing a sentence in
+	// a zero state is not worth keeping last night's whole map live over.
+	var startingPointsJSON json.RawMessage
+	startingPoints := pickStartingPointArtists(build, centrality)
+	if len(startingPoints) > 0 {
+		encoded, err := json.Marshal(startingPoints)
+		if err != nil {
+			slog.Error("overview snapshot: failed to encode starting points; publishing without them", "error", err)
+		} else {
+			startingPointsJSON = encoded
+		}
+	}
+
 	snapshot := catalogm.GraphOverviewSnapshot{
-		Payload:      payloadJSON,
-		Layout:       layoutJSON,
-		NodeCount:    payload.NodeCount,
-		EdgeCount:    payload.EdgeCount,
-		IsolateCount: payload.IsolateCount,
-		ContentHash:  hex.EncodeToString(sum[:]),
-		StructureKey: structure,
-		ComputedAt:   builtAt,
+		Payload:                payloadJSON,
+		Layout:                 layoutJSON,
+		NodeCount:              payload.NodeCount,
+		EdgeCount:              payload.EdgeCount,
+		IsolateCount:           payload.IsolateCount,
+		StartingPointArtistIDs: startingPointsJSON,
+		ContentHash:            hex.EncodeToString(sum[:]),
+		StructureKey:           structure,
+		ComputedAt:             builtAt,
 	}
 	if err := s.publishOverviewSnapshot(&snapshot); err != nil {
 		return result, err
@@ -320,6 +340,7 @@ func (s *RadioService) computeGraphOverviewSnapshot(
 		"edges", result.Edges,
 		"regions", result.Regions,
 		"isolates", result.Isolates,
+		"starting_points", len(startingPoints),
 		"payload_bytes", result.PayloadBytes,
 		"layout_reused", reused,
 		"layout_iterations", iterations,

@@ -837,3 +837,131 @@ func (s *GraphOverviewSuite) TestRead_PicksUpANewSnapshotOnceTheCacheLapses() {
 	s.Assert().NotEqual(firstETag, freshETag, "past the TTL the newest snapshot must be picked up")
 	s.Assert().Equal(`W/"`+s.newestSnapshot().ContentHash+`"`, freshETag)
 }
+
+// --- starting points (PSY-1749) ---
+
+func (s *GraphOverviewSuite) startingPointNames() []string {
+	read := NewGraphOverviewService(s.db)
+	points, err := read.GetGraphStartingPoints()
+	s.Require().NoError(err)
+	names := make([]string, len(points))
+	for i, p := range points {
+		names[i] = p.ArtistName
+	}
+	return names
+}
+
+func (s *GraphOverviewSuite) TestStartingPoints_LeadWithTheMapsMostCentralArtists() {
+	// seedScene is two stars joined by a heavy bridge: the two centres are the
+	// only nodes any cross-star path runs through, so they take the top of the
+	// betweenness ranking and their six leaves score exactly zero.
+	s.seedScene()
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+
+	names := s.startingPointNames()
+
+	s.Require().GreaterOrEqual(len(names), 2)
+	s.Assert().ElementsMatch([]string{"Band1", "Band5"}, names[:2],
+		"the two bridge centres must be suggested ahead of their leaves")
+	s.Assert().NotContains(names, "Loner1", "an artist with no edge is not on the map at all")
+}
+
+func (s *GraphOverviewSuite) TestStartingPoints_ColdDatabaseSuggestsNothing() {
+	read := NewGraphOverviewService(s.db)
+
+	points, err := read.GetGraphStartingPoints()
+
+	s.Require().NoError(err, "nothing to suggest is a state, not a failure")
+	s.Assert().Empty(points)
+	s.Assert().NotNil(points, "an empty result must marshal as [] rather than null")
+}
+
+// THE HEADLINE ACCEPTANCE CASE. The hero that shows these suggestions is the
+// arm that renders when the map cannot be served, so the suggestions must
+// outlive a payload the running build refuses — the deploy window between a
+// schema change going live and the next nightly rebuild.
+func (s *GraphOverviewSuite) TestStartingPoints_SurviveAPayloadTheMapRefuses() {
+	s.seedScene()
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	s.Require().NoError(s.db.Exec(
+		"UPDATE graph_overview_snapshots SET payload = jsonb_set(payload, '{version}', ?::jsonb)",
+		fmt.Sprintf("%d", contracts.GraphOverviewVersion+1)).Error)
+
+	read := NewGraphOverviewService(s.db)
+	overview, _, err := read.GetGraphOverview()
+	s.Require().NoError(err)
+	s.Require().Nil(overview, "precondition: the map must be refusing this payload")
+
+	points, err := read.GetGraphStartingPoints()
+
+	s.Require().NoError(err)
+	s.Assert().NotEmpty(points, "the fallback hero's suggestions must not go down with the map")
+}
+
+// The "validate against the catalog before display" rule, which the nightly
+// ranking cannot honor on its own: it is up to a night old, and an artist can
+// be renamed, unslugged, or removed in between.
+func (s *GraphOverviewSuite) TestStartingPoints_ResolveAgainstTheLiveCatalog() {
+	artists := s.seedScene()
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	s.Require().Contains(s.startingPointNames(), "Band1", "precondition: Band1 is ranked")
+
+	// One centre is renamed; the other loses the slug that made it linkable.
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id = ?", artists[0].ID).
+		Update("name", "Band One, Actually").Error)
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id = ?", artists[4].ID).
+		Update("slug", nil).Error)
+
+	names := s.startingPointNames()
+
+	s.Assert().Contains(names, "Band One, Actually", "the CURRENT name must be offered, not the one the build stored")
+	s.Assert().NotContains(names, "Band1")
+	s.Assert().NotContains(names, "Band5", "an artist that can no longer be linked must not be suggested")
+}
+
+// A build that predates the column, or one whose ranking step produced nothing,
+// must not blank the suggestions while an older build still has a usable list.
+func (s *GraphOverviewSuite) TestStartingPoints_FallBackToTheNewestBuildThatHasThem() {
+	s.seedScene()
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	_, err = s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	s.Require().NoError(s.db.Exec(
+		"UPDATE graph_overview_snapshots SET starting_point_artist_ids = NULL WHERE id = ?",
+		s.newestSnapshot().ID).Error)
+
+	points, err := NewGraphOverviewService(s.db).GetGraphStartingPoints()
+
+	s.Require().NoError(err)
+	s.Assert().NotEmpty(points, "the previous build's ranking is a better answer than none")
+}
+
+// The snapshot's stability contract is asserted against content_hash, which
+// digests the payload. A list stored in its own column must therefore leave two
+// runs over unchanged data byte-identical.
+func (s *GraphOverviewSuite) TestStartingPoints_DoNotDisturbTheSnapshotIdentity() {
+	// SAME BUILD CLOCK for both runs, so `last_mapped` — the one payload field
+	// that legitimately moves every night — is held still and any hash
+	// difference can only come from the new column.
+	at := time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC)
+	s.seedScene()
+	_, err := s.build(&stubLayoutRunner{}, at)
+	s.Require().NoError(err)
+	first := s.newestSnapshot()
+	s.Require().NotEmpty(first.StartingPointArtistIDs, "precondition: the build stores a ranking")
+
+	_, err = s.build(&stubLayoutRunner{}, at)
+	s.Require().NoError(err)
+	second := s.newestSnapshot()
+
+	s.Assert().Equal(first.ContentHash, second.ContentHash,
+		"content_hash digests the payload; a ranking stored beside it must not enter the map's identity")
+	s.Assert().JSONEq(string(first.StartingPointArtistIDs), string(second.StartingPointArtistIDs),
+		"an unchanged graph must rank the same artists in the same order")
+}

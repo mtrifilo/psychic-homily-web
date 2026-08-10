@@ -37,6 +37,22 @@ const (
 	graphOverviewReadTTL = time.Minute
 )
 
+// startingPointsCached is the resolved suggestion list this process is holding.
+//
+// A SEPARATE CACHE FROM THE MAP'S, deliberately. The two resources have
+// opposite availability profiles — the hero asks for suggestions precisely in
+// the states where the map is unavailable — so sharing an entry would couple a
+// list that is always servable to a payload that is sometimes refused.
+//
+// The TTL is what bounds how long a renamed or deleted artist can still be
+// suggested. That window is why the entry stores resolved rows rather than the
+// stored ids: a longer-lived cache of ids would just move the same staleness
+// behind an extra query.
+type startingPointsCached struct {
+	artists    []contracts.GraphStartingPoint
+	freshUntil time.Time
+}
+
 // GraphOverviewService serves the newest precomputed overview map.
 type GraphOverviewService struct {
 	db *gorm.DB
@@ -49,6 +65,13 @@ type GraphOverviewService struct {
 	// requests decodes the payload once instead of once per request.
 	mu     sync.Mutex
 	cached *graphOverviewCached
+
+	// startingMu guards startingCached. Its own lock, not mu: a starting-points
+	// request must not queue behind a cold payload decode, and the hero that
+	// asks for it is on screen exactly when that decode is most likely to be
+	// failing.
+	startingMu     sync.Mutex
+	startingCached *startingPointsCached
 }
 
 // graphOverviewCached is the one decoded snapshot this process is holding.
@@ -183,4 +206,137 @@ func (s *GraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, str
 		freshUntil: now.Add(graphOverviewReadTTL),
 	}
 	return s.cached.payload, etag, nil
+}
+
+// ──────────────────────────────────────────────
+// Graph starting points: the read side
+// ──────────────────────────────────────────────
+
+// GetGraphStartingPoints returns the nightly-ranked starting suggestions,
+// resolved against the live catalog.
+//
+// NO VERSION GATE, unlike GetGraphOverview. The stored ids are artist primary
+// keys — a payload schema change cannot re-scope them the way it can re-scope a
+// node index — so refusing them alongside a payload this build cannot read
+// would take the suggestions down in one of the very states they exist for.
+//
+// AN EMPTY RESULT IS NOT AN ERROR. A cold database, a build that predates the
+// column, a ranking whose artists have all since been removed: all three mean
+// "nothing to suggest", which the client answers with a random catalog artist.
+func (s *GraphOverviewService) GetGraphStartingPoints() ([]contracts.GraphStartingPoint, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	s.startingMu.Lock()
+	defer s.startingMu.Unlock()
+
+	now := s.now()
+	if s.startingCached != nil && now.Before(s.startingCached.freshUntil) {
+		return s.startingCached.artists, nil
+	}
+
+	ids, err := s.readStartingPointIDs()
+	if err != nil {
+		return nil, err
+	}
+	artists, err := resolveStartingPoints(s.db, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the empty answer too. Between a service deploying and the first
+	// nightly build that writes the column there is nothing to return, and the
+	// hero mounts on every phone-width visit to /graph — without this, the
+	// emptiest state would be the most expensive one.
+	s.startingCached = &startingPointsCached{
+		artists:    artists,
+		freshUntil: now.Add(graphOverviewReadTTL),
+	}
+	return artists, nil
+}
+
+// readStartingPointIDs returns the ranked artist ids from the newest snapshot
+// that has any.
+//
+// "THAT HAS ANY", not "the newest snapshot". The two differ for one deploy
+// cycle — every retained row predates the column — and they would differ again
+// if a build ever published without a ranking. Preferring the newest row that
+// actually carries a list degrades to a night-old ranking instead of to none,
+// and the retention cap keeps the scan at three rows.
+func (s *GraphOverviewService) readStartingPointIDs() ([]uint, error) {
+	var row struct {
+		StartingPointArtistIDs json.RawMessage `gorm:"column:starting_point_artist_ids"`
+	}
+	err := s.db.Table("graph_overview_snapshots").
+		Select("starting_point_artist_ids").
+		Where("starting_point_artist_ids IS NOT NULL").
+		Order("id DESC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to read graph starting points: %w", err)
+	}
+	if len(row.StartingPointArtistIDs) == 0 {
+		return nil, nil
+	}
+
+	var ids []uint
+	if err := json.Unmarshal(row.StartingPointArtistIDs, &ids); err != nil {
+		// Unreadable is empty, not fatal: the client's random fallback is a
+		// working surface, and 500-ing the hero's sentence would cost the whole
+		// zero state over a decoration. Logged so a shape change is visible.
+		slog.Warn("graph starting points: stored ranking is unreadable; suggesting nothing", "error", err)
+		return nil, nil
+	}
+	return ids, nil
+}
+
+// resolveStartingPoints turns stored ids into anchors the client can center on,
+// preserving the stored ranking order.
+//
+// THE CATALOG DECIDES WHAT IS OFFERABLE, not the snapshot. An id whose artist
+// was deleted or merged away since the build simply has no row and drops out;
+// one whose slug went NULL drops out too, because the hero's whole payoff is a
+// click that lands somewhere. This is the "validate against the catalog before
+// display" rule the hardcoded names needed, moved to the one place that can
+// answer it in a single indexed lookup instead of one search request per name.
+func resolveStartingPoints(db *gorm.DB, ids []uint) ([]contracts.GraphStartingPoint, error) {
+	// Never nil: the response field is documented as `[]`, and a nil slice
+	// would marshal as `null` for every caller to special-case.
+	out := make([]contracts.GraphStartingPoint, 0, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	type row struct {
+		ID   uint    `gorm:"column:id"`
+		Name string  `gorm:"column:name"`
+		Slug *string `gorm:"column:slug"`
+	}
+	var rows []row
+	err := db.Table("artists").
+		Select("id, name, slug").
+		Where("id IN ?", ids).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve graph starting points: %w", err)
+	}
+
+	live := make(map[uint]row, len(rows))
+	for _, r := range rows {
+		live[r.ID] = r
+	}
+	for _, id := range ids {
+		r, ok := live[id]
+		if !ok || r.Name == "" || r.Slug == nil || *r.Slug == "" {
+			continue
+		}
+		out = append(out, contracts.GraphStartingPoint{
+			ArtistID:   r.ID,
+			ArtistName: r.Name,
+			ArtistSlug: *r.Slug,
+		})
+	}
+	return out, nil
 }

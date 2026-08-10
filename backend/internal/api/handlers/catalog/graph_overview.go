@@ -77,3 +77,47 @@ func (h *GraphOverviewHandler) GetGraphOverviewHandler(ctx context.Context, req 
 	resp.Body = overview
 	return resp, nil
 }
+
+// graphStartingPointsCacheControl is the caching policy for the suggestion list.
+//
+// The RANKING behind it changes once a night, like the map. The identity of
+// each entry is resolved live, so an hour of client freshness is also the
+// longest a renamed artist can keep being suggested — acceptable for a sentence
+// whose click resolves the artist by id either way, and worth the round trips
+// it saves on the surface that renders on every phone-width visit to /graph.
+const graphStartingPointsCacheControl = "public, max-age=3600, stale-while-revalidate=86400"
+
+// GetGraphStartingPointsRequest is the Huma request for
+// GET /graph/starting-points. It takes nothing: the list is identical for every
+// visitor, which is what lets it be cached at every layer.
+type GetGraphStartingPointsRequest struct{}
+
+// GetGraphStartingPointsResponse is the Huma response for
+// GET /graph/starting-points.
+type GetGraphStartingPointsResponse struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         contracts.GraphStartingPointsResponse
+}
+
+// GetGraphStartingPointsHandler handles GET /graph/starting-points — the
+// connectivity-ranked artists the /graph fallback hero suggests (PSY-1749).
+//
+// 200 WITH AN EMPTY LIST, never a 503. See
+// contracts.GraphStartingPointsResponse: the client's answer to "nothing to
+// suggest" is a random catalog artist, and that path is reached by an empty
+// list, not by an error.
+func (h *GraphOverviewHandler) GetGraphStartingPointsHandler(ctx context.Context, _ *GetGraphStartingPointsRequest) (*GetGraphStartingPointsResponse, error) {
+	artists, err := h.graphOverviewService.GetGraphStartingPoints()
+	if err != nil {
+		logger.FromContext(ctx).Error("graph_starting_points_read_failed", "error", err.Error())
+		return nil, huma.Error500InternalServerError("Failed to load graph starting points")
+	}
+	if artists == nil {
+		artists = []contracts.GraphStartingPoint{}
+	}
+
+	return &GetGraphStartingPointsResponse{
+		CacheControl: graphStartingPointsCacheControl,
+		Body:         contracts.GraphStartingPointsResponse{Artists: artists},
+	}, nil
+}
