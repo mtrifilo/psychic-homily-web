@@ -126,6 +126,41 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNe
 	suite.Nil(rows[byName["Not Booked Yet"]].Show, "a band with no approved show carries no show")
 }
 
+// A cancelled show is not an answer to "where can I see this band", in either
+// direction: the row carries no status badge, so citing one would read as a
+// date to turn up to (upcoming) or a gig that happened (past).
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_SkipsCancelledShows() {
+	rebel := suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
+	nile := suite.createVerifiedVenue("Nile Theater", "Mesa", "AZ")
+	user := suite.createUser()
+	now := time.Now().UTC()
+
+	band := suite.createArtistListedAt("Cancelled Tour", now.AddDate(0, 0, -1))
+	real := suite.createApprovedShow("played", nile.ID, band.ID, user.ID, now.AddDate(0, 0, -6))
+	cancelled := suite.createApprovedShow("called off", rebel.ID, band.ID, user.ID, now.AddDate(0, 0, 5))
+	suite.Require().NoError(suite.db.Model(cancelled).Update("is_cancelled", true).Error)
+
+	onlyCancelled := suite.createArtistListedAt("Nothing Left", now.AddDate(0, 0, -2))
+	onlyShow := suite.createApprovedShow("also called off", rebel.ID, onlyCancelled.ID, user.ID, now.AddDate(0, 0, 8))
+	suite.Require().NoError(suite.db.Model(onlyShow).Update("is_cancelled", true).Error)
+
+	rows, _, err := suite.sceneService.GetSceneNewArtists("Phoenix", "AZ", now.AddDate(0, 0, -30), now, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(rows, 2)
+
+	byName := map[string]int{}
+	for i, r := range rows {
+		byName[r.Name] = i
+	}
+
+	fellBack := rows[byName["Cancelled Tour"]]
+	suite.Require().NotNil(fellBack.Show)
+	suite.Equal(real.ID, fellBack.Show.ID, "the cancelled upcoming show must not outrank a real past one")
+	suite.False(fellBack.Show.IsUpcoming)
+
+	suite.Nil(rows[byName["Nothing Left"]].Show, "a band whose only show is cancelled carries no show")
+}
+
 // A quiet scene is an empty module, never an error and never a nil slice.
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_QuietSceneIsEmptyNotError() {
 	suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")

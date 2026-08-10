@@ -79,6 +79,14 @@ func (s *SceneService) GetSceneNewArtists(city, state string, since, now time.Ti
 // the local fact the module exists to carry. IsUpcoming lets the client choose
 // its tense rather than guessing from the date.
 //
+// CANCELLED shows are excluded outright, in both halves. This row is a single
+// unlabelled line ("Nile Theater, Aug 20"), not a show listing with status
+// badges, so a cancelled show here would read as a date you can turn up to and
+// a past cancelled one as a gig that happened. A band whose only show is
+// cancelled falls back to its previous real show, or to no show at all. Sold-out
+// is NOT filtered — a sold-out show is still a true statement about where the
+// band plays, where a cancelled one is not.
+//
 // One DISTINCT ON per artist, ordered so upcoming beats past, then soonest
 // among upcoming and latest among past, with the show id as the deterministic
 // tiebreak. The venue is the alphabetically-first room on the bill, matching
@@ -112,6 +120,7 @@ func (s *SceneService) newArtistShows(artistIDs []uint, now time.Time) (map[uint
 		LEFT JOIN venues v ON v.id = sv.venue_id
 		WHERE sa.artist_id IN ?
 		  AND s.status = ?
+		  AND s.is_cancelled = false
 		ORDER BY sa.artist_id,
 		         (s.event_date >= ?) DESC,
 		         CASE WHEN s.event_date >= ? THEN s.event_date END ASC NULLS LAST,
