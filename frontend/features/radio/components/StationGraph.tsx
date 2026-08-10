@@ -135,6 +135,8 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     </button>
   )
 
+  const heading = <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+
   const stationHeader = (
     <div>
       <h2 className="text-lg font-semibold">Airplay graph</h2>
@@ -168,7 +170,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     if (!viewportAllowsGraph) {
       return (
         <>
-          <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+          {heading}
           {containerWidth === null ? (
             // Pre-measurement: hold the box height so the settle can't shift
             // the sections below (HomeSceneGraph precedent).
@@ -194,7 +196,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     if (isLoading) {
       return (
         <>
-          <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+          {heading}
           <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
         </>
       )
@@ -206,7 +208,7 @@ export function StationGraph({ slug, stationName }: StationGraphProps) {
     if (!data && isError) {
       return (
         <>
-          <h2 className="text-lg font-semibold mb-2">Airplay graph</h2>
+          {heading}
           <GraphStateCard
             role="alert"
             message="This view couldn't load. Refresh the page to try again."

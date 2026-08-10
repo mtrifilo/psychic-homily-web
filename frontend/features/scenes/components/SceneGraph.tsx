@@ -131,10 +131,9 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     overlayHeight,
   } = useFullscreenGraphOverlay(graphAvailable)
 
-
   // Cluster-by mode toggle — radio-style pills (VenueBillNetwork's window
   // filter pattern), rendered above the legend inline and in the overlay.
-  // Defined before the data guards because the error state below needs it.
+  // Defined before the data branches because the error state needs it.
   const clusterByToggle = (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className="text-muted-foreground" aria-hidden="true">
@@ -160,7 +159,6 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
       })}
     </div>
   )
-
 
   const toggleCluster = (clusterID: string) => {
     setHiddenClusters(prev => {
