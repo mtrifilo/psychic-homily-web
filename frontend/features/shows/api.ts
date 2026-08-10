@@ -96,9 +96,8 @@ export const showQueryKeys = {
  * Under the old viewer-timezone contract the key varied per viewer, so it could
  * only ever be an approximation the client re-fetched and discarded.
  *
- * These URLs carry NO query parameters at all. A bare `/shows` sends nothing
- * per-viewer and nothing per-page, so the seeded URL is the endpoint itself —
- * which is also the shortest possible statement of the property above.
+ * A bare `/shows` therefore sends no query string at all, and the seeded URL is
+ * the endpoint itself.
  *
  * The URL and the key have to stay a matched pair, and that is unenforceable at
  * the type level: `useShowsFirstScreen.test.tsx` asserts the hooks really do

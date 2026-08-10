@@ -138,10 +138,9 @@ describe('shows first-screen prefetch contract', () => {
   // are also asserted BARE — a trailing `?` would make the seeded URL and the
   // hook's URL two different Data Cache entries.
   it('carries no viewer zone in either the URL or the key', () => {
+    // No `?` at all, which subsumes "no timezone" on the URL half.
     expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).not.toContain('?')
     expect(SHOW_CITIES_FIRST_SCREEN_URL).not.toContain('?')
-    expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).not.toContain('timezone')
-    expect(SHOW_CITIES_FIRST_SCREEN_URL).not.toContain('timezone')
     expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
       'timezone'
     )

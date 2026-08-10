@@ -116,11 +116,12 @@ export const artistQueryKeys = {
    * happened to navigate in. The venue side fixed exactly this in PSY-1698; the
    * artist side never got the fix.
    *
-   * NOTHING here is per-viewer, and that is what makes a server-rendered first
-   * screen possible: a key a server computes is the key the browser then looks
-   * under. A viewer timezone used to sit in this list, back when the endpoint
-   * read one; it does not any more (the upcoming/past split is made in each
-   * show's own venue-local day), so do not put a browser-only value back in.
+   * NOTHING here is per-viewer, so a key a server computes is the key the
+   * browser then looks under. No route server-prefetches artist shows today,
+   * but the option is open: it was closed while a viewer timezone sat in this
+   * list, back when the endpoint read one. It does not any more — the
+   * upcoming/past split is made in each show's own venue-local day — so do not
+   * put a browser-only value back in.
    *
    * Extends `shows()` rather than replacing it so the coarse `['artists']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.

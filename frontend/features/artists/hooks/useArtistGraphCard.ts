@@ -33,7 +33,7 @@ export function useArtistGraphCard(options: UseArtistGraphCardOptions) {
     // made in the show's own venue-local day, so one answer is the right answer
     // for every reader.
     queryKey: artistQueryKeys.graphCard(idOrSlug ?? 0),
-    queryFn: async (): Promise<ArtistGraphCard> =>
+    queryFn: () =>
       apiRequest<ArtistGraphCard>(artistEndpoints.GRAPH_CARD(idOrSlug ?? 0), {
         method: 'GET',
       }),

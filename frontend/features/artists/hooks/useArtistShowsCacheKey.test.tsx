@@ -218,6 +218,13 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     expect(urls.some(u => !u.includes('limit='))).toBe(true)
     expect(urls.some(u => u.includes('limit=20'))).toBe(true)
 
+    // And no request carries a timezone. The endpoint partitions on each show's
+    // own venue-local calendar day and ignores a caller zone, so sending one
+    // buys nothing and costs a cache entry per viewer. The option is gone from
+    // the hook, so only the hook itself could put one back; that is exactly what
+    // this catches.
+    expect(urls.every(u => !u.includes('timezone='))).toBe(true)
+
     // And the KEYS record the same thing. Asserting only the URLs would pass
     // against the pre-PSY-1754 key too, which is the whole bug this file exists
     // for: both hooks must land on a key built from the SENT values.
@@ -241,45 +248,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     )
   })
 
-  // The endpoint partitions on each show's own venue-local calendar day and
-  // ignores a caller zone entirely, so sending one buys nothing and costs a
-  // cache entry per viewer. The hook has no way to send one any more; this
-  // asserts it, because a reader of the deprecated backend parameter could
-  // otherwise re-derive a requirement that does not exist.
-  it('never sends a timezone, and never keys on one', async () => {
-    const queryClient = createTestQueryClient()
-    mockApiRequest.mockResolvedValue(twentyShows())
-
-    const { result } = renderHook(
-      () =>
-        useArtistShows({
-          artistId: ARTIST_ID,
-          timeFilter: 'past',
-          limit: PREVIEW_LIMIT,
-          year: 2025,
-          offset: 20,
-        }),
-      { wrapper: createWrapperWithClient(queryClient) },
-    )
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    const urls = mockApiRequest.mock.calls.map(c => c[0] as string)
-    expect(urls).not.toHaveLength(0)
-    expect(urls.every(u => !u.includes('timezone='))).toBe(true)
-
-    const cached = queryClient.getQueryCache().getAll()
-    expect(cached).toHaveLength(1)
-    expect(cached[0].queryHash).toBe(
-      hashKey(
-        artistQueryKeys.showsPage(ARTIST_ID, {
-          timeFilter: 'past',
-          limit: PREVIEW_LIMIT,
-          year: 2025,
-          offset: 20,
-        }),
-      ),
-    )
-  })
 
   it('never sends an out-of-range year the backend would reject', async () => {
     const queryClient = createTestQueryClient()

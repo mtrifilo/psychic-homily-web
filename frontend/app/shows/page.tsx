@@ -88,9 +88,8 @@ export const UPCOMING_SHOWS_LIMIT = 50
  *   /shows/cities                8,948   11,932    0.6%  one row per city
  *   /scenes                      7,256    9,676    0.5%  UNBOUNDED
  *
- * The URLs above lost an inert `timezone` after the measurement, which changed
- * the cache KEY of the first three but none of the sizes: the parameter never
- * changed the row count, only which day's rows came back.
+ * The first three URLs have since lost an inert `timezone`. That re-keyed their
+ * Data Cache entries but cannot have moved the sizes, so the measurement stands.
  *
  * So "the limit protects it" is true of the ItemList fetch only. The seed URL
  * deliberately omits `limit` (see the note above) and is held at 50 by the
@@ -137,10 +136,10 @@ export const UPCOMING_SHOWS_LIMIT = 50
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    // `?`, because the first-screen URL is now the bare endpoint: the request
-    // carries no parameter but this one. The endpoint decides "upcoming" against
-    // each show's own venue zone (PSY-1678), so this JSON-LD block advertises
-    // exactly the rows the page renders.
+    // `?`, not `&`: the first-screen URL is the bare endpoint, so this is the
+    // only parameter. The endpoint decides "upcoming" against each show's own
+    // venue zone (PSY-1678), so this block advertises exactly the rows the page
+    // renders.
     url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',

@@ -70,7 +70,7 @@ GET /artists/:artist_id
 #### 2. New Endpoint: Get Artist Shows
 
 ```
-GET /artists/:artist_id/shows?time_filter=upcoming|past|all&limit=20&timezone=America/Phoenix
+GET /artists/:artist_id/shows?time_filter=upcoming|past|all&limit=20
 ```
 
 **Response:**
@@ -453,14 +453,13 @@ export function useArtist(artistId: number) {
 export function useArtistShows(options: {
   artistId: number
   timeFilter: 'upcoming' | 'past' | 'all'
-  timezone: string
   limit?: number
   enabled?: boolean
 }) {
   return useQuery({
     queryKey: ['artists', options.artistId, 'shows', options.timeFilter],
     queryFn: () => apiRequest<ArtistShowsResponse>(
-      `/artists/${options.artistId}/shows?time_filter=${options.timeFilter}&timezone=${options.timezone}&limit=${options.limit}`
+      `/artists/${options.artistId}/shows?time_filter=${options.timeFilter}&limit=${options.limit}`
     ),
     enabled: options.enabled,
   })

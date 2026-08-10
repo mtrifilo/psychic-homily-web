@@ -145,10 +145,16 @@ export const getArchiveYears = cache((slug: string) =>
 /**
  * The first page of one year's rows — what the archive route renders.
  *
- * Nothing per-viewer is sent, which is what lets a SERVER fetch stand in for
- * the one the client hook would make: the upcoming/past split is made in each
- * show's own venue-local day, and the year filter is venue-local too, so one
- * answer is the right answer for every reader.
+ * Nothing per-viewer is sent, so a SERVER read is a legitimate stand-in for the
+ * one the client hook would make: the upcoming/past split is made in each show's
+ * own venue-local day, and the year filter is venue-local too, so one answer is
+ * the right answer for every reader.
+ *
+ * It is still a DIFFERENT URL string from the hook's — the two build the same
+ * parameters in different orders — so these rows reach the client through the
+ * `initialData` prop, NOT by the hook finding this fetch's Data Cache entry.
+ * Matching the strings would be a real optimization and is not one that has been
+ * done; do not assume it already holds.
  *
  * Timed out for the same reason as the histogram: an unseeded archive still
  * renders, it just fetches its rows on the client.

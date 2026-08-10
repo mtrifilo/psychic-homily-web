@@ -41,6 +41,12 @@ describe('useShows', () => {
   })
 
   describe('useUpcomingShows', () => {
+    // The URL asserted below is the BARE endpoint — no query string and no
+    // trailing `?`. That is what the server fetches to seed the first screen, so
+    // a stray character makes the seed a different Data Cache entry from the one
+    // the hook asks for and `/shows` silently stops being server-rendered.
+    // Nothing per-viewer may creep back in either: a viewer zone is what
+    // PSY-1678 removed, and it would land back in the cache key.
     it('fetches upcoming shows with default options', async () => {
       const mockResponse = {
         shows: [
@@ -61,28 +67,6 @@ describe('useShows', () => {
       expect(mockApiRequest).toHaveBeenCalledWith('/shows/upcoming', {
         method: 'GET',
       })
-    })
-
-    // A no-argument call must produce the BARE endpoint — no query string and
-    // no trailing `?`. That URL is what the server fetches to seed the first
-    // screen, so a stray character here makes the seed a different Data Cache
-    // entry from the one the hook asks for, and `/shows` silently stops being
-    // server-rendered. Nothing per-viewer may creep back in either: a viewer
-    // zone is what PSY-1678 removed, and it would land back in the cache key.
-    it('sends no parameters at all on a bare call', async () => {
-      mockApiRequest.mockResolvedValueOnce({ shows: [], has_more: false })
-      const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-
-      const { result } = renderHook(() => useUpcomingShows(), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      const url = mockApiRequest.mock.calls[0][0] as string
-      expect(url).toBe('/shows/upcoming')
-      expect(url).not.toContain('timezone')
-      expect(url).not.toContain(encodeURIComponent(viewerZone))
     })
 
     it('includes cursor for pagination', async () => {

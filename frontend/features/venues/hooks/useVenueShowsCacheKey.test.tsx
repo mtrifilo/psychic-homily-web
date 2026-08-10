@@ -196,50 +196,16 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
     const urls = mockApiRequest.mock.calls.map(c => c[0] as string)
     expect(urls.some(u => !u.includes('limit='))).toBe(true)
     expect(urls.some(u => u.includes('limit=20'))).toBe(true)
-  })
 
-  // The endpoint partitions on each show's own venue-local calendar day and
-  // ignores a caller zone entirely, so sending one buys nothing and costs a
-  // cache entry per viewer — which is what blocked server-prefetching this list
-  // while the zone was in the key. The hook has no way to send one any more;
-  // this asserts it, because a reader of the deprecated backend parameter could
-  // otherwise re-derive a requirement that does not exist.
-  it('never sends a timezone, whatever the caller asks for', async () => {
-    const queryClient = createTestQueryClient()
-    mockApiRequest.mockResolvedValue(twentyShows())
-
-    const { result } = renderHook(
-      () =>
-        useVenueShows({
-          venueId: VENUE_ID,
-          timeFilter: 'past',
-          limit: PREVIEW_LIMIT,
-          year: 2025,
-          offset: 20,
-        }),
-      { wrapper: createWrapperWithClient(queryClient) },
-    )
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-    const urls = mockApiRequest.mock.calls.map(c => c[0] as string)
-    expect(urls).not.toHaveLength(0)
+    // And no request carries a timezone. The endpoint partitions on each show's
+    // own venue-local calendar day and ignores a caller zone, so sending one
+    // buys nothing and costs a cache entry per viewer — which is what blocked
+    // server-prefetching this list while the zone was in the key. The option is
+    // gone from the hook, so only the hook itself could put one back; that is
+    // exactly what this catches.
     expect(urls.every(u => !u.includes('timezone='))).toBe(true)
-
-    // And nothing browser-only reached the key either, which is the half that
-    // decides whether a server-computed key can ever be a hit.
-    const cached = queryClient.getQueryCache().getAll()
-    expect(cached).toHaveLength(1)
-    expect(cached[0].queryHash).toBe(
-      hashKey(
-        venueQueryKeys.showsPage(VENUE_ID, {
-          timeFilter: 'past',
-          limit: PREVIEW_LIMIT,
-          year: 2025,
-          offset: 20,
-        }),
-      ),
-    )
   })
+
 
   it('lands the past archive on the key its own neighbour peek constructs', async () => {
     const queryClient = createTestQueryClient()
