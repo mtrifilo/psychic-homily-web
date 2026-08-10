@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 
 import { renderWithProviders } from '@/test/utils'
 
@@ -47,7 +47,12 @@ function runFrames(count: number, msPerFrame = 100) {
     scheduled = []
     if (callbacks.length === 0) return
     now += msPerFrame
-    for (const callback of callbacks) callback(now)
+    // Wrapped even though a reduced-motion run's frames change no React state:
+    // the standard-motion guard at the bottom of this file does play, and an
+    // unwrapped frame that reached a phase change would warn rather than fail.
+    act(() => {
+      for (const callback of callbacks) callback(now)
+    })
   }
 }
 

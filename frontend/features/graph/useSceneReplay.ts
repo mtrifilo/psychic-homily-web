@@ -42,6 +42,9 @@ export const SETTLE_MS = 600
  * What the replay is doing. `settling` covers BOTH ways a run ends — reaching
  * now, and an Esc that abandons it early — because they are the same transition:
  * fill in whatever is left and fade the map's furniture back in.
+ *
+ * A reduced-motion run never enters it (PSY-1743): that transition IS the motion
+ * such a run exists to avoid, so its way out goes straight to `rest`.
  */
 export type SceneReplayPhase = 'rest' | 'playing' | 'paused' | 'settling'
 
@@ -90,7 +93,10 @@ export interface SceneReplayController {
   /** Called after every advance, and after every seek. Returns an unsubscribe. */
   subscribe: (listener: (frame: SceneReplayFrame) => void) => () => void
   start: () => void
-  /** Esc, the × chip, or reaching the end — all settle back to the at-rest map. */
+  /**
+   * Esc, the × chip, or reaching the end — all return to the at-rest map,
+   * settling on the way unless the transport does not autoplay.
+   */
   exit: () => void
   togglePause: () => void
   /** Jump to a position without changing whether the clock is running. */
