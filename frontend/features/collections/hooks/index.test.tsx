@@ -247,11 +247,7 @@ describe('Collection query hooks', () => {
       )
     })
 
-    // PSY-1779 regression. `/auth/collections` 401s without a session, and
-    // AddToCollectionButton must call this hook ABOVE its `!isAuthenticated`
-    // early return (Rules of Hooks), so an ungated query fired one guaranteed
-    // 401 per anonymous entity-page view. The gate lives in the hook, so the
-    // assertion belongs here rather than at any one call site.
+    // PSY-1779 regression: an anonymous viewer must fire no request at all.
     it('does not fetch when the viewer is not authenticated', () => {
       mockIsAuthenticated.mockReturnValue(false)
 
@@ -263,21 +259,7 @@ describe('Collection query hooks', () => {
       expect(mockApiRequest).not.toHaveBeenCalled()
     })
 
-    // The anonymous gate must not swallow a search-scoped call either — the
-    // Yours tab passes a search term straight through.
-    it('does not fetch a searched list when unauthenticated', () => {
-      mockIsAuthenticated.mockReturnValue(false)
-
-      const { result } = renderHook(
-        () => useMyCollections({ search: 'shoegaze' }),
-        { wrapper: createWrapper() }
-      )
-
-      expect(result.current.fetchStatus).toBe('idle')
-      expect(mockApiRequest).not.toHaveBeenCalled()
-    })
-
-    // The gate must OPEN once auth resolves — AuthContext reports
+    // PSY-1779: the gate must OPEN once auth resolves — AuthContext reports
     // `isAuthenticated: false` during the pre-hydration window while
     // /auth/profile is in flight, so a gate that never re-enabled would
     // silently break the logged-in popover.

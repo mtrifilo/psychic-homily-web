@@ -133,13 +133,10 @@ export function useCollectionStats(slug: string, options?: { enabled?: boolean }
  * scoped per-search so distinct searches don't share a cache entry, but
  * the bare prefix matches mutation invalidations on `queryKeys.collections.my`.
  *
- * `/auth/collections` requires a session, so the query is gated on
- * `isAuthenticated` — the gate belongs HERE, not at each call site, because
- * every caller of an auth-only endpoint needs it and callers kept forgetting:
- * AddToCollectionButton calls this above its `!isAuthenticated` early return
- * (hooks must run unconditionally), and CollectionList calls it on every tab
- * despite a comment claiming otherwise. Both fired a guaranteed 401 round trip
- * for anonymous visitors on entity pages and /collections.
+ * PSY-1779: `/auth/collections` requires a session. The gate lives here rather
+ * than at each call site so no caller can fire a guaranteed 401 for an
+ * anonymous visitor — AddToCollectionButton in particular *cannot* gate it,
+ * since Rules of Hooks force the call above its `!isAuthenticated` return.
  */
 export function useMyCollections(params?: { search?: string }) {
   const search = params?.search?.trim() || undefined
@@ -177,9 +174,9 @@ export function useMyCollections(params?: { search?: string }) {
  * to `true`; pass `false` to defer the request until the popover opens —
  * saves a fetch on every entity page render.
  *
- * `/auth/collections/contains` requires a session, so an anonymous viewer is
- * gated out regardless of what the caller passes — the caller-supplied
- * `enabled` can only narrow this further, never widen it.
+ * PSY-1779: `/auth/collections/contains` also requires a session, so an
+ * anonymous viewer is gated out regardless of what the caller passes — the
+ * caller-supplied `enabled` can only narrow this further, never widen it.
  */
 export function useUserCollectionsContaining(
   entityType: string,

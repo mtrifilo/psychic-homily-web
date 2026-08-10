@@ -108,7 +108,11 @@ export function CollectionList() {
     tag: tagFilter || undefined,
   })
 
-  // Fetch user's own collections (only when on "yours" tab and authenticated).
+  // Fetch the user's own collections. The hook self-gates on authentication,
+  // so an anonymous visitor to this public page fires nothing (PSY-1779). It
+  // is NOT gated on the active tab, though: an authenticated viewer prefetches
+  // the Yours list from any tab, which makes the tab switch instant and costs
+  // one cached request.
   // PSY-580: pass the same search term the public-browse hook receives so the
   // Yours tab filters via the backend's expanded search (title / description /
   // item notes / tag names+aliases — PSY-355). Empty / whitespace short-
