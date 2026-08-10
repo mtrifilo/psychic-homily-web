@@ -23,25 +23,21 @@ import (
 // built from utils.StateTimezones rather than restating it.
 //
 // MIGRATED so far: artist show lists, venue show lists, the artist graph card's
-// next-show, the saved-shows list, and the main /shows feed
-// (catalog.ShowService.GetUpcomingShows and its GetShowCities picker counts).
+// next-show, the saved-shows list, the main /shows feed
+// (catalog.ShowService.GetUpcomingShows and its GetShowCities picker counts),
+// and the whole tag page — its entity counts (catalog/tag_intersection.go) and
+// the per-entity upcoming_show_count its cards print (PSY-1760).
 //
 // SCOPE OF THE TWO LISTS BELOW: show LIST surfaces — the ones that decide which
 // rows a reader is shown. Aggregate COUNT surfaces are NOT enumerated, and
-// several of them draw their own boundary: tag-page enrichment counts
-// (catalog/tag_service.go), the /venues list's upcoming_show_count
-// (catalog/venue.go), /scenes' upcoming_count and this_week_count
-// (catalog/scene.go), catalog/venue_rail.go, graph_overview.go, charts_rank.go
-// and sitemap.go. Do not read a surface's absence here as a claim that it
-// already agrees with this file.
+// several of them draw their own boundary: the /venues list's
+// upcoming_show_count (catalog/venue.go), /scenes' upcoming_count and
+// this_week_count (catalog/scene.go), catalog/venue_rail.go, graph_overview.go,
+// charts_rank.go and sitemap.go. Do not read a surface's absence here as a
+// claim that it already agrees with this file.
 //
 // NOT migrated — do not read the paragraph above as a description of the whole
 // repo, because these still draw their own boundary:
-//   - catalog/tag_intersection.go — the tag-page entity counts, start-of-today
-//     in UTC. The reason it gave (no request timezone to work from) no longer
-//     applies now that the boundary needs no timezone at all. PSY-1760 owns it,
-//     deferred for SCOPE rather than risk (that ticket carries the measured
-//     cost of the same shape under GetShowCities).
 //   - engagement/venue_calendar.go upcomingShowsForVenue — the venue ICS feed,
 //     start-of-today in the QUERIED venue's zone, so it can disagree with the
 //     venue page for a show booked at two venues.
