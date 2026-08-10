@@ -1035,7 +1035,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		dataSources[vc.ID] = vc.DataSource
 	}
 
-	// Atlas venue-rail payload (next show, this-week slice, dominant genre) for
+	// Atlas venue-rail payload (next show, next-7-days slice, dominant genre) for
 	// the venues on THIS page — three batched scans, no N+1, all best effort.
 	// Opt-in: the venue browse page is this endpoint's other caller and renders
 	// none of those fields, so it must not pay for them. See venue_rail.go.

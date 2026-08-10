@@ -295,7 +295,7 @@ func (s *SceneDigestSuite) TestEmptySceneSendsNothing() {
 	s.followScene(userID, sceneID, nil, time.Now().Add(-24*time.Hour))
 
 	s.svc.RunDigestCycleNow()
-	s.Empty(s.mock.calls, "a scene with no this-week shows and no new bands is skipped")
+	s.Empty(s.mock.calls, "a scene with no next-7-days shows and no new bands is skipped")
 	s.Nil(s.cursorFor(userID, sceneID), "an empty scene's cursor must NOT advance")
 }
 
@@ -322,7 +322,7 @@ func (s *SceneDigestSuite) TestCursorOnlyBumpsContributingScenes() {
 }
 
 func (s *SceneDigestSuite) TestIdempotentAcrossRestart() {
-	// A scene with only a this-week SHOW (no new bands). The shows stream is a
+	// A scene with only a next-7-days SHOW (no new bands). The shows stream is a
 	// forward snapshot, NOT cursor-gated — so without the interval guard on
 	// follow selection, the immediate startup run would re-send it every
 	// restart. The guard must exclude a follow already digested this interval.
@@ -340,7 +340,7 @@ func (s *SceneDigestSuite) TestIdempotentAcrossRestart() {
 	// the interval, so it must be excluded — no re-send of the shows section.
 	s.mock.calls = nil
 	s.svc.RunDigestCycleNow()
-	s.Empty(s.mock.calls, "an immediate re-run must not re-send this-week shows")
+	s.Empty(s.mock.calls, "an immediate re-run must not re-send next-7-days shows")
 }
 
 // PSY-1466 regression: the weekly scene digest is a separate, global opt-in

@@ -103,7 +103,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_NextS
 	suite.Equal(2, got.UpcomingShowCount, "past show must not count as upcoming")
 }
 
-// TestGetVenuesWithShowCounts_ThisWeekSlice pins the "This week" chip's data:
+// TestGetVenuesWithShowCounts_ThisWeekSlice pins the "Next 7 days" chip's data:
 // only upcoming shows inside the 7-day window count.
 func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ThisWeekSlice() {
 	user := suite.createTestUser()
@@ -120,7 +120,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_ThisW
 
 	got := suite.findVenueResponse(venues, "Rail This Week")
 	suite.Equal(3, got.UpcomingShowCount)
-	suite.Equal(2, got.ShowsThisWeek, "only the <=7-day slice is 'this week'")
+	suite.Equal(2, got.ShowsThisWeek, "only the <=7-day rolling slice counts")
 }
 
 // TestGetVenuesWithShowCounts_NoUpcomingShows: a venue with nothing booked

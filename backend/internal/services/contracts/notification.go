@@ -84,7 +84,7 @@ type EmailServiceInterface interface {
 	// week grouping items added across all subscribed collections.
 	SendCollectionDigestEmail(toEmail string, groups []CollectionDigestGroup, unsubscribeURL string) error
 	// PSY-1342: weekly scene digest — single batched email per user grouping
-	// this-week shows + new bands across all the scenes they follow.
+	// the next 7 days of shows + new bands across all the scenes they follow.
 	SendSceneDigestEmail(toEmail string, groups []SceneDigestGroup, unsubscribeURL string) error
 }
 

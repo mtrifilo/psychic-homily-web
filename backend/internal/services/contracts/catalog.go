@@ -701,7 +701,7 @@ type VenueListFilters struct {
 	// (default) the venues must have every tag in TagSlugs (AND).
 	TagMatchAny bool
 	// IncludeRailFields opts in to the Atlas city-view payload
-	// (VenueWithShowCountResponse's next-show / this-week / dominant-genre
+	// (VenueWithShowCountResponse's next-show / next-7-days / dominant-genre
 	// fields). OFF by default and deliberately explicit: filling it costs
 	// three extra batched aggregations, and the venue browse page — the
 	// endpoint's other caller — renders none of those fields.

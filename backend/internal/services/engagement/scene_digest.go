@@ -212,7 +212,7 @@ func (s *SceneDigestService) runDigestCycle() {
 			contributing = append(contributing, f.SceneID)
 		}
 		if len(groups) == 0 {
-			continue // nothing new in any followed scene this week
+			continue // nothing to say about any followed scene this cycle
 		}
 
 		if ub.email == "" {

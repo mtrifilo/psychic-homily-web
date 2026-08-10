@@ -367,9 +367,9 @@ func main() {
 		log.Printf("DISABLE_COLLECTION_DIGEST=1: skipping collection digest service startup")
 	}
 
-	// Start scene digest service (PSY-1342: weekly batched email of this-week
-	// shows + new bands across all the scenes a user follows. Opt-IN — users
-	// enable the toggle in notification settings).
+	// Start scene digest service (PSY-1342: weekly batched email of the next 7
+	// days of shows + new bands across all the scenes a user follows. Opt-IN —
+	// users enable the toggle in notification settings).
 	if os.Getenv("DISABLE_SCENE_DIGEST") != "1" {
 		var sceneDigestCtx context.Context
 		sceneDigestCtx, sceneDigestCancel = context.WithCancel(context.Background())

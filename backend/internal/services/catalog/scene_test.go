@@ -335,7 +335,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_ShowsThisWeek() {
 	suite.Require().NoError(err)
 	suite.Require().Len(scenes, 1)
 	suite.Equal(2, scenes[0].ShowsThisWeek, "only the two <7d shows count")
-	suite.Equal(5, scenes[0].UpcomingShowCount, "this-week shows are also upcoming")
+	suite.Equal(5, scenes[0].UpcomingShowCount, "next-7-days shows are also upcoming")
 }
 
 // The invariant PSY-1623 exists for: a count shown NEXT TO a link to
