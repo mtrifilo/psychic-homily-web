@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { createWrapper } from '@/test/utils'
+import {
+  createTestQueryClient,
+  createWrapper,
+  createWrapperWithClient,
+} from '@/test/utils'
 
 const mockApiRequest = vi.fn()
 
@@ -26,6 +30,19 @@ vi.mock('@/lib/api', () => ({
     },
   },
   API_BASE_URL: 'http://localhost:8080',
+}))
+
+// PSY-1779: the auth-only hooks (`useMyCollections`,
+// `useUserCollectionsContaining`) read auth state to gate their query, so an
+// anonymous visitor never fires a guaranteed-401 request. Default the mock to
+// authenticated; the anonymous cases override it per test.
+const mockIsAuthenticated = vi.fn(() => true)
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({
+    isAuthenticated: mockIsAuthenticated(),
+    user: { id: '1' },
+    isLoading: false,
+  }),
 }))
 
 vi.mock('@/lib/queryClient', () => ({
@@ -84,6 +101,7 @@ describe('Collection query hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
+    mockIsAuthenticated.mockReturnValue(true)
   })
 
   describe('useCollections', () => {
@@ -232,6 +250,66 @@ describe('Collection query hooks', () => {
         '/auth/collections?search=post-punk%20%26%20jazz'
       )
     })
+
+    // PSY-1779 regression: an anonymous viewer must fire no request at all.
+    it('does not fetch when the viewer is not authenticated', () => {
+      mockIsAuthenticated.mockReturnValue(false)
+
+      const { result } = renderHook(() => useMyCollections(), {
+        wrapper: createWrapper(),
+      })
+
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    // PSY-1779: the gate must OPEN once auth resolves — AuthContext reports
+    // `isAuthenticated: false` during the pre-hydration window while
+    // /auth/profile is in flight, so a gate that never re-enabled would
+    // silently break the logged-in popover.
+    it('fetches once auth resolves from anonymous to authenticated', async () => {
+      mockIsAuthenticated.mockReturnValue(false)
+      mockApiRequest.mockResolvedValue({ collections: [], total: 0 })
+
+      const { result, rerender } = renderHook(() => useMyCollections(), {
+        wrapper: createWrapper(),
+      })
+      expect(mockApiRequest).not.toHaveBeenCalled()
+
+      mockIsAuthenticated.mockReturnValue(true)
+      rerender()
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith('/auth/collections')
+    })
+
+    // PSY-1779: `keepPreviousData` reads an observer-scoped snapshot that
+    // logout's `queryClient.clear()` does not reach, and a disabled query
+    // never leaves `pending` — so keeping the placeholder while logged out
+    // would surface the previous viewer's private collection titles
+    // indefinitely rather than for the one round trip the old 401 took.
+    it('exposes no data once the viewer logs out', async () => {
+      mockApiRequest.mockResolvedValue({
+        collections: [{ id: 1, title: 'Private list' }],
+        total: 1,
+      })
+
+      // Mirror the real logout sequence: `useLogout` calls
+      // `queryClient.clear()`, which drops the cache entry but NOT the
+      // observer's keepPreviousData snapshot.
+      const queryClient = createTestQueryClient()
+      const { result, rerender } = renderHook(() => useMyCollections(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(result.current.data?.collections).toHaveLength(1)
+
+      mockIsAuthenticated.mockReturnValue(false)
+      queryClient.clear()
+      rerender()
+
+      expect(result.current.data).toBeUndefined()
+    })
   })
 
   describe('useUserCollectionsContaining', () => {
@@ -289,6 +367,45 @@ describe('Collection query hooks', () => {
       // on every entity page render even when the user never opens it.
       expect(result.current.fetchStatus).toBe('idle')
       expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    // PSY-1779 defensive gate (no reachable leak today — the sole caller
+    // passes `enabled: open`, and an anonymous viewer cannot open the
+    // popover). Guards a FUTURE caller that omits `enabled`, which defaults to
+    // true against an endpoint that 401s without a session.
+    it('skips the request when unauthenticated even if the caller enables it', () => {
+      mockIsAuthenticated.mockReturnValue(false)
+
+      const { result } = renderHook(
+        () => useUserCollectionsContaining('artist', 42, { enabled: true }),
+        { wrapper: createWrapper() }
+      )
+
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    // The auth term must not latch this hook off. Its `enabled` ANDs three
+    // conditions, so a regression here is easy to miss: auth resolving while
+    // the popover is already open would leave the pre-checks silently empty
+    // and let a user re-add an item they already saved.
+    it('fetches once auth resolves from anonymous to authenticated', async () => {
+      mockIsAuthenticated.mockReturnValue(false)
+      mockApiRequest.mockResolvedValue({ items: [] })
+
+      const { result, rerender } = renderHook(
+        () => useUserCollectionsContaining('artist', 42, { enabled: true }),
+        { wrapper: createWrapper() }
+      )
+      expect(mockApiRequest).not.toHaveBeenCalled()
+
+      mockIsAuthenticated.mockReturnValue(true)
+      rerender()
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/collections/contains?entity_type=artist&entity_id=42'
+      )
     })
 
     it('skips the request for a zero entity ID', async () => {

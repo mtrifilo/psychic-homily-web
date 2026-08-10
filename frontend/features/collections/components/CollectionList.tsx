@@ -108,20 +108,46 @@ export function CollectionList() {
     tag: tagFilter || undefined,
   })
 
-  // Fetch user's own collections (only when on "yours" tab and authenticated).
-  // PSY-580: pass the same search term the public-browse hook receives so the
-  // Yours tab filters via the backend's expanded search (title / description /
-  // item notes / tag names+aliases — PSY-355). Empty / whitespace short-
+  const isYoursTab = activeTab === 'yours'
+
+  // Fetch the user's own collections. The hook self-gates on authentication,
+  // so an anonymous visitor to this public page fires nothing (PSY-1779).
+  //
+  // The search term is forwarded ONLY on the Yours tab. `myList` keys on
+  // `search`, so passing it from a public tab would mint a fresh cache entry
+  // per debounced keystroke and fire a `/auth/collections?search=` the tab
+  // never renders — and that request is the expensive one (PSY-355 expands the
+  // match across title / description / item notes / tag names+aliases). Left
+  // unsearched, the bare key stays warm from any tab, so switching to Yours is
+  // still instant for one request per session.
+  //
+  // Trade-off: arriving on Yours WITH a search term active is a cache miss,
+  // and `keepPreviousData` fills that round trip with the unsearched library
+  // while the search box already reads the term. `isPlaceholderData` says
+  // exactly "these rows answer a different query", so the list dims for the
+  // duration via the house treatment (see `isUpdating` below).
+  // PSY-580: on the Yours tab the term matches what the public-browse hook
+  // receives, so both tabs filter identically. Empty / whitespace short-
   // circuits inside the hook.
   const {
     data: myData,
     isLoading: myLoading,
     error: myError,
-  } = useMyCollections({ search: searchTerm || undefined })
+    isFetching: myFetching,
+    isPlaceholderData: myIsPlaceholder,
+  } = useMyCollections({
+    search: isYoursTab ? searchTerm || undefined : undefined,
+  })
 
   // Determine which data to use based on active tab
-  const isYoursTab = activeTab === 'yours'
   const isLoading = isYoursTab ? myLoading : publicLoading
+
+  // Dim only while the rows on screen belong to a DIFFERENT query than the one
+  // being awaited — `isPlaceholderData` says exactly that, where raw
+  // `isFetching` would also dim a same-key background revalidation. Mirrors
+  // ShowList / VenueList / ArtistList. Only the Yours tab has a placeholder
+  // window; the public tabs keep their own loading treatment.
+  const isUpdating = isYoursTab && myFetching && myIsPlaceholder
   const error = isYoursTab ? myError : publicError
   const rawCollections = isYoursTab
     ? (myData?.collections ?? [])
@@ -275,20 +301,30 @@ export function CollectionList() {
         {/* All tab content areas render the same grid — content differs by data source */}
         {tabs.map((tab) => (
           <TabsContent key={tab.value} value={tab.value}>
-            <CollectionGrid
-              collections={collections}
-              isLoading={isLoading}
-              error={error}
-              onRetry={() => publicRefetch()}
-              emptyState={
-                <EmptyState
-                  tab={tab.value}
-                  hasSearch={!!searchTerm}
-                  isAuthenticated={isAuthenticated}
-                  onCreateClick={() => openCreateDrawer()}
-                />
-              }
-            />
+            <div
+              data-testid="collection-grid-wrapper"
+              className={cn(
+                'min-w-0',
+                isUpdating
+                  ? 'opacity-60 transition-opacity duration-75'
+                  : 'transition-opacity duration-75'
+              )}
+            >
+              <CollectionGrid
+                collections={collections}
+                isLoading={isLoading}
+                error={error}
+                onRetry={() => publicRefetch()}
+                emptyState={
+                  <EmptyState
+                    tab={tab.value}
+                    hasSearch={!!searchTerm}
+                    isAuthenticated={isAuthenticated}
+                    onCreateClick={() => openCreateDrawer()}
+                  />
+                }
+              />
+            </div>
           </TabsContent>
         ))}
       </Tabs>

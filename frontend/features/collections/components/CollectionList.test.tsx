@@ -371,6 +371,11 @@ describe('CollectionList', () => {
         error: null,
       })
 
+      // This test is named for the Yours tab, so it has to actually be on it.
+      // It previously rendered the default (All) tab and asserted the search
+      // term was forwarded anyway — codifying the wasted request PSY-1779
+      // removed.
+      mockSearchParams.set('tab', 'yours')
       render(<CollectionList />)
       const searchInput = screen.getByPlaceholderText('Search collections...')
       await user.type(searchInput, 'shoegaze')
@@ -383,6 +388,109 @@ describe('CollectionList', () => {
       expect(searchCalls.length).toBeGreaterThan(0)
       const lastSearchCall = searchCalls[searchCalls.length - 1]
       expect(lastSearchCall[0]).toEqual({ search: 'shoegaze' })
+    })
+
+    // PSY-1779: `myList` keys on `search`, so forwarding the term from a
+    // public tab mints a cache entry per debounced keystroke and fires a
+    // `/auth/collections?search=` that tab never renders.
+    it('does NOT forward the search term from a public tab', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionList />)
+      const searchInput = screen.getByPlaceholderText('Search collections...')
+      await user.type(searchInput, 'shoegaze')
+
+      const searchCalls = mockUseMyCollections.mock.calls.filter(
+        (args: unknown[]) => args[0] !== undefined
+      )
+      // Guard the loop: it is non-vacuous today because the list view always
+      // passes an object, but a future change that stops calling the hook on
+      // public tabs would silently turn this assertion into a no-op.
+      expect(searchCalls.length).toBeGreaterThan(0)
+      for (const call of searchCalls) {
+        expect(call[0]).toEqual({ search: undefined })
+      }
+    })
+
+    // PSY-1779: because the term is not forwarded from public tabs, landing on
+    // Yours with a search active is a cache miss and `keepPreviousData` shows
+    // the UNSEARCHED library for one round trip. The house treatment for
+    // "these rows answer a different query" is a 60% dim (ShowList,
+    // VenueList, ArtistList) — apply it rather than presenting stale rows as
+    // the answer.
+    it('dims the Yours grid while showing placeholder data for a new search', () => {
+      mockSearchParams.set('tab', 'yours')
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [{ id: 1, title: 'Stale', slug: 'stale' }] },
+        isLoading: false,
+        error: null,
+        isFetching: true,
+        isPlaceholderData: true,
+      })
+
+      render(<CollectionList />)
+      expect(screen.getAllByTestId('collection-grid-wrapper')[0]).toHaveClass(
+        'opacity-60'
+      )
+    })
+
+    // A same-key background revalidation must NOT dim — that is the bug the
+    // `isPlaceholderData` term (rather than raw `isFetching`) exists to avoid.
+    it('does not dim the Yours grid during a same-key refetch', () => {
+      mockSearchParams.set('tab', 'yours')
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [{ id: 1, title: 'Fresh', slug: 'fresh' }] },
+        isLoading: false,
+        error: null,
+        isFetching: true,
+        isPlaceholderData: false,
+      })
+
+      render(<CollectionList />)
+      expect(
+        screen.getAllByTestId('collection-grid-wrapper')[0]
+      ).not.toHaveClass('opacity-60')
     })
 
     // No search → list view passes `{ search: undefined }`. Confirms the
