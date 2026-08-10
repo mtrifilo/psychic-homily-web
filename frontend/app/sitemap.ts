@@ -216,6 +216,29 @@ const FAMILY_ROUTES: Record<
 const ENTRY_FETCH_TIMEOUT_MS = 30_000
 
 /**
+ * The statuses that mean "this backend does not serve that family", as opposed
+ * to "this backend could not answer" (PSY-1756).
+ *
+ * The distinction is the whole safety argument for the degraded path below, so
+ * it is drawn as narrowly as the wire allows:
+ *
+ *   422 — huma rejected the `family` query value against its enum before the
+ *         handler ran. Measured against the deployed stage backend:
+ *         `{"status":422,"detail":"validation failed","errors":[{"message":
+ *         "expected value to be one of \"shows, artists, …\"","location":
+ *         "query.family","value":"venue_years"}]}`.
+ *   400 — SitemapService's own `unknown sitemap family` guard, for a family
+ *         that clears the enum but that the service does not implement.
+ *
+ * Deliberately NOT 404. A moved or misconfigured `/sitemap/entries` answers 404
+ * for EVERY family, so degrading on it would publish an empty document for the
+ * whole catalogue — which is the incident in contracts.SitemapEntry, not a
+ * mitigation of it. Deliberately not 5xx, a timeout, or a network error either:
+ * that is the outage row the prerender gate exists to refuse.
+ */
+const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
+
+/**
  * Fetch one family's indexable slug set, and reject anything that is not a
  * complete answer for that family.
  *
@@ -225,6 +248,30 @@ const ENTRY_FETCH_TIMEOUT_MS = 30_000
  * incident in the backend's contracts.SitemapEntry. A 200 whose family key is
  * null or absent is that same failure wearing a success code, so it is treated
  * as an error rather than coerced to an empty list.
+ *
+ * ONE case does not throw: a backend that says it does not serve this family at
+ * all (see UNKNOWN_FAMILY_STATUSES). That is a definite answer, not a failure,
+ * and it has exactly one cause in practice — the frontend deployed ahead of the
+ * backend that adds the family. It is not hypothetical: PSY-1756 added
+ * `venue_years` in a PR carrying both halves, and every preview build failed the
+ * prerender gate on that one shard (1 of 11, with the other ten prerendered
+ * from the same healthy backend) because Vercel builds against the DEPLOYED
+ * stage API. The same race recurs at merge, between Vercel's production build
+ * and Railway's backend deploy, and hand-sequencing two deploy pipelines is not
+ * a fix anyone can be relied on to repeat.
+ *
+ * So the family degrades to an EMPTY, valid document. That keeps the gate's
+ * intent rather than bending it: the shard still prerenders, so it still ships a
+ * body that survives a later outage, and the document is TRUE — a backend
+ * without the family genuinely has no such URLs to announce. It self-heals on
+ * the first build after the backend ships, with no manual step.
+ *
+ * The residual risk is a family being RENAMED on the backend while the frontend
+ * still asks for the old name: that would empty a real family quietly. Two
+ * things already cover it, and neither is this function — `FAMILY_ROUTES` below
+ * is a total `Record<Family, …>` over the generated schema, and `FAMILY_SHARD_IDS`
+ * carries a compile-time exhaustiveness guard, so a renamed family fails
+ * `bun run api:types` and then `tsc` before it can reach a build.
  *
  * Sharded by `?family=` so each generateSitemaps() id gets its own Data Cache
  * entry and its own ~1.5 MB budget (PSY-1622).
@@ -236,6 +283,22 @@ async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
       next: { revalidate: ENTRY_REVALIDATE_SECONDS },
       signal: AbortSignal.timeout(ENTRY_FETCH_TIMEOUT_MS),
     })
+    if (UNKNOWN_FAMILY_STATUSES.has(res.status)) {
+      // Loud, but not fatal. A warning rather than an error because this is an
+      // expected state during one deploy window; if it is still firing after
+      // the backend has shipped, the family name has drifted and the message
+      // says which one to look at.
+      const message =
+        `sitemap: backend does not serve the "${family}" family ` +
+        `(HTTP ${res.status}) — emitting an empty shard until it does`
+      console.warn(message)
+      Sentry.captureMessage(message, {
+        level: 'warning',
+        tags: { service: 'sitemap', family },
+        extra: { url, status: res.status },
+      })
+      return []
+    }
     if (!res.ok) {
       throw new Error(`sitemap entries fetch returned ${res.status}`)
     }

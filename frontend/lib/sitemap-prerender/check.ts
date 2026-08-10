@@ -47,11 +47,22 @@
  * rather than something measured here; what was measured is the gate's exit
  * code.
  *
- * A prerendered body is proof the fetch succeeded, because
+ * A prerendered body is proof the fetch was ANSWERED, because
  * `fetchSitemapFamily` throws on a bad answer rather than emitting a partial
  * document. So EXISTENCE is the whole assertion — deliberately not a
  * URL count. A family with genuinely zero rows is a legitimate empty shard, and
  * a threshold there would fail builds for a real state of the catalogue.
+ *
+ * "Answered" rather than "succeeded", since PSY-1756. There is exactly one
+ * non-failure that produces an empty body: a backend that says it does not
+ * serve that family at all (HTTP 400/422 from the family enum), which happens
+ * for one deploy window whenever the frontend ships a new family ahead of the
+ * backend that implements it. That case degrades to an empty document on
+ * purpose — see UNKNOWN_FAMILY_STATUSES in app/sitemap.ts for why it is safe to
+ * distinguish and why 404 and 5xx are deliberately NOT in it. Every failure
+ * shape in the table above still throws, so row 3 is still refused here; what
+ * changed is that a family the backend has never heard of no longer looks like
+ * an outage.
  *
  * `/sitemap-index` is deliberately not checked. It is a route handler that
  * builds its XML from `sitemap-shards.ts` with no network call at all, so a
@@ -64,7 +75,11 @@
  * any of them breaks the build loudly rather than passing vacuously. The only
  * cost is misattribution, which `formatShardFailures` handles.
  */
-import { ALL_SHARD_IDS, shardRoutePath } from '@/app/sitemap-shards'
+import {
+  ALL_SHARD_IDS,
+  PAGES_SHARD_ID,
+  shardRoutePath,
+} from '@/app/sitemap-shards'
 
 /** The build artifact holding shard `id`'s rendered XML, relative to `.next`. */
 export function shardBodyPath(id: string): string {
@@ -182,5 +197,105 @@ export function formatShardFailures(
     'directly — `node_modules/.bin/next build`. This gate is chained in the npm',
     'script, not in Next, so that path skips it without any way for the skip to',
     'reach a deploy.',
+  ].join('\n')
+}
+
+/**
+ * What the backend says about a family, as far as this gate cares.
+ *
+ * `unknown` is the ONLY verdict that excuses a missing shard, and it means the
+ * backend answered — definitely and quickly — that it does not serve that
+ * family (see UNKNOWN_FAMILY_STATUSES in app/sitemap.ts). `unreachable` covers
+ * everything else, including a backend that is simply down, which is the case
+ * this gate exists to refuse.
+ */
+export type FamilyVerdict = 'served' | 'unknown' | 'unreachable'
+
+/** Asks the backend about one shard id. Injected, so `check.ts` stays pure. */
+export type FamilyProbe = (shardId: string) => Promise<FamilyVerdict>
+
+export interface PartitionedFailures {
+  /** Shards that must fail the build. */
+  blocking: ShardPrerenderFailure[]
+  /** Shards excused because the backend does not serve that family yet. */
+  pending: ShardPrerenderFailure[]
+}
+
+/**
+ * Split shard failures into the ones that must fail the build and the ones the
+ * backend has explained (PSY-1756).
+ *
+ * WHY THIS EXISTS. A family lands in the frontend and the backend in the same
+ * PR, but they deploy on different pipelines: Vercel builds the frontend
+ * against the ALREADY-DEPLOYED API. So for one window the build asks for a
+ * family the running backend has never heard of, that shard alone fails to
+ * prerender, and this gate fails the deploy — measured on this ticket's own
+ * preview builds, `1 of 11 shards`, with the other ten prerendered from the
+ * same healthy backend. The same race recurs at merge between Vercel's
+ * production build and Railway's. Hand-sequencing two pipelines is not a fix
+ * anyone can be relied on to repeat, and there is no ordering that works in
+ * both directions anyway.
+ *
+ * WHY IT DOES NOT WEAKEN THE GATE. The excuse requires a POSITIVE answer from
+ * the backend: HTTP 400/422 for that family, i.e. "I do not serve that". A
+ * backend that is down, slow, or erroring returns `unreachable`, so every row
+ * of the measured outage table still fails closed — including the row 3 case
+ * where nine families lose their bodies at once, because a down backend cannot
+ * say "I do not serve shows". The `pages` shard is never excused: it makes no
+ * network call, so nothing about the backend can explain its absence.
+ *
+ * WHAT THE EXCUSED SHARD COSTS. It ships Dynamic for one deploy window, so it
+ * would 500 during a backend outage in that window instead of serving a stale
+ * body. What it would have served is an EMPTY document — the backend has no
+ * URLs for that family yet — so no known URL is lost, and the next build after
+ * the backend ships prerenders it normally with no manual step.
+ */
+export async function partitionShardFailures(
+  failures: readonly ShardPrerenderFailure[],
+  probe: FamilyProbe
+): Promise<PartitionedFailures> {
+  const blocking: ShardPrerenderFailure[] = []
+  const pending: ShardPrerenderFailure[] = []
+
+  for (const failure of failures) {
+    const shardId = shardIdFromRoute(failure.route)
+    // The pages shard makes no network call; the backend cannot excuse it.
+    // An unrecognised route shape is likewise never excused — see
+    // looksLikeManifestShapeChange for what that usually means.
+    if (shardId === null || shardId === PAGES_SHARD_ID) {
+      blocking.push(failure)
+      continue
+    }
+    const verdict = await probe(shardId)
+    if (verdict === 'unknown') pending.push(failure)
+    else blocking.push(failure)
+  }
+
+  return { blocking, pending }
+}
+
+/** The shard id a route path names, or null if it is not a shard route. */
+export function shardIdFromRoute(route: string): string | null {
+  return ALL_SHARD_IDS.find(id => shardRoutePath(id) === route) ?? null
+}
+
+/** The build-log message for shards the backend has not caught up with yet. */
+export function formatPendingShards(
+  pending: readonly ShardPrerenderFailure[]
+): string {
+  if (pending.length === 0) return ''
+  return [
+    `Sitemap prerender check: ${pending.length} shard(s) are not prerendered because the`,
+    'backend does not serve that family yet. This is the frontend deploying ahead of',
+    'the API that implements it, and it clears itself on the first build after the',
+    'backend ships.',
+    ...pending.map(f => `  ${f.route}`),
+    '',
+    'Until then those shards render per request and serve an EMPTY document, so no',
+    'known URL is missing from the index — but they have no stale-serving fallback,',
+    'so they would 500 during a backend outage in this window.',
+    '',
+    'If this is still printing after the backend has deployed, the family name has',
+    'drifted between the two sides. Start at FAMILY_SHARD_IDS in app/sitemap-shards.ts.',
   ].join('\n')
 }

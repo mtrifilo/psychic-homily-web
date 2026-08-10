@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { captureException } = vi.hoisted(() => ({
+const { captureException, captureMessage } = vi.hoisted(() => ({
   captureException: vi.fn(),
+  captureMessage: vi.fn(),
 }))
 
 vi.mock('@sentry/nextjs', () => ({
   captureException,
+  captureMessage,
 }))
 
 // Blog and DJ sets read local MDX off disk. Stubbed with one dated and one
@@ -259,6 +261,92 @@ describe('sitemap', () => {
         /malformed row in the "shows" family/
       )
       expect(captureException).toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * The one non-failure that yields an empty document (PSY-1756).
+   *
+   * A frontend that ships a new family before the backend implementing it gets
+   * a definite "I do not serve that" — HTTP 422 from huma's enum, or 400 from
+   * the service's own guard. Measured against the deployed stage backend during
+   * this ticket: every preview build failed the prerender gate on that single
+   * shard while the other ten prerendered from the same healthy backend.
+   *
+   * The document has to be EMPTY and VALID, not absent: an absent one leaves the
+   * shard Dynamic, which is the outage exposure the gate refuses.
+   */
+  describe('degrades a family the backend does not serve', () => {
+    it.each([422, 400])('renders an empty shard on HTTP %d', async status => {
+      vi.stubGlobal('fetch', respondWith({ detail: 'validation failed' }, status))
+
+      await expect(urlsOf('venue_years')).resolves.toEqual([])
+    })
+
+    it('warns rather than erroring, and names the family', async () => {
+      vi.stubGlobal('fetch', respondWith({}, 422))
+
+      await urlsOf('venue_years')
+
+      expect(captureMessage).toHaveBeenCalledWith(
+        expect.stringContaining('venue_years'),
+        expect.objectContaining({ level: 'warning' })
+      )
+      // A degraded family is not an error: an error here would page someone for
+      // an expected state that self-heals on the next build.
+      expect(captureException).not.toHaveBeenCalled()
+    })
+
+    /**
+     * The boundary that keeps this from becoming the incident it mitigates. A
+     * moved or misconfigured `/sitemap/entries` answers 404 for EVERY family,
+     * so degrading on it would publish an empty document for the whole
+     * catalogue rather than failing the build.
+     */
+    it('still throws on 404 — a moved endpoint must not empty every family', async () => {
+      vi.stubGlobal('fetch', respondWith({}, 404))
+
+      await expect(sitemap({ id: Promise.resolve('venue_years') })).rejects.toThrow(
+        /404/
+      )
+      expect(captureException).toHaveBeenCalled()
+    })
+
+    it.each([500, 503])('still throws on HTTP %d', async status => {
+      vi.stubGlobal('fetch', respondWith({}, status))
+
+      await expect(sitemap({ id: Promise.resolve('venue_years') })).rejects.toThrow()
+      expect(captureException).toHaveBeenCalled()
+    })
+
+    it('still throws when the backend is unreachable', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
+
+      await expect(sitemap({ id: Promise.resolve('venue_years') })).rejects.toThrow(
+        'network down'
+      )
+    })
+
+    /**
+     * A 200 that simply omits the family is the incident signature — a family
+     * silently missing from a successful-looking response — and stays fatal.
+     * Only an explicit "I do not serve that" degrades.
+     */
+    it('still throws on a 200 whose family key is absent', async () => {
+      const body = emptyFamilies()
+      delete (body as { venue_years?: unknown }).venue_years
+      vi.stubGlobal('fetch', respondWith(body))
+
+      await expect(sitemap({ id: Promise.resolve('venue_years') })).rejects.toThrow(
+        /missing the "venue_years" family/
+      )
+    })
+
+    /** The degrade applies to whichever family the backend rejects, not a list. */
+    it('is not special-cased to venue_years', async () => {
+      vi.stubGlobal('fetch', respondWith({}, 422))
+
+      await expect(urlsOf('festivals')).resolves.toEqual([])
     })
   })
 
