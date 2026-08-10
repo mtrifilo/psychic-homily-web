@@ -941,6 +941,16 @@ func (s *VenueService) metroRollupPredicate(filters contracts.VenueListFilters) 
 	return "(" + pred + " OR (" + cityPred + "))", all, true
 }
 
+// venueBrowseGate is what makes a venue public: it is verified. Shared by every
+// query that answers "which venues does /venues list", so a future condition
+// (soft delete, a hidden flag, a country scope) cannot be added to the page's
+// query and missed by the ItemList's — which would advertise a different set
+// than the page shows, the exact failure class this endpoint exists to remove.
+//
+// Qualified with the table name so it reads the same in a joined query as in a
+// bare count; both of its callers select FROM venues.
+const venueBrowseGate = "venues.verified = ?"
+
 // venueBrowseOrder is the order the /venues browse page lists venues in: most
 // upcoming shows first, ties broken by name. Shared with GetVenueListing rather
 // than restated there, so the ItemList cannot drift out of the page's order
@@ -986,7 +996,7 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 	}
 
 	var total int64
-	if err := s.db.Table("venues").Where("verified = ?", true).Count(&total).Error; err != nil {
+	if err := s.db.Table("venues").Where(venueBrowseGate, true).Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
 	}
 
@@ -1001,7 +1011,7 @@ func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, 
 	err := s.db.Table("venues").
 		Select("venues.slug, venues.name, COALESCE(sc.show_count, 0) as upcoming_show_count").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", s.upcomingShowCountSubquery(time.Now().UTC())).
-		Where("venues.verified = ?", true).
+		Where(venueBrowseGate, true).
 		Where("venues.slug IS NOT NULL AND venues.slug != ''").
 		Order(venueBrowseOrder).
 		Find(&entries).Error
@@ -1030,7 +1040,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	query := s.db.Table("venues").
 		Select("venues.*, COALESCE(sc.show_count, 0) as upcoming_show_count").
 		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", subquery).
-		Where("venues.verified = ?", true)
+		Where(venueBrowseGate, true)
 
 	// Apply optional filters
 	metroPred, metroArgs, metroRollup := s.metroRollupPredicate(filters)
@@ -1061,7 +1071,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Get total count of matching venues
 	var total int64
-	countQuery := s.db.Table("venues").Where("verified = ?", true)
+	countQuery := s.db.Table("venues").Where(venueBrowseGate, true)
 	if len(filters.Cities) > 0 {
 		var conditions []string
 		var args []interface{}

@@ -15,7 +15,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
-import { getVenuesForMetadata, type VenueListItem } from './venuesMetadata'
+import { getVenuesForMetadata } from './venuesMetadata'
 
 export const metadata = {
   title: 'Venues',
@@ -82,35 +82,34 @@ async function HydratedVenueList() {
 }
 
 /**
- * Data Cache exposure of everything this route fetches, measured against
- * production on 2026-08-09 at 297 verified venues. The cap is 2 MB per item and
- * the body is stored base64-encoded; see `lib/data-cache-budget/budget.ts`.
+ * Data Cache exposure of the two fetches inside the Suspense boundary below,
+ * measured against production on 2026-08-09. The cap is 2 MB per item, applied
+ * to a base64 envelope; see `lib/data-cache-budget/budget.ts`.
  *
- *   GET /venues/listing (all 297)   18,289 raw    24,385 base64     1.2% of the cap
- *   GET /venues?limit=50            35,226 raw    46,968 base64     2.2%
- *   GET /venues/cities               5,668 raw     7,560 base64     0.4%
+ *   GET /venues?limit=50   35,226 raw   46,968 base64   2.2% of the cap
+ *   GET /venues/cities      5,668 raw    7,560 base64   0.4%
  *
- * None is exposed, and only the middle one is bounded by a `limit` — the other
- * two grow with the catalogue and with the number of cities respectively. The
- * listing's growth is the one that matters and is measured beside the fetch that
- * owns it, in `venuesMetadata.ts`. Both `fetchSeoList` and `fetchListPayload`
- * weigh their response against the budget on the way through, so a breach fails
- * a build rather than going quiet.
+ * Neither is exposed and neither grows with the catalogue: the first is bounded
+ * by its `limit`, and the second is a facet aggregate of one row per city. The
+ * third fetch, the unbounded one that does grow, is measured beside itself in
+ * `venuesMetadata.ts`. `fetchListPayload` weighs these two against the budget on
+ * the way through, so a breach fails a build rather than going quiet.
+ *
+ * There is no `venues.filter(v => v.slug)` here any more. `GET /venues/listing`
+ * drops rows that cannot form a URL and counts them in the shortfall it reports
+ * (see `venuesMetadata.ts`), so a filter here would be a second, uncounted drop
+ * of a case the endpoint already guarantees away.
  */
 export default async function VenuesPage() {
   const venues = await getVenuesForMetadata()
 
-  const venuesWithSlugs = venues.filter(
-    (v): v is VenueListItem & { slug: string } => !!v.slug
-  )
-
   return (
     <>
-      {venuesWithSlugs.length > 0 && (
+      {venues.length > 0 && (
         <JsonLd data={generateItemListSchema({
           name: 'Venues',
           description: 'Music venues in Phoenix and beyond.',
-          listItems: venuesWithSlugs.map(venue => ({
+          listItems: venues.map(venue => ({
             url: `https://psychichomily.com/venues/${venue.slug}`,
             name: venue.name,
           })),

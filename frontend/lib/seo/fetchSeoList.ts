@@ -102,10 +102,9 @@ interface SeoListOptions {
  * as unremarkable is how `/venues?limit=200` rendered without its `ItemList` in
  * production for months — see `app/venues/venuesMetadata.ts`.
  *
- * A SHORT LIST IS REPORTED TOO, which is the other half of the same lesson. The
- * 422 above was noticed eventually; the truncation that replaced it was not,
- * because a 200 carrying 100 of 297 venues looks exactly like a 200 carrying all
- * of them from here. See `reportShortfall`.
+ * A SHORT LIST IS REPORTED TOO, which is the other half of the same lesson: a
+ * 200 carrying part of the set looks exactly like a 200 carrying all of it from
+ * here. See `reportShortfall`.
  */
 export async function fetchSeoList<T>({
   url,
@@ -169,22 +168,17 @@ export async function fetchSeoList<T>({
 /**
  * Report a list that came back shorter than the response says the set is.
  *
- * THIS IS THE DEFECT PSY-1764 EXISTED TO REMOVE, generalised to the one place
- * every SEO list passes through. `/venues` fed its `ItemList` from
- * `GET /venues?limit=100` against a set of 297; the response carried `total` and
- * the call discarded it, so a third of the catalogue went unadvertised and every
- * signal available — HTTP status, JSON shape, rendered page — said healthy. The
- * fix for that page was a projection endpoint with no limit at all, which makes
- * the truncation impossible rather than merely visible. This makes it visible
- * for whatever is pointed at a paginated endpoint next.
+ * One event, two causes, and the message names neither: whatever the reason, an
+ * `ItemList` is enumerating less than the set the API says exists. A paginated
+ * endpoint reporting a larger `total` means rows were left on the next page; a
+ * listing projection reporting one (`/venues/listing`) means rows the browse set
+ * contains cannot form a URL. Both are the same defect to a crawler and both
+ * want a human. See `app/venues/venuesMetadata.ts` for the history that made
+ * this worth generalising rather than fixing at one call site.
  *
- * It reads `total` because that is what the paginated list endpoints report, and
- * treats its absence as "the endpoint does not claim to know a total" rather
- * than as a shortfall of zero — the listing projections carry no `total` in the
- * sense of a set larger than the array, and `/venues/listing`'s `total` counts
- * the browse set BEFORE unslugged rows are dropped, so a gap there means venues
- * that cannot form a URL. Both are worth the same event: something in the set
- * the page claims to enumerate is missing from the enumeration.
+ * A MISSING `total` MEANS UNKNOWN, NOT ZERO. An endpoint that reports no total
+ * is not claiming a larger set, so it must not be read as a shortfall of
+ * everything returned.
  *
  * It does NOT fail the render, for the reason the whole helper fails open: a
  * partial `ItemList` is worth more to a crawler than none, and a page humans can

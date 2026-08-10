@@ -24,16 +24,14 @@ export type VenueListItem = components['schemas']['VenueListingEntry']
  * fails open, so `/venues` rendered with no `ItemList` at all for months.
  * Capping at 100 fixed the 422 and left a quieter version of the same silence.
  *
- * Why not simply raise that maximum: the row is 659 raw bytes wide, so the whole
- * verified set is 12.4% of the 2 MB Data Cache item cap today and reaches the
- * build gate at ~1,900 venues. The catalogue went 198 → 297 in eleven days. The
- * projection is 61.6 bytes per venue — 18,289 raw bytes for all 297, 1.2% of the
- * cap — and reaches the gate at ~20,400. The full measurement set and the
- * comparison against paginating live in ONE place, `contracts.VenueListingEntry`
- * in the backend, beside the endpoint, so the numbers cannot drift apart from
- * the code they justify. The cache mechanics that make the cap bind live in
- * `lib/data-cache-budget/budget.ts`, and `fetchSeoList` weighs every response
- * against it on the way through — this fetch included.
+ * Why not simply raise that maximum: the projection is ~10x narrower per venue,
+ * which moves the Data Cache build gate from ~1,900 venues to ~20,400 against
+ * 297 today — and the catalogue went 198 → 297 in eleven days. The measurements,
+ * the growth curve, and the comparison against paginating live in ONE place,
+ * `contracts.VenueListingEntry` in the backend, beside the endpoint, so the
+ * numbers cannot drift apart from the code they justify. `fetchSeoList` weighs
+ * every response against that budget on the way through — this fetch included;
+ * the mechanics are in `lib/data-cache-budget/budget.ts`.
  *
  * A future shortfall is no longer silent: the endpoint reports `total` counted
  * over the browse set independently of the array, and `fetchSeoList` raises a
@@ -43,10 +41,17 @@ export type VenueListItem = components['schemas']['VenueListingEntry']
  * NOT consolidated with the browse page's own first-screen fetch, which reads
  * `GET /venues?limit=50` through `lib/ssr/fetchListPayload.ts` inside a Suspense
  * boundary. They want different things — every venue as schema, the first page
- * as rows — and joining them would put the streamed fetch behind the blocking
- * one. So `/venues` keeps two Data Cache entries with independently expiring
- * windows, and the two lists can disagree across a window boundary. Harmless:
- * one is schema, one is rows.
+ * as rows — so `/venues` keeps two Data Cache entries with independently
+ * expiring windows, and the two lists can disagree across a window boundary.
+ * Harmless: one is schema, one is rows.
+ *
+ * This fetch is AWAITED IN THE PAGE BODY, which does serialise the Suspense
+ * subtree's fetches behind it — that subtree's element does not exist until this
+ * resolves. Deliberate: a JSON-LD block that streams in after the first flush is
+ * worth less than one a crawler reads immediately, and the route is ISR on an
+ * hourly window, so the cost lands on cold renders rather than on steady-state
+ * TTFB. Hoisting it into a sibling async component would recover the overlap at
+ * that price.
  */
 export function getVenuesForMetadata(): Promise<VenueListItem[]> {
   return fetchSeoList<VenueListItem>({

@@ -13069,7 +13069,7 @@ export interface components {
             count: number;
             /**
              * Format: int64
-             * @description Total venues in the browse set, before unslugged rows are dropped. Equal to count unless some venue cannot form a URL.
+             * @description Total venues in the browse set, before unslugged rows are dropped. Not pagination metadata: this endpoint has no next page. Equal to count unless some venue cannot form a URL.
              */
             total: number;
             /** @description Venues reduced to slug and name */
@@ -33798,6 +33798,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {

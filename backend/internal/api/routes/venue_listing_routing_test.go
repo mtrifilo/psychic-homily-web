@@ -148,6 +148,14 @@ func TestVenueListingEndToEnd(t *testing.T) {
 
 	w := get(t)
 
+	// An uncached hit costs a full scan of venues plus an aggregate over every
+	// upcoming booking, and the body is byte-identical for every caller, so any
+	// intermediary willing to hold it is worth having. Same reasoning and same
+	// window as GET /sitemap/entries.
+	if cc := w.Header().Get("Cache-Control"); cc != "public, max-age=300" {
+		t.Errorf("Cache-Control = %q, want %q", cc, "public, max-age=300")
+	}
+
 	var body struct {
 		// Raw, so the key set of each entry can be asserted rather than a
 		// decode silently discarding whatever else was serialised.

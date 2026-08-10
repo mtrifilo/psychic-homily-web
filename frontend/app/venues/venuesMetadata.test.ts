@@ -22,8 +22,11 @@ describe('getVenuesForMetadata', () => {
     fetchSeoList.mockResolvedValue(venues)
 
     await expect(getVenuesForMetadata()).resolves.toEqual(venues)
+    // Deliberately not anchored: an anchored pattern would subsume the no-limit
+    // assertion below, leaving the test that carries this endpoint's whole point
+    // unable to fail on its own.
     expect(fetchSeoList).toHaveBeenCalledWith({
-      url: expect.stringMatching(/\/venues\/listing$/),
+      url: expect.stringContaining('/venues/listing'),
       collection: 'venues',
       service: 'venues-listing',
     })

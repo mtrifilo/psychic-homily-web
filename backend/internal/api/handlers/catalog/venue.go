@@ -147,18 +147,27 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 // this endpoint was created to remove. Filtering belongs on GET /venues.
 type ListVenueListingRequest struct{}
 
+// venueListingCacheControl bounds repeat hits from callers that are NOT the
+// /venues page, for the reasons spelled out on sitemapEntriesCacheControl — the
+// same shape of endpoint (public, unpaginated, viewer-independent projection)
+// and the same 5 minutes, short enough that a shared cache never becomes the
+// reason a new venue is invisible. The page itself is already bounded to one
+// origin hit per hour by Next's fetch Data Cache; this covers everything else
+// that can point at a public URL, and an uncached hit here costs a full scan of
+// venues plus an aggregate over every upcoming booking.
+const venueListingCacheControl = "public, max-age=300"
+
 // ListVenueListingResponse is the slug+name projection of the venue list.
 //
-// Count and Total are both here on purpose and are NOT the same number. Count
-// describes the array beside it; Total is the whole browse set, counted by its
-// own query. Equal today, and a caller that finds them unequal has found venues
-// it cannot advertise — which is the condition that went unreported while the
-// ItemList sat at 100 of 297.
+// Total is NOT pagination metadata — there is no next page. It is the browse
+// set, counted by its own query, so a caller can tell a complete listing from a
+// short one; see GetVenueListing.
 type ListVenueListingResponse struct {
-	Body struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Venues []contracts.VenueListingEntry `json:"venues" doc:"Venues reduced to slug and name"`
 		Count  int                           `json:"count" doc:"Number of venues in this response"`
-		Total  int64                         `json:"total" doc:"Total venues in the browse set, before unslugged rows are dropped. Equal to count unless some venue cannot form a URL."`
+		Total  int64                         `json:"total" doc:"Total venues in the browse set, before unslugged rows are dropped. Not pagination metadata: this endpoint has no next page. Equal to count unless some venue cannot form a URL."`
 	}
 }
 
@@ -180,7 +189,7 @@ func (h *VenueHandler) ListVenueListingHandler(ctx context.Context, _ *ListVenue
 		return nil, huma.Error500InternalServerError("Failed to fetch venue listing")
 	}
 
-	resp := &ListVenueListingResponse{}
+	resp := &ListVenueListingResponse{CacheControl: venueListingCacheControl}
 	resp.Body.Venues = entries
 	resp.Body.Count = len(entries)
 	resp.Body.Total = total
