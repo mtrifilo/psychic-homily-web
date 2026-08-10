@@ -144,8 +144,13 @@ export function formatBudgetFailures(failures: BudgetFailure[]): string {
     '  - project the response to the fields the caller actually reads',
     '    (see app/artists/artistsMetadata.ts and GET /artists/listing), or',
     '  - shard the fetch so each entry keys separately (see app/sitemap.ts), or',
-    '  - bound it with a limit — but only where dropping rows is acceptable,',
-    '    which for a JSON-LD ItemList it generally is not.',
+    '  - bound it with a limit — but only where dropping rows is acceptable.',
+    '    For a JSON-LD ItemList that depends on whether the dropped URLs are',
+    '    reachable another way: /artists bounds its block at 100 because every',
+    '    artist is in the /sitemap/artists.xml shard regardless (PSY-1773), and',
+    '    what a bound costs there is enrichment, not discoverability. Where no',
+    '    sitemap shard covers the family, a bound DOES drop URLs — check before',
+    '    reaching for one.',
     '',
     // None of the remedies above can be done under hotfix pressure, and this
     // condition is usually triggered by DATA rather than by the commit being
