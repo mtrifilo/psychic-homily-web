@@ -115,7 +115,6 @@ export function ArtistPastShows({
   const pastQuery = useArtistShows({
     artistId,
     timeFilter: 'past',
-    timezone: pageParams.timezone,
     limit: pageParams.limit,
     offset,
     year: pageParams.year,

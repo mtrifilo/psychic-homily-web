@@ -29,14 +29,12 @@ describe('getUpcomingShows', () => {
 
     await expect(getUpcomingShows()).resolves.toEqual(shows)
     expect(fetchListPayload).toHaveBeenCalledWith({
-      // Anchored, and `&limit=` not `?limit=`: the first-screen URL this is
-      // built from already carries the transitional timezone query string, so a
-      // `?` here would produce a malformed second `?` and silently drop the
-      // bound. The anchor also keeps any other param from creeping in.
+      // Anchored, and `?limit=` not `&limit=`: the first-screen URL this is
+      // built from is the BARE endpoint, so `&` here would produce a query
+      // string with no `?` and silently drop the bound. The anchor also keeps
+      // any other param — a viewer timezone above all — from creeping back in.
       url: expect.stringMatching(
-        new RegExp(
-          `/shows/upcoming\\?timezone=America%2FLos_Angeles&limit=${UPCOMING_SHOWS_LIMIT}$`
-        )
+        new RegExp(`/shows/upcoming\\?limit=${UPCOMING_SHOWS_LIMIT}$`)
       ),
       collection: 'shows',
       service: 'shows-listing',

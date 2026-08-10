@@ -81,17 +81,16 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * four separate Data Cache entries with four separate budgets, and what bounds
  * each differs:
  *
- *   fetch                          raw      base64   % cap   bounded by
- *   -----------------------------  -------  -------  ------  ------------------
- *   /shows/upcoming?timezone=…&…50  80,327  107,104    5.1%  this file's limit
- *   /shows/upcoming?timezone=…      80,327  107,104    5.1%  backend default:"50"
- *   /shows/cities?timezone=…         8,948   11,932    0.6%  one row per city
- *   /scenes                          7,256    9,676    0.5%  UNBOUNDED
+ *   fetch                      raw      base64   % cap   bounded by
+ *   -------------------------  -------  -------  ------  --------------------
+ *   /shows/upcoming?limit=50    80,327  107,104    5.1%  this file's limit
+ *   /shows/upcoming             80,327  107,104    5.1%  backend default:"50"
+ *   /shows/cities                8,948   11,932    0.6%  one row per city
+ *   /scenes                      7,256    9,676    0.5%  UNBOUNDED
  *
- * The `timezone` on the first three is inert as of PSY-1678 and is removed by
- * PSY-1762; it is still in the URL, so it is still part of the cache KEY, but it
- * cannot move any of the sizes above — it never changed the row count, only
- * which day's rows came back.
+ * The URLs above lost an inert `timezone` after the measurement, which changed
+ * the cache KEY of the first three but none of the sizes: the parameter never
+ * changed the row count, only which day's rows came back.
  *
  * So "the limit protects it" is true of the ItemList fetch only. The seed URL
  * deliberately omits `limit` (see the note above) and is held at 50 by the
@@ -138,11 +137,11 @@ export const UPCOMING_SHOWS_LIMIT = 50
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    // `&`, not `?`: the first-screen URL already carries the transitional
-    // timezone query string. The endpoint decides "upcoming" against each show's
-    // own venue zone (PSY-1678) and ignores that parameter, so this JSON-LD
-    // block advertises exactly the rows the page renders.
-    url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}&limit=${UPCOMING_SHOWS_LIMIT}`,
+    // `?`, because the first-screen URL is now the bare endpoint: the request
+    // carries no parameter but this one. The endpoint decides "upcoming" against
+    // each show's own venue zone (PSY-1678), so this JSON-LD block advertises
+    // exactly the rows the page renders.
+    url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
     timeoutMs: BUILD_TIME_API_FETCH_TIMEOUT_MS,

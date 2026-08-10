@@ -145,13 +145,10 @@ export const getArchiveYears = cache((slug: string) =>
 /**
  * The first page of one year's rows — what the archive route renders.
  *
- * `timezone` is deliberately NOT sent, so this URL differs from the one the
- * client hook builds (`venuePastShowsPageParams`, which always sends the
- * viewer's zone). The two still answer identically: the backend documents that
- * parameter as "deprecated and ignored — the upcoming/past split is made in each
- * show's own venue-local timezone", and the year filter is venue-local too. It
- * is omitted rather than filled in because the only zone this module could send
- * is the SERVER's, which is a fact about the machine and not about the reader.
+ * Nothing per-viewer is sent, which is what lets a SERVER fetch stand in for
+ * the one the client hook would make: the upcoming/past split is made in each
+ * show's own venue-local day, and the year filter is venue-local too, so one
+ * answer is the right answer for every reader.
  *
  * Timed out for the same reason as the histogram: an unseeded archive still
  * renders, it just fetches its rows on the client.

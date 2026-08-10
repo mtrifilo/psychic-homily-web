@@ -1077,8 +1077,9 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 // boundary from the CALLER's zone, which made the same show upcoming for one
 // reader and past for another. Kept in the signature because it is the only
 // thing TestGetShowsForVenue_SamePartitionForEveryCallerZone can vary to prove
-// the boundary no longer moves with the reader; frontend call sites drop the
-// query param in PSY-1698. Do not add new callers that pass a meaningful value.
+// the boundary no longer moves with the reader; no frontend call site sends the
+// query param any more (PSY-1762). Do not add new callers that pass a
+// meaningful value.
 func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, query contracts.VenueShowsQuery) ([]*contracts.VenueShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")

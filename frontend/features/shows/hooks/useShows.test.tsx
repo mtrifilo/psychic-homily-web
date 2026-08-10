@@ -12,14 +12,10 @@ vi.mock('@/lib/api', () => ({
   API_BASE_URL: 'http://localhost:8080',
 }))
 
-// Mock the feature api module
-// The transitional timezone is stubbed with the REAL value rather than a
-// placeholder: several assertions below pin the exact query string, and a stub
-// that disagreed with the module would make them pass against a URL production
-// never sends. The pairing against the real constants is enforced separately by
-// useShowsFirstScreen.test.tsx, which does not mock this module.
-const TZ = 'timezone=America%2FLos_Angeles'
-
+// Mock the feature api module. The pairing between these stubs and the REAL
+// constants is enforced separately by useShowsFirstScreen.test.tsx, which does
+// not mock this module — a stub that drifted from it would let the assertions
+// below pass against a URL production never sends.
 vi.mock('@/features/shows/api', () => ({
   showEndpoints: {
     UPCOMING: '/shows/upcoming',
@@ -31,8 +27,7 @@ vi.mock('@/features/shows/api', () => ({
     detail: (id: string) => ['shows', 'detail', id],
     cities: () => ['shows', 'cities'],
   },
-  TRANSITIONAL_TIMEZONE_PARAM: 'timezone=America%2FLos_Angeles',
-  SHOW_CITIES_FIRST_SCREEN_URL: '/shows/cities?timezone=America%2FLos_Angeles',
+  SHOW_CITIES_FIRST_SCREEN_URL: '/shows/cities',
 }))
 
 // Import hooks after mocks are set up
@@ -63,18 +58,18 @@ describe('useShows', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(mockApiRequest).toHaveBeenCalledWith(`/shows/upcoming?${TZ}`, {
+      expect(mockApiRequest).toHaveBeenCalledWith('/shows/upcoming', {
         method: 'GET',
       })
     })
 
-    // The timezone the hook sends must be the FIXED transitional one and never
-    // the viewer's — a per-viewer value is what PSY-1678 removed, and it would
-    // land back in the cache key and undo the change. It is also absent from the
-    // key here, which is what keeps the server-seeded entry a hit; the URL/key
-    // pairing against the real constants is pinned in
-    // useShowsFirstScreen.test.tsx, which does not mock this module.
-    it('sends the fixed transitional timezone, not the viewer\'s', async () => {
+    // A no-argument call must produce the BARE endpoint — no query string and
+    // no trailing `?`. That URL is what the server fetches to seed the first
+    // screen, so a stray character here makes the seed a different Data Cache
+    // entry from the one the hook asks for, and `/shows` silently stops being
+    // server-rendered. Nothing per-viewer may creep back in either: a viewer
+    // zone is what PSY-1678 removed, and it would land back in the cache key.
+    it('sends no parameters at all on a bare call', async () => {
       mockApiRequest.mockResolvedValueOnce({ shows: [], has_more: false })
       const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -85,11 +80,9 @@ describe('useShows', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       const url = mockApiRequest.mock.calls[0][0] as string
-      expect(url).toBe(`/shows/upcoming?${TZ}`)
-      expect(url).toContain('America%2FLos_Angeles')
-      if (viewerZone !== 'America/Los_Angeles') {
-        expect(url).not.toContain(encodeURIComponent(viewerZone))
-      }
+      expect(url).toBe('/shows/upcoming')
+      expect(url).not.toContain('timezone')
+      expect(url).not.toContain(encodeURIComponent(viewerZone))
     })
 
     it('includes cursor for pagination', async () => {
@@ -103,7 +96,7 @@ describe('useShows', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        `/shows/upcoming?${TZ}&cursor=abc123`,
+        '/shows/upcoming?cursor=abc123',
         { method: 'GET' }
       )
     })
@@ -118,7 +111,7 @@ describe('useShows', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        `/shows/upcoming?${TZ}&limit=10`,
+        '/shows/upcoming?limit=10',
         { method: 'GET' }
       )
     })

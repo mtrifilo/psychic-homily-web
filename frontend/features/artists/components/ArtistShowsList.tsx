@@ -4,10 +4,7 @@ import { Loader2 } from 'lucide-react'
 import { formatCount, SectionHeader } from '@/components/shared'
 import { NotifyMeButton } from '@/features/notifications'
 import { useArtistShows } from '../hooks/useArtists'
-import {
-  ARTIST_UPCOMING_SHOWS_LIMIT,
-  ARTIST_SHOWS_VIEWER_TIMEZONE,
-} from '../api'
+import { ARTIST_UPCOMING_SHOWS_LIMIT } from '../api'
 import { ArtistPastShows } from './ArtistPastShows'
 import { ArtistShowsTable } from './ArtistShowsTable'
 
@@ -59,7 +56,6 @@ export function ArtistShowsList({
 }: ArtistShowsListProps) {
   const upcoming = useArtistShows({
     artistId,
-    timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
     limit: ARTIST_UPCOMING_SHOWS_LIMIT,
   })

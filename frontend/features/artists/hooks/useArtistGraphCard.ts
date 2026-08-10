@@ -29,20 +29,14 @@ export function useArtistGraphCard(options: UseArtistGraphCardOptions) {
   const idOrSlug = artistId
 
   return useQuery({
-    // Timezone is deliberately NOT in the key: it's constant for a browser
-    // session, and keying on it would only fork cache entries.
+    // Nothing per-viewer in the key OR the request: the next-show cutoff is
+    // made in the show's own venue-local day, so one answer is the right answer
+    // for every reader.
     queryKey: artistQueryKeys.graphCard(idOrSlug ?? 0),
-    queryFn: async (): Promise<ArtistGraphCard> => {
-      const params = new URLSearchParams()
-      if (typeof window !== 'undefined') {
-        params.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone)
-      }
-      const queryString = params.toString()
-      const endpoint = queryString
-        ? `${artistEndpoints.GRAPH_CARD(idOrSlug ?? 0)}?${queryString}`
-        : artistEndpoints.GRAPH_CARD(idOrSlug ?? 0)
-      return apiRequest<ArtistGraphCard>(endpoint, { method: 'GET' })
-    },
+    queryFn: async (): Promise<ArtistGraphCard> =>
+      apiRequest<ArtistGraphCard>(artistEndpoints.GRAPH_CARD(idOrSlug ?? 0), {
+        method: 'GET',
+      }),
     enabled:
       enabled &&
       idOrSlug !== null &&

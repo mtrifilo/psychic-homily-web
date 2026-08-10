@@ -21,7 +21,6 @@ import { useMemo } from 'react'
 
 import { formatShowDate } from '@/lib/utils/formatters'
 import { useVenueShows } from '@/features/venues/hooks/useVenues'
-import { VENUE_SHOWS_VIEWER_TIMEZONE } from '@/features/venues/api'
 import { useRelease } from '@/features/releases/hooks/useReleases'
 import { useShow } from '@/features/shows/hooks/useShows'
 import {
@@ -102,14 +101,10 @@ export function useCollectionEntityPanelModel(opts: {
   // A deliberately short page: the panel renders the NEXT show plus a count,
   // so it has no use for the venue page's fifty rows. Safe to differ since
   // PSY-1698 keys venue-shows entries on the limit; before that this request
-  // and the venue page's shared one entry and overwrote each other. The
-  // timezone is the shared viewer constant because it decides which side of
-  // "today" a show falls on — omitting it left this panel on the backend's
-  // UTC default while every other surface asked in the viewer's zone.
+  // and the venue page's shared one entry and overwrote each other.
   const venueShows = useVenueShows({
     venueId: slug,
     limit: 20,
-    timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
     enabled: enabledType === 'venue' && slug.length > 0,
   })

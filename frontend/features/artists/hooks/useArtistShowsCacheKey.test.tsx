@@ -14,7 +14,6 @@ vi.mock('@/lib/api', () => ({
 // module, so it cannot see this class of bug at all.
 import {
   ARTIST_SHOWS_PAGE_LIMIT,
-  ARTIST_SHOWS_VIEWER_TIMEZONE,
   artistPastShowsPageParams,
   artistQueryKeys,
 } from '@/features/artists/api'
@@ -41,8 +40,8 @@ function twentyShows() {
 
 /**
  * PSY-1754. `artistQueryKeys.shows()` plus the time filter used to be the whole
- * cache key for an artist-shows request, while `limit` and `timezone` varied
- * per caller. Every artist-shows surface therefore shared one entry regardless
+ * cache key for an artist-shows request, while `limit` varied per caller.
+ * Every artist-shows surface therefore shared one entry regardless
  * of what it had actually asked for, and whichever request resolved first
  * answered for all of them for the full 5-minute staleTime.
  *
@@ -70,7 +69,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
         useArtistShows({
           artistId: ARTIST_ID,
           limit: PREVIEW_LIMIT,
-          timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
         }),
       { wrapper },
     )
@@ -83,7 +81,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
         useArtistShows({
           artistId: ARTIST_ID,
           limit: ARTIST_SHOWS_PAGE_LIMIT,
-          timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
           timeFilter: 'upcoming',
         }),
       { wrapper },
@@ -102,7 +99,7 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
   })
 
-  it('keys the request on limit, timezone and time filter', async () => {
+  it('keys the request on limit and time filter', async () => {
     const queryClient = createTestQueryClient()
     mockApiRequest.mockResolvedValue(fiftyShows())
 
@@ -111,7 +108,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
         useArtistShows({
           artistId: ARTIST_ID,
           limit: ARTIST_SHOWS_PAGE_LIMIT,
-          timezone: 'America/Phoenix',
           timeFilter: 'upcoming',
         }),
       { wrapper: createWrapperWithClient(queryClient) },
@@ -125,7 +121,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
         artistQueryKeys.showsPage(ARTIST_ID, {
           timeFilter: 'upcoming',
           limit: ARTIST_SHOWS_PAGE_LIMIT,
-          timezone: 'America/Phoenix',
         }),
       ),
     )
@@ -148,7 +143,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
             artistId: ARTIST_ID,
             timeFilter: 'past',
             limit: ARTIST_SHOWS_PAGE_LIMIT,
-            timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
             ...request,
           }),
         { wrapper },
@@ -169,7 +163,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
         useArtistShows({
           artistId: ARTIST_ID,
           limit: ARTIST_SHOWS_PAGE_LIMIT,
-          timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
           timeFilter: 'upcoming',
         }),
       { wrapper },
@@ -179,7 +172,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
         useArtistShows({
           artistId: ARTIST_ID,
           limit: PREVIEW_LIMIT,
-          timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
           timeFilter: 'past',
         }),
       { wrapper },
@@ -204,12 +196,12 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     mockApiRequest.mockResolvedValue(twentyShows())
     const wrapper = createWrapperWithClient(queryClient)
 
-    // A falsy limit and an empty timezone both drop out of the URL. Keying on
-    // the raw argument would mint two entries for one identical request — the
-    // mirror image of the collision above, and the reason the hook resolves the
-    // sent values once for both the URL and the key.
+    // A falsy limit drops out of the URL, so the key has to record the absence
+    // rather than the argument — the mirror image of the collision above, and
+    // the reason the hook resolves the sent values once for both the URL and the
+    // key.
     const zeroLimit = renderHook(
-      () => useArtistShows({ artistId: ARTIST_ID, limit: 0, timezone: '' }),
+      () => useArtistShows({ artistId: ARTIST_ID, limit: 0 }),
       { wrapper },
     )
     const omitted = renderHook(
@@ -225,12 +217,10 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     const urls = mockApiRequest.mock.calls.map(c => c[0] as string)
     expect(urls.some(u => !u.includes('limit='))).toBe(true)
     expect(urls.some(u => u.includes('limit=20'))).toBe(true)
-    expect(urls.every(u => !u.includes('timezone='))).toBe(true)
 
     // And the KEYS record the same thing. Asserting only the URLs would pass
     // against the pre-PSY-1754 key too, which is the whole bug this file exists
-    // for: both hooks must land on a key built from the SENT values, with the
-    // empty timezone recorded as "not sent" rather than as ''.
+    // for: both hooks must land on a key built from the SENT values.
     const hashes = queryClient
       .getQueryCache()
       .getAll()
@@ -251,20 +241,43 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     )
   })
 
-  it('collapses an empty timezone and an omitted one onto ONE entry', () => {
-    // The mirror image of the collision this file opens with: keying on the raw
-    // argument would mint two entries for one byte-identical request. Asserted
-    // on the key builder directly, because the pair above differ in `limit` and
-    // would be two entries regardless.
-    expect(
+  // The endpoint partitions on each show's own venue-local calendar day and
+  // ignores a caller zone entirely, so sending one buys nothing and costs a
+  // cache entry per viewer. The hook has no way to send one any more; this
+  // asserts it, because a reader of the deprecated backend parameter could
+  // otherwise re-derive a requirement that does not exist.
+  it('never sends a timezone, and never keys on one', async () => {
+    const queryClient = createTestQueryClient()
+    mockApiRequest.mockResolvedValue(twentyShows())
+
+    const { result } = renderHook(
+      () =>
+        useArtistShows({
+          artistId: ARTIST_ID,
+          timeFilter: 'past',
+          limit: PREVIEW_LIMIT,
+          year: 2025,
+          offset: 20,
+        }),
+      { wrapper: createWrapperWithClient(queryClient) },
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const urls = mockApiRequest.mock.calls.map(c => c[0] as string)
+    expect(urls).not.toHaveLength(0)
+    expect(urls.every(u => !u.includes('timezone='))).toBe(true)
+
+    const cached = queryClient.getQueryCache().getAll()
+    expect(cached).toHaveLength(1)
+    expect(cached[0].queryHash).toBe(
       hashKey(
         artistQueryKeys.showsPage(ARTIST_ID, {
           timeFilter: 'past',
-          timezone: undefined,
+          limit: PREVIEW_LIMIT,
+          year: 2025,
+          offset: 20,
         }),
       ),
-    ).toBe(
-      hashKey(artistQueryKeys.showsPage(ARTIST_ID, { timeFilter: 'past' })),
     )
   })
 
@@ -303,7 +316,6 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
           useArtistShows({
             artistId: ARTIST_ID,
             timeFilter: 'past',
-            timezone: params.timezone,
             limit: params.limit,
             offset: params.offset ?? 0,
             year: params.year,

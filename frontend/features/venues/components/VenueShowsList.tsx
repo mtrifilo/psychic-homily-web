@@ -8,10 +8,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { NotifyMeButton } from '@/features/notifications'
 import { ShowForm } from '@/features/shows'
 import { useVenueShows } from '../hooks/useVenues'
-import {
-  VENUE_UPCOMING_SHOWS_LIMIT,
-  VENUE_SHOWS_VIEWER_TIMEZONE,
-} from '../api'
+import { VENUE_UPCOMING_SHOWS_LIMIT } from '../api'
 import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
 import type { VenueShowYearsResponse, VenueShowZone } from '../types'
@@ -69,7 +66,6 @@ export function VenueShowsList({
 
   const upcoming = useVenueShows({
     venueId,
-    timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
     limit: VENUE_UPCOMING_SHOWS_LIMIT,
   })
