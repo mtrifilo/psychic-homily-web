@@ -660,7 +660,11 @@ type VenueWithShowCountResponse struct {
 	UpcomingShowCount int `json:"upcoming_show_count"`
 	// ShowsThisWeek is the <=7-day slice of UpcomingShowCount — same
 	// definition SceneListResponse.ShowsThisWeek uses at scene scope. Drives
-	// the rail's "This week" filter chip and its header stat.
+	// the rail's "Next 7 days" filter chip and its header stat.
+	//
+	// ROLLING from now, so both of those are worded "next 7 days" and neither
+	// says "this week" (PSY-1732). The field NAME is the stale half of that
+	// mismatch; the labels are the correct half.
 	ShowsThisWeek int `json:"shows_this_week"`
 	// NextShowDate is the soonest upcoming approved show's date as an ISO
 	// YYYY-MM-DD string, rendered in the VENUE's timezone (not UTC, not the
@@ -1084,7 +1088,7 @@ type SceneListResponse struct {
 	UpcomingShowCount int    `json:"upcoming_show_count"`
 	TotalShowCount    int    `json:"total_show_count"`
 	// ShowsThisWeek is the ≤7-day slice of UpcomingShowCount (PSY-1309) — the
-	// "happening this week" signal that drives the Atlas globe's pulse
+	// next-7-days activity signal that drives the Atlas globe's pulse
 	// treatment. Same scene scoping as the other counts.
 	//
 	// A ROLLING window: [now, now+7d) in UTC. It is NOT the week any
@@ -1125,9 +1129,12 @@ type SceneListResponse struct {
 	DominantGenre string `json:"dominant_genre,omitempty"`
 }
 
-// SceneShowSummary is one upcoming show in a scene's "This week" preview row
+// SceneShowSummary is one upcoming show in a scene's "Next 7 days" preview row
 // (PSY-1309) — deliberately thin (the Atlas preview panel needs a line, not the
 // full ShowResponse payload). VenueName is the first venue on the bill.
+//
+// Also the row shape behind the scene digest email's "Next 7 days" section, so
+// the email and the panel can never disagree about which shows are in scope.
 type SceneShowSummary struct {
 	ID        uint   `json:"id"`
 	Slug      string `json:"slug,omitempty"` // canonical /shows/{slug} target; "" when the show has no slug (clients fall back to the id)

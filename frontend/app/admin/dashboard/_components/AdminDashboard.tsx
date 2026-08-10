@@ -40,6 +40,14 @@ interface StatCardProps {
   value: number
   icon: LucideIcon
   highlight?: boolean
+  /**
+   * A period-over-period DELTA, not a count: the backend's `*_trend` fields are
+   * `created in the last 7 days − created in the 7 days before that` (see
+   * `AdminStats` in `services/admin/stats.go`). Both halves are rolling
+   * windows, so the chip says "vs prior 7 days" — "this week" was wrong twice
+   * over here, once for the calendar claim and once for reading as a count
+   * (PSY-1766, applying the PSY-1732 vocabulary).
+   */
   trend?: number
   onClick?: () => void
 }
@@ -80,7 +88,7 @@ function StatCard({ label, value, icon: Icon, highlight, trend, onClick }: StatC
               trend > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'
             }`}>
               {trend > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-              {trend > 0 ? '+' : ''}{trend} this week
+              {trend > 0 ? '+' : ''}{trend} vs prior 7 days
             </span>
           )}
         </div>

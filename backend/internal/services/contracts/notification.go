@@ -29,8 +29,9 @@ type CollectionDigestGroup struct {
 	Items           []CollectionDigestEntry
 }
 
-// SceneDigestShow is one this-week show line in the weekly scene digest
-// (PSY-1342). DisplayTitle is the resolved title→bill→"Untitled Show" label.
+// SceneDigestShow is one show line in the weekly scene digest's rolling
+// next-7-days section (PSY-1342). DisplayTitle is the resolved
+// title→bill→"Untitled Show" label.
 type SceneDigestShow struct {
 	DisplayTitle string
 	Date         string // human date, e.g. "Fri, Jul 4"
@@ -45,7 +46,7 @@ type SceneDigestArtist struct {
 }
 
 // SceneDigestGroup is one followed scene's section in a user's weekly scene
-// digest — this-week shows + new bands based there since the last digest. A
+// digest — next-7-days shows + new bands based there since the last digest. A
 // section is rendered only when at least one of the two is non-empty. PSY-1342.
 type SceneDigestGroup struct {
 	SceneName  string // "City, ST"

@@ -900,9 +900,16 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 	return nil
 }
 
-// SendSceneDigestEmail sends a single batched email summarizing this-week
-// shows + new bands across every scene the recipient follows (PSY-1342).
-// Caller groups by scene and provides the rendered URLs + display titles.
+// SendSceneDigestEmail sends a single batched email summarizing the next 7
+// days of shows + new bands across every scene the recipient follows
+// (PSY-1342). Caller groups by scene and provides the rendered URLs + display
+// titles.
+//
+// The show sections are a ROLLING [now, now+7d) window (SceneDigestService's
+// sceneDigestWindowDays feeds GetSceneUpcomingShows), NOT a Monday-to-Sunday
+// week, so every string here is worded "next 7 days" and none of them says
+// "this week" (PSY-1732 vocabulary, applied to this email by PSY-1766). The
+// email's weekly CADENCE is a separate fact and the footer still says so.
 //
 // Anti-spam hardening mirrors SendCollectionDigestEmail exactly: the recipient
 // must have explicitly enabled `notify_on_scene_digest` (column default FALSE /
@@ -926,9 +933,9 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 		return fmt.Errorf("scene digest groups contain no content")
 	}
 
-	subject := "Your followed scenes this week on Psychic Homily"
+	subject := "The next 7 days in your scenes on Psychic Homily"
 	if len(groups) == 1 {
-		subject = fmt.Sprintf("This week in %s", groups[0].SceneName)
+		subject = fmt.Sprintf("The next 7 days in %s", groups[0].SceneName)
 	}
 
 	// Render each scene as its own block: shows sub-list, then new-bands sub-list.
@@ -938,7 +945,7 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
 				<h3 style="margin: 0 0 8px; color: #1a1a1a;"><a href="%s" style="color: #1a1a1a; text-decoration: none;">%s</a></h3>`,
 			g.SceneURL, htmlEscape(g.SceneName))
 		if len(g.Shows) > 0 {
-			groupsHTML.WriteString(`<p style="margin: 4px 0; font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.04em;">This week</p>`)
+			groupsHTML.WriteString(`<p style="margin: 4px 0; font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.04em;">Next 7 days</p>`)
 			groupsHTML.WriteString(`<ul style="margin: 0 0 10px; padding-left: 20px; color: #444;">`)
 			for _, sh := range g.Shows {
 				venue := ""
@@ -979,8 +986,8 @@ func (s *EmailService) SendSceneDigestEmail(toEmail string, groups []contracts.S
     </div>
 
     <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; color: #1a1a1a;">Your scenes this week</h2>
-        <p style="font-size: 15px; color: #444;">Shows happening this week and new bands, for the scenes you follow.</p>
+        <h2 style="margin-top: 0; color: #1a1a1a;">Your scenes: the next 7 days</h2>
+        <p style="font-size: 15px; color: #444;">Shows in the next 7 days and new bands, for the scenes you follow.</p>
         %s
     </div>
 

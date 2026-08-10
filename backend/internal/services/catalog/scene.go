@@ -56,9 +56,14 @@ const (
 	// RosterTruncated surface the full roster size.
 	sceneGraphRosterLimit = 75
 
-	// sceneThisWeekDays is the "happening this week" window (PSY-1309): the
+	// sceneThisWeekDays is the rolling next-7-days window (PSY-1309): the
 	// ≤7-day slice of a scene's upcoming shows that drives the Atlas globe's
-	// pulse treatment and the preview panel's "This week" row.
+	// pulse treatment and the preview panel's "Next 7 days" row.
+	//
+	// The NAME says "this week" and the UI says "next 7 days" (PSY-1732). The
+	// UI half is the correct one: this window rolls from now, so it is not the
+	// week /scenes/{slug}/week serves. Nothing outside this package reads the
+	// name, so it is renameable if it ever misleads someone.
 	sceneThisWeekDays = 7
 
 	// sceneRosterActiveOrderBy is the canonical active-first roster ordering,
@@ -263,7 +268,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// city/state of a fallback group (a metro group displays its principal city
 	// instead, so its MIN city is unused).
 	// this_week_count is the ≤sceneThisWeekDays slice of the upcoming set
-	// (PSY-1309): it drives the Atlas globe's "happening this week" pulse, so it
+	// (PSY-1309): it drives the Atlas globe's next-7-days pulse, so it
 	// must share the scene scoping of the other counts — one more FILTER
 	// aggregate in the same pass, not a new query.
 	weekAhead := now.AddDate(0, 0, sceneThisWeekDays)
@@ -597,7 +602,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 
 // GetSceneUpcomingShows returns the scene's next approved shows within
 // windowDays, soonest first (id as the same-date tiebreak), capped at limit —
-// the Atlas preview panel's "This week" row (PSY-1309). Scoped by the scene's
+// the Atlas preview panel's "Next 7 days" row (PSY-1309). Scoped by the scene's
 // venue predicate so a metro scene includes member-city shows (a Tempe show
 // counts toward Phoenix) — the literal-city upcoming-shows endpoint can't do
 // that. VenueName is the alphabetically-first IN-SCOPE venue on the bill, and

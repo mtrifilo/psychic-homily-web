@@ -32,7 +32,10 @@ const DefaultSceneDigestInterval = 168 * time.Hour
 const (
 	sceneDigestShowsPerScene   = 8
 	sceneDigestArtistsPerScene = 8
-	sceneDigestWindowDays      = 7 // "this week" (PSY-1309 semantics)
+	// The show window is ROLLING [now, now+7d) (PSY-1309 semantics), not a
+	// Monday-to-Sunday week — which is why every string the email renders from
+	// it says "next 7 days" (PSY-1732 vocabulary; see SendSceneDigestEmail).
+	sceneDigestWindowDays = 7
 	// Safety bound on scene sections in one email (deliverability + fatigue).
 	// The catalog is ~a dozen scene-cities today, so this only bites a
 	// pathological follow count; excluded scenes keep their cursor and are
@@ -42,7 +45,7 @@ const (
 )
 
 // SceneDigestService is a ticker-based background service that batches, per
-// user, the this-week shows + new bands for every scene they follow into one
+// user, the next-7-days shows + new bands for every scene they follow into one
 // weekly email (PSY-1342, from the PSY-1314 spike). Modeled on
 // CollectionDigestService.
 //
@@ -50,7 +53,7 @@ const (
 // the follow-selection query gates on the per-(scene-follow)
 // `scene_digest_sent_at` cursor being older than one interval — a follow
 // already digested this week is skipped, so a restart doesn't re-send the
-// (cursor-independent) this-week-shows section. The cursor advances only after
+// (cursor-independent) next-7-days-shows section. The cursor advances only after
 // a successful send and ONLY on scenes that contributed content, so a band
 // that appears in a scene the user follows but that was empty this cycle is
 // still included next cycle.
@@ -68,7 +71,7 @@ type SceneDigestService struct {
 }
 
 // NewSceneDigestService creates a new scene digest service. sceneService
-// provides the per-scene content queries (this-week shows + new bands) so the
+// provides the per-scene content queries (next-7-days shows + new bands) so the
 // roster/venue scope logic stays in the catalog package.
 func NewSceneDigestService(
 	database *gorm.DB,
@@ -147,7 +150,7 @@ type sceneFollowRow struct {
 }
 
 // runDigestCycle sends one digest email per opted-in user, batching the
-// this-week shows + new bands for each scene they follow. Empty scene sections
+// next-7-days shows + new bands for each scene they follow. Empty scene sections
 // are skipped; a user with no non-empty section gets no email. Cursors advance
 // only on scenes that contributed. All errors are logged; the cycle keeps going.
 func (s *SceneDigestService) runDigestCycle() {
@@ -156,7 +159,7 @@ func (s *SceneDigestService) runDigestCycle() {
 
 	// Only follows not digested within the last interval are due — this is what
 	// makes the cycle idempotent across restarts (the ticker runs immediately
-	// on startup, and the this-week-shows section isn't otherwise cursor-gated).
+	// on startup, and the next-7-days-shows section isn't otherwise cursor-gated).
 	follows, err := s.queryFollows(now.Add(-s.interval))
 	if err != nil {
 		s.logger.Error("failed to query scene follows", "error", err)
@@ -249,7 +252,7 @@ func (s *SceneDigestService) runDigestCycle() {
 		"users_with_content", len(order), "sent", sent, "errors", errors, "skipped_no_email", skippedNoEmail)
 }
 
-// buildSceneGroup assembles one scene's section: this-week shows (a forward
+// buildSceneGroup assembles one scene's section: next-7-days shows (a forward
 // snapshot, NOT cursor-gated) + new bands based there since the cursor. Returns
 // ok=false when both are empty (the section is skipped). Content-query errors
 // degrade that stream to empty rather than failing the user's whole digest.
@@ -302,7 +305,7 @@ func (s *SceneDigestService) buildSceneGroup(f sceneFollowRow, now time.Time) (c
 // is NULL (never digested) or older than one interval — with its registry row.
 // The interval gate is what makes the cycle idempotent across restarts: a
 // follow digested within the last interval is skipped, so the immediate
-// startup run doesn't re-send its this-week-shows section. Ordered by user so
+// startup run doesn't re-send its next-7-days-shows section. Ordered by user so
 // the grouping loop is straightforward.
 func (s *SceneDigestService) queryFollows(cutoff time.Time) ([]sceneFollowRow, error) {
 	var rows []sceneFollowRow
