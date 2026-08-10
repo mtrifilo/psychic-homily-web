@@ -198,17 +198,25 @@ func main() {
 	}
 
 	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
-	// this server's catalog before serving a request. Boot is the moment it is
-	// most likely to have moved — a Postgres upgrade, a base-image bump or a
-	// restore is what changes pg_timezone_names, and all three restart this
-	// process. Unconditional and non-fatal: the table is already seeded by its
-	// migration, so a failed refresh is stale-allowlist telemetry rather than a
-	// reason to refuse traffic. Bounded, for the same reason: a slow database
-	// must delay the boot by a known amount, not by however long it takes to
-	// notice.
-	tzSnapshotCtx, cancelTZSnapshot := context.WithTimeout(context.Background(), 30*time.Second)
-	catalog.ReconcileTimezoneNamesSnapshot(tzSnapshotCtx, database, slog.Default())
-	cancelTZSnapshot()
+	// this server's catalog. Boot is when it is most likely to have moved — a
+	// Postgres upgrade, a base-image bump or a restore is what changes
+	// pg_timezone_names, and all three restart this process.
+	//
+	// Unconditional, but OFF the boot path. Nothing downstream waits on it: the
+	// table is seeded by its own migration, so until this lands the guard is
+	// merely as fresh as the last deploy, which is today's behaviour and not
+	// worse. Blocking the listener on it would trade a real risk (a slow
+	// database stalling the healthcheck) for no gain. Bounded anyway, so a
+	// hung query cannot leak a goroutine for the process's lifetime.
+	//
+	// Not a shared.RunScheduledLoop service: this is a one-shot reconcile, and
+	// the recurring cadence (plus its overdue-sweep alerting) already belongs
+	// to VenueTimezoneSweep, which refreshes the same table on every cycle.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		catalog.ReconcileTimezoneNamesSnapshot(ctx, database, slog.Default())
+	}()
 
 	// Setup Goth authentication
 	if err := auth.SetupGoth(cfg); err != nil {

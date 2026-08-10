@@ -28,13 +28,12 @@ import (
 // enough on its own, because the catalog is not stable.
 //
 // What pg_timezone_names contains comes from the server's TZDATA PACKAGING, not
-// from Postgres. Measured: postgres:18 (Debian) carries 487 zones and has
-// neither EST nor Asia/Calcutta, because Debian splits tzdata's `backward`
-// compatibility links into a separate tzdata-legacy package; postgres:16-alpine
-// carries 599 and has both. So the accept-set changes under a Postgres upgrade,
-// a base-image change, a tzdata refresh (US/Pacific-New really was deleted in
+// from Postgres, so the accept-set changes under a Postgres upgrade, a
+// base-image change, a tzdata refresh (US/Pacific-New really was deleted in
 // 2020b), or a restore onto a differently-packaged build — and a value that was
-// valid when written silently becomes one that RAISES.
+// valid when written silently becomes one this server cannot resolve. The
+// measured packaging difference behind that claim is recorded once, in
+// timezone_names_snapshot.go.
 //
 // This sweep re-validates stored zones against the LIVE catalog and NULLs the
 // casualties, which is a shape every reader already handles (it is what a
@@ -54,10 +53,10 @@ import (
 //     venue, while an absent one is visibly a gap and falls back. Each one is
 //     logged with the venue id and the rejected value so an operator can
 //     re-geocode deliberately.
-//   - Bounded window, not zero risk. A zone can go unknown between cycles, and
-//     until the next cycle the listing queries for that venue raise. Shortening
-//     the interval shrinks that window; it cannot close it. Closing it entirely
-//     would mean paying the per-row validation this design exists to avoid.
+//   - Bounded window, and since PSY-1761 a window on a WRONG DATE rather than
+//     on an outage. A zone can go unknown between cycles; until the next cycle
+//     the read guard dates that venue's shows by the state map. Shortening the
+//     interval shrinks the window of wrongness; it cannot close it.
 //
 // Registered as opt-in via ENABLE_VENUE_TIMEZONE_SWEEP, matching the ENABLE_*
 // sweeps rather than the DISABLE_* workers. It writes NULLs over operator-
@@ -202,18 +201,21 @@ func SweepVenueTimezones(ctx context.Context, database *gorm.DB) (*VenueTimezone
 // NULL for blank input, but a blank reaching AT TIME ZONE is as unusable as an
 // unknown name.
 //
-// Compared case-insensitively against the LIVE catalog, and both halves of that
-// matter. Live, because this is the thing that decides whether
-// timezone_names_snapshot has fallen behind — testing against the snapshot would
-// make the check agree with itself by construction. Case-insensitively, because
-// shared.venueTZValidatedZoneSQL accepts a stored value case-insensitively; a
-// detector stricter than the guard would report venues that are being dated
-// correctly.
-const venueTimezoneDriftPredicate = `timezone IS NOT NULL AND (
-	btrim(timezone, E' \t\n\r\f\v') = ''
+// Compared against the LIVE catalog rather than timezone_names_snapshot, which
+// is the whole point of running it: it is the thing that says whether the
+// snapshot the read guard trusts has fallen behind. Testing against the
+// snapshot would make the check agree with itself by construction.
+//
+// Trimmed and lowercased exactly as shared.VenueTZJoin's read guard does, and
+// built from the same shared.VenueTimezoneWhitespaceSQL so the two cannot
+// drift. A detector stricter than the guard reports venues that are being dated
+// correctly; a detector looser than the guard leaves a mis-dated venue with no
+// signal at all, which is the failure this pairing exists to prevent.
+var venueTimezoneDriftPredicate = `timezone IS NOT NULL AND (
+	btrim(timezone, ` + shared.VenueTimezoneWhitespaceSQL + `) = ''
 	OR NOT EXISTS (
 		SELECT 1 FROM pg_timezone_names t
-		WHERE lower(t.name) = lower(btrim(venues.timezone, E' \t\n\r\f\v'))
+		WHERE lower(t.name) = lower(btrim(venues.timezone, ` + shared.VenueTimezoneWhitespaceSQL + `))
 	)
 )`
 
@@ -240,8 +242,18 @@ func (s *VenueTimezoneSweep) runCycle(ctx context.Context) {
 	// the database being replaced underneath a server that keeps running — the
 	// boot-time reconcile in cmd/server covers the ordinary upgrade, where the
 	// process restarts anyway. Doing it before the sweep also means the two
-	// agree: both are then judging against the same catalog read.
-	ReconcileTimezoneNamesSnapshot(ctx, s.db, s.logger)
+	// agree: both are then judging against the same catalog.
+	//
+	// The refresh reports nothing here on purpose. Its drifted-venue signal and
+	// the per-venue lines below name the SAME rows, and firing both would tell
+	// an operator a venue is "falling back to the state map" and then, a
+	// millisecond later, that it was "cleared to NULL" — two Sentry issues and
+	// two contradictory log lines for one fact. The sweep owns the signal
+	// because it is the half that also fixes the row.
+	if _, err := RefreshTimezoneNamesSnapshot(ctx, s.db); err != nil {
+		s.logger.Error("could not refresh the timezone name snapshot; the venue-local "+
+			"zone guard is running against a possibly stale allowlist", "error", err)
+	}
 
 	report, err := SweepVenueTimezones(ctx, s.db)
 	if err != nil {

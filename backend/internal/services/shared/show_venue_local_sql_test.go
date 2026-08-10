@@ -94,7 +94,7 @@ func TestVenueTZJoin_ValidatesTheStoredZoneBeforeProjectingIt(t *testing.T) {
 	}
 	// Case-insensitively, matching AT TIME ZONE and the drift sweep. A stricter
 	// guard mis-dates rows the sweep calls healthy, with nothing logged.
-	if !strings.Contains(VenueTZJoin, "lower(NULLIF(btrim(iv.timezone") {
+	if !strings.Contains(VenueTZJoin, "lower("+venueTZStoredZone+")") {
 		t.Errorf("the guard is not case-insensitive:\n%s", VenueTZJoin)
 	}
 	// The guard belongs in the LATERAL, not beside the COALESCE it feeds:
@@ -109,12 +109,17 @@ func TestVenueTZJoin_ValidatesTheStoredZoneBeforeProjectingIt(t *testing.T) {
 	}
 }
 
-// The trim applied to the value being VALIDATED and the trim applied to the
-// value being PROJECTED must strip the same characters. Trimming one and not
-// the other would validate a string that is not the one AT TIME ZONE receives.
-func TestVenueTZJoin_ValidatesAndProjectsTheSameTrimmedValue(t *testing.T) {
-	if got := strings.Count(venueTZValidatedZoneSQL, "btrim(iv.timezone, "+venueTZWhitespace+")"); got != 2 {
-		t.Errorf("the validated and projected values are not trimmed identically:\n%s", venueTZValidatedZoneSQL)
+// The guard and catalog.SweepVenueTimezones' drift predicate must strip the
+// same whitespace. They agree because both build from this const, and this
+// pins that the guard still does — a guard that trimmed more than the detector
+// would mis-date rows the detector calls healthy, with nothing logged.
+func TestVenueTZJoin_TrimsThroughTheSharedWhitespaceSet(t *testing.T) {
+	if !strings.Contains(venueTZStoredZone, VenueTimezoneWhitespaceSQL) {
+		t.Errorf("the stored-zone expression bypasses the shared whitespace set:\n%s", venueTZStoredZone)
+	}
+	if got := strings.Count(venueTZValidatedZoneSQL, venueTZStoredZone); got != 2 {
+		t.Errorf("the validated and projected values are not the same expression, got %d uses:\n%s",
+			got, venueTZValidatedZoneSQL)
 	}
 }
 

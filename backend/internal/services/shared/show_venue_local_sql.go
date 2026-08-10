@@ -179,11 +179,22 @@ func buildVenueLocalStateCaseSQL() string {
 	return b.String()
 }
 
-// venueTZWhitespace is the character set btrim strips from a stored zone. Named
-// once because the guard below and the value it projects have to strip the SAME
-// set — trimming one and not the other would validate a string this file then
-// does not feed to AT TIME ZONE.
-const venueTZWhitespace = `E' \t\n\r\f\v'`
+// VenueTimezoneWhitespaceSQL is the character set every reader of a stored
+// venues.timezone strips before doing anything with it.
+//
+// Exported because the READ GUARD in this file and the DRIFT DETECTOR in
+// catalog.SweepVenueTimezones have to agree on it exactly. A detector that
+// trimmed less than the guard would call a venue healthy while the guard was
+// quietly sending its shows to the state map — a wrong date with nothing logged
+// anywhere, which is the one failure this whole design is trying not to create.
+// One definition means they cannot drift.
+const VenueTimezoneWhitespaceSQL = `E' \t\n\r\f\v'`
+
+// venueTZStoredZone is the stored zone as every expression below sees it:
+// trimmed, with blank read as NULL. Named once so the value that gets VALIDATED
+// and the value that gets PROJECTED are the same string by construction rather
+// than by two edits staying in sync.
+const venueTZStoredZone = `NULLIF(btrim(iv.timezone, ` + VenueTimezoneWhitespaceSQL + `), '')`
 
 // venueTZValidatedZoneSQL projects the primary venue's stored zone ONLY when
 // this server's catalog still carries it, and NULL otherwise. That NULL is the
@@ -221,9 +232,9 @@ const venueTZWhitespace = `E' \t\n\r\f\v'`
 // The comparison is case-INSENSITIVE, matching both `AT TIME ZONE` itself and
 // VenueTimezoneSweep's drift predicate. A guard stricter than the sweep would
 // silently send rows the sweep calls healthy to the state map.
-var venueTZValidatedZoneSQL = `CASE WHEN lower(NULLIF(btrim(iv.timezone, ` + venueTZWhitespace + `), '')) ` +
+var venueTZValidatedZoneSQL = `CASE WHEN lower(` + venueTZStoredZone + `) ` +
 	`IN (SELECT name_lower FROM timezone_names_snapshot) ` +
-	`THEN btrim(iv.timezone, ` + venueTZWhitespace + `) END AS venue_tz_timezone`
+	`THEN ` + venueTZStoredZone + ` END AS venue_tz_timezone`
 
 // VenueTZJoin resolves each show's venue-local zone inputs. Requires the query
 // to have already joined `shows` — the lateral correlates on shows.id.

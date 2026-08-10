@@ -168,21 +168,42 @@ func (suite *ShowServiceIntegrationTestSuite) TestRefreshTimezoneNamesSnapshot_R
 	suite.Equal(int64(1), restored)
 }
 
-// The signal requirement. The read path degrades silently by construction now,
-// so the ONLY thing that tells an operator a venue is being mis-dated is this
-// report — a poisoned row that nothing names would stay poisoned forever.
-func (suite *ShowServiceIntegrationTestSuite) TestRefreshTimezoneNamesSnapshot_NamesEveryPoisonedVenue() {
+// The signal requirement. The read path degrades SILENTLY by construction now,
+// so a poisoned row that nothing names would stay poisoned forever. This pins
+// the detector both surfaces report from: it must name exactly the stranded
+// venue, carry the rejected value verbatim so it can be re-geocoded, and leave
+// healthy venues out (a detector that cried wolf would be ignored).
+func (suite *ShowServiceIntegrationTestSuite) TestDetectVenueTimezoneDrift_NamesEveryPoisonedVenue() {
 	venue := newVenueInZone(suite.T(), suite.db, "Reported Venue", "AZ", "America/Phoenix", true)
 	poisonVenueTimezone(suite.T(), suite.db, venue.ID, "Pacific/Atlantis")
-	healthy := newVenueInZone(suite.T(), suite.db, "Healthy Venue", "AZ", "America/Phoenix", true)
+	newVenueInZone(suite.T(), suite.db, "Healthy Venue", "AZ", "America/Phoenix", true)
+	// The guard accepts a differently-cased spelling, so the detector must too,
+	// or it reports a venue whose shows are being dated correctly.
+	cased := newVenueInZone(suite.T(), suite.db, "Lowercase Venue", "AZ", "America/Phoenix", true)
+	poisonVenueTimezone(suite.T(), suite.db, cased.ID, "america/phoenix")
+
+	drifted, err := detectVenueTimezoneDrift(suite.db)
+	suite.Require().NoError(err)
+
+	suite.Require().Len(drifted, 1, "exactly the venue the guard cannot resolve is reported")
+	suite.Equal(venue.ID, drifted[0].VenueID)
+	suite.Equal("Reported Venue", drifted[0].Name)
+	suite.Equal("Pacific/Atlantis", drifted[0].Timezone,
+		"the rejected value is reported verbatim so it can be re-geocoded")
+}
+
+// The emptiness guard. An empty snapshot is the one failure that produces no
+// error anywhere — every venue would fail the membership test and every show
+// would silently re-date onto the state map — so the refresh must never be the
+// thing that creates it.
+func (suite *ShowServiceIntegrationTestSuite) TestRefreshTimezoneNamesSnapshot_NeverEmptiesTheTable() {
+	suite.Require().NoError(suite.db.Exec("DELETE FROM timezone_names_snapshot").Error)
 
 	report, err := RefreshTimezoneNamesSnapshot(context.Background(), suite.db)
 	suite.Require().NoError(err)
+	suite.Positive(report.Added, "a wiped snapshot is repopulated from the live catalog")
 
-	suite.Require().Len(report.DriftedVenues, 1, "exactly the poisoned venue is reported")
-	suite.Equal(venue.ID, report.DriftedVenues[0].VenueID)
-	suite.Equal("Reported Venue", report.DriftedVenues[0].Name)
-	suite.Equal("Pacific/Atlantis", report.DriftedVenues[0].Timezone,
-		"the rejected value is reported verbatim so it can be re-geocoded")
-	suite.NotEqual(healthy.ID, report.DriftedVenues[0].VenueID)
+	var count int64
+	suite.Require().NoError(suite.db.Raw("SELECT count(*) FROM timezone_names_snapshot").Scan(&count).Error)
+	suite.Equal(int64(report.Total), count)
 }

@@ -27,6 +27,13 @@ var requiredSchemaColumns = []requiredColumn{
 	// request time rather than at boot, which is exactly what this list is for.
 	{Table: "shows", Column: "doors_at"},
 	{Table: "shows", Column: "music_at"},
+	// PSY-1761: shared.VenueTZJoin reads this table on EVERY show-listing
+	// query, so recorded-migration-but-absent-DDL here does not degrade, it
+	// fails every listing surface at once with "relation does not exist" —
+	// a worse outage than the unknown-zone raise the guard exists to remove.
+	// Checked by a generated column so the assertion also catches a table
+	// that exists but predates the shape the guard queries.
+	{Table: "timezone_names_snapshot", Column: "name_lower"},
 }
 
 type columnChecker interface {
