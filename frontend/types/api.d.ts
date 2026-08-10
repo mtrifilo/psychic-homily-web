@@ -14909,6 +14909,7 @@ export interface components {
             slug: string;
             state: string;
             stats: components["schemas"]["SceneStats"];
+            venues: components["schemas"]["SceneVenueSummary"][] | null;
         };
         SceneFollowBody: {
             /**
@@ -15080,6 +15081,17 @@ export interface components {
         SceneTrackedVenue: {
             name: string;
             slug?: string;
+            website?: string;
+        };
+        SceneVenueSummary: {
+            city: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            slug?: string;
+            state: string;
+            /** Format: int64 */
+            upcoming_show_count: number;
             website?: string;
         };
         SceneWeekDay: {

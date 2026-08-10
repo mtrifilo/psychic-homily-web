@@ -70,6 +70,17 @@ export interface ScenePulse {
   shows_by_month: number[]
 }
 
+/**
+ * One room on the scene's leaderboard, ranked by upcoming shows.
+ *
+ * DERIVED from the generated OpenAPI schema for the same reason
+ * SceneShowSummary below is: a hand-written copy drifts silently, because the
+ * `api:types:check` drift gate cannot see a type it does not generate. The
+ * `shows_trend` field a few lines up is the standing proof — declared here as
+ * `number` while the API has long served a string.
+ */
+export type SceneVenue = components['schemas']['SceneVenueSummary']
+
 export interface SceneDetail {
   city: string
   state: string
@@ -77,6 +88,9 @@ export interface SceneDetail {
   description: string | null
   stats: SceneStats
   pulse: ScenePulse
+  // The scene's tracked rooms, busiest first. Always an array on the wire; the
+  // generated schema types it nullable only because every Go slice is.
+  venues: SceneVenue[]
 }
 
 export interface SceneArtist {

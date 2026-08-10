@@ -180,15 +180,17 @@ func (s *SceneService) artistPredicate(scope sceneScope, alias string) (string, 
 
 // verifiedVenueCount counts the scene's verified venues — the existence gate
 // shared by GetSceneDetail / GetActiveArtists / GetSceneGraph.
+//
+// It counts through trackedVenuePredicate rather than respelling the rule,
+// because the detail payload publishes BOTH this number (as Stats.VenueCount)
+// and the rooms it counts (as Venues). Two hand-rolled spellings of one set is
+// a page that contradicts itself the first time either is edited. GORM's
+// Model(&Venue{}) emits an unaliased `FROM "venues"`, which is why the alias is
+// the bare table name.
 func (s *SceneService) verifiedVenueCount(scope sceneScope) (int64, error) {
-	q := s.db.Model(&catalogm.Venue{}).Where("verified = true")
-	if scope.isMetro() {
-		q = q.Where("metro = ?", scope.metro)
-	} else {
-		q = q.Where("LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))", scope.city, scope.state)
-	}
+	pred, args := trackedVenuePredicate(scope, "venues")
 	var n int64
-	if err := q.Count(&n).Error; err != nil {
+	if err := s.db.Model(&catalogm.Venue{}).Where(pred, args...).Count(&n).Error; err != nil {
 		return 0, err
 	}
 	return n, nil
@@ -459,6 +461,13 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
+	// The rooms leaderboard, counted at the SAME `now` as the headline upcoming
+	// figure above so a reader cannot find the two disagreeing.
+	venues, err := s.sceneVenueLeaderboard(scope, now)
+	if err != nil {
+		return nil, err
+	}
+
 	// Artist count: bands BASED in the metro (the roster size), regardless of
 	// whether they've played a local show — this is the scene's headline figure
 	// under the new "based-in" model.
@@ -592,6 +601,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 			ActiveVenuesThisMonth: int(activeVenuesThisMonth),
 			ShowsByMonth:          showsByMonth,
 		},
+		Venues: venues,
 	}, nil
 }
 

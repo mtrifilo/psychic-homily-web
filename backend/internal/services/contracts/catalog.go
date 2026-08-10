@@ -1235,6 +1235,67 @@ type SceneTrackedVenue struct {
 	Website string `json:"website,omitempty"` // "" when none is on file
 }
 
+// SceneVenueSummary is one room on the scene page's rooms leaderboard: the same
+// tracked-venue set SceneTrackedVenue describes, ranked by how much is coming up
+// in it.
+//
+// A separate type from SceneTrackedVenue rather than extra fields on it, for
+// the same reason the week payload keeps its bare-string shape: the day page's
+// footer reads a linkable list and needs none of the ranking fields, and
+// widening one wire format to serve a different page churns every consumer of
+// the first. The two types must agree on the SET of rooms, which
+// trackedVenuePredicate enforces; they are free to disagree on shape.
+type SceneVenueSummary struct {
+	// ID is the venue row's id, and it is not decoration: venue names are unique
+	// only WITHIN a city (idx_venues_name_city_unique) and a metro spans several,
+	// so two rooms on one leaderboard can share a name. Without an id, two
+	// same-named rooms with no slug arrive as byte-identical objects that a
+	// client cannot tell apart, link, or key a list on.
+	ID      uint   `json:"id"`
+	Name    string `json:"name"`
+	Slug    string `json:"slug,omitempty"`    // "" when the venue has no slug; clients then render it unlinked
+	Website string `json:"website,omitempty"` // "" when none is on file
+	// City is the room's OWN city, which for a metro scene is often not the
+	// scene's principal city — a Tempe room belongs to the Phoenix scene. The
+	// leaderboard needs it to say where a reader would actually be going; the
+	// scene's own City field cannot answer that.
+	//
+	// Always sent, unlike Slug/Website: venues.city is NOT NULL, so the field is
+	// never missing and an optional one would push a needless fallback into
+	// every consumer. It can still be the EMPTY string — NOT NULL does not
+	// forbid '' — so a client must render around a blank, just not around an
+	// absent key.
+	City string `json:"city"`
+	// State rides along with City for the same reason City rides along at all: a
+	// metro is not confined to one of them. Philadelphia's spans into Camden NJ
+	// and New York's into New Jersey, so a city-only row renders a bare "Camden"
+	// on a Philadelphia page. Same pair the venue charts carry (ActiveVenue).
+	State string `json:"state"`
+	// UpcomingShowCount is the room's approved shows still to come, counted from
+	// the START of the current UTC day — see sceneVenueLeaderboard for why an
+	// instant bound would zero out a room whose only show is tonight.
+	//
+	// NOT a partition of SceneStats.UpcomingShowCount, and it misses in EVERY
+	// direction, all three on purpose:
+	//   - PAST it, because a show billed to two rooms is counted by both, and
+	//     because today's shows are inside this bound and outside that one.
+	//   - SHORT of it, because the scene total counts shows at UNVERIFIED rooms,
+	//     which are not tracked and so have no row here.
+	// Do not "reconcile" the two by editing the scene total: that silently
+	// changes a number already being served.
+	//
+	// CANCELLED shows are counted, because they are still `approved` — the same
+	// convention the scene total and the day/week payloads follow (those ship
+	// is_cancelled per show so a reader sees the strike-through). The charts
+	// exclude them when RANKING; that this ranks without excluding them is a
+	// deliberate match to the scene total it sits beside, not an oversight.
+	//
+	// Zero is a real, kept value — a tracked room with nothing booked is still a
+	// room the scene covers, and dropping it would quietly redefine the list as
+	// "rooms with shows".
+	UpcomingShowCount int `json:"upcoming_show_count"`
+}
+
 // SceneDayResponse is ONE calendar day of a scene's shows — the payload behind
 // the public "tonight" page and its dated permalink.
 //
@@ -1378,6 +1439,16 @@ type SceneDetailResponse struct {
 	Description *string    `json:"description"` // nil until scenes table exists
 	Stats       SceneStats `json:"stats"`
 	Pulse       ScenePulse `json:"pulse"`
+	// Venues is the scene's tracked rooms, busiest first — the page's rooms
+	// leaderboard. The SAME set the day payload names (verified rooms in the
+	// scene's scope), so the two surfaces cannot claim to cover different rooms
+	// for one city, and bounded by it: this is a leaderboard over a curated
+	// list, not a directory of everywhere in the metro.
+	//
+	// Always non-nil, so a scene marshals `[]` rather than `null`. The generated
+	// OpenAPI schema still types it nullable — every Go slice does — so that is
+	// a generator artifact, not a shape the wire can actually take.
+	Venues []SceneVenueSummary `json:"venues"`
 }
 
 // SceneStats holds aggregate counts for a scene

@@ -119,6 +119,21 @@ export const sceneHandlers = [
         active_venues_this_month: 10,
         shows_by_month: [20, 22, 25, 28, 30, 30],
       },
+      // Tracked rooms, busiest first. The second row is the sparse shape the
+      // API really sends — zero count, no slug, no website, and a sub-locality
+      // city that is not the scene's own.
+      venues: [
+        {
+          id: 1,
+          name: 'Crescent Ballroom',
+          slug: 'crescent-ballroom',
+          website: 'https://crescentphx.com',
+          city: 'Phoenix',
+          state: 'AZ',
+          upcoming_show_count: 12,
+        },
+        { id: 2, name: 'Quiet Room', city: 'Tempe', state: 'AZ', upcoming_show_count: 0 },
+      ],
     })
   }),
 
