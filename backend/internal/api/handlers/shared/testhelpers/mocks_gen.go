@@ -3275,6 +3275,21 @@ func (m *MockSavedShowService) GetBatchSaveCounts(showIDs []uint) (map[uint]int,
 }
 
 // ============================================================================
+// Mock: SceneCalendarServiceInterface
+// ============================================================================
+
+type MockSceneCalendarService struct {
+	GenerateSceneFeedFn func(string, string) (*contracts.SceneCalendarFeed, error)
+}
+
+func (m *MockSceneCalendarService) GenerateSceneFeed(slug string, frontendURL string) (*contracts.SceneCalendarFeed, error) {
+	if m.GenerateSceneFeedFn != nil {
+		return m.GenerateSceneFeedFn(slug, frontendURL)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: SceneServiceInterface
 // ============================================================================
 
@@ -4628,6 +4643,7 @@ var _ contracts.RequestServiceInterface = (*MockRequestService)(nil)
 var _ contracts.RevisionServiceInterface = (*MockRevisionService)(nil)
 var _ contracts.SavedReleaseServiceInterface = (*MockSavedReleaseService)(nil)
 var _ contracts.SavedShowServiceInterface = (*MockSavedShowService)(nil)
+var _ contracts.SceneCalendarServiceInterface = (*MockSceneCalendarService)(nil)
 var _ contracts.SceneServiceInterface = (*MockSceneService)(nil)
 var _ contracts.ShowAdminServiceInterface = (*MockShowAdminService)(nil)
 var _ contracts.ShowCalendarServiceInterface = (*MockShowCalendarService)(nil)

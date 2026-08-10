@@ -4,6 +4,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
+	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
 )
 
 // setupSceneRoutes configures scene (city aggregation) endpoints.
@@ -46,4 +47,26 @@ func setupSceneRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/scenes/{slug}/day/{date}", sceneHandler.GetSceneDayHandler)
 	huma.Head(rc.API, "/scenes/{slug}/day", sceneHandler.GetSceneCurrentDayHandler)
 	huma.Head(rc.API, "/scenes/{slug}/day/{date}", sceneHandler.GetSceneDayHandler)
+
+	// PSY-1782: public iCalendar feed of the scene's upcoming shows.
+	//
+	// Registered on the chi router, not Huma, because the response is a raw
+	// text/calendar document — the same reason the venue feed and the personal
+	// /feeds/… ICS route are chi handlers. It therefore does NOT appear in the
+	// OpenAPI spec.
+	//
+	// The parameter MUST stay named `slug` to match its Huma siblings above. chi
+	// keys its routing tree on path SHAPE, not on parameter name, so a sibling
+	// registered as `{scene_slug}` would not create a second route — it would
+	// silently rename the parameter for whichever registration lost, and no
+	// handler-level test could see it. scene_calendar_routing_test.go walks the
+	// built tree to hold that line.
+	//
+	// This path is intentionally NOT added to the personal-feed rate-limit
+	// exemption in public_read_rate_limit.go: like the venue feed it is anonymous
+	// and unauthenticated, so it belongs on the ordinary public-read budget
+	// rather than being handed an unmetered lane.
+	sceneCalendarHandler := engagementh.NewSceneCalendarHandler(rc.SC.SceneCalendar, rc.Cfg)
+	rc.Router.Get("/scenes/{slug}/calendar.ics", sceneCalendarHandler.GetSceneCalendarFeedHandler)
+	rc.Router.Head("/scenes/{slug}/calendar.ics", sceneCalendarHandler.GetSceneCalendarFeedHandler)
 }

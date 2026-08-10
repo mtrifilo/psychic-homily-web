@@ -232,6 +232,36 @@ type VenueCalendarServiceInterface interface {
 	GenerateVenueFeed(idOrSlug string, frontendURL string) (*VenueCalendarFeed, error)
 }
 
+// SceneCalendarFeed is a rendered public iCalendar feed for one scene, plus the
+// metadata the HTTP layer needs to serve it: the scene's display name ("Phoenix,
+// AZ") and canonical slug (filename), and a content ETag for the 304 path.
+//
+// Both name and slug describe the CANONICAL scene, not whatever alias the caller
+// asked for: a metro member slug (mesa-az) resolves to its principal city, and a
+// feed that echoed the requested alias back would hand two subscribers different
+// names for one calendar.
+type SceneCalendarFeed struct {
+	SceneName string
+	SceneSlug string
+	ICS       []byte
+	ETag      string
+}
+
+// SceneCalendarServiceInterface defines the contract for the PUBLIC,
+// unauthenticated per-scene iCalendar feed.
+//
+// Same posture as VenueCalendarServiceInterface and for the same reason: it
+// takes no identity at all and must never grow one, so a change to personal-feed
+// auth cannot silently alter what an anonymous caller can read. A scene is a
+// computed aggregation of public listings, so there is nothing here to scope to
+// a user in the first place.
+type SceneCalendarServiceInterface interface {
+	// GenerateSceneFeed renders the scene's upcoming shows. Returns an error
+	// wrapping apperrors.CodeSceneNotFound when the slug names no scene, so the
+	// handler can 404 rather than 500.
+	GenerateSceneFeed(slug string, frontendURL string) (*SceneCalendarFeed, error)
+}
+
 // ShowCalendarEvent is a rendered single-VEVENT iCalendar document for one
 // show, plus the metadata the HTTP layer needs to serve it as a download.
 type ShowCalendarEvent struct {
