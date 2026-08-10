@@ -121,12 +121,11 @@ export function CollectionList() {
   // unsearched, the bare key stays warm from any tab, so switching to Yours is
   // still instant for one request per session.
   //
-  // Known trade-off: arriving on Yours WITH a search term active is now a
-  // cache miss, and `keepPreviousData` fills that round trip with the
-  // unsearched library while the search box already reads the term. It
-  // resolves itself on arrival and reports `isPlaceholderData`, so a future
-  // ticket can dim or spin on that flag if it proves distracting. Not styled
-  // here — that is a design call, not an implementation detail.
+  // Trade-off: arriving on Yours WITH a search term active is a cache miss,
+  // and `keepPreviousData` fills that round trip with the unsearched library
+  // while the search box already reads the term. `isPlaceholderData` says
+  // exactly "these rows answer a different query", so the list dims for the
+  // duration via the house treatment (see `isUpdating` below).
   // PSY-580: on the Yours tab the term matches what the public-browse hook
   // receives, so both tabs filter identically. Empty / whitespace short-
   // circuits inside the hook.
@@ -134,12 +133,21 @@ export function CollectionList() {
     data: myData,
     isLoading: myLoading,
     error: myError,
+    isFetching: myFetching,
+    isPlaceholderData: myIsPlaceholder,
   } = useMyCollections({
     search: isYoursTab ? searchTerm || undefined : undefined,
   })
 
   // Determine which data to use based on active tab
   const isLoading = isYoursTab ? myLoading : publicLoading
+
+  // Dim only while the rows on screen belong to a DIFFERENT query than the one
+  // being awaited — `isPlaceholderData` says exactly that, where raw
+  // `isFetching` would also dim a same-key background revalidation. Mirrors
+  // ShowList / VenueList / ArtistList. Only the Yours tab has a placeholder
+  // window; the public tabs keep their own loading treatment.
+  const isUpdating = isYoursTab && myFetching && myIsPlaceholder
   const error = isYoursTab ? myError : publicError
   const rawCollections = isYoursTab
     ? (myData?.collections ?? [])
@@ -293,20 +301,30 @@ export function CollectionList() {
         {/* All tab content areas render the same grid — content differs by data source */}
         {tabs.map((tab) => (
           <TabsContent key={tab.value} value={tab.value}>
-            <CollectionGrid
-              collections={collections}
-              isLoading={isLoading}
-              error={error}
-              onRetry={() => publicRefetch()}
-              emptyState={
-                <EmptyState
-                  tab={tab.value}
-                  hasSearch={!!searchTerm}
-                  isAuthenticated={isAuthenticated}
-                  onCreateClick={() => openCreateDrawer()}
-                />
-              }
-            />
+            <div
+              data-testid="collection-grid-wrapper"
+              className={cn(
+                'min-w-0',
+                isUpdating
+                  ? 'opacity-60 transition-opacity duration-75'
+                  : 'transition-opacity duration-75'
+              )}
+            >
+              <CollectionGrid
+                collections={collections}
+                isLoading={isLoading}
+                error={error}
+                onRetry={() => publicRefetch()}
+                emptyState={
+                  <EmptyState
+                    tab={tab.value}
+                    hasSearch={!!searchTerm}
+                    isAuthenticated={isAuthenticated}
+                    onCreateClick={() => openCreateDrawer()}
+                  />
+                }
+              />
+            </div>
           </TabsContent>
         ))}
       </Tabs>

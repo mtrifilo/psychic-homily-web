@@ -429,6 +429,70 @@ describe('CollectionList', () => {
       }
     })
 
+    // PSY-1779: because the term is not forwarded from public tabs, landing on
+    // Yours with a search active is a cache miss and `keepPreviousData` shows
+    // the UNSEARCHED library for one round trip. The house treatment for
+    // "these rows answer a different query" is a 60% dim (ShowList,
+    // VenueList, ArtistList) — apply it rather than presenting stale rows as
+    // the answer.
+    it('dims the Yours grid while showing placeholder data for a new search', () => {
+      mockSearchParams.set('tab', 'yours')
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [{ id: 1, title: 'Stale', slug: 'stale' }] },
+        isLoading: false,
+        error: null,
+        isFetching: true,
+        isPlaceholderData: true,
+      })
+
+      render(<CollectionList />)
+      expect(screen.getAllByTestId('collection-grid-wrapper')[0]).toHaveClass(
+        'opacity-60'
+      )
+    })
+
+    // A same-key background revalidation must NOT dim — that is the bug the
+    // `isPlaceholderData` term (rather than raw `isFetching`) exists to avoid.
+    it('does not dim the Yours grid during a same-key refetch', () => {
+      mockSearchParams.set('tab', 'yours')
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [{ id: 1, title: 'Fresh', slug: 'fresh' }] },
+        isLoading: false,
+        error: null,
+        isFetching: true,
+        isPlaceholderData: false,
+      })
+
+      render(<CollectionList />)
+      expect(
+        screen.getAllByTestId('collection-grid-wrapper')[0]
+      ).not.toHaveClass('opacity-60')
+    })
+
     // No search → list view passes `{ search: undefined }`. Confirms the
     // empty case doesn't pass an empty string through (which would still
     // differ from undefined and could fragment the query cache).
