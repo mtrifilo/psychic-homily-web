@@ -181,11 +181,13 @@ const nextConfig: NextConfig = {
       // why TopBar renders this one `unoptimized`, so the browser requests the
       // file below directly and actually gets these headers.
       //
-      // Naming the file with an explicit `-v1` is what makes freezing it safe:
-      // a new logo ships as `-v2` rather than mutating a URL that clients have
-      // been told to hold for a year.
+      // Versioning the filename is what makes freezing it safe: a new logo
+      // ships as `-v2` rather than mutating a URL clients were told to hold for
+      // a year. The rule matches the whole `-vN` family on purpose: pinning
+      // `-v1` literally would mean a future bump silently drops back to
+      // `max-age=0` if whoever renames the file misses this line.
       {
-        source: '/psychic-homily-logo-v1.png',
+        source: '/psychic-homily-logo-:version(v\\d+).png',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
         ],
