@@ -932,6 +932,20 @@ type ArtistWithShowCountResponse struct {
 // every growth spurt, and truncating would silently drop URLs from the
 // ItemList — the defect `/venues` already exhibits at 100 of 198.
 //
+// THAT PARAGRAPH IS ABOUT THIS ENDPOINT'S RESPONSE, NOT ABOUT THE ItemList, and
+// PSY-1773 makes the distinction matter: the /artists page now slices this
+// response to 100 entries before rendering its ItemList. The two decisions do
+// not conflict, and neither reverses the other. Truncating the RESPONSE was
+// rejected because it would not have fixed the cache budget without dropping
+// URLs from a block that was, at the time, the only thing linking them.
+// Truncating the RENDERED BLOCK was accepted for a different problem — page
+// weight, since the entries were serialised into the HTML and again into the
+// RSC flight payload — and is affordable because every artist URL is in the
+// /sitemap/artists.xml shard either way. So this endpoint still returns the
+// whole set, deliberately: the projection is what keeps it cacheable, and the
+// page decides how much of it to advertise. What that bound should be is
+// PSY-1794.
+//
 // # Why not SitemapEntry
 //
 // It is {slug, updated_at} with no name, so reusing it would silently drop the

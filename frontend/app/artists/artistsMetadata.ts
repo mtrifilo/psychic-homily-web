@@ -13,56 +13,55 @@ export type ArtistListItem = components['schemas']['ArtistListingEntry']
 /**
  * How many artists the `/artists` JSON-LD `ItemList` advertises.
  *
- * 100, the same number as `VENUE_LIST_LIMIT`, chosen to match rather than
- * argued from artist-specific evidence — how many entries an SEO `ItemList`
- * should carry is an open product question on all three list pages, and
- * `UPCOMING_SHOWS_LIMIT` says the same thing from the shows side.
+ * WHY A BOUND. The block emitted one entry per artist, and the document carried
+ * that TWICE — once as the `<script>` a crawler reads, once more inside the RSC
+ * flight payload. `<Link>` prefetch is served from that same prerendered buffer
+ * (`collectSegmentData` slices the prerendered page into per-segment prefetch
+ * payloads), so the block rode along onto every route linking here. Unbounded,
+ * against ~6,200 artists, that was a 1.65 MiB document carrying 794 KB of
+ * JSON-LD, and the bound removes the great majority of both.
  *
- * WHAT IT FIXES. The block serialised one entry per artist, TWICE per document
- * — once as the `<script>` a crawler reads, and once again inside the RSC
- * flight payload, which `<Link>` prefetch then pulled onto `/`, `/atlas` and
- * `/shows`. Reproduced locally against a 6,210-artist catalogue, production
- * build, `GET /artists`:
+ * The before/after byte table is in the PSY-1773 PR rather than here on
+ * purpose. It is a measurement of one catalogue size on one day; pinned in a
+ * comment it would be re-read as a promise and would rot the first time the
+ * catalogue grew. What belongs here is why the bound exists, which does not
+ * change with the row count.
  *
- *                          gzipped     raw     ld+json    flight
- *   unbounded              124,286  1,733,120  794,370   910,196
- *   bounded at 100          PENDING    PENDING  PENDING   PENDING
+ * WHY 100. A product default, and nothing in this file constrains it — a larger
+ * number would work. `VENUE_LIST_LIMIT` is also 100, but for an unrelated
+ * reason (it is `GET /venues`' declared `maximum`, which huma 422s past), so the
+ * agreement is a coincidence and not a convention to preserve. What an SEO
+ * `ItemList` is worth on a route whose URLs are already in a sitemap shard is
+ * the question all three list pages defer; PSY-1794 is where it gets settled.
  *
- * The `ItemList` is the entire reason those routes carried the catalogue, so
- * bounding it is what removes the leak. Moving the `await` below the Suspense
- * boundary does NOT: the flight carries a subtree's output whether it streamed
- * or was in the shell, so that only changes when the bytes arrive.
+ * WHAT IT COSTS. 100 of ~6,200 is a real truncation and nothing reports the
+ * shortfall — the same defect PSY-1764 tracks on `/venues` at 100 of 198, an
+ * order of magnitude larger. It does NOT cost discoverability: every slugged
+ * artist is in the `/sitemap/artists.xml` shard, a superset of this
+ * activity-gated set. That is not an advantage over `/venues`, which has its own
+ * shard on the same footing; sitemap coverage is why the truncation is
+ * survivable on both, not why it is cheaper here. What is lost is `ItemList`
+ * enrichment on the least active artists. Tracked in PSY-1794.
  *
- * WHAT IT COSTS, and why it is cheap here in a way it is not on `/venues`.
- * `VENUE_LIST_LIMIT` carries a warning that its bound silently drops 98 of 198
- * venues from the `ItemList` (now PSY-1764). The truncation is far larger here
- * — 100 of ~6,200 — but it is not the same defect, because `/artists` has the
- * discovery channel `/venues` is leaning on its `ItemList` for: `app/sitemap.ts`
- * prerenders a dedicated `/sitemap/artists.xml` shard covering EVERY slugged
- * artist, a superset of this activity-gated browse set. No artist URL becomes
- * undiscoverable by being cut from this block. What is lost is `ItemList`
- * enrichment on the least active, which is worth well under the ~1.6 MB per
- * document it was costing.
+ * WHICH 100. `GET /artists/listing` shares `artistBrowseOrder` with the browse
+ * page (upcoming show count DESC, then name ASC), so taking the HEAD keeps the
+ * most active. That is a property of the endpoint rather than of this file,
+ * which is why a test pins it.
  *
- * WHICH 100. `GET /artists/listing` shares its ORDER BY with the browse page
- * (`artistBrowseOrder`: upcoming show count DESC, then name ASC), so taking the
- * HEAD keeps the 100 most active artists — the same selection `/venues` makes,
- * and the right end of the list to keep. That is a property of the endpoint,
- * not of this file, which is why a test asserts it rather than a comment.
+ * WHY A SLICE, NOT `?limit=`. `ListArtistListingRequest` is an empty struct by
+ * design, and huma ignores a query parameter no input field declares — so
+ * `?limit=100` would be accepted, ignored, and return the whole catalogue while
+ * READING as though it were enforced. That argues against FAKING the bound in
+ * the URL, not against declaring the parameter: the endpoint has exactly one
+ * consumer, so giving it a real `limit` is a few lines of Go and strictly
+ * better than this — it would shrink the cache entry and the origin transfer
+ * too, neither of which the slice touches. That is PSY-1794, deliberately not
+ * done here because this ticket is frontend-only. When it lands, move the bound
+ * into the URL and drop the slice.
  *
- * APPLIED AS A SLICE, NOT A QUERY PARAMETER, and that is a fact about the
- * endpoint rather than a preference. `ListArtistListingRequest` is an empty
- * struct — deliberately, per its own doc comment — and huma silently ignores a
- * query parameter no input field declares. So `?limit=100` would be accepted,
- * ignored, and return all 6,155 entries while READING as though it were
- * bounded: a bound that looks enforced and is not. The slice cannot lie that
- * way. When the endpoint grows a real `limit`, move it into the URL here and
- * drop the slice; the constant and the call site do not otherwise change.
- *
- * It does NOT bound the list a human reads. `ArtistList` fetches `GET /artists`
- * itself, client-side and unbounded, and that request is untouched by this —
- * bounding it needs backend `limit`/`offset` support (PSY-1774) before the
- * first screen can be server-seeded the way `/shows` and `/venues` are.
+ * It bounds the JSON-LD ONLY. The list a human reads is untouched and is still
+ * client-fetched unbounded; `app/artists/page.tsx` documents why that half is
+ * deferred.
  */
 export const ARTIST_ITEM_LIST_LIMIT = 100
 
@@ -85,19 +84,21 @@ export const ARTIST_ITEM_LIST_LIMIT = 100
  * rather than restated so the numbers cannot drift apart.
  *
  * THE SLICE DOES NOT SHRINK THAT CACHE ENTRY. The request is unchanged and the
- * response is still the whole catalogue, so the 311,240-byte entry measured
- * above is exactly what this URL still caches; what the bound shrinks is the
- * rendered page. Two different problems, two different fixes, and confusing
- * them would make the next reader think this file protects the cache budget. It
- * does not — the projection endpoint does.
+ * response is still the whole catalogue, so this URL still caches the same
+ * 311,240-byte body (414,988 as the base64 entry the cap is applied to). What
+ * the bound shrinks is the rendered page. Two different problems with two
+ * different fixes, and confusing them would leave the next reader thinking this
+ * file protects the cache budget. It does not — the projection endpoint does.
  *
  * What is local to this file: there is no `timeoutMs` override. The previous 30s
  * was a bandaid for a payload that took whole seconds to transfer, added with a
- * note that the real fix was to stop asking for it. That fix is this, so the
- * budget returns to the shared default.
+ * note that the real fix was to stop asking for it. Moving to the projection
+ * endpoint was that fix, so the budget returns to the shared default.
  *
  * A failed fetch yields `[]`, and so no block at all — `fetchSeoList` fails open
- * on purpose, and `slice` on an empty array preserves that.
+ * on purpose, and `slice` on an empty array preserves that. The ONE exception is
+ * `DataCacheBudgetError`, which that helper deliberately re-throws; it is the
+ * build gate and it is meant to escape here uncaught.
  */
 export async function getArtistsForMetadata(): Promise<ArtistListItem[]> {
   const artists = await fetchSeoList<ArtistListItem>({

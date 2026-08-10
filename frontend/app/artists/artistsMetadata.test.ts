@@ -55,49 +55,58 @@ describe('getArtistsForMetadata', () => {
 /**
  * The bound on the `ItemList` (PSY-1773).
  *
- * Unbounded, this block serialised 6,155 entries into a 723 KB `<script>` and
- * the same 723 KB into the RSC flight payload, which `<Link>` prefetch pulled
- * onto `/`, `/atlas` and `/shows`. Nothing failed then either — the page
- * rendered correctly and was simply enormous — so the bound is asserted here
- * rather than left to review.
+ * Unbounded, the page emitted one entry per artist into the `<script>` AND again
+ * into the RSC flight payload — 1.65 MiB of HTML, 124 KB on the wire, and a
+ * `<Link>` prefetch that carried it onto `/`, `/atlas` and `/shows`. Nothing
+ * failed: the page rendered correctly and was simply enormous. That is why the
+ * bound is asserted rather than left to review.
  *
- * The second test is the one that is easy to lose. `GET /artists/listing` takes
- * NO query parameters (`ListArtistListingRequest` is an empty struct) and huma
- * ignores a parameter no input field declares, so rewriting the slice as
- * `?limit=100` would be accepted, ignored, and quietly restore all 6,155
- * entries while the call site still read as bounded. That is the silent-drift
- * failure `useVenuesFirstScreen.test.tsx` guards against on `/venues`, in the
- * shape this route can actually exhibit: there is no first-screen seed to
- * assert here, because `ArtistList` still fetches the unbounded `GET /artists`
- * client-side and cannot be seeded until PSY-1774 bounds it.
+ * These tests pin `getArtistsForMetadata`. The ARTIFACT is the `<script>` that
+ * `page.tsx` renders from it, and `page.test.tsx` pins that end separately —
+ * without it, inlining the fetch back into the page would restore the bug with
+ * every test here still green.
  */
 describe('ItemList bound', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
+  // The mechanism-independent guard: whatever bounds the list, the list is
+  // bounded. This one survives PSY-1794 moving the bound into the URL.
   it('caps the entries it returns even when the endpoint sends the catalogue', async () => {
-    fetchSeoList.mockResolvedValue(listingEntries(6_155))
+    fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
     await expect(getArtistsForMetadata()).resolves.toHaveLength(
       ARTIST_ITEM_LIST_LIMIT
     )
   })
 
-  it('bounds by slicing, never by a query parameter the endpoint ignores', async () => {
-    fetchSeoList.mockResolvedValue(listingEntries(6_155))
+  /**
+   * TODAY'S MECHANISM, and the trap it guards.
+   *
+   * `GET /artists/listing` declares no query parameters at all
+   * (`ListArtistListingRequest` is an empty struct) and huma ignores one no
+   * input field declares. So rewriting the slice as `?limit=100` would be
+   * accepted, ignored, and quietly restore the whole catalogue while the call
+   * site still READ as bounded.
+   *
+   * DELETE THIS TEST, deliberately, when the endpoint grows a real `limit` —
+   * at that point sending one is the correct implementation and this assertion
+   * becomes wrong. The test above is what must keep passing across that change.
+   */
+  it('does not send a limit the endpoint would silently ignore', async () => {
+    fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
     await getArtistsForMetadata()
     expect(fetchSeoList.mock.calls[0][0].url).not.toMatch(/limit/)
   })
 
-  // Order is the selection. `/artists/listing` shares `artistBrowseOrder` with
-  // the browse page (upcoming show count DESC, then name ASC), so taking the
-  // head keeps the 100 MOST ACTIVE artists. A slice from anywhere else, or a
-  // sort applied on the way through, would silently change which artists get
-  // the enrichment.
-  it('keeps the head of the endpoint order, the most active artists', async () => {
-    fetchSeoList.mockResolvedValue(listingEntries(6_155))
+  // WHICH end of the list is kept. The endpoint sorts most-active first
+  // (`artistBrowseOrder`), so the head is the selection worth advertising; this
+  // pins that we take the head and never re-sort or sample. The ordering itself
+  // is the backend's guarantee, not something this test can observe.
+  it('keeps the head of whatever order the endpoint returned', async () => {
+    fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
     const artists = await getArtistsForMetadata()
     expect(artists[0]).toEqual({ name: 'Artist 0', slug: 'artist-0' })
@@ -109,9 +118,5 @@ describe('ItemList bound', () => {
     fetchSeoList.mockResolvedValue(artists)
 
     await expect(getArtistsForMetadata()).resolves.toEqual(artists)
-  })
-
-  it('matches the bound /venues applies to its own ItemList', () => {
-    expect(ARTIST_ITEM_LIST_LIMIT).toBe(100)
   })
 })
