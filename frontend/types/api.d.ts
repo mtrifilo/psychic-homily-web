@@ -31580,7 +31580,7 @@ export interface operations {
                 city?: string;
                 /** @description Filter by state */
                 state?: string;
-                /** @description Maximum number of shows to return (max 200). Defaults to 50. */
+                /** @description Maximum number of shows to return (max 200) */
                 limit?: number;
                 /** @description Offset for pagination */
                 offset?: number;

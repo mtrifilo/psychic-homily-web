@@ -215,7 +215,7 @@ func (s *ShowHandlerIntegrationSuite) TestGetShows_Empty() {
 // page" are distinguishable.
 func (s *ShowHandlerIntegrationSuite) TestGetShows_OmittedLimitIsBounded() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	const seeded = defaultShowsLimit + 5
+	const seeded = defaultShowListLimit + 5
 	for i := 0; i < seeded; i++ {
 		testhelpers.CreateApprovedShow(s.deps.DB, user.ID, fmt.Sprintf("Bounded Show %02d", i))
 	}
@@ -223,8 +223,8 @@ func (s *ShowHandlerIntegrationSuite) TestGetShows_OmittedLimitIsBounded() {
 	resp, err := s.handler.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	s.NoError(err)
 	s.Require().NotNil(resp)
-	s.Len(resp.Body.Shows, defaultShowsLimit, "an omitted limit must not mean 'all rows'")
-	s.Equal(defaultShowsLimit, resp.Body.Limit)
+	s.Len(resp.Body.Shows, defaultShowListLimit, "an omitted limit must not mean 'all rows'")
+	s.Equal(defaultShowListLimit, resp.Body.Limit)
 	// The total still describes the whole matching set, so the caller can tell
 	// there is more without having asked for it.
 	s.GreaterOrEqual(resp.Body.Total, int64(seeded))

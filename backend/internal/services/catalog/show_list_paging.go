@@ -8,13 +8,15 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// Mechanics shared by every entity show list (an artist's, a venue's): the page
-// window, and the venue-local year histogram behind its year picker.
+// Mechanics shared by the show lists: the page window, and the venue-local year
+// histogram behind an entity archive's year picker.
 //
-// These live here rather than in either service because both already implement
-// them identically, and the parts worth stating once are the parts a reader
-// would otherwise have to trust two copies of: what GORM does with a negative
-// bound, and why the histogram's aliases are quoted.
+// These live here rather than in any one service because several already
+// implement them identically. clampPageWindow serves the artist and venue
+// archives plus the catalog-wide GET /shows; the histogram serves the two
+// entity archives only. The parts worth stating once are the parts a reader
+// would otherwise have to trust several copies of: what GORM does with a
+// negative bound, and why the histogram's aliases are quoted.
 
 // Whether the CALLER's own select/group expressions dereference venue_tz,
 // independent of what the WHERE clauses need. Named rather than a bare literal

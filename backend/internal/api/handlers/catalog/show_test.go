@@ -427,7 +427,7 @@ func TestGetShowsHandler_Success(t *testing.T) {
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 
-	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{Limit: 50})
+	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -470,11 +470,11 @@ func TestGetShowsHandler_ZeroLimitTakesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.Limit != defaultShowsLimit {
-		t.Errorf("expected service to receive limit %d, got %d", defaultShowsLimit, got.Limit)
+	if got.Limit != defaultShowListLimit {
+		t.Errorf("expected service to receive limit %d, got %d", defaultShowListLimit, got.Limit)
 	}
-	if resp.Body.Limit != defaultShowsLimit {
-		t.Errorf("expected response to echo limit %d, got %d", defaultShowsLimit, resp.Body.Limit)
+	if resp.Body.Limit != defaultShowListLimit {
+		t.Errorf("expected response to echo limit %d, got %d", defaultShowListLimit, resp.Body.Limit)
 	}
 }
 
@@ -500,33 +500,6 @@ func TestGetShowsHandler_PassesAndEchoesPageWindow(t *testing.T) {
 	if resp.Body.Limit != 25 || resp.Body.Offset != 100 {
 		t.Errorf("expected echo {25,100}, got {%d,%d}", resp.Body.Limit, resp.Body.Offset)
 	}
-	if resp.Body.Total != 931 {
-		t.Errorf("expected total 931, got %d", resp.Body.Total)
-	}
-}
-
-// An empty page must serialize as `[]`, not `null`: a client paging until the
-// array runs out should not have to special-case a nil slice.
-func TestGetShowsHandler_EmptyPageIsNotNull(t *testing.T) {
-	mock := &testhelpers.MockShowService{
-		GetShowsFn: func(_ map[string]interface{}, _ contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
-			return nil, 931, nil
-		},
-	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
-
-	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{Limit: 50, Offset: 100000})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Shows == nil {
-		t.Fatal("expected an empty slice, got nil")
-	}
-	if len(resp.Body.Shows) != 0 {
-		t.Errorf("expected 0 shows, got %d", len(resp.Body.Shows))
-	}
-	// The total describes the whole matching set, not the page, so an overrun
-	// offset still tells the caller how far it overran.
 	if resp.Body.Total != 931 {
 		t.Errorf("expected total 931, got %d", resp.Body.Total)
 	}

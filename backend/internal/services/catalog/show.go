@@ -386,8 +386,9 @@ func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.Sh
 
 	// A factory rather than one *gorm.DB shared by both reads: the count and
 	// the page have to apply exactly the same predicates, and reusing a single
-	// builder would carry the first call's clauses into the second. Same shape
-	// as the artist and venue show lists for the same reason.
+	// builder would carry the first call's clauses into the second. The artist
+	// and venue show lists use named base-query methods for the same reason;
+	// a closure suffices here, with one caller-pair and no year histogram.
 	//
 	// No Preload here. Count ignores them, and the page adds its own below, so
 	// hanging them on the base would make the count's plan look like it needed
@@ -454,9 +455,14 @@ func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.Sh
 	// Columns are table-qualified because the tag filter's subquery references
 	// show_artists, and an unqualified event_date would read ambiguously to
 	// anyone extending that filter into a join later.
+	// No Preload("Artists"): buildShowResponse rebuilds the bill from
+	// show_artists ordered by position, which the association would not give,
+	// so preloading it is a whole extra join whose result nothing reads. Only
+	// the slice capacity hint would notice. Venues IS read, so it stays. The
+	// artist and venue show lists dropped it for the same reason.
 	var shows []catalogm.Show
 	if err := baseQuery().
-		Preload("Venues").Preload("Artists").
+		Preload("Venues").
 		Order("shows.event_date ASC, shows.id ASC").
 		Limit(limit).
 		Offset(offset).
