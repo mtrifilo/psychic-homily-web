@@ -349,8 +349,10 @@ type SearchShowsResponse struct {
 //
 // An object rather than the bare array this endpoint used to return. The array
 // was only honest while the response was the whole table: once a caller gets a
-// page, it needs to know how much it did not get, and the four fields below are
-// the same ones the artist and venue show lists report. This is a BREAKING
+// page, it needs to know how much it did not get. The four fields below are the
+// artist and venue show lists' envelope minus the two that do not apply here:
+// no entity id, because this list is not scoped to one, and no year, because
+// /shows scopes with from_date and to_date instead. This is a BREAKING
 // response-shape change, taken deliberately. Nothing in this repo reads it
 // (the site's /shows route is served by /shows/upcoming), and a bounded array
 // with no total would be strictly harder to page than either sibling.
@@ -691,8 +693,9 @@ func (h *ShowHandler) SearchShowsHandler(ctx context.Context, req *SearchShowsRe
 
 // GetShowsHandler handles GET /shows - returns a page of approved shows.
 //
-// The limit is not optional in effect: an omitted one takes defaultShowsLimit
-// rather than meaning "all". That is the whole point of PSY-1748: before it,
+// The limit is not optional in effect: an omitted one takes
+// defaultShowListLimit rather than meaning "all". That is the whole point of
+// PSY-1748: before it,
 // a bare GET /shows serialized the entire approved catalog, 10 MB and counting,
 // to any anonymous caller.
 func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest) (*GetShowsResponse, error) {
