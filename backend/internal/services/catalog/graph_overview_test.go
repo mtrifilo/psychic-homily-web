@@ -942,6 +942,48 @@ func (s *GraphOverviewSuite) TestStartingPoints_FallBackToTheNewestBuildThatHasT
 	s.Assert().NotEmpty(points, "the previous build's ranking is a better answer than none")
 }
 
+// The column is a jsonb an operator can edit, and its contents go straight into
+// an IN list. An over-long array must be truncated rather than turned into a
+// bind message pgx refuses.
+func (s *GraphOverviewSuite) TestStartingPoints_TruncateAnOverlongStoredRanking() {
+	s.seedScene()
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+
+	// Every id repeated far past the cap. They resolve to real artists, so a
+	// missing cap would show up as an over-long response rather than an error.
+	var ids []uint
+	for i := 0; i < 200; i++ {
+		ids = append(ids, s.newestPayload().Nodes.ID...)
+	}
+	encoded, err := json.Marshal(ids)
+	s.Require().NoError(err)
+	s.Require().NoError(s.db.Exec(
+		"UPDATE graph_overview_snapshots SET starting_point_artist_ids = ?::jsonb WHERE id = ?",
+		string(encoded), s.newestSnapshot().ID).Error)
+
+	points, err := NewGraphOverviewService(s.db).GetGraphStartingPoints()
+
+	s.Require().NoError(err)
+	s.Assert().LessOrEqual(len(points), graphOverviewStartingPoints)
+}
+
+// A stored ranking this build cannot decode must degrade to "nothing to
+// suggest" — the client's random fallback — rather than failing the request.
+func (s *GraphOverviewSuite) TestStartingPoints_UnreadableRankingSuggestsNothing() {
+	s.seedScene()
+	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
+	s.Require().NoError(err)
+	s.Require().NoError(s.db.Exec(
+		`UPDATE graph_overview_snapshots SET starting_point_artist_ids = '{"not":"a list"}'::jsonb WHERE id = ?`,
+		s.newestSnapshot().ID).Error)
+
+	points, err := NewGraphOverviewService(s.db).GetGraphStartingPoints()
+
+	s.Require().NoError(err, "an unreadable ranking is not worth failing the request over")
+	s.Assert().Empty(points)
+}
+
 // The snapshot's stability contract is asserted against content_hash, which
 // digests the payload. A list stored in its own column must therefore leave two
 // runs over unchanged data byte-identical.

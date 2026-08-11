@@ -157,12 +157,16 @@ func rankByScore(scores []float64) []int32 {
 // graphOverviewStartingPoints is how many top-connected artists each build
 // stores for the /graph fallback hero (PSY-1749).
 //
-// Sized for the CLIENT'S rotation, not for a browse list: the hero shows a
-// small random subset per visit, so the pool only has to be deep enough that
-// two consecutive visits rarely draw the same names, and shallow enough that
-// every entry is genuinely one of the map's hubs. A pool the size of a page of
-// search results would put the graph's mediocre middle into a sentence that
-// says "start here".
+// Sized for the CLIENT'S rotation, not for a browse list: the hero draws
+// SUGGESTION_ROTATION_SIZE of these per visit (frontend/features/graph/
+// startingSuggestions.ts, currently 3), so the pool only has to be deep enough
+// that two consecutive visits rarely draw the same names, and shallow enough
+// that every entry is genuinely one of the map's hubs. A pool the size of a
+// page of search results would put the graph's mediocre middle into a sentence
+// that says "start here".
+//
+// The two numbers are NOT enforced against each other, and do not need to be:
+// a client that draws more than the pool holds simply offers the whole pool.
 const graphOverviewStartingPoints = 12
 
 // pickStartingPointArtists returns the most connected ARTIST ids on the map,
@@ -185,7 +189,15 @@ const graphOverviewStartingPoints = 12
 // artists rather than the lowest ids, and two runs over unchanged data pick the
 // same set in the same order.
 func pickStartingPointArtists(b *overviewBuild, centrality []float64) []uint {
-	if b == nil || len(centrality) != len(b.nodeIDs) {
+	// EVERY column this reads must cover the node set. The comparator indexes
+	// three parallel slices, so a short one is a panic inside sort — and this
+	// runs at the end of the nightly build, where a panic would cost the whole
+	// map for a decoration. Refusing to rank is the graceful answer: the client
+	// already treats "no suggestions" as a state it can handle.
+	if b == nil ||
+		len(centrality) != len(b.nodeIDs) ||
+		len(b.nodeKind) != len(b.nodeIDs) ||
+		len(b.neighbors) != len(b.nodeIDs) {
 		return nil
 	}
 

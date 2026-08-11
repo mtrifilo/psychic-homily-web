@@ -81,14 +81,19 @@ const { startingPointsState } = vi.hoisted(() => ({
       artist_slug: string
     }>,
     isPending: false,
+    hasFailed: false,
   },
 }))
 
 vi.mock('../hooks/useGraphStartingPoints', () => ({
   useGraphStartingPoints: () => ({
-    data: startingPointsState.isPending
-      ? undefined
-      : { artists: startingPointsState.artists },
+    // A settled FAILURE looks like a settled empty pool to this component:
+    // no data, not pending. Both reach the random fallback, which is the
+    // point — the hero must never depend on this endpoint succeeding.
+    data:
+      startingPointsState.isPending || startingPointsState.hasFailed
+        ? undefined
+        : { artists: startingPointsState.artists },
     isPending: startingPointsState.isPending,
   }),
 }))
@@ -342,6 +347,7 @@ describe('GraphObservatory', () => {
       { artist_id: 1, artist_name: 'Diners', artist_slug: 'diners' },
     ]
     startingPointsState.isPending = false
+    startingPointsState.hasFailed = false
     searchRequest.mockReset()
     searchRequest.mockResolvedValue({
       artists: [
@@ -521,6 +527,23 @@ describe('GraphObservatory', () => {
     await user.click(button)
 
     // Centers directly from the catalog target — no failable search round-trip.
+    expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  // The suggestion endpoint going down must cost the sentence its RANKING, not
+  // the sentence. A failed fetch and an empty pool are the same state to this
+  // surface, and both land on the random catalog artist.
+  it('falls back to a random catalog artist when the ranked pool fails to load', async () => {
+    const user = userEvent.setup()
+    startingPointsState.hasFailed = true
+    renderWithProviders(<GraphObservatory />)
+
+    const button = await screen.findByRole('button', { name: 'Search for Playboy Manbaby' })
+    expect(shuffleRefetch).toHaveBeenCalled()
+
+    await user.click(button)
+
     expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })

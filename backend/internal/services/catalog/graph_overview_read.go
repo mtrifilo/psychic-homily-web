@@ -294,6 +294,15 @@ func (s *GraphOverviewService) readStartingPointIDs() ([]uint, error) {
 		slog.Warn("graph starting points: stored ranking is unreadable; suggesting nothing", "error", err)
 		return nil, nil
 	}
+	// RE-APPLY THE CAP ON READ. The writer already bounds this list, but the
+	// column is a jsonb an operator can edit, and the id set goes straight into
+	// an IN list — pgx refuses a bind message over 65535 parameters, so an
+	// over-long array would turn a decoration into a 500. Trusting the writer
+	// here would make the read's failure mode depend on a promise made in a
+	// different file.
+	if len(ids) > graphOverviewStartingPoints {
+		ids = ids[:graphOverviewStartingPoints]
+	}
 	return ids, nil
 }
 
@@ -343,5 +352,9 @@ func resolveStartingPoints(db *gorm.DB, ids []uint) ([]contracts.GraphStartingPo
 			ArtistSlug: *r.Slug,
 		})
 	}
-	return out, nil
+	// CLIPPED to its own length. This slice is handed to every caller from the
+	// cache, so leftover capacity (there is some whenever an id was dropped)
+	// would let one caller's append write into an array another goroutine is
+	// reading. Clipping makes any future append allocate instead of alias.
+	return out[:len(out):len(out)], nil
 }
