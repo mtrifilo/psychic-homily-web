@@ -142,19 +142,6 @@ export interface SceneShowsResponse {
   shows: SceneShowSummary[]
 }
 
-export interface GenreCount {
-  tag_id: number
-  name: string
-  slug: string
-  count: number
-}
-
-export interface SceneGenreResponse {
-  genres: GenreCount[]
-  diversity_index: number
-  diversity_label: string
-}
-
 // ──────────────────────────────────────────────
 // Scene graph (PSY-367) — derived per-scene artist relationship graph
 // ──────────────────────────────────────────────

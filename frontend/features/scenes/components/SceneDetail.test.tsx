@@ -2,19 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { SCENE_ARTISTS_ANCHOR } from './SceneGraph'
-import type {
-  SceneDetail,
-  SceneArtistsResponse,
-  SceneGenreResponse,
-} from '../types'
+import type { SceneDetail, SceneArtistsResponse } from '../types'
 
-// PSY-690: SceneDetailView orchestrates the scene page — loading/not-found
-// branches, the header + stat summary, and the content cards (which delegate
-// to useSceneArtists / useSceneGenres and the ScenePulse / SceneGraph
-// children). Mock the data hooks and the two child components so this test
-// covers the view's own composition without dragging in the canvas.
+// SceneDetailView orchestrates the scene page: loading / not-found branches,
+// the status band, the header, and the modules under the calendar. The calendar
+// itself has its own suite (SceneCalendar.test.tsx); stub it here so this test
+// covers the view's own composition.
 
-// FollowButton pulls AuthContext (unavailable here) — mock at the module
+// FollowButton pulls AuthContext (unavailable here), so mock at the module
 // boundary, same idiom as VenueDetail/LabelDetail tests.
 vi.mock('@/components/shared/FollowButton', () => ({
   FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number | string }) => (
@@ -45,14 +40,22 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-// Child components are covered by their own sibling tests; stub them so the
-// canvas (SceneGraph → SceneGraphVisualization → ForceGraphView) never mounts
-// and ScenePulse logic isn't re-asserted here.
-vi.mock('./ScenePulse', () => ({
-  ScenePulse: () => <div data-testid="scene-pulse" />,
+// The calendar owns its own request and its own suite. The window hook is
+// stubbed here so the status band's clauses can be driven directly, and the
+// component records the scene it was handed so the canonical-slug rule stays
+// covered after the calendar moved out of this file.
+const mockCalendarWindow = vi.fn()
+const calendarScenes: SceneDetail[] = []
+vi.mock('./SceneCalendar', () => ({
+  SceneCalendar: ({ scene }: { scene: SceneDetail }) => {
+    calendarScenes.push(scene)
+    return <div data-testid="scene-calendar" />
+  },
+  useSceneCalendarWindow: () => mockCalendarWindow(),
 }))
+
 // Keep the REAL SCENE_ARTISTS_ANCHOR (via importActual) so the anchor-id test
-// below exercises the actual constant, not a hand-typed copy — only the heavy
+// below exercises the actual constant, not a hand-typed copy. Only the heavy
 // canvas component is stubbed.
 vi.mock('./SceneGraph', async importOriginal => ({
   ...(await importOriginal<typeof import('./SceneGraph')>()),
@@ -61,11 +64,9 @@ vi.mock('./SceneGraph', async importOriginal => ({
 
 const mockUseSceneDetail = vi.fn()
 const mockUseSceneArtists = vi.fn()
-const mockUseSceneGenres = vi.fn()
 vi.mock('../hooks', () => ({
   useSceneDetail: () => mockUseSceneDetail(),
   useSceneArtists: () => mockUseSceneArtists(),
-  useSceneGenres: () => mockUseSceneGenres(),
 }))
 
 import { SceneDetailView } from './SceneDetail'
@@ -110,18 +111,13 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
 }
 
 const emptyArtists: SceneArtistsResponse = { artists: [], total: 0 }
-const emptyGenres: SceneGenreResponse = {
-  genres: [],
-  diversity_index: 0,
-  diversity_label: '',
-}
 
 describe('SceneDetailView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Sensible defaults for the inner lists; individual tests override.
+    calendarScenes.length = 0
     mockUseSceneArtists.mockReturnValue({ data: emptyArtists, isLoading: false })
-    mockUseSceneGenres.mockReturnValue({ data: emptyGenres, isLoading: false })
+    mockCalendarWindow.mockReturnValue({ timeZone: 'America/Phoenix' })
   })
 
   it('renders a loading spinner while the scene detail is loading', () => {
@@ -147,76 +143,31 @@ describe('SceneDetailView', () => {
     expect(screen.getByText('Scene not found')).toBeInTheDocument()
   })
 
-  describe('populated scene', () => {
-    it('renders the city/state heading and the stat summary line', () => {
+  describe('status band', () => {
+    beforeEach(() => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene(),
         isLoading: false,
         error: null,
       })
+    })
+
+    it('names the place, the volume, the coverage and the clock', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
-      const heading = screen.getByRole('heading', { level: 1, name: 'Phoenix, AZ' })
-      expect(heading).toBeInTheDocument()
-
-      // The stat summary is the single `<p>` directly after the heading ROW
-      // (the h1 shares a flex row with the follow button since PSY-1340); the
-      // venue/artist/show counts also appear in the cards below, so match the
-      // whole joined line rather than substrings.
-      const summary = heading.closest('div')!.nextElementSibling as HTMLElement
-      const sep = ' · ' // statParts.join separator
-      expect(summary.textContent).toBe(
-        ['12 venues', '85 artists', '45 upcoming shows'].join(sep) +
-          `${sep}This week in Phoenix →`
-      )
-      // The arrow is decoration, so it stays out of the announced name.
       expect(
-        screen.getByRole('link', { name: 'This week in Phoenix' })
+        screen.getByText(
+          'Phoenix, AZ · 45 upcoming shows · 12 rooms tracked · all times MST'
+        )
       ).toBeInTheDocument()
     })
 
-    // PSY-1623: a scene's own page not linking that scene's week was the most
-    // obviously missing edge in the crawl graph.
-    it('links the scene week page from the stat summary line', () => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene(),
-        isLoading: false,
-        error: null,
-      })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
-      expect(
-        screen.getByRole('link', { name: 'This week in Phoenix' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
-    })
-
-    // A metro MEMBER slug resolves to its principal city, so `/scenes/mesa-az`
-    // renders the Phoenix scene. Building the week href from the requested
-    // spelling would mint a second URL for a page that already has one, which
-    // is the opposite of what a crawl-graph ticket is for.
-    it('links the canonical scene slug, not the requested one', () => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene(),
-        isLoading: false,
-        error: null,
-      })
-      renderWithProviders(<SceneDetailView slug="mesa-az" />)
-
-      expect(
-        screen.getByRole('link', { name: 'This week in Phoenix' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
-    })
-
-    // The stats are conditional on being non-zero; the week is not. A scene
-    // with nothing to count still has a week page, and it is the only page
-    // that would say so.
-    it('keeps the week link when there are no stats to show', () => {
+    it('pluralizes a single upcoming show', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene({
           stats: {
-            venue_count: 0,
+            venue_count: 1,
             artist_count: 0,
-            upcoming_show_count: 0,
+            upcoming_show_count: 1,
             festival_count: 0,
           },
         }),
@@ -224,102 +175,198 @@ describe('SceneDetailView', () => {
         error: null,
       })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
       expect(
-        screen.getByRole('link', { name: 'This week in Phoenix' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+        screen.getByText('Phoenix, AZ · 1 upcoming show · 1 room tracked · all times MST')
+      ).toBeInTheDocument()
     })
 
-    it('renders the #scene-artists anchor the mobile graph teaser links to (PSY-1472)', () => {
+    // Naming a clock is a claim. A zone the rows could not supply would be the
+    // reader's own, which is a confidently wrong answer about a city they are
+    // not in.
+    it('drops the clock when the zone is unknown', () => {
+      mockCalendarWindow.mockReturnValue({ timeZone: undefined })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(
+        screen.getByText('Phoenix, AZ · 45 upcoming shows · 12 rooms tracked')
+      ).toBeInTheDocument()
+    })
+
+    // `GET /scenes/{slug}` has no calendar-week field, and the only count it
+    // carries spans every future show. Labelling that "this week" is the exact
+    // defect PSY-1623 removed from two other surfaces.
+    it('carries no this-week count', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText(/this week/i)).not.toBeInTheDocument()
+    })
+
+    // The window opens at NOW, so any tonight count taken from it undercounts
+    // once doors open, and names YESTERDAY between midnight and 6am. Both
+    // spellings contradicted /scenes/{slug}/tonight one click away.
+    it('carries no tonight count', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText(/tonight/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('populated scene', () => {
+    beforeEach(() => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene(),
         isLoading: false,
         error: null,
       })
+    })
+
+    it('renders the city/state heading', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Phoenix, AZ' })
+      ).toBeInTheDocument()
+    })
+
+    it('renders the stat line with every category named', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(
+        screen.getByText('12 venues · 85 artists based here · 45 upcoming shows')
+      ).toBeInTheDocument()
+    })
+
+    // The bug this replaces dropped zero-valued parts, so London read
+    // "2 venues · 197 upcoming shows" as though artists were never a category.
+    it('keeps a zero-valued part rather than dropping the category', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({
+          city: 'London',
+          state: 'England',
+          slug: 'london-england',
+          stats: {
+            venue_count: 2,
+            artist_count: 0,
+            upcoming_show_count: 197,
+            festival_count: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="london-england" />)
+      expect(
+        screen.getByText('2 venues · 0 artists based here · 197 upcoming shows')
+      ).toBeInTheDocument()
+    })
+
+    it('mounts the calendar as the page primary object', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.getByTestId('scene-calendar')).toBeInTheDocument()
+    })
+
+    // A metro MEMBER slug resolves to its principal city, so `/scenes/mesa-az`
+    // renders the Phoenix scene. Every link the calendar builds hangs off the
+    // slug it is handed; building from the requested spelling would mint a
+    // second URL for pages that already have one.
+    it('hands the calendar the canonical scene, not the requested slug', () => {
+      renderWithProviders(<SceneDetailView slug="mesa-az" />)
+      expect(calendarScenes).toHaveLength(1)
+      expect(calendarScenes[0].slug).toBe('phoenix-az')
+    })
+
+    // AC1 is about ORDER: the calendar is the page's object and everything
+    // else sits under it.
+    it('renders the calendar above every module below it', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      const calendar = screen.getByTestId('scene-calendar')
+      for (const testId of ['scene-graph']) {
+        expect(
+          calendar.compareDocumentPosition(screen.getByTestId(testId)) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      }
+      expect(
+        calendar.compareDocumentPosition(screen.getByText('Venues')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        calendar.compareDocumentPosition(screen.getByText('Local Artists')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    // The h1 is followed directly by the stat line. Anything between them would
+    // be the tagline or crews slot rendering scaffolding it has no data for.
+    it('puts nothing between the heading and the stat line', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      const heading = screen.getByRole('heading', { level: 1, name: 'Phoenix, AZ' })
+      expect(heading.nextElementSibling?.textContent).toBe(
+        '12 venues · 85 artists based here · 45 upcoming shows'
+      )
+    })
+
+    it('renders the #scene-artists anchor the mobile graph teaser links to (PSY-1472)', () => {
       const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBeInTheDocument()
     })
 
-    // The scene page is where a reader arrives; the nightly and weekly pages
-    // link to each other but to little else, so the links from here are what
-    // connect that sub-site to the rest of the app.
-    it('links to the scene’s own night from the upcoming-shows header', () => {
+    it('mounts the SceneGraph below the calendar substance', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.getByTestId('scene-graph')).toBeInTheDocument()
+    })
+
+    it('deep-links venues via the canonical ?cities= param', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({ city: 'Los Angeles', state: 'CA', slug: 'los-angeles-ca' }),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="los-angeles-ca" />)
+
+      expect(screen.getByRole('link', { name: /View all venues/i })).toHaveAttribute(
+        'href',
+        '/venues?cities=Los%20Angeles%2CCA'
+      )
+    })
+  })
+
+  // Every kill-set item, asserted as ABSENT. These are not incidental removals:
+  // Scene Pulse was catalog telemetry in a scene-health costume (and shipped
+  // the PSY-1730 `++70` bug, retired by this deletion), Genre Distribution
+  // rendered on 2 of 28 scenes, and `description` is populated on 0 of 28.
+  describe('the kill set', () => {
+    it('never renders the Scene Pulse card or its sparkline', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene(),
         isLoading: false,
         error: null,
       })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
-      expect(
-        screen.getByRole('link', { name: 'Tonight in Phoenix' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
+      expect(screen.queryByText(/scene pulse/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/this month/i)).not.toBeInTheDocument()
     })
 
-    // Guards the split, not just the link: the week's edge lives on the stats
-    // line, and a second one on the card header would be two links to one page
-    // a few lines apart.
-    it('leaves the week to the single link on the stats line', () => {
+    it('never renders Genre Distribution', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene(),
         isLoading: false,
         error: null,
       })
-      const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
-      const weekLinks = [...container.querySelectorAll('a[href]')].filter(
-        a => a.getAttribute('href') === '/scenes/phoenix-az/week'
-      )
-      expect(weekLinks).toHaveLength(1)
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText(/genre distribution/i)).not.toBeInTheDocument()
     })
 
-    // A metro member spelling resolves to its principal city, so a link built
-    // from what the reader typed would mint a second URL for a page that
-    // already has one.
-    it('builds the nightly href from the resolved scene, not the route param', () => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene(),
-        isLoading: false,
-        error: null,
-      })
-      renderWithProviders(<SceneDetailView slug="mesa-az" />)
-
-      expect(
-        screen.getByRole('link', { name: 'Tonight in Phoenix' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
-    })
-
-    it('renders the scene description when present', () => {
+    it('never renders the scene description, even when the payload carries one', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene({ description: 'A desert DIY scene.' }),
         isLoading: false,
         error: null,
       })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.getByText('A desert DIY scene.')).toBeInTheDocument()
+      expect(screen.queryByText('A desert DIY scene.')).not.toBeInTheDocument()
     })
+  })
 
-    it('mounts the ScenePulse and SceneGraph children', () => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene(),
-        isLoading: false,
-        error: null,
-      })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.getByTestId('scene-pulse')).toBeInTheDocument()
-      expect(screen.getByTestId('scene-graph')).toBeInTheDocument()
-    })
-
+  describe('conditional modules', () => {
     it('hides the festivals card when festival_count is 0', () => {
       mockUseSceneDetail.mockReturnValue({
-        data: buildScene({
-          stats: {
-            venue_count: 12,
-            artist_count: 85,
-            upcoming_show_count: 45,
-            festival_count: 0,
-          },
-        }),
+        data: buildScene(),
         isLoading: false,
         error: null,
       })
@@ -344,27 +391,9 @@ describe('SceneDetailView', () => {
       expect(screen.getByText('Festivals')).toBeInTheDocument()
       expect(screen.getByText(/3 festivals in Phoenix/)).toBeInTheDocument()
     })
-
-    it('deep-links shows and venues via the canonical ?cities= param', () => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene({ city: 'Los Angeles', state: 'CA', slug: 'los-angeles-ca' }),
-        isLoading: false,
-        error: null,
-      })
-      renderWithProviders(<SceneDetailView slug="los-angeles-ca" />)
-
-      expect(screen.getByRole('link', { name: /View upcoming shows/i })).toHaveAttribute(
-        'href',
-        '/shows?cities=Los%20Angeles%2CCA'
-      )
-      expect(screen.getByRole('link', { name: /View all venues/i })).toHaveAttribute(
-        'href',
-        '/venues?cities=Los%20Angeles%2CCA'
-      )
-    })
   })
 
-  describe('active artists list', () => {
+  describe('local artists', () => {
     beforeEach(() => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene(),
@@ -423,7 +452,6 @@ describe('SceneDetailView', () => {
     })
 
     it('renders the "and N more" overflow line when total exceeds 10', () => {
-      // The overflow copy is `total - 10` (the list caps display at 10).
       mockUseSceneArtists.mockReturnValue({
         data: {
           artists: [
@@ -435,42 +463,6 @@ describe('SceneDetailView', () => {
       })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(screen.getByText(/and 4 more artists/)).toBeInTheDocument()
-    })
-  })
-
-  describe('genre distribution', () => {
-    beforeEach(() => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene(),
-        isLoading: false,
-        error: null,
-      })
-    })
-
-    it('renders the genre section with a diversity label and tag pills', () => {
-      mockUseSceneGenres.mockReturnValue({
-        data: {
-          genres: [
-            { tag_id: 1, name: 'punk', slug: 'punk', count: 12 },
-            { tag_id: 2, name: 'metal', slug: 'metal', count: 8 },
-          ],
-          diversity_index: 0.8,
-          diversity_label: 'High diversity',
-        } as SceneGenreResponse,
-        isLoading: false,
-      })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
-      expect(screen.getByText('Genre Distribution')).toBeInTheDocument()
-      expect(screen.getByText('High diversity')).toBeInTheDocument()
-      expect(screen.getByText('punk')).toBeInTheDocument()
-      expect(screen.getByText('metal')).toBeInTheDocument()
-    })
-
-    it('renders nothing for the genre section when there are no genres', () => {
-      mockUseSceneGenres.mockReturnValue({ data: emptyGenres, isLoading: false })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.queryByText('Genre Distribution')).not.toBeInTheDocument()
     })
   })
 })

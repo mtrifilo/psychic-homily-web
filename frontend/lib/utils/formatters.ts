@@ -52,8 +52,14 @@ const timeZoneValidity = new Map<string, boolean>()
  * `Intl.DateTimeFormat` costs ~20us, and this sits on the path every single
  * date and time on an entity page takes, several times per row. A dense table
  * of 50 shows asks the same question 150 times about the same venue.
+ *
+ * Exported because it is a genuinely different question from
+ * `isShowTimezoneResolved`, which answers "can this ROW be given a zone at all"
+ * and says yes on the strength of the state map alone. A caller that wants to
+ * trust the venue's OWN zone string (because it is about to bucket rows by
+ * calendar date in it) must ask about the string, not about the row.
  */
-function isValidTimeZone(tz: string): boolean {
+export function isValidTimeZone(tz: string): boolean {
   const known = timeZoneValidity.get(tz)
   if (known !== undefined) return known
   let valid: boolean

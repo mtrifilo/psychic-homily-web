@@ -2,17 +2,18 @@
 
 import Link from 'next/link'
 import {
-  MapPin, Building2, Mic2, Calendar, Tent, ArrowRight, Loader2, Music,
+  MapPin, Building2, Mic2, Tent, ArrowRight, Loader2,
 } from 'lucide-react'
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { BracketLink, TagPill } from '@/components/shared'
 import { buildCitiesParam } from '@/components/filters/cityParams'
-import { useSceneDetail, useSceneArtists, useSceneGenres } from '../hooks'
-import { ScenePulse } from './ScenePulse'
+import { useSceneDetail, useSceneArtists } from '../hooks'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
 import { SceneGraph, SCENE_ARTISTS_ANCHOR } from './SceneGraph'
+import { SceneCalendar, useSceneCalendarWindow } from './SceneCalendar'
+import { formatTimeZoneLabel, sceneStatParts } from '../sceneCalendar'
+import type { SceneDetail } from '../types'
 
 interface SceneDetailProps {
   slug: string
@@ -70,47 +71,54 @@ function SceneArtistsList({ slug }: { slug: string }) {
   )
 }
 
-function SceneGenreDistribution({ slug }: { slug: string }) {
-  const { data, isLoading } = useSceneGenres(slug)
+/**
+ * The band across the top of the page: where you are, how much is here, how
+ * many rooms this page speaks for, and which clock every time below is on.
+ *
+ * The volume clause is the SPARSE frame's spelling (`1 UPCOMING SHOW`), which
+ * is `upcoming_show_count` straight off this payload. It repeats a number the
+ * stat line also carries, and so does the mock: the band is read at a glance
+ * and the stat line is read as a sentence.
+ *
+ * TWO clauses the mock draws are deliberately absent, both because no honest
+ * number exists for them here:
+ *
+ *  - `THIS WEEK n`. `GET /scenes/{slug}` carries no calendar-week field; only
+ *    `GET /scenes` does (`shows_calendar_week`). Labelling `upcoming_show_count`
+ *    "this week" would put 328 against a week page that says 22, the exact
+ *    defect PSY-1623 removed from two other surfaces. Counting the fetched rows
+ *    would be wrong the other way, because the window is capped.
+ *  - `TONIGHT n SHOWS` / `NOTHING TONIGHT`. The calendar window opens at NOW,
+ *    so a show whose doors have opened is already out of the payload, and
+ *    between midnight and 6am the night named by the boundary is yesterday,
+ *    which a forward window can never contain. Every spelling of this clause
+ *    was therefore either an undercount or a flat "nothing tonight" on a night
+ *    that had shows, contradicting `/scenes/{slug}/tonight` one click away in
+ *    the window strip. Give the detail payload a real tonight count, or read
+ *    the day payload, and the clause can come back.
+ */
+function SceneStatusBand({ scene }: { scene: SceneDetail }) {
+  const { timeZone } = useSceneCalendarWindow(scene.slug)
+  const zoneLabel = timeZone ? formatTimeZoneLabel(new Date(), timeZone) : null
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-4">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
+  const { stats } = scene
+  const parts = [
+    `${scene.city}, ${scene.state}`,
+    `${stats.upcoming_show_count} upcoming show${stats.upcoming_show_count === 1 ? '' : 's'}`,
+    `${stats.venue_count} room${stats.venue_count === 1 ? '' : 's'} tracked`,
+    zoneLabel && `all times ${zoneLabel}`,
+  ].filter(Boolean)
 
-  if (!data?.genres || data.genres.length === 0) {
-    return null
-  }
-
+  // The negative margins cancel `app/scenes/[slug]/page.tsx`'s `px-4 py-8
+  // md:px-8` so the band reaches the edges of the content column instead of
+  // sitting inside its gutter. That is a real coupling to the route shell: if
+  // the page's padding changes, these have to change with it.
   return (
-    <Card className="lg:col-span-2">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Music className="h-4 w-4 text-muted-foreground" />
-          Genre Distribution
-          {data.diversity_label && (
-            <Badge variant="secondary" className="ml-1 text-xs font-normal">
-              {data.diversity_label}
-            </Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap gap-2">
-          {data.genres.map((genre) => (
-            <TagPill
-              key={genre.tag_id}
-              label={genre.name}
-              voteCount={genre.count}
-              href={`/tags/${genre.slug}`}
-            />
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="-mx-4 -mt-8 mb-6 bg-foreground px-4 py-2.5 text-background md:-mx-8 md:px-8">
+      <p className="font-mono text-[11px] uppercase tracking-widest">
+        {parts.join(' · ')}
+      </p>
+    </div>
   )
 }
 
@@ -146,124 +154,71 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
   }
 
   const { stats } = scene
-  const statParts = [
-    stats.venue_count > 0 && `${stats.venue_count} venue${stats.venue_count !== 1 ? 's' : ''}`,
-    stats.artist_count > 0 && `${stats.artist_count} artist${stats.artist_count !== 1 ? 's' : ''}`,
-    stats.upcoming_show_count > 0 && `${stats.upcoming_show_count} upcoming show${stats.upcoming_show_count !== 1 ? 's' : ''}`,
-  ].filter(Boolean)
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <Link href="/scenes" className="hover:text-foreground transition-colors">
+    <div>
+      <SceneStatusBand scene={scene} />
+
+      <header>
+        <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
+          <Link href="/scenes" className="transition-colors hover:text-foreground">
             Scenes
           </Link>
-          <span>/</span>
-        </div>
-        <div className="flex items-start justify-between gap-3">
-          <h1 className="text-3xl font-bold">
+          {' › '}
+          <span>
             {scene.city}, {scene.state}
-          </h1>
-          {/* Follow-a-scene (PSY-1340) + notify mode (PSY-1341). */}
-          <div className="flex flex-col items-end gap-2">
-            <FollowButton entityType="scenes" entityId={slug} />
-            <SceneNotifyModeToggle slug={slug} />
-          </div>
-        </div>
-        {/* The stats line carries the week link (PSY-1623). `/scenes/{slug}/week`
-            had no inbound link from anywhere, including from here. A scene's
-            own page not pointing at that scene's week was the most obviously
-            missing edge in the site's crawl graph. It renders unconditionally,
-            unlike the stats beside it: a scene with no countable stats still
-            has a week.
+          </span>
+        </nav>
 
-            `scene.slug`, NOT the route param. A metro member slug resolves to
-            its principal city, so `/scenes/mesa-az` renders the Phoenix scene;
-            building the href from the requested spelling would mint a second
-            URL for a week page that already has one, which is the opposite of
-            what this ticket is for. The backend canonicalizes the slug it
-            returns precisely so callers do not have to guess.
+        <h1 className="mt-1 text-3xl font-bold">
+          {scene.city}, {scene.state}
+        </h1>
 
-            NO COUNT ON THIS LINK, deliberately. The scene-detail payload has no
-            calendar-week field — only `GET /scenes` carries
-            `shows_calendar_week` — and the number sitting to its left across
-            the `·` is `upcoming_show_count`, which spans every future show, not
-            this week's. Reaching for that to "finish the pattern" would put a
-            count of 283 against a page that says 96, which is the exact defect
-            PSY-1623 removed from the other two surfaces. Add the field to the
-            detail payload first, or leave the link countless. */}
-        <p className="text-muted-foreground mt-1">
-          {statParts.length > 0 && `${statParts.join(' \u00B7 ')} \u00B7 `}
-          <Link
-            href={`/scenes/${scene.slug}/week`}
-            className="text-primary underline underline-offset-2 hover:no-underline"
-          >
-            This week in {scene.city} <span aria-hidden="true">→</span>
-          </Link>
+        {/* The tagline slot sits HERE, and renders nothing.
+            Authored scene taglines are a Wave 3 decision with no field behind
+            them yet, and the locked sparse frame draws the absent state as
+            simply nothing: no placeholder, no "add a tagline" prompt, and no
+            line derived from the data. `scene.description` is NOT that field.
+            0 of 28 production scenes populate it, it asked for a paragraph
+            rather than four to eight words, and rendering it here was part of
+            the kill set. */}
+
+        {/* Every part kept, including the zeroes. Dropping a zero-valued part
+            made London read `2 venues · 197 upcoming shows`, as if artists were
+            never a category this page tracks. */}
+        <p className="mt-1 font-mono text-sm text-muted-foreground">
+          {sceneStatParts(stats).join(' · ')}
         </p>
-        {scene.description && (
-          <p className="text-muted-foreground mt-3 max-w-2xl">
-            {scene.description}
-          </p>
-        )}
+
+        {/* Follow-a-scene (PSY-1340) + notify mode (PSY-1341), moved under the
+            stat line into the mock's action row. Share and the scene .ics feed
+            join them in a later wave; neither exists for a scene today. */}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <FollowButton entityType="scenes" entityId={slug} />
+          <SceneNotifyModeToggle slug={slug} />
+        </div>
+
+        {/* The crews and collectives chip row sits HERE, and renders nothing.
+            The crew entity is DEFERRED (brief decision 7): the row is reserved
+            in the mock so the position is settled, and until there is data it
+            is absent rather than an empty header over blank space. */}
+      </header>
+
+      <div className="mt-6">
+        <SceneCalendar scene={scene} />
       </div>
 
-      {/* Scene Pulse */}
-      <ScenePulse pulse={scene.pulse} />
-
-      {/* Scene graph (PSY-367) — read-only artist relationship map. Section
-          self-hides when there are <3 connected artists or container is mobile. */}
-      <SceneGraph slug={slug} city={scene.city} state={scene.state} />
-
-      {/* Content sections */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Upcoming Shows */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex min-w-0 items-center gap-2 text-base">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              Upcoming Shows
-            </CardTitle>
-            {/* The scene's nightly listing. On the section header as a bare
-                bracket link, not a verb in an action row: the action row is
-                for auth-gated relationship verbs (Follow / Notify me), and a
-                link that syndicates a list belongs on that list's header.
-
-                TONIGHT ONLY, deliberately. The week already has its edge from
-                the stats line above (PSY-1623), and the pair reads better
-                split than it would as a second link to the same page a few
-                lines down. The two period pages link to each other, so this is
-                the entry point the whole nightly sub-site hangs off.
-
-                `scene.slug`, not the route param: a metro member spelling
-                resolves to its principal city, and building the href from what
-                the reader typed would mint a second URL for a page that
-                already has one. */}
-            <CardAction className="flex flex-wrap items-center gap-3">
-              <BracketLink
-                label="Tonight"
-                href={`/scenes/${scene.slug}/tonight`}
-                ariaLabel={`Tonight in ${scene.city}`}
-              />
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-3">
-              {stats.upcoming_show_count} show{stats.upcoming_show_count !== 1 ? 's' : ''} coming up in {scene.city}.
-            </p>
-            <Link
-              href={`/shows?cities=${encodeURIComponent(buildCitiesParam([{ city: scene.city, state: scene.state }]))}`}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-            >
-              View upcoming shows
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </CardContent>
-        </Card>
-
-        {/* Top Venues */}
+      {/* Everything below is the mock's order with each module in its CURRENT
+          form, wording included. Refining them (named venue list with counts,
+          roster with open embeds and descriptors, the graph's gate and copy) is
+          Wave 1B/1C.
+          KNOWN GAP, disclosed rather than guessed at: these two cards still
+          render a header on a scene with nothing in them (`0 venues in X`, and
+          the roster's "No artists based in this scene yet"). The sparse rule
+          says an empty-capable module hides; the "current form" rule says do
+          not touch them this wave. The ticket says both, so 1A leaves them and
+          1B closes it rather than this wave picking a side. */}
+      <div className="mt-10 space-y-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -285,10 +240,10 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           </CardContent>
         </Card>
 
-        {/* Local Artists — the metro roster, active bands first.
+        {/* Local Artists: the metro roster, active bands first.
             id="scene-artists": the mobile graph teaser's link-out target
             (SceneGraph, PSY-1472). scroll-mt for the sticky entity header. */}
-        <Card id={SCENE_ARTISTS_ANCHOR} className="lg:col-span-2 scroll-mt-20">
+        <Card id={SCENE_ARTISTS_ANCHOR} className="scroll-mt-20">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Mic2 className="h-4 w-4 text-muted-foreground" />
@@ -301,12 +256,12 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           </CardContent>
         </Card>
 
-        {/* Genre Distribution */}
-        <SceneGenreDistribution slug={slug} />
+        {/* Scene graph (PSY-367): read-only artist relationship map. Section
+            self-hides when there are <3 connected artists or container is mobile. */}
+        <SceneGraph slug={slug} city={scene.city} state={scene.state} />
 
-        {/* Festivals (only show if there are festivals) */}
         {stats.festival_count > 0 && (
-          <Card className="lg:col-span-2">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Tent className="h-4 w-4 text-muted-foreground" />

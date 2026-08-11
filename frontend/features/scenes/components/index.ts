@@ -1,5 +1,4 @@
 export { SceneList } from './SceneList'
-export { ScenePulse } from './ScenePulse'
 // SceneDetailView and SceneGraph are intentionally NOT re-exported here, and
 // SceneDetailView is absent from `features/scenes/index.ts` too (PSY-1772).
 // `app/scenes/[slug]/page.tsx` imports SceneDetail via `dynamic()`, and
@@ -24,5 +23,10 @@ export { ScenePulse } from './ScenePulse'
 // rather than `createLazyForceGraphView`, matching the peer Venue/Collection/
 // Station adapters — see the note in components/graph/lazyForceGraphView.tsx.
 // De-barreling achieves the eviction without reversing that decision.
+//
+// SceneCalendar (PSY-1783) is deep-imported by SceneDetail.tsx for the same
+// reason and stays off this barrel deliberately: it is the scene page's
+// heaviest client module after the graph, and listing it here would put four
+// weeks of calendar rendering into the chunk every route loads.
 export { AtlasGlobe } from './AtlasGlobe'
 export { ScenePreviewPanel } from './ScenePreviewPanel'

@@ -34,7 +34,10 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
   [
     '@/features/scenes/components',
     () => import('@/features/scenes/components'),
-    ['SceneDetailView', 'SceneGraph'],
+    // SceneCalendar joins the eviction list (PSY-1783): SceneDetail deep-imports
+    // it, and listing it here would put four weeks of calendar rendering into
+    // the chunk every route loads.
+    ['SceneDetailView', 'SceneGraph', 'SceneCalendar'],
   ],
   [
     '@/features/releases/components',
