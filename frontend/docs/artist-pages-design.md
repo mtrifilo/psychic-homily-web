@@ -1,5 +1,16 @@
 # Artist Pages Feature Design
 
+> **Historical design proposal — do not copy code from it.** The endpoint
+> shapes, hook signatures and cache keys sketched below were superseded by what
+> actually shipped: read `features/artists/api.ts` (endpoints and
+> `artistQueryKeys`) and `features/artists/hooks/useArtists.ts` instead. Two
+> concrete traps if you skim it anyway: the request examples send a `timezone`
+> the backend has documented as deprecated and ignored since PSY-1678 (the
+> upcoming/past split is made in each show's own venue-local day), and the
+> `useArtistShows` sketch keys on artist + time filter only, which is exactly
+> the cross-caller cache collision PSY-1754 had to fix. The document is left as
+> written so it still reads as the proposal it was.
+
 ## Overview
 
 This document outlines the design for individual artist pages, allowing users to click on any artist name throughout the application and view detailed information about that artist, including their social links, upcoming and past shows, and an embedded Bandcamp player featuring their latest release.
@@ -70,7 +81,7 @@ GET /artists/:artist_id
 #### 2. New Endpoint: Get Artist Shows
 
 ```
-GET /artists/:artist_id/shows?time_filter=upcoming|past|all&limit=20
+GET /artists/:artist_id/shows?time_filter=upcoming|past|all&limit=20&timezone=America/Phoenix
 ```
 
 **Response:**
@@ -440,16 +451,8 @@ Update components to link artist names to their pages:
 
 #### 5. New Hooks
 
-> **Superseded — do not copy this snippet.** The shipped hook lives at
-> `features/artists/hooks/useArtists.ts` and its cache key at
-> `artistQueryKeys.showsPage()` in `features/artists/api.ts`. The key sketched
-> below stops at artist + time filter, which is the exact cross-caller collision
-> PSY-1754 fixed: a compact preview and the artist page's list share one entry,
-> and whichever request resolves first answers for both for the whole staleTime.
-> Read the module, not this proposal.
-
 ```ts
-// lib/hooks/useArtists.ts (2025 proposal — never built at this path)
+// lib/hooks/useArtists.ts
 
 export function useArtist(artistId: number) {
   return useQuery({
@@ -461,13 +464,14 @@ export function useArtist(artistId: number) {
 export function useArtistShows(options: {
   artistId: number
   timeFilter: 'upcoming' | 'past' | 'all'
+  timezone: string
   limit?: number
   enabled?: boolean
 }) {
   return useQuery({
     queryKey: ['artists', options.artistId, 'shows', options.timeFilter],
     queryFn: () => apiRequest<ArtistShowsResponse>(
-      `/artists/${options.artistId}/shows?time_filter=${options.timeFilter}&limit=${options.limit}`
+      `/artists/${options.artistId}/shows?time_filter=${options.timeFilter}&timezone=${options.timezone}&limit=${options.limit}`
     ),
     enabled: options.enabled,
   })

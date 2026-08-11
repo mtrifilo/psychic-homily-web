@@ -219,6 +219,7 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   // The load-bearing case is `offset`, for the same reason as the artist twin:
   // page 1's zero offset must key as "not sent" or the past archive's cache
   // peek never finds it.
+  const sentTimeFilter = timeFilter || 'upcoming'
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined
   // Last line of defence, not the URL guard. Callers own year validation — the
@@ -238,24 +239,16 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   if (sentLimit) params.set('limit', sentLimit.toString())
   if (sentOffset) params.set('offset', sentOffset.toString())
   if (sentYear) params.set('year', sentYear.toString())
-  params.set('time_filter', timeFilter)
+  params.set('time_filter', sentTimeFilter)
 
-  // `?` only when there is something to put after it. `time_filter` is set
-  // unconditionally above, so the query string is never empty today and this
-  // branch never fires; it is here for symmetry with `useArtistShows`, whose
-  // twin guards that same line with `if (timeFilter)`. An edit aligning the two
-  // would otherwise start emitting a trailing `?` from this one.
-  const queryString = params.toString()
-  const endpoint = queryString
-    ? `${venueEndpoints.SHOWS(venueId)}?${queryString}`
-    : venueEndpoints.SHOWS(venueId)
+  const endpoint = `${venueEndpoints.SHOWS(venueId)}?${params.toString()}`
 
   return useQuery({
     // Keyed on the request, not just the venue: `limit`, `year` and `offset`
     // each change the response body, so callers asking different questions get
     // different entries (PSY-1698, extended by PSY-1753).
     queryKey: venueQueryKeys.showsPage(venueId, {
-      timeFilter,
+      timeFilter: sentTimeFilter,
       limit: sentLimit,
       year: sentYear,
       offset: sentOffset,
