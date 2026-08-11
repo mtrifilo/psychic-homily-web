@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/testutil"
@@ -16,14 +18,18 @@ import (
 
 // PSY-1764. GET /venues/listing exists to be SMALL and COMPLETE — it is the
 // slug+name projection the /venues page's JSON-LD ItemList is built from,
-// replacing `GET /venues?limit=100`, which advertised 100 of 297 venues and
-// reported nothing about the other 197. See contracts.VenueListingEntry.
+// replacing a `GET /venues?limit=100` that advertised a truncated prefix of the
+// catalogue and reported nothing about the rest. See contracts.VenueListingEntry
+// for the measurements; they are deliberately not repeated here, because a
+// catalogue size copied into a test comment is wrong within weeks.
 //
 // Three properties are invisible to a handler-level test: the route only
 // resolves if the STATIC segment beats its `/venues/{venue_id}` sibling in the
 // built router, the payload only stays small if the serialised object keeps
-// exactly two keys, and the listing is only complete if it carries no limit.
-// These tests speak HTTP so all three are observable.
+// exactly two keys, and the listing is only complete if no limit can be applied.
+// These tests speak HTTP so the first two are observable; the third is pinned by
+// TestVenueListingTakesNoParameters below, because "returns everything seeded"
+// cannot distinguish an absent limit from one larger than the fixture.
 
 // This asserts RESOLUTION, not registration — see the artist twin in
 // artist_listing_routing_test.go for why that distinction is load-bearing. A
@@ -59,6 +65,26 @@ func TestVenueListingRouteResolvesToTheListingHandler(t *testing.T) {
 			"got status %d body %s\n"+
 			"the parameterised /venues/{venue_id} sibling answered instead",
 			w.Code, w.Body.String())
+	}
+}
+
+// The completeness guarantee, pinned where it can actually fail.
+//
+// "The ItemList covers every venue" survives only while no limit can be applied,
+// and a seeded end-to-end assertion cannot see the difference: adding
+// `Limit int \`query:"limit" default:"100"\`` to the request would still return
+// every venue in any fixture small enough to write down, and the frontend test
+// only inspects the URL WE send, so a server-side default is invisible there
+// too. Every signal would stay green while the defect came back.
+//
+// The request type having no fields is the property that forecloses it, so that
+// is what this asserts. Any query parameter added here — limit, offset, a filter
+// — has to come with a consumer and a deliberate edit to this test.
+func TestVenueListingTakesNoParameters(t *testing.T) {
+	if n := reflect.TypeOf(catalogh.ListVenueListingRequest{}).NumField(); n != 0 {
+		t.Errorf("ListVenueListingRequest has %d field(s), want 0 — this endpoint answers "+
+			"with the whole browse set, and a query parameter is how the truncation "+
+			"PSY-1764 removed would come back", n)
 	}
 }
 
@@ -131,9 +157,11 @@ func TestVenueListingEndToEnd(t *testing.T) {
 
 	future := time.Now().Add(48 * time.Hour)
 
-	// The gate is `verified`, NOT activity — so this quiet venue is listed, and
-	// it sorts after the busy one. That is the venue-specific half of the
-	// contract and the artist twin cannot cover it.
+	// The gate is `verified`, NOT activity — so this quiet venue is listed at
+	// all, which is the venue-specific half of the contract the artist twin
+	// cannot cover. It is also named to sort FIRST, ahead of the venue that has
+	// a show, so the alphabetical order is distinguishable from the browse
+	// page's activity order rather than agreeing with it by accident.
 	seedVenue("Aardvark Room", "aardvark-room", true)
 	busy := seedVenue("Zebra Hall", "zebra-hall", true)
 	book(seedShow("upcoming-approved", future), busy)
@@ -148,10 +176,9 @@ func TestVenueListingEndToEnd(t *testing.T) {
 
 	w := get(t)
 
-	// An uncached hit costs a full scan of venues plus an aggregate over every
-	// upcoming booking, and the body is byte-identical for every caller, so any
-	// intermediary willing to hold it is worth having. Same reasoning and same
-	// window as GET /sitemap/entries.
+	// An uncached hit scans every verified venue and the body is byte-identical
+	// for every caller, so any intermediary willing to hold it is worth having.
+	// Same reasoning and same window as GET /sitemap/entries.
 	if cc := w.Header().Get("Cache-Control"); cc != "public, max-age=300" {
 		t.Errorf("Cache-Control = %q, want %q", cc, "public, max-age=300")
 	}
@@ -175,28 +202,31 @@ func TestVenueListingEndToEnd(t *testing.T) {
 		t.Errorf("count = %d, want %d — count must describe the array beside it", body.Count, len(body.Venues))
 	}
 	// Three verified venues exist; one has no slug. The shortfall must be
-	// visible rather than silently absorbed, which is the whole defect.
+	// visible rather than silently absorbed, which is the whole defect. Total
+	// comes from a window count in the SAME statement as the rows, so this also
+	// pins that it describes the gated set rather than the returned array.
 	if body.Total != 3 {
 		t.Errorf("total = %d, want 3 — total is the browse set BEFORE the slug filter, so the "+
 			"caller can tell a complete listing from a short one", body.Total)
 	}
 
-	// The order is the browse page's own: most upcoming shows first, ties by
-	// name. Zebra Hall has a show and Aardvark Room does not, so a listing
-	// sorted by name alone would put them the other way round.
+	// Ordered by name, deliberately NOT by the browse page's activity sort: the
+	// consumer stamps ItemList `position` from this order, and an activity sort
+	// renumbers every entry whenever a show is booked. Zebra Hall has the only
+	// upcoming show, so under the browse order it would come first.
 	var firstSlug string
 	if err := json.Unmarshal(body.Venues[0]["slug"], &firstSlug); err != nil {
 		t.Fatalf("decode slug: %v", err)
 	}
-	if firstSlug != "zebra-hall" {
-		t.Errorf("first entry is %q, want %q — the listing must share the browse page's "+
-			"upcoming-count DESC, name ASC order", firstSlug, "zebra-hall")
+	if firstSlug != "aardvark-room" {
+		t.Errorf("first entry is %q, want %q — the listing is ordered by name so that "+
+			"ItemList positions are stable against bookings", firstSlug, "aardvark-room")
 	}
 
 	// THE assertion this endpoint exists for. A widened projection is exactly
 	// how the artist payload grew past the cache cap, and it would otherwise
-	// regress in total silence. It also pins that the upcoming_show_count
-	// selected for the ORDER BY stays off the wire.
+	// regress in total silence. It also pins that the window count selected
+	// alongside the projection stays off the wire.
 	for _, entry := range body.Venues {
 		if len(entry) != 2 {
 			t.Errorf("entry has %d fields %v, want exactly 2 (slug, name) — every added field is "+

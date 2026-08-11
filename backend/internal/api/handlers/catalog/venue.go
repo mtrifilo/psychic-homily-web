@@ -153,21 +153,33 @@ type ListVenueListingRequest struct{}
 // and the same 5 minutes, short enough that a shared cache never becomes the
 // reason a new venue is invisible. The page itself is already bounded to one
 // origin hit per hour by Next's fetch Data Cache; this covers everything else
-// that can point at a public URL, and an uncached hit here costs a full scan of
-// venues plus an aggregate over every upcoming booking.
+// that can point at a public URL, and an uncached hit here scans every verified
+// venue.
+//
+// IT IS A COURTESY TO COOPERATIVE CALLERS, NOT A CEILING. The request struct is
+// empty and huma ignores unknown query parameters, so `?cb=1`, `?cb=2`, … are
+// distinct cache keys that all reach the origin. What bounds a hostile caller is
+// the global PublicReadRateLimiter this route inherits — which is itself gated
+// on ENABLE_PUBLIC_READ_RATE_LIMITS, so that flag being set is a deploy-time
+// precondition for this endpoint, not an optimisation.
+//
+// The artist twin carries no equivalent header. That is a gap in the twin, not a
+// venue-only decision.
 const venueListingCacheControl = "public, max-age=300"
 
 // ListVenueListingResponse is the slug+name projection of the venue list.
 //
-// Total is NOT pagination metadata — there is no next page. It is the browse
-// set, counted by its own query, so a caller can tell a complete listing from a
-// short one; see GetVenueListing.
+// Total is NOT pagination metadata — there is no next page. It is the size of
+// the browse set the projection was taken from, read in the SAME statement and
+// therefore the same snapshot as the rows, so a caller can compare the two and
+// read a gap as exactly one thing: venues that cannot form a URL. See
+// GetVenueListing.
 type ListVenueListingResponse struct {
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
-		Venues []contracts.VenueListingEntry `json:"venues" doc:"Venues reduced to slug and name"`
+		Venues []contracts.VenueListingEntry `json:"venues" doc:"Venues reduced to slug and name, ordered by name"`
 		Count  int                           `json:"count" doc:"Number of venues in this response"`
-		Total  int64                         `json:"total" doc:"Total venues in the browse set, before unslugged rows are dropped. Not pagination metadata: this endpoint has no next page. Equal to count unless some venue cannot form a URL."`
+		Total  int64                         `json:"total" doc:"Size of the browse set this was projected from, read in the same snapshot as the rows. Not pagination metadata: this endpoint has no next page. Equal to count unless some venue cannot form a URL."`
 	}
 }
 

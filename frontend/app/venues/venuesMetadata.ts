@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nextjs'
 import { API_BASE_URL } from '@/lib/api-base'
 import { fetchSeoList } from '@/lib/seo/fetchSeoList'
 import type { components } from '@/types/api'
@@ -24,19 +25,21 @@ export type VenueListItem = components['schemas']['VenueListingEntry']
  * fails open, so `/venues` rendered with no `ItemList` at all for months.
  * Capping at 100 fixed the 422 and left a quieter version of the same silence.
  *
- * Why not simply raise that maximum: the projection is ~10x narrower per venue,
- * which moves the Data Cache build gate from ~1,900 venues to ~20,400 against
- * 297 today — and the catalogue went 198 → 297 in eleven days. The measurements,
- * the growth curve, and the comparison against paginating live in ONE place,
- * `contracts.VenueListingEntry` in the backend, beside the endpoint, so the
- * numbers cannot drift apart from the code they justify. `fetchSeoList` weighs
- * every response against that budget on the way through — this fetch included;
- * the mechanics are in `lib/data-cache-budget/budget.ts`.
+ * Why not simply raise that maximum: the projection is roughly ten times
+ * narrower per venue, which moves the Data Cache build gate out by the same
+ * factor. Every measurement, the growth curve, the comparison against
+ * paginating, and the separate question of how much this weighs in the RENDERED
+ * page live beside the endpoint in `contracts.VenueListingEntry`. They are not
+ * restated here on purpose: the catalogue grew 50% in eleven days, so a figure
+ * copied into a second file is wrong within weeks and there would be no way to
+ * tell which copy was current. `fetchSeoList` weighs every response against the
+ * cache budget on the way through — this fetch included; the mechanics are in
+ * `lib/data-cache-budget/budget.ts`.
  *
- * A future shortfall is no longer silent: the endpoint reports `total` counted
- * over the browse set independently of the array, and `fetchSeoList` raises a
- * Sentry event whenever the list comes back short of it. Equal today, and the
- * only way they can diverge is a venue that cannot form a URL.
+ * A future shortfall is no longer silent: the endpoint reports `total` over the
+ * browse set, read in the same snapshot as the rows, and `fetchSeoList` reports
+ * whenever the list comes back short of it. Equal today, and the only way they
+ * can diverge is a venue that cannot form a URL.
  *
  * NOT consolidated with the browse page's own first-screen fetch, which reads
  * `GET /venues?limit=50` through `lib/ssr/fetchListPayload.ts` inside a Suspense
@@ -53,10 +56,32 @@ export type VenueListItem = components['schemas']['VenueListingEntry']
  * TTFB. Hoisting it into a sibling async component would recover the overlap at
  * that price.
  */
-export function getVenuesForMetadata(): Promise<VenueListItem[]> {
-  return fetchSeoList<VenueListItem>({
+export async function getVenuesForMetadata(): Promise<VenueListItem[]> {
+  const venues = await fetchSeoList<VenueListItem>({
     url: `${API_BASE_URL}/venues/listing`,
     collection: 'venues',
     service: 'venues-listing',
   })
+
+  // A boundary check, not a restatement of the endpoint's contract. The schema
+  // types `slug` as a required string and the endpoint drops rows that have
+  // none, so this can only fire if that breaks — and if it does, the caller
+  // would build `https://psychichomily.com/venues/` and advertise it to
+  // crawlers inside an otherwise valid ItemList. `total` cannot catch that
+  // case: a slug-bearing-but-empty row is counted on both sides of the
+  // comparison, so it is the one shortfall the endpoint reports as complete.
+  const linkable = venues.filter(venue => !!venue.slug)
+  if (linkable.length < venues.length) {
+    Sentry.captureMessage(
+      'venues-listing: entry without a slug reached the ItemList — the endpoint is ' +
+        'supposed to have dropped it, and total/count will read as complete',
+      {
+        level: 'error',
+        tags: { service: 'venues-listing' },
+        extra: { received: venues.length, linkable: linkable.length },
+      }
+    )
+  }
+
+  return linkable
 }

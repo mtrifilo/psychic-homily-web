@@ -719,15 +719,42 @@ type VenueWithShowCountResponse struct {
 // not a comfortable ceiling, and paginating would have kept carrying the unread
 // fields while adding a round trip per page above the Suspense boundary.
 //
-// # The set this returns
+// # ~20,400 IS NOT THE CEILING, AND THE CACHE GATE DOES NOT COVER THE REAL ONE
 //
-// Exactly what unfiltered `GET /venues` returns — verified venues, sorted
-// upcoming-count DESC then name ASC — minus rows with a NULL or empty slug,
-// which cannot form a URL. Note the gate differs from the artists one: venues
-// are gated on `verified`, NOT on having an upcoming show, so a quiet venue is
-// still listed and still indexed. Keep this in step with the default gate on
-// `GET /venues`, or the ItemList starts advertising a different set than the
-// page lists.
+// Everything above weighs the API response. The artifact the change actually
+// enlarges is the `/venues` HTML: one JSON-LD `ListItem` per venue, in the
+// document every human and every crawler downloads. Measured on the production
+// page the same day, before this change, its 100-item block was 12,735 raw bytes
+// — 127.3 bytes per item, TWICE the 61.6 the cache budget counts, because each
+// item carries `@type`, `position`, the absolute URL and the name.
+//
+// So the page grows at ~127 bytes per venue: ~38 KB at 297, and roughly 2.6 MB
+// at the ~20,400 the cache figure suggests is safe. Nothing gates that. The
+// build-time budget in lib/data-cache-budget weighs the fetch, and its
+// request-time half only reports, so page weight is the constraint that binds
+// first and it binds unmeasured. This is recorded rather than solved: at today's
+// size the block is ~16% of a 239 KB document, which is not worth a gate of its
+// own. When it is, the answer is not a limit — a truncated ItemList is the
+// defect this endpoint exists to remove — but dropping the block and leaning on
+// the sitemap, which is already sharded for exactly this reason (SitemapEntry).
+//
+// # The set this returns, and the order it does NOT share
+//
+// The SET is exactly what unfiltered `GET /venues` returns — verified venues —
+// minus rows with a NULL or empty slug, which cannot form a URL. That gate is
+// stated once, as catalog.venueBrowseGate. Note it differs from the artists one:
+// venues are gated on `verified`, NOT on having an upcoming show, so a quiet
+// venue is still listed and still indexed.
+//
+// The ORDER is by name, and deliberately NOT the browse page's activity sort
+// that the artist twin reuses. The consumer stamps `position` from it, so an
+// activity sort would renumber the whole list every time a show is booked, and
+// reproducing it costs an aggregate over every upcoming booking on a public
+// endpoint. GetVenueListing carries the full argument.
+//
+// The venues sitemap family does NOT share the gate: it filters on slug alone,
+// so an unverified venue can appear there and not here. Identical sets today
+// (both 297 on 2026-08-09), by data rather than by construction.
 type VenueListingEntry struct {
 	Slug string `json:"slug" doc:"URL slug for the venue"`
 	Name string `json:"name" doc:"Venue display name"`
@@ -1982,11 +2009,12 @@ type VenueServiceInterface interface {
 	VerifyVenue(venueID uint) (*VenueDetailResponse, error)
 	GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error)
 	// GetVenueListing is the slug+name projection behind GET /venues/listing.
-	// Same set and order as an unfiltered GetVenuesWithShowCounts, two columns
-	// wide and unpaginated; see VenueListingEntry for why that earns its own
-	// endpoint. The second return is the size of the browse set BEFORE the slug
-	// filter, counted separately so a caller can tell a complete listing from a
-	// short one — see the handler.
+	// Same SET as an unfiltered GetVenuesWithShowCounts, two columns wide and
+	// unpaginated, ordered by name rather than by that path's activity sort; see
+	// VenueListingEntry for why that earns its own endpoint and why the order is
+	// deliberately not shared. The second return is the size of the browse set
+	// BEFORE the slug filter, read in the same snapshot as the rows so a caller
+	// can tell a complete listing from a short one — see the handler.
 	GetVenueListing() ([]VenueListingEntry, int64, error)
 	GetShowsForVenue(venueID uint, timezone string, query VenueShowsQuery) ([]*VenueShowResponse, int64, error)
 	// GetVenueShowYears is the year histogram behind the show list's year

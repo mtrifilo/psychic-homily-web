@@ -941,82 +941,110 @@ func (s *VenueService) metroRollupPredicate(filters contracts.VenueListFilters) 
 	return "(" + pred + " OR (" + cityPred + "))", all, true
 }
 
-// venueBrowseGate is what makes a venue public: it is verified. Shared by every
-// query that answers "which venues does /venues list", so a future condition
-// (soft delete, a hidden flag, a country scope) cannot be added to the page's
-// query and missed by the ItemList's — which would advertise a different set
-// than the page shows, the exact failure class this endpoint exists to remove.
+// venueBrowseGate is what makes a venue public: it is verified.
+//
+// Shared by every query behind the /venues page — the list, its city facet, and
+// the ItemList projection — so a future condition (soft delete, a hidden flag, a
+// country scope) cannot be added to one and missed by the others. That would
+// leave the page, its facet counts, and the schema block describing three
+// different sets, which is the failure class this endpoint exists to remove.
+//
+// NOT shared by the admin-side unverified queries below: those are looking for
+// the complement on purpose, and expressing them as "not the browse gate" would
+// couple two rules that should be free to diverge.
 //
 // Qualified with the table name so it reads the same in a joined query as in a
-// bare count; both of its callers select FROM venues.
+// bare count; every caller selects FROM venues.
 const venueBrowseGate = "venues.verified = ?"
 
-// venueBrowseOrder is the order the /venues browse page lists venues in: most
-// upcoming shows first, ties broken by name. Shared with GetVenueListing rather
-// than restated there, so the ItemList cannot drift out of the page's order
-// because someone remembered a comment.
-const venueBrowseOrder = "upcoming_show_count DESC, venues.name ASC"
-
-// upcomingShowCountSubquery counts each venue's upcoming approved shows as of
-// `now`, keyed by venue_id. LEFT JOINed by the callers below, because a venue
-// with no upcoming show is still a listed venue — unlike the artist equivalent,
-// whose browse gate IS having one.
-func (s *VenueService) upcomingShowCountSubquery(now time.Time) *gorm.DB {
-	return s.db.Table("show_venues").
-		Select("show_venues.venue_id, COUNT(*) as show_count").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
-		Group("show_venues.venue_id")
+// venueListingRow is what one statement has to carry to answer the listing
+// without a second: the projected columns, plus the window count of the whole
+// gated set beside every row. Slug is a pointer because this query deliberately
+// selects rows the projection will drop.
+type venueListingRow struct {
+	Slug  *string
+	Name  string
+	Total int64
 }
 
 // GetVenueListing returns the slug+name projection behind GET /venues/listing,
 // plus the size of the browse set it was projected from.
 //
-// It answers the same question as an unfiltered GetVenuesWithShowCounts — which
-// venues does the browse page list, in what order — while reading two columns
-// instead of hydrating a full response per row, and without a limit. Both halves
-// matter: the width is what stops the response fitting a cache entry, and the
-// missing limit is what stops the JSON-LD ItemList advertising a prefix of the
-// catalogue. See contracts.VenueListingEntry for the measurements.
+// It lists the same SET as an unfiltered GetVenuesWithShowCounts — which venues
+// does /venues list — while reading two columns instead of hydrating a full
+// response per row, and without a limit. Both halves matter: the width is what
+// stops the response fitting a cache entry, and the missing limit is what stops
+// the JSON-LD ItemList advertising a prefix of the catalogue. See
+// contracts.VenueListingEntry for the measurements.
 //
-// The gate and the sort are SHARED with that default path rather than restated,
-// so the only deliberate difference is the slug filter. Rows with a NULL or
-// empty slug are dropped here rather than by the caller: a slug is what builds
-// the URL, so an entry without one is unusable to any consumer.
+// THE GATE IS SHARED, THE ORDER DELIBERATELY IS NOT, and the asymmetry is the
+// interesting part. venueBrowseGate is what makes the two sets equal, so it is
+// stated once. The browse page's activity order is NOT reused here, unlike the
+// artist twin, for two reasons that only apply to a complete list:
 //
-// THE SECOND RETURN IS COUNTED SEPARATELY, AND THAT IS THE POINT. It is the
-// browse set BEFORE the slug filter — the same number `GET /venues` reports as
-// `total` — so it comes from a different query than the entries do and comparing
-// the two is a real assertion rather than a tautology. A caller that renders one
-// link per entry can then tell a complete listing from a short one, which is
-// exactly what nothing did while the ItemList sat at 100 of 297.
+//   - The consumer stamps ItemList `position` from this order. Under an activity
+//     sort, booking one show at one venue renumbers the whole list, so the
+//     `/venues` HTML churns on every hourly revalidation with no change to the
+//     set. Alphabetical is stable against everything except the venue list.
+//   - Reproducing that order costs a LEFT JOIN against an aggregate over every
+//     upcoming approved booking — the one input here that grows with SHOWS
+//     rather than with venues — on a public unauthenticated endpoint, to sort a
+//     list whose consumer renders all of it anyway.
+//
+// The browse page itself pages at 50, so an ItemList of every venue could not
+// have matched its order past the first page in any case.
+//
+// TOTAL AND THE ENTRIES COME FROM ONE STATEMENT, which is what makes comparing
+// them meaningful rather than racy. Total is the gated set BEFORE the slug
+// filter — the same number `GET /venues` reports — and the window count is
+// evaluated over the same snapshot as the rows, so the two cannot disagree
+// because a venue was merged or verified between two round trips. A caller that
+// renders one link per entry can therefore read a gap as exactly one thing:
+// venues that cannot form a URL.
+//
+// Rows with a NULL or empty slug are dropped here rather than by the caller: a
+// slug is what builds the URL, so an entry without one is unusable to any
+// consumer. That is a data condition rather than a code defect — GenerateSlug
+// can return "" for a name with no Latin characters — so it is logged here,
+// where the row can actually be fixed.
 func (s *VenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	var total int64
-	if err := s.db.Table("venues").Where(venueBrowseGate, true).Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
+	var rows []venueListingRow
+	// COUNT(*) OVER () with no window ORDER BY counts the whole gated set, so it
+	// is the pre-slug-filter total without a second statement.
+	err := s.db.Table("venues").
+		Select("venues.slug, venues.name, COUNT(*) OVER () as total").
+		Where(venueBrowseGate, true).
+		Order("venues.name ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get venue listing: %w", err)
 	}
 
 	// Non-nil even when empty: the handler serialises this straight to JSON, and
 	// a null collection is indistinguishable from a failed fetch to the caller.
-	entries := []contracts.VenueListingEntry{}
+	entries := make([]contracts.VenueListingEntry, 0, len(rows))
+	var total int64
+	for _, row := range rows {
+		// Every row carries the same window count; an empty set has no row to
+		// carry it, and a total of zero is the right answer there anyway.
+		total = row.Total
+		if row.Slug == nil || *row.Slug == "" {
+			continue
+		}
+		entries = append(entries, contracts.VenueListingEntry{Slug: *row.Slug, Name: row.Name})
+	}
 
-	// The count is selected so the SHARED order clause applies verbatim, but it
-	// never reaches the wire: VenueListingEntry has no field for it, and GORM
-	// drops columns it cannot map. COALESCE because this is a LEFT JOIN — a
-	// venue with no upcoming show has a NULL show_count and must still sort.
-	err := s.db.Table("venues").
-		Select("venues.slug, venues.name, COALESCE(sc.show_count, 0) as upcoming_show_count").
-		Joins("LEFT JOIN (?) as sc ON venues.id = sc.venue_id", s.upcomingShowCountSubquery(time.Now().UTC())).
-		Where(venueBrowseGate, true).
-		Where("venues.slug IS NOT NULL AND venues.slug != ''").
-		Order(venueBrowseOrder).
-		Find(&entries).Error
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get venue listing: %w", err)
+	if gap := total - int64(len(entries)); gap > 0 {
+		slog.Warn("venue_listing_unlinkable_venues",
+			"unlinkable", gap,
+			"total", total,
+			"listed", len(entries),
+			"detail", "verified venues with no slug cannot appear in the /venues ItemList; backfill their slugs",
+		)
 	}
 
 	return entries, total, nil
@@ -1034,7 +1062,11 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Build the base query with show count subquery
 	// This allows us to sort by show count while also paginating correctly
-	subquery := s.upcomingShowCountSubquery(now)
+	subquery := s.db.Table("show_venues").
+		Select("show_venues.venue_id, COUNT(*) as show_count").
+		Joins("JOIN shows ON show_venues.show_id = shows.id").
+		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
+		Group("show_venues.venue_id")
 
 	// Start with verified venues only for public display
 	query := s.db.Table("venues").
@@ -1104,7 +1136,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 
 	// Get venues with pagination, sorted by show count (desc) then name (asc)
 	var venuesWithCount []VenueWithCount
-	if err := query.Order(venueBrowseOrder).Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
+	if err := query.Order("upcoming_show_count DESC, venues.name ASC").Limit(limit).Offset(offset).Find(&venuesWithCount).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get venues: %w", err)
 	}
 
@@ -1402,7 +1434,7 @@ func (s *VenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) 
 	var results []CityResult
 	err := s.db.Table("venues").
 		Select("city, state, COUNT(*) as venue_count").
-		Where("verified = ?", true).
+		Where(venueBrowseGate, true).
 		Group("city, state").
 		Order("venue_count DESC, city ASC").
 		Find(&results).Error

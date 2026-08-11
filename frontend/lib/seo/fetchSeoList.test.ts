@@ -149,13 +149,12 @@ describe('fetchSeoList', () => {
   })
 })
 
-// PSY-1764. The truncation that replaced the 422 above: `/venues?limit=100`
-// answered 200 with 100 of 297 venues, the response carried `total`, the call
-// discarded it, and the ItemList advertised a third of the catalogue while every
-// available signal said healthy. `/venues` no longer asks for a page at all, so
-// these tests guard the NEXT list pointed at a paginated endpoint rather than
-// that one — which is the only reason the condition was worth generalising into
-// this helper instead of fixing at the one call site.
+// PSY-1764. The truncation that replaced the 422 above: the call asked for a
+// page, the response carried `total`, the call discarded it, and the ItemList
+// advertised a fraction of the catalogue while every available signal said
+// healthy. `/venues` no longer asks for a page at all, so these tests guard the
+// reachable cause on a complete list (rows that cannot form a URL) and the next
+// caller pointed at a paginated endpoint.
 describe('fetchSeoList and a short list', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -164,7 +163,7 @@ describe('fetchSeoList and a short list', () => {
   it('reports a list shorter than the total the response reports', async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }], total: 297 }))
+      .mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }], total: 8 }))
 
     // Still returns what it got: a partial ItemList beats none, exactly as a
     // failed fetch still renders the page. The event is what changes.
@@ -172,20 +171,24 @@ describe('fetchSeoList and a short list', () => {
     expect(captureMessage).toHaveBeenCalledWith(
       expect.stringContaining('venues-listing: list is short of the total'),
       expect.objectContaining({
-        level: 'error',
+        // WARNING, not error: on a limitless endpoint the reachable cause is a
+        // venue with no slug, which no deploy fixes and which would otherwise
+        // re-page someone hourly forever — and would do it in the same Sentry
+        // issue a real truncation lands in.
+        level: 'warning',
         tags: { service: 'venues-listing' },
-        extra: expect.objectContaining({ received: 1, total: 297, missing: 296 }),
+        extra: expect.objectContaining({ received: 1, total: 8, missing: 7 }),
       })
     )
   })
 
   // The numbers ride in `extra` so Sentry groups every revalidation into one
-  // issue. A message carrying "100 of 297" would open a new issue on each
+  // issue. A message carrying the counts would open a new issue on each
   // catalogue change, which is how a real signal becomes noise and gets muted.
   it('keeps the counts out of the message so the events group', async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }], total: 297 }))
+      .mockResolvedValue(jsonResponse({ venues: [{ slug: 'a' }], total: 8 }))
 
     await call(fetchImpl)
     expect(captureMessage.mock.calls[0][0]).not.toMatch(/\d/)

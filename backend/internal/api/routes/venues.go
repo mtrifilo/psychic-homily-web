@@ -10,8 +10,13 @@ import (
 func setupVenueRoutes(rc RouteContext) {
 	venueHandler := catalogh.NewVenueHandler(rc.SC.Venue, rc.SC.Discord, rc.SC.AuditLog, rc.SC.Revision)
 
-	// Public venue endpoints - registered on main API without middleware
-	// Note: Static routes must come before parameterized routes
+	// Public venue endpoints - registered on main API without middleware.
+	//
+	// The static segments are grouped above `/venues/{venue_id}` for reading
+	// order, NOT for precedence: chi walks static children before parameterised
+	// ones, so `/venues/listing` beats the parameter regardless of registration
+	// order. venue_listing_routing_test.go asserts the resolution rather than
+	// the ordering, which is the part that would actually break.
 	huma.Get(rc.API, "/venues", venueHandler.ListVenuesHandler)
 	huma.Get(rc.API, "/venues/cities", venueHandler.GetVenueCitiesHandler)
 	huma.Get(rc.API, "/venues/listing", venueHandler.ListVenueListingHandler)

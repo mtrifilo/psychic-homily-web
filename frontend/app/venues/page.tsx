@@ -95,10 +95,11 @@ async function HydratedVenueList() {
  * `venuesMetadata.ts`. `fetchListPayload` weighs these two against the budget on
  * the way through, so a breach fails a build rather than going quiet.
  *
- * There is no `venues.filter(v => v.slug)` here any more. `GET /venues/listing`
- * drops rows that cannot form a URL and counts them in the shortfall it reports
- * (see `venuesMetadata.ts`), so a filter here would be a second, uncounted drop
- * of a case the endpoint already guarantees away.
+ * The ItemList itself is NOT measured here, and it is the part that grows with
+ * the catalogue: see `contracts.VenueListingEntry`, which records what it weighs
+ * in the rendered document and why that, rather than the cache budget, is the
+ * constraint that binds first. The slug guard that used to sit in this file now
+ * lives in `venuesMetadata.ts`, beside the fetch whose contract it checks.
  */
 export default async function VenuesPage() {
   const venues = await getVenuesForMetadata()
