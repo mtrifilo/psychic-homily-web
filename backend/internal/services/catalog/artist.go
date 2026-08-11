@@ -627,6 +627,11 @@ type ArtistWithCount struct {
 // different set than it lists, and nothing errors: the reader just finds a
 // trailing page that is empty, or one that is unreachable.
 //
+// It covers TWO of the three consumers of this gate. GetArtistListing restates
+// it, deliberately (it reads a different projection over the whole set), so a
+// gate change made here must be applied there BY HAND or the /artists ItemList
+// starts advertising a set the page no longer lists.
+//
 // A factory rather than a builder for the reason artistShowsBaseQuery is one:
 // GORM builders accumulate clauses, so the COUNT and the page must not share
 // one, or the page's SELECT/ORDER/LIMIT leak into the count.
@@ -696,10 +701,7 @@ func (s *ArtistService) artistBrowseScope(
 //
 // Sort order: upcoming_show_count DESC, name ASC, id ASC. Active artists
 // surface first, then alphabetical. Preserved across both gated and evergreen
-// modes. The id tiebreak is what makes `offset` mean anything: artist names are
-// not unique, and Postgres is free to return tied rows in any order, so without
-// it a name collision straddling a page boundary can show the same artist on
-// two pages and drop another entirely.
+// modes. See artistBrowseOrder for why the id is on the end.
 //
 // It pages rather than returning the whole set because the whole set is the
 // catalogue. Unbounded it answered with 3.17 MB of JSON over ~6,200 artists and
@@ -777,11 +779,19 @@ func (s *ArtistService) GetArtistsWithShowCounts(
 // active first, then alphabetical, then by id. Shared so the listing projection
 // and the full list cannot drift into presenting different orders.
 //
-// The id tiebreak is not cosmetic. Both consumers page or slice this order, and
-// artist names are NOT unique — two artists tied on upcoming count and name are
-// ordered arbitrarily by Postgres, and arbitrarily DIFFERENTLY between two
-// requests, so a tie straddling a page boundary silently duplicates one row and
-// drops another. `artists.id` is the primary key, so it settles every tie.
+// The trailing `artists.id` makes the order TOTAL by construction, which is what
+// OFFSET paging needs: rows tied on every preceding key are returned in an order
+// Postgres may choose freely, and may choose differently between two requests,
+// so a tie straddling a page boundary silently repeats one row and drops
+// another.
+//
+// It is belt-and-braces TODAY, not a fix for a live collision: `artists.name`
+// carries a unique index (`artists_lower_name_uniq`, migration
+// 20260628012704, on top of the original `artists_name_key`), so name alone
+// already breaks every tie. The point is that the paging guarantee should not
+// depend on that — the sort keys in front of the id are chosen for presentation
+// and can be re-chosen, and the day one of them is, nothing else would notice.
+// Keep a unique column last.
 const artistBrowseOrder = "upcoming_show_count DESC, artists.name ASC, artists.id ASC"
 
 // upcomingShowCountSubquery counts each artist's upcoming approved shows.
@@ -800,17 +810,21 @@ func (s *ArtistService) upcomingShowCountSubquery(now time.Time) *gorm.DB {
 
 // GetArtistListing returns the slug+name projection behind GET /artists/listing.
 //
-// It answers the same question as an unfiltered GetArtistsWithShowCounts —
-// which artists does the browse page list, in what order — while reading two
-// columns instead of hydrating a full response per row. That is the entire
-// point: the caller builds one link per artist and the wide body is what stops
-// the response fitting a cache entry. See contracts.ArtistListingEntry for the
-// measurements and for why trimming beat sharding or paginating.
+// It answers the same question as GetArtistsWithShowCounts — which artists does
+// the browse page list, in what order — while reading two columns instead of
+// hydrating a full response per row. That is the entire point: the caller
+// builds one link per artist and the wide body is what stops the response
+// fitting a cache entry. See contracts.ArtistListingEntry for the measurements
+// and for why trimming beat sharding or paginating THIS endpoint.
 //
-// The gate and the sort are SHARED with that default path rather than restated,
-// so the only deliberate difference is the slug filter below. Rows with a NULL
-// or empty slug are dropped here rather than by the caller: a slug is what
-// builds the URL, so an entry without one is unusable to any consumer.
+// It is NOT the same rows. Since PSY-1774 the browse path answers with one
+// page and this still answers with the whole set: the ItemList needs every URL
+// in a single read, a reader does not. What must stay identical is the GATE and
+// the SORT, and this restates both rather than sharing artistBrowseScope — so
+// it is the copy a gate change has to be applied to by hand. Its own deliberate
+// difference is the slug filter below: rows with a NULL or empty slug are
+// dropped here rather than by the caller, because a slug is what builds the
+// URL, so an entry without one is unusable to any consumer.
 func (s *ArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

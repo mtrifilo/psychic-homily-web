@@ -501,7 +501,8 @@ describe('ArtistList', () => {
       renderWithProviders(<ArtistList />)
 
       // `artists.length` here would report "1 artist" over a catalogue of 6,200.
-      expect(screen.getByTestId('artist-count')).toHaveTextContent('6200 artists')
+      // Thousands-separated, matching the pager caption directly below it.
+      expect(screen.getByTestId('artist-count')).toHaveTextContent('6,200 artists')
     })
 
     it('links page two from the current params, preserving ones it does not own', () => {
@@ -574,6 +575,23 @@ describe('ArtistList', () => {
       const [href] = mockPush.mock.calls[0]
       expect(href).toContain('tags=shoegaze')
       expect(href).not.toContain('page=')
+    })
+
+    // `?page=` is user-typed and crawler-followed. Unclamped, a page number this
+    // large multiplied into an offset outside integer range and serialised as
+    // "5e+21", which the API rejects — so the reader got "Failed to load
+    // artists" rather than the past-the-end notice.
+    it('clamps an absurd ?page= to an offset the API can still parse', () => {
+      mockGet.mockImplementation((key: string) =>
+        key === 'page' ? '99999999999999999999' : null
+      )
+      mockPage(120, 0)
+
+      renderWithProviders(<ArtistList />)
+
+      const [{ offset }] = mockUseArtists.mock.calls.at(-1) as [{ offset: number }]
+      expect(Number.isSafeInteger(offset)).toBe(true)
+      expect(String(offset)).not.toMatch(/e\+/)
     })
 
     it('reports a page past the end as such, not as an empty catalogue', () => {

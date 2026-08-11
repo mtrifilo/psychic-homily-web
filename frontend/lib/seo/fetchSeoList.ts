@@ -87,10 +87,11 @@ interface SeoListOptions {
  * the block keeps the failure visible without making it the reader's problem.
  *
  * Read the "and nothing else" literally, because PSY-1624 narrowed it. The
- * human-visible list is now server-rendered on `/shows` and `/venues`, but from
- * `lib/ssr/fetchListPayload.ts`, not from here: `/venues` still calls this for
- * its `ItemList` alongside that, and `/shows` no longer calls it at all.
- * `/artists` is the last page where the list a human reads is client-only.
+ * human-visible list is now server-rendered on `/shows`, `/venues` and — since
+ * PSY-1774 bounded `GET /artists` — `/artists`, but from
+ * `lib/ssr/fetchListPayload.ts`, not from here: `/venues` and `/artists` still
+ * call this for their `ItemList` alongside that, and `/shows` no longer calls
+ * it at all. No browse list is client-only any more.
  *
  * The opposite call is right whenever the fetch IS the artifact — see
  * `app/sitemap.ts`, where an empty document is a false success, so the fetch

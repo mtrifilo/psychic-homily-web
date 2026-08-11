@@ -21392,7 +21392,7 @@ export interface operations {
                 /** @description Offset for pagination */
                 offset?: number;
                 /**
-                 * @description Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR.
+                 * @description Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR.
                  * @example post-punk,phoenix
                  */
                 tags?: string;

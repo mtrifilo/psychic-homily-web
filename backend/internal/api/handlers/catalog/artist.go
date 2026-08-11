@@ -140,7 +140,7 @@ type ListArtistsRequest struct {
 	Cities   string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Mesa,AZ" example:"Phoenix,AZ|Mesa,AZ"`
 	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Maximum number of artists to return (max 200)"`
 	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
-	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
@@ -191,7 +191,7 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 			filters["city"] = req.City
 		}
 	}
-	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {
 		filters["tag_filter"] = tf
 		// PSY-495 (Bandcamp model): when a tag filter is engaged, drop the
 		// default "has upcoming shows" activity gate so tag pages are
@@ -209,8 +209,18 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 	if limit == 0 {
 		limit = defaultArtistListLimit
 	}
+	// Floored here as well as in the service so the echoed window describes the
+	// query that actually RAN. huma's `minimum:"0"` blocks a negative offset on
+	// the wire, but a direct caller — the same population the substitution above
+	// exists for — would otherwise be told `offset: -5` under a field documented
+	// as "offset used in query", and the browse pager captions its row range
+	// from that field.
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
 
-	artists, total, err := h.artistService.GetArtistsWithShowCounts(filters, limit, req.Offset)
+	artists, total, err := h.artistService.GetArtistsWithShowCounts(filters, limit, offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch artists", err)
 	}
@@ -219,7 +229,7 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 	resp.Body.Artists = artists
 	resp.Body.Total = total
 	resp.Body.Limit = limit
-	resp.Body.Offset = req.Offset
+	resp.Body.Offset = offset
 
 	return resp, nil
 }

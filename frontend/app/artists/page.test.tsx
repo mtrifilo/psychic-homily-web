@@ -19,8 +19,12 @@ vi.mock('@/features/artists', () => ({
   ArtistListSkeleton: () => null,
 }))
 
-import ArtistsPage from './page'
-import { ARTIST_ITEM_LIST_LIMIT } from './artistsMetadata'
+import { HydrationBoundary } from '@tanstack/react-query'
+import ArtistsPage, {
+  FirstScreenItemList,
+  HydratedArtistList,
+} from './page'
+import { ARTIST_ITEM_LIST_LIMIT, getArtistsForMetadata } from './artistsMetadata'
 import {
   ARTIST_LIST_FIRST_SCREEN_KEY,
   ARTIST_LIST_FIRST_SCREEN_URL,
@@ -56,16 +60,30 @@ function jsonLdPayloads(tree: ReactElement): Array<Record<string, unknown>> {
   return found
 }
 
-const itemList = (tree: ReactElement) =>
-  jsonLdPayloads(tree).find(d => d['@type'] === 'ItemList')
+/**
+ * The `ItemList` payload for a URL, if the page emits one there.
+ *
+ * The block lives in its own async component under Suspense — reading
+ * `searchParams` in the page body would make the whole route dynamic — so it is
+ * resolved directly rather than found by walking the synchronous tree.
+ */
+const itemList = async (
+  params: Record<string, string | string[] | undefined> = {}
+) => {
+  const artists = await getArtistsForMetadata()
+  const withSlugs = artists.filter(
+    (a): a is (typeof artists)[number] & { slug: string } => !!a.slug
+  )
+  if (withSlugs.length === 0) return undefined
+  const block = await FirstScreenItemList({
+    searchParams: Promise.resolve(params),
+    artists: withSlugs,
+  })
+  return block ? (block.props.data as Record<string, unknown>) : undefined
+}
 
 /** A bare `/artists` — no search params, the URL the first-screen seed covers. */
 const noSearchParams = () => ({ searchParams: Promise.resolve({}) })
-
-/** `/artists?<key>=<value>` — a URL that keys off the first-screen entry. */
-const withSearchParam = (key: string, value: string) => ({
-  searchParams: Promise.resolve({ [key]: value }),
-})
 
 /**
  * The `ItemList` bound, asserted on the ARTIFACT (PSY-1773).
@@ -84,7 +102,7 @@ describe('/artists JSON-LD ItemList', () => {
   it('emits at most ARTIST_ITEM_LIST_LIMIT entries for a full catalogue', async () => {
     fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
-    const list = itemList(await ArtistsPage(noSearchParams()))
+    const list = await itemList()
 
     expect(list).toBeDefined()
     expect(list!.itemListElement).toHaveLength(ARTIST_ITEM_LIST_LIMIT)
@@ -96,7 +114,7 @@ describe('/artists JSON-LD ItemList', () => {
   it('keeps numberOfItems and positions consistent at the bound', async () => {
     fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
-    const list = itemList(await ArtistsPage(noSearchParams()))
+    const list = await itemList()
     const elements = list!.itemListElement as Array<{ position: number }>
 
     expect(list!.numberOfItems).toBe(ARTIST_ITEM_LIST_LIMIT)
@@ -108,7 +126,7 @@ describe('/artists JSON-LD ItemList', () => {
   it('advertises the head of the endpoint order', async () => {
     fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
-    const elements = itemList(await ArtistsPage(noSearchParams()))!.itemListElement as Array<{
+    const elements = (await itemList())!.itemListElement as Array<{
       url: string
     }>
 
@@ -122,7 +140,21 @@ describe('/artists JSON-LD ItemList', () => {
   it('emits no ItemList when the fetch fails open', async () => {
     fetchSeoList.mockResolvedValue([])
 
-    expect(itemList(await ArtistsPage(noSearchParams()))).toBeUndefined()
+    expect(await itemList()).toBeUndefined()
+  })
+
+  // The block describes the 100 most active artists regardless of the page it
+  // is on, so on `?page=7` it advertised artists 1-100 over a document showing
+  // 301-350. PSY-1774 minted ~124 such URLs; it is emitted only where it is
+  // true.
+  it('emits no ItemList on a paginated or filtered URL', async () => {
+    fetchSeoList.mockResolvedValue(listingEntries(6_200))
+
+    expect(await itemList({ page: '7' })).toBeUndefined()
+    expect(await itemList({ cities: 'Phoenix,AZ' })).toBeUndefined()
+    expect(await itemList({ tags: 'post-punk' })).toBeUndefined()
+    // ...and still emitted on the URL it does describe.
+    expect(await itemList()).toBeDefined()
   })
 
   // The breadcrumb is unconditional and must survive a failed listing fetch.
@@ -152,39 +184,17 @@ describe('/artists server-seeded first screen', () => {
   })
 
   /**
-   * Invokes the async component nested under the page's Suspense boundary.
-   * Reached through the rendered tree rather than by exporting it, so the
-   * seeding stays an implementation detail of the route, which is what it is.
+   * Renders the seeding component directly.
+   *
+   * It is imported rather than located by walking the page tree for a function
+   * NAME: a name match breaks silently on a rename or a `memo` wrapper and
+   * points the failure at the traversal helper instead of at the edit that
+   * caused it. Next ignores extra named exports from a route module — the
+   * sibling `app/venues/page.tsx` exports two of its own.
    */
-  async function renderHydratedList(
-    pageProps: { searchParams: Promise<Record<string, string | string[] | undefined>> } =
-      noSearchParams(),
-  ) {
-    const walk = async (node: unknown): Promise<ReactElement | undefined> => {
-      if (Array.isArray(node)) {
-        for (const child of node) {
-          const hit = await walk(child)
-          if (hit) return hit
-        }
-        return undefined
-      }
-      if (!node || typeof node !== 'object') return undefined
-      const el = node as { type?: unknown; props?: Record<string, unknown> }
-      if (
-        typeof el.type === 'function' &&
-        (el.type as { name?: string }).name === 'HydratedArtistList'
-      ) {
-        return (await (el.type as (p: unknown) => Promise<ReactElement>)(
-          el.props
-        )) as ReactElement
-      }
-      if (el.props && 'children' in el.props) return walk(el.props.children)
-      return undefined
-    }
-    const found = await walk(await ArtistsPage(pageProps))
-    expect(found, 'HydratedArtistList was not found under the page').toBeDefined()
-    return found!
-  }
+  const renderHydratedList = (
+    params: Record<string, string | string[] | undefined> = {}
+  ) => HydratedArtistList({ searchParams: Promise.resolve(params) })
 
   it('fetches the paired first-screen URL and the city facets', async () => {
     fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
@@ -221,11 +231,12 @@ describe('/artists server-seeded first screen', () => {
   it('renders the list unseeded when a fetch fails, rather than throwing', async () => {
     fetchListPayload.mockResolvedValue(null)
 
-    await renderHydratedList()
+    const tree = await renderHydratedList()
 
     // The component fetches for itself and owns the error state; handing
     // error.tsx a page the browser could have rendered would be worse.
     expect(seedFirstScreen).not.toHaveBeenCalled()
+    expect(tree.props.state).toEqual({ mutations: [], queries: [] })
   })
 
   // The seed describes ONE request. On a URL the hook keys away from, fetching
@@ -239,9 +250,42 @@ describe('/artists server-seeded first screen', () => {
   ])('skips the seed entirely when ?%s= is present', async (key, value) => {
     fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
 
-    await renderHydratedList(withSearchParam(key, value))
+    await renderHydratedList({ [key]: value })
 
     expect(fetchListPayload).not.toHaveBeenCalled()
     expect(seedFirstScreen).not.toHaveBeenCalled()
   })
+
+  // The element type must NOT vary with the seed. A bare <ArtistList /> on the
+  // skip paths remounts the list on the first page click off page 1 — the rows
+  // are replaced by the full-page spinner and focus is dropped to <body>.
+  it.each([
+    ['seeded', {}],
+    ['skipped by a filter', { page: '2' }],
+    ['skipped by a failed fetch', {}],
+  ])('renders the same boundary type when the seed is %s', async (label, params) => {
+    fetchListPayload.mockResolvedValue(
+      label === 'skipped by a failed fetch'
+        ? null
+        : { artists: [], total: 0, limit: 50, offset: 0 }
+    )
+
+    const tree = await renderHydratedList(params)
+
+    expect(tree.type).toBe(HydrationBoundary)
+  })
+
+  // An empty value is not a filter. `?tags=` parses to no tags and `?page=`
+  // parses to page 1, so both land on the first-screen key — reading them as
+  // "present" would skip a seed that would have hit.
+  it.each([['tags'], ['page'], ['cities']])(
+    'still seeds when ?%s= carries an empty value',
+    async key => {
+      fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
+
+      await renderHydratedList({ [key]: '' })
+
+      expect(seedFirstScreen).toHaveBeenCalled()
+    }
+  )
 })

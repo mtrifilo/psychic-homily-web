@@ -45,6 +45,21 @@ func TestListArtistsPaginationTags(t *testing.T) {
 	}
 }
 
+// The `tags=` param carries a huma maxLength, which is the bound that makes an
+// enormous filter cheap: it is enforced BEFORE the handler runs, so the string
+// is never split into 60,000 slugs in the first place. The slug cap that
+// follows it only bounds the query. Pinned here because deleting the tag is
+// invisible to every handler test in this package — they bypass huma.
+func TestListArtistsBoundsTheTagsParamLength(t *testing.T) {
+	field, ok := reflect.TypeOf(ListArtistsRequest{}).FieldByName("Tags")
+	if !ok {
+		t.Fatal("ListArtistsRequest is missing the Tags field")
+	}
+	if got := field.Tag.Get("maxLength"); got != "512" {
+		t.Fatalf("Tags maxLength = %q, want %q — without it an arbitrarily long tags= is parsed in full before any cap applies", got, "512")
+	}
+}
+
 // The handler substitutes its own default for a zero Limit, for the callers
 // that bypass huma. That substitution is only correct while it equals the tag's
 // default — otherwise an HTTP caller and a direct caller get different page

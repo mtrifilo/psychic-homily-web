@@ -413,6 +413,31 @@ func TestListArtists_DefaultsLimitWhenUnset(t *testing.T) {
 	}
 }
 
+// The echoed window must describe the query that RAN, not the arguments that
+// came in. The browse pager captions its row range from `offset`, so echoing a
+// negative one back would caption "Showing -4-46 of N" over the first page.
+func TestListArtists_EchoesTheClampedOffset(t *testing.T) {
+	var gotOffset int
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			gotOffset = offset
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{Offset: -5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOffset != 0 {
+		t.Errorf("expected the service to receive offset=0, got %d", gotOffset)
+	}
+	if resp.Body.Offset != 0 {
+		t.Errorf("expected echoed offset=0, got %d", resp.Body.Offset)
+	}
+}
+
 func TestListArtists_WithFilters(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
 		GetArtistsWithShowCountsFn: func(filters map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {

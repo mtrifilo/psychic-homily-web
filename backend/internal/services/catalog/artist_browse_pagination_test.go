@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
+	"testing"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -61,11 +63,14 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Bou
 	suite.Equal(int64(7), total, "the total must describe the whole matching set, not the page")
 }
 
-// Consecutive pages must partition the set. This is what the `artists.id`
-// tiebreak in artistBrowseOrder buys: every one of these artists is tied on
-// upcoming_show_count, so without a unique final sort key Postgres is free to
-// order the ties differently per query and a boundary silently repeats one
-// artist while dropping another.
+// Consecutive pages must partition the set — the property OFFSET paging exists
+// to provide and the one a reader notices when it breaks.
+//
+// This fixture cannot prove the `artists.id` tiebreak is what provides it:
+// `artists.name` is uniquely indexed, so no two rows can tie on every key ahead
+// of the id, and the assertion below passes with the tiebreak removed. The
+// tiebreak is pinned by TestArtistBrowseOrderEndsOnAUniqueColumn instead, which
+// is the only thing that can catch its removal.
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_PagesStayDisjoint() {
 	artists := suite.seedActiveArtists("Disjoint", 6)
 
@@ -144,4 +149,20 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Eve
 	suite.Require().NoError(err)
 	suite.Require().Len(page, 1, "the last evergreen page holds the remainder")
 	suite.Equal("Evergreen Dormant", page[0].Name, "zero-count artists sort last")
+}
+
+// TestArtistBrowseOrderEndsOnAUniqueColumn pins the one property of
+// artistBrowseOrder that no fixture can demonstrate.
+//
+// OFFSET paging is only stable over a TOTAL order. The keys in front of the id
+// are presentation choices — active-first, then alphabetical — and the day one
+// of them is re-chosen, nothing in the suite would notice a tie appearing,
+// because the failure is an intermittently duplicated row at a page boundary
+// rather than an assertion. A unique column on the end makes the order total
+// whatever the keys ahead of it do, so it is asserted directly.
+func TestArtistBrowseOrderEndsOnAUniqueColumn(t *testing.T) {
+	const uniqueTiebreak = "artists.id ASC"
+	if !strings.HasSuffix(artistBrowseOrder, uniqueTiebreak) {
+		t.Fatalf("artistBrowseOrder must end on a unique column so OFFSET paging is stable:\ngot:  %s\nwant suffix: %s", artistBrowseOrder, uniqueTiebreak)
+	}
 }
