@@ -2,8 +2,8 @@ import { Suspense, cache } from 'react'
 import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
 // Imported by path rather than through the `@/features/scenes` barrel, which
-// is a surface of client components (`SceneList`, `ScenePulseCard`, the Atlas
-// globe). This is a server component that needs none of them, and the sibling
+// is a surface of client components (`SceneList`, `ScenePreviewPanel`, the
+// Atlas globe). This is a server component that needs none of them, and the sibling
 // page-level scene components — `SceneWeekView`, `SceneDayView` — are imported
 // by path for the same reason. NOTE: maplibre is safe either way — AtlasGlobe
 // dynamic-imports its canvas. The force graph is NOT: `ForceGraphView` was

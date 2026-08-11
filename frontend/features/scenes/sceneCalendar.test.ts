@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  SCENE_CALENDAR_FETCH_LIMIT,
   SCENE_CALENDAR_ROW_CAP,
   SCENE_CALENDAR_WINDOW_DAYS,
   calendarDateInZone,
@@ -34,11 +35,20 @@ function buildShow(overrides: Partial<SceneShowSummary> = {}): SceneShowSummary 
 }
 
 describe('window constants', () => {
-  // The endpoint caps `days` at 30 and `limit` at 20 (GetSceneShowsRequest);
-  // a frontend that asked for more would get a 422, not a longer window.
+  // The endpoint caps `days` at 30 and `limit` at 200 (GetSceneShowsRequest);
+  // a frontend that asked for more would get a 422, not a longer window. What
+  // is SENT is the fetch limit, not the row cap, so that is the value that has
+  // to fit.
   it('stay inside what the endpoint will serve', () => {
     expect(SCENE_CALENDAR_WINDOW_DAYS).toBeLessThanOrEqual(30)
-    expect(SCENE_CALENDAR_ROW_CAP).toBeLessThanOrEqual(20)
+    expect(SCENE_CALENDAR_FETCH_LIMIT).toBeLessThanOrEqual(200)
+  })
+
+  // One row over the cap is the truncation sentinel. Without it, truncation is
+  // inferred from `length === cap`, which cannot tell a cut list from a scene
+  // that happens to hold exactly that many.
+  it('asks for exactly one row more than the page draws', () => {
+    expect(SCENE_CALENDAR_FETCH_LIMIT).toBe(SCENE_CALENDAR_ROW_CAP + 1)
   })
 })
 

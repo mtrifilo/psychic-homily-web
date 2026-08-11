@@ -72,42 +72,39 @@ function SceneArtistsList({ slug }: { slug: string }) {
 }
 
 /**
- * The band across the top of the page: where you are, what is on tonight, how
+ * The band across the top of the page: where you are, how much is here, how
  * many rooms this page speaks for, and which clock every time below is on.
  *
- * The tonight clause is the SAME number the tonight group renders below, by
- * construction. The calendar window opens at now, so both are answering "what
- * is still ahead", and the two must not be allowed to drift apart. The zero
- * state is the mock's words rather than a numeral: "nothing tonight".
+ * The volume clause is the SPARSE frame's spelling (`1 UPCOMING SHOW`), which
+ * is `upcoming_show_count` straight off this payload. It repeats a number the
+ * stat line also carries, and so does the mock: the band is read at a glance
+ * and the stat line is read as a sentence.
  *
- * Both clauses DROP when the scene's timezone cannot be resolved from the rows.
- * "Tonight" is a same-day claim, and a same-day claim made in the reader's own
- * timezone about a city they are not in is a confidently wrong one.
+ * TWO clauses the mock draws are deliberately absent, both because no honest
+ * number exists for them here:
  *
- * DELIBERATELY NOT the mock's `THIS WEEK n`. `GET /scenes/{slug}` carries no
- * calendar-week field; only `GET /scenes` does (`shows_calendar_week`). The
- * only count on this payload is `upcoming_show_count`, which spans every future
- * show, so labelling that "this week" would put 328 against a week page that
- * says 22, the exact defect PSY-1623 removed from two other surfaces. Counting
- * the fetched rows instead would be wrong the other way on any dense scene,
- * because the window is capped at 20. Add the field to the detail payload
- * first, then draw the number.
+ *  - `THIS WEEK n`. `GET /scenes/{slug}` carries no calendar-week field; only
+ *    `GET /scenes` does (`shows_calendar_week`). Labelling `upcoming_show_count`
+ *    "this week" would put 328 against a week page that says 22, the exact
+ *    defect PSY-1623 removed from two other surfaces. Counting the fetched rows
+ *    would be wrong the other way, because the window is capped.
+ *  - `TONIGHT n SHOWS` / `NOTHING TONIGHT`. The calendar window opens at NOW,
+ *    so a show whose doors have opened is already out of the payload, and
+ *    between midnight and 6am the night named by the boundary is yesterday,
+ *    which a forward window can never contain. Every spelling of this clause
+ *    was therefore either an undercount or a flat "nothing tonight" on a night
+ *    that had shows, contradicting `/scenes/{slug}/tonight` one click away in
+ *    the window strip. Give the detail payload a real tonight count, or read
+ *    the day payload, and the clause can come back.
  */
 function SceneStatusBand({ scene }: { scene: SceneDetail }) {
-  const { timeZone, tonightCount } = useSceneCalendarWindow(scene.slug)
+  const { timeZone } = useSceneCalendarWindow(scene.slug)
   const zoneLabel = timeZone ? formatTimeZoneLabel(new Date(), timeZone) : null
 
   const { stats } = scene
-  const tonight =
-    tonightCount === null
-      ? null
-      : tonightCount === 0
-        ? 'nothing tonight'
-        : `tonight ${tonightCount} show${tonightCount === 1 ? '' : 's'}`
-
   const parts = [
     `${scene.city}, ${scene.state}`,
-    tonight,
+    `${stats.upcoming_show_count} upcoming show${stats.upcoming_show_count === 1 ? '' : 's'}`,
     `${stats.venue_count} room${stats.venue_count === 1 ? '' : 's'} tracked`,
     zoneLabel && `all times ${zoneLabel}`,
   ].filter(Boolean)

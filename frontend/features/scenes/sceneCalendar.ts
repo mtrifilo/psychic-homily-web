@@ -27,13 +27,27 @@ import type { SceneShowSummary } from './types'
 export const SCENE_CALENDAR_WINDOW_DAYS = 28
 
 /**
- * How many rows the window may return.
+ * How many rows the page renders.
  *
- * The endpoint caps `limit` at 20 (`GetSceneShowsRequest`), so this is not a
- * design choice we are free to raise from the frontend. A denser scene is
- * truncated here and the footer says so rather than pretending 20 is the total.
+ * Sized so "next 4 weeks" is a claim the page can keep. At roughly seven shows
+ * a night, the endpoint's old 20-row ceiling covered under three days on a
+ * scene like Phoenix, so a section headed "next 4 weeks" could never render
+ * four weeks. That ceiling was raised to 200 for this surface; 60 rows is a
+ * month of a normal scene and over a week of a very dense one, without asking
+ * a reader to scroll three hundred rows.
  */
-export const SCENE_CALENDAR_ROW_CAP = 20
+export const SCENE_CALENDAR_ROW_CAP = 60
+
+/**
+ * What we actually ASK for: one more row than we will draw.
+ *
+ * The extra row is the truncation sentinel. Inferring truncation from
+ * `rows.length === cap` cannot tell "the endpoint cut the list" from "this
+ * scene happens to have exactly that many", and getting that wrong deletes a
+ * complete date from a page whose whole job is listing them. Asking for one
+ * more makes truncation an observed fact.
+ */
+export const SCENE_CALENDAR_FETCH_LIMIT = SCENE_CALENDAR_ROW_CAP + 1
 
 /**
  * The scene-local hour at which a new night begins.
@@ -129,12 +143,16 @@ export function sceneTonightDate(now: Date, timeZone?: string): string | null {
  * not recognise, so it has to be gated on `isShowTimezoneResolved`, which is
  * the predicate that helper's own docstring nominates for same-day claims.
  *
- * This is deliberately the SAME resolution `formatShowStartTime` performs for
- * the clock time printed on the row. A date heading and a start time that
- * disagreed about which day a show is on would be the worst possible output:
- * both look authoritative, and only one can be right.
+ * Exported so the ROW can print its clock time in the same zone its heading
+ * was bucketed in. `formatShowStartTime` alone is not enough: it ends at
+ * `resolveShowTimezone`, which silently answers America/Phoenix for anything
+ * outside the US state map, so a zone-less London row would file under a
+ * UTC-derived date and print an Arizona time under it. A heading and a start
+ * time disagreeing about which day a show is on is the worst possible output,
+ * because both look authoritative and only one can be right. When this returns
+ * undefined and the scene has no zone either, the row prints no time at all.
  */
-function rowTimeZone(show: SceneShowSummary): string | undefined {
+export function rowTimeZone(show: SceneShowSummary): string | undefined {
   const zone = show.venue_timezone
   if (zone && isValidTimeZone(zone)) return zone
   if (isShowTimezoneResolved(show.venue_state, zone)) {

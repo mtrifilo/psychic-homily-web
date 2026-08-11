@@ -8,11 +8,13 @@ import { useSceneShows } from '../hooks'
 import { showDisplayTitle, showHref } from '../sceneWeek'
 import { formatDayCountLine, formatShowPrice, formatShowStartTime } from '../sceneDay'
 import {
+  SCENE_CALENDAR_FETCH_LIMIT,
   SCENE_CALENDAR_ROW_CAP,
   SCENE_CALENDAR_WINDOW_DAYS,
   formatCalendarDateHeading,
   groupShowsByDate,
   resolveSceneTimeZone,
+  rowTimeZone,
   sceneTonightDate,
   venueSubLocality,
   type SceneShowGroup,
@@ -111,7 +113,13 @@ function SceneShowRow({
   show: SceneShowSummary
   sceneTimeZone?: string
 }) {
-  const time = formatShowStartTime(show, sceneTimeZone)
+  // The zone this row's HEADING was bucketed in, or nothing. Printing a time
+  // without it would fall through to `resolveShowTimezone`'s America/Phoenix
+  // default and put an Arizona clock under a UTC-derived date. An absent time
+  // is a smaller loss than a confident wrong one, and the column below is
+  // width-reserved either way.
+  const zone = rowTimeZone(show) ?? sceneTimeZone
+  const time = zone ? formatShowStartTime(show, zone) : null
   const price = formatShowPrice(show)
   const subLocality = venueSubLocality(show)
 
@@ -166,10 +174,9 @@ function SceneShowRow({
  * `roomCount` is named because it is what makes the sentence checkable: a
  * reader who knows the city can see exactly how wide the claim is.
  */
-function quietWindowCopy(city: string, roomCount: number, scope: 'tonight' | 'window'): string {
+function quietWindowCopy(city: string, roomCount: number): string {
   const rooms = roomCount > 0 ? `the ${roomCount} ${city} rooms we track` : `the ${city} rooms we track`
-  const when = scope === 'tonight' ? 'tonight' : 'in the next four weeks'
-  return `Nothing on our calendar for ${rooms} ${when}. A room may have shows we have not listed.`
+  return `Nothing on our calendar for ${rooms} in the next four weeks. A room may have shows we have not listed.`
 }
 
 /**
@@ -179,53 +186,53 @@ function quietWindowCopy(city: string, roomCount: number, scope: 'tonight' | 'wi
  * the next-widest view. No empty-state art, no "clear filters" dead end, and no
  * padding the window with other cities' shows.
  *
- * `withLinks` is false for the tonight bucket on a scene that DOES have later
- * rows: the window footer beneath the list already carries the same two
- * destinations, and a page offering "All upcoming in Phoenix" twice under one
- * heading gives a reader two identical targets to choose between.
+ * The week link rides here rather than only in the window footer, which does
+ * not render when there are no rows to count. The scene with nothing on it is
+ * the one that most needs an onward path, so it must not be the one state that
+ * loses it.
  */
-function QuietWindow({
-  scene,
-  scope,
-  withLinks = true,
-}: {
-  scene: SceneDetail
-  scope: 'tonight' | 'window'
-  withLinks?: boolean
-}) {
+function QuietWindow({ scene }: { scene: SceneDetail }) {
   const citiesParam = buildCitiesParam([{ city: scene.city, state: scene.state }])
 
   return (
     <div className="py-4">
       <p className="max-w-2xl text-sm text-muted-foreground">
-        {quietWindowCopy(scene.city, scene.stats.venue_count, scope)}
+        {quietWindowCopy(scene.city, scene.stats.venue_count)}
       </p>
-      {withLinks && (
-        <div className="mt-3 flex flex-wrap items-center gap-4">
-          <BracketLink
-            label={`All upcoming in ${scene.city}`}
-            href={`/shows?cities=${encodeURIComponent(citiesParam)}`}
-          />
-          <BracketLink label="Suggest a venue" href="/contribute" />
-        </div>
-      )}
+      <div className="mt-3 flex flex-wrap items-center gap-4">
+        <BracketLink
+          label={`Full week in ${scene.city}`}
+          href={`/scenes/${scene.slug}/week`}
+        />
+        <BracketLink
+          label={`All upcoming in ${scene.city}`}
+          href={`/shows?cities=${encodeURIComponent(citiesParam)}`}
+        />
+        <BracketLink label="Suggest a venue" href="/contribute" />
+      </div>
     </div>
   )
 }
 
-/** One date's heading, count and rows. */
+/**
+ * One date's heading, count and rows.
+ *
+ * `countIsPartial` suppresses the count rather than qualifying it. It is set
+ * when the endpoint's row cap landed inside this date, which happens on a very
+ * dense night: the rows are real, but their number is not this date's total,
+ * and printing it in the same register as every verified count would state a
+ * per-day figure nobody checked.
+ */
 function SceneDateGroup({
   group,
-  scene,
   isTonight,
   sceneTimeZone,
-  quietLinks,
+  countIsPartial,
 }: {
   group: SceneShowGroup
-  scene: SceneDetail
   isTonight: boolean
   sceneTimeZone?: string
-  quietLinks: boolean
+  countIsPartial: boolean
 }) {
   return (
     <section className="border-t border-border pt-4">
@@ -234,19 +241,17 @@ function SceneDateGroup({
           {formatCalendarDateHeading(group.date)}
           {isTonight && <span className="text-primary"> · TONIGHT</span>}
         </h3>
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-          {formatDayCountLine(group.shows.length)}
-        </span>
+        {!countIsPartial && (
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+            {formatDayCountLine(group.shows.length)}
+          </span>
+        )}
       </div>
-      {group.shows.length === 0 ? (
-        <QuietWindow scene={scene} scope="tonight" withLinks={quietLinks} />
-      ) : (
-        <ul className="mt-1">
-          {group.shows.map(show => (
-            <SceneShowRow key={show.id} show={show} sceneTimeZone={sceneTimeZone} />
-          ))}
-        </ul>
-      )}
+      <ul className="mt-1">
+        {group.shows.map(show => (
+          <SceneShowRow key={show.id} show={show} sceneTimeZone={sceneTimeZone} />
+        ))}
+      </ul>
     </section>
   )
 }
@@ -254,13 +259,11 @@ function SceneDateGroup({
 /**
  * What the window is showing, and where the rest of it lives.
  *
- * NO `n of {upcoming_show_count}` here, deliberately. That field counts every
- * future show with no upper bound, so printing it as the denominator under a
- * heading that says "next 4 weeks" would tell the reader there are 308 more
- * shows in a window that does not contain them. It is the same defect PSY-1623
- * removed from two other surfaces, and the status band above refuses it for the
- * same reason. The truncated line states only what it can check: these are the
- * first rows, and the two links go where the rest is.
+ * The mock's wording, and the denominator is deliberate: `of {n} upcoming`
+ * scopes the total to what is UPCOMING, not to what is in this window, so it
+ * tells the reader the scale of what was cut without claiming the four weeks
+ * contain all of it. That is a different thing from the PSY-1623 defect, which
+ * was a count mislabelled as a WEEK.
  */
 function WindowFooter({
   scene,
@@ -277,7 +280,7 @@ function WindowFooter({
     <div className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border pt-3">
       <p className="font-mono text-[11px] text-muted-foreground">
         {truncated
-          ? `Showing the first ${rendered} in the next four weeks`
+          ? `Showing ${rendered} of ${scene.stats.upcoming_show_count} upcoming`
           : 'Showing everything we have in the next four weeks'}
       </p>
       <div className="flex flex-wrap items-center gap-4">
@@ -304,45 +307,40 @@ function WindowFooter({
 export function useSceneCalendarWindow(sceneSlug: string) {
   const { data, isLoading, isError } = useSceneShows(sceneSlug, {
     days: SCENE_CALENDAR_WINDOW_DAYS,
-    limit: SCENE_CALENDAR_ROW_CAP,
+    limit: SCENE_CALENDAR_FETCH_LIMIT,
   })
 
-  const shows = useMemo(() => data?.shows ?? [], [data])
+  const fetched = useMemo(() => data?.shows ?? [], [data])
 
   return useMemo(() => {
+    // One row over the cap means the endpoint had more to give. That is an
+    // observed fact rather than the `length === cap` inference, which cannot
+    // tell a cut list from a scene that happens to hold exactly that many and
+    // so deletes a complete date from a page whose job is listing them.
+    const truncated = fetched.length > SCENE_CALENDAR_ROW_CAP
+    const shows = truncated ? fetched.slice(0, SCENE_CALENDAR_ROW_CAP) : fetched
+
     const timeZone = resolveSceneTimeZone(shows)
     // Read the clock only once data exists. The page server-renders with this
     // query unresolved, so the first client render matches the server's and no
     // date-derived value can differ across hydration.
     const tonight = shows.length > 0 ? sceneTonightDate(new Date(), timeZone) : null
-    const dated = groupShowsByDate(shows, timeZone)
+    const groups = groupShowsByDate(shows, timeZone)
 
-    // The endpoint stops at its row cap wherever that falls, which is usually
-    // part-way through a date. That date's rows are a fragment, but its count
-    // renders in the same register as every verified one, so it would state a
-    // per-day total nobody checked. Drop it rather than qualify it; the footer
-    // says the list was cut and the links go where the rest is. Never drop the
-    // only group there is.
-    const truncated = shows.length >= SCENE_CALENDAR_ROW_CAP
-    const groups = truncated && dated.length > 1 ? dated.slice(0, -1) : dated
-    const rendered = groups.reduce((n, group) => n + group.shows.length, 0)
-
-    // The tonight bucket renders even when nothing is on it, so a reader
-    // arriving before doors sees the answer to the question they came with
-    // instead of the next date that happens to have a row. Only synthesized
-    // when the zone is genuinely known. A guessed zone could tag the wrong
-    // night, and a wrong TONIGHT is worse than none.
+    // NO synthesized empty tonight bucket, deliberately, and this is the one
+    // decision on this surface most worth not undoing.
     //
-    // Re-sorted rather than assumed to belong first: tonight is only earlier
-    // than every dated group while the zone maths holds, and an ordering
-    // invariant that depends on another computation being right is one that
-    // eventually breaks silently.
-    const withTonight =
-      tonight && !groups.some(group => group.date === tonight)
-        ? [{ date: tonight, shows: [] as SceneShowSummary[] }, ...groups].sort((a, b) =>
-            a.date.localeCompare(b.date)
-          )
-        : groups
+    // The window opens at `now` (`GetSceneUpcomingShows` filters
+    // `event_date >= time.Now()`), so a show whose doors have opened is already
+    // gone from the payload, and between midnight and 06:00 the night named by
+    // the 6am boundary is YESTERDAY, which a forward window can never contain.
+    // Drawing an empty bucket for that date published "Nothing on our calendar
+    // for the 12 Phoenix rooms we track tonight" in our own voice, every
+    // evening, on a night that demonstrably had shows, one click from
+    // `/scenes/{slug}/tonight` which listed them. A bucket is only drawn for a
+    // date the window actually answered for; the TONIGHT chip in the strip
+    // above owns the question of what the whole night holds.
+    const rendered = shows.length
 
     return {
       isLoading,
@@ -353,19 +351,11 @@ export function useSceneCalendarWindow(sceneSlug: string) {
       isError: isError && shows.length === 0,
       timeZone,
       tonight,
-      // What the status band says about tonight, and NULL when the zone is
-      // unknown so the band drops the clause rather than guessing a night.
-      // This is the count the tonight GROUP renders, by construction: the same
-      // number in both places, because the window opens at now and both are
-      // answering "what is still ahead".
-      tonightCount: tonight
-        ? (withTonight.find(group => group.date === tonight)?.shows.length ?? 0)
-        : null,
-      groups: withTonight,
+      groups,
       rendered,
       truncated,
     }
-  }, [shows, isLoading, isError])
+  }, [fetched, isLoading, isError])
 }
 
 export function SceneCalendar({ scene }: SceneCalendarProps) {
@@ -378,12 +368,11 @@ export function SceneCalendar({ scene }: SceneCalendarProps) {
 
       <section className="mt-6">
         {/* The mock draws a `[Full week in {city} →]` link on this header as
-            well as in the footer. Only the footer one ships: the window strip
-            three lines above already carries a THIS WEEK chip to the same page,
-            and a second link with the footer's exact name AND href would give a
-            reader using the links list two identical entries to choose between.
-            The footer keeps its copy because a twenty-row list is long enough
-            that the reader who reaches the bottom is a different reader. */}
+            well as in the footer. Only ONE ships at a time: two links with the
+            same name AND href in one render give a reader using the links list
+            two identical entries to choose between. It rides at the foot of a
+            populated list (where the reader who scrolled ends up) and inside
+            the empty state (where there is no foot), so no state loses it. */}
         <h2 className="font-mono text-[11px] uppercase tracking-widest">
           Shows / next 4 weeks
           <span className="text-muted-foreground">
@@ -424,16 +413,17 @@ export function SceneCalendar({ scene }: SceneCalendarProps) {
               .
             </p>
           ) : groups.length === 0 ? (
-            <QuietWindow scene={scene} scope="window" />
+            <QuietWindow scene={scene} />
           ) : (
-            groups.map(group => (
+            groups.map((group, i) => (
               <SceneDateGroup
                 key={group.date}
                 group={group}
-                scene={scene}
                 isTonight={group.date === tonight}
                 sceneTimeZone={timeZone}
-                quietLinks={groups.length === 1}
+                // Only the LAST group can have been cut by the row cap, and
+                // only when the cap was actually reached.
+                countIsPartial={truncated && i === groups.length - 1}
               />
             ))
           )}

@@ -117,10 +117,7 @@ describe('SceneDetailView', () => {
     vi.clearAllMocks()
     calendarScenes.length = 0
     mockUseSceneArtists.mockReturnValue({ data: emptyArtists, isLoading: false })
-    mockCalendarWindow.mockReturnValue({
-      timeZone: 'America/Phoenix',
-      tonightCount: 2,
-    })
+    mockCalendarWindow.mockReturnValue({ timeZone: 'America/Phoenix' })
   })
 
   it('renders a loading spinner while the scene detail is loading', () => {
@@ -155,44 +152,43 @@ describe('SceneDetailView', () => {
       })
     })
 
-    it('names the place, tonight, the coverage and the clock', () => {
+    it('names the place, the volume, the coverage and the clock', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
         screen.getByText(
-          'Phoenix, AZ · tonight 2 shows · 12 rooms tracked · all times MST'
+          'Phoenix, AZ · 45 upcoming shows · 12 rooms tracked · all times MST'
         )
       ).toBeInTheDocument()
     })
 
-    // The mock's zero state for this clause is words, not a numeral.
-    it('says "nothing tonight" rather than printing a zero', () => {
-      mockCalendarWindow.mockReturnValue({
-        timeZone: 'America/Phoenix',
-        tonightCount: 0,
+    it('pluralizes a single upcoming show', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({
+          stats: {
+            venue_count: 1,
+            artist_count: 0,
+            upcoming_show_count: 1,
+            festival_count: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
       })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
-        screen.getByText(
-          'Phoenix, AZ · nothing tonight · 12 rooms tracked · all times MST'
-        )
+        screen.getByText('Phoenix, AZ · 1 upcoming show · 1 room tracked · all times MST')
       ).toBeInTheDocument()
     })
 
-    it('pluralizes a single show', () => {
-      mockCalendarWindow.mockReturnValue({
-        timeZone: 'America/Phoenix',
-        tonightCount: 1,
-      })
+    // Naming a clock is a claim. A zone the rows could not supply would be the
+    // reader's own, which is a confidently wrong answer about a city they are
+    // not in.
+    it('drops the clock when the zone is unknown', () => {
+      mockCalendarWindow.mockReturnValue({ timeZone: undefined })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.getByText(/tonight 1 show ·/)).toBeInTheDocument()
-    })
-
-    // "Tonight" is a same-day claim, and a same-day claim made in the reader's
-    // own timezone about a city they are not in is a confidently wrong one.
-    it('drops both the night and the clock when the zone is unknown', () => {
-      mockCalendarWindow.mockReturnValue({ timeZone: undefined, tonightCount: null })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.getByText('Phoenix, AZ · 12 rooms tracked')).toBeInTheDocument()
+      expect(
+        screen.getByText('Phoenix, AZ · 45 upcoming shows · 12 rooms tracked')
+      ).toBeInTheDocument()
     })
 
     // `GET /scenes/{slug}` has no calendar-week field, and the only count it
@@ -201,6 +197,14 @@ describe('SceneDetailView', () => {
     it('carries no this-week count', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(screen.queryByText(/this week/i)).not.toBeInTheDocument()
+    })
+
+    // The window opens at NOW, so any tonight count taken from it undercounts
+    // once doors open, and names YESTERDAY between midnight and 6am. Both
+    // spellings contradicted /scenes/{slug}/tonight one click away.
+    it('carries no tonight count', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText(/tonight/i)).not.toBeInTheDocument()
     })
   })
 

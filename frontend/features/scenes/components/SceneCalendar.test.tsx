@@ -106,7 +106,7 @@ describe('SceneCalendar', () => {
       renderWithProviders(<SceneCalendar scene={buildScene()} />)
       expect(mockUseSceneShows).toHaveBeenCalledWith('phoenix-az', {
         days: 28,
-        limit: 20,
+        limit: 61,
       })
     })
   })
@@ -268,7 +268,24 @@ describe('SceneCalendar', () => {
       ])
       renderWithProviders(<SceneCalendar scene={buildScene()} />)
       expect(screen.queryByText('· TONIGHT')).not.toBeInTheDocument()
-      expect(screen.queryByText('0 shows listed')).not.toBeInTheDocument()
+    })
+
+    // `formatShowStartTime` alone ends at `resolveShowTimezone`, which answers
+    // America/Phoenix for anything outside the US state map. A zone-less London
+    // row would file under a UTC-derived date and print an Arizona clock under
+    // it: two authoritative-looking values, only one of which can be right.
+    it('prints no time rather than an Arizona time for a zone-less row', () => {
+      mockShows([
+        buildShow({
+          artist_names: ['Alien Boy'],
+          venue_timezone: undefined,
+          venue_state: undefined,
+          venue_city: undefined,
+        }),
+      ])
+      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+      const row = screen.getByText('Alien Boy').closest('li')!
+      expect(row.textContent).not.toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/)
     })
 
     it('marks a sold-out and a cancelled row', () => {
@@ -298,10 +315,13 @@ describe('SceneCalendar', () => {
   })
 
   describe('the honest zero', () => {
-    // The sparse frame's defining move: the tonight bucket renders even when
-    // nothing is on it, so a reader arriving before doors gets the answer to the
-    // question they came with instead of the next date that happens to have a row.
-    it('renders a zero tonight bucket when the window starts later', () => {
+    // NO synthesized empty tonight bucket. The window opens at NOW, so a show
+    // whose doors have opened is already out of the payload, and between
+    // midnight and 6am the night the boundary names is YESTERDAY, which a
+    // forward window can never contain. Drawing an empty bucket for such a date
+    // published "nothing on our calendar tonight" in our own voice on nights
+    // that demonstrably had shows, one click from /scenes/{slug}/tonight.
+    it('draws no tonight bucket for a date the window never answered for', () => {
       mockShows([
         buildShow({
           id: 1,
@@ -328,33 +348,16 @@ describe('SceneCalendar', () => {
         />
       )
 
-      expect(screen.getByText(/SAT · AUG 8/)).toBeInTheDocument()
-      // "listed", not a bare "0 shows": the nightly page's phrase, because a
-      // bare zero would assert nothing is happening in the city.
-      expect(screen.getByText('0 shows listed')).toBeInTheDocument()
+      expect(screen.queryByText(/SAT · AUG 8/)).not.toBeInTheDocument()
+      expect(screen.queryByText('0 shows listed')).not.toBeInTheDocument()
       expect(
-        screen.getByText(
-          'Nothing on our calendar for the 3 Portland rooms we track tonight. A room may have shows we have not listed.'
-        )
-      ).toBeInTheDocument()
-    })
-
-    // The window footer beneath the list already carries both destinations, so
-    // the tonight bucket does not repeat them.
-    it('does not repeat the footer links inside a zero tonight bucket', () => {
-      mockShows([
-        buildShow({ id: 1, starts_at: '2026-08-23T03:00:00Z' }),
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getAllByRole('link', { name: 'All upcoming in Phoenix' })
-      ).toHaveLength(1)
-      expect(
-        screen.queryByRole('link', { name: 'Suggest a venue' })
+        screen.queryByText(/Nothing on our calendar .* tonight/)
       ).not.toBeInTheDocument()
+      // The date the window DID answer for still renders.
+      expect(screen.getByText(/SAT · AUG 22/)).toBeInTheDocument()
     })
 
-    it('states the zero and offers exactly one step wider when the whole window is empty', () => {
+    it('states the zero and offers a way onward when the whole window is empty', () => {
       mockShows([])
       renderWithProviders(<SceneCalendar scene={buildScene()} />)
 
@@ -369,6 +372,18 @@ describe('SceneCalendar', () => {
       expect(
         screen.getByRole('link', { name: 'Suggest a venue' })
       ).toHaveAttribute('href', '/contribute')
+    })
+
+    // The window footer does not render without rows to count, so the empty
+    // state carries the week link itself. The scene with nothing on it is the
+    // one that most needs an onward path, so it must not be the state that
+    // loses one.
+    it('keeps the week link in the empty state', () => {
+      mockShows([])
+      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+      expect(
+        screen.getByRole('link', { name: 'Full week in Phoenix' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
     })
 
     // No scaffolding under an empty window: the footer counts rows, and there
@@ -389,39 +404,58 @@ describe('SceneCalendar', () => {
       ).toBeInTheDocument()
     })
 
-    // NO `n of upcoming_show_count`: that field counts every future show with
-    // no upper bound, so it would be a denominator from a different window than
-    // its numerator.
-    it('names no total it cannot check', () => {
+    // Truncation is an OBSERVED fact: the hook asks for one row more than it
+    // draws, so a scene holding exactly the cap is not mistaken for a cut list
+    // and does not silently lose its last date.
+    it('does not claim truncation when the scene holds exactly the cap', () => {
       mockShows(
-        Array.from({ length: 20 }, (_, i) =>
+        Array.from({ length: 60 }, (_, i) =>
           buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
         )
       )
       renderWithProviders(<SceneCalendar scene={buildScene()} />)
       expect(
-        screen.getByText('Showing the first 20 in the next four weeks')
+        screen.getByText('Showing everything we have in the next four weeks')
       ).toBeInTheDocument()
-      expect(screen.queryByText(/328/)).not.toBeInTheDocument()
+      expect(screen.getByText('60 shows')).toBeInTheDocument()
     })
 
-    // The endpoint stops at its cap wherever that falls, usually part-way
-    // through a date. That date's count would be a per-day total nobody
-    // checked, so the partial group is dropped rather than qualified.
-    it('drops the date the row cap cut in half', () => {
+    // The mock's wording. `of {n} upcoming` scopes the denominator to what is
+    // UPCOMING, not to what this window holds.
+    it('names the scale of what was cut when the sentinel row comes back', () => {
+      mockShows(
+        Array.from({ length: 61 }, (_, i) =>
+          buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
+        )
+      )
+      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+      expect(screen.getByText('Showing 60 of 328 upcoming')).toBeInTheDocument()
+    })
+
+    // A cut date's row count is not that date's total. Printing it in the same
+    // register as every verified count would state a per-day figure nobody
+    // checked, which is exactly what a single dense night used to do.
+    it('suppresses the count on the date the row cap cut in half', () => {
+      mockShows(
+        Array.from({ length: 61 }, (_, i) =>
+          buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
+        )
+      )
+      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+      expect(screen.getByText(/SAT · AUG 8/)).toBeInTheDocument()
+      expect(screen.queryByText('60 shows')).not.toBeInTheDocument()
+    })
+
+    it('keeps verified counts on the dates the cap did not reach', () => {
       mockShows([
-        ...Array.from({ length: 19 }, (_, i) =>
+        ...Array.from({ length: 59 }, (_, i) =>
           buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
         ),
-        buildShow({ id: 20, starts_at: '2026-08-10T03:00:00Z' }), // Aug 9
+        buildShow({ id: 60, starts_at: '2026-08-10T03:00:00Z' }), // Aug 9
+        buildShow({ id: 61, starts_at: '2026-08-10T04:00:00Z' }), // Aug 9
       ])
       renderWithProviders(<SceneCalendar scene={buildScene()} />)
-
-      expect(screen.getByText(/SAT · AUG 8/)).toBeInTheDocument()
-      expect(screen.queryByText(/SUN · AUG 9/)).not.toBeInTheDocument()
-      expect(
-        screen.getByText('Showing the first 19 in the next four weeks')
-      ).toBeInTheDocument()
+      expect(screen.getByText('59 shows')).toBeInTheDocument()
     })
 
     // The mock draws the week link at both ends of the list. The nav strip
