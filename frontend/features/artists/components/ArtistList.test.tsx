@@ -588,9 +588,15 @@ describe('ArtistList', () => {
 
       renderWithProviders(<ArtistList />)
 
+      // Regex, not an exact string: the sentence, the link and the closing
+      // period are three sibling nodes, so no single element's own text equals
+      // the whole line.
       expect(
-        screen.getByText('That page is past the end of the list.')
+        screen.getByText(/That page is past the end of the list\./)
       ).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'Back to the first page' })
+      ).toHaveAttribute('href', '/artists')
       expect(
         screen.queryByText('No artists available at this time.')
       ).not.toBeInTheDocument()

@@ -41,9 +41,8 @@ interface UseArtistsOptions {
 /**
  * Hook to fetch one page of artists, with optional city and tag filtering.
  *
- * Paged rather than whole since PSY-1774: unbounded, `GET /artists` answered
- * with the entire catalogue — 3.17 MB over ~6,200 artists, which 502'd through
- * the dev proxy and rendered every card into the DOM.
+ * Paged rather than whole since PSY-1774. A caller that names no page still
+ * gets one: an unbounded request is a request for the whole catalogue.
  */
 export function useArtists(options: UseArtistsOptions = {}) {
   const {

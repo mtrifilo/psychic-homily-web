@@ -116,8 +116,7 @@ export interface ArtistsListResponse {
   artists: ArtistListItem[]
   /**
    * Artists matching the filters across EVERY page, not the length of this
-   * one. The pager sizes itself from it, and the count line reports it — an
-   * `artists.length` there would say "50 artists" over a catalogue of 6,200.
+   * one. The pager sizes itself from it, and the count line reports it.
    */
   total: number
   limit: number

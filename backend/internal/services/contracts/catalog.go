@@ -1982,9 +1982,8 @@ type ArtistServiceInterface interface {
 	GetArtistBySlug(slug string) (*ArtistDetailResponse, error)
 	GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error)
 	// GetArtistsWithShowCounts returns ONE PAGE of the browse list plus the
-	// total matching the same filters. It is paged rather than whole because
-	// the whole set is the catalogue: unbounded it answered with 3.17 MB of
-	// JSON over ~6,200 artists and 502'd through the proxy (PSY-1774).
+	// total matching the same filters. Its implementation records why the whole
+	// set is not an option and what the page order has to guarantee.
 	GetArtistsWithShowCounts(filters map[string]interface{}, limit, offset int) ([]*ArtistWithShowCountResponse, int64, error)
 	// GetArtistListing is the slug+name projection behind GET /artists/listing.
 	// Same set and order as an unfiltered GetArtistsWithShowCounts, two columns

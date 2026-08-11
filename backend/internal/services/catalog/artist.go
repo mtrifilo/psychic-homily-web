@@ -617,8 +617,8 @@ type ArtistWithCount struct {
 
 // contracts.ArtistWithShowCountResponse represents an artist with its upcoming show count
 
-// artistBrowseScope narrows a query over `artists` to the rows the /artists
-// browse page lists: the activity gate (or its evergreen exemption) plus the
+// artistBrowseScope returns a builder FACTORY for the rows the /artists browse
+// page lists: the activity gate (or its evergreen exemption) plus the
 // city/state and tag filters.
 //
 // It exists so the page read and the total that captions it cannot disagree
@@ -627,56 +627,59 @@ type ArtistWithCount struct {
 // different set than it lists, and nothing errors: the reader just finds a
 // trailing page that is empty, or one that is unreachable.
 //
+// A factory rather than a builder for the reason artistShowsBaseQuery is one:
+// GORM builders accumulate clauses, so the COUNT and the page must not share
+// one, or the page's SELECT/ORDER/LIMIT leak into the count.
+//
 // What the two callers legitimately differ on stays OUT of here, because none
 // of it changes which rows match: the select list, the presentational
 // last-show-date join, and the order/limit/offset window.
-//
-// `skipActiveFilter` is the caller's already-read gate flag rather than
-// re-derived from the map, so the join it picks and the select the caller pairs
-// with it are decided from one value.
 func (s *ArtistService) artistBrowseScope(
 	filters map[string]interface{},
-	skipActiveFilter bool,
 	now time.Time,
-) *gorm.DB {
-	upcomingSubquery := s.upcomingShowCountSubquery(now)
+) func() *gorm.DB {
+	skipActiveFilter, _ := filters["skip_active_filter"].(bool)
 
-	query := s.db.Table("artists")
-	if skipActiveFilter {
-		// Evergreen mode (PSY-495: a tag filter is engaged): LEFT JOIN, so
-		// artists with no upcoming shows are included with a zero count.
-		query = query.Joins("LEFT JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
-	} else {
-		// Gated mode (default for unfiltered /artists): INNER JOIN so only
-		// artists with upcoming shows are returned.
-		query = query.Joins("JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
-	}
+	return func() *gorm.DB {
+		upcomingSubquery := s.upcomingShowCountSubquery(now)
 
-	if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
-		var conditions []string
-		var args []interface{}
-		for _, cs := range cities {
-			if cs["city"] != "" && cs["state"] != "" {
-				conditions = append(conditions, "(artists.city = ? AND artists.state = ?)")
-				args = append(args, cs["city"], cs["state"])
+		query := s.db.Table("artists")
+		if skipActiveFilter {
+			// Evergreen mode (PSY-495: a tag filter is engaged): LEFT JOIN, so
+			// artists with no upcoming shows are included with a zero count.
+			query = query.Joins("LEFT JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
+		} else {
+			// Gated mode (default for unfiltered /artists): INNER JOIN so only
+			// artists with upcoming shows are returned.
+			query = query.Joins("JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
+		}
+
+		if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
+			var conditions []string
+			var args []interface{}
+			for _, cs := range cities {
+				if cs["city"] != "" && cs["state"] != "" {
+					conditions = append(conditions, "(artists.city = ? AND artists.state = ?)")
+					args = append(args, cs["city"], cs["state"])
+				}
+			}
+			if len(conditions) > 0 {
+				query = query.Where(strings.Join(conditions, " OR "), args...)
+			}
+		} else {
+			if state, ok := filters["state"].(string); ok && state != "" {
+				query = query.Where("artists.state = ?", state)
+			}
+			if city, ok := filters["city"].(string); ok && city != "" {
+				query = query.Where("artists.city = ?", city)
 			}
 		}
-		if len(conditions) > 0 {
-			query = query.Where(strings.Join(conditions, " OR "), args...)
+		if tf, ok := filters["tag_filter"].(TagFilter); ok {
+			query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
 		}
-	} else {
-		if state, ok := filters["state"].(string); ok && state != "" {
-			query = query.Where("artists.state = ?", state)
-		}
-		if city, ok := filters["city"].(string); ok && city != "" {
-			query = query.Where("artists.city = ?", city)
-		}
-	}
-	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
-	}
 
-	return query
+		return query
+	}
 }
 
 // GetArtistsWithShowCounts retrieves ONE PAGE of artists with their upcoming
@@ -709,31 +712,26 @@ func (s *ArtistService) GetArtistsWithShowCounts(
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	// Floors both at zero. GORM reads a NEGATIVE limit as "no limit at all" and
-	// answers with the whole catalogue — the exact failure this endpoint was
-	// paginated to remove — while a negative offset is invalid SQL and 500s.
-	// The huma tags guard only the HTTP path; non-HTTP callers land here.
 	limit, offset = clampPageWindow(limit, offset)
 
 	skipActiveFilter, _ := filters["skip_active_filter"].(bool)
 	now := time.Now().UTC()
+	baseQuery := s.artistBrowseScope(filters, now)
 
 	// The total is counted over the SCOPE, without the page window and without
 	// the presentational join below: neither changes which rows match, and the
 	// last-show-date aggregate is a full scan of show_artists that the count
 	// would pay for and discard.
 	//
-	// COUNT(*) is exactly the artist count here, not a join-inflated one: `sc`
+	// The count is exactly the artist count here, not a join-inflated one: `sc`
 	// is grouped by artist_id (one row per artist at most) and ApplyTagFilter
 	// constrains with `IN (subquery)` rather than joining rows in.
 	var total int64
-	if err := s.artistBrowseScope(filters, skipActiveFilter, now).
-		Select("COUNT(*)").
-		Scan(&total).Error; err != nil {
+	if err := baseQuery().Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count artists with show counts: %w", err)
 	}
 
-	query := s.artistBrowseScope(filters, skipActiveFilter, now)
+	query := baseQuery()
 	if skipActiveFilter {
 		// Compute the last past-show date so evergreen cards can show
 		// "last show <Mon Year>" instead of looking broken.

@@ -80,6 +80,10 @@ export function ArtistList() {
    * tokens — survives a page change. A from-scratch builder drops them at the
    * first pagination click, which is exactly the bug PSY-1755 and PSY-1754
    * each shipped once.
+   *
+   * Every URL this component writes goes through here — the pager's hrefs AND
+   * the tag filter's imperative push — so a page link cannot drift from what a
+   * filter change would have written.
    */
   const buildArtistsHref = useCallback(
     (overrides: Record<string, string | null>) => {
@@ -127,22 +131,16 @@ export function ArtistList() {
   // and drop `?page=` for the same reason the city filter does.
   const writeTags = useCallback(
     (nextTags: string[], nextMatch: 'all' | 'any') => {
-      const params = new URLSearchParams(searchParams.toString())
-      params.delete('tags')
-      params.delete('tag_match')
-      params.delete('page')
-      if (nextTags.length > 0) {
-        params.set('tags', buildTagsParam(nextTags))
-        if (nextMatch === 'any') params.set('tag_match', 'any')
-      }
-      const queryString = params.toString()
+      const href = buildArtistsHref({
+        tags: nextTags.length > 0 ? buildTagsParam(nextTags) : null,
+        tag_match: nextTags.length > 0 && nextMatch === 'any' ? 'any' : null,
+        page: null,
+      })
       startTransition(() => {
-        router.push(queryString ? `/artists?${queryString}` : '/artists', {
-          scroll: false,
-        })
+        router.push(href, { scroll: false })
       })
     },
-    [searchParams, router]
+    [buildArtistsHref, router]
   )
 
   const handleTagsChange = useCallback(
@@ -204,6 +202,38 @@ export function ArtistList() {
   const hasTagFilter = selectedTags.length > 0
   const hasAnyFilter = hasTagFilter || selectedCities.length > 0
 
+  // Hoisted out of the JSX so the empty state stays one branch deep. A page
+  // past the end is its own state, not an empty catalogue: a stale bookmark, or
+  // a filter that shrank the set under a deep `?page=`. Reported as such rather
+  // than as "no artists", which would tell the reader the list is empty when it
+  // is not. Wording matches the archive pagers (`ArtistPastShows`,
+  // `VenuePastShows`), which say the same thing about their own lists.
+  const emptyState = isPastLastPage ? (
+    <p>
+      That page is past the end of the list.{' '}
+      <Link href={artistPageHref(1)} className="text-primary hover:underline">
+        Back to the first page
+      </Link>
+      .
+    </p>
+  ) : (
+    <>
+      <p>
+        {hasAnyFilter
+          ? 'No artists match the current filters.'
+          : 'No artists available at this time.'}
+      </p>
+      {hasAnyFilter && (
+        <button
+          onClick={handleClearFilters}
+          className="mt-4 text-primary hover:underline"
+        >
+          Clear filters
+        </button>
+      )}
+    </>
+  )
+
   return (
     <section className="w-full max-w-6xl">
       <div className="mb-6 space-y-4">
@@ -250,36 +280,7 @@ export function ArtistList() {
         </p>
         {artists.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            {/*
-              A page past the end is its own state, not an empty catalogue: a
-              stale bookmark, or a filter that shrank the set under a deep
-              `?page=`. Reported as such rather than as "no artists", which
-              would tell the reader the list is empty when it is not.
-            */}
-            {isPastLastPage ? (
-              <p>
-                That page is past the end of the list.{' '}
-                <Link href={artistPageHref(1)} className="text-primary hover:underline">
-                  Back to page one
-                </Link>
-              </p>
-            ) : (
-              <>
-                <p>
-                  {hasAnyFilter
-                    ? 'No artists match the current filters.'
-                    : 'No artists available at this time.'}
-                </p>
-                {hasAnyFilter && (
-                  <button
-                    onClick={handleClearFilters}
-                    className="mt-4 text-primary hover:underline"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </>
-            )}
+            {emptyState}
           </div>
         ) : (
           <div className="@container">

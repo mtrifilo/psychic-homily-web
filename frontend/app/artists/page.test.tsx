@@ -59,6 +59,14 @@ function jsonLdPayloads(tree: ReactElement): Array<Record<string, unknown>> {
 const itemList = (tree: ReactElement) =>
   jsonLdPayloads(tree).find(d => d['@type'] === 'ItemList')
 
+/** A bare `/artists` — no search params, the URL the first-screen seed covers. */
+const noSearchParams = () => ({ searchParams: Promise.resolve({}) })
+
+/** `/artists?<key>=<value>` — a URL that keys off the first-screen entry. */
+const withSearchParam = (key: string, value: string) => ({
+  searchParams: Promise.resolve({ [key]: value }),
+})
+
 /**
  * The `ItemList` bound, asserted on the ARTIFACT (PSY-1773).
  *
@@ -76,7 +84,7 @@ describe('/artists JSON-LD ItemList', () => {
   it('emits at most ARTIST_ITEM_LIST_LIMIT entries for a full catalogue', async () => {
     fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
-    const list = itemList(await ArtistsPage())
+    const list = itemList(await ArtistsPage(noSearchParams()))
 
     expect(list).toBeDefined()
     expect(list!.itemListElement).toHaveLength(ARTIST_ITEM_LIST_LIMIT)
@@ -88,7 +96,7 @@ describe('/artists JSON-LD ItemList', () => {
   it('keeps numberOfItems and positions consistent at the bound', async () => {
     fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
-    const list = itemList(await ArtistsPage())
+    const list = itemList(await ArtistsPage(noSearchParams()))
     const elements = list!.itemListElement as Array<{ position: number }>
 
     expect(list!.numberOfItems).toBe(ARTIST_ITEM_LIST_LIMIT)
@@ -100,7 +108,7 @@ describe('/artists JSON-LD ItemList', () => {
   it('advertises the head of the endpoint order', async () => {
     fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
-    const elements = itemList(await ArtistsPage())!.itemListElement as Array<{
+    const elements = itemList(await ArtistsPage(noSearchParams()))!.itemListElement as Array<{
       url: string
     }>
 
@@ -114,14 +122,14 @@ describe('/artists JSON-LD ItemList', () => {
   it('emits no ItemList when the fetch fails open', async () => {
     fetchSeoList.mockResolvedValue([])
 
-    expect(itemList(await ArtistsPage())).toBeUndefined()
+    expect(itemList(await ArtistsPage(noSearchParams()))).toBeUndefined()
   })
 
   // The breadcrumb is unconditional and must survive a failed listing fetch.
   it('always emits the breadcrumb', async () => {
     fetchSeoList.mockResolvedValue([])
 
-    const crumb = jsonLdPayloads(await ArtistsPage()).find(
+    const crumb = jsonLdPayloads(await ArtistsPage(noSearchParams())).find(
       d => d['@type'] === 'BreadcrumbList'
     )
     expect(crumb).toBeDefined()
@@ -148,7 +156,10 @@ describe('/artists server-seeded first screen', () => {
    * Reached through the rendered tree rather than by exporting it, so the
    * seeding stays an implementation detail of the route, which is what it is.
    */
-  async function renderHydratedList() {
+  async function renderHydratedList(
+    pageProps: { searchParams: Promise<Record<string, string | string[] | undefined>> } =
+      noSearchParams(),
+  ) {
     const walk = async (node: unknown): Promise<ReactElement | undefined> => {
       if (Array.isArray(node)) {
         for (const child of node) {
@@ -170,7 +181,7 @@ describe('/artists server-seeded first screen', () => {
       if (el.props && 'children' in el.props) return walk(el.props.children)
       return undefined
     }
-    const found = await walk(await ArtistsPage())
+    const found = await walk(await ArtistsPage(pageProps))
     expect(found, 'HydratedArtistList was not found under the page').toBeDefined()
     return found!
   }
@@ -214,6 +225,23 @@ describe('/artists server-seeded first screen', () => {
 
     // The component fetches for itself and owns the error state; handing
     // error.tsx a page the browser could have rendered would be worse.
+    expect(seedFirstScreen).not.toHaveBeenCalled()
+  })
+
+  // The seed describes ONE request. On a URL the hook keys away from, fetching
+  // it anyway costs two Data Cache reads and ships a dehydrated payload nothing
+  // ever reads. `?page=` made that the common deep link rather than a rare one.
+  it.each([
+    ['page', '2'],
+    ['cities', 'Phoenix,AZ'],
+    ['tags', 'post-punk'],
+    ['tag_match', 'any'],
+  ])('skips the seed entirely when ?%s= is present', async (key, value) => {
+    fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
+
+    await renderHydratedList(withSearchParam(key, value))
+
+    expect(fetchListPayload).not.toHaveBeenCalled()
     expect(seedFirstScreen).not.toHaveBeenCalled()
   })
 })

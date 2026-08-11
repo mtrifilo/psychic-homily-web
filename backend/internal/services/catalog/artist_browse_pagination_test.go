@@ -10,12 +10,11 @@ import (
 // Offset paging for the /artists BROWSE list (PSY-1774).
 //
 // Distinct from artist_shows_pagination_test.go next door, which pages ONE
-// artist's shows. This is the catalogue list: the endpoint that answered with
-// 3.17 MB over ~6,200 artists and 502'd through the proxy until it took a
-// limit. The properties under test are the ones a pager depends on and a
-// happy-path assertion never notices — that the total counts the filtered set
-// rather than the page, that consecutive pages are disjoint, and that a
-// negative bound cannot fall back through to the unbounded read.
+// artist's shows. This is the catalogue list; GetArtistsWithShowCounts records
+// why it had to be bounded. The properties under test are the ones a pager
+// depends on and a happy-path assertion never notices — that the total counts
+// the filtered set rather than the page, that consecutive pages are disjoint,
+// and that a negative bound cannot fall back through to the unbounded read.
 
 // seedActiveArtists creates `count` artists each with one upcoming approved
 // show, so every one of them passes the browse activity gate. Names are

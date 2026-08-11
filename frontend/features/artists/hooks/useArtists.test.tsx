@@ -143,9 +143,10 @@ describe('useArtists', () => {
 
   describe('useArtists', () => {
     // The default page size is ALWAYS sent, including when the caller names no
-    // filters. An unbounded request is the defect PSY-1774 removed: it answered
-    // with the whole catalogue and 502'd through the proxy.
-    it('bounds an unfiltered request with the default page size', async () => {
+    // filters. An unbounded request is the defect PSY-1774 removed. The zero
+    // offset is asserted here too: it is omitted from the URL but kept in the
+    // key, and `ARTIST_LIST_FIRST_SCREEN_URL` has to equal exactly this string.
+    it('bounds an unfiltered request and omits the zero offset', async () => {
       const mockResponse = {
         artists: [{ id: 1, name: 'Artist A' }, { id: 2, name: 'Artist B' }],
         total: 2,
@@ -200,21 +201,6 @@ describe('useArtists', () => {
       })
       await waitFor(() => expect(firstPage.current.isSuccess).toBe(true))
       expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
-    })
-
-    // A zero offset is omitted from the URL but kept in the key. Both halves
-    // matter: the URL is what `ARTIST_LIST_FIRST_SCREEN_URL` has to equal, and
-    // the key is what `ARTIST_LIST_FIRST_SCREEN_KEY` has to equal.
-    it('omits a zero offset from the URL', async () => {
-      mockApiRequest.mockResolvedValueOnce({ artists: [], total: 0, limit: 50, offset: 0 })
-
-      const { result } = renderHook(() => useArtists({ offset: 0 }), {
-        wrapper: createWrapper(),
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(mockApiRequest).toHaveBeenCalledWith('/artists?limit=50', { method: 'GET' })
     })
   })
 
