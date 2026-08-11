@@ -331,11 +331,11 @@ func TestSearchArtists_ServiceError(t *testing.T) {
 
 func TestListArtists_Success(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
 			return []*contracts.ArtistWithShowCountResponse{
 				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1, Name: "Artist A"}, UpcomingShowCount: 3},
 				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 2, Name: "Artist B"}, UpcomingShowCount: 1},
-			}, nil
+			}, 2, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
@@ -344,17 +344,103 @@ func TestListArtists_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Count != 2 {
-		t.Errorf("expected count=2, got %d", resp.Body.Count)
+	if resp.Body.Total != 2 {
+		t.Errorf("expected total=2, got %d", resp.Body.Total)
 	}
 	if resp.Body.Artists[0].UpcomingShowCount != 3 {
 		t.Errorf("expected first artist show count=3, got %d", resp.Body.Artists[0].UpcomingShowCount)
 	}
 }
 
+// The pager reads `total` to size itself, so the handler must echo the
+// service's total for the WHOLE filtered set — not the length of the page it
+// happened to return. Asserted with a page shorter than the total precisely
+// because `len(artists)` would pass a test where the two agree.
+func TestListArtists_EchoesTotalNotPageLength(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			if limit != 25 {
+				t.Errorf("expected limit=25 to reach the service, got %d", limit)
+			}
+			if offset != 50 {
+				t.Errorf("expected offset=50 to reach the service, got %d", offset)
+			}
+			return []*contracts.ArtistWithShowCountResponse{
+				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1}},
+			}, 6200, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{Limit: 25, Offset: 50})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 6200 {
+		t.Errorf("expected total=6200, got %d", resp.Body.Total)
+	}
+	if resp.Body.Limit != 25 {
+		t.Errorf("expected echoed limit=25, got %d", resp.Body.Limit)
+	}
+	if resp.Body.Offset != 50 {
+		t.Errorf("expected echoed offset=50, got %d", resp.Body.Offset)
+	}
+}
+
+// A caller that names no limit — a direct (non-HTTP) caller, since huma's
+// `default:"50"` fills the zero on the wire — must still get a bounded page and
+// see the bound it got. A zero passed straight through would mean LIMIT 0 and
+// an empty list, which reads as "no artists" rather than as a missing default.
+func TestListArtists_DefaultsLimitWhenUnset(t *testing.T) {
+	var gotLimit int
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			gotLimit = limit
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotLimit != defaultArtistListLimit {
+		t.Errorf("expected the service to receive limit=%d, got %d", defaultArtistListLimit, gotLimit)
+	}
+	if resp.Body.Limit != defaultArtistListLimit {
+		t.Errorf("expected echoed limit=%d, got %d", defaultArtistListLimit, resp.Body.Limit)
+	}
+}
+
+// The echoed window must describe the query that RAN, not the arguments that
+// came in. The browse pager captions its row range from `offset`, so echoing a
+// negative one back would caption "Showing -4-46 of N" over the first page.
+func TestListArtists_EchoesTheClampedOffset(t *testing.T) {
+	var gotOffset int
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			gotOffset = offset
+			return nil, 0, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{Offset: -5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotOffset != 0 {
+		t.Errorf("expected the service to receive offset=0, got %d", gotOffset)
+	}
+	if resp.Body.Offset != 0 {
+		t.Errorf("expected echoed offset=0, got %d", resp.Body.Offset)
+	}
+}
+
 func TestListArtists_WithFilters(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
 			if filters["state"] != "AZ" {
 				t.Errorf("expected state='AZ', got %v", filters["state"])
 			}
@@ -363,7 +449,7 @@ func TestListArtists_WithFilters(t *testing.T) {
 			}
 			return []*contracts.ArtistWithShowCountResponse{
 				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 2},
-			}, nil
+			}, 1, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
@@ -372,15 +458,15 @@ func TestListArtists_WithFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Count != 1 {
-		t.Errorf("expected count=1, got %d", resp.Body.Count)
+	if resp.Body.Total != 1 {
+		t.Errorf("expected total=1, got %d", resp.Body.Total)
 	}
 }
 
 func TestListArtists_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistsWithShowCountsFn: func(_ map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
-			return nil, fmt.Errorf("db error")
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}, _, _ int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
@@ -964,7 +1050,7 @@ func TestGetArtistCities_Empty(t *testing.T) {
 
 func TestListArtists_WithCitiesFilter(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
 			cities, ok := filters["cities"].([]map[string]string)
 			if !ok {
 				t.Error("expected cities filter to be []map[string]string")
@@ -977,7 +1063,7 @@ func TestListArtists_WithCitiesFilter(t *testing.T) {
 			}
 			return []*contracts.ArtistWithShowCountResponse{
 				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1}, UpcomingShowCount: 1},
-			}, nil
+			}, 1, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
@@ -986,14 +1072,14 @@ func TestListArtists_WithCitiesFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Count != 1 {
-		t.Errorf("expected count=1, got %d", resp.Body.Count)
+	if resp.Body.Total != 1 {
+		t.Errorf("expected total=1, got %d", resp.Body.Total)
 	}
 }
 
 func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
 			// When Cities param is set, legacy city/state should not be in filters
 			if _, ok := filters["city"]; ok {
 				t.Error("legacy city filter should not be set when Cities param is provided")
@@ -1001,7 +1087,7 @@ func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
 			if _, ok := filters["state"]; ok {
 				t.Error("legacy state filter should not be set when Cities param is provided")
 			}
-			return []*contracts.ArtistWithShowCountResponse{}, nil
+			return []*contracts.ArtistWithShowCountResponse{}, 0, nil
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)

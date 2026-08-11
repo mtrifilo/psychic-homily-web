@@ -910,10 +910,13 @@ type ArtistWithShowCountResponse struct {
 // and throws the other fourteen away. That is affordable until the response
 // stops fitting a cache entry, at which point it is the whole problem.
 //
-// Measured against production on 2026-08-08, 6,279 artists:
+// Measured against production on 2026-08-08, 6,279 artists. The `GET /artists`
+// row is HISTORICAL: PSY-1774 gave that endpoint a real `limit` (default 50,
+// max 200), so an unbounded response is no longer constructible and its cache
+// entry is now sized by the page, not the catalogue.
 //
 //	                       raw bytes    base64      % of the 2 MB item cap
-//	GET /artists           3,233,345    4,311,128   206%   (not cached)
+//	GET /artists           3,233,345    4,311,128   206%   (not cached; pre-PSY-1774)
 //	GET /artists/listing     311,240      414,988    20%
 //
 // Vercel's Data Cache and Runtime Cache both cap a single item at 2 MB and
@@ -930,11 +933,16 @@ type ArtistWithShowCountResponse struct {
 // artists before the cap itself binds, against 6,279 today — but the number to
 // plan against is ~25,400, where the build gate fires at 80% of the raw budget
 // (lib/data-cache-budget). Trimming was chosen over sharding
-// (the sitemap's answer, see SitemapEntry) and over paginating because the
-// fields, not the row count, are what blew the budget: sharding would keep
-// carrying the fourteen unread fields and need its shard count revisited on
-// every growth spurt, and truncating would silently drop URLs from the
-// ItemList — the defect `/venues` already exhibits at 100 of 198.
+// (the sitemap's answer, see SitemapEntry) and over paginating THIS endpoint
+// because the fields, not the row count, are what blew the budget: sharding
+// would keep carrying the fourteen unread fields and need its shard count
+// revisited on every growth spurt, and truncating would silently drop URLs from
+// the ItemList — the defect `/venues` already exhibits at 100 of 198.
+//
+// That argument is about the ItemList's feed, which needs the whole set in one
+// read. It does NOT generalise to the browse list a human pages through, and
+// PSY-1774 duly paginated `GET /artists`. Do not read this paragraph as a
+// standing objection to pagination anywhere else.
 //
 // THAT PARAGRAPH IS ABOUT THIS ENDPOINT'S RESPONSE, NOT ABOUT THE ItemList, and
 // PSY-1773 makes the distinction matter: the /artists page now slices this
@@ -947,8 +955,9 @@ type ArtistWithShowCountResponse struct {
 // RSC flight payload — and is affordable because every artist URL is in the
 // /sitemap/artists.xml shard either way. So this endpoint still returns the
 // whole set, deliberately: the projection is what keeps it cacheable, and the
-// page decides how much of it to advertise. What that bound should be is
-// PSY-1794.
+// page decides how much of it to advertise. What that bound should be — and
+// whether this endpoint should take a `limit` of its own now that its sibling
+// has one — is PSY-1794.
 //
 // # Why not SitemapEntry
 //
@@ -958,12 +967,18 @@ type ArtistWithShowCountResponse struct {
 //
 // # The set this returns
 //
-// Exactly what unfiltered `GET /artists` returns — artists with at least one
-// upcoming approved show, sorted upcoming-count DESC then name ASC — minus
-// rows with an empty slug, which cannot form a URL and which the page filtered
-// out on its side anyway. Keep the two in step: if the default gate on
-// `GET /artists` changes, this changes with it, or the ItemList starts
-// advertising a different set of artists than the page lists.
+// The same GATE and ORDER as `GET /artists` — artists with at least one
+// upcoming approved show, sorted upcoming-count DESC then name ASC then id ASC
+// — minus rows with an empty slug, which cannot form a URL and which the page
+// filtered out on its side anyway.
+//
+// The same gate, NOT the same rows: since PSY-1774 `GET /artists` answers with
+// one page and this still answers with the whole set, so the two differ by two
+// orders of magnitude in length while agreeing on membership. Keep the GATE in
+// step — if the default gate on `GET /artists` changes, this changes with it,
+// or the ItemList starts advertising a different set of artists than the page
+// lists. `artistBrowseScope` owns that gate for the two paged reads; this
+// endpoint restates it and is the copy that has to be kept honest by hand.
 type ArtistListingEntry struct {
 	Slug string `json:"slug" doc:"URL slug for the artist"`
 	Name string `json:"name" doc:"Artist display name"`
@@ -2009,10 +2024,14 @@ type ArtistServiceInterface interface {
 	GetArtistByName(name string) (*ArtistDetailResponse, error)
 	GetArtistBySlug(slug string) (*ArtistDetailResponse, error)
 	GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error)
-	GetArtistsWithShowCounts(filters map[string]interface{}) ([]*ArtistWithShowCountResponse, error)
+	// GetArtistsWithShowCounts returns ONE PAGE of the browse list plus the
+	// total matching the same filters. Its implementation records why the whole
+	// set is not an option and what the page order has to guarantee.
+	GetArtistsWithShowCounts(filters map[string]interface{}, limit, offset int) ([]*ArtistWithShowCountResponse, int64, error)
 	// GetArtistListing is the slug+name projection behind GET /artists/listing.
-	// Same set and order as an unfiltered GetArtistsWithShowCounts, two columns
-	// wide; see ArtistListingEntry for why that distinction is load-bearing.
+	// Same GATE and order as GetArtistsWithShowCounts but the whole set rather
+	// than one page, two columns wide; see ArtistListingEntry for why that
+	// distinction is load-bearing.
 	GetArtistListing() ([]ArtistListingEntry, error)
 	UpdateArtist(artistID uint, req *UpdateArtistRequest) (*ArtistDetailResponse, error)
 	DeleteArtist(artistID uint) error

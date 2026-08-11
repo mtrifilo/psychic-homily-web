@@ -114,7 +114,7 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_Success() {
 	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.GreaterOrEqual(resp.Body.Count, 3)
+	s.GreaterOrEqual(resp.Body.Total, int64(3))
 	// Should include upcoming show counts
 	s.GreaterOrEqual(resp.Body.Artists[0].UpcomingShowCount, 1)
 }
@@ -127,7 +127,7 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_Empty() {
 	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal(0, resp.Body.Count)
+	s.Equal(int64(0), resp.Body.Total)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
@@ -154,7 +154,7 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
 	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal(1, resp.Body.Count)
+	s.Equal(int64(1), resp.Body.Total)
 	s.Equal("Phoenix Band", resp.Body.Artists[0].Name)
 }
 
@@ -209,14 +209,14 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_DropsActivityG
 	// punk band and the rock band show up (2 total)
 	unfiltered, err := s.handler.ListArtistsHandler(s.deps.Ctx, &ListArtistsRequest{})
 	s.Require().NoError(err)
-	s.Equal(2, unfiltered.Body.Count, "unfiltered list should exclude dormant artists")
+	s.Equal(int64(2), unfiltered.Body.Total, "unfiltered list should exclude dormant artists")
 
 	// With tags=punk: activity gate drops → all 3 punk-tagged artists
 	// surface regardless of upcoming-show status (facet count parity)
 	req := &ListArtistsRequest{Tags: "punk"}
 	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.Require().NoError(err)
-	s.Equal(3, resp.Body.Count, "tag-filtered list must return all 3 punk artists")
+	s.Equal(int64(3), resp.Body.Total, "tag-filtered list must return all 3 punk artists")
 
 	// Sort order: upcoming_show_count DESC, then name ASC. The active band
 	// sits first; the two dormant ones follow in alphabetical order.
@@ -252,7 +252,7 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_SurfacesLastSh
 
 	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, &ListArtistsRequest{Tags: "shoegaze"})
 	s.Require().NoError(err)
-	s.Equal(1, resp.Body.Count)
+	s.Equal(int64(1), resp.Body.Total)
 	s.Equal("Old Shoegaze Band", resp.Body.Artists[0].Name)
 	s.Equal(0, resp.Body.Artists[0].UpcomingShowCount)
 	s.Require().NotNil(resp.Body.Artists[0].LastShowDate, "last_show_date should populate for dormant artists in evergreen mode")

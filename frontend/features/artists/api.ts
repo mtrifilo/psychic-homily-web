@@ -194,6 +194,48 @@ export const artistQueryKeys = {
     ['artists', 'billComposition', String(idOrSlug), months] as const,
 } as const
 
+// ============================================================================
+// Server-rendered first screen (PSY-1774)
+// ============================================================================
+
+/** The page size `ArtistList` requests, and pages through with `offset`. */
+export const ARTIST_LIST_PAGE_LIMIT = 50
+
+/**
+ * The exact request `ArtistList` issues on its FIRST render of a bare
+ * `/artists`, and the cache key that request lands on.
+ *
+ * `app/artists/page.tsx` fetches the URL server-side and seeds the key, so the
+ * first page of artists is in the server HTML. The two halves are declared
+ * together because they only work as a pair: seed a key the hook does not ask
+ * for and the page silently reverts to its pre-SSR behaviour — the hook misses
+ * the cache and renders its spinner on BOTH the server and the hydration pass,
+ * so nothing looks broken and nothing is server-rendered either. That failure
+ * is invisible by construction, which is why `useArtistsFirstScreen.test.tsx`
+ * asserts the hook actually registers this key and requests this URL. The
+ * sibling `useArtists.test.tsx` cannot: it `vi.mock`s this module, so it never
+ * sees the real constants.
+ *
+ * `offset` is in the KEY but not the URL, because `useArtists` omits a zero
+ * offset from the request and keys on it unconditionally. Both halves are
+ * built from that one hook, so this pair records what it actually does rather
+ * than what would be tidier.
+ *
+ * A filtered `/artists?cities=…` or a deep page `?page=2` is deliberately NOT
+ * covered: the hook keys on the filter and the offset, misses this entry, and
+ * both render passes agree on the spinner. No SSR benefit there, and no
+ * hydration mismatch either.
+ */
+export const ARTIST_LIST_FIRST_SCREEN_URL = `${artistEndpoints.LIST}?limit=${ARTIST_LIST_PAGE_LIMIT}`
+
+export const ARTIST_LIST_FIRST_SCREEN_KEY = artistQueryKeys.list({
+  cities: undefined,
+  tags: undefined,
+  tagMatch: undefined,
+  limit: ARTIST_LIST_PAGE_LIMIT,
+  offset: 0,
+})
+
 /**
  * The exact `showsPage` parameters for one page of the artist page's PAST shows
  * archive (PSY-1754).

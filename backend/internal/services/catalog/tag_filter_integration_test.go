@@ -144,9 +144,9 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_SingleTag() {
 	s.tag("artist", a1, "post-punk")
 	_ = a2
 
-	resp, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
+	resp, _, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"post-punk"}},
-	})
+	}, 50, 0)
 	s.Require().NoError(err)
 	s.Require().Len(resp, 1)
 	s.Equal("The Tagged One", resp[0].Name)
@@ -161,9 +161,9 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_TwoTagAND() {
 	s.tag("artist", a2, "post-punk")
 	_ = a3
 
-	resp, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
+	resp, _, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"post-punk", "phoenix"}},
-	})
+	}, 50, 0)
 	s.Require().NoError(err)
 	s.Require().Len(resp, 1)
 	s.Equal("Both", resp[0].Name)
@@ -178,9 +178,9 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_ThreeTagAND() {
 	s.tag("artist", a2, "post-punk")
 	s.tag("artist", a2, "shoegaze")
 
-	resp, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
+	resp, _, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"post-punk", "shoegaze", "phoenix"}},
-	})
+	}, 50, 0)
 	s.Require().NoError(err)
 	s.Require().Len(resp, 1)
 	s.Equal("All Three", resp[0].Name)
@@ -194,9 +194,9 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_OR() {
 	s.tag("artist", a2, "shoegaze")
 	_ = a3
 
-	resp, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
+	resp, _, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"post-punk", "shoegaze"}, MatchAny: true},
-	})
+	}, 50, 0)
 	s.Require().NoError(err)
 	s.Require().Len(resp, 2)
 }
@@ -205,7 +205,7 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_EmptyIsNoop() {
 	s.seedArtistWithUpcoming("One")
 	s.seedArtistWithUpcoming("Two")
 
-	resp, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{})
+	resp, _, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{}, 50, 0)
 	s.Require().NoError(err)
 	s.Len(resp, 2)
 }
@@ -213,9 +213,9 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_EmptyIsNoop() {
 func (s *TagFilterIntegrationTestSuite) TestArtists_UnknownTagReturnsEmpty() {
 	s.seedArtistWithUpcoming("Any")
 
-	resp, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
+	resp, _, err := s.artistService.GetArtistsWithShowCounts(map[string]interface{}{
 		"tag_filter": TagFilter{TagSlugs: []string{"does-not-exist"}},
-	})
+	}, 50, 0)
 	s.Require().NoError(err)
 	s.Len(resp, 0)
 }

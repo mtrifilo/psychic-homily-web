@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
-import { createWrapper, createTestQueryClient } from '@/test/utils'
+import {
+  createWrapper,
+  createWrapperWithClient,
+  createTestQueryClient,
+} from '@/test/utils'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -14,6 +18,10 @@ vi.mock('@/lib/api', () => ({
 
 // Mock the feature api module
 vi.mock('@/features/artists/api', () => ({
+  // Mirrors the real constant. This file mocks the api module, so it cannot
+  // assert the real first-screen pair — useArtistsFirstScreen.test.tsx does
+  // that against the genuine constants.
+  ARTIST_LIST_PAGE_LIMIT: 50,
   artistEndpoints: {
     LIST: '/artists',
     CITIES: '/artists/cities',
@@ -134,10 +142,16 @@ describe('useArtists', () => {
   })
 
   describe('useArtists', () => {
-    it('fetches all artists without filters', async () => {
+    // The default page size is ALWAYS sent, including when the caller names no
+    // filters. An unbounded request is the defect PSY-1774 removed. The zero
+    // offset is asserted here too: it is omitted from the URL but kept in the
+    // key, and `ARTIST_LIST_FIRST_SCREEN_URL` has to equal exactly this string.
+    it('bounds an unfiltered request and omits the zero offset', async () => {
       const mockResponse = {
         artists: [{ id: 1, name: 'Artist A' }, { id: 2, name: 'Artist B' }],
-        count: 2,
+        total: 2,
+        limit: 50,
+        offset: 0,
       }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
 
@@ -147,11 +161,11 @@ describe('useArtists', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(mockApiRequest).toHaveBeenCalledWith('/artists', { method: 'GET' })
+      expect(mockApiRequest).toHaveBeenCalledWith('/artists?limit=50', { method: 'GET' })
     })
 
     it('includes cities filter in query params', async () => {
-      mockApiRequest.mockResolvedValueOnce({ artists: [], count: 0 })
+      mockApiRequest.mockResolvedValueOnce({ artists: [], total: 0, limit: 50, offset: 0 })
 
       const { result } = renderHook(
         () => useArtists({ cities: [{ city: 'Phoenix', state: 'AZ' }, { city: 'Mesa', state: 'AZ' }] }),
@@ -161,11 +175,33 @@ describe('useArtists', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/artists?cities=Phoenix%2CAZ%7CMesa%2CAZ',
+        '/artists?cities=Phoenix%2CAZ%7CMesa%2CAZ&limit=50',
         { method: 'GET' }
       )
     })
 
+    it('sends a non-zero offset and keys pages apart', async () => {
+      mockApiRequest.mockResolvedValue({ artists: [], total: 120, limit: 50, offset: 50 })
+      const queryClient = createTestQueryClient()
+
+      const { result } = renderHook(() => useArtists({ offset: 50 }), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith('/artists?limit=50&offset=50', {
+        method: 'GET',
+      })
+
+      // Page 2 must not answer for page 1: the offset is in the key, so the
+      // two land on different entries rather than one silently serving both.
+      const { result: firstPage } = renderHook(() => useArtists(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+      await waitFor(() => expect(firstPage.current.isSuccess).toBe(true))
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
+    })
   })
 
   describe('useArtistCities', () => {

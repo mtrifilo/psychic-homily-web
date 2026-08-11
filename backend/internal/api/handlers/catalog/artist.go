@@ -126,24 +126,40 @@ func (h *ArtistHandler) ListArtistListingHandler(ctx context.Context, _ *ListArt
 	return resp, nil
 }
 
+// defaultArtistListLimit is the page size GET /artists answers with when the
+// caller names none. It must stay equal to the `default:"50"` tag below — the
+// tag is what an HTTP caller gets, this is what a direct caller gets, and a
+// browse page whose first screen depends on the two agreeing is why they are
+// asserted together in artist_pagination_tags_test.go.
+const defaultArtistListLimit = 50
+
 // ListArtistsRequest represents the request for listing all artists
 type ListArtistsRequest struct {
 	State    string `query:"state" doc:"Filter by state" example:"AZ"`
 	City     string `query:"city" doc:"Filter by city" example:"Phoenix"`
 	Cities   string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Mesa,AZ" example:"Phoenix,AZ|Mesa,AZ"`
-	Tags     string `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Maximum number of artists to return (max 200)"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Tags     string `query:"tags" maxLength:"512" doc:"Comma-separated tag slugs (max 10; extras are ignored). Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }
 
-// ListArtistsResponse represents the response for listing artists
+// ListArtistsResponse represents the response for listing artists.
+//
+// `total` is the whole matching set, not this page — the pager sizes itself
+// from it. There is deliberately no `count` field for the page length: the
+// caller already has `artists.length`, and two near-synonyms next to each other
+// is how a consumer ends up captioning "6,200 artists" over 50 cards.
 type ListArtistsResponse struct {
 	Body struct {
 		Artists []*contracts.ArtistWithShowCountResponse `json:"artists" doc:"List of artists with upcoming show counts"`
-		Count   int                                      `json:"count" doc:"Number of artists"`
+		Total   int64                                    `json:"total" doc:"Total number of artists matching the filters, across every page"`
+		Limit   int                                      `json:"limit" doc:"Limit used in query"`
+		Offset  int                                      `json:"offset" doc:"Offset used in query"`
 	}
 }
 
-// ListArtistsHandler handles GET /artists - returns all artists
+// ListArtistsHandler handles GET /artists - returns one page of the browse list
 func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtistsRequest) (*ListArtistsResponse, error) {
 	filters := make(map[string]interface{})
 
@@ -175,7 +191,7 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 			filters["city"] = req.City
 		}
 	}
-	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
+	if tf := capBrowseTagSlugs(parseTagFilter(req.Tags, req.TagMatch)); tf.HasTags() {
 		filters["tag_filter"] = tf
 		// PSY-495 (Bandcamp model): when a tag filter is engaged, drop the
 		// default "has upcoming shows" activity gate so tag pages are
@@ -185,14 +201,35 @@ func (h *ArtistHandler) ListArtistsHandler(ctx context.Context, req *ListArtists
 		filters["skip_active_filter"] = true
 	}
 
-	artists, err := h.artistService.GetArtistsWithShowCounts(filters)
+	// The huma `default:"50"` covers the HTTP path; this covers the callers
+	// that build the request struct directly (handler tests today, anything
+	// non-HTTP later), for which an unset Limit would otherwise mean LIMIT 0.
+	// Same substitution GET /venues and GET /artists/{id}/shows make.
+	limit := req.Limit
+	if limit == 0 {
+		limit = defaultArtistListLimit
+	}
+	// Floored here as well as in the service so the echoed window describes the
+	// query that actually RAN. huma's `minimum:"0"` blocks a negative offset on
+	// the wire, but a direct caller — the same population the substitution above
+	// exists for — would otherwise be told `offset: -5` under a field documented
+	// as "offset used in query", and the browse pager captions its row range
+	// from that field.
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	artists, total, err := h.artistService.GetArtistsWithShowCounts(filters, limit, offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch artists", err)
 	}
 
 	resp := &ListArtistsResponse{}
 	resp.Body.Artists = artists
-	resp.Body.Count = len(artists)
+	resp.Body.Total = total
+	resp.Body.Limit = limit
+	resp.Body.Offset = offset
 
 	return resp, nil
 }

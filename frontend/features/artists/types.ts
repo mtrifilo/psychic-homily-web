@@ -114,7 +114,13 @@ export interface ArtistListItem extends Artist {
 
 export interface ArtistsListResponse {
   artists: ArtistListItem[]
-  count: number
+  /**
+   * Artists matching the filters across EVERY page, not the length of this
+   * one. The pager sizes itself from it, and the count line reports it.
+   */
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface ArtistSearchResponse {
