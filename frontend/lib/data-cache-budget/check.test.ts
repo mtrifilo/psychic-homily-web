@@ -1,4 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * The allowlist itself is EMPTY, and empty is its intended steady state
+ * (PSY-1763 removed the only entry it has ever held). Its BEHAVIOUR still has
+ * to be tested, so the membership test is stubbed rather than a permanent entry
+ * being parked in the real list to keep a test alive — which is exactly the
+ * rot the list's own doc comment warns about.
+ */
+const { allowlistedUrls } = vi.hoisted(() => ({
+  allowlistedUrls: new Set<string>(),
+}))
+
+vi.mock('./budget', async importOriginal => ({
+  ...(await importOriginal<typeof import('./budget')>()),
+  isWarnBandAllowlisted: (url?: string) => url !== undefined && allowlistedUrls.has(url),
+}))
+
 import { formatBudgetFailures, partitionOverBudget } from './check'
 import {
   DATA_CACHE_BUDGET_BYTES,
@@ -7,6 +24,10 @@ import {
   DATA_CACHE_RAW_LIMIT_BYTES,
   WARN_BAND_ALLOWLIST,
 } from './budget'
+
+afterEach(() => {
+  allowlistedUrls.clear()
+})
 
 // The measured `/artists` entry sizes from PSY-1674, as on-disk (base64) bytes.
 const ARTISTS_CACHED_2026_07_26 = 1_533_430
@@ -34,11 +55,14 @@ describe('the budget constants', () => {
 
 describe('the warn-band allowlist', () => {
   // Age is the signal that an entry has rotted into a permanent baseline, so
-  // it has to be readable without parsing prose.
+  // it has to be readable without parsing prose. Vacuous while the list is
+  // empty, and deliberately kept: it is the shape guard for the next entry
+  // anyone adds, and an empty list is the state that needs no guarding.
   it('dates every entry', () => {
     for (const entry of WARN_BAND_ALLOWLIST) {
       expect(entry.measuredAt, `${entry.match} has no measuredAt`).toMatch(/^\d{4}-\d{2}-\d{2}$/)
       expect(entry.reason.length).toBeGreaterThan(20)
+      expect(entry.ticket, `${entry.match} has no ticket`).toMatch(/^PSY-\d+$/)
     }
   })
 })
@@ -77,13 +101,15 @@ describe('partitionOverBudget', () => {
   })
 
   // The recorded exception must not fail the build, but must still be visible.
+  // Driven at the size the releases family actually reached before it was
+  // sub-sharded (PSY-1674 measurement, 97% of the cap), because that is the
+  // band this branch exists for.
   it('does not fail a recorded warn-band exception, but still surfaces it', () => {
+    const url = 'https://api.psychichomily.com/sitemap/entries?family=releases'
+    allowlistedUrls.add(url)
+
     const { failures, allowlisted } = partitionOverBudget([
-      {
-        key: 'a',
-        bytes: 2_028_910,
-        url: 'https://api.psychichomily.com/sitemap/entries?family=releases',
-      },
+      { key: 'a', bytes: 2_028_910, url },
     ])
 
     expect(failures).toEqual([])
@@ -92,7 +118,9 @@ describe('partitionOverBudget', () => {
   })
 
   // An allowlist entry waives the WARN band for one URL only.
-  it('does not allowlist a family that is not recorded', () => {
+  it('does not allowlist a URL that is not recorded', () => {
+    allowlistedUrls.add('https://api.psychichomily.com/sitemap/entries?family=releases')
+
     expect(
       partitionOverBudget([
         {
@@ -102,6 +130,21 @@ describe('partitionOverBudget', () => {
         },
       ]).failures
     ).toHaveLength(1)
+  })
+
+  // The hard cap is enforced independently of the list: an allowlisted URL that
+  // actually breaches has already stopped being cached, and waving it through
+  // would make the gate a lower cap with a bypass.
+  it('still fails an allowlisted URL that is over the hard cap', () => {
+    const url = 'https://api.psychichomily.com/sitemap/entries?family=releases'
+    allowlistedUrls.add(url)
+
+    const { failures, allowlisted } = partitionOverBudget([
+      { key: 'a', bytes: DATA_CACHE_ITEM_LIMIT_BYTES + 1, url },
+    ])
+
+    expect(failures).toHaveLength(1)
+    expect(allowlisted).toEqual([])
   })
 
   it('reports the worst offender first', () => {

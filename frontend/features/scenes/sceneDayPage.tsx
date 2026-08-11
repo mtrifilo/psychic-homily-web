@@ -77,7 +77,7 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // /tonight cannot be its own canonical, because its content changes every
   // night and an indexed snippet would describe a night that has passed. It
   // names the week rather than the dated permalink because of what the sitemap
-  // carries: FAMILY_SHARD_IDS in app/sitemap-shards.ts has scene_weeks and no
+  // carries: SITEMAP_FAMILIES in app/sitemap-shards.ts has scene_weeks and no
   // scene_days. Neither URL space is infinite — days are bounded by
   // `dateIsServable` (2015..next year, ~4.7k per scene) and week keys are not
   // bounded at all by the week route — but the scene_weeks family announces a

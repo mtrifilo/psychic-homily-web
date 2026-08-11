@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -179,6 +180,111 @@ func TestSitemapEntriesFamilyFilterIsolatesOneFamily(t *testing.T) {
 	}
 	if len(entries.Artists) != 0 {
 		t.Errorf("artists under labels filter = %v, want empty", entries.Artists)
+	}
+}
+
+// TestSitemapEntriesReleaseSubShardsCoverTheFamilyExactly is the behavioural
+// half of the releases sub-shard guard (PSY-1763). Its sibling unit test checks
+// the bounds TABLE; this checks what the DATABASE does with them, which is a
+// different question — collation decides where a slug actually falls, and no
+// amount of reading the table reveals that.
+//
+// TWO assertions, and they fail for different reasons on purpose:
+//
+//   - Set equality against the unsharded family. A gap (URLs silently absent
+//     from the sitemap) and an overlap (a URL announced twice) both fail it.
+//     Note this one is collation-INDEPENDENT: contiguous half-open ranges open
+//     at both outer ends are total and disjoint under any total order, so it can
+//     never fail for a collation reason, whatever the seeds are.
+//   - Exact placement of the awkward slugs. THIS is the collation assertion.
+//     `wantShard` below is measured against en_US.utf8, so a collation change
+//     that silently moves rows between ranges — the one thing that can break the
+//     "a URL does not change shards" property without the URL changing — fails
+//     here rather than churning what crawlers refetch.
+func TestSitemapEntriesReleaseSubShardsCoverTheFamilyExactly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	// MEASURED against en_US.utf8 (libc), the collation both production and
+	// testutil.SetupTestPostgres run. Note `-quiet-start`: glibc weighs
+	// punctuation below letters at the primary level, so it collates as
+	// "quietstart" and lands in n-s — NOT in the first range, which reading the
+	// leading character would suggest. That is exactly why this is pinned.
+	wantShard := map[string]string{
+		"1999-remastered":   "releases-a-e", // digits sort below every letter
+		"-quiet-start":      "releases-n-s", // collates as "quietstart"
+		"aardvark-tapes":    "releases-a-e",
+		"eventide":          "releases-a-e", // last slug under the first cut point
+		"f":                 "releases-f-m", // exactly on a cut point
+		"midnight-sessions": "releases-f-m",
+		"n":                 "releases-n-s", // exactly on a cut point
+		"solar-drift":       "releases-n-s",
+		"t":                 "releases-t-z", // exactly on a cut point
+		"zephyr":            "releases-t-z",
+	}
+	seeded := make([]string, 0, len(wantShard))
+	for slug := range wantShard {
+		seeded = append(seeded, slug)
+	}
+	sort.Strings(seeded)
+	for i, slug := range seeded {
+		release := &catalogm.Release{Title: fmt.Sprintf("Release %d", i), Slug: strPtr(slug)}
+		if err := td.DB.Create(release).Error; err != nil {
+			t.Fatalf("seed release %q: %v", slug, err)
+		}
+	}
+
+	service := NewSitemapService(td.DB)
+	whole, err := service.Entries(context.Background(), "releases")
+	if err != nil {
+		t.Fatalf("Entries(releases): %v", err)
+	}
+	wholeSlugs := sitemapSlugsOf(whole.Releases)
+	if len(wholeSlugs) != len(seeded) {
+		t.Fatalf("unsharded releases = %v, want the %d seeded slugs", wholeSlugs, len(seeded))
+	}
+
+	owner := map[string]string{}
+	for _, shard := range releaseShards {
+		entries, err := service.Entries(context.Background(), shard.id)
+		if err != nil {
+			t.Fatalf("Entries(%s): %v", shard.id, err)
+		}
+		// A sub-shard addresses ONE family: anything else leaking into the
+		// response would be paid for by every shard, which is the cost
+		// sharding exists to avoid.
+		if len(entries.Artists)+len(entries.Shows)+len(entries.Labels) != 0 {
+			t.Errorf("Entries(%s) populated families other than releases", shard.id)
+		}
+		for _, slug := range sitemapSlugsOf(entries.Releases) {
+			if prev, dup := owner[slug]; dup {
+				t.Errorf("slug %q is served by both %q and %q — the shards overlap", slug, prev, shard.id)
+			}
+			owner[slug] = shard.id
+		}
+	}
+
+	for _, slug := range wholeSlugs {
+		if _, ok := owner[slug]; !ok {
+			t.Errorf("slug %q belongs to no sub-shard — the partition has a gap and this URL would leave the sitemap", slug)
+		}
+	}
+	if len(owner) != len(wholeSlugs) {
+		t.Errorf("sub-shards served %d slugs, the whole family has %d", len(owner), len(wholeSlugs))
+	}
+
+	// The collation assertion. Set equality above holds under any total order,
+	// so it cannot catch a collation change reshuffling rows between ranges —
+	// only this can.
+	for slug, want := range wantShard {
+		if got := owner[slug]; got != want {
+			t.Errorf("slug %q is served by %q, want %q — the database's collation orders "+
+				"slugs differently than when these bounds were measured, so releases have "+
+				"moved between shards without their URLs changing", slug, got, want)
+		}
 	}
 }
 

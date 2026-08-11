@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '@/app/sitemap-shards'
+import {
+  ENTITY_SHARD_IDS,
+  PAGES_SHARD_ID,
+  RELEASE_SHARD_IDS,
+  SITEMAP_FAMILIES,
+} from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
 import { fetchExpectedCounts, rebaseOnTarget, sampleUrls, walkSitemap } from './fetch'
 
@@ -71,7 +76,7 @@ ${ids
 // Derived, not hand-copied: a family added to sitemap-shards.ts must flow into
 // these fixtures, or the shard-count assertions below would keep passing for
 // the wrong reason.
-const ALL_IDS: string[] = [PAGES_SHARD_ID, ...FAMILY_SHARD_IDS]
+const ALL_IDS: string[] = [PAGES_SHARD_ID, ...ENTITY_SHARD_IDS]
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -152,8 +157,14 @@ describe('walkSitemap', () => {
     }
   })
 
-  it('records an error when a family shard is absent from the index', async () => {
-    const present = ALL_IDS.filter(id => id !== 'releases')
+  /**
+   * Per SHARD, not per family. A sub-sharded family loses only a fraction of
+   * its URLs when one of its documents goes missing — well inside the
+   * per-family drift tolerance — so a family-level check would pass while a
+   * quarter of the release catalogue quietly left the index.
+   */
+  it.each(ENTITY_SHARD_IDS)('records an error when the %s shard is absent from the index', async missing => {
+    const present = ALL_IDS.filter(id => id !== missing)
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
@@ -162,7 +173,67 @@ describe('walkSitemap', () => {
     )
 
     const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
-    expect(observation.errors).toContain('sitemap index is missing the "releases" shard')
+    expect(observation.errors).toContain(`sitemap index is missing the "${missing}" shard`)
+  })
+
+  /**
+   * The other half of the same hole, and the one the per-shard membership check
+   * above cannot see: a shard that IS listed but serves an empty document.
+   * A generator fetch that 400/422s degrades to an empty-but-valid <urlset>, so
+   * a range can go dark while its siblings are healthy — and neither the
+   * membership check (the shard is present) nor `vanished` (the family is not
+   * at zero) fires. All that would be left is drift, which one range of four may
+   * or may not clear depending on where the cut points fell.
+   *
+   * Scoped to SIBLINGS rather than to the API's expected counts, which
+   * walkSitemap does not have. The second case pins that scoping as deliberate:
+   * a whole family at zero must stay SILENT here, because that is `vanished`'s
+   * job and double-reporting it would train the reader to ignore both.
+   */
+  describe('a listed shard that serves nothing', () => {
+    const [darkShard, ...litShards] = RELEASE_SHARD_IDS
+
+    function serveWith(emptyIds: readonly string[]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+          const id = url.split('/sitemap/')[1]?.replace('.xml', '') ?? ''
+          // Every non-releases shard serves a URL so the releases ranges are
+          // the only thing under test.
+          const isEmpty = emptyIds.includes(id)
+          return xmlResponse(
+            urlset(isEmpty ? [] : [`https://psychichomily.com/releases/${id}-one`])
+          )
+        })
+      )
+    }
+
+    const emptyShardError = (id: string) =>
+      `shard "${id}" served an empty document while other shards of the ` +
+      `"releases" family served URLs — that range is not being announced`
+
+    it('is reported when its siblings served URLs', async () => {
+      serveWith([darkShard])
+
+      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+      expect(observation.errors).toContain(emptyShardError(darkShard))
+      // Only the dark one — a healthy sibling must not be reported too.
+      for (const lit of litShards) {
+        expect(observation.errors).not.toContain(emptyShardError(lit))
+      }
+    })
+
+    it('is NOT reported when the whole family is empty — that is `vanished`', async () => {
+      serveWith(RELEASE_SHARD_IDS)
+
+      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+      for (const id of RELEASE_SHARD_IDS) {
+        expect(observation.errors).not.toContain(emptyShardError(id))
+      }
+    })
   })
 
   it('records an error when a shard fails to fetch, and keeps going', async () => {
@@ -220,7 +291,10 @@ describe('walkSitemap', () => {
 
 describe('fetchExpectedCounts', () => {
   function entriesBody(overrides: Record<string, unknown> = {}) {
-    const base = Object.fromEntries(FAMILY_SHARD_IDS.map(family => [family, []]))
+    // Keyed by FAMILY: this stands in for the unsharded `/sitemap/entries`
+    // response, whose keys are the schema's families whatever the sitemap
+    // chooses to shard them into.
+    const base = Object.fromEntries(SITEMAP_FAMILIES.map(family => [family, []]))
     return JSON.stringify({ ...base, ...overrides })
   }
 

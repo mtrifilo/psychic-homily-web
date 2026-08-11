@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAMILY_SHARD_IDS, type Family } from '@/app/sitemap-shards'
+import { SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
 import { evaluate, type EvaluationInput } from './evaluate'
 import {
@@ -13,7 +13,7 @@ const config = resolveConfig({})
 const NOW = new Date('2026-07-30T12:00:00Z')
 
 function counts(overrides: Partial<Record<Family, number>> = {}): Record<Family, number> {
-  const base = Object.fromEntries(FAMILY_SHARD_IDS.map(f => [f, 0])) as Record<Family, number>
+  const base = Object.fromEntries(SITEMAP_FAMILIES.map(f => [f, 0])) as Record<Family, number>
   return { ...base, ...overrides }
 }
 

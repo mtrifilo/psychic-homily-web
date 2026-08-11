@@ -3,11 +3,15 @@ package catalog
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -86,6 +90,23 @@ func TestSitemapEntriesHandlerSetsCacheControl(t *testing.T) {
 	if !strings.Contains(resp.CacheControl, "max-age=") {
 		t.Errorf("Cache-Control = %q, want a max-age directive", resp.CacheControl)
 	}
+}
+
+// TestSitemapFamilyEnumMatchesTheService keeps huma's request validation and
+// the service's own guard from drifting apart.
+//
+// The enum is a struct tag, so it is a hand-written literal that no amount of
+// care in the service can keep current. Drift is silent in the direction that
+// matters most: a family or a sub-shard the service serves but the enum omits
+// is rejected with a 422 BEFORE the handler runs, which the sitemap generator
+// reads as "the backend does not serve this" and degrades to an empty
+// document — thousands of URLs quietly leaving the index with a green build.
+func TestSitemapFamilyEnumMatchesTheService(t *testing.T) {
+	field, ok := reflect.TypeOf(GetSitemapEntriesRequest{}).FieldByName("Family")
+	require.True(t, ok, "GetSitemapEntriesRequest.Family must exist")
+
+	assert.Equal(t, catalog.SitemapFamilyValuesCSV(), field.Tag.Get("enum"),
+		"the enum tag on family must list exactly the values SitemapService.Entries accepts, in order")
 }
 
 // TestSitemapEntriesHandlerUnknownFamilyIs400 pins the family filter's

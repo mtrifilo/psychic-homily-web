@@ -71,9 +71,9 @@ export function formatConsoleReport(report: Report): string {
     `target:  ${report.target}`,
     `shape:   ${shapeLabel(report)}`,
     // `unclassified` only means anything for the single-document shape: on the
-    // sharded path the shard id IS the family, so nothing is ever classified
-    // and a printed `unclassified 0` would read as evidence that every URL was
-    // recognised.
+    // sharded path every shard id resolves to a family through the shard table,
+    // so nothing is ever classified and a printed `unclassified 0` would read
+    // as evidence that every URL was recognised.
     `totals:  sitemap ${report.observedTotal} locs (entities ${report.expectedTotal} per API, pages ${report.observedPages}${report.shape === 'urlset' ? `, unclassified ${report.observedOther}` : ''})`,
     '',
     ...familyLines(report),

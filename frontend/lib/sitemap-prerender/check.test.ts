@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   ALL_SHARD_IDS,
-  FAMILY_SHARD_IDS,
+  ENTITY_SHARD_IDS,
+  RELEASE_SHARD_IDS,
   PAGES_SHARD_ID,
   shardRoutePath,
 } from '@/app/sitemap-shards'
@@ -35,16 +36,16 @@ describe('findShardsWithoutFallback', () => {
     ).toEqual([])
   })
 
-  it('reports every entity family when only the pages shard prerendered', () => {
+  it('reports every entity shard when only the pages shard prerendered', () => {
     // The measured degraded build: backend unreachable, clean build cache. The
-    // pages shard makes no network call, so it survives while all nine entity
-    // families fall to Dynamic.
+    // pages shard makes no network call, so it survives while every shard that
+    // fetches a family — or a slug range of one — falls to Dynamic.
     const failures = findShardsWithoutFallback(
       manifestWith([PAGES_SHARD_ID]),
       allBodiesPresent
     )
 
-    expect(failures.map(f => f.route)).toEqual(FAMILY_SHARD_IDS.map(shardRoutePath))
+    expect(failures.map(f => f.route)).toEqual(ENTITY_SHARD_IDS.map(shardRoutePath))
     expect(failures[0].reason).toContain('Dynamic')
   })
 
@@ -90,7 +91,7 @@ describe('findShardsWithoutFallback', () => {
   })
 
   it('does not require a URL count — an empty family is a legitimate shard', () => {
-    // Existence is the assertion. fetchSitemapFamily throws rather than
+    // Existence is the assertion. fetchShard throws rather than
     // emitting a partial document, so a body at all proves the fetch succeeded,
     // while a threshold would fail the build on a real empty catalogue.
     expect(
@@ -122,12 +123,9 @@ describe('looksLikeManifestShapeChange', () => {
 })
 
 describe('ALL_SHARD_IDS', () => {
-  it('covers the pages shard plus every family generateSitemaps() emits', () => {
-    // Derived from sitemap-shards.ts on purpose: a family added there must be
-    // covered by this gate without anyone remembering to update it.
-    expect(ALL_SHARD_IDS).toEqual([PAGES_SHARD_ID, ...FAMILY_SHARD_IDS])
-  })
-
+  // How ALL_SHARD_IDS is COMPOSED is asserted in app/sitemap-shards.test.ts,
+  // which owns that table. What this gate owns is the mapping from an id to the
+  // two build artifacts it looks up, so that is what is pinned here.
   it('maps ids onto the served route paths and build artifacts', () => {
     expect(shardRoutePath('artists')).toBe('/sitemap/artists.xml')
     expect(shardBodyPath('artists')).toBe('server/app/sitemap/artists.xml.body')
@@ -202,11 +200,11 @@ describe('partitionShardFailures', () => {
    * serve shows", so every family it fails to answer stays blocking.
    */
   it('blocks every shard when the backend is unreachable', async () => {
-    const failures = FAMILY_SHARD_IDS.map(failureFor)
+    const failures = ENTITY_SHARD_IDS.map(failureFor)
 
     const { blocking, pending } = await partitionShardFailures(failures, async () => 'unreachable')
 
-    expect(blocking).toHaveLength(FAMILY_SHARD_IDS.length)
+    expect(blocking).toHaveLength(ENTITY_SHARD_IDS.length)
     expect(pending).toEqual([])
   })
 
@@ -288,6 +286,46 @@ describe('formatPendingShards', () => {
     expect(message).toContain('/sitemap/venue_years.xml')
     expect(message).toContain('backend does not serve that family yet')
     // The reader has to be told this is temporary AND how to tell when it is not.
-    expect(message).toContain('FAMILY_SHARD_IDS')
+    expect(message).toContain('SITEMAP_FAMILIES')
+  })
+
+  /**
+   * The two pending cases do NOT cost the same, and saying so is the whole
+   * point of the message. A new family's empty document is true; a new slug
+   * range of a family the backend already serves is a live family going partly
+   * unannounced. Getting these the wrong way round tells an operator to relax
+   * during the one window where they should not.
+   */
+  it('says nothing is missing when only whole new families are pending', () => {
+    const message = formatPendingShards([
+      { route: shardRoutePath('venue_years'), reason: 'whatever' },
+    ])
+
+    expect(message).toContain('no known URL is missing')
+    expect(message).not.toContain('ALREADY serves rows')
+  })
+
+  it('names the live family whose URLs are unannounced when a slug range is pending', () => {
+    const message = formatPendingShards(
+      RELEASE_SHARD_IDS.map(id => ({ route: shardRoutePath(id), reason: 'whatever' }))
+    )
+
+    expect(message).toContain('ALREADY serves rows')
+    expect(message).toContain('"releases"')
+    expect(message).not.toContain('no known URL is missing')
+  })
+
+  /**
+   * A pending shard shipped Dynamic, so it has no prerendered body and no ISR
+   * timer. Promising hourly self-healing would be wrong, and it is the kind of
+   * wrong that stops someone re-running the build.
+   */
+  it('does not promise an ISR window for a Dynamic shard', () => {
+    const message = formatPendingShards(
+      RELEASE_SHARD_IDS.map(id => ({ route: shardRoutePath(id), reason: 'whatever' }))
+    )
+
+    expect(message).toContain('no ISR timer')
+    expect(message).not.toMatch(/within the hour/i)
   })
 })

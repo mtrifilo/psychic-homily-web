@@ -7,7 +7,7 @@
  * isolation if it does no I/O. fetch.ts gathers, this file judges.
  */
 
-import { FAMILY_SHARD_IDS, type Family } from '@/app/sitemap-shards'
+import { SITEMAP_FAMILIES, type Family } from '@/app/sitemap-shards'
 import type { MonitorConfig } from './config'
 import type { SitemapShape } from './parse'
 
@@ -88,7 +88,7 @@ function compareFamilies(
   input: EvaluationInput,
   config: MonitorConfig
 ): FamilyComparison[] {
-  return FAMILY_SHARD_IDS.map(family => {
+  return SITEMAP_FAMILIES.map(family => {
     const observed = input.observedByFamily[family] ?? 0
     const expected = input.expectedByFamily[family] ?? 0
     const delta = observed - expected

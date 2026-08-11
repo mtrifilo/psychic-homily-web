@@ -24,7 +24,15 @@ vi.mock('@/features/blog', () => ({
 }))
 
 import sitemap, { generateSitemaps } from './sitemap'
-import { ALL_SHARD_IDS } from './sitemap-shards'
+import {
+  ALL_SHARD_IDS,
+  ENTITY_SHARD_IDS,
+  RELEASE_SHARD_IDS,
+  shardFamily,
+} from './sitemap-shards'
+
+/** The releases sub-shard the sub-sharding cases drive. */
+const [RELEASE_SHARD] = RELEASE_SHARD_IDS
 
 const ISO = '2026-07-20T12:00:00Z'
 
@@ -46,12 +54,24 @@ function emptyFamilies(
   }
 }
 
+/**
+ * A fetch stub answering every call with the same payload.
+ *
+ * A NEW Response per call, not one shared instance: a body can only be read
+ * once, so a shared Response makes the second shard of a multi-shard test fail
+ * with "Body is unusable" — which reads as a bug in the generator rather than
+ * in the fixture.
+ */
 function respondWith(body: unknown, status = 200) {
-  return vi.fn().mockResolvedValue(
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    })
+  // Typed with fetch's signature rather than taking an ignored parameter, so
+  // `mock.calls` carries the requested URL for the tests that assert WHICH
+  // shard was fetched, without an unused binding for the linter to flag.
+  return vi.fn<(input: RequestInfo | URL) => Promise<Response>>(
+    async () =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      })
   )
 }
 
@@ -75,15 +95,20 @@ describe('sitemap', () => {
    * (PSY-1756) while still claiming to cover "every entity family"; a list this
    * function is itself built from cannot.
    */
-  it('generateSitemaps lists the pages shard plus every entity family', async () => {
+  it('generateSitemaps lists the pages shard plus every entity shard', async () => {
     const ids = (await generateSitemaps()).map(s => s.id)
     expect(ids).toEqual([...ALL_SHARD_IDS])
   })
 
-  it('maps every entity family onto its URL prefix', async () => {
+  it('maps every entity shard onto its family URL prefix', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
-      const family = new URL(url).searchParams.get('family')!
+      // The query value is the SHARD id; the response is keyed by the FAMILY
+      // it slices. Resolving through the shared table here is what makes the
+      // sub-shard cases below exercise the real mapping rather than a fixture
+      // that happens to agree with it.
+      const shard = new URL(url).searchParams.get('family')!
+      const family = shardFamily(shard)!
       const body: Record<string, unknown> = emptyFamilies({
         [family]: [{ slug: `a-${family}`, updated_at: ISO }],
       })
@@ -122,9 +147,13 @@ describe('sitemap', () => {
     expect(await urlsOf('labels')).toContain(
       'https://psychichomily.com/labels/a-labels'
     )
-    expect(await urlsOf('releases')).toContain(
-      'https://psychichomily.com/releases/a-releases'
-    )
+    // Every releases sub-shard, and all under the SAME prefix: sub-sharding is
+    // a transport detail that must not reach the emitted URLs.
+    for (const shard of RELEASE_SHARD_IDS) {
+      expect(await urlsOf(shard)).toContain(
+        'https://psychichomily.com/releases/a-releases'
+      )
+    }
     expect(await urlsOf('festivals')).toContain(
       'https://psychichomily.com/festivals/a-festivals'
     )
@@ -350,15 +379,15 @@ describe('sitemap', () => {
     })
   })
 
-  it('requests the projection feed scoped to the shard family', async () => {
+  it('requests the projection feed scoped to the shard', async () => {
     const fetchMock = respondWith(emptyFamilies())
     vi.stubGlobal('fetch', fetchMock)
 
-    await sitemap({ id: Promise.resolve('releases') })
+    await sitemap({ id: Promise.resolve('shows') })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringMatching(/\/sitemap\/entries\?family=releases$/),
+      expect.stringMatching(/\/sitemap\/entries\?family=shows$/),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
   })
@@ -370,5 +399,81 @@ describe('sitemap', () => {
     await sitemap({ id: Promise.resolve('pages') })
 
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('throws on a shard id nothing serves', async () => {
+    // The `id` reaching this route comes from generateSitemaps(), so an
+    // unrecognised one means the route table and the shard table have drifted.
+    // Rendering an empty document instead would publish a valid-looking sitemap
+    // that is missing a whole shard.
+    await expect(sitemap({ id: Promise.resolve('releases-nope') })).rejects.toThrow(
+      /unknown sitemap shard id/
+    )
+  })
+
+  /**
+   * The releases family outgrew a single Data Cache entry and is served in slug
+   * ranges (PSY-1763). What has to hold for that to be invisible from outside is
+   * that each range reads its rows out of the FAMILY's key — the other half,
+   * that each asks for its own id, is covered once for every shard below.
+   */
+  describe('releases sub-shards', () => {
+    it('reads its rows from the releases key of the response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        respondWith(
+          emptyFamilies({ releases: [{ slug: 'a-record', updated_at: ISO }] })
+        )
+      )
+
+      await expect(urlsOf(RELEASE_SHARD)).resolves.toEqual([
+        'https://psychichomily.com/releases/a-record',
+      ])
+    })
+
+    /**
+     * The deploy-race path, which is why the sub-shard rides in the `family`
+     * parameter at all: a backend that predates these ids rejects them with the
+     * same 400/422 it uses for an unknown family, so a sub-shard degrades to an
+     * empty document for one window instead of failing the build.
+     */
+    it.each([422, 400])('degrades to an empty document on HTTP %d', async status => {
+      vi.stubGlobal('fetch', respondWith({ detail: 'validation failed' }, status))
+
+      await expect(urlsOf(RELEASE_SHARD)).resolves.toEqual([])
+    })
+
+    it('still fails closed when the releases key is absent', async () => {
+      const body = emptyFamilies()
+      delete (body as { releases?: unknown }).releases
+      vi.stubGlobal('fetch', respondWith(body))
+
+      await expect(sitemap({ id: Promise.resolve(RELEASE_SHARD) })).rejects.toThrow(
+        /missing the "releases" family/
+      )
+    })
+
+  })
+
+  /**
+   * One fetch per shard, each carrying the shard's OWN id — which is the whole
+   * point for the releases ranges: four documents, four independently-cached
+   * fetches, so the over-cap payload never lands back in one entry. Driven from
+   * ENTITY_SHARD_IDS rather than a release-specific list because that list
+   * CONTAINS the release ranges, so a separate release-only case would assert a
+   * strict subset of this.
+   */
+  it('fetches exactly one feed per entity shard, keyed by shard id, none twice', async () => {
+    const fetchMock = respondWith(emptyFamilies())
+    vi.stubGlobal('fetch', fetchMock)
+
+    for (const id of ENTITY_SHARD_IDS) {
+      await sitemap({ id: Promise.resolve(id) })
+    }
+
+    const requested = fetchMock.mock.calls.map(([input]) =>
+      new URL(String(input)).searchParams.get('family')
+    )
+    expect(requested).toEqual([...ENTITY_SHARD_IDS])
   })
 })

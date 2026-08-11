@@ -9,7 +9,11 @@
  * whether a POST happens at all, and what the process exits with.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '@/app/sitemap-shards'
+import {
+  ENTITY_SHARD_IDS,
+  PAGES_SHARD_ID,
+  SITEMAP_FAMILIES,
+} from '@/app/sitemap-shards'
 import type { Env } from './config'
 import { main } from './cli'
 
@@ -17,7 +21,7 @@ const WEBHOOK = 'https://discord.example/api/webhooks/1/secret-token'
 const TARGET = 'https://sitemap-monitor.test'
 const API = 'https://api.sitemap-monitor.test'
 
-const ALL_IDS = [PAGES_SHARD_ID, ...FAMILY_SHARD_IDS]
+const ALL_IDS = [PAGES_SHARD_ID, ...ENTITY_SHARD_IDS]
 
 function urlset(locs: string[]): string {
   return `<urlset>${locs.map(l => `<url><loc>${l}</loc></url>`).join('')}</urlset>`
@@ -65,8 +69,9 @@ function stubWorld(options: WorldOptions = {}) {
     }
     if (url.startsWith(`${API}/sitemap/entries`)) {
       if (apiDown) return new Response('down', { status: 503 })
+      // The unsharded feed: keyed by FAMILY, not by shard id.
       const body = Object.fromEntries(
-        FAMILY_SHARD_IDS.map(f => [
+        SITEMAP_FAMILIES.map(f => [
           f,
           f === 'shows' ? Array.from({ length: apiShows }, (_, i) => ({ slug: `s${i}` })) : [],
         ])

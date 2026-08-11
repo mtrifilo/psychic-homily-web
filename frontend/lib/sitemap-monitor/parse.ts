@@ -15,7 +15,7 @@
  */
 
 import {
-  FAMILY_SHARD_IDS,
+  SITEMAP_FAMILIES,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
   type Family,
@@ -131,7 +131,7 @@ const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
  * being silently misbucketed.
  */
 const FAMILIES_BY_PREFIX = new Map<string, Family[]>()
-for (const family of FAMILY_SHARD_IDS) {
+for (const family of SITEMAP_FAMILIES) {
   const prefix = FAMILY_URL_PREFIXES[family].replace(/^\//, '')
   const claimants = FAMILIES_BY_PREFIX.get(prefix)
   if (claimants) claimants.push(family)
@@ -140,7 +140,7 @@ for (const family of FAMILY_SHARD_IDS) {
 
 /**
  * Every shared prefix and the exact families claiming it, sorted so the guard
- * test does not depend on FAMILY_SHARD_IDS' declaration order.
+ * test does not depend on SITEMAP_FAMILIES' declaration order.
  *
  * The CLAIMANTS, not just the prefix list: `classifyLoc` needs a rule per
  * family under a shared prefix, not per prefix. A list of prefixes alone stops

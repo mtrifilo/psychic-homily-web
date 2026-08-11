@@ -7,7 +7,9 @@
 
 import {
   ALL_SHARD_IDS,
-  FAMILY_SHARD_IDS,
+  ENTITY_SHARD_IDS,
+  shardFamily,
+  SITEMAP_FAMILIES,
   PAGES_SHARD_ID,
   type Family,
 } from '@/app/sitemap-shards'
@@ -53,7 +55,7 @@ export interface SitemapObservation {
 const USER_AGENT = 'psychic-homily-sitemap-monitor'
 
 function emptyCounts(): Record<Family, number> {
-  return Object.fromEntries(FAMILY_SHARD_IDS.map(f => [f, 0])) as Record<Family, number>
+  return Object.fromEntries(SITEMAP_FAMILIES.map(f => [f, 0])) as Record<Family, number>
 }
 
 /** How many hops to follow. The real chain is at most one (apex → www). */
@@ -108,10 +110,15 @@ async function requestFollowing(
 ): Promise<Response> {
   // ONE budget for the whole redirect chain, not one per hop. A per-hop signal
   // multiplies: 6 hops × 2 attempts × 30s is 6 minutes for a single document,
-  // and ~11 documents in sequence would blow the job's timeout-minutes. The
-  // runner then kills the process, main()'s crash handler never runs, and NO
-  // alert is posted — the monitor goes silent exactly when an origin is
-  // unhealthy, which is the failure class it exists to eliminate.
+  // and the documents are walked in SEQUENCE, so that blows the job's
+  // timeout-minutes. The runner then kills the process, main()'s crash handler
+  // never runs, and NO alert is posted — the monitor goes silent exactly when
+  // an origin is unhealthy, which is the failure class it exists to eliminate.
+  //
+  // The same arithmetic binds the shard count itself: every shard added to
+  // app/sitemap-shards.ts costs another 65s of worst case here, which is why
+  // .github/workflows/sitemap-freshness.yml derives its ceiling from the count
+  // rather than picking a round number. Check that budget when adding shards.
   const deadline = AbortSignal.timeout(timeoutMs)
   let current = url
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -284,9 +291,11 @@ function collectShowDates(locs: readonly string[], into: string[]): void {
  * is reported so a silent regression from index back to single-document is
  * visible rather than merely tolerated.
  *
- * When an index is served the shard id IS the family, so the family counts
- * cannot be skewed by a URL-classification gap. classifyLoc is only used for
- * the single-document shape.
+ * When an index is served the shard id RESOLVES to a family through the shared
+ * table, so the family counts cannot be skewed by a URL-classification gap.
+ * classifyLoc is only used for the single-document shape. The id is no longer
+ * the family itself — a sub-sharded family answers to several ids (PSY-1763) —
+ * which is why the resolution goes through `shardFamily` rather than a cast.
  */
 export async function walkSitemap(config: MonitorConfig): Promise<SitemapObservation> {
   const observation: SitemapObservation = {
@@ -320,6 +329,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
 
   const known = new Set<string>(ALL_SHARD_IDS)
   const listed = new Set<string>()
+  const locsPerShard = new Map<string, number>()
 
   for (const shardUrl of shardUrls) {
     const id = shardIdFromUrl(shardUrl)
@@ -338,25 +348,95 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
         observation.errors.push(`shard "${id}" served a <${shape}> where a <urlset> was expected`)
         continue
       }
-      const bucket = id as Family | typeof PAGES_SHARD_ID
+      // The shard id is NOT the family once a family is sub-sharded: counting
+      // `releases-a-e` as its own bucket would leave `releases` observed at
+      // zero, which the evaluator reports as a vanished family — a false alarm
+      // that looks exactly like the real incident. Resolved through the shared
+      // table so a new sub-shard cannot reintroduce the confusion.
+      //
+      // NOT `?? 'other'`: `format.ts` prints the unclassified tally only for
+      // the single-document shape, so an id that fell through would have its
+      // URLs counted into a bucket the report never shows. An id that resolves
+      // to no family here is a table inconsistency, not a URL to bucket — the
+      // `known.has(id)` guard above should already have rejected it — so say so
+      // and skip rather than swallow it.
+      const family = id === PAGES_SHARD_ID ? PAGES_SHARD_ID : shardFamily(id)
+      if (!family) {
+        observation.errors.push(
+          `shard "${id}" is listed and known but maps to no family — the shard table is inconsistent`
+        )
+        continue
+      }
+      const bucket: LocBucket = family
       const locs = parseUrlset(xml)
-      // One at a time, not `push(...locs)`: the releases shard is already ~20k
+      // One at a time, not `push(...locs)`: the releases family is already ~20k
       // entries and spreading it into the argument list approaches the engine's
       // stack argument limit.
       for (const loc of locs) recordLoc(observation, bucket, loc, config.target)
-      if (id === 'shows') collectShowDates(locs, observation.showDates)
+      if (bucket === 'shows') collectShowDates(locs, observation.showDates)
       countInto(observation, bucket, locs.length)
+      locsPerShard.set(id, locs.length)
     } catch (error) {
       observation.errors.push(`shard "${id}": ${(error as Error).message}`)
     }
   }
 
-  // Every family the sitemap claims to shard must actually be listed. A family
+  // Every shard the sitemap claims to emit must actually be listed. A shard
   // silently dropped from the index is thousands of URLs vanishing with no
   // other signal — the incident's exact shape.
-  for (const family of FAMILY_SHARD_IDS) {
-    if (!listed.has(family)) {
-      observation.errors.push(`sitemap index is missing the "${family}" shard`)
+  //
+  // Checked per SHARD rather than per family. What that buys is a NAMED,
+  // immediate error instead of a drift number: a sub-sharded family that loses
+  // one of its documents is still short only a fraction of its URLs, and
+  // whether that fraction clears `driftRatio` is a coincidence of where the cut
+  // points fell rather than something this check should depend on. Naming the
+  // missing document also says which one, which a drift percentage cannot.
+  for (const shardId of ENTITY_SHARD_IDS) {
+    if (!listed.has(shardId)) {
+      observation.errors.push(`sitemap index is missing the "${shardId}" shard`)
+    }
+  }
+
+  // A shard that is LISTED but serves an empty document is the same loss wearing
+  // a healthy face, and the check above cannot see it. A generator fetch that
+  // 400/422s degrades to an empty-but-valid <urlset> (UNKNOWN_FAMILY_STATUSES in
+  // app/sitemap.ts), so one range of a family can go dark while its siblings are
+  // fine.
+  //
+  // Scope, stated honestly: the ROLLOUT case (frontend ahead of backend) darkens
+  // every range at once, which leaves no lit sibling and is `vanished`'s job, not
+  // this one. And a backend serving a proper subset of its own shard table is
+  // now hard to merge — TestSitemapFamilyEnumMatchesTheService pins the enum to
+  // `releaseShards`. What is left is the partial case this cannot rule out: one
+  // range failing where the others succeed (a per-range backend fault, a cut
+  // point retired on one side, a shard whose build-time fetch alone degraded).
+  // Cheap, precise, and it names the document — worth having even though the
+  // loudest scenario is covered elsewhere.
+  //
+  // The family-level `vanished` rule in evaluate.ts does not cover it either —
+  // that needs the WHOLE family at zero. All that is left is drift, and one
+  // range is a fraction of its family: `releases-t-z` is ~20% of releases
+  // against a default 0.2 tolerance, i.e. detected by a couple of percent, and
+  // only by where the cut points happen to fall. That is the coincidence the
+  // per-shard check above exists to avoid depending on.
+  //
+  // Compared against SIBLINGS rather than against the API's expected counts,
+  // which walkSitemap does not have: a range serving nothing while another range
+  // of the same family serves rows cannot be a legitimately empty catalogue.
+  // A family that is entirely empty stays silent here and is `vanished`'s job.
+  for (const [shardId, count] of locsPerShard) {
+    if (count > 0 || shardId === PAGES_SHARD_ID) continue
+    const family = shardFamily(shardId)
+    if (!family) continue
+    const siblingsWithRows = [...locsPerShard].some(
+      ([otherId, otherCount]) =>
+        otherId !== shardId && otherCount > 0 && shardFamily(otherId) === family
+    )
+    if (siblingsWithRows) {
+      observation.errors.push(
+        `shard "${shardId}" served an empty document while other shards of the ` +
+          `"${family}" family served URLs — that range is not being announced`
+      )
     }
   }
 
@@ -385,7 +465,7 @@ export async function fetchExpectedCounts(
 
   const record = body as Record<string, unknown>
   const counts = emptyCounts()
-  for (const family of FAMILY_SHARD_IDS) {
+  for (const family of SITEMAP_FAMILIES) {
     const rows = record[family]
     if (!Array.isArray(rows)) {
       // Coercing a missing family to 0 would report it as 100% drift and blame
