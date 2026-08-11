@@ -1,12 +1,29 @@
 import { Suspense, cache } from 'react'
 import type { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
-import { TagDetail } from '@/features/tags/components'
 import type { TagEnrichedDetailResponse } from '@/features/tags/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
+
+// Dynamic-imported from the component FILE (never a `@/features/tags` barrel)
+// to evict TagDetail.tsx from Turbopack's global shared client chunk, which
+// loads eagerly on every route. Same recipe as ArtistDetail (PSY-950 / spike
+// PSY-944): `dynamic()` alone is a no-op, because a barrel re-export keeps the
+// module reachable from the ~17 other files that import the tags barrels, and
+// Turbopack does not tree-shake `'use client'` barrels per-export. The eviction
+// only holds while TagDetail is ALSO absent from features/tags/index.ts and
+// features/tags/components/index.ts. Do NOT re-add those barrel exports.
+// `ssr: true` preserves the HydrationBoundary server render.
+const TagDetail = dynamic(
+  () =>
+    import('@/features/tags/components/TagDetail').then(m => ({
+      default: m.TagDetail,
+    })),
+  { ssr: true },
+)
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||

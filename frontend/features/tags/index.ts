@@ -44,11 +44,14 @@ export {
   useRemoveTagVote,
 } from './hooks'
 
+// NOTE: TagDetail is intentionally omitted (PSY-1772). The route page imports it
+// directly via `dynamic()` from '@/features/tags/components/TagDetail' so
+// Turbopack evicts it from the global shared client chunk (loaded on every
+// route). Re-adding it here re-hoists TagDetail.tsx into that chunk.
 export {
   EntityTagList,
   AddTagDialog,
   TagBrowse,
-  TagDetail,
   TagOfficialIndicator,
   TagFacetPanel,
   TagFacetSheet,
