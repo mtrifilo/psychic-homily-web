@@ -1,0 +1,25 @@
+-- Connectivity-ranked starting suggestions for the /graph fallback hero.
+--
+-- The nightly overview build already computes betweenness centrality over the
+-- whole map to tier its labels. This column stores the top slice of that
+-- ranking — artist ids only — so the hero can suggest bands that actually sit
+-- in a dense part of the graph instead of an editorial trio hardcoded in the
+-- frontend.
+--
+-- IDS ONLY, ON PURPOSE. Names and slugs are read from `artists` at request
+-- time. The ranking is allowed to be a night old; the identity a suggestion
+-- promises is not, and a renamed or deleted artist must never be offered.
+-- Storing the display copy here would be a second place for it to go stale.
+--
+-- NULLABLE, and read as "no suggestions". Every row written before this column
+-- existed carries NULL, and so would a build whose ranking step produced
+-- nothing. Both cases fall through to the client's existing random-artist
+-- fallback, which is why this is an additive column rather than a NOT NULL one
+-- with a backfill.
+--
+-- NOT in `payload`: content_hash is a digest of the payload as marshalled, and
+-- the snapshot's stability contract ("unchanged data reproduces a byte-
+-- identical map") is asserted against it. A separate column keeps the map's
+-- identity stamp untouched by a list that has nothing to do with the drawing.
+ALTER TABLE graph_overview_snapshots
+    ADD COLUMN starting_point_artist_ids JSONB;

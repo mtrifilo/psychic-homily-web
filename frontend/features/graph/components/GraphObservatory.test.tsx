@@ -69,26 +69,44 @@ const { searchRequest, scenesState, geoState, motionState } = vi.hoisted(() => (
   motionState: { reduced: true },
 }))
 
-// Echoes the searched name back as an exact catalog hit, so every curated
-// example validates. IDs line up with the mocked graph fixtures.
-const exactSearchHits: Record<string, { id: number; slug: string }> = {
-  Diners: { id: 1, slug: 'diners' },
-  'Playboy Manbaby': { id: 2, slug: 'playboy-manbaby' },
-  Gatecreeper: { id: 77, slug: 'gatecreeper' },
-}
+// The connectivity-ranked starting suggestions (PSY-1749). The DEFAULT pool is
+// a SINGLE artist, which makes the rotation's random draw deterministic without
+// stubbing Math.random — every pre-existing assertion about the hero's sentence
+// still names Diners. Multi-entry pools are opted into per test.
+const { startingPointsState } = vi.hoisted(() => ({
+  startingPointsState: {
+    artists: [{ artist_id: 1, artist_name: 'Diners', artist_slug: 'diners' }] as Array<{
+      artist_id: number
+      artist_name: string
+      artist_slug: string
+    }>,
+    isPending: false,
+    hasFailed: false,
+  },
+}))
 
-function exactSearchMock(url: string) {
-  const name = decodeURIComponent(String(url).split('?q=')[1] ?? '')
-  const hit = exactSearchHits[name]
-  return Promise.resolve(
-    hit
-      ? {
-          artists: [{ id: hit.id, name, slug: hit.slug, city: 'Phoenix', state: 'AZ' }],
-          count: 1,
-        }
-      : { artists: [], count: 0 },
-  )
-}
+vi.mock('../hooks/useGraphStartingPoints', () => ({
+  useGraphStartingPoints: () => ({
+    // A settled FAILURE looks like a settled empty pool to this component:
+    // no data, not pending. Both reach the random fallback, which is the
+    // point — the hero must never depend on this endpoint succeeding.
+    data:
+      startingPointsState.isPending || startingPointsState.hasFailed
+        ? undefined
+        : { artists: startingPointsState.artists },
+    isPending: startingPointsState.isPending,
+  }),
+}))
+
+// A pool wide enough that the draw picks a subset. IDs line up with the graph
+// fixtures where a click has to land somewhere.
+const RANKED_POOL = [
+  { artist_id: 1, artist_name: 'Diners', artist_slug: 'diners' },
+  { artist_id: 2, artist_name: 'Playboy Manbaby', artist_slug: 'playboy-manbaby' },
+  { artist_id: 77, artist_name: 'Gatecreeper', artist_slug: 'gatecreeper' },
+  { artist_id: 78, artist_name: 'Sundressed', artist_slug: 'sundressed' },
+  { artist_id: 79, artist_name: 'Injury Reserve', artist_slug: 'injury-reserve' },
+]
 
 vi.mock('@/lib/api', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
@@ -296,6 +314,17 @@ vi.mock('./SceneMapCanvas', () => ({
 }))
 
 import { GraphObservatory, resolveZeroStateView } from './GraphObservatory'
+import { pickRotationSuggestions } from '../startingSuggestions'
+
+// The seed the component draws is `Math.floor(Math.random() * 0x7fffffff)`.
+// Stubbing Math.random therefore pins the draw, and running the SAME pure
+// picker here derives what the sentence must then say — so these assert the
+// wiring (pool → seed → sentence) rather than restating a shuffle.
+function expectedNames(random: number) {
+  return pickRotationSuggestions(RANKED_POOL, Math.floor(random * 0x7fffffff)).map(
+    anchor => anchor.name,
+  )
+}
 
 describe('GraphObservatory', () => {
   beforeEach(() => {
@@ -314,6 +343,11 @@ describe('GraphObservatory', () => {
     fetchGraph.mockImplementation(async (artistId: number) => graphs.get(artistId))
     shuffleRefetch.mockReset()
     shuffleRefetch.mockResolvedValue({ data: shuffleTarget, isError: false })
+    startingPointsState.artists = [
+      { artist_id: 1, artist_name: 'Diners', artist_slug: 'diners' },
+    ]
+    startingPointsState.isPending = false
+    startingPointsState.hasFailed = false
     searchRequest.mockReset()
     searchRequest.mockResolvedValue({
       artists: [
@@ -404,41 +438,87 @@ describe('GraphObservatory', () => {
     expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
   })
 
-  it('centers the graph when the rotating example is clicked', async () => {
+  // PSY-1749: the suggestion is a catalog ANCHOR now, not a name, so the click
+  // centres synchronously. The search round-trip it used to make was the only
+  // way this affordance could fail.
+  it('centers the graph directly when the ranked suggestion is clicked', async () => {
     const user = userEvent.setup()
     renderWithProviders(<GraphObservatory />)
 
     await user.click(await screen.findByRole('button', { name: 'Search for Diners' }))
 
-    expect(searchRequest).toHaveBeenCalled()
-    expect(String(searchRequest.mock.calls[0][0])).toContain('/artists/search?q=Diners')
+    expect(searchRequest).not.toHaveBeenCalled()
     expect(screen.getByLabelText('Graph centered on Diners')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('offers every curated example when all of them resolve in the catalog', async () => {
-    searchRequest.mockImplementation(exactSearchMock)
+  it('rotates a draw from the ranked pool rather than the whole pool', async () => {
+    startingPointsState.artists = RANKED_POOL
+    vi.spyOn(Math, 'random').mockReturnValue(0.42)
+    try {
+      renderWithProviders(<GraphObservatory />)
+      const names = expectedNames(0.42)
+
+      await screen.findByRole('button', { name: `Search for ${names[0]}` })
+      for (const name of names) {
+        expect(screen.getByText(name)).toBeInTheDocument()
+      }
+      // The crossfade stacks every offered name in one grid cell, so offering
+      // the whole pool would size the sentence's slot to the longest of them.
+      const offered = RANKED_POOL.filter(a =>
+        screen.queryByText(a.artist_name) !== null,
+      )
+      expect(offered).toHaveLength(names.length)
+      expect(names.length).toBeLessThan(RANKED_POOL.length)
+    } finally {
+      vi.mocked(Math.random).mockRestore()
+    }
+  })
+
+  // THE TICKET'S COMPLAINT: the hardcoded list was fixed and ordered, so the
+  // hero opened on the same name every visit. A fresh seed per mount is what
+  // makes two visits differ.
+  it('redraws the rotation on a new visit', async () => {
+    startingPointsState.artists = RANKED_POOL
+    const first = expectedNames(0.05)
+    const second = expectedNames(0.83)
+    expect(first[0]).not.toBe(second[0])
+
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.05)
+    try {
+      const firstVisit = renderWithProviders(<GraphObservatory />)
+      await screen.findByRole('button', { name: `Search for ${first[0]}` })
+      firstVisit.unmount()
+
+      randomSpy.mockReturnValue(0.83)
+      renderWithProviders(<GraphObservatory />)
+      expect(
+        await screen.findByRole('button', { name: `Search for ${second[0]}` }),
+      ).toBeInTheDocument()
+    } finally {
+      randomSpy.mockRestore()
+    }
+  })
+
+  it('drops a suggestion the catalog cannot honour', async () => {
+    startingPointsState.artists = [
+      { artist_id: 1, artist_name: 'Diners', artist_slug: 'diners' },
+      // No slug: the click would promise a page it cannot open.
+      { artist_id: 2, artist_name: 'Playboy Manbaby', artist_slug: '' },
+    ]
     renderWithProviders(<GraphObservatory />)
 
     await screen.findByRole('button', { name: 'Search for Diners' })
-    // All three validated names are stacked in the crossfade.
-    expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
-    expect(screen.getByText('Playboy Manbaby')).toBeInTheDocument()
-  })
-
-  it('offers only the curated examples that resolve in the catalog', async () => {
-    // Default search mock only ever returns Diners — the prod shape (1 of 3).
-    renderWithProviders(<GraphObservatory />)
-
-    await screen.findByRole('button', { name: 'Search for Diners' })
-    expect(screen.queryByText('Gatecreeper')).not.toBeInTheDocument()
     expect(screen.queryByText('Playboy Manbaby')).not.toBeInTheDocument()
-    // No fallback fetch when at least one curated name validates.
+    // One offerable entry is still an answer — no fallback fetch.
     expect(shuffleRefetch).not.toHaveBeenCalled()
   })
 
-  it('falls back to a random catalog artist when no curated example resolves', async () => {
+  it('falls back to a random catalog artist when the ranked pool is empty', async () => {
     const user = userEvent.setup()
-    searchRequest.mockResolvedValue({ artists: [], count: 0 })
+    // A catalog before its first nightly build: the endpoint answers 200 with
+    // nothing to suggest, which is a state rather than a failure.
+    startingPointsState.artists = []
     renderWithProviders(<GraphObservatory />)
 
     const button = await screen.findByRole('button', { name: 'Search for Playboy Manbaby' })
@@ -451,40 +531,84 @@ describe('GraphObservatory', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('guards the rotation index when the validated subset shrinks', async () => {
+  // The suggestion endpoint going down must cost the sentence its RANKING, not
+  // the sentence. A failed fetch and an empty pool are the same state to this
+  // surface, and both land on the random catalog artist.
+  it('falls back to a random catalog artist when the ranked pool fails to load', async () => {
+    const user = userEvent.setup()
+    startingPointsState.hasFailed = true
+    renderWithProviders(<GraphObservatory />)
+
+    const button = await screen.findByRole('button', { name: 'Search for Playboy Manbaby' })
+    expect(shuffleRefetch).toHaveBeenCalled()
+
+    await user.click(button)
+
+    expect(screen.getByLabelText('Graph centered on Playboy Manbaby')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('holds the name slot open while the ranked pool is in flight', () => {
+    // No flash of a name that then vanishes, and no fragment of a sentence
+    // promising nothing.
+    startingPointsState.isPending = true
+    renderWithProviders(<GraphObservatory />)
+
+    expect(screen.getByText(/Try searching for/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Search for / })).not.toBeInTheDocument()
+    expect(shuffleRefetch).not.toHaveBeenCalled()
+  })
+
+  it('advances the sentence through the drawn suggestions on a timer', async () => {
+    startingPointsState.artists = RANKED_POOL
     motionState.reduced = false
+    vi.spyOn(Math, 'random').mockReturnValue(0.42)
+    const names = expectedNames(0.42)
     // NOTE: no waitFor/findBy while fake timers are active — RTL polls with
     // the (mocked) setTimeout and hangs. React Query also batches observer
     // notifications through setTimeout(0), so flush with async timer
     // advances instead of plain microtask flushes.
     vi.useFakeTimers()
     try {
-      searchRequest.mockImplementation(exactSearchMock)
-      const { queryClient } = renderWithProviders(<GraphObservatory />)
+      renderWithProviders(<GraphObservatory />)
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50)
       })
-      expect(screen.getByRole('button', { name: 'Search for Diners' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `Search for ${names[0]}` })).toBeInTheDocument()
 
+      act(() => {
+        vi.advanceTimersByTime(4000)
+      })
+      expect(screen.getByRole('button', { name: `Search for ${names[1]}` })).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+      vi.mocked(Math.random).mockRestore()
+    }
+  })
+
+  it('wraps a stale rotation index when the offered set shrinks', async () => {
+    startingPointsState.artists = RANKED_POOL
+    motionState.reduced = false
+    vi.spyOn(Math, 'random').mockReturnValue(0.42)
+    const names = expectedNames(0.42)
+    vi.useFakeTimers()
+    try {
+      const { rerender } = renderWithProviders(<GraphObservatory />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50)
+      })
       // Two rotations land the index on the third name.
       act(() => {
         vi.advanceTimersByTime(8000)
       })
-      expect(screen.getByRole('button', { name: 'Search for Playboy Manbaby' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `Search for ${names[2]}` })).toBeInTheDocument()
 
-      // Catalog drift: only Diners still resolves. Revalidating the mounted
-      // queries shrinks the subset to 1; the stale index (2) must wrap
-      // instead of rendering undefined.
-      searchRequest.mockImplementation((url: string) =>
-        String(url).includes('q=Diners')
-          ? Promise.resolve({
-              artists: [{ id: 1, name: 'Diners', slug: 'diners', city: 'Phoenix', state: 'AZ' }],
-              count: 1,
-            })
-          : Promise.resolve({ artists: [], count: 0 }),
-      )
+      // The pool shrinks under the mounted component (a background refetch
+      // returning fewer entries). The stale index must wrap rather than render
+      // undefined into the button's accessible name.
+      startingPointsState.artists = [RANKED_POOL[0]]
       await act(async () => {
-        await queryClient.invalidateQueries()
+        rerender(<GraphObservatory />)
         await vi.advanceTimersByTimeAsync(50)
       })
 
@@ -493,47 +617,8 @@ describe('GraphObservatory', () => {
       expect(button).not.toHaveTextContent('undefined')
     } finally {
       vi.useRealTimers()
+      vi.mocked(Math.random).mockRestore()
     }
-  })
-
-  it('surfaces a recoverable message when a validated example fails at click time', async () => {
-    const user = userEvent.setup()
-    const { queryClient } = renderWithProviders(<GraphObservatory />)
-    const button = await screen.findByRole('button', { name: 'Search for Diners' })
-
-    // Catalog drift after mount: mark the cached lookup stale (no refetch) so
-    // the click re-queries, with the server no longer returning the artist.
-    searchRequest.mockResolvedValue({ artists: [], count: 0 })
-    await act(async () => {
-      await queryClient.invalidateQueries({ refetchType: 'none' })
-    })
-    await user.click(button)
-
-    expect(await screen.findByRole('status')).toHaveTextContent('Couldn’t find Diners')
-    expect(screen.getByRole('heading', { name: 'Explore the graph.' })).toBeInTheDocument()
-    // The failed name self-heals out of the rotation: the click evicted its
-    // cache entry, and revalidation now comes back empty.
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Search for Diners' })).not.toBeInTheDocument(),
-    )
-  })
-
-  it('does not substitute a fuzzy search hit for the promised example artist', async () => {
-    const user = userEvent.setup()
-    const { queryClient } = renderWithProviders(<GraphObservatory />)
-    const button = await screen.findByRole('button', { name: 'Search for Diners' })
-
-    searchRequest.mockResolvedValue({
-      artists: [{ id: 9, name: 'Diner Dogs', slug: 'diner-dogs', city: null, state: null }],
-      count: 1,
-    })
-    await act(async () => {
-      await queryClient.invalidateQueries({ refetchType: 'none' })
-    })
-    await user.click(button)
-
-    expect(await screen.findByRole('status')).toHaveTextContent('Couldn’t find Diners')
-    expect(screen.queryByLabelText('Graph centered on Diner Dogs')).not.toBeInTheDocument()
   })
 
   it('middle-collapses long trails behind a disclosure that expands on demand', async () => {

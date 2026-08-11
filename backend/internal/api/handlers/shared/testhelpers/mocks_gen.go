@@ -2113,7 +2113,8 @@ func (m *MockFollowService) GetFollowers(entityType string, entityID uint, limit
 // ============================================================================
 
 type MockGraphOverviewService struct {
-	GetGraphOverviewFn func() (*contracts.GraphOverview, string, error)
+	GetGraphOverviewFn       func() (*contracts.GraphOverview, string, error)
+	GetGraphStartingPointsFn func() ([]contracts.GraphStartingPoint, error)
 }
 
 func (m *MockGraphOverviewService) GetGraphOverview() (*contracts.GraphOverview, string, error) {
@@ -2121,6 +2122,12 @@ func (m *MockGraphOverviewService) GetGraphOverview() (*contracts.GraphOverview,
 		return m.GetGraphOverviewFn()
 	}
 	return nil, "", nil
+}
+func (m *MockGraphOverviewService) GetGraphStartingPoints() ([]contracts.GraphStartingPoint, error) {
+	if m.GetGraphStartingPointsFn != nil {
+		return m.GetGraphStartingPointsFn()
+	}
+	return nil, nil
 }
 
 // ============================================================================

@@ -4493,6 +4493,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/graph/starting-points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get graph starting points */
+        get: operations["get-graph-starting-points"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -12436,6 +12453,22 @@ export interface components {
             label: string;
             /** Format: int64 */
             member_count: number;
+        };
+        GraphStartingPoint: {
+            /** Format: int64 */
+            artist_id: number;
+            artist_name: string;
+            artist_slug: string;
+        };
+        GraphStartingPointsResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GraphStartingPointsResponse.json
+             */
+            readonly $schema?: string;
+            /** @description Well-connected artists to suggest as a starting point, most connected first. Empty before the first nightly build. */
+            artists: components["schemas"]["GraphStartingPoint"][] | null;
         };
         HealthResponseBody: {
             /**
@@ -28141,6 +28174,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GraphOverview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-graph-starting-points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphStartingPointsResponse"];
                 };
             };
             /** @description Error */

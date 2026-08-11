@@ -306,6 +306,130 @@ func TestRankByScore_TiesBreakByIndexSoRebuildsAgree(t *testing.T) {
 	}
 }
 
+// --- starting points (PSY-1749) ---
+
+// startingPointBuild is the slice of overviewBuild that pickStartingPointArtists
+// reads: the index space, what each node IS, and its neighbourhood.
+func startingPointBuild(ids []uint, kinds []uint8, neighbors [][]int32) *overviewBuild {
+	return &overviewBuild{nodeIDs: ids, nodeKind: kinds, neighbors: neighbors}
+}
+
+func TestPickStartingPointArtists_OrdersByCentrality(t *testing.T) {
+	b := startingPointBuild(
+		[]uint{10, 20, 30},
+		[]uint8{
+			contracts.GraphOverviewNodeArtist,
+			contracts.GraphOverviewNodeArtist,
+			contracts.GraphOverviewNodeArtist,
+		},
+		[][]int32{{1}, {0, 2}, {1}},
+	)
+
+	got := pickStartingPointArtists(b, []float64{0, 4, 0})
+
+	if len(got) != 3 || got[0] != 20 {
+		t.Errorf("picked %v, want the most central artist (20) first", got)
+	}
+}
+
+// A leaf scores exactly 0 in Brandes' betweenness, so it can never outrank a
+// connected node — which is the whole reason this ranking answers the hero's
+// question ("will the first click land somewhere dense?") rather than merely
+// being non-random.
+func TestPickStartingPointArtists_LeavesSortBelowConnectedNodes(t *testing.T) {
+	b := startingPointBuild(
+		[]uint{1, 2, 3, 4},
+		[]uint8{
+			contracts.GraphOverviewNodeArtist,
+			contracts.GraphOverviewNodeArtist,
+			contracts.GraphOverviewNodeArtist,
+			contracts.GraphOverviewNodeArtist,
+		},
+		[][]int32{{1, 2, 3}, {0}, {0}, {0}},
+	)
+
+	got := pickStartingPointArtists(b, []float64{3, 0, 0, 0})
+
+	if len(got) == 0 || got[0] != 1 {
+		t.Errorf("picked %v, want the hub (1) ahead of its three leaves", got)
+	}
+}
+
+// A label hub's degree is its whole roster by construction, so it would
+// dominate any connectivity ranking — and its id centers nothing, because it is
+// not an artist.
+func TestPickStartingPointArtists_ExcludesLabelHubs(t *testing.T) {
+	b := startingPointBuild(
+		[]uint{7, 900001},
+		[]uint8{contracts.GraphOverviewNodeArtist, contracts.GraphOverviewNodeLabelHub},
+		[][]int32{{1}, {0}},
+	)
+
+	got := pickStartingPointArtists(b, []float64{1, 99})
+
+	if len(got) != 1 || got[0] != 7 {
+		t.Errorf("picked %v, want only the artist id", got)
+	}
+}
+
+// A dev-seed catalog is small enough that every shortest path is unique and
+// every betweenness score is 0. Degree is what keeps the pick meaningful there;
+// the node index behind it is what keeps two runs agreeing.
+func TestPickStartingPointArtists_AllZeroCentralityFallsBackToDegree(t *testing.T) {
+	b := startingPointBuild(
+		[]uint{5, 6, 7},
+		[]uint8{
+			contracts.GraphOverviewNodeArtist,
+			contracts.GraphOverviewNodeArtist,
+			contracts.GraphOverviewNodeArtist,
+		},
+		[][]int32{{1}, {0, 2}, {1}},
+	)
+
+	got := pickStartingPointArtists(b, []float64{0, 0, 0})
+
+	if len(got) != 3 || got[0] != 6 {
+		t.Errorf("picked %v, want the highest-degree artist (6) first", got)
+	}
+}
+
+func TestPickStartingPointArtists_CapsThePool(t *testing.T) {
+	n := graphOverviewStartingPoints + 5
+	ids := make([]uint, n)
+	kinds := make([]uint8, n)
+	neighbors := make([][]int32, n)
+	scores := make([]float64, n)
+	for i := 0; i < n; i++ {
+		ids[i] = uint(i + 1)
+		kinds[i] = contracts.GraphOverviewNodeArtist
+		scores[i] = float64(n - i)
+	}
+
+	got := pickStartingPointArtists(startingPointBuild(ids, kinds, neighbors), scores)
+
+	if len(got) != graphOverviewStartingPoints {
+		t.Errorf("picked %d artists, want the cap of %d", len(got), graphOverviewStartingPoints)
+	}
+}
+
+// Defensive: a centrality slice that does not cover the node set means an
+// upstream step changed shape, and guessing an alignment would silently suggest
+// the wrong artists.
+func TestPickStartingPointArtists_RefusesMismatchedScores(t *testing.T) {
+	b := startingPointBuild(
+		[]uint{1, 2},
+		[]uint8{contracts.GraphOverviewNodeArtist, contracts.GraphOverviewNodeArtist},
+		[][]int32{{1}, {0}},
+	)
+
+	if got := pickStartingPointArtists(b, []float64{1}); got != nil {
+		t.Errorf("picked %v, want nothing for a mismatched score set", got)
+	}
+	if got := pickStartingPointArtists(nil, nil); got != nil {
+		t.Errorf("picked %v, want nothing for a nil build", got)
+	}
+}
+
 // --- hulls ---
 
 func TestConvexHull_WrapsThePointSetAndDropsInteriorPoints(t *testing.T) {
