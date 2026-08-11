@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 
 	"github.com/getsentry/sentry-go"
 	"gorm.io/gorm"
@@ -112,22 +114,24 @@ func RefreshTimezoneNamesSnapshot(ctx context.Context, database *gorm.DB) (*Time
 	return report, nil
 }
 
-// ReconcileTimezoneNamesSnapshot refreshes the snapshot and reports every venue
-// the refreshed snapshot strands, swallowing errors so a caller on the boot
-// path can treat the whole thing as telemetry.
+// RefreshAndReportTimezoneNamesSnapshot refreshes the snapshot and reports both
+// things an operator needs to know afterwards: whether the snapshot had drifted
+// from the catalog, and which venues the refreshed snapshot strands. It
+// swallows errors so a caller on the boot path can treat the whole thing as
+// telemetry.
 //
 // Not fatal on purpose: the table is already correct from its migration, so a
 // failed refresh leaves the read path working against a possibly stale
 // allowlist — strictly better than refusing to boot, and the log line says so.
 //
-// It reports drift as well as refreshing because BOOT MAY BE THE ONLY PLACE IT
-// GETS REPORTED. VenueTimezoneSweep names the same venues on its own cycle, but
-// it is opt-in (ENABLE_VENUE_TIMEZONE_SWEEP) and daily, so in an environment
-// where nobody set the flag this is the sole signal that a venue's shows are
-// being dated by the state map instead of by its own clock. The sweep calls
+// It reports as well as refreshing because BOOT MAY BE THE ONLY PLACE IT GETS
+// REPORTED. VenueTimezoneSweep names the same venues on its own cycle, but it
+// is opt-in (ENABLE_VENUE_TIMEZONE_SWEEP) and daily, so in an environment where
+// nobody set the flag this is the sole signal that a venue's shows are being
+// dated by the state map instead of by its own clock. The sweep calls
 // RefreshTimezoneNamesSnapshot directly rather than this, so the two never
 // report the same row twice in one cycle.
-func ReconcileTimezoneNamesSnapshot(ctx context.Context, database *gorm.DB, logger *slog.Logger) {
+func RefreshAndReportTimezoneNamesSnapshot(ctx context.Context, database *gorm.DB, logger *slog.Logger) {
 	report, err := RefreshTimezoneNamesSnapshot(ctx, database)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -143,9 +147,39 @@ func ReconcileTimezoneNamesSnapshot(ctx context.Context, database *gorm.DB, logg
 		return
 	}
 
+	// A refresh that CHANGED anything is itself a finding, and it is the only
+	// one available for the guard's own staleness. Until this pass ran, the
+	// guard was judging against a set that disagreed with the catalog: every
+	// name in Added was a real zone being sent to the state map, and every name
+	// in Removed was a name the guard was still trusting that AT TIME ZONE
+	// would now raise on. Nothing else reports that — the drift detector below
+	// compares venues against the LIVE catalog, so it is blind to the snapshot
+	// having been behind. Steady state is 0/0, because the migration seeds the
+	// table from the same catalog, so this is quiet unless it matters.
+	if report.Added > 0 || report.Removed > 0 {
+		logger.Warn("the timezone allowlist had drifted from this server's catalog; "+
+			"venue-local dates resolved before this refresh may have used the wrong zone",
+			"added", report.Added, "removed", report.Removed, "total", report.Total)
+		captureTimezoneSnapshotEvent(func(scope *sentry.Scope) {
+			scope.SetLevel(sentry.LevelWarning)
+			scope.SetFingerprint([]string{"timezone-names-snapshot", "allowlist-drifted"})
+			scope.SetExtra("added", report.Added)
+			scope.SetExtra("removed", report.Removed)
+			sentry.CaptureMessage(fmt.Sprintf(
+				"timezone allowlist drifted from the server catalog: +%d/-%d of %d zones",
+				report.Added, report.Removed, report.Total))
+		})
+	}
+
 	drifted, err := detectVenueTimezoneDrift(database.WithContext(ctx))
 	if err != nil {
-		logger.Error("could not check stored venue timezones against the refreshed catalog", "error", err)
+		logger.Error("could not check stored venue timezones against the refreshed catalog; "+
+			"any venue being dated by the state-map fallback is UNREPORTED this pass", "error", err)
+		captureTimezoneSnapshotEvent(func(scope *sentry.Scope) {
+			scope.SetFingerprint([]string{"timezone-names-snapshot", "drift-check-failed"})
+			sentry.CaptureException(fmt.Errorf("detect drifted venue timezones: %w", err))
+		})
+		return
 	}
 
 	// Each stranded venue gets a line naming the rejected value, because that
@@ -159,11 +193,20 @@ func ReconcileTimezoneNamesSnapshot(ctx context.Context, database *gorm.DB, logg
 			"venue_id", d.VenueID, "venue_name", d.Name, "rejected_timezone", d.Timezone)
 	}
 	if len(drifted) > 0 {
+		// Rendered to ONE string rather than attached as a slice of structs.
+		// observability.ScrubSentryEvent only reaches STRING Extra values and
+		// says so as a constraint on call sites: a map or struct passes through
+		// the scrub hook untouched. Formatting here keeps this payload inside
+		// what the scrubber can see.
+		stranded := make([]string, 0, len(drifted))
+		for _, d := range drifted {
+			stranded = append(stranded, fmt.Sprintf("%d %s -> %s", d.VenueID, d.Name, d.Timezone))
+		}
 		captureTimezoneSnapshotEvent(func(scope *sentry.Scope) {
 			scope.SetLevel(sentry.LevelError)
 			scope.SetFingerprint([]string{"timezone-names-snapshot", "venues-stranded"})
-			scope.SetExtra("venue_count", len(drifted))
-			scope.SetExtra("venues", drifted)
+			scope.SetExtra("venue_count", strconv.Itoa(len(drifted)))
+			scope.SetExtra("venues", strings.Join(stranded, "; "))
 			sentry.CaptureMessage(fmt.Sprintf(
 				"%d venue(s) hold a timezone this server's catalog does not carry; their shows "+
 					"are being dated by the state-map fallback", len(drifted)))

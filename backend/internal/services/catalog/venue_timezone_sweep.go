@@ -211,6 +211,13 @@ func SweepVenueTimezones(ctx context.Context, database *gorm.DB) (*VenueTimezone
 // drift. A detector stricter than the guard reports venues that are being dated
 // correctly; a detector looser than the guard leaves a mis-dated venue with no
 // signal at all, which is the failure this pairing exists to prevent.
+//
+// The correlated NOT EXISTS reads like a per-venue re-scan of the catalog and
+// is not one: measured on postgres:18 against 237 venues, the planner lifts it
+// to `hashed SubPlan ... loops=1`, one Function Scan for the whole statement.
+// Rewriting it as an uncorrelated NOT IN produced the identical plan and no
+// improvement, so the readable form stays. Re-check with EXPLAIN before
+// assuming otherwise.
 var venueTimezoneDriftPredicate = `timezone IS NOT NULL AND (
 	btrim(timezone, ` + shared.VenueTimezoneWhitespaceSQL + `) = ''
 	OR NOT EXISTS (

@@ -82,6 +82,11 @@ import (
 //  3. SWEEP (PSY-1695, VenueTimezoneSweep) — re-validates stored zones against
 //     the live catalog and NULLs the casualties, so an operator sees a named
 //     venue rather than a silently mis-dated one.
+//     ENABLE_VENUE_TIMEZONE_SWEEP was confirmed set on both stage and
+//     production on 2026-08-08. It is no longer what stands between a drifted
+//     zone and an outage — layer 4 is — but it is still what turns a silently
+//     wrong date into a logged one, so set it when standing up a new
+//     environment rather than treating it as optional.
 //  4. READ GUARD (this file, PSY-1761) — the membership test in VenueTZJoin.
 //     Unconditional, with no flag and no worker to remember: the table it reads
 //     is created and seeded by the migration itself.
@@ -229,9 +234,24 @@ const venueTZStoredZone = `NULLIF(btrim(iv.timezone, ` + VenueTimezoneWhitespace
 // this shape survives where that one did not. Do NOT reintroduce a relation
 // here, and do not trust a single good plan: verify loops=1 on every consumer.
 //
-// The comparison is case-INSENSITIVE, matching both `AT TIME ZONE` itself and
-// VenueTimezoneSweep's drift predicate. A guard stricter than the sweep would
-// silently send rows the sweep calls healthy to the state map.
+// The comparison is case-INSENSITIVE, matching how `AT TIME ZONE` resolves a
+// name and matching VenueTimezoneSweep's drift predicate. A guard stricter on
+// CASE than the sweep would silently send rows the sweep calls healthy to the
+// state map.
+//
+// It is NARROWER than `AT TIME ZONE` in one deliberate respect. `AT TIME ZONE`
+// resolves more than pg_timezone_names: measured on postgres:18, it also
+// accepts pg_timezone_abbrevs entries ('EST') and bare POSIX TZ specs
+// ('EST5EDT', 'FOO+3'), none of which appear in the catalog this guard tests
+// against. All of them are rejected here and land on the state map.
+//
+// That is policy, not oversight, and it matches the WRITE side rather than
+// diverging from it: shared.NormalizeIANATimezone already refuses to store any
+// of them, for the reason spelled out at its own definition — a fixed-offset
+// spec carries no DST rule, so it would freeze a venue on standard time and
+// mis-date half its shows. A read guard laxer than the write gate would accept
+// values the gate exists to keep out, and VenueTimezoneSweep would NULL them
+// on its next pass anyway. The state map is the same answer, sooner.
 var venueTZValidatedZoneSQL = `CASE WHEN lower(` + venueTZStoredZone + `) ` +
 	`IN (SELECT name_lower FROM timezone_names_snapshot) ` +
 	`THEN ` + venueTZStoredZone + ` END AS venue_tz_timezone`

@@ -213,9 +213,20 @@ func main() {
 	// the recurring cadence (plus its overdue-sweep alerting) already belongs
 	// to VenueTimezoneSweep, which refreshes the same table on every cycle.
 	go func() {
+		// Recovered explicitly. A bare goroutine is outside both
+		// shared.RunScheduledLoop's recover and the Sentry panic handler, so an
+		// unrecovered panic here would take the whole server down at boot to
+		// protect a refresh that is, by design, optional.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("timezone snapshot refresh panicked; the venue-local zone guard "+
+					"is running against a possibly stale allowlist", "panic", r)
+				sentry.CurrentHub().Recover(r)
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		catalog.ReconcileTimezoneNamesSnapshot(ctx, database, slog.Default())
+		catalog.RefreshAndReportTimezoneNamesSnapshot(ctx, database, slog.Default())
 	}()
 
 	// Setup Goth authentication

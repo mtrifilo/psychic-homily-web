@@ -22,8 +22,16 @@
 -- with both. Comparing the stored spelling exactly would send a venue holding
 -- 'america/phoenix' to the state-map fallback that AT TIME ZONE would have
 -- accepted -- safe, but a silent mislabel this table exists to avoid.
+-- COLLATE "C" on the source column, so name_lower is locale-independent. It is
+-- a STORED generated column: it is computed once at INSERT and never
+-- recomputed, and the refresh only ever inserts new names and deletes departed
+-- ones, so it can never re-fold an existing row. Under the database's default
+-- collation a locale change would therefore desync the stored fold from the
+-- query-side lower() permanently, with no repair short of a TRUNCATE the
+-- refresh deliberately refuses to do. Zone names are ASCII, so the C locale
+-- costs nothing and removes the whole class.
 CREATE TABLE IF NOT EXISTS timezone_names_snapshot (
-    name       TEXT PRIMARY KEY,
+    name       TEXT COLLATE "C" PRIMARY KEY,
     name_lower TEXT GENERATED ALWAYS AS (lower(name)) STORED
 );
 

@@ -1,4 +1,25 @@
--- Dropping this table makes shared.VenueTZJoin's zone guard raise "relation
--- does not exist" on every listing query, so rolling this migration back
--- requires rolling the application back with it.
+-- ROLLING THIS BACK IS NOT FREE, AND THE OBVIOUS ORDER IS THE WRONG ONE.
+-- Both halves below were verified against this repo's own entrypoint and
+-- golang-migrate v4.19.1, not reasoned about.
+--
+-- shared.VenueTZJoin reads timezone_names_snapshot on every show-listing query,
+-- so against a RUNNING post-PSY-1761 fleet this DROP turns /shows, the homepage
+-- list, both city pickers and every artist and venue page into "relation
+-- timezone_names_snapshot does not exist" at once -- wider than the
+-- unknown-zone raise the guard was added to remove. A server that restarts
+-- after the drop fails db.AssertRequiredSchema at boot instead.
+--
+-- And deploying the OLD image first does not avoid that, because it does not
+-- boot: docker-entrypoint.sh runs `migrate up` and exits non-zero before
+-- `exec ./main`, and golang-migrate refuses to proceed when the database
+-- records a version whose file the image does not carry --
+--   error: no migration found for version 20260810020753
+-- so the container dies on startup and Railway burns its restart budget. This
+-- is a property of every migration in this repo, not of this one.
+--
+-- So the two must roll back TOGETHER, migration first, accepting the outage
+-- window on the still-running new fleet:
+--   1. migrate down (this file). Listing surfaces 500 from here.
+--   2. Deploy the pre-PSY-1761 image. Surfaces recover.
+-- Rolling FORWARD is almost always the cheaper fix; prefer it.
 DROP TABLE IF EXISTS timezone_names_snapshot;

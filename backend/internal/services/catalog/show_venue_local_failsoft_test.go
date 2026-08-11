@@ -3,9 +3,12 @@ package catalog
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // Fail-soft partitioning for a venues.timezone this server cannot resolve
@@ -86,62 +89,102 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_UnknownVenueZone
 	suite.Require().NoError(err, "the city picker must not raise on an unresolvable venue zone")
 	suite.Require().Len(cities, 1)
 	suite.Equal("Phoenix", cities[0].City)
-	suite.Equal(int64(1), cities[0].ShowCount)
+	suite.Equal(1, cities[0].ShowCount)
 }
 
-// The canary for the guard OVER-rejecting. If timezone_names_snapshot were
-// empty or stale, every venue would fail the membership test and every show
-// would silently re-date onto its state's zone — no error, no log, just wrong
-// dates everywhere. This venue is in AZ but keeps its clock in Honolulu, so the
-// two answers differ by three hours and the test can tell them apart.
-func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_KnownVenueZoneStillBeatsTheStateMap() {
-	const zone = "Pacific/Honolulu" // UTC-10, no DST; AZ maps to UTC-7
-	venue := newVenueInZone(suite.T(), suite.db, "Honolulu In Arizona", "AZ", zone, true)
+// yearOfShowAtNewYearBoundary is the discriminator the OVER-rejection tests are
+// built on, and it exists because the obvious framing does not work.
+//
+// Asserting "the show is still listed as upcoming" cannot tell an ACCEPTED zone
+// from a REJECTED one: the state map and any nearby zone usually agree about
+// which side of today an instant falls on, so such a test passes whatever the
+// guard decides. It would be a tautology dressed as a canary — and this is the
+// canary that matters, because an empty or stale snapshot re-dates every show
+// in the catalogue onto its state's zone with no error and no log.
+//
+// So this pins the resolved zone DIRECTLY, through the venue-local year: it
+// seeds one past show 30 minutes after New Year in the venue's STATE-MAP zone,
+// which is still 31 December in a zone further west. The two candidate answers
+// are then different YEARS, and the year histogram reports which one the guard
+// actually used. Being a fixed historical instant, it is also true at every hour
+// of the day, which is the property show_venue_local_test.go's fixtures exist to
+// preserve.
+func (suite *ShowServiceIntegrationTestSuite) yearOfShowAtNewYearBoundary(venueID uint, city, state string) []contracts.VenueShowYearCount {
+	suite.T().Helper()
+	phoenix, err := time.LoadLocation("America/Phoenix") // what AZ maps to
+	suite.Require().NoError(err)
+
+	// 00:30 on 1 Jan 2025 in Phoenix is 21:30 on 31 Dec 2024 in Honolulu.
+	at := time.Date(2025, time.January, 1, 0, 30, 0, 0, phoenix)
 	user := suite.createTestUser()
+	suite.createApprovedShowAt(venueID, user.ID, city, state, at)
 
-	// 22:00 tonight in Honolulu is 01:00 TOMORROW in Phoenix, so a show at
-	// 22:00 YESTERDAY Honolulu-time is still "yesterday" there but would read as
-	// today under the AZ state map for one hour of every day. Anchor on the
-	// unambiguous direction instead: tonight in Honolulu is already tomorrow in
-	// Phoenix for part of the day, so assert the show stays listed.
-	at := venueLocalInstant(suite.T(), zone, 0, 23)
-	requireLocalAndUTCDatesDiffer(suite.T(), at, zone)
-	show := suite.createApprovedShowAt(venue.ID, user.ID, "Honolulu", "HI", at)
-
-	ids, _ := suite.upcomingShowIDs("UTC")
-	suite.Require().Equal([]uint{show.ID}, ids,
-		"a zone the catalog carries must still win over the state map")
+	years, err := NewVenueService(suite.db).GetVenueShowYears(venueID, "past")
+	suite.Require().NoError(err)
+	return years
 }
 
-// AT TIME ZONE is case-insensitive and so is the drift sweep, so the read guard
-// has to be too. A stricter guard would send a venue the sweep calls healthy to
-// the state map and mis-date its shows with nothing logged anywhere.
-func (suite *ShowServiceIntegrationTestSuite) TestGetUpcomingShows_ZoneIsMatchedCaseInsensitively() {
-	const zone = "Pacific/Honolulu"
-	venue := newVenueInZone(suite.T(), suite.db, "Lowercase Zone", "AZ", zone, true)
+// The canary for the guard OVER-rejecting a zone the catalog does carry. The
+// venue is in AZ but keeps its clock in Honolulu; if the membership test
+// wrongly rejected Pacific/Honolulu the show would bucket as 2025 (the AZ state
+// map) instead of 2024.
+func (suite *ShowServiceIntegrationTestSuite) TestVenueLocalYear_KnownVenueZoneStillBeatsTheStateMap() {
+	venue := newVenueInZone(suite.T(), suite.db, "Honolulu In Arizona", "AZ", "Pacific/Honolulu", true)
+
+	years := suite.yearOfShowAtNewYearBoundary(venue.ID, "Honolulu", "HI")
+
+	suite.Require().Len(years, 1)
+	suite.Equal(2024, years[0].Year,
+		"a zone the catalog carries must still win over the state map; 2025 means the guard rejected it")
+}
+
+// The mirror, so the pair cannot both pass by accident: a zone the catalog does
+// NOT carry must land on the state map, which buckets the same instant as 2025.
+func (suite *ShowServiceIntegrationTestSuite) TestVenueLocalYear_UnknownVenueZoneUsesTheStateMap() {
+	venue := newVenueInZone(suite.T(), suite.db, "Atlantis In Arizona", "AZ", "Pacific/Honolulu", true)
+	poisonVenueTimezone(suite.T(), suite.db, venue.ID, "Pacific/Atlantis")
+
+	years := suite.yearOfShowAtNewYearBoundary(venue.ID, "Phoenix", "AZ")
+
+	suite.Require().Len(years, 1)
+	suite.Equal(2025, years[0].Year,
+		"an unresolvable zone must fall through to the AZ state map, not raise and not keep 2024")
+}
+
+// AT TIME ZONE resolves a name case-insensitively and so does the drift sweep,
+// so the read guard has to as well. A stricter guard would send a venue the
+// sweep calls healthy to the state map and mis-date its shows with nothing
+// logged anywhere — which the year bucket, unlike an upcoming/past assertion,
+// can actually detect.
+func (suite *ShowServiceIntegrationTestSuite) TestVenueLocalYear_ZoneIsMatchedCaseInsensitively() {
+	venue := newVenueInZone(suite.T(), suite.db, "Lowercase Zone", "AZ", "Pacific/Honolulu", true)
 	poisonVenueTimezone(suite.T(), suite.db, venue.ID, "pacific/honolulu")
-	user := suite.createTestUser()
 
-	at := venueLocalInstant(suite.T(), zone, 0, 23)
-	show := suite.createApprovedShowAt(venue.ID, user.ID, "Honolulu", "HI", at)
+	years := suite.yearOfShowAtNewYearBoundary(venue.ID, "Honolulu", "HI")
 
-	ids, _ := suite.upcomingShowIDs("UTC")
-	suite.Require().Equal([]uint{show.ID}, ids,
+	suite.Require().Len(years, 1)
+	suite.Equal(2024, years[0].Year,
 		"a differently-cased spelling of a real zone must be accepted, not silently downgraded")
 }
 
-// The snapshot is created AND seeded by its migration, deliberately: the read
-// guard depends on it being populated, so populating it belongs to the schema
-// rather than to a background job that an environment might not run. This
-// asserts that property directly, because an empty table is the one failure
-// mode that produces no error anywhere.
-func (suite *ShowServiceIntegrationTestSuite) TestTimezoneNamesSnapshot_IsSeededByItsMigration() {
+// A migrated database must already carry a populated snapshot: the read guard
+// depends on it, so populating it belongs to the schema rather than to a
+// background job an environment might not run. An empty table is the one
+// failure mode that produces no error anywhere — it re-dates every show onto
+// its state's zone in silence — so it gets its own assertion.
+//
+// This asserts the INVARIANT, not the mechanism. The suite runs migrations and
+// nothing else seeds the table, so a green run here means a migrated database
+// is a correct one; it deliberately does not try to prove which statement did
+// it, because a sibling test in this file refreshes the table and testify
+// gives no ordering guarantee between them.
+func (suite *ShowServiceIntegrationTestSuite) TestTimezoneNamesSnapshot_MatchesTheServerCatalog() {
 	var snapshot, live int64
 	suite.Require().NoError(suite.db.Raw("SELECT count(*) FROM timezone_names_snapshot").Scan(&snapshot).Error)
 	suite.Require().NoError(suite.db.Raw("SELECT count(*) FROM pg_timezone_names").Scan(&live).Error)
 
 	suite.Require().Positive(snapshot, "an empty snapshot silently re-dates every show onto the state map")
-	suite.Equal(live, snapshot, "the migration seeds the snapshot from the live catalog")
+	suite.Equal(live, snapshot, "the snapshot carries exactly the zones this server resolves")
 }
 
 // The refresh has to reconcile in BOTH directions, and the two mean opposite
@@ -206,4 +249,76 @@ func (suite *ShowServiceIntegrationTestSuite) TestRefreshTimezoneNamesSnapshot_N
 	var count int64
 	suite.Require().NoError(suite.db.Raw("SELECT count(*) FROM timezone_names_snapshot").Scan(&count).Error)
 	suite.Equal(int64(report.Total), count)
+}
+
+// EVERY OTHER CONSUMER of the venue-local fragments, against the same poisoned
+// row. These could be argued redundant now that the guard lives in one shared
+// fragment. They are not: each surface reaches that fragment through a
+// different join shape — through show_artists, through show_venues, through a
+// GROUP BY on the venue-local year — and the guard is a subquery the planner is
+// free to place differently in each. A regression that broke only one join
+// shape would otherwise ship green.
+
+// The artist show list, reached through show_artists rather than show_venues,
+// plus its year facet, which dereferences the zone a third time.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_UnknownVenueZoneStillAnswers() {
+	venue := newVenueInZone(suite.T(), suite.db, "Poisoned Artist Room", "AZ", "America/Phoenix", true)
+	poisonVenueTimezone(suite.T(), suite.db, venue.ID, "Pacific/Atlantis")
+	user := suite.createTestUser()
+	artist := suite.createTestArtist("Poisoned Bill")
+
+	at := venueLocalInstant(suite.T(), "America/Phoenix", 0, 23)
+	show := newApprovedShowAt(suite.T(), suite.db, venue.ID, user.ID, "Phoenix", "AZ", at)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_artists (show_id, artist_id, position) VALUES (?, ?, 0)", show.ID, artist.ID).Error)
+
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC",
+		contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 20})
+	suite.Require().NoError(err, "an unresolvable venue zone must not break the artist page")
+	suite.Require().Equal(int64(1), total)
+	suite.Require().Len(shows, 1)
+
+	years, err := suite.artistService.GetArtistShowYears(artist.ID, "upcoming")
+	suite.Require().NoError(err, "an unresolvable venue zone must not break the year facet")
+	suite.Require().Len(years, 1)
+}
+
+// The venue show list: the surface a poisoned row belongs to, and the only one
+// that broke before PSY-1678 widened the blast radius to the whole feed.
+func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_UnknownVenueZoneStillAnswers() {
+	venue := newVenueInZone(suite.T(), suite.db, "Poisoned Venue Page", "AZ", "America/Phoenix", true)
+	poisonVenueTimezone(suite.T(), suite.db, venue.ID, "Pacific/Atlantis")
+	user := suite.createTestUser()
+
+	at := venueLocalInstant(suite.T(), "America/Phoenix", 0, 23)
+	newApprovedShowAt(suite.T(), suite.db, venue.ID, user.ID, "Phoenix", "AZ", at)
+
+	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC",
+		contracts.VenueShowsQuery{TimeFilter: "upcoming", Limit: 20})
+	suite.Require().NoError(err, "an unresolvable venue zone must not break the venue page")
+	suite.Require().Equal(int64(1), total)
+	suite.Require().Len(shows, 1)
+}
+
+// The sitemap's venue-year archive: the most exposed shape in the repo, because
+// it dereferences the zone in its SELECT, its GROUP BY and its WHERE. It also
+// runs with no request behind it, so a raise here surfaces as a silently broken
+// sitemap rather than as a 500 anyone is watching.
+func (suite *VenueServiceIntegrationTestSuite) TestSitemapVenueYears_UnknownVenueZoneStillAnswers() {
+	venue := newVenueInZone(suite.T(), suite.db, "Poisoned Archive", "AZ", "America/Phoenix", true)
+	poisonVenueTimezone(suite.T(), suite.db, venue.ID, "Pacific/Atlantis")
+	suite.Require().NoError(suite.db.Table("venues").
+		Where("id = ?", venue.ID).Update("slug", "poisoned-archive").Error)
+	user := suite.createTestUser()
+
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	suite.Require().NoError(err)
+	newApprovedShowAt(suite.T(), suite.db, venue.ID, user.ID, "Phoenix", "AZ",
+		time.Date(2025, time.January, 1, 0, 30, 0, 0, phoenix))
+
+	entries, err := NewSitemapService(suite.db).Entries(context.Background(), "venue_years")
+	suite.Require().NoError(err, "an unresolvable venue zone must not break sitemap generation")
+	suite.Require().Len(entries.VenueYears, 1)
+	suite.Equal("poisoned-archive/shows/2025", entries.VenueYears[0].Slug,
+		"the archive year comes from the AZ state-map fallback, not from the rejected zone")
 }
