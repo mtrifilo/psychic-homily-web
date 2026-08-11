@@ -82,6 +82,47 @@ func TestStateTimezones_AreSafeToInterpolate(t *testing.T) {
 	}
 }
 
+// The fail-soft guard (PSY-1761). These pin the three properties that make an
+// unresolvable venues.timezone degrade instead of raising; each one is a silent
+// failure if it regresses, which is why they are asserted on the SQL text
+// rather than left to the integration suite alone.
+func TestVenueTZJoin_ValidatesTheStoredZoneBeforeProjectingIt(t *testing.T) {
+	// Without the membership test, AT TIME ZONE raises on an unknown name and
+	// takes the whole /shows feed down with it.
+	if !strings.Contains(VenueTZJoin, "IN (SELECT name_lower FROM timezone_names_snapshot)") {
+		t.Errorf("the lateral no longer validates the stored zone:\n%s", VenueTZJoin)
+	}
+	// Case-insensitively, matching AT TIME ZONE and the drift sweep. A stricter
+	// guard mis-dates rows the sweep calls healthy, with nothing logged.
+	if !strings.Contains(VenueTZJoin, "lower("+venueTZStoredZone+")") {
+		t.Errorf("the guard is not case-insensitive:\n%s", VenueTZJoin)
+	}
+	// The guard belongs in the LATERAL, not beside the COALESCE it feeds:
+	// venueLocalZoneSQL is dereferenced two to three times per query and
+	// Postgres plans a separate SubPlan for each occurrence of an identical
+	// uncorrelated subquery. One occurrence here is one SubPlan per query.
+	if strings.Contains(venueLocalZoneSQL, "timezone_names_snapshot") {
+		t.Errorf("the guard leaked into the per-occurrence zone expression:\n%s", venueLocalZoneSQL)
+	}
+	if got := strings.Count(VenueTZJoin, "timezone_names_snapshot"); got != 1 {
+		t.Errorf("expected exactly one membership test in the lateral, got %d:\n%s", got, VenueTZJoin)
+	}
+}
+
+// The guard and catalog.SweepVenueTimezones' drift predicate must strip the
+// same whitespace. They agree because both build from this const, and this
+// pins that the guard still does — a guard that trimmed more than the detector
+// would mis-date rows the detector calls healthy, with nothing logged.
+func TestVenueTZJoin_TrimsThroughTheSharedWhitespaceSet(t *testing.T) {
+	if !strings.Contains(venueTZStoredZone, VenueTimezoneWhitespaceSQL) {
+		t.Errorf("the stored-zone expression bypasses the shared whitespace set:\n%s", venueTZStoredZone)
+	}
+	if got := strings.Count(venueTZValidatedZoneSQL, venueTZStoredZone); got != 2 {
+		t.Errorf("the validated and projected values are not the same expression, got %d uses:\n%s",
+			got, venueTZValidatedZoneSQL)
+	}
+}
+
 // The date and today fragments must resolve the zone identically, or a show
 // could be compared against a boundary computed in a different timezone than
 // its own event date.

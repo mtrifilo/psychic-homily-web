@@ -62,41 +62,55 @@ import (
 //     requester and ranks over a multi-week horizon, so a one-day boundary
 //     nudge does not change what it is measuring.
 //
-// BLAST RADIUS OF THE UNKNOWN-ZONE RAISE, re-derived because PSY-1678 changed
-// it. `AT TIME ZONE` RAISES on a name Postgres does not carry rather than
-// degrading (see VenueTZJoin for why the validating join is not in this path).
-// That was accepted when every consumer was a single entity page: one poisoned
-// venue row broke that venue's page, that artist's list, or saved-shows. It is
-// no longer. The main /shows feed and its city picker now build through here,
-// so ONE bad row would take down /shows, the homepage list, /explore's picker
-// and the account-settings city picker at once.
+// UNKNOWN ZONES FAIL SOFT (PSY-1761). `AT TIME ZONE` RAISES on a name Postgres
+// does not carry rather than degrading, and PSY-1678 made that a whole-site
+// outage rather than a one-page one: the main /shows feed and its city picker
+// build through here, so ONE poisoned venue row would have taken down /shows,
+// the homepage list, /explore's picker and the account-settings city picker at
+// once. VenueTZJoin now projects NULL for a zone this server's catalog does not
+// carry, which routes that row into the same state-map arm a NULL already
+// takes. A bad row costs one venue's shows a possibly-wrong date; it no longer
+// costs everybody the page.
 //
-// Three layers keep a bad row out, all verified rather than assumed:
+// Four layers now stand between a bad value and a reader, and the first three
+// are what keep the fourth from having to fire:
 //  1. WRITE BOUNDARY (PSY-1707) — every path that writes venues.timezone
 //     validates against pg_timezone_names and stores NULL rather than a name
 //     this server does not carry.
 //  2. BACKFILL (migration 20260802043206) — normalized every pre-existing row,
 //     applied on stage and production.
 //  3. SWEEP (PSY-1695, VenueTimezoneSweep) — re-validates stored zones against
-//     the live catalog every 24h and NULLs the casualties, which is what covers
-//     the catalog CHANGING underneath a value that was valid when written (a
-//     Postgres upgrade, a tzdata refresh, a restore onto a differently-packaged
-//     build). ENABLE_VENUE_TIMEZONE_SWEEP was confirmed set on both stage and
-//     production on 2026-08-08; it is a deployment prerequisite of this file,
-//     not an optimization, so do not treat it as optional when standing up a
-//     new environment.
+//     the live catalog and NULLs the casualties, so an operator sees a named
+//     venue rather than a silently mis-dated one.
+//     ENABLE_VENUE_TIMEZONE_SWEEP was confirmed set on both stage and
+//     production on 2026-08-08. It is no longer what stands between a drifted
+//     zone and an outage — layer 4 is — but it is still what turns a silently
+//     wrong date into a logged one, so set it when standing up a new
+//     environment rather than treating it as optional.
+//  4. READ GUARD (this file, PSY-1761) — the membership test in VenueTZJoin.
+//     Unconditional, with no flag and no worker to remember: the table it reads
+//     is created and seeded by the migration itself.
 //
-// Residual risk, stated so it is not rediscovered as a surprise: an out-of-band
-// SQL write of an invalid zone bypasses layer 1 and can sit until layer 3 runs,
-// so the window is up to 24h. During it the failure is a LOUD 500 with Sentry
-// signal on a read path, not silent corruption or a wrong answer — which is the
-// property that makes the window acceptable rather than merely tolerable.
+// WHAT THE GUARD DOES AND DOES NOT CLOSE, stated precisely because the two
+// halves have different residual risks:
 //
-// PSY-1761 owns the structural hardening: make the zone expression fail SOFT
-// (fall through to the state CASE on an unrecognized name) instead of raising.
-// It is deliberately NOT done inline, because the obvious implementation is the
-// one this file already measured at loops=17228 / 8.1s — see VenueTZJoin. That
-// ticket carries the measurement matrix any fix has to clear first.
+//   - A name that was NEVER in the catalog — the out-of-band SQL write, the
+//     write gate skipped by a transient database error — is closed completely
+//     and immediately. It cannot be in the snapshot, so it can never be
+//     trusted. This is the path with no other defence: the write gate cannot
+//     see it and the sweep only reaches it a cycle later.
+//   - A name that HAS LEFT the catalog since it was written — the Postgres
+//     upgrade, the tzdata refresh, the restore onto a differently-packaged
+//     image — is closed only once the snapshot catches up, because until then
+//     the snapshot still carries the name and the guard still trusts it. That
+//     window is bounded by RefreshTimezoneNamesSnapshot's cadence (boot, plus
+//     each sweep cycle), and boot is the one that matters: the events that
+//     change the catalog are the events that restart this process.
+//
+// So a stale snapshot degrades toward TODAY'S behaviour rather than past it,
+// and in the other direction it fails safe — a snapshot that has not yet
+// GAINED a genuinely new zone merely sends that venue to the state map for one
+// refresh interval.
 
 // PrimaryVenueLateralSQL renders the repo's primary-venue pick as a LATERAL
 // subquery: at most one deterministic venue per show, lowest venue_id first.
@@ -170,49 +184,96 @@ func buildVenueLocalStateCaseSQL() string {
 	return b.String()
 }
 
+// VenueTimezoneWhitespaceSQL is the character set every reader of a stored
+// venues.timezone strips before doing anything with it.
+//
+// Exported because the READ GUARD in this file and the DRIFT DETECTOR in
+// catalog.SweepVenueTimezones have to agree on it exactly. A detector that
+// trimmed less than the guard would call a venue healthy while the guard was
+// quietly sending its shows to the state map — a wrong date with nothing logged
+// anywhere, which is the one failure this whole design is trying not to create.
+// One definition means they cannot drift.
+const VenueTimezoneWhitespaceSQL = `E' \t\n\r\f\v'`
+
+// venueTZStoredZone is the stored zone as every expression below sees it:
+// trimmed, with blank read as NULL. Named once so the value that gets VALIDATED
+// and the value that gets PROJECTED are the same string by construction rather
+// than by two edits staying in sync.
+const venueTZStoredZone = `NULLIF(btrim(iv.timezone, ` + VenueTimezoneWhitespaceSQL + `), '')`
+
+// venueTZValidatedZoneSQL projects the primary venue's stored zone ONLY when
+// this server's catalog still carries it, and NULL otherwise. That NULL is the
+// whole fail-soft mechanism: venueLocalZoneSQL's COALESCE already routes a NULL
+// into the US state map, so an unknown name lands on the same arm an ungeocoded
+// venue does instead of raising (PSY-1761).
+//
+// WHY THE MEMBERSHIP TEST LIVES HERE, in the lateral's projection, rather than
+// beside the COALESCE it feeds. venueLocalZoneSQL is dereferenced two to three
+// times per query (the date condition names it twice, a year filter adds a
+// third), and Postgres does NOT deduplicate identical uncorrelated subqueries —
+// each occurrence plans its own SubPlan with its own hash build. Hoisting the
+// test into the projection makes it ONE SubPlan per query however many times the
+// zone is read downstream. Measured across all sixteen statements the migrated
+// surfaces emit: one `SubPlan 1`, never a second.
+//
+// WHY A SNAPSHOT TABLE AND NOT pg_timezone_names. The catalog view is a
+// set-returning function that reopens the tzdata files per scan. Measured on
+// postgres:18 against this repo's own queries: one scan is 3.5 ms on an idle
+// box and 43-63 ms under load, and the uncorrelated-subquery form of this guard
+// cost 8-11x on the two hottest statements (GetUpcomingShows' count 4.6 -> 52.1 ms,
+// GetShowCities 1.2 -> 9.1 ms) even though every scan correctly planned at
+// loops=1. The snapshot answers the same question from 487 ordinary rows.
+//
+// THE loops=1 CLAIM IS THE ONE TO RE-VERIFY if this is ever touched, because
+// this file has been wrong about it before. An earlier revision validated the
+// zone with a JOIN inside this same lateral; as a LATERAL-CORRELATED RELATION
+// the planner pushed it into the inner side of the nested loop over shows and
+// re-scanned the catalog PER SHOW — `loops=17228`, 8.1s for one COUNT. A
+// SubPlan is a different animal (it is an expression, and an uncorrelated one
+// keeps its hash table across rescans of the node holding it), which is why
+// this shape survives where that one did not. Do NOT reintroduce a relation
+// here, and do not trust a single good plan: verify loops=1 on every consumer.
+//
+// The comparison is case-INSENSITIVE, matching how `AT TIME ZONE` resolves a
+// name and matching VenueTimezoneSweep's drift predicate. A guard stricter on
+// CASE than the sweep would silently send rows the sweep calls healthy to the
+// state map.
+//
+// It is NARROWER than `AT TIME ZONE` in one deliberate respect. `AT TIME ZONE`
+// resolves more than pg_timezone_names: measured on postgres:18, it also
+// accepts pg_timezone_abbrevs entries ('EST') and bare POSIX TZ specs
+// ('EST5EDT', 'FOO+3'), none of which appear in the catalog this guard tests
+// against. All of them are rejected here and land on the state map.
+//
+// That is policy, not oversight, and it matches the WRITE side rather than
+// diverging from it: shared.NormalizeIANATimezone already refuses to store any
+// of them, for the reason spelled out at its own definition — a fixed-offset
+// spec carries no DST rule, so it would freeze a venue on standard time and
+// mis-date half its shows. A read guard laxer than the write gate would accept
+// values the gate exists to keep out, and VenueTimezoneSweep would NULL them
+// on its next pass anyway. The state map is the same answer, sooner.
+var venueTZValidatedZoneSQL = `CASE WHEN lower(` + venueTZStoredZone + `) ` +
+	`IN (SELECT name_lower FROM timezone_names_snapshot) ` +
+	`THEN ` + venueTZStoredZone + ` END AS venue_tz_timezone`
+
 // VenueTZJoin resolves each show's venue-local zone inputs. Requires the query
 // to have already joined `shows` — the lateral correlates on shows.id.
 //
 // ONE lateral, and nothing else. Everything downstream of it is a pure scalar
 // expression, so the whole zone resolution costs a single index hop on
-// show_venues_pkey per candidate row.
+// show_venues_pkey per candidate row plus one hashed membership probe.
 //
-// It used to carry a second join validating the stored zone against
-// pg_timezone_names. That is gone, and must not come back into this path: as a
-// LATERAL-correlated relation it was pushed into the inner side of the nested
-// loop over shows and re-scanned the ~490-row catalog PER SHOW. Measured on a
-// seeded 20k-show venue: `Function Scan on pg_timezone_names ... loops=17228`,
-// 8.1s for the `past` COUNT. An OFFSET 0 optimization fence did not move it, and
-// an earlier revision planned it at loops=1, so a one-off good plan here proves
-// nothing.
+// venue_tz_timezone is the VALIDATED zone, not the raw column — see
+// venueTZValidatedZoneSQL. A caller that wants the stored value as written must
+// read venues.timezone itself; this projection deliberately cannot hand a
+// reader a name that would raise.
 //
-// WHAT MAKES DROPPING IT SAFE is a two-layer guarantee on the column itself,
-// NOT an assumption:
-//
-//  1. WRITE GATE (PSY-1707). Every path that writes venues.timezone validates
-//     against the server's pg_timezone_names first and stores NULL rather than a
-//     name it does not carry — see shared.NormalizeIANATimezone. So the column
-//     holds either NULL or a name this server resolved at write time.
-//  2. INTEGRITY SWEEP (PSY-1695, VenueTimezoneSweep). The write gate is a
-//     point-in-time check and the catalog is NOT stable: its contents come from
-//     the server's tzdata PACKAGING, not from Postgres. Measured — postgres:18
-//     (Debian) carries 487 zones and no EST or Asia/Calcutta because Debian
-//     splits the `backward` links into tzdata-legacy; postgres:16-alpine carries
-//     599 and has them. So a Postgres upgrade, a tzdata refresh (US/Pacific-New
-//     really was deleted in 2020b), or a restore onto a differently-packaged
-//     build can invalidate a value that was valid when written. The sweep
-//     re-validates stored zones against the live catalog and NULLs the casualties.
-//
-// The residual risk that buys is a window, not zero: a zone can go unknown
-// between sweep runs, and `AT TIME ZONE` RAISES on an unknown name rather than
-// degrading — it would take down every listing query touching that venue until
-// the next sweep. That is the trade this path accepts for not paying 8.1s.
-//
-// Neither layer covers the GO-side readers (utils.EventLocation, the ICS feeds,
+// Nothing here covers the GO-side readers (utils.EventLocation, the ICS feeds,
 // the Discord notifier), which resolve through Go's catalog rather than
 // Postgres'. The two disagree in both directions: "localtime" and "Factory" pass
 // the write gate and fail time.LoadLocation. Those readers have their own
 // fallback and are not made safe by anything here.
+//
 // The projected columns are ALIASED rather than carried under their source
 // names, and that prefix is load-bearing rather than decorative. `venues` and
 // `shows` both have a `state`, so a bare `venue_tz.state` beside `shows.state`
@@ -225,7 +286,7 @@ func buildVenueLocalStateCaseSQL() string {
 // model, so a caller cannot reintroduce the collision by forgetting to qualify.
 var VenueTZJoin = `LEFT JOIN LATERAL ` +
 	PrimaryVenueLateralSQL(
-		"iv.timezone AS venue_tz_timezone, iv.state AS venue_tz_state, iv.country AS venue_tz_country",
+		venueTZValidatedZoneSQL+", iv.state AS venue_tz_state, iv.country AS venue_tz_country",
 		"shows.id",
 	) + ` venue_tz ON true`
 
@@ -233,19 +294,19 @@ var VenueTZJoin = `LEFT JOIN LATERAL ` +
 // utils.EventLocation's precedence: the stored venue timezone, then the US state
 // map, which itself defaults to America/Phoenix.
 //
-// The stored value is TRUSTED rather than validated — see VenueTZJoin for the
-// two layers that make that sound. NULLIF(btrim(...)) is belt-and-braces for a
-// blank that predates the write gate: the gate stores NULL for blank input, so
-// this should never fire, but a blank reaching AT TIME ZONE would raise.
+// It reads venue_tz_timezone raw because the lateral already did the work:
+// venueTZValidatedZoneSQL trims it, maps blank to NULL, and maps a name this
+// server's catalog does not carry to NULL as well. So there are exactly two
+// cases here, and both are the same case — a usable zone, or the fallback.
 //
-// The NULL arm is the US state map rather than a bare 'UTC', deliberately. Eight
-// of production's 237 venues have no geocoded zone, and every OTHER surface
-// dates their shows through utils.EventLocation's state arm — sending only this
-// path to UTC would put a Phoenix venue's listing 7 hours away from its own show
-// page, which is the class of disagreement this ticket exists to remove. It
-// costs nothing in the hot path: a CASE over two already-fetched columns is a
-// scalar expression, not a relation scan.
-var venueLocalZoneSQL = `COALESCE(NULLIF(btrim(venue_tz.venue_tz_timezone, E' \t\n\r\f\v'), ''), ` + venueLocalStateCaseSQL + `)`
+// The fallback arm is the US state map rather than a bare 'UTC', deliberately.
+// Eight of production's 237 venues have no geocoded zone, and every OTHER
+// surface dates their shows through utils.EventLocation's state arm — sending
+// only this path to UTC would put a Phoenix venue's listing 7 hours away from
+// its own show page, which is the class of disagreement PSY-1676 exists to
+// remove. It costs nothing in the hot path: a CASE over two already-fetched
+// columns is a scalar expression, not a relation scan.
+var venueLocalZoneSQL = `COALESCE(venue_tz.venue_tz_timezone, ` + venueLocalStateCaseSQL + `)`
 
 // VenueLocalDateSQL is the show's calendar date in its venue's local zone.
 // event_date is TIMESTAMPTZ (migration 000028), so a single AT TIME ZONE shifts

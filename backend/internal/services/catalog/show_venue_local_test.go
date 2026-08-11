@@ -306,19 +306,24 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_NullVenueT
 	suite.Equal(int64(0), upcomingTotal)
 }
 
-// The trust-the-column contract, stated as a test rather than left implicit.
+// The drifted-zone contract, stated as a test rather than left implicit.
 //
-// The partition reads venues.timezone straight into AT TIME ZONE, so a stored
-// zone the server does not carry does NOT degrade -- it raises SQLSTATE 22023
-// and takes the listing query down. That is the cost of not paying per-row
-// validation (8.1s on a 20k-show venue), and it is only acceptable because two
-// layers keep such a value out of the column: the write gate (PSY-1707) and the
-// integrity sweep below.
+// THIS TEST ASSERTED THE OPPOSITE UNTIL PSY-1761, and the inversion is the
+// point rather than an accident. It used to require the listing query to RAISE
+// (SQLSTATE 22023) on a zone the server no longer carries, and warned against
+// "fixing" that with a COALESCE that would mask real drift. The warning was
+// right about the risk and wrong about the trade: PSY-1678 put the main /shows
+// feed and both city pickers behind the same fragments, so the raise stopped
+// being one venue's page and became the whole site.
 //
-// This asserts the raw failure mode so nobody "fixes" it by quietly
-// reintroducing a COALESCE that would mask real drift, and then asserts the
-// sweep is what actually resolves it.
-func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_DriftedVenueTimezoneRaisesUntilSwept() {
+// So the two halves of that warning are now split. The QUERY degrades -- an
+// unresolvable zone falls through to the state map, exactly as a NULL does --
+// and the DRIFT is still reported, by the sweep here and by the boot-time
+// reconcile in RefreshAndReportTimezoneNamesSnapshot. Masking is what the
+// second half prevents; both are asserted below, because a fail-soft read path
+// WITHOUT the report would be the silent mis-partition the original comment
+// feared.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_DriftedVenueTimezoneFallsBackAndIsReported() {
 	artist := suite.createTestArtist("Drift Artist")
 	venue := newVenueInZone(suite.T(), suite.db, "Drift Room", "HI", "Pacific/Honolulu", false)
 	user := suite.createTestUser()
@@ -330,20 +335,25 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_DriftedVen
 	suite.Require().NoError(suite.db.Table("venues").Where("id = ?", venue.ID).
 		Update("timezone", "Pacific/Atlantis").Error)
 
-	_, _, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
-	suite.Require().Error(err, "a drifted zone must surface loudly, not silently mis-partition")
-	suite.Contains(err.Error(), "not recognized")
+	// HI maps to Pacific/Honolulu, so the fallback lands the show on the same
+	// calendar day the stored zone would have — the listing is not merely
+	// answered, it is answered correctly.
+	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
+	suite.Require().NoError(err, "a drifted zone must degrade to the state map, not take the page down")
+	suite.Equal(int64(1), upcomingTotal)
 
+	// ...and it is still reported, so it gets fixed rather than mis-dated
+	// forever behind a query that no longer complains.
 	report, sweepErr := SweepVenueTimezones(context.Background(), suite.db)
 	suite.Require().NoError(sweepErr)
 	suite.Equal(1, report.Cleared)
 	suite.Require().Len(report.Drifted, 1)
 	suite.Equal("Pacific/Atlantis", report.Drifted[0].Timezone)
 
-	// After the sweep the venue falls back to the state map and listings work.
-	_, upcomingTotal, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
-	suite.Require().NoError(err, "the sweep must restore a queryable state")
-	suite.Equal(int64(1), upcomingTotal)
+	// The sweep's NULL is the same fallback arm, so the answer does not move.
+	_, afterSweep, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{TimeFilter: "upcoming", Limit: 10})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), afterSweep, "clearing the column must not change what the reader sees")
 }
 
 // A show with no venue row at all: the LEFT JOIN LATERAL must keep it, or
