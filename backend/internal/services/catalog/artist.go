@@ -617,55 +617,41 @@ type ArtistWithCount struct {
 
 // contracts.ArtistWithShowCountResponse represents an artist with its upcoming show count
 
-// GetArtistsWithShowCounts retrieves artists with their upcoming show counts.
+// artistBrowseScope narrows a query over `artists` to the rows the /artists
+// browse page lists: the activity gate (or its evergreen exemption) plus the
+// city/state and tag filters.
 //
-// By default the result is gated on "has at least one upcoming approved show"
-// (the /artists landing/browse flow). When `skip_active_filter` is set to true
-// in the filters map (PSY-495: tag-filter engaged → Bandcamp-style evergreen
-// discovery), the activity gate is dropped and every matching artist is
-// returned, including those with zero upcoming shows. In that mode we also
-// surface `last_show_date` (most recent past approved show) so cards can
-// render a "no upcoming shows · last show <Mon Year>" affordance instead of
-// looking broken.
+// It exists so the page read and the total that captions it cannot disagree
+// about which rows match. Stated twice — as the venue twin still states them —
+// a predicate added to one and not the other gives the pager a page count for a
+// different set than it lists, and nothing errors: the reader just finds a
+// trailing page that is empty, or one that is unreachable.
 //
-// Sort order: upcoming_show_count DESC, name ASC. Active artists surface
-// first, then alphabetical. Preserved across both gated and evergreen modes.
-func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	skipActiveFilter, _ := filters["skip_active_filter"].(bool)
-
-	now := time.Now().UTC()
-
+// What the two callers legitimately differ on stays OUT of here, because none
+// of it changes which rows match: the select list, the presentational
+// last-show-date join, and the order/limit/offset window.
+//
+// `skipActiveFilter` is the caller's already-read gate flag rather than
+// re-derived from the map, so the join it picks and the select the caller pairs
+// with it are decided from one value.
+func (s *ArtistService) artistBrowseScope(
+	filters map[string]interface{},
+	skipActiveFilter bool,
+	now time.Time,
+) *gorm.DB {
 	upcomingSubquery := s.upcomingShowCountSubquery(now)
 
-	var query *gorm.DB
+	query := s.db.Table("artists")
 	if skipActiveFilter {
-		// Evergreen mode: include artists without upcoming shows.
-		// LEFT JOIN on upcoming counts (zero when none), and compute
-		// last past-show date so cards can show "last show <Mon Year>".
-		pastSubquery := s.db.Table("show_artists").
-			Select("show_artists.artist_id, MAX(shows.event_date) as last_show_date").
-			Joins("JOIN shows ON show_artists.show_id = shows.id").
-			Where("shows.event_date < ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
-			Group("show_artists.artist_id")
-
-		query = s.db.Table("artists").
-			Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count, ps.last_show_date as last_show_date").
-			Joins("LEFT JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery).
-			Joins("LEFT JOIN (?) as ps ON artists.id = ps.artist_id", pastSubquery)
+		// Evergreen mode (PSY-495: a tag filter is engaged): LEFT JOIN, so
+		// artists with no upcoming shows are included with a zero count.
+		query = query.Joins("LEFT JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
 	} else {
 		// Gated mode (default for unfiltered /artists): INNER JOIN so only
-		// artists with upcoming shows are returned. last_show_date is NULL
-		// in this path — the card renders an upcoming count anyway.
-		query = s.db.Table("artists").
-			Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count, NULL as last_show_date").
-			Joins("JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
+		// artists with upcoming shows are returned.
+		query = query.Joins("JOIN (?) as sc ON artists.id = sc.artist_id", upcomingSubquery)
 	}
 
-	// Apply filters
 	if cities, ok := filters["cities"].([]map[string]string); ok && len(cities) > 0 {
 		var conditions []string
 		var args []interface{}
@@ -690,9 +676,86 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 		query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
 	}
 
+	return query
+}
+
+// GetArtistsWithShowCounts retrieves ONE PAGE of artists with their upcoming
+// show counts, plus the total number matching the same filters.
+//
+// By default the result is gated on "has at least one upcoming approved show"
+// (the /artists landing/browse flow). When `skip_active_filter` is set to true
+// in the filters map (PSY-495: tag-filter engaged → Bandcamp-style evergreen
+// discovery), the activity gate is dropped and every matching artist is
+// returned, including those with zero upcoming shows. In that mode we also
+// surface `last_show_date` (most recent past approved show) so cards can
+// render a "no upcoming shows · last show <Mon Year>" affordance instead of
+// looking broken.
+//
+// Sort order: upcoming_show_count DESC, name ASC, id ASC. Active artists
+// surface first, then alphabetical. Preserved across both gated and evergreen
+// modes. The id tiebreak is what makes `offset` mean anything: artist names are
+// not unique, and Postgres is free to return tied rows in any order, so without
+// it a name collision straddling a page boundary can show the same artist on
+// two pages and drop another entirely.
+//
+// It pages rather than returning the whole set because the whole set is the
+// catalogue. Unbounded it answered with 3.17 MB of JSON over ~6,200 artists and
+// 502'd through the dev proxy (PSY-1774); a page is bounded by the caller.
+func (s *ArtistService) GetArtistsWithShowCounts(
+	filters map[string]interface{},
+	limit, offset int,
+) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	// Floors both at zero. GORM reads a NEGATIVE limit as "no limit at all" and
+	// answers with the whole catalogue — the exact failure this endpoint was
+	// paginated to remove — while a negative offset is invalid SQL and 500s.
+	// The huma tags guard only the HTTP path; non-HTTP callers land here.
+	limit, offset = clampPageWindow(limit, offset)
+
+	skipActiveFilter, _ := filters["skip_active_filter"].(bool)
+	now := time.Now().UTC()
+
+	// The total is counted over the SCOPE, without the page window and without
+	// the presentational join below: neither changes which rows match, and the
+	// last-show-date aggregate is a full scan of show_artists that the count
+	// would pay for and discard.
+	//
+	// COUNT(*) is exactly the artist count here, not a join-inflated one: `sc`
+	// is grouped by artist_id (one row per artist at most) and ApplyTagFilter
+	// constrains with `IN (subquery)` rather than joining rows in.
+	var total int64
+	if err := s.artistBrowseScope(filters, skipActiveFilter, now).
+		Select("COUNT(*)").
+		Scan(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count artists with show counts: %w", err)
+	}
+
+	query := s.artistBrowseScope(filters, skipActiveFilter, now)
+	if skipActiveFilter {
+		// Compute the last past-show date so evergreen cards can show
+		// "last show <Mon Year>" instead of looking broken.
+		pastSubquery := s.db.Table("show_artists").
+			Select("show_artists.artist_id, MAX(shows.event_date) as last_show_date").
+			Joins("JOIN shows ON show_artists.show_id = shows.id").
+			Where("shows.event_date < ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
+			Group("show_artists.artist_id")
+
+		query = query.
+			Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count, ps.last_show_date as last_show_date").
+			Joins("LEFT JOIN (?) as ps ON artists.id = ps.artist_id", pastSubquery)
+	} else {
+		// last_show_date is NULL on the gated path — the card renders an
+		// upcoming count anyway.
+		query = query.
+			Select("artists.*, COALESCE(sc.show_count, 0) as upcoming_show_count, NULL as last_show_date")
+	}
+
 	var artistsWithCount []ArtistWithCount
-	if err := query.Order(artistBrowseOrder).Find(&artistsWithCount).Error; err != nil {
-		return nil, fmt.Errorf("failed to get artists with show counts: %w", err)
+	if err := query.Order(artistBrowseOrder).Limit(limit).Offset(offset).Find(&artistsWithCount).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to get artists with show counts: %w", err)
 	}
 
 	// Build responses
@@ -709,13 +772,19 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 		responses[i] = resp
 	}
 
-	return responses, nil
+	return responses, total, nil
 }
 
 // artistBrowseOrder is the order the /artists browse page lists artists in:
-// active first, then alphabetical. Shared so the listing projection and the full
-// list cannot drift into presenting different orders.
-const artistBrowseOrder = "upcoming_show_count DESC, artists.name ASC"
+// active first, then alphabetical, then by id. Shared so the listing projection
+// and the full list cannot drift into presenting different orders.
+//
+// The id tiebreak is not cosmetic. Both consumers page or slice this order, and
+// artist names are NOT unique — two artists tied on upcoming count and name are
+// ordered arbitrarily by Postgres, and arbitrarily DIFFERENTLY between two
+// requests, so a tie straddling a page boundary silently duplicates one row and
+// drops another. `artists.id` is the primary key, so it settles every tie.
+const artistBrowseOrder = "upcoming_show_count DESC, artists.name ASC, artists.id ASC"
 
 // upcomingShowCountSubquery counts each artist's upcoming approved shows.
 //

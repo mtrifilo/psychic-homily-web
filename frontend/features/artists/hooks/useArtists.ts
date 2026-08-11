@@ -9,7 +9,11 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
-import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
+import {
+  ARTIST_LIST_PAGE_LIMIT,
+  artistEndpoints,
+  artistQueryKeys,
+} from '@/features/artists/api'
 import { ARCHIVE_YEAR_RANGE } from '@/features/shows/showArchive'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters'
@@ -28,19 +32,35 @@ interface UseArtistsOptions {
   tags?: string[]
   /** Set to 'any' to switch the tag filter to OR semantics. */
   tagMatch?: 'all' | 'any'
+  /** Rows per page. Defaults to the browse page size (PSY-1774). */
+  limit?: number
+  /** Rows to skip. Defaults to 0 (the first page). */
+  offset?: number
 }
 
 /**
- * Hook to fetch list of artists with optional city and tag filtering
+ * Hook to fetch one page of artists, with optional city and tag filtering.
+ *
+ * Paged rather than whole since PSY-1774: unbounded, `GET /artists` answered
+ * with the entire catalogue — 3.17 MB over ~6,200 artists, which 502'd through
+ * the dev proxy and rendered every card into the DOM.
  */
 export function useArtists(options: UseArtistsOptions = {}) {
-  const { cities, tags, tagMatch } = options
+  const {
+    cities,
+    tags,
+    tagMatch,
+    limit = ARTIST_LIST_PAGE_LIMIT,
+    offset = 0,
+  } = options
 
   // Build query params
   const params = new URLSearchParams()
   if (cities && cities.length > 0) {
     params.set('cities', buildCitiesParam(cities))
   }
+  if (limit) params.set('limit', limit.toString())
+  if (offset) params.set('offset', offset.toString())
   if (tags && tags.length > 0) {
     params.set('tags', tags.join(','))
     if (tagMatch === 'any') params.set('tag_match', 'any')
@@ -52,10 +72,17 @@ export function useArtists(options: UseArtistsOptions = {}) {
     : artistEndpoints.LIST
 
   return useQuery({
+    // `limit` and `offset` are part of the key: two pages of the same filter
+    // are different payloads and must not share an entry. They are keyed
+    // unconditionally, including `offset: 0`, which is what
+    // `ARTIST_LIST_FIRST_SCREEN_KEY` mirrors — see that constant for why the
+    // key and the URL are allowed to differ on a zero offset.
     queryKey: artistQueryKeys.list({
       cities: cities ?? undefined,
       tags: tags && tags.length > 0 ? tags : undefined,
       tagMatch: tagMatch === 'any' ? 'any' : undefined,
+      limit,
+      offset,
     } as Record<string, unknown>),
     queryFn: async (): Promise<ArtistsListResponse> => {
       return apiRequest<ArtistsListResponse>(endpoint, {

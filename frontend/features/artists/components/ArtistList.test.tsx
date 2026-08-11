@@ -8,23 +8,41 @@ import type { ArtistListItem } from '../types'
 const mockPush = vi.fn()
 const mockReplace = vi.fn()
 const mockGet = vi.fn()
+// `toString` backs the pager's href builder, which edits the LIVE params rather
+// than rebuilding from a key list. Derived from the same `mockGet` so a test
+// that stubs one param cannot end up with an address bar that disagrees.
+const mockSearchParamKeys = ['cities', 'tags', 'tag_match', 'page', 'utm_source']
+const mockSearchParamsToString = () => {
+  const params = new URLSearchParams()
+  for (const key of mockSearchParamKeys) {
+    const value = mockGet(key)
+    if (value != null) params.set(key, String(value))
+  }
+  return params.toString()
+}
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => ({
     get: mockGet,
+    toString: mockSearchParamsToString,
   }),
 }))
 
 // nuqs `useQueryState` bridged to the same mocked searchParams (single URL
-// source of truth); the real citiesParser runs. The setter is asserted on.
+// source of truth); the real citiesParser runs. The setters are asserted on.
 const mockSetCities = vi.fn()
+const mockSetPage = vi.fn()
 vi.mock('nuqs', async importOriginal => {
   const actual = await importOriginal<typeof import('nuqs')>()
   return {
     ...actual,
-    useQueryState: (key: string, parser: { parse: (v: string) => unknown }) => {
+    useQueryState: (
+      key: string,
+      parser: { parse: (v: string) => unknown; defaultValue?: unknown },
+    ) => {
       const raw = mockGet(key)
-      return [raw != null ? parser.parse(raw) : null, mockSetCities]
+      const value = raw != null ? parser.parse(raw) : (parser.defaultValue ?? null)
+      return [value, key === 'page' ? mockSetPage : mockSetCities]
     },
   }
 })
@@ -68,7 +86,12 @@ vi.mock('@/components/filters', () => ({
   ),
 }))
 
-vi.mock('@/components/shared', () => ({
+// Partial mock: `Pagination` is deliberately the REAL component, because the
+// page links and their hrefs are what these tests assert. Stubbing it would
+// leave the pager's URL shape unverified, which is the half most likely to
+// break (PSY-1754/1755 both shipped a builder that dropped foreign params).
+vi.mock('@/components/shared', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/components/shared')>()),
   LoadingSpinner: () => <div data-testid="loading-spinner">Loading...</div>,
   DensityToggle: ({ density }: { density: string; onDensityChange: (v: string) => void }) => (
     <div data-testid="density-toggle">{density}</div>
@@ -91,8 +114,18 @@ vi.mock('@/components/shared', () => ({
 vi.mock('@/features/tags', () => ({
   // PSY-1001: surface the `layout` prop as `data-layout` so the test can
   // assert the desktop facet panel renders as the top bar (not the old rail).
-  TagFacetPanel: ({ layout }: { layout?: 'rail' | 'bar' }) => (
-    <div data-testid="tag-facet-panel" data-layout={layout ?? 'rail'} />
+  TagFacetPanel: ({
+    layout,
+    onToggle,
+  }: {
+    layout?: 'rail' | 'bar'
+    onToggle: (slugs: string[]) => void
+  }) => (
+    <div data-testid="tag-facet-panel" data-layout={layout ?? 'rail'}>
+      <button data-testid="toggle-tag" onClick={() => onToggle(['shoegaze'])}>
+        shoegaze
+      </button>
+    </div>
   ),
   TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
   parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
@@ -137,7 +170,7 @@ describe('ArtistList', () => {
       isFetching: false,
     })
     mockUseArtists.mockReturnValue({
-      data: { artists: [], count: 0 },
+      data: { artists: [], total: 0, limit: 50, offset: 0 },
       isLoading: false,
       isFetching: false,
       error: null,
@@ -194,7 +227,7 @@ describe('ArtistList', () => {
       key === 'cities' ? 'Phoenix,AZ' : null
     )
     mockUseArtists.mockReturnValue({
-      data: { artists: [], count: 0 },
+      data: { artists: [], total: 0, limit: 50, offset: 0 },
       isLoading: false,
       isFetching: false,
       error: null,
@@ -212,7 +245,7 @@ describe('ArtistList', () => {
       key === 'cities' ? 'Phoenix,AZ' : null
     )
     mockUseArtists.mockReturnValue({
-      data: { artists: [], count: 0 },
+      data: { artists: [], total: 0, limit: 50, offset: 0 },
       isLoading: false,
       isFetching: false,
       error: null,
@@ -229,7 +262,7 @@ describe('ArtistList', () => {
       makeArtist({ id: 2, name: 'Artist Two', slug: 'artist-two' }),
     ]
     mockUseArtists.mockReturnValue({
-      data: { artists, count: 2 },
+      data: { artists, total: 2, limit: 50, offset: 0 },
       isLoading: false,
       isFetching: false,
       error: null,
@@ -244,7 +277,7 @@ describe('ArtistList', () => {
   it('shows error state with retry button', () => {
     const refetch = vi.fn()
     mockUseArtists.mockReturnValue({
-      data: { artists: [], count: 0 },
+      data: { artists: [], total: 0, limit: 50, offset: 0 },
       isLoading: false,
       isFetching: false,
       error: new Error('Network error'),
@@ -262,7 +295,7 @@ describe('ArtistList', () => {
     const user = userEvent.setup()
     const refetch = vi.fn()
     mockUseArtists.mockReturnValue({
-      data: { artists: [], count: 0 },
+      data: { artists: [], total: 0, limit: 50, offset: 0 },
       isLoading: false,
       isFetching: false,
       error: new Error('Network error'),
@@ -423,6 +456,144 @@ describe('ArtistList', () => {
       // No derived default on /artists → empty selection clears the param
       // (null), unlike /shows' explicit ALL_CITIES sentinel (PSY-1390).
       expect(mockSetCities).toHaveBeenCalledWith(null)
+    })
+  })
+
+  // PSY-1774: the browse list is paged, because unbounded it answered with the
+  // whole 6,200-artist catalogue and 502'd through the proxy.
+  describe('pagination', () => {
+    const pagedArtists = [makeArtist({ id: 1, name: 'Artist One', slug: 'artist-one' })]
+
+    function mockPage(total: number, offset: number) {
+      mockUseArtists.mockReturnValue({
+        data: { artists: pagedArtists, total, limit: 50, offset },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+    }
+
+    it('requests the first page with the browse page size when no ?page= is set', () => {
+      mockPage(120, 0)
+
+      renderWithProviders(<ArtistList />)
+
+      expect(mockUseArtists).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 50, offset: 0 })
+      )
+    })
+
+    it('turns ?page=3 into the matching offset', () => {
+      mockGet.mockImplementation((key: string) => (key === 'page' ? '3' : null))
+      mockPage(300, 100)
+
+      renderWithProviders(<ArtistList />)
+
+      expect(mockUseArtists).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 50, offset: 100 })
+      )
+    })
+
+    it('counts the whole matching set, not the rows on this page', () => {
+      mockPage(6200, 0)
+
+      renderWithProviders(<ArtistList />)
+
+      // `artists.length` here would report "1 artist" over a catalogue of 6,200.
+      expect(screen.getByTestId('artist-count')).toHaveTextContent('6200 artists')
+    })
+
+    it('links page two from the current params, preserving ones it does not own', () => {
+      mockGet.mockImplementation((key: string) => {
+        if (key === 'tags') return 'post-punk'
+        if (key === 'utm_source') return 'newsletter'
+        return null
+      })
+      mockPage(120, 0)
+
+      renderWithProviders(<ArtistList />)
+
+      const pageTwo = screen.getAllByRole('link', { name: 'Page 2' })[0]
+      const href = pageTwo.getAttribute('href') ?? ''
+      expect(href).toContain('page=2')
+      // The params this component does not own must survive a page change —
+      // a from-scratch href builder drops them at the first click.
+      expect(href).toContain('utm_source=newsletter')
+      expect(href).toContain('tags=post-punk')
+    })
+
+    it('writes no ?page= for page one, so the head of the list has one URL', () => {
+      mockGet.mockImplementation((key: string) => (key === 'page' ? '3' : null))
+      mockPage(300, 100)
+
+      renderWithProviders(<ArtistList />)
+
+      const pageOne = screen.getAllByRole('link', { name: 'Page 1' })[0]
+      expect(pageOne.getAttribute('href')).toBe('/artists')
+    })
+
+    it('renders no pager when everything fits on one page', () => {
+      mockPage(1, 0)
+
+      renderWithProviders(<ArtistList />)
+
+      expect(screen.queryByTestId('pagination')).not.toBeInTheDocument()
+    })
+
+    it('resets the pager when the city filter changes', async () => {
+      const user = userEvent.setup()
+      mockUseArtistCities.mockReturnValue({
+        data: { cities: [{ city: 'Phoenix', state: 'AZ', artist_count: 5 }] },
+        isLoading: false,
+        isFetching: false,
+      })
+      mockGet.mockImplementation((key: string) => (key === 'page' ? '4' : null))
+      mockPage(300, 150)
+
+      renderWithProviders(<ArtistList />)
+      await user.click(screen.getByTestId('clear-filters'))
+
+      // A filter that narrows the set while `?page=4` survives lands the reader
+      // on an empty page they did not ask for.
+      expect(mockSetPage).toHaveBeenCalledWith(null)
+    })
+
+    it('drops ?page= when the tag filter changes', async () => {
+      const user = userEvent.setup()
+      mockGet.mockImplementation((key: string) => {
+        if (key === 'page') return '4'
+        if (key === 'tags') return 'post-punk'
+        return null
+      })
+      mockPage(300, 150)
+
+      renderWithProviders(<ArtistList />)
+      await user.click(screen.getByTestId('toggle-tag'))
+
+      const [href] = mockPush.mock.calls[0]
+      expect(href).toContain('tags=shoegaze')
+      expect(href).not.toContain('page=')
+    })
+
+    it('reports a page past the end as such, not as an empty catalogue', () => {
+      mockGet.mockImplementation((key: string) => (key === 'page' ? '99' : null))
+      mockUseArtists.mockReturnValue({
+        data: { artists: [], total: 120, limit: 50, offset: 4900 },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      renderWithProviders(<ArtistList />)
+
+      expect(
+        screen.getByText('That page is past the end of the list.')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('No artists available at this time.')
+      ).not.toBeInTheDocument()
     })
   })
 })

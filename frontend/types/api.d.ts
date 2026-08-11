@@ -12767,9 +12767,19 @@ export interface components {
             artists: components["schemas"]["ArtistWithShowCountResponse"][] | null;
             /**
              * Format: int64
-             * @description Number of artists
+             * @description Limit used in query
              */
-            count: number;
+            limit: number;
+            /**
+             * Format: int64
+             * @description Offset used in query
+             */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Total number of artists matching the filters, across every page
+             */
+            total: number;
         };
         ListCollectionsHandlerResponseBody: {
             /**
@@ -21377,6 +21387,10 @@ export interface operations {
                  * @example Phoenix,AZ|Mesa,AZ
                  */
                 cities?: string;
+                /** @description Maximum number of artists to return (max 200) */
+                limit?: number;
+                /** @description Offset for pagination */
+                offset?: number;
                 /**
                  * @description Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default (entity must have every tag); set tag_match=any for OR.
                  * @example post-punk,phoenix

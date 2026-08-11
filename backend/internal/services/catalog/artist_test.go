@@ -787,10 +787,11 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Onl
 	// artist2 has only a past show
 	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
 
-	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{})
+	resp, total, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{}, 50, 0)
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
+	suite.Equal(int64(1), total)
 	suite.Equal("Active Artist", resp[0].Name)
 	suite.Equal(1, resp[0].UpcomingShowCount)
 }
@@ -808,10 +809,11 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Sor
 	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
 	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 21))
 
-	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{})
+	resp, total, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{}, 50, 0)
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 2)
+	suite.Equal(int64(2), total)
 	// Sorted by count DESC
 	suite.Equal("Many Shows", resp[0].Name)
 	suite.Equal(3, resp[0].UpcomingShowCount)
@@ -823,10 +825,11 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Emp
 	// No artists with upcoming shows
 	suite.createTestArtist("No Shows Artist")
 
-	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{})
+	resp, total, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{}, 50, 0)
 
 	suite.Require().NoError(err)
 	suite.Empty(resp)
+	suite.Equal(int64(0), total)
 }
 
 func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_WithCityFilter() {
@@ -841,10 +844,11 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistsWithShowCounts_Wit
 	suite.createApprovedShowWithArtist(artist2.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
 	cities := []map[string]string{{"city": "Phoenix", "state": "AZ"}}
-	resp, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{"cities": cities})
+	resp, total, err := suite.artistService.GetArtistsWithShowCounts(map[string]interface{}{"cities": cities}, 50, 0)
 
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
+	suite.Equal(int64(1), total, "the total must count the FILTERED set, not the catalogue")
 	suite.Equal("PHX Artist", resp[0].Name)
 }
 

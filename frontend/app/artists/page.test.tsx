@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
 
-const { fetchSeoList } = vi.hoisted(() => ({ fetchSeoList: vi.fn() }))
+const { fetchSeoList, fetchListPayload, seedFirstScreen } = vi.hoisted(() => ({
+  fetchSeoList: vi.fn(),
+  fetchListPayload: vi.fn(),
+  seedFirstScreen: vi.fn(),
+}))
 vi.mock('@/lib/seo/fetchSeoList', () => ({ fetchSeoList }))
+vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
+vi.mock('@/lib/query-hydration', () => ({ seedFirstScreen }))
 
 // `ArtistList` is a client component pulling in nuqs, TanStack Query and the
 // whole filter surface. This suite is about the JSON-LD the SERVER emits, so the
@@ -15,6 +21,12 @@ vi.mock('@/features/artists', () => ({
 
 import ArtistsPage from './page'
 import { ARTIST_ITEM_LIST_LIMIT } from './artistsMetadata'
+import {
+  ARTIST_LIST_FIRST_SCREEN_KEY,
+  ARTIST_LIST_FIRST_SCREEN_URL,
+  artistEndpoints,
+  artistQueryKeys,
+} from '@/features/artists/api'
 
 const listingEntries = (count: number) =>
   Array.from({ length: count }, (_, i) => ({
@@ -113,5 +125,95 @@ describe('/artists JSON-LD ItemList', () => {
       d => d['@type'] === 'BreadcrumbList'
     )
     expect(crumb).toBeDefined()
+  })
+})
+
+/**
+ * The SERVER half of the first-screen pair (PSY-1774).
+ *
+ * `useArtistsFirstScreen.test.tsx` pins what the hooks request and key on. This
+ * pins what the page fetches and seeds. Both halves have to name the same
+ * constants, or the seed silently misses and the page reverts to rendering a
+ * spinner on the server: a failure that looks like nothing at all.
+ */
+describe('/artists server-seeded first screen', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchSeoList.mockResolvedValue([])
+    seedFirstScreen.mockResolvedValue({ mutations: [], queries: [] })
+  })
+
+  /**
+   * Invokes the async component nested under the page's Suspense boundary.
+   * Reached through the rendered tree rather than by exporting it, so the
+   * seeding stays an implementation detail of the route, which is what it is.
+   */
+  async function renderHydratedList() {
+    const walk = async (node: unknown): Promise<ReactElement | undefined> => {
+      if (Array.isArray(node)) {
+        for (const child of node) {
+          const hit = await walk(child)
+          if (hit) return hit
+        }
+        return undefined
+      }
+      if (!node || typeof node !== 'object') return undefined
+      const el = node as { type?: unknown; props?: Record<string, unknown> }
+      if (
+        typeof el.type === 'function' &&
+        (el.type as { name?: string }).name === 'HydratedArtistList'
+      ) {
+        return (await (el.type as (p: unknown) => Promise<ReactElement>)(
+          el.props
+        )) as ReactElement
+      }
+      if (el.props && 'children' in el.props) return walk(el.props.children)
+      return undefined
+    }
+    const found = await walk(await ArtistsPage())
+    expect(found, 'HydratedArtistList was not found under the page').toBeDefined()
+    return found!
+  }
+
+  it('fetches the paired first-screen URL and the city facets', async () => {
+    fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
+
+    await renderHydratedList()
+
+    expect(fetchListPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: ARTIST_LIST_FIRST_SCREEN_URL,
+        collection: 'artists',
+      })
+    )
+    // BOTH are required: ArtistList renders its spinner while EITHER query is
+    // loading, so seeding the rows alone server-renders a spinner.
+    expect(fetchListPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: artistEndpoints.CITIES,
+        collection: 'cities',
+      })
+    )
+  })
+
+  it('seeds the exact keys the hooks register', async () => {
+    fetchListPayload.mockResolvedValue({ artists: [], total: 0, limit: 50, offset: 0 })
+
+    await renderHydratedList()
+
+    expect(seedFirstScreen).toHaveBeenCalledWith([
+      { queryKey: ARTIST_LIST_FIRST_SCREEN_KEY, data: expect.anything() },
+      { queryKey: artistQueryKeys.cities, data: expect.anything() },
+    ])
+  })
+
+  it('renders the list unseeded when a fetch fails, rather than throwing', async () => {
+    fetchListPayload.mockResolvedValue(null)
+
+    await renderHydratedList()
+
+    // The component fetches for itself and owns the error state; handing
+    // error.tsx a page the browser could have rendered would be worse.
+    expect(seedFirstScreen).not.toHaveBeenCalled()
   })
 })

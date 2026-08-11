@@ -293,7 +293,7 @@ type MockArtistService struct {
 	GetArtistByNameFn          func(string) (*contracts.ArtistDetailResponse, error)
 	GetArtistBySlugFn          func(string) (*contracts.ArtistDetailResponse, error)
 	GetArtistsFn               func(map[string]interface{}) ([]*contracts.ArtistDetailResponse, error)
-	GetArtistsWithShowCountsFn func(map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error)
+	GetArtistsWithShowCountsFn func(map[string]interface{}, int, int) ([]*contracts.ArtistWithShowCountResponse, int64, error)
 	GetArtistListingFn         func() ([]contracts.ArtistListingEntry, error)
 	UpdateArtistFn             func(uint, *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error)
 	DeleteArtistFn             func(uint) error
@@ -351,11 +351,11 @@ func (m *MockArtistService) GetArtists(filters map[string]interface{}) ([]*contr
 	}
 	return nil, nil
 }
-func (m *MockArtistService) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+func (m *MockArtistService) GetArtistsWithShowCounts(filters map[string]interface{}, limit int, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
 	if m.GetArtistsWithShowCountsFn != nil {
-		return m.GetArtistsWithShowCountsFn(filters)
+		return m.GetArtistsWithShowCountsFn(filters, limit, offset)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 func (m *MockArtistService) GetArtistListing() ([]contracts.ArtistListingEntry, error) {
 	if m.GetArtistListingFn != nil {

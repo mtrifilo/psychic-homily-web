@@ -1,7 +1,20 @@
 import { Suspense } from 'react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { ArtistList, ArtistListSkeleton } from '@/features/artists'
+import {
+  ARTIST_LIST_FIRST_SCREEN_KEY,
+  ARTIST_LIST_FIRST_SCREEN_URL,
+  artistEndpoints,
+  artistQueryKeys,
+} from '@/features/artists/api'
+import type {
+  ArtistCitiesResponse,
+  ArtistsListResponse,
+} from '@/features/artists/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { seedFirstScreen } from '@/lib/query-hydration'
+import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { getArtistsForMetadata, type ArtistListItem } from './artistsMetadata'
 
 export const metadata = {
@@ -19,29 +32,33 @@ export const metadata = {
 }
 
 /**
- * WHY THE FIRST SCREEN IS NOT SERVER-SEEDED, so the next reader does not read
- * the omission as an oversight.
+ * HOW THE FIRST SCREEN CAME TO BE SERVER-SEEDED, since it was deliberately not
+ * seeded one change ago and the reason is worth keeping.
  *
  * `/shows` and `/venues` server-render their first screen by fetching exactly
  * what their client hook requests and seeding that exact cache key
- * (`HydratedShowList`, `HydratedVenueList`). `/artists` cannot do that yet, and
- * the blocker is in the API, not here: `GET /artists` declares no `limit` —
- * `ListArtistsRequest` carries only the filter parameters — so `useArtists`
- * sends none, and its cache key belongs to a request for the WHOLE catalogue.
- * Seeding it therefore means fetching all of it server-side, which
+ * (`HydratedShowList`, `HydratedVenueList`). `/artists` could not, and the
+ * blocker was in the API, not here: `GET /artists` declared no `limit` —
+ * `ListArtistsRequest` carried only the filter parameters — so `useArtists`
+ * sent none, and its cache key belonged to a request for the WHOLE catalogue.
+ * Seeding it therefore meant fetching all of it server-side, which
  *
- *   (a) is 3,233,345 raw bytes (measured 2026-08-08, see
+ *   (a) was 3,233,345 raw bytes (measured 2026-08-08, see
  *       `contracts.ArtistListingEntry`) against a ~1.5 MB raw ceiling, so
  *       `fetchListPayload` would raise `DataCacheBudgetError` and fail the
  *       build outright, and
  *   (b) would put the entire catalogue straight back into the flight payload
- *       that `ARTIST_ITEM_LIST_LIMIT` just removed it from.
+ *       that `ARTIST_ITEM_LIST_LIMIT` had just removed it from.
  *
- * Seeding only `artistQueryKeys.cities` does not rescue it either: `ArtistList`
- * renders its spinner while EITHER query is loading, so the server would still
- * emit a spinner, having paid for a cache entry to do it.
+ * PSY-1774 gave the endpoint a real `limit`, so `HydratedArtistList` below now
+ * fetches ONE PAGE — `ARTIST_LIST_FIRST_SCREEN_URL`, 50 artists — and both
+ * costs go with it: the Data Cache entry and the flight payload are sized by
+ * the page, not by the catalogue, which is the part a server-side slice could
+ * never have fixed.
  *
- * PSY-1774 bounds the browse request; the seed follows it, not the reverse.
+ * BOTH seeds are required, not just the rows. `ArtistList` renders its spinner
+ * while EITHER query is loading, so seeding the rows alone would still
+ * server-render a spinner, having paid for a cache entry to do it.
  *
  * The `ItemList` await below stays in the page body, matching `/shows` and
  * `/venues`. Moving it under the `Suspense` boundary was considered and buys
@@ -61,6 +78,45 @@ export const metadata = {
  * composed response it gets is shell plus resume — verify against `curl`, never
  * against the `.html` artifact, which is the trap here.
  */
+/**
+ * Seed the two cache entries `ArtistList` blocks its first paint on — the first
+ * page of artists and the city facet counts — so the artist rows reach the
+ * server HTML (PSY-1774, absorbing the seeding half of PSY-1773).
+ *
+ * A failed fetch renders `<ArtistList />` unseeded rather than throwing; the
+ * component fetches for itself and owns the error state (see
+ * `fetchListPayload`).
+ */
+async function HydratedArtistList() {
+  const [artists, cities] = await Promise.all([
+    fetchListPayload<ArtistsListResponse>({
+      url: ARTIST_LIST_FIRST_SCREEN_URL,
+      collection: 'artists',
+      service: 'artists-first-screen',
+    }),
+    fetchListPayload<ArtistCitiesResponse>({
+      url: artistEndpoints.CITIES,
+      collection: 'cities',
+      service: 'artist-cities-first-screen',
+    }),
+  ])
+
+  if (!artists || !cities) {
+    return <ArtistList />
+  }
+
+  const dehydratedState = await seedFirstScreen([
+    { queryKey: ARTIST_LIST_FIRST_SCREEN_KEY, data: artists },
+    { queryKey: artistQueryKeys.cities, data: cities },
+  ])
+
+  return (
+    <HydrationBoundary state={dehydratedState}>
+      <ArtistList />
+    </HydrationBoundary>
+  )
+}
+
 export default async function ArtistsPage() {
   const artists = await getArtistsForMetadata()
 
@@ -88,7 +144,7 @@ export default async function ArtistsPage() {
         <main className="w-full max-w-6xl px-4 py-8 md:px-8">
           <h1 className="text-3xl font-bold text-center mb-8">Artists</h1>
           <Suspense fallback={<ArtistListSkeleton />}>
-            <ArtistList />
+            <HydratedArtistList />
           </Suspense>
         </main>
       </div>

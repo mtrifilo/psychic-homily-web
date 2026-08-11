@@ -476,8 +476,8 @@ func (m *mockArtistServiceForEnrichment) GetArtistBySlug(slug string) (*contract
 func (m *mockArtistServiceForEnrichment) GetArtists(filters map[string]interface{}) ([]*contracts.ArtistDetailResponse, error) {
 	return nil, nil
 }
-func (m *mockArtistServiceForEnrichment) GetArtistsWithShowCounts(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
-	return nil, nil
+func (m *mockArtistServiceForEnrichment) GetArtistsWithShowCounts(filters map[string]interface{}, limit, offset int) ([]*contracts.ArtistWithShowCountResponse, int64, error) {
+	return nil, 0, nil
 }
 func (m *mockArtistServiceForEnrichment) GetArtistListing() ([]contracts.ArtistListingEntry, error) {
 	return nil, nil

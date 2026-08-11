@@ -1,14 +1,16 @@
 'use client'
 
 import { useCallback, useMemo, useTransition } from 'react'
+import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useQueryState } from 'nuqs'
+import { parseAsInteger, useQueryState } from 'nuqs'
 import { useArtists, useArtistCities } from '../hooks/useArtists'
+import { ARTIST_LIST_PAGE_LIMIT } from '../api'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
 import { citiesParser, ALL_CITIES } from '@/components/filters/cityParams'
-import { LoadingSpinner, DensityToggle } from '@/components/shared'
+import { LoadingSpinner, DensityToggle, Pagination } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
 import {
@@ -43,6 +45,17 @@ export function ArtistList() {
     return citiesState
   }, [citiesState])
 
+  // `?page=` via nuqs so a filter change can clear it in the SAME URL write as
+  // the filter itself — nuqs batches setters called in one tick into a single
+  // navigation. The pager writes this param as a plain `<Link href>` instead
+  // (crawlable, middle-clickable); nuqs reads it back off the URL either way.
+  const [pageParam, setPage] = useQueryState(
+    'page',
+    parseAsInteger.withDefault(1).withOptions({ history: 'push', startTransition })
+  )
+  const currentPage = Math.max(1, pageParam)
+  const offset = (currentPage - 1) * ARTIST_LIST_PAGE_LIMIT
+
   // Parse multi-tag from URL (PSY-309)
   const tagsParam = searchParams.get('tags')
   const tagMatchParam = searchParams.get('tag_match')
@@ -54,23 +67,70 @@ export function ArtistList() {
     cities: selectedCities.length > 0 ? selectedCities : undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     tagMatch,
+    limit: ARTIST_LIST_PAGE_LIMIT,
+    offset,
   })
 
+  /**
+   * Serializes a `/artists` URL from the params CURRENTLY in the address bar,
+   * overriding only the named keys (a `null` deletes one).
+   *
+   * Built by editing the live params rather than from a fixed key list so that
+   * anything this component knows nothing about — `utm_*`, `gclid`, share
+   * tokens — survives a page change. A from-scratch builder drops them at the
+   * first pagination click, which is exactly the bug PSY-1755 and PSY-1754
+   * each shipped once.
+   */
+  const buildArtistsHref = useCallback(
+    (overrides: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString())
+      for (const [key, value] of Object.entries(overrides)) {
+        if (value === null) params.delete(key)
+        else params.set(key, value)
+      }
+      const queryString = params.toString()
+      return queryString ? `/artists?${queryString}` : '/artists'
+    },
+    [searchParams]
+  )
+
+  /**
+   * Page links are real URLs so the strip is middle-clickable and shareable;
+   * the `<Link>` navigation writes the param and this component reads it back.
+   * Page one writes NO `?page=`, so the head of the list has one URL rather
+   * than two.
+   */
+  const artistPageHref = useCallback(
+    (nextPage: number) =>
+      buildArtistsHref({ page: nextPage > 1 ? String(nextPage) : null }),
+    [buildArtistsHref]
+  )
+
+  const scrollToTop = useCallback(
+    () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+    []
+  )
+
   // City changes write `?cities=` via nuqs (empty → null → bare URL; no
-  // default derivation on /artists, see PSY-496 note above).
+  // default derivation on /artists, see PSY-496 note above), and reset the
+  // pager in the same write: a filter that narrows the set while `?page=5`
+  // survives lands the reader on an empty page they did not ask for.
   const handleFilterChange = useCallback(
     (cities: CityState[]) => {
       void setCities(cities.length > 0 ? cities : null)
+      void setPage(null)
     },
-    [setCities]
+    [setCities, setPage]
   )
 
-  // Tag changes rewrite only the tag params, preserving `?cities=` verbatim.
+  // Tag changes rewrite only the tag params, preserving `?cities=` verbatim,
+  // and drop `?page=` for the same reason the city filter does.
   const writeTags = useCallback(
     (nextTags: string[], nextMatch: 'all' | 'any') => {
       const params = new URLSearchParams(searchParams.toString())
       params.delete('tags')
       params.delete('tag_match')
+      params.delete('page')
       if (nextTags.length > 0) {
         params.set('tags', buildTagsParam(nextTags))
         if (nextMatch === 'any') params.set('tag_match', 'any')
@@ -134,6 +194,13 @@ export function ArtistList() {
   })) ?? []
 
   const artists = data?.artists ?? []
+  // The whole matching set, not this page. `artists.length` here would caption
+  // "50 artists" over a catalogue of thousands.
+  const total = data?.total ?? 0
+  const totalPages = Math.ceil(total / ARTIST_LIST_PAGE_LIMIT)
+  // Only meaningful once a response has landed: before that `total` is 0 and
+  // every page looks past the end.
+  const isPastLastPage = total > 0 && currentPage > totalPages
   const hasTagFilter = selectedTags.length > 0
   const hasAnyFilter = hasTagFilter || selectedCities.length > 0
 
@@ -178,23 +245,40 @@ export function ArtistList() {
 
       <div className={`min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
         <p className="mb-3 text-sm text-muted-foreground" data-testid="artist-count">
-          {artists.length} {artists.length === 1 ? 'artist' : 'artists'}
+          {total} {total === 1 ? 'artist' : 'artists'}
           {hasTagFilter && ` matching ${selectedTags.join(', ')}`}
         </p>
         {artists.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            <p>
-              {hasAnyFilter
-                ? 'No artists match the current filters.'
-                : 'No artists available at this time.'}
-            </p>
-            {hasAnyFilter && (
-              <button
-                onClick={handleClearFilters}
-                className="mt-4 text-primary hover:underline"
-              >
-                Clear filters
-              </button>
+            {/*
+              A page past the end is its own state, not an empty catalogue: a
+              stale bookmark, or a filter that shrank the set under a deep
+              `?page=`. Reported as such rather than as "no artists", which
+              would tell the reader the list is empty when it is not.
+            */}
+            {isPastLastPage ? (
+              <p>
+                That page is past the end of the list.{' '}
+                <Link href={artistPageHref(1)} className="text-primary hover:underline">
+                  Back to page one
+                </Link>
+              </p>
+            ) : (
+              <>
+                <p>
+                  {hasAnyFilter
+                    ? 'No artists match the current filters.'
+                    : 'No artists available at this time.'}
+                </p>
+                {hasAnyFilter && (
+                  <button
+                    onClick={handleClearFilters}
+                    className="mt-4 text-primary hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </>
             )}
           </div>
         ) : (
@@ -212,6 +296,23 @@ export function ArtistList() {
             </div>
           </div>
         )}
+
+        {/* Hides itself at one page, so it needs no guard here. */}
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          pageHref={artistPageHref}
+          ariaLabel="Artists pagination"
+          previousLabel="Previous"
+          nextLabel="Next"
+          captionRange={
+            artists.length > 0
+              ? { start: offset + 1, end: offset + artists.length, total }
+              : undefined
+          }
+          onNavigate={scrollToTop}
+          className="mt-8"
+        />
       </div>
     </section>
   )
