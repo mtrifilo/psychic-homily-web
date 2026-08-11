@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -49,16 +50,39 @@ const (
 	// a show eight months out that will be re-published on every poll until then.
 	sceneFeedWindowDays = 60
 
-	// sceneFeedShowLimit bounds a single feed. A public endpoint must not let a
-	// dense metro turn one poll into an unbounded query. Chicago, the densest
-	// scene, runs roughly 50 shows a week, so 500 is about ten weeks of its
-	// listings — comfortably past the window above.
-	sceneFeedShowLimit = 500
+	// sceneFeedQuerySlack is how far BEFORE now the shows query reaches, so that
+	// a show still running on its own venue's local today is fetched and can be
+	// judged. See upcomingShowsForScene for why 26 hours and not 24.
+	sceneFeedQuerySlack = 26 * time.Hour
+
+	// sceneFeedShowLimit bounds a single feed, because a public endpoint must not
+	// let a dense metro turn one poll into an unbounded query.
+	//
+	// Unlike the venue feed's identical-looking cap, this one is REACHABLE, so it
+	// is derived rather than picked. Chicago is the densest scene in the catalog
+	// at roughly 50 shows a week (the figure sceneDayShowCap is also sized from),
+	// which is about 430 across this window — so a 500 cap would sit only 15%
+	// above today's peak on a catalog that is actively being ingested into.
+	// Overflow is not a graceful degradation either: the query orders by date, so
+	// the feed would silently lose the TAIL of its window, and a subscriber's
+	// client would delete the far-out events it had already synced. Sizing for
+	// double the current peak density keeps the WINDOW the binding constraint.
+	//
+	// The trade is memory: this cap times sceneFeedCacheMaxEntries, at roughly
+	// 450 bytes per event, is a ~58MB ceiling. The realistic figure is a small
+	// fraction of that — one scene approaches the cap today and most run tens of
+	// shows — but the ceiling is what matters for a public endpoint, so it is
+	// stated rather than hoped.
+	sceneFeedShowLimit = 1000
 
 	// sceneFeedCacheTTL is the in-process cache window, matching the venue
 	// feed's: calendar clients poll on their own schedule and can be aggressive,
 	// and this endpoint is anonymous, so repeated polls must not each cost a
 	// multi-query DB round trip.
+	//
+	// It compounds with the response's own public, max-age=900, so a cancellation
+	// entered now can take up to 20 minutes to reach a subscriber through a
+	// shared cache. That is the deliberate ceiling on staleness for this surface.
 	sceneFeedCacheTTL = 5 * time.Minute
 
 	// sceneFeedCacheMaxEntries caps the cache so a crawler walking every scene
@@ -66,6 +90,13 @@ const (
 	// rather than evicted LRU-style, exactly as the venue feed does it: the TTL
 	// is short, a cold rebuild is cheap, and a crude bound that is obviously
 	// correct beats an LRU that is subtly wrong.
+	//
+	// Sized to sit ABOVE the number of qualifying scenes, which is what makes the
+	// crude eviction safe here: while every real scene fits, the map is never
+	// dropped in normal operation. Should the catalog ever pass this count, a
+	// caller rotating through more than 128 valid slugs would keep the cache
+	// permanently cold — degrading to no caching rather than to unbounded memory,
+	// which is the safe direction, and the signal to switch to an LRU.
 	sceneFeedCacheMaxEntries = 128
 
 	// sceneFeedCalendarProductID identifies this generator per RFC 5545 3.7.3.
@@ -128,9 +159,13 @@ func (s *SceneCalendarService) GenerateSceneFeed(slug string, frontendURL string
 		return nil, fmt.Errorf("scene service not initialized")
 	}
 
-	// Resolves an alias to the scene's canonical display identity (a metro member
-	// slug lands on its principal city) and returns a not-found error for a slug
-	// that names no scene.
+	// Resolution ONLY: an alias becomes the scene's canonical display identity (a
+	// metro member slug lands on its principal city). It is NOT the existence
+	// check — a slug that pins a CBSA resolves happily whether or not the metro
+	// has a qualifying scene, and only a slug that pins neither a CBSA nor a
+	// verified venue errors here. Existence is enforced downstream by
+	// upcomingShowsForScene, which is where the below-threshold 404 comes from.
+	// Do not "optimize" that query away for a scene this call accepted.
 	city, state, err := s.sceneSvc.ParseSceneSlug(slug)
 	if err != nil {
 		return nil, err
@@ -164,7 +199,6 @@ func (s *SceneCalendarService) GenerateSceneFeed(slug string, frontendURL string
 
 	sum := sha256.Sum256(payload)
 	feed := contracts.SceneCalendarFeed{
-		SceneName: sceneDisplayName(city, state),
 		SceneSlug: sceneFeedSlug(city, state),
 		ICS:       payload,
 		ETag:      `W/"` + hex.EncodeToString(sum[:16]) + `"`,
@@ -183,20 +217,22 @@ func (s *SceneCalendarService) GenerateSceneFeed(slug string, frontendURL string
 // Phoenix venue, and a UTC-midnight cutoff would drop it from the feed hours
 // early.
 //
-// The query therefore asks for a day more than it keeps. Start-of-local-today is
-// always within 24 hours of now no matter what zone the room is in (it is "now
-// minus the local time of day", and a local time of day is under 24 hours), so a
-// 24-hour lower slack is exactly enough to guarantee no still-current show is
-// missed, and the per-venue filter below discards the rest. The slack is inside
-// sceneFeedShowLimit's headroom (see its note), so at most one day of already-
-// finished shows can eat into the cap.
+// The query therefore asks for more than it keeps, and the slack has to cover
+// the WORST case rather than the obvious one. Start-of-local-today is "now minus
+// the local time of day", which reads like a bound of 24 hours — but on a
+// DST fall-back day the local clock repeats an hour, so the gap runs to 24 hours
+// plus the transition (25h30m in Antarctica/Troll, whose shift is 2 hours, the
+// largest in the tz database). 26 hours covers every zone in every clock state.
+// Nothing still-current can fall outside it, and the per-venue filter below
+// discards the rest. The slack sits inside sceneFeedShowLimit's headroom (see
+// its note), so at most a day of already-finished shows can eat into the cap.
 //
 // Cancelled shows are deliberately INCLUDED — they are emitted with
 // STATUS:CANCELLED, so a subscriber sees the cancellation rather than the event
 // silently vanishing from their calendar.
 func (s *SceneCalendarService) upcomingShowsForScene(city, state string) ([]contracts.SceneShowSummary, error) {
 	now := time.Now().UTC()
-	from := now.Add(-24 * time.Hour)
+	from := now.Add(-sceneFeedQuerySlack)
 	to := now.AddDate(0, 0, sceneFeedWindowDays)
 
 	// time.UTC because this feed never reads SceneShowSummary.EventDate — the
@@ -206,10 +242,30 @@ func (s *SceneCalendarService) upcomingShowsForScene(city, state string) ([]cont
 	if err != nil {
 		return nil, err
 	}
+	if len(shows) == sceneFeedShowLimit {
+		// Hitting the cap means the feed is publishing less than its stated
+		// window, which a subscriber cannot see: their client simply drops the
+		// far-out events it had synced. Nothing here can fix that, so it is at
+		// least made visible to an operator as the signal to raise the cap or
+		// shorten the window.
+		logger.Default().Warn("scene_calendar_feed_truncated",
+			"city", city, "state", state, "limit", sceneFeedShowLimit,
+			"window_days", sceneFeedWindowDays)
+	}
 
+	// One zone lookup per DISTINCT timezone rather than one per show:
+	// time.LoadLocation re-reads the zoneinfo on every call, and a dense metro
+	// renders hundreds of shows across a handful of rooms in one or two zones.
+	zones := make(map[string]*time.Location)
 	upcoming := make([]contracts.SceneShowSummary, 0, len(shows))
 	for _, show := range shows {
-		if showHasNotHappenedYet(show, now) {
+		key := show.VenueTimezone + "|" + show.VenueState
+		loc, ok := zones[key]
+		if !ok {
+			loc = utils.EventLocation(nilIfEmpty(show.VenueTimezone), show.VenueState)
+			zones[key] = loc
+		}
+		if showHasNotHappenedYet(show, now, loc) {
 			upcoming = append(upcoming, show)
 		}
 	}
@@ -217,10 +273,24 @@ func (s *SceneCalendarService) upcomingShowsForScene(city, state string) ([]cont
 }
 
 // showHasNotHappenedYet reports whether a show still belongs in an upcoming
-// feed: its start instant is at or after the beginning of the current day in its
-// own venue's timezone.
-func showHasNotHappenedYet(show contracts.SceneShowSummary, now time.Time) bool {
-	loc := utils.EventLocation(optionalString(show.VenueTimezone), show.VenueState)
+// feed: its start instant is at or after the beginning of the current day in
+// loc, its own venue's timezone.
+//
+// scene_day.go warns at length that time.Date is unsafe for day boundaries, and
+// half of that warning applies here. Its DELETED-DATE case cannot: that file
+// takes a date from a URL, where a date the zone never had is addressable, while
+// this one reads the date off an instant, which by construction happened. Its
+// SKIPPED-MIDNIGHT case can — Havana has no 2026-03-08T00:00, and Go normalizes
+// BACKWARD to 23:00 on the 7th. That direction is why it is left alone: an
+// hour-early cutoff RETAINS an hour of last night's shows for one day a year.
+// Every way this can be wrong keeps a finished show visible; none of them hides
+// a real one, which is the only failure a subscriber would call a bug.
+//
+// The same asymmetry covers loc being wrong outright. utils.EventLocation falls
+// back to a US state map, so a non-US room with no stored venues.timezone is
+// judged on a US clock. DTSTART is unaffected (it is anchored on the true
+// instant), and the cutoff again errs toward keeping a show.
+func showHasNotHappenedYet(show contracts.SceneShowSummary, now time.Time, loc *time.Location) bool {
 	local := now.In(loc)
 	startOfLocalToday := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 	return !show.StartsAt.Before(startOfLocalToday)
@@ -289,6 +359,11 @@ func buildSceneCalendar(
 	frontendURL string,
 ) []byte {
 	sceneName := sanitizeICSText(sceneDisplayName(city, state))
+
+	// "Shows in {scene}" rather than the venue feed's "{venue} — Shows". This is
+	// copy a subscriber reads in their calendar app, and UI copy in this project
+	// carries no em dashes; the venue feed predates that rule. Do NOT "restore
+	// consistency" by adding one back here.
 	calendarName := "Shows in " + sceneName
 
 	cal := ics.NewCalendar()
@@ -323,7 +398,7 @@ func buildSceneCalendar(
 		// feed cannot copy the venue feed, which hoists a single zone to the whole
 		// calendar because every show in it is at one room.
 		setVenueLocalEventTimes(event, show.StartsAt, defaultShowDuration,
-			optionalString(show.VenueTimezone), show.VenueState)
+			nilIfEmpty(show.VenueTimezone), show.VenueState)
 
 		applyEventSummaryAndStatus(event, show.Title, show.ArtistNames, show.VenueName,
 			show.IsCancelled, show.IsSoldOut)
@@ -332,7 +407,7 @@ func buildSceneCalendar(
 		// address for verified venues only, so an unverified room's is "" here and
 		// formatEventLocation is handed nil rather than an empty segment.
 		location := sanitizeICSText(formatEventLocation(
-			show.VenueName, optionalString(show.VenueAddress), show.VenueCity, show.VenueState))
+			show.VenueName, nilIfEmpty(show.VenueAddress), show.VenueCity, show.VenueState))
 		if location != "" {
 			event.SetLocation(location)
 		}
@@ -375,10 +450,10 @@ func sceneFeedCacheKey(city, state string) string {
 	return city + "\x00" + state
 }
 
-// optionalString adapts an empty-string-means-absent field to the pointer form
+// nilIfEmpty adapts an empty-string-means-absent field to the pointer form
 // the shared calendar helpers take, so an absent value stays absent instead of
 // arriving as an empty segment.
-func optionalString(s string) *string {
+func nilIfEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}

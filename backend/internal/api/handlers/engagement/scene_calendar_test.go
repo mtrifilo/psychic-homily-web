@@ -24,7 +24,6 @@ func sceneFeedRequest(method, slug string) *http.Request {
 
 func stubSceneFeed() *contracts.SceneCalendarFeed {
 	return &contracts.SceneCalendarFeed{
-		SceneName: "Phoenix, AZ",
 		SceneSlug: "phoenix-az",
 		ICS:       []byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
 		ETag:      `W/"deadbeef"`,

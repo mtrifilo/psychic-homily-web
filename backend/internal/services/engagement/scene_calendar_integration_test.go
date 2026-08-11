@@ -104,10 +104,10 @@ func (s *SceneCalendarFeedSuite) seedShow(title string, at time.Time, status cat
 	return show
 }
 
-func (s *SceneCalendarFeedSuite) generate() (string, string, string) {
+func (s *SceneCalendarFeedSuite) generate() (string, string) {
 	feed, err := s.svc.GenerateSceneFeed(sceneIntegrationSlug, "https://psychichomily.com")
 	s.Require().NoError(err)
-	return string(feed.ICS), feed.SceneName, feed.SceneSlug
+	return string(feed.ICS), feed.SceneSlug
 }
 
 // --- cases ---
@@ -138,7 +138,7 @@ func (s *SceneCalendarFeedSuite) TestSelectsTheRightShows() {
 	s.Require().NoError(s.db.Create(&catalogm.ShowArtist{ShowID: upcoming.ID, ArtistID: support.ID, Position: 1, SetType: "support"}).Error)
 	s.Require().NoError(s.db.Create(&catalogm.ShowArtist{ShowID: upcoming.ID, ArtistID: headliner.ID, Position: 0, SetType: "headliner"}).Error)
 
-	body, sceneName, sceneSlug := s.generate()
+	body, sceneSlug := s.generate()
 
 	parsed, err := ics.ParseCalendar(strings.NewReader(body))
 	s.Require().NoError(err)
@@ -159,7 +159,7 @@ func (s *SceneCalendarFeedSuite) TestSelectsTheRightShows() {
 	s.Contains(body, "STATUS:CANCELLED")
 	s.Contains(body, "DTSTART;TZID=America/Phoenix:")
 	s.Contains(body, "Scene Feed Room")
-	s.Contains(unfoldScene(body), `Artists: Scene Feed Headliner\, Scene Feed Support`,
+	s.Contains(unfoldICS(body), `Artists: Scene Feed Headliner\, Scene Feed Support`,
 		"billing must follow show_artists.position, not artist id")
 
 	// DTSTAMP/SEQUENCE come from the supplemental revision query, so a broken
@@ -167,7 +167,9 @@ func (s *SceneCalendarFeedSuite) TestSelectsTheRightShows() {
 	s.NotContains(body, "DTSTAMP:00010101T000000Z")
 	s.Contains(body, "SEQUENCE:")
 
-	s.Equal("Testville, ZZ", sceneName)
+	// The alias resolved to the CANONICAL scene: its name is what the calendar
+	// publishes, and its slug is what the download is named after.
+	s.Contains(body, "X-WR-CALNAME:Shows in Testville\\, ZZ")
 	s.Equal("testville-zz", sceneSlug)
 }
 
@@ -184,9 +186,9 @@ func (s *SceneCalendarFeedSuite) TestNeverPublishesAnUnverifiedVenueAddress() {
 	s.seedShow("Basement Gig", now.Add(3*24*time.Hour), catalogm.ShowStatusApproved, false, unverified)
 	s.seedShow("Club Gig", now.Add(4*24*time.Hour), catalogm.ShowStatusApproved, false, verified)
 
-	raw, _, _ := s.generate()
+	raw, _ := s.generate()
 	// Unfolded, because a folded address would slip past a raw substring check.
-	body := unfoldScene(raw)
+	body := unfoldICS(raw)
 
 	s.NotContains(body, "1400 Secret House Show Ln",
 		"an unverified venue's street address must never reach a public feed")
@@ -221,7 +223,7 @@ func (s *SceneCalendarFeedSuite) TestQuietSceneServesAnEmptyCalendar() {
 	venue, _ := s.seedScene()
 	s.seedShow("Long Gone", time.Now().UTC().Add(-90*24*time.Hour), catalogm.ShowStatusApproved, false, venue)
 
-	body, _, _ := s.generate()
+	body, _ := s.generate()
 
 	parsed, err := ics.ParseCalendar(strings.NewReader(body))
 	s.Require().NoError(err)

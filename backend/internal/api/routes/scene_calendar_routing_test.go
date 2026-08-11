@@ -97,10 +97,15 @@ func TestSceneCalendarFeedIsNotExemptFromRateLimiting(t *testing.T) {
 	}
 }
 
-// ...and the limiter it lands on must actually cover the method the feed is
-// fetched with. limitReadMethodsOnly passes non-read methods straight through,
-// so a feed served over an uncovered method would be silently unmetered.
-func TestSceneCalendarFeedMethodsAreRateLimited(t *testing.T) {
+// ...and the limiter it lands on must cover BOTH methods the feed is fetched
+// with. limitReadMethodsOnly dispatches on r.Method alone and passes non-read
+// methods straight through, so a feed served over an uncovered method would be
+// silently unmetered.
+//
+// This pins the METHOD coverage only — the wrapper never sees a route, so the
+// path below is illustrative. That the feed's path lands on this limiter rather
+// than on an exemption is what the test above establishes.
+func TestPublicReadLimiterCoversSceneFeedMethods(t *testing.T) {
 	var limited []string
 	limiter := limitReadMethodsOnly(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

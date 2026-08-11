@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // These tests exercise the pure rendering half of the scene feed — everything
@@ -70,53 +71,10 @@ func renderSceneFeed(shows []contracts.SceneShowSummary) string {
 	return string(buildSceneCalendar("Phoenix", "AZ", shows, revisionsFor(shows, nil), sceneTestFrontendURL))
 }
 
-// unfoldScene reverses RFC 5545 3.1 line folding so a test can search the feed's
-// VALUES rather than its wire bytes. A property longer than 75 octets is split
-// across lines with CRLF plus one leading space or tab, which silently defeats a
-// plain substring assertion — a privacy test that greps for an address it must
-// NOT find would pass while the address sits in the payload, folded.
-func unfoldScene(feed string) string {
-	unfolded := strings.ReplaceAll(feed, "\r\n ", "")
-	unfolded = strings.ReplaceAll(unfolded, "\r\n\t", "")
-	unfolded = strings.ReplaceAll(unfolded, "\n ", "")
-	return strings.ReplaceAll(unfolded, "\n\t", "")
-}
-
-// sceneEventLines narrows the feed to the content lines of its FIRST VEVENT, so
-// a test can count REAL properties instead of substring-matching wire bytes.
-// Counting inside the component matters because the VCALENDAR carries its own
-// NAME / DESCRIPTION.
-func sceneEventLines(t *testing.T, feed string) []string {
-	t.Helper()
-	normalized := strings.ReplaceAll(unfoldScene(feed), "\r\n", "\n")
-	var (
-		event  []string
-		inside bool
-		done   bool
-	)
-	for _, line := range strings.Split(strings.TrimRight(normalized, "\n"), "\n") {
-		switch {
-		case line == "BEGIN:VEVENT" && !done:
-			inside = true
-		case line == "END:VEVENT" && inside:
-			inside, done = false, true
-		case inside:
-			event = append(event, line)
-		}
-	}
-	require.NotEmpty(t, event, "feed must contain a VEVENT")
-	return event
-}
-
-func countSceneProperty(lines []string, name string) int {
-	n := 0
-	for _, line := range lines {
-		if strings.HasPrefix(line, name+":") || strings.HasPrefix(line, name+";") {
-			n++
-		}
-	}
-	return n
-}
+// Line folding, VEVENT extraction and property counting are done with the
+// helpers calendar_test.go already defines for the sibling feeds (unfoldICS,
+// icsEventLines, countICSProperty). A second set in the same package is how a
+// weaker unfolder ends up guarding a privacy assertion.
 
 func TestSceneFeed_ParsesAsCalendar(t *testing.T) {
 	out := renderSceneFeed([]contracts.SceneShowSummary{
@@ -136,7 +94,7 @@ func TestSceneFeed_ParsesAsCalendar(t *testing.T) {
 	assert.Contains(t, out, "METHOD:PUBLISH")
 	assert.Contains(t, out, "X-WR-CALNAME:Shows in Phoenix\\, AZ")
 	// Commas are escaped as `\,` inside a TEXT value per RFC 5545.
-	assert.Contains(t, unfoldScene(out), `Artists: Headliner Band\, Support Act`,
+	assert.Contains(t, unfoldICS(out), `Artists: Headliner Band\, Support Act`,
 		"artists must be listed in billed order")
 }
 
@@ -242,7 +200,7 @@ func TestSceneFeed_CancelledShowIsPublishedAsCancelled(t *testing.T) {
 	assert.Contains(t, out, "UID:show-2@psychichomily.com")
 	assert.Contains(t, out, "SUMMARY:CANCELLED: Doomed Gig",
 		"clients that ignore STATUS still need a human-visible signal")
-	assert.Contains(t, unfoldScene(out), "This show has been cancelled.")
+	assert.Contains(t, unfoldICS(out), "This show has been cancelled.")
 }
 
 func TestSceneFeed_SoldOutIsMarked(t *testing.T) {
@@ -264,12 +222,12 @@ func TestSceneFeed_UntitledShowNamedAfterBill(t *testing.T) {
 			s.ArtistNames = []string{"Headliner Band", "Support Act"}
 		}),
 	})
-	assert.Contains(t, unfoldScene(billed), "SUMMARY:Headliner Band\\, Support Act")
+	assert.Contains(t, unfoldICS(billed), "SUMMARY:Headliner Band\\, Support Act")
 
 	bare := renderSceneFeed([]contracts.SceneShowSummary{
 		testSceneShow(1, func(s *contracts.SceneShowSummary) { s.Title = "" }),
 	})
-	assert.Contains(t, unfoldScene(bare), "SUMMARY:Show at The Rebel Lounge")
+	assert.Contains(t, unfoldICS(bare), "SUMMARY:Show at The Rebel Lounge")
 }
 
 // ICS is line-oriented and community members name venues, shows and bands.
@@ -307,9 +265,9 @@ func TestSceneFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T) {
 		event.GetProperty(ics.ComponentPropertySummary).Value,
 		"the whole hostile string must stay inside SUMMARY's value")
 
-	lines := sceneEventLines(t, out)
-	assert.Equal(t, 1, countSceneProperty(lines, "SUMMARY"))
-	assert.Equal(t, 1, countSceneProperty(lines, "DTSTART"))
+	lines := icsEventLines(t, out)
+	assert.Equal(t, 1, countICSProperty(lines, "SUMMARY"))
+	assert.Equal(t, 1, countICSProperty(lines, "DTSTART"))
 	assert.Nil(t, event.GetProperty("X-FORGED-VENUE"), "a venue name must not add a property")
 	assert.Nil(t, event.GetProperty("X-FORGED-ADDRESS"), "a venue address must not add a property")
 	assert.Nil(t, event.GetProperty("X-FORGED-SCENE"), "a scene name must not add a property")
@@ -339,8 +297,8 @@ func TestSceneFeed_HostileSlugCannotForgeAUrlProperty(t *testing.T) {
 	require.Len(t, parsed.Events(), 1)
 	event := parsed.Events()[0]
 
-	lines := sceneEventLines(t, out)
-	assert.Equal(t, 1, countSceneProperty(lines, "URL"), "a slug must not add a second URL property")
+	lines := icsEventLines(t, out)
+	assert.Equal(t, 1, countICSProperty(lines, "URL"), "a slug must not add a second URL property")
 	assert.Nil(t, event.GetProperty("X-FORGED-URL"))
 	assert.Nil(t, event.GetProperty(ics.ComponentPropertyAttendee),
 		"URL is written verbatim, so an unsanitized slug would forge a real ATTENDEE")
@@ -364,7 +322,7 @@ func TestSceneFeed_StripsUnicodeLineSeparators(t *testing.T) {
 	for _, sep := range []string{"\u0085", "\u2028", "\u2029"} {
 		assert.NotContains(t, out, sep, "no Unicode line separator may reach the payload")
 	}
-	assert.Equal(t, 1, countSceneProperty(sceneEventLines(t, out), "SUMMARY"))
+	assert.Equal(t, 1, countICSProperty(icsEventLines(t, out), "SUMMARY"))
 
 	parsed, err := ics.ParseCalendar(strings.NewReader(out))
 	require.NoError(t, err)
@@ -379,7 +337,7 @@ func TestSceneFeed_StripsUnicodeLineSeparators(t *testing.T) {
 // worst place for a house-show address to surface: an ICS LOCATION is copied
 // onto every subscriber's device, where a later redaction can never reach it.
 func TestSceneFeed_OmitsRedactedAddress(t *testing.T) {
-	out := unfoldScene(renderSceneFeed([]contracts.SceneShowSummary{
+	out := unfoldICS(renderSceneFeed([]contracts.SceneShowSummary{
 		testSceneShow(1, func(s *contracts.SceneShowSummary) {
 			s.VenueName = "Someone's Basement"
 			s.VenueAddress = "" // what the redaction gate produces
@@ -392,12 +350,12 @@ func TestSceneFeed_OmitsRedactedAddress(t *testing.T) {
 }
 
 func TestSceneFeed_LinksBackToShowPage(t *testing.T) {
-	out := unfoldScene(renderSceneFeed([]contracts.SceneShowSummary{testSceneShow(5, nil)}))
+	out := unfoldICS(renderSceneFeed([]contracts.SceneShowSummary{testSceneShow(5, nil)}))
 	assert.Contains(t, out, "https://psychichomily.com/shows/show-5-slug")
 }
 
 func TestSceneFeed_FallsBackToShowIDWhenSlugMissing(t *testing.T) {
-	out := unfoldScene(renderSceneFeed([]contracts.SceneShowSummary{
+	out := unfoldICS(renderSceneFeed([]contracts.SceneShowSummary{
 		testSceneShow(5, func(s *contracts.SceneShowSummary) { s.Slug = "" }),
 	}))
 	assert.Contains(t, out, "https://psychichomily.com/shows/5")
@@ -443,9 +401,15 @@ func TestSceneFeed_RenderIsDeterministic(t *testing.T) {
 		"DTSTAMP must come from the show's UpdatedAt, not time.Now(), or ETags churn")
 }
 
+// zoneOf resolves a show's venue zone the way the service does, so a test can
+// call the cutoff predicate directly.
+func zoneOf(show contracts.SceneShowSummary) *time.Location {
+	return utils.EventLocation(nilIfEmpty(show.VenueTimezone), show.VenueState)
+}
+
 // The upcoming cutoff is judged per show against the start of ITS OWN venue's
-// local today. This is the rule the 24-hour query slack exists to serve, and
-// getting it wrong drops tonight's show from the feed hours early.
+// local today. Getting it wrong drops tonight's show from the feed hours early,
+// which is the single most visible way this endpoint can be wrong.
 func TestShowHasNotHappenedYet_JudgedInTheVenuesOwnZone(t *testing.T) {
 	// 2026-08-15T05:00Z is 22:00 on Aug 14 in Phoenix and 00:00 on Aug 15 in
 	// Chicago, so the two rooms disagree about which local day it is.
@@ -454,13 +418,13 @@ func TestShowHasNotHappenedYet_JudgedInTheVenuesOwnZone(t *testing.T) {
 	phoenixEarlier := testSceneShow(1, func(s *contracts.SceneShowSummary) {
 		s.StartsAt = time.Date(2026, 8, 15, 3, 0, 0, 0, time.UTC) // 20:00 Aug 14 Phoenix
 	})
-	assert.True(t, showHasNotHappenedYet(phoenixEarlier, now),
+	assert.True(t, showHasNotHappenedYet(phoenixEarlier, now, zoneOf(phoenixEarlier)),
 		"a set that started earlier tonight is still tonight's show")
 
 	phoenixYesterday := testSceneShow(2, func(s *contracts.SceneShowSummary) {
 		s.StartsAt = time.Date(2026, 8, 14, 3, 0, 0, 0, time.UTC) // 20:00 Aug 13 Phoenix
 	})
-	assert.False(t, showHasNotHappenedYet(phoenixYesterday, now),
+	assert.False(t, showHasNotHappenedYet(phoenixYesterday, now, zoneOf(phoenixYesterday)),
 		"last night's show must not stay in an upcoming feed")
 
 	// Same instant as phoenixEarlier, but in Chicago it fell on the PREVIOUS
@@ -471,7 +435,7 @@ func TestShowHasNotHappenedYet_JudgedInTheVenuesOwnZone(t *testing.T) {
 		s.VenueState = "IL"
 		s.VenueTimezone = "America/Chicago"
 	})
-	assert.False(t, showHasNotHappenedYet(chicagoYesterday, now),
+	assert.False(t, showHasNotHappenedYet(chicagoYesterday, now, zoneOf(chicagoYesterday)),
 		"the Chicago day has already rolled over at this instant")
 
 	// A room with no stored zone still resolves through the state map.
@@ -479,7 +443,89 @@ func TestShowHasNotHappenedYet_JudgedInTheVenuesOwnZone(t *testing.T) {
 		s.StartsAt = time.Date(2026, 8, 15, 3, 0, 0, 0, time.UTC)
 		s.VenueTimezone = ""
 	})
-	assert.True(t, showHasNotHappenedYet(noZone, now))
+	assert.True(t, showHasNotHappenedYet(noZone, now, zoneOf(noZone)))
+}
+
+// stubSceneService records the window upcomingShowsForScene asks for and hands
+// back a fixed set of shows. It embeds the interface so the rest of the scene
+// surface stays unimplemented: any method this test does not expect the feed to
+// call panics rather than silently returning a zero value.
+type stubSceneService struct {
+	contracts.SceneServiceInterface
+
+	shows []contracts.SceneShowSummary
+
+	gotCity, gotState string
+	gotFrom, gotTo    time.Time
+	gotLoc            *time.Location
+	gotLimit          int
+}
+
+func (s *stubSceneService) GetSceneShowsInRange(
+	city, state string, from, to time.Time, loc *time.Location, limit int,
+) ([]contracts.SceneShowSummary, error) {
+	s.gotCity, s.gotState = city, state
+	s.gotFrom, s.gotTo, s.gotLoc, s.gotLimit = from, to, loc, limit
+	return s.shows, nil
+}
+
+// The query window is the half of the cutoff rule the predicate test cannot see:
+// a show can only be judged if it was FETCHED. Narrowing the lower bound to
+// `now` would drop a set that started earlier this evening from tonight's feed,
+// and every rendering test would still pass — so the bound is pinned here.
+func TestUpcomingShowsForScene_WindowAndFiltering(t *testing.T) {
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	require.NoError(t, err)
+
+	before := time.Now().UTC()
+	// Anchored on the venue's local day rather than on a fixed offset from now,
+	// so the case holds whatever time of day the suite runs at: one second into
+	// the local day is always at or before now, and always still "today".
+	local := before.In(phoenix)
+	startOfLocalToday := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, phoenix)
+
+	stub := &stubSceneService{shows: []contracts.SceneShowSummary{
+		testSceneShow(1, func(s *contracts.SceneShowSummary) {
+			s.StartsAt = startOfLocalToday.Add(time.Second)
+		}),
+		testSceneShow(2, func(s *contracts.SceneShowSummary) {
+			s.StartsAt = startOfLocalToday.Add(-time.Second)
+		}),
+		testSceneShow(3, func(s *contracts.SceneShowSummary) {
+			s.StartsAt = before.Add(48 * time.Hour)
+		}),
+	}}
+	svc := &SceneCalendarService{sceneSvc: stub}
+
+	got, err := svc.upcomingShowsForScene("Phoenix", "AZ")
+	require.NoError(t, err)
+	after := time.Now().UTC()
+
+	assert.Equal(t, "Phoenix", stub.gotCity)
+	assert.Equal(t, "AZ", stub.gotState)
+	assert.Equal(t, sceneFeedShowLimit, stub.gotLimit)
+	assert.Equal(t, time.UTC, stub.gotLoc,
+		"the feed anchors on StartsAt, so the date-rendering zone is irrelevant")
+
+	// The lower bound is exactly one sceneFeedQuerySlack behind the service's own
+	// clock, which this test brackets with `before` and `after`. Narrowing it to
+	// `now` — the plausible-looking bug — moves gotFrom a whole slack forward and
+	// fails the first assertion.
+	assert.False(t, stub.gotFrom.Before(before.Add(-sceneFeedQuerySlack)),
+		"query reached further back than the slack, got %s", stub.gotFrom)
+	assert.False(t, stub.gotFrom.After(after.Add(-sceneFeedQuerySlack)),
+		"query must reach a full sceneFeedQuerySlack before now, got %s", stub.gotFrom)
+
+	// ...and forward exactly the published window.
+	assert.False(t, stub.gotTo.Before(before.AddDate(0, 0, sceneFeedWindowDays)))
+	assert.False(t, stub.gotTo.After(after.AddDate(0, 0, sceneFeedWindowDays)))
+
+	ids := make([]uint, 0, len(got))
+	for _, show := range got {
+		ids = append(ids, show.ID)
+	}
+	assert.Equal(t, []uint{1, 3}, ids,
+		"a set from earlier today is kept; one from before the local day started is dropped")
 }
 
 func TestSceneFeedSlugAndCacheKey(t *testing.T) {
@@ -494,7 +540,6 @@ func TestSceneFeedSlugAndCacheKey(t *testing.T) {
 func TestSceneFeedCache_RoundTripAndBound(t *testing.T) {
 	svc := &SceneCalendarService{cache: map[string]sceneFeedCacheEntry{}}
 	feed := contracts.SceneCalendarFeed{
-		SceneName: "Phoenix, AZ",
 		SceneSlug: "phoenix-az",
 		ICS:       []byte("BEGIN:VCALENDAR"),
 		ETag:      `W/"abc"`,
@@ -530,7 +575,6 @@ func TestSceneFeedCache_RoundTripAndBound(t *testing.T) {
 func TestSceneFeedCache_ConcurrentAccessIsSafe(t *testing.T) {
 	svc := &SceneCalendarService{cache: map[string]sceneFeedCacheEntry{}}
 	feed := contracts.SceneCalendarFeed{
-		SceneName: "Phoenix, AZ",
 		SceneSlug: "phoenix-az",
 		ICS:       []byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
 		ETag:      `W/"abc"`,
