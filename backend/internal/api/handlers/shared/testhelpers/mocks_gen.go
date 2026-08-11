@@ -3567,7 +3567,7 @@ type MockShowService struct {
 	CreateShowFn              func(*contracts.CreateShowRequest) (*contracts.ShowResponse, error)
 	GetShowFn                 func(uint) (*contracts.ShowResponse, error)
 	GetShowBySlugFn           func(string) (*contracts.ShowResponse, error)
-	GetShowsFn                func(map[string]interface{}) ([]*contracts.ShowResponse, error)
+	GetShowsFn                func(map[string]interface{}, contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error)
 	GetUserSubmissionsFn      func(uint, int, int) ([]contracts.ShowResponse, int, error)
 	UpdateShowFn              func(uint, *contracts.UpdateShowRequest) (*contracts.ShowResponse, error)
 	UpdateShowWithRelationsFn func(uint, *contracts.UpdateShowRequest, []contracts.CreateShowVenue, []contracts.CreateShowArtist, bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
@@ -3595,11 +3595,11 @@ func (m *MockShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, e
 	}
 	return nil, nil
 }
-func (m *MockShowService) GetShows(filters map[string]interface{}) ([]*contracts.ShowResponse, error) {
+func (m *MockShowService) GetShows(filters map[string]interface{}, page contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
 	if m.GetShowsFn != nil {
-		return m.GetShowsFn(filters)
+		return m.GetShowsFn(filters, page)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 func (m *MockShowService) GetUserSubmissions(userID uint, limit int, offset int) ([]contracts.ShowResponse, int, error) {
 	if m.GetUserSubmissionsFn != nil {
