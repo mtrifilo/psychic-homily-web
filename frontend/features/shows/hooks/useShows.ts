@@ -12,7 +12,6 @@ import {
   showEndpoints,
   showQueryKeys,
   SHOW_CITIES_FIRST_SCREEN_URL,
-  TRANSITIONAL_TIMEZONE_PARAM,
 } from '@/features/shows/api'
 import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '../types'
 import { buildCitiesParam } from '@/components/filters/cityParams'
@@ -42,19 +41,14 @@ interface UseUpcomingShowsOptions {
  * in `features/shows/api.ts`. Do not reintroduce a per-viewer key segment here
  * without changing that contract too.
  *
- * The request does still carry a FIXED `timezone`, which the current backend
- * ignores; it exists only so this release is safe to deploy in either order and
- * safe to roll back. It is set FIRST so a no-filter call produces exactly
- * `UPCOMING_SHOWS_FIRST_SCREEN_URL`, and it is deliberately absent from the key
- * below. Both facts are asserted by `useShowsFirstScreen.test.tsx`. See
- * `TRANSITIONAL_TIMEZONE_PARAM`; PSY-1762 removes it.
+ * A no-argument call therefore sends NO query string at all, which is exactly
+ * `UPCOMING_SHOWS_FIRST_SCREEN_URL`. `useShowsFirstScreen.test.tsx` asserts that
+ * pairing against the real constants.
  */
 export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
   const { cursor, limit, city, state, cities, tags, tagMatch } = options
 
-  // Build query params. Timezone first: it is the only one a bare call sets, so
-  // its position fixes the byte-for-byte match with the seeded URL.
-  const params = new URLSearchParams(TRANSITIONAL_TIMEZONE_PARAM)
+  const params = new URLSearchParams()
   if (cursor) params.set('cursor', cursor)
   if (limit) params.set('limit', limit.toString())
 
@@ -71,9 +65,16 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     if (tagMatch === 'any') params.set('tag_match', 'any')
   }
 
-  // `params` always carries the transitional timezone, so the ternary the old
-  // shape needed is gone: the query string is never empty.
-  const endpoint = `${showEndpoints.UPCOMING}?${params.toString()}`
+  // The `?` only when there is something to put after it, so a bare call
+  // produces `UPCOMING_SHOWS_FIRST_SCREEN_URL` exactly. Whether the server's
+  // seed is a HIT is decided by the KEY, not by this string — but the exported
+  // constant is what `app/shows/page.tsx` fetches server-side, and it is only an
+  // honest description of what this hook requests while the two stay identical.
+  // `useShowsFirstScreen.test.tsx` is what holds them together.
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${showEndpoints.UPCOMING}?${queryString}`
+    : showEndpoints.UPCOMING
 
   return useQuery({
     queryKey: showQueryKeys.list({
@@ -116,9 +117,8 @@ export const useShow = (showId: string | number) => {
  *
  * Takes no options and keys on nothing per-viewer: the counts cover the same
  * venue-local upcoming partition `useUpcomingShows` lists, so every viewer gets
- * the same answer (PSY-1678). It requests the seeded URL directly, which carries
- * the transitional timezone the current backend ignores — same reasoning, and
- * the same one-release lifetime, as `useUpcomingShows`.
+ * the same answer (PSY-1678). It requests the seeded URL directly, which is the
+ * bare endpoint — there is nothing per-viewer left to put in it.
  */
 export const useShowCities = () => {
   return useQuery({

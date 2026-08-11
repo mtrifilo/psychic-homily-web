@@ -1,5 +1,16 @@
 # Artist Pages Feature Design
 
+> **Historical design proposal — do not copy code from it.** The endpoint
+> shapes, hook signatures and cache keys sketched below were superseded by what
+> actually shipped: read `features/artists/api.ts` (endpoints and
+> `artistQueryKeys`) and `features/artists/hooks/useArtists.ts` instead. Two
+> concrete traps if you skim it anyway: the request examples send a `timezone`
+> the backend has documented as deprecated and ignored since PSY-1678 (the
+> upcoming/past split is made in each show's own venue-local day), and the
+> `useArtistShows` sketch keys on artist + time filter only, which is exactly
+> the cross-caller cache collision PSY-1754 had to fix. The document is left as
+> written so it still reads as the proposal it was.
+
 ## Overview
 
 This document outlines the design for individual artist pages, allowing users to click on any artist name throughout the application and view detailed information about that artist, including their social links, upcoming and past shows, and an embedded Bandcamp player featuring their latest release.

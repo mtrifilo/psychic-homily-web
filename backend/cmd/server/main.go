@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -195,6 +196,38 @@ func main() {
 	if err := db.AssertRequiredSchema(database); err != nil {
 		log.Fatalf("PSY-1384 schema assertion: %v", err)
 	}
+
+	// PSY-1761: bring the venue-local zone guard's allowlist up to date with
+	// this server's catalog. Boot is when it is most likely to have moved — a
+	// Postgres upgrade, a base-image bump or a restore is what changes
+	// pg_timezone_names, and all three restart this process.
+	//
+	// Unconditional, but OFF the boot path. Nothing downstream waits on it: the
+	// table is seeded by its own migration, so until this lands the guard is
+	// merely as fresh as the last deploy, which is today's behaviour and not
+	// worse. Blocking the listener on it would trade a real risk (a slow
+	// database stalling the healthcheck) for no gain. Bounded anyway, so a
+	// hung query cannot leak a goroutine for the process's lifetime.
+	//
+	// Not a shared.RunScheduledLoop service: this is a one-shot reconcile, and
+	// the recurring cadence (plus its overdue-sweep alerting) already belongs
+	// to VenueTimezoneSweep, which refreshes the same table on every cycle.
+	go func() {
+		// Recovered explicitly. A bare goroutine is outside both
+		// shared.RunScheduledLoop's recover and the Sentry panic handler, so an
+		// unrecovered panic here would take the whole server down at boot to
+		// protect a refresh that is, by design, optional.
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("timezone snapshot refresh panicked; the venue-local zone guard "+
+					"is running against a possibly stale allowlist", "panic", r)
+				sentry.CurrentHub().Recover(r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		catalog.RefreshAndReportTimezoneNamesSnapshot(ctx, database, slog.Default())
+	}()
 
 	// Setup Goth authentication
 	if err := auth.SetupGoth(cfg); err != nil {

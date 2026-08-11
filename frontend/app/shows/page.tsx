@@ -2,8 +2,8 @@ import { Suspense, cache } from 'react'
 import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
 // Imported by path rather than through the `@/features/scenes` barrel, which
-// is a surface of client components (`SceneList`, `ScenePulseCard`, the Atlas
-// globe). This is a server component that needs none of them, and the sibling
+// is a surface of client components (`SceneList`, `ScenePreviewPanel`, the
+// Atlas globe). This is a server component that needs none of them, and the sibling
 // page-level scene components — `SceneWeekView`, `SceneDayView` — are imported
 // by path for the same reason. NOTE: maplibre is safe either way — AtlasGlobe
 // dynamic-imports its canvas. The force graph is NOT: `ForceGraphView` was
@@ -81,17 +81,20 @@ export const UPCOMING_SHOWS_LIMIT = 50
  * four separate Data Cache entries with four separate budgets, and what bounds
  * each differs:
  *
- *   fetch                          raw      base64   % cap   bounded by
- *   -----------------------------  -------  -------  ------  ------------------
- *   /shows/upcoming?timezone=…&…50  80,327  107,104    5.1%  this file's limit
- *   /shows/upcoming?timezone=…      80,327  107,104    5.1%  backend default:"50"
- *   /shows/cities?timezone=…         8,948   11,932    0.6%  one row per city
- *   /scenes                          7,256    9,676    0.5%  UNBOUNDED
+ *   fetch                      raw      base64   % cap   bounded by
+ *   -------------------------  -------  -------  ------  --------------------
+ *   /shows/upcoming?limit=50    80,327  107,104    5.1%  this file's limit
+ *   /shows/upcoming             80,327  107,104    5.1%  backend default:"50"
+ *   /shows/cities                8,948   11,932    0.6%  one row per city
+ *   /scenes                      7,256    9,676    0.5%  UNBOUNDED
  *
- * The `timezone` on the first three is inert as of PSY-1678 and is removed by
- * PSY-1762; it is still in the URL, so it is still part of the cache KEY, but it
- * cannot move any of the sizes above — it never changed the row count, only
- * which day's rows came back.
+ * The first three URLs have since lost a `timezone` the backend ignores. That
+ * re-keyed their Data Cache entries; the row set and the payload size are
+ * unchanged, so the measurement stands. (The `/shows/upcoming` response — not
+ * `/shows/cities`, which has no such field — echoes the parameter back as a
+ * top-level scalar, which now reads the handler's `UTC` default instead of what
+ * the caller sent. Nothing consumes it; show times render from each venue's own
+ * zone.)
  *
  * So "the limit protects it" is true of the ItemList fetch only. The seed URL
  * deliberately omits `limit` (see the note above) and is held at 50 by the
@@ -138,11 +141,11 @@ export const UPCOMING_SHOWS_LIMIT = 50
  */
 const getUpcomingShowsPayload = cache(() =>
   fetchListPayload<UpcomingShowsResponse>({
-    // `&`, not `?`: the first-screen URL already carries the transitional
-    // timezone query string. The endpoint decides "upcoming" against each show's
-    // own venue zone (PSY-1678) and ignores that parameter, so this JSON-LD
-    // block advertises exactly the rows the page renders.
-    url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}&limit=${UPCOMING_SHOWS_LIMIT}`,
+    // `?`, not `&`: the first-screen URL is the bare endpoint, so this is the
+    // only parameter. The endpoint decides "upcoming" against each show's own
+    // venue zone (PSY-1678), so this block advertises exactly the rows the page
+    // renders.
+    url: `${UPCOMING_SHOWS_FIRST_SCREEN_URL}?limit=${UPCOMING_SHOWS_LIMIT}`,
     collection: 'shows',
     service: 'shows-listing',
     timeoutMs: BUILD_TIME_API_FETCH_TIMEOUT_MS,
@@ -173,9 +176,11 @@ function getShowName(show: ShowListItem): string {
  * The rows are a SEPARATE fetch from the `ItemList`'s `getUpcomingShowsPayload`
  * above, against the bare first-screen URL rather than that one's explicit
  * `limit`. That is deliberate on both counts and the reasoning is on
- * `getUpcomingShowsPayload`: they need different abort budgets, and this one has
- * to request exactly what the client hook will request or the seed is not the
- * entry the hook reads. Two Data Cache entries, invalidated together. Do not
+ * `getUpcomingShowsPayload`: they need different abort budgets, and this one
+ * requests exactly what the client hook requests. The seed lands by KEY either
+ * way; matching the URL is what keeps `UPCOMING_SHOWS_FIRST_SCREEN_URL` an
+ * honest description of the hook's request. Two Data Cache entries — this one
+ * and the ItemList's, which differ by `?limit=` — invalidated together. Do not
  * "dedupe" them onto one call without reading that block first.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the

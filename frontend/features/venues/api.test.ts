@@ -72,35 +72,18 @@ describe('venueQueryKeys', () => {
   })
 
   it('keys a shows PAGE on every parameter that changes the response body', () => {
-    // PSY-1698: limit and timezone used to be absent from the key while
-    // callers still varied them, so a 20-row preview and the venue page's
-    // 50-row list shared one entry.
+    // PSY-1698: `limit` used to be absent from the key while callers still
+    // varied it, so a 20-row preview and the venue page's 50-row list shared
+    // one entry.
     expect(
-      venueQueryKeys.showsPage(42, {
-        timeFilter: 'upcoming',
-        limit: 50,
-        timezone: 'America/Phoenix',
-      }),
-    ).toEqual([
-      'venues',
-      'shows',
-      '42',
-      'upcoming',
-      50,
-      'America/Phoenix',
-      null,
-      null,
-    ])
+      venueQueryKeys.showsPage(42, { timeFilter: 'upcoming', limit: 50 }),
+    ).toEqual(['venues', 'shows', '42', 'upcoming', 50, null, null])
   })
 
   it('keys a shows page on its year and offset (PSY-1753)', () => {
     // The past archive pages by offset within a year; without both in the key
     // every page of every year would answer for the first one fetched.
-    const base = {
-      timeFilter: 'past',
-      limit: 50,
-      timezone: 'America/Phoenix',
-    } as const
+    const base = { timeFilter: 'past', limit: 50 } as const
     const firstPage2025 = venueQueryKeys.showsPage(42, { ...base, year: 2025 })
     const secondPage2025 = venueQueryKeys.showsPage(42, {
       ...base,
@@ -131,17 +114,10 @@ describe('venueQueryKeys', () => {
   })
 
   it('gives differently-parameterized shows requests distinct keys', () => {
-    const base = { timeFilter: 'upcoming', timezone: 'America/Phoenix' } as const
+    const base = { timeFilter: 'upcoming' } as const
     const venuePage = venueQueryKeys.showsPage(42, { ...base, limit: 50 })
     const preview = venueQueryKeys.showsPage(42, { ...base, limit: 20 })
     expect(preview).not.toEqual(venuePage)
-
-    const utc = venueQueryKeys.showsPage(42, {
-      timeFilter: 'upcoming',
-      limit: 50,
-      timezone: 'UTC',
-    })
-    expect(utc).not.toEqual(venuePage)
 
     const past = venueQueryKeys.showsPage(42, {
       ...base,
@@ -154,13 +130,12 @@ describe('venueQueryKeys', () => {
   it('normalizes omitted params to null rather than a key hole', () => {
     expect(
       venueQueryKeys.showsPage(42, { timeFilter: 'upcoming', limit: 20 }),
-    ).toEqual(['venues', 'shows', '42', 'upcoming', 20, null, null, null])
+    ).toEqual(['venues', 'shows', '42', 'upcoming', 20, null, null])
     expect(venueQueryKeys.showsPage(42, { timeFilter: 'upcoming' })).toEqual([
       'venues',
       'shows',
       '42',
       'upcoming',
-      null,
       null,
       null,
       null,
@@ -174,7 +149,6 @@ describe('venueQueryKeys', () => {
     const page = venueQueryKeys.showsPage(42, {
       timeFilter: 'upcoming',
       limit: 50,
-      timezone: 'America/Phoenix',
     })
     expect(page.slice(0, prefix.length)).toEqual([...prefix])
   })

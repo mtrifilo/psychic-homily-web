@@ -203,7 +203,14 @@ func (h *SceneHandler) representativeEmbed(ctx context.Context, city, state stri
 type GetSceneShowsRequest struct {
 	Slug  string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
 	Days  int    `query:"days" default:"7" minimum:"1" maximum:"30" doc:"Window in days — shows with event_date inside [now, now+days)"`
-	Limit int    `query:"limit" default:"3" minimum:"1" maximum:"20" doc:"Maximum number of shows to return, soonest first"`
+	// The 20-row ceiling this replaces was sized for the Atlas preview's
+	// three-row peek. The scene page asks the same endpoint for a four-week
+	// calendar, and on a scene like Phoenix (300+ upcoming) 20 rows is under
+	// three days, so a page headed "next 4 weeks" could never render four
+	// weeks. 200 is calendar-scale and still bounded; the nightly page's own
+	// cap is 100 for a SINGLE night. The default is unchanged, so every
+	// existing caller behaves exactly as before.
+	Limit int `query:"limit" default:"3" minimum:"1" maximum:"200" doc:"Maximum number of shows to return, soonest first"`
 }
 
 // GetSceneShowsResponse represents the response for a scene's upcoming shows.

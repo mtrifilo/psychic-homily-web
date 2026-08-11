@@ -29,14 +29,13 @@ vi.mock('@/features/venues/api', () => ({
     // the genuine one.
     showsPage: (
       venueId: string | number,
-      params: { timeFilter: string; limit?: number; timezone?: string },
+      params: { timeFilter: string; limit?: number },
     ) => [
       'venues',
       'shows',
       String(venueId),
       params.timeFilter,
       params.limit ?? null,
-      params.timezone ?? null,
     ],
     cities: ['venues', 'cities'],
   },
@@ -323,20 +322,6 @@ describe('useVenues', () => {
         '/venues/1/shows?limit=20&time_filter=upcoming',
         { method: 'GET' }
       )
-    })
-
-    it('includes timezone in query params', async () => {
-      mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
-
-      const { result } = renderHook(
-        () => useVenueShows({ venueId: 1, timezone: 'America/Phoenix' }),
-        { wrapper: createWrapper() }
-      )
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      const calledUrl = mockApiRequest.mock.calls[0][0]
-      expect(calledUrl).toContain('timezone=America%2FPhoenix')
     })
 
     it('supports upcoming time filter', async () => {

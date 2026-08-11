@@ -120,7 +120,6 @@ export const useArtist = createNamedDetailHook<Artist, 'artistId'>(
 
 interface UseArtistShowsOptions {
   artistId: string | number
-  timezone?: string
   limit?: number
   enabled?: boolean
   timeFilter?: ArtistTimeFilter
@@ -152,7 +151,6 @@ interface UseArtistShowsOptions {
 export function useArtistShows(options: UseArtistShowsOptions) {
   const {
     artistId,
-    timezone,
     limit = 20,
     enabled = true,
     timeFilter = 'upcoming',
@@ -164,15 +162,13 @@ export function useArtistShows(options: UseArtistShowsOptions) {
   // Resolved ONCE, because the URL and the cache key have to be built from the
   // same values or they disagree about what is in the entry. Anything falsy
   // drops out of the URL and lets the backend default apply, so the key records
-  // what was SENT rather than the argument the caller passed: `timezone: ''` and
-  // an omitted timezone are one request and must be one entry.
+  // what was SENT rather than the argument the caller passed.
   //
   // The load-bearing case is `offset`. Page 1's offset is 0, which is not sent,
   // and `artistPastShowsPageParams` says so with `undefined` — so the archive's
   // cache PEEK at its neighbour pages only ever finds page 1 while this
   // normalization and that helper agree. Nothing throws when they drift; the
   // page labels just silently stop appearing.
-  const sentTimezone = timezone || undefined
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined
   // Last line of defence, not the URL guard. Callers own year validation —
@@ -190,7 +186,6 @@ export function useArtistShows(options: UseArtistShowsOptions) {
 
   // Build query params
   const params = new URLSearchParams()
-  if (sentTimezone) params.set('timezone', sentTimezone)
   if (sentLimit) params.set('limit', sentLimit.toString())
   if (sentOffset) params.set('offset', sentOffset.toString())
   if (sentYear) params.set('year', sentYear.toString())
@@ -202,13 +197,12 @@ export function useArtistShows(options: UseArtistShowsOptions) {
     : artistEndpoints.SHOWS(artistId)
 
   return useQuery({
-    // Keyed on the request, not just the artist: `limit`, `timezone`, `year`
-    // and `offset` each change the response body, so callers asking different
-    // questions get different entries (PSY-1754).
+    // Keyed on the request, not just the artist: `limit`, `year` and `offset`
+    // each change the response body, so callers asking different questions get
+    // different entries (PSY-1754).
     queryKey: artistQueryKeys.showsPage(artistId, {
       timeFilter,
       limit: sentLimit,
-      timezone: sentTimezone,
       year: sentYear,
       offset: sentOffset,
     }),

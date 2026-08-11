@@ -1019,10 +1019,11 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 // Deprecated parameter: timezone is accepted and ignored. It used to set the
 // boundary from the CALLER's zone, which made the same show upcoming for one
 // reader and past for another. Kept in the signature because removing it is a
-// breaking change for every caller; frontend call sites drop the query param in
-// PSY-1698. Do not add new callers that pass a meaningful value. (It is also
-// the only knob assertSamePartitionForEveryCallerZone can vary to prove the
-// boundary no longer moves with the reader, so the tests outlive the callers.)
+// breaking change for every caller; the frontend stopped sending it in
+// PSY-1762. Do not add new callers that pass a meaningful value. (It
+// is also the only knob assertSamePartitionForEveryCallerZone can vary to prove
+// the boundary no longer moves with the reader, so the tests outlive the
+// callers.)
 func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, query contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")

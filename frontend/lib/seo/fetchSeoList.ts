@@ -100,7 +100,11 @@ interface SeoListOptions {
  * Every non-OK status is reported, not just 5xx: a 4xx here is a defect in our
  * own request rather than a backend outage, both ends being ours. Treating one
  * as unremarkable is how `/venues?limit=200` rendered without its `ItemList` in
- * production for months — see the note on `VENUE_LIST_LIMIT`.
+ * production for months — see `app/venues/venuesMetadata.ts`.
+ *
+ * A SHORT LIST IS REPORTED TOO, which is the other half of the same lesson: a
+ * 200 carrying part of the set looks exactly like a 200 carrying all of it from
+ * here. See `reportShortfall`.
  */
 export async function fetchSeoList<T>({
   url,
@@ -132,7 +136,9 @@ export async function fetchSeoList<T>({
         // every caller dereferences `item.slug` OUTSIDE this try block, so one
         // null element would 500 the page — with no Sentry event, since the
         // throw escapes this catch. `app/sitemap.ts` guards the same hazard.
-        return items.filter(item => item != null) as T[]
+        const list = items.filter(item => item != null) as T[]
+        reportShortfall({ url, service, collection, received: list.length, body })
+        return list
       }
       Sentry.captureMessage(`${service}: response has no "${collection}" array`, {
         level: 'error',
@@ -157,4 +163,66 @@ export async function fetchSeoList<T>({
     })
   }
   return []
+}
+
+/**
+ * Report a list that came back shorter than the response says the set is.
+ *
+ * One event, two causes, and the message names neither: whatever the reason, an
+ * `ItemList` is enumerating less than the set the API says exists. A paginated
+ * endpoint reporting a larger `total` means rows were left on the next page; a
+ * listing projection reporting one (`/venues/listing`) means rows the browse set
+ * contains cannot form a URL. Both are the same defect to a crawler and both
+ * want a human. See `app/venues/venuesMetadata.ts` for the history that made
+ * this worth generalising rather than fixing at one call site.
+ *
+ * A MISSING `total` MEANS UNKNOWN, NOT ZERO. An endpoint that reports no total
+ * is not claiming a larger set, so it must not be read as a shortfall of
+ * everything returned. THIS LEAVES `/artists` UNCOVERED: `GET /artists/listing`
+ * drops slugless artists exactly as the venue endpoint does but reports no
+ * total, so this returns early for it and that ItemList still shortens in
+ * silence. Giving it a total is a ~6-line mirror of the venue change and is
+ * deliberately not done here — it is a second endpoint's contract, and `/venues`
+ * is the one PSY-1764 scoped. Do not read this helper's generality as coverage.
+ *
+ * It does NOT fail the render, for the reason the whole helper fails open: a
+ * partial `ItemList` is worth more to a crawler than none, and a page humans can
+ * read is worth more than either. The event is the point.
+ *
+ * WARNING, NOT ERROR, because of what can actually trigger it. On an endpoint
+ * with no limit the reachable cause is a venue whose slug cannot be generated —
+ * a data condition that no deploy clears, on a page that regenerates hourly. At
+ * error level that is an unclearable page, and the issue it opens is the same
+ * issue a real truncation would land in, so raising the severity would end up
+ * muting both. A warning is visible without being a false alarm.
+ *
+ * The message deliberately carries NO numbers, so Sentry groups every occurrence
+ * into one issue per service rather than a new one per revalidation; the counts
+ * ride in `extra`.
+ */
+function reportShortfall({
+  url,
+  service,
+  collection,
+  received,
+  body,
+}: {
+  url: string
+  service: string
+  collection: string
+  received: number
+  body: Record<string, unknown> | null | undefined
+}): void {
+  const total = body?.total
+  if (typeof total !== 'number' || !Number.isFinite(total)) return
+  if (received >= total) return
+
+  Sentry.captureMessage(
+    `${service}: list is short of the total the API reports — the ${collection} ItemList is advertising a subset`,
+    {
+      level: 'warning',
+      tags: { service },
+      extra: { url, received, total, missing: total - received },
+    }
+  )
 }

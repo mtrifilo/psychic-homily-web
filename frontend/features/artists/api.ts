@@ -87,29 +87,6 @@ export const ARTIST_PAST_SHOWS_PAGE_LIMIT = 50
  */
 export const ARTIST_UPCOMING_SHOWS_LIMIT = 200
 
-/**
- * The timezone every artist-shows caller should send.
- *
- * The backend now documents this param as deprecated and ignored — the
- * upcoming/past split is made in each show's own venue-local zone — but it is
- * still sent, and still keyed, for the same reason the venue side sends it: an
- * older deployment behind the same URL DOES read it, and a key that ignored it
- * would let a request made under one boundary answer for another. Rendering is
- * always done in the VENUE's zone (PSY-985/986), never this one.
- *
- * Evaluated at import, and this module reaches the server graph (via
- * `lib/queryClient.ts`), so on the server this resolves to the SERVER's zone.
- * Since PSY-1754 it is part of `artistQueryKeys.showsPage()`, which makes one
- * fact load-bearing: no route may server-prefetch artist shows. Seeding the
- * cache from a server component would compute this key under the server's zone
- * and the browser would then look under its own, missing the seed silently.
- * Today no route does.
- */
-export const ARTIST_SHOWS_VIEWER_TIMEZONE =
-  typeof Intl !== 'undefined'
-    ? Intl.DateTimeFormat().resolvedOptions().timeZone
-    : 'UTC'
-
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -132,12 +109,26 @@ export const artistQueryKeys = {
    *
    * Every parameter that changes the response body is in the key, so two
    * surfaces share an entry exactly when they are asking the same question.
-   * Before this, the key stopped at artist + time filter while `limit` and
-   * `timezone` still varied per caller, so a compact preview and the artist
-   * page's list collided: whichever request resolved first answered for both,
-   * for the whole 5-minute staleTime, and which one that was depended on the
-   * order the user happened to navigate in. The venue side fixed exactly this
-   * in PSY-1698; the artist side never got the fix.
+   * Before this, the key stopped at artist + time filter while `limit` still
+   * varied per caller, so a compact preview and the artist page's list
+   * collided: whichever request resolved first answered for both, for the whole
+   * 5-minute staleTime, and which one that was depended on the order the user
+   * happened to navigate in. The venue side fixed exactly this in PSY-1698; the
+   * artist side never got the fix.
+   *
+   * NOTHING here is per-viewer, so a key a server computes is the key the
+   * browser then looks under. No route server-prefetches artist shows today,
+   * but the option is open: it was closed while a viewer timezone sat in this
+   * list, back when the endpoint read one. It does not any more — the
+   * upcoming/past split is made in each show's own venue-local day — so do not
+   * put a browser-only value back in.
+   *
+   * ONE PRECONDITION SURVIVES for anyone taking that up, and it is the same one
+   * `venueQueryKeys.showsPage` carries: the identity segment is
+   * `String(artistIdOrSlug)`, and the two forms hash differently. A route at
+   * `/artists/[slug]` has the slug while the surfaces on it pass the numeric id
+   * resolved from the fetched artist, so a seed keyed on the wrong form misses
+   * silently — the page just stops being server-rendered, with no error.
    *
    * Extends `shows()` rather than replacing it so the coarse `['artists']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.
@@ -148,8 +139,6 @@ export const artistQueryKeys = {
       timeFilter: ArtistShowsTimeFilter
       /** Omit for "not sent" — the backend's own default then applies. */
       limit?: number
-      /** Omit for "not sent" — the backend defaults the boundary to UTC. */
-      timezone?: string
       /** Venue-local calendar year filter. Omit for "every year". */
       year?: number
       /** Rows skipped. Omit for the first page. */
@@ -163,7 +152,6 @@ export const artistQueryKeys = {
       // that hashes differently from an explicit undefined. Callers must pass
       // what the request actually sent, not what they were handed.
       params.limit ?? null,
-      params.timezone ?? null,
       params.year ?? null,
       params.offset ?? null,
     ] as const,
@@ -258,7 +246,6 @@ export const artistPastShowsPageParams = (
 ) => ({
   timeFilter: 'past' as const,
   limit: ARTIST_PAST_SHOWS_PAGE_LIMIT,
-  timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
   year: year ?? undefined,
   // `|| undefined` rather than a ternary: page 1's offset is 0, which the key
   // must record as "not sent" because the request does not send it.

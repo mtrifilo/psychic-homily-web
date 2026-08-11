@@ -6530,6 +6530,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/venues/listing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get venues listing */
+        get: operations["get-venues-listing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/venues/search": {
         parameters: {
             query?: never;
@@ -13038,6 +13055,26 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        ListVenueListingResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ListVenueListingResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Number of venues in this response
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Size of the browse set this was projected from, read in the same snapshot as the rows. Not pagination metadata: this endpoint has no next page. Equal to count unless some venue cannot form a URL.
+             */
+            total: number;
+            /** @description Venues reduced to slug and name, ordered by name */
+            venues: components["schemas"]["VenueListingEntry"][] | null;
+        };
         ListVenuesResponseBody: {
             /**
              * Format: uri
@@ -17257,6 +17294,12 @@ export interface components {
              */
             readonly $schema?: string;
             genres: components["schemas"]["GenreCount"][] | null;
+        };
+        VenueListingEntry: {
+            /** @description Venue display name */
+            name: string;
+            /** @description URL slug for the venue */
+            slug: string;
         };
         VenueMatchResult: {
             city: string;
@@ -33730,6 +33773,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetVenueCitiesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-venues-listing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListVenueListingResponseBody"];
                 };
             };
             /** @description Error */

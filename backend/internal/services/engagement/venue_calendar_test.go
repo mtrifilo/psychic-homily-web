@@ -69,8 +69,14 @@ func renderFeed(venue *contracts.VenueDetailResponse, shows []catalogm.Show, art
 }
 
 // unfold reverses RFC 5545 line folding so assertions can match long values.
+//
+// A thin alias for unfoldICS (calendar_test.go) rather than a second
+// implementation. The version that lived here handled only a leading SPACE
+// continuation, and RFC 5545 3.1 permits a TAB as well — which made
+// TestVenueFeed_OmitsRedactedAddress, a PRIVACY assertion, able to pass with a
+// tab-folded address sitting in the payload.
 func unfold(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n ", ""), "\n ", "")
+	return unfoldICS(s)
 }
 
 func TestVenueFeed_ParsesAsCalendar(t *testing.T) {

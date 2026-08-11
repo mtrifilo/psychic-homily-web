@@ -31,11 +31,12 @@ import { useShowCities, useUpcomingShows } from './useShows'
  * with no error anywhere. These tests are the only thing standing between that
  * regression and production.
  *
- * "Bare `/shows`" now means literally that: no filters and NO ARGUMENTS. Since
- * PSY-1678 the request carries no per-viewer input at all, so the hooks are
- * invoked below exactly as `ShowList` invokes them on a cold anon load. That is
- * a stronger contract than the one this file could assert before, when a
- * canonical timezone had to be passed in by hand to stand in for the viewer's.
+ * "Bare `/shows`" means literally that: no filters, NO ARGUMENTS, and no query
+ * string on the wire. Since PSY-1678 the request carries no per-viewer input at
+ * all, so the hooks are invoked below exactly as `ShowList` invokes them on a
+ * cold anon load. That is a stronger contract than the one this file could
+ * assert before, when a canonical timezone had to be passed in by hand to stand
+ * in for the viewer's.
  */
 describe('shows first-screen prefetch contract', () => {
   beforeEach(() => {
@@ -129,15 +130,18 @@ describe('shows first-screen prefetch contract', () => {
     expect(result.current.data).toEqual(seeded)
   })
 
-  // The transitional timezone rides in the URL but must NEVER reach the key.
-  // That asymmetry is the whole reason the param is safe to send: the key is
-  // what decides whether the server-seeded entry is a hit, so a timezone in the
-  // key would re-fragment the cache per viewer and undo PSY-1678 while looking
-  // like a harmless compatibility shim. PSY-1762 deletes the param; this
-  // assertion is what makes its presence meanwhile provably inert.
-  it('carries the transitional timezone in the URL but not in the key', () => {
-    expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).toContain('timezone=')
-    expect(SHOW_CITIES_FIRST_SCREEN_URL).toContain('timezone=')
+  // Neither the URL nor the key may carry a viewer zone. The KEY is what decides
+  // whether the server-seeded entry is a hit, so a timezone there would
+  // re-fragment the cache per viewer and undo PSY-1678. A timezone in the URL
+  // alone would not break the seed at all — that is exactly why the deleted
+  // param could be a FIXED zone — but it is the affordance a future reader
+  // copies back into the key, which is the cost worth asserting against. The
+  // URLs are asserted BARE so the constants stay byte-identical to what the
+  // hooks request; the test above is what pins that pairing.
+  it('carries no viewer zone in either the URL or the key', () => {
+    // No `?` at all, which subsumes "no timezone" on the URL half.
+    expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).not.toContain('?')
+    expect(SHOW_CITIES_FIRST_SCREEN_URL).not.toContain('?')
     expect(JSON.stringify(UPCOMING_SHOWS_FIRST_SCREEN_KEY)).not.toContain(
       'timezone'
     )

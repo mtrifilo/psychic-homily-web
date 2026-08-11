@@ -11,10 +11,7 @@ import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { parseSpotifyEmbed } from '@/lib/spotify'
 import { useArtistGraphCard } from '@/features/artists/hooks/useArtistGraphCard'
 import { useArtistShows } from '@/features/artists/hooks/useArtists'
-import {
-  ARTIST_SHOWS_PAGE_LIMIT,
-  ARTIST_SHOWS_VIEWER_TIMEZONE,
-} from '@/features/artists/api'
+import { ARTIST_SHOWS_PAGE_LIMIT } from '@/features/artists/api'
 import type { ArtistShow } from '@/features/artists/types'
 import { formatShowTime } from '@/lib/utils/formatters'
 import {
@@ -164,7 +161,6 @@ export function ArtistPanel({
   const { data: showsData } = useArtistShows({
     artistId: current?.artistId ?? 0,
     limit: ARTIST_SHOWS_PAGE_LIMIT,
-    timezone: ARTIST_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
     enabled: Boolean(current),
   })

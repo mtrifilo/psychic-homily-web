@@ -81,27 +81,6 @@ export const VENUE_PAST_SHOWS_PAGE_LIMIT = 50
  */
 export const VENUE_UPCOMING_SHOWS_LIMIT = 200
 
-/**
- * The timezone every venue-shows caller should send.
- *
- * It only sets the backend's "today" boundary for the upcoming/past split —
- * rendering is always done in the VENUE's zone (PSY-985/986), never this one.
- * A caller that omits it gets the backend's UTC default, which puts the
- * boundary in the wrong place for most of the Americas.
- *
- * Evaluated at import, and this module reaches the server graph (via
- * `lib/queryClient.ts`), so on the server this resolves to the SERVER's zone.
- * Since PSY-1698 it is part of `venueQueryKeys.showsPage()`, which makes one
- * fact load-bearing: no route may server-prefetch venue shows. Seeding the
- * cache from a server component would compute this key under the server's
- * zone and the browser would then look under its own, missing the seed
- * silently. Today no route does — the venue page seeds only `venues.detail`
- * (see `app/venues/[slug]/page.tsx`) — so every key that reaches a request is
- * built from the browser's zone.
- */
-export const VENUE_SHOWS_VIEWER_TIMEZONE =
-  Intl.DateTimeFormat().resolvedOptions().timeZone
-
 // ============================================================================
 // Query Keys
 // ============================================================================
@@ -124,11 +103,27 @@ export const venueQueryKeys = {
    *
    * Every parameter that changes the response body is in the key, so two
    * surfaces share an entry exactly when they are asking the same question.
-   * Before this, the key stopped at venue + time filter while `limit` and
-   * `timezone` still varied per caller, so a compact 20-row preview and the
-   * venue page's 50-row list collided: whichever request resolved first
-   * answered for both, for the whole 5-minute staleTime, and which one that
-   * was depended on the order the user happened to navigate in.
+   * Before this, the key stopped at venue + time filter while `limit` still
+   * varied per caller, so a compact 20-row preview and the venue page's 50-row
+   * list collided: whichever request resolved first answered for both, for the
+   * whole 5-minute staleTime, and which one that was depended on the order the
+   * user happened to navigate in.
+   *
+   * NOTHING here is per-viewer, so a key a server computes is the key the
+   * browser then looks under, and server-prefetching this list is now possible.
+   * No route does it today: `archiveApi.ts` hands its rows over as
+   * `initialData`, which never depended on the key. A viewer timezone used to
+   * sit in this list, back when the endpoint read one; it does not any more
+   * (the upcoming/past split is made in each show's own venue-local day), so do
+   * not put a browser-only value back in.
+   *
+   * ONE PRECONDITION SURVIVES for anyone taking that up: the identity segment
+   * is `String(venueIdOrSlug)`, and the two forms hash differently. Callers are
+   * already split — the venue page, the Atlas panel and `VenueCard` pass the
+   * NUMERIC id resolved from a fetched venue, while the collection entity panel
+   * passes a slug — so a server seed has to key on whatever identity ITS
+   * consumer passes, not on whichever one the route happens to have. Get that
+   * wrong and it misses in exactly the silent way described above.
    *
    * Extends `shows()` rather than replacing it so the coarse `['venues']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.
@@ -139,8 +134,6 @@ export const venueQueryKeys = {
       timeFilter: VenueShowsTimeFilter
       /** Omit for "not sent" — the backend's own default then applies. */
       limit?: number
-      /** Omit for "not sent" — the backend defaults the boundary to UTC. */
-      timezone?: string
       /** Venue-local calendar year filter. Omit for "every year" (PSY-1753). */
       year?: number
       /** Rows skipped. Omit for the first page (PSY-1753). */
@@ -154,7 +147,6 @@ export const venueQueryKeys = {
       // that hashes differently from an explicit undefined. Callers must pass
       // what the request actually sent, not what they were handed.
       params.limit ?? null,
-      params.timezone ?? null,
       params.year ?? null,
       params.offset ?? null,
     ] as const,
@@ -214,7 +206,6 @@ export const venuePastShowsPageParams = (
 ) => ({
   timeFilter: 'past' as const,
   limit: VENUE_PAST_SHOWS_PAGE_LIMIT,
-  timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
   year: year ?? undefined,
   // `|| undefined` rather than a ternary: page 1's offset is 0, which the key
   // must record as "not sent" because the request does not send it.

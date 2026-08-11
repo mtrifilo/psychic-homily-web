@@ -3275,6 +3275,21 @@ func (m *MockSavedShowService) GetBatchSaveCounts(showIDs []uint) (map[uint]int,
 }
 
 // ============================================================================
+// Mock: SceneCalendarServiceInterface
+// ============================================================================
+
+type MockSceneCalendarService struct {
+	GenerateSceneFeedFn func(string, string) (*contracts.SceneCalendarFeed, error)
+}
+
+func (m *MockSceneCalendarService) GenerateSceneFeed(slug string, frontendURL string) (*contracts.SceneCalendarFeed, error) {
+	if m.GenerateSceneFeedFn != nil {
+		return m.GenerateSceneFeedFn(slug, frontendURL)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: SceneServiceInterface
 // ============================================================================
 
@@ -4325,6 +4340,7 @@ type MockVenueService struct {
 	FindOrCreateVenueFn       func(string, string, string, *string, *string, *gorm.DB, bool) (*catalogm.Venue, bool, error)
 	VerifyVenueFn             func(uint) (*contracts.VenueDetailResponse, error)
 	GetVenuesWithShowCountsFn func(contracts.VenueListFilters, int, int) ([]*contracts.VenueWithShowCountResponse, int64, error)
+	GetVenueListingFn         func() ([]contracts.VenueListingEntry, int64, error)
 	GetShowsForVenueFn        func(uint, string, contracts.VenueShowsQuery) ([]*contracts.VenueShowResponse, int64, error)
 	GetVenueShowYearsFn       func(uint, string) ([]contracts.VenueShowYearCount, error)
 	GetVenueCitiesFn          func() ([]*contracts.VenueCityResponse, error)
@@ -4397,6 +4413,12 @@ func (m *MockVenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResp
 func (m *MockVenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilters, limit int, offset int) ([]*contracts.VenueWithShowCountResponse, int64, error) {
 	if m.GetVenuesWithShowCountsFn != nil {
 		return m.GetVenuesWithShowCountsFn(filters, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockVenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, error) {
+	if m.GetVenueListingFn != nil {
+		return m.GetVenueListingFn()
 	}
 	return nil, 0, nil
 }
@@ -4628,6 +4650,7 @@ var _ contracts.RequestServiceInterface = (*MockRequestService)(nil)
 var _ contracts.RevisionServiceInterface = (*MockRevisionService)(nil)
 var _ contracts.SavedReleaseServiceInterface = (*MockSavedReleaseService)(nil)
 var _ contracts.SavedShowServiceInterface = (*MockSavedShowService)(nil)
+var _ contracts.SceneCalendarServiceInterface = (*MockSceneCalendarService)(nil)
 var _ contracts.SceneServiceInterface = (*MockSceneService)(nil)
 var _ contracts.ShowAdminServiceInterface = (*MockShowAdminService)(nil)
 var _ contracts.ShowCalendarServiceInterface = (*MockShowCalendarService)(nil)

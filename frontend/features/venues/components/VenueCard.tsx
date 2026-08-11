@@ -12,7 +12,6 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useVenueShows } from '../hooks/useVenues'
-import { VENUE_SHOWS_VIEWER_TIMEZONE } from '../api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useQueryClient } from '@tanstack/react-query'
 import { createInvalidateQueries } from '@/lib/queryClient'
@@ -58,7 +57,6 @@ export function VenueCard({ venue }: VenueCardProps) {
   const { data, error, refetch } = useVenueShows({
     venueId: venue.id,
     limit: VENUE_CARD_PREVIEW_LIMIT,
-    timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
     enabled: isExpanded,
   })
 

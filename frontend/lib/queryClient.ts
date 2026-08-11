@@ -468,8 +468,12 @@ export const queryKeys = {
     detail: (slug: string) => ['scenes', 'detail', slug] as const,
     artists: (slug: string, period?: number, limit?: number) =>
       ['scenes', 'artists', slug, period, limit] as const,
-    shows: (slug: string) => ['scenes', 'shows', slug] as const,
-    genres: (slug: string) => ['scenes', 'genres', slug] as const,
+    // days/limit are part of the key: the Atlas preview's 7-day/3-row peek and
+    // the scene page's 4-week/20-row calendar are different results from the
+    // same path, and sharing one entry would paint whichever arrived first
+    // (the PSY-1109 key-drift class).
+    shows: (slug: string, days?: number, limit?: number) =>
+      ['scenes', 'shows', slug, days, limit] as const,
     // clusterBy is the literal union (not string) so a drifted value at an
     // invalidation/prefetch site is a compile error, not a silent key
     // mismatch (the PSY-1109 key-drift class).
