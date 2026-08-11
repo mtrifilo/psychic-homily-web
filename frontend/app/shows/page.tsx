@@ -178,9 +178,9 @@ function getShowName(show: ShowListItem): string {
  * `limit`. That is deliberate on both counts and the reasoning is on
  * `getUpcomingShowsPayload`: they need different abort budgets, and this one
  * requests exactly what the client hook requests. The seed lands by KEY either
- * way — matching the URL is what keeps `UPCOMING_SHOWS_FIRST_SCREEN_URL` an
- * honest description of the hook's request, and what lets the two fetches share
- * one Data Cache entry. Two Data Cache entries, invalidated together. Do not
+ * way; matching the URL is what keeps `UPCOMING_SHOWS_FIRST_SCREEN_URL` an
+ * honest description of the hook's request. Two Data Cache entries — this one
+ * and the ItemList's, which differ by `?limit=` — invalidated together. Do not
  * "dedupe" them onto one call without reading that block first.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the
