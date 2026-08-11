@@ -123,6 +123,13 @@ export const artistQueryKeys = {
    * upcoming/past split is made in each show's own venue-local day — so do not
    * put a browser-only value back in.
    *
+   * ONE PRECONDITION SURVIVES for anyone taking that up, and it is the same one
+   * `venueQueryKeys.showsPage` carries: the identity segment is
+   * `String(artistIdOrSlug)`, and the two forms hash differently. A route at
+   * `/artists/[slug]` has the slug while the surfaces on it pass the numeric id
+   * resolved from the fetched artist, so a seed keyed on the wrong form misses
+   * silently — the page just stops being server-rendered, with no error.
+   *
    * Extends `shows()` rather than replacing it so the coarse `['artists']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.
    */

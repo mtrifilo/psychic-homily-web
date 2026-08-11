@@ -449,7 +449,7 @@ Update components to link artist names to their pages:
 > Read the module, not this proposal.
 
 ```ts
-// features/artists/hooks/useArtists.ts (as originally proposed)
+// lib/hooks/useArtists.ts (2025 proposal — never built at this path)
 
 export function useArtist(artistId: number) {
   return useQuery({

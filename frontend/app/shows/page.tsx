@@ -90,10 +90,11 @@ export const UPCOMING_SHOWS_LIMIT = 50
  *
  * The first three URLs have since lost a `timezone` the backend ignores. That
  * re-keyed their Data Cache entries; the row set and the payload size are
- * unchanged, so the measurement stands. (The response echoes the parameter back
- * as a top-level scalar, which now reads the handler's `UTC` default instead of
- * what the caller sent. Nothing consumes that field — show times render from
- * each venue's own zone.)
+ * unchanged, so the measurement stands. (The `/shows/upcoming` response — not
+ * `/shows/cities`, which has no such field — echoes the parameter back as a
+ * top-level scalar, which now reads the handler's `UTC` default instead of what
+ * the caller sent. Nothing consumes it; show times render from each venue's own
+ * zone.)
  *
  * So "the limit protects it" is true of the ItemList fetch only. The seed URL
  * deliberately omits `limit` (see the note above) and is held at 50 by the
@@ -175,9 +176,11 @@ function getShowName(show: ShowListItem): string {
  * The rows are a SEPARATE fetch from the `ItemList`'s `getUpcomingShowsPayload`
  * above, against the bare first-screen URL rather than that one's explicit
  * `limit`. That is deliberate on both counts and the reasoning is on
- * `getUpcomingShowsPayload`: they need different abort budgets, and this one has
- * to request exactly what the client hook will request or the seed is not the
- * entry the hook reads. Two Data Cache entries, invalidated together. Do not
+ * `getUpcomingShowsPayload`: they need different abort budgets, and this one
+ * requests exactly what the client hook requests. The seed lands by KEY either
+ * way — matching the URL is what keeps `UPCOMING_SHOWS_FIRST_SCREEN_URL` an
+ * honest description of the hook's request, and what lets the two fetches share
+ * one Data Cache entry. Two Data Cache entries, invalidated together. Do not
  * "dedupe" them onto one call without reading that block first.
  *
  * A failed fetch renders `<ShowList />` unseeded rather than throwing; the

@@ -133,11 +133,11 @@ describe('shows first-screen prefetch contract', () => {
   // Neither the URL nor the key may carry a viewer zone. The KEY is what decides
   // whether the server-seeded entry is a hit, so a timezone there would
   // re-fragment the cache per viewer and undo PSY-1678. A timezone in the URL
-  // alone would not break the seed, but it would fork the server fetch's Next
-  // Data Cache entry per viewer and — the real cost — leave the affordance a
-  // future reader copies back into the key. The URLs are asserted BARE so the
-  // constants stay byte-identical to what the hooks request; the test above is
-  // what pins that pairing.
+  // alone would not break the seed at all — that is exactly why the deleted
+  // param could be a FIXED zone — but it is the affordance a future reader
+  // copies back into the key, which is the cost worth asserting against. The
+  // URLs are asserted BARE so the constants stay byte-identical to what the
+  // hooks request; the test above is what pins that pairing.
   it('carries no viewer zone in either the URL or the key', () => {
     // No `?` at all, which subsumes "no timezone" on the URL half.
     expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).not.toContain('?')

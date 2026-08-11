@@ -241,11 +241,10 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   params.set('time_filter', timeFilter)
 
   // `?` only when there is something to put after it. `time_filter` is set
-  // unconditionally above, so today the query string is never empty — but the
-  // artist twin guards that same line with `if (timeFilter)`, and an edit that
-  // aligned the two would otherwise start emitting a trailing `?` here. A bare
-  // `?` is a different URL string, which is the drift `features/shows` was just
-  // rewritten to prevent.
+  // unconditionally above, so the query string is never empty today and this
+  // branch never fires; it is here for symmetry with `useArtistShows`, whose
+  // twin guards that same line with `if (timeFilter)`. An edit aligning the two
+  // would otherwise start emitting a trailing `?` from this one.
   const queryString = params.toString()
   const endpoint = queryString
     ? `${venueEndpoints.SHOWS(venueId)}?${queryString}`

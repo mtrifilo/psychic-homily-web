@@ -117,8 +117,8 @@ export const venueQueryKeys = {
    * (the upcoming/past split is made in each show's own venue-local day), so do
    * not put a browser-only value back in.
    *
-   * ONE PRECONDITION SURVIVES for anyone taking that up: the first segment is
-   * `String(venueIdOrSlug)`, and the two forms hash differently. Callers are
+   * ONE PRECONDITION SURVIVES for anyone taking that up: the identity segment
+   * is `String(venueIdOrSlug)`, and the two forms hash differently. Callers are
    * already split — the venue page, the Atlas panel and `VenueCard` pass the
    * NUMERIC id resolved from a fetched venue, while the collection entity panel
    * passes a slug — so a server seed has to key on whatever identity ITS
