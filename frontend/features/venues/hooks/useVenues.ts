@@ -240,7 +240,16 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   if (sentYear) params.set('year', sentYear.toString())
   params.set('time_filter', timeFilter)
 
-  const endpoint = `${venueEndpoints.SHOWS(venueId)}?${params.toString()}`
+  // `?` only when there is something to put after it. `time_filter` is set
+  // unconditionally above, so today the query string is never empty — but the
+  // artist twin guards that same line with `if (timeFilter)`, and an edit that
+  // aligned the two would otherwise start emitting a trailing `?` here. A bare
+  // `?` is a different URL string, which is the drift `features/shows` was just
+  // rewritten to prevent.
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${venueEndpoints.SHOWS(venueId)}?${queryString}`
+    : venueEndpoints.SHOWS(venueId)
 
   return useQuery({
     // Keyed on the request, not just the venue: `limit`, `year` and `offset`

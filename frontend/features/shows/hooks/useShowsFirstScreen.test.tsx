@@ -130,13 +130,14 @@ describe('shows first-screen prefetch contract', () => {
     expect(result.current.data).toEqual(seeded)
   })
 
-  // Neither the URL nor the key may carry a viewer zone. The key is what
-  // decides whether the server-seeded entry is a hit, so a timezone there would
-  // re-fragment the cache per viewer and undo PSY-1678; a timezone in the URL
-  // alone is inert at the backend but still forks the Data Cache entry, and it
-  // is the affordance a future reader would copy back into the key. The URLs
-  // are also asserted BARE — a trailing `?` would make the seeded URL and the
-  // hook's URL two different Data Cache entries.
+  // Neither the URL nor the key may carry a viewer zone. The KEY is what decides
+  // whether the server-seeded entry is a hit, so a timezone there would
+  // re-fragment the cache per viewer and undo PSY-1678. A timezone in the URL
+  // alone would not break the seed, but it would fork the server fetch's Next
+  // Data Cache entry per viewer and — the real cost — leave the affordance a
+  // future reader copies back into the key. The URLs are asserted BARE so the
+  // constants stay byte-identical to what the hooks request; the test above is
+  // what pins that pairing.
   it('carries no viewer zone in either the URL or the key', () => {
     // No `?` at all, which subsumes "no timezone" on the URL half.
     expect(UPCOMING_SHOWS_FIRST_SCREEN_URL).not.toContain('?')

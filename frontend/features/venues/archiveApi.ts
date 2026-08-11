@@ -150,11 +150,12 @@ export const getArchiveYears = cache((slug: string) =>
  * own venue-local day, and the year filter is venue-local too, so one answer is
  * the right answer for every reader.
  *
- * It is still a DIFFERENT URL string from the hook's — the two build the same
- * parameters in different orders — so these rows reach the client through the
- * `initialData` prop, NOT by the hook finding this fetch's Data Cache entry.
- * Matching the strings would be a real optimization and is not one that has been
- * done; do not assume it already holds.
+ * It is a DIFFERENT URL from the hook's — this one addresses the venue by SLUG
+ * and orders its parameters differently, while the hook addresses it by numeric
+ * id — and that is harmless. These rows reach the client through the
+ * `initialData` prop, not by the hook finding this fetch's entry, and no
+ * rewriting of this URL could change that: the hook's request is a browser
+ * fetch, which can never read a server-side Data Cache entry.
  *
  * Timed out for the same reason as the histogram: an unseeded archive still
  * renders, it just fetches its rows on the client.

@@ -440,8 +440,16 @@ Update components to link artist names to their pages:
 
 #### 5. New Hooks
 
+> **Superseded — do not copy this snippet.** The shipped hook lives at
+> `features/artists/hooks/useArtists.ts` and its cache key at
+> `artistQueryKeys.showsPage()` in `features/artists/api.ts`. The key sketched
+> below stops at artist + time filter, which is the exact cross-caller collision
+> PSY-1754 fixed: a compact preview and the artist page's list share one entry,
+> and whichever request resolves first answers for both for the whole staleTime.
+> Read the module, not this proposal.
+
 ```ts
-// lib/hooks/useArtists.ts
+// features/artists/hooks/useArtists.ts (as originally proposed)
 
 export function useArtist(artistId: number) {
   return useQuery({

@@ -88,8 +88,12 @@ export const UPCOMING_SHOWS_LIMIT = 50
  *   /shows/cities                8,948   11,932    0.6%  one row per city
  *   /scenes                      7,256    9,676    0.5%  UNBOUNDED
  *
- * The first three URLs have since lost an inert `timezone`. That re-keyed their
- * Data Cache entries but cannot have moved the sizes, so the measurement stands.
+ * The first three URLs have since lost a `timezone` the backend ignores. That
+ * re-keyed their Data Cache entries; the row set and the payload size are
+ * unchanged, so the measurement stands. (The response echoes the parameter back
+ * as a top-level scalar, which now reads the handler's `UTC` default instead of
+ * what the caller sent. Nothing consumes that field — show times render from
+ * each venue's own zone.)
  *
  * So "the limit protects it" is true of the ItemList fetch only. The seed URL
  * deliberately omits `limit` (see the note above) and is held at 50 by the

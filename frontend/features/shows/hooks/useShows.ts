@@ -65,9 +65,12 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
     if (tagMatch === 'any') params.set('tag_match', 'any')
   }
 
-  // The `?` only when there is something to put after it: a bare call has to
-  // produce the seeded URL byte for byte, and a trailing `?` would make it a
-  // different Data Cache entry from the one the server fetched.
+  // The `?` only when there is something to put after it, so a bare call
+  // produces `UPCOMING_SHOWS_FIRST_SCREEN_URL` exactly. Whether the server's
+  // seed is a HIT is decided by the KEY, not by this string — but the exported
+  // constant is what `app/shows/page.tsx` fetches server-side, and it is only an
+  // honest description of what this hook requests while the two stay identical.
+  // `useShowsFirstScreen.test.tsx` is what holds them together.
   const queryString = params.toString()
   const endpoint = queryString
     ? `${showEndpoints.UPCOMING}?${queryString}`

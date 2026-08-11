@@ -49,7 +49,11 @@ describe('useArtistGraphCard', () => {
     expect(url).not.toContain('timezone')
   })
 
-  it('sends nothing derived from the viewer, in any environment', async () => {
+  // jsdom only, and the title says no more than that: the deleted code was
+  // `if (typeof window !== 'undefined') params.set('timezone', …)`, so this is
+  // the branch that used to be wrong. The server-side branch is not reachable
+  // from this runner, and claiming it would be an unearned assertion.
+  it('sends nothing derived from the viewer', async () => {
     mockApiRequest.mockResolvedValue({ id: 7 })
     const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 

@@ -110,11 +110,20 @@ export const venueQueryKeys = {
    * user happened to navigate in.
    *
    * NOTHING here is per-viewer, so a key a server computes is the key the
-   * browser then looks under — which is what lets `archiveApi.ts` fetch a page
-   * server-side for the client hook to find. A viewer timezone used to sit in
-   * this list, back when the endpoint read one; it does not any more (the
-   * upcoming/past split is made in each show's own venue-local day), so do not
-   * put a browser-only value back in.
+   * browser then looks under, and server-prefetching this list is now possible.
+   * No route does it today: `archiveApi.ts` hands its rows over as
+   * `initialData`, which never depended on the key. A viewer timezone used to
+   * sit in this list, back when the endpoint read one; it does not any more
+   * (the upcoming/past split is made in each show's own venue-local day), so do
+   * not put a browser-only value back in.
+   *
+   * ONE PRECONDITION SURVIVES for anyone taking that up: the first segment is
+   * `String(venueIdOrSlug)`, and the two forms hash differently. Callers are
+   * already split — the venue page, the Atlas panel and `VenueCard` pass the
+   * NUMERIC id resolved from a fetched venue, while the collection entity panel
+   * passes a slug — so a server seed has to key on whatever identity ITS
+   * consumer passes, not on whichever one the route happens to have. Get that
+   * wrong and it misses in exactly the silent way described above.
    *
    * Extends `shows()` rather than replacing it so the coarse `['venues']`
    * invalidation in `createInvalidateQueries` keeps prefix-matching every page.
