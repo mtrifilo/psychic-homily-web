@@ -49,6 +49,7 @@ type ServiceContainer struct {
 	Bookmark               *engagement.BookmarkService
 	Calendar               *engagement.CalendarService
 	VenueCalendar          *engagement.VenueCalendarService
+	SceneCalendar          *engagement.SceneCalendarService
 	ShowCalendar           *engagement.ShowCalendarService
 	Collection             *community.CollectionService
 	Request                *community.RequestService
@@ -301,6 +302,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Bookmark:               engagement.NewBookmarkService(database),
 		Calendar:               engagement.NewCalendarService(database, savedShow),
 		VenueCalendar:          engagement.NewVenueCalendarService(database, venue),
+		SceneCalendar:          engagement.NewSceneCalendarService(database, sceneSvc),
 		ShowCalendar:           engagement.NewShowCalendarService(showSvc),
 		Collection:             collectionSvc,
 		Request:                community.NewRequestService(database),
