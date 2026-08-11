@@ -47,7 +47,7 @@ const maxBrowseTagSlugs = 10
 // (venues, shows, labels, festivals, releases) carry the same uncapped
 // fan-out and are NOT fixed here: sweeping them is a security change on five
 // endpoints this ticket does not touch, and it wants its own review rather
-// than a ride-along. Tracked as PSY-1795.
+// than a ride-along. Tracked as PSY-1799.
 func capBrowseTagSlugs(tf catalog.TagFilter) catalog.TagFilter {
 	if len(tf.TagSlugs) > maxBrowseTagSlugs {
 		tf.TagSlugs = tf.TagSlugs[:maxBrowseTagSlugs]
