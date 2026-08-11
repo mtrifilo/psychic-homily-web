@@ -45,7 +45,7 @@ const sitemapEntriesCacheControl = "public, max-age=300"
 type GetSitemapEntriesRequest struct {
 	// Family, when set, returns only that family's entries (others empty). The
 	// frontend shards by family so each Data Cache entry stays under Next's
-	// ~1.5 MB effective budget (PSY-1622). Omit to receive every family.
+	// ~1.50 MiB effective budget (PSY-1622). Omit to receive every family.
 	//
 	// The trailing `releases-*` values are SUB-SHARDS: each returns one slug
 	// range of the releases family, which outgrew a single cache entry

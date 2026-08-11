@@ -76,8 +76,8 @@ var sitemapFamilies = []string{
 // cut points below from a database holding the real production rows, the four
 // shards answered 422,209 / 421,070 / 366,874 / 320,964 bytes — 27.6% / 27.5% /
 // 24.0% / 21.0% of the family, and 26.9% / 26.8% / 23.4% / 20.4% of the cache
-// item cap once the frontend had written them, against 97% for the family as a
-// single document.
+// item cap once the frontend had written them, against 97.3% for the family as
+// a single document.
 //
 // That split is a property of how records get titled, not of this particular
 // import, and two further readings of the same production data say so. The same
@@ -102,6 +102,7 @@ var sitemapFamilies = []string{
 // deliberately NOT generic today: one caller does not justify threading an
 // optional shard through the eight entriesFor call sites, and the artists cut
 // points would need their own measurement regardless.
+//
 // THE BOUNDS ARE EVALUATED BY THE DATABASE'S COLLATION, NOT AS PREFIXES — read
 // this before re-cutting the ranges. Production and the test containers run
 // en_US.utf8 (libc), which gives punctuation a lower weight than letters at the
@@ -232,7 +233,7 @@ func NewSitemapService(database *gorm.DB) *SitemapService {
 //
 // When family is non-empty, only that family's field is populated and the rest
 // stay empty slices. The frontend shards by family via generateSitemaps(), and
-// each shard fetches `?family=…` so Next's Data Cache keys (and ~1.5 MB
+// each shard fetches `?family=…` so Next's Data Cache keys (and ~1.50 MiB
 // budgets) stay independent. An unknown family is an error.
 //
 // family also accepts a releases SUB-SHARD id (PSY-1763), which populates
@@ -436,7 +437,7 @@ func (s *SitemapService) entriesFor(ctx context.Context, scope *gorm.DB) ([]cont
 // bound prunes nothing on an archive) with one lateral execution per row, and
 // past shows never age out. The other families are either single-table scans
 // (entriesFor) or windowed (sceneWeekEntries, 8 weeks per scene). Two thresholds
-// to watch as the catalogue grows, neither of which is close today: the ~1.5 MB
+// to watch as the catalogue grows, neither of which is close today: the ~1.50 MiB
 // Next Data Cache budget per shard (app/sitemap.ts weighs it and fails the
 // build), and the 50,000-URL sitemap limit — this family is venues x years, so
 // it will reach both before any other. The proportionate fix at that point is a

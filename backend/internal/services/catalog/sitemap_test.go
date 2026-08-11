@@ -52,8 +52,17 @@ func TestReleaseShardsPartitionTheFamily(t *testing.T) {
 			t.Errorf("gap or overlap between %q (before %q) and %q (from %q): the ranges must be contiguous",
 				prev.id, prev.before, shard.id, shard.from)
 		}
+		// Byte order, which is NOT the order the database applies (see the
+		// collation note on releaseShard). That is fine for the cut points this
+		// table is meant to hold — plain lowercase letters, where byte order and
+		// en_US.utf8 agree — and it catches the realistic typo of an inverted
+		// pair. It is NOT authoritative for a cut point containing punctuation or
+		// digits: such a bound could pass here and still select an empty range in
+		// Postgres, or fail here while being collation-valid. If a cut point ever
+		// needs one, assert its emptiness in the integration test, where the
+		// database decides, rather than strengthening this line.
 		if shard.before != "" && shard.from >= shard.before {
-			t.Errorf("shard %q has an empty or inverted range [%q, %q)", shard.id, shard.from, shard.before)
+			t.Errorf("shard %q has an empty or inverted range [%q, %q) in byte order", shard.id, shard.from, shard.before)
 		}
 	}
 }

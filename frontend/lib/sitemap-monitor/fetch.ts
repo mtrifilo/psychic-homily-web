@@ -398,10 +398,20 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   }
 
   // A shard that is LISTED but serves an empty document is the same loss wearing
-  // a healthy face, and the check above cannot see it. It is reachable: a
-  // generator fetch that 400/422s degrades to an empty-but-valid <urlset>
-  // (UNKNOWN_FAMILY_STATUSES in app/sitemap.ts), so one range of a family can go
-  // dark while its siblings are fine.
+  // a healthy face, and the check above cannot see it. A generator fetch that
+  // 400/422s degrades to an empty-but-valid <urlset> (UNKNOWN_FAMILY_STATUSES in
+  // app/sitemap.ts), so one range of a family can go dark while its siblings are
+  // fine.
+  //
+  // Scope, stated honestly: the ROLLOUT case (frontend ahead of backend) darkens
+  // every range at once, which leaves no lit sibling and is `vanished`'s job, not
+  // this one. And a backend serving a proper subset of its own shard table is
+  // now hard to merge — TestSitemapFamilyEnumMatchesTheService pins the enum to
+  // `releaseShards`. What is left is the partial case this cannot rule out: one
+  // range failing where the others succeed (a per-range backend fault, a cut
+  // point retired on one side, a shard whose build-time fetch alone degraded).
+  // Cheap, precise, and it names the document — worth having even though the
+  // loudest scenario is covered elsewhere.
   //
   // The family-level `vanished` rule in evaluate.ts does not cover it either —
   // that needs the WHOLE family at zero. All that is left is drift, and one

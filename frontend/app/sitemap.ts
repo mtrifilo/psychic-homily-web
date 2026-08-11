@@ -10,7 +10,7 @@
  * With `generateSitemaps()` (PSY-1622) the route shards by family, and the
  * `releases` family is further sharded by slug range (PSY-1763). Each shard
  * fetches `GET /sitemap/entries?family=…` with its OWN id as the value, so each
- * Next Data Cache entry stays under the ~1.5 MB effective budget (2 MB cap,
+ * Next Data Cache entry stays under the ~1.50 MiB effective budget (2 MiB cap,
  * body base64-encoded). Children live at `/sitemap/{id}.xml`; the index is
  * `/sitemap-index` (robots points there). `/sitemap.xml` 308s to the index — do
  * not add `app/sitemap.xml/route.ts` (collides with the metadata
@@ -54,7 +54,7 @@
  *     All shards prerender anyway, from in-window Data Cache entries —
  *     verified by the stamp in the served body. Treat this row as the weakest
  *     of the four: it was measured against a two-slug stub, so it assumes the
- *     family's response fits a Data Cache entry (~2 MB cap), and it assumes
+ *     family's response fits a Data Cache entry (~2 MiB cap), and it assumes
  *     Vercel restores `.next/cache` between builds, which is documented
  *     platform behaviour rather than something probed here. It says the
  *     degraded row should be RARE — needing a cache miss and an outage at the
@@ -260,15 +260,24 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  * and Railway's backend deploy, and hand-sequencing two deploy pipelines is not
  * a fix anyone can be relied on to repeat.
  *
- * So the shard degrades to an EMPTY, valid document. That keeps the gate's
- * intent rather than bending it: the shard still prerenders, so it still ships a
- * body that survives a later outage. For a new FAMILY the document is also TRUE
- * — a backend without the family genuinely has no such URLs to announce. For a
- * new SLUG RANGE of a family the backend already serves (PSY-1763) it is not:
- * those rows exist and go unannounced until the backend learns the id. Both
- * self-heal without a rebuild, on the route's hourly revalidation; see
- * `partitionShardFailures` in lib/sitemap-prerender/check.ts for why the gate
- * cannot distinguish them and what covers the gap instead.
+ * So the shard degrades to an EMPTY, valid document rather than throwing. That
+ * keeps the gate's intent rather than bending it: the build ships instead of
+ * failing on a race nobody can sequence away.
+ *
+ * For a new FAMILY the document is also TRUE — a backend without the family
+ * genuinely has no such URLs to announce. For a new SLUG RANGE of a family the
+ * backend already serves (PSY-1763) it is not: those rows exist and go
+ * unannounced until the backend learns the id.
+ *
+ * What this does NOT buy is a prerendered body. Next only writes a Data Cache
+ * entry for a 200, so a 422'd shard is uncached, renders per request, and ships
+ * Dynamic — measured as `1 of 11 shards` on PSY-1756's preview builds. It
+ * therefore has no ISR timer and no stale-serving fallback: it recovers when it
+ * is next RENDERED after the backend ships, and fully on the next build. Do not
+ * read an hourly self-heal into this path; that window belongs to the healthy
+ * STATIC path above. `partitionShardFailures` in
+ * lib/sitemap-prerender/check.ts owns this statement, including why the gate
+ * cannot distinguish the two cases and what covers the gap instead.
  *
  * The residual risk is a family being RENAMED on the backend while the frontend
  * still asks for the old name: that would empty a real family quietly. Two
@@ -291,7 +300,7 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  * from the other keeps this function ignorant of which families are sharded.
  *
  * Sharded by `?family=` so each generateSitemaps() id gets its own Data Cache
- * entry and its own ~1.5 MB budget (PSY-1622, PSY-1763).
+ * entry and its own ~1.50 MiB budget (PSY-1622, PSY-1763).
  */
 async function fetchShard(shardId: string, family: Family): Promise<SitemapEntry[]> {
   const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(shardId)}`

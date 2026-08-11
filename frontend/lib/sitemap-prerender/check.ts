@@ -270,8 +270,9 @@ export interface PartitionedFailures {
  *   - A new SUB-SHARD of an existing family (PSY-1763's releases ranges):
  *     FALSE. The backend holds every one of those rows and simply does not
  *     recognise the id, and because a rollout adds all the ranges at once the
- *     whole family drops out of the index until the first revalidation after
- *     the backend ships (~1h on the route's ISR window, no rebuild needed).
+ *     whole family drops out of the index until the backend ships. Recovery is
+ *     on the next RENDER, and fully on the next build — an excused shard is
+ *     Dynamic, so it has no ISR timer to wait on. See describePendingCost.
  *
  * The gate cannot tell the two apart and must not try: during a legitimate
  * sub-shard rollout the old backend serves `releases` and rejects

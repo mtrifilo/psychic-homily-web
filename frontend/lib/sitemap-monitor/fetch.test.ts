@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ENTITY_SHARD_IDS,
   PAGES_SHARD_ID,
+  RELEASE_SHARD_IDS,
   SITEMAP_FAMILIES,
 } from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
@@ -173,6 +174,66 @@ describe('walkSitemap', () => {
 
     const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
     expect(observation.errors).toContain(`sitemap index is missing the "${missing}" shard`)
+  })
+
+  /**
+   * The other half of the same hole, and the one the per-shard membership check
+   * above cannot see: a shard that IS listed but serves an empty document.
+   * A generator fetch that 400/422s degrades to an empty-but-valid <urlset>, so
+   * a range can go dark while its siblings are healthy — and neither the
+   * membership check (the shard is present) nor `vanished` (the family is not
+   * at zero) fires. All that would be left is drift, which one range of four may
+   * or may not clear depending on where the cut points fell.
+   *
+   * Scoped to SIBLINGS rather than to the API's expected counts, which
+   * walkSitemap does not have. The second case pins that scoping as deliberate:
+   * a whole family at zero must stay SILENT here, because that is `vanished`'s
+   * job and double-reporting it would train the reader to ignore both.
+   */
+  describe('a listed shard that serves nothing', () => {
+    const [darkShard, ...litShards] = RELEASE_SHARD_IDS
+
+    function serveWith(emptyIds: readonly string[]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (url.endsWith('/sitemap-index')) return xmlResponse(index(ALL_IDS))
+          const id = url.split('/sitemap/')[1]?.replace('.xml', '') ?? ''
+          // Every non-releases shard serves a URL so the releases ranges are
+          // the only thing under test.
+          const isEmpty = emptyIds.includes(id)
+          return xmlResponse(
+            urlset(isEmpty ? [] : [`https://psychichomily.com/releases/${id}-one`])
+          )
+        })
+      )
+    }
+
+    const emptyShardError = (id: string) =>
+      `shard "${id}" served an empty document while other shards of the ` +
+      `"releases" family served URLs — that range is not being announced`
+
+    it('is reported when its siblings served URLs', async () => {
+      serveWith([darkShard])
+
+      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+      expect(observation.errors).toContain(emptyShardError(darkShard))
+      // Only the dark one — a healthy sibling must not be reported too.
+      for (const lit of litShards) {
+        expect(observation.errors).not.toContain(emptyShardError(lit))
+      }
+    })
+
+    it('is NOT reported when the whole family is empty — that is `vanished`', async () => {
+      serveWith(RELEASE_SHARD_IDS)
+
+      const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+      for (const id of RELEASE_SHARD_IDS) {
+        expect(observation.errors).not.toContain(emptyShardError(id))
+      }
+    })
   })
 
   it('records an error when a shard fails to fetch, and keeps going', async () => {
