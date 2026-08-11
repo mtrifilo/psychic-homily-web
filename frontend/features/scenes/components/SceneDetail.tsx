@@ -1,74 +1,21 @@
 'use client'
 
 import Link from 'next/link'
-import {
-  MapPin, Building2, Mic2, Tent, ArrowRight, Loader2,
-} from 'lucide-react'
+import { MapPin, Tent, ArrowRight, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { buildCitiesParam } from '@/components/filters/cityParams'
-import { useSceneDetail, useSceneArtists } from '../hooks'
+import { useSceneDetail } from '../hooks'
 import { FollowButton } from '@/components/shared/FollowButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
 import { SceneGraph, SCENE_ARTISTS_ANCHOR } from './SceneGraph'
 import { SceneCalendar, useSceneCalendarWindow } from './SceneCalendar'
+import { SceneRooms } from './SceneRooms'
+import { SceneNewBands } from './SceneNewBands'
+import { SceneRoster } from './SceneRoster'
 import { formatTimeZoneLabel, sceneStatParts } from '../sceneCalendar'
 import type { SceneDetail } from '../types'
 
 interface SceneDetailProps {
   slug: string
-}
-
-function SceneArtistsList({ slug }: { slug: string }) {
-  const { data, isLoading } = useSceneArtists({ slug, limit: 10 })
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-4">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!data?.artists || data.artists.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground py-2">
-        No artists based in this scene yet.
-      </p>
-    )
-  }
-
-  return (
-    <div className="space-y-1.5">
-      {data.artists.map((artist) => (
-        <Link
-          key={artist.id}
-          href={`/artists/${artist.slug}`}
-          className="flex items-center justify-between rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <Mic2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="truncate font-medium">{artist.name}</span>
-          </div>
-          <div className="ml-2 flex shrink-0 items-center gap-1.5">
-            {artist.is_active && (
-              <Badge variant="success" className="text-xs" title="Has an upcoming show or one in the last ~6 months">
-                Active
-              </Badge>
-            )}
-            <Badge variant="secondary" className="text-xs">
-              {artist.show_count} show{artist.show_count !== 1 ? 's' : ''}
-            </Badge>
-          </div>
-        </Link>
-      ))}
-      {data.total > 10 && (
-        <p className="text-xs text-muted-foreground px-3 pt-1">
-          and {data.total - 10} more artist{data.total - 10 !== 1 ? 's' : ''}
-        </p>
-      )}
-    </div>
-  )
 }
 
 /**
@@ -208,53 +155,25 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
         <SceneCalendar scene={scene} />
       </div>
 
-      {/* Everything below is the mock's order with each module in its CURRENT
-          form, wording included. Refining them (named venue list with counts,
-          roster with open embeds and descriptors, the graph's gate and copy) is
-          Wave 1B/1C.
-          KNOWN GAP, disclosed rather than guessed at: these two cards still
-          render a header on a scene with nothing in them (`0 venues in X`, and
-          the roster's "No artists based in this scene yet"). The sparse rule
-          says an empty-capable module hides; the "current form" rule says do
-          not touch them this wave. The ticket says both, so 1A leaves them and
-          1B closes it rather than this wave picking a side. */}
-      <div className="mt-10 space-y-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Building2 className="h-4 w-4 text-muted-foreground" />
-              Venues
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-3">
-              {stats.venue_count} venue{stats.venue_count !== 1 ? 's' : ''} in {scene.city}.
-            </p>
-            <Link
-              href={`/venues?cities=${encodeURIComponent(buildCitiesParam([{ city: scene.city, state: scene.state }]))}`}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-            >
-              View all venues
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </CardContent>
-        </Card>
+      {/* The identity around the calendar, in the mock's order: the rooms this
+          page speaks for, the bands that just appeared, the bands that live
+          here, then the map.
 
-        {/* Local Artists: the metro roster, active bands first.
-            id="scene-artists": the mobile graph teaser's link-out target
-            (SceneGraph, PSY-1472). scroll-mt for the sticky entity header. */}
-        <Card id={SCENE_ARTISTS_ANCHOR} className="scroll-mt-20">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Mic2 className="h-4 w-4 text-muted-foreground" />
-              Local Artists
-              <span className="text-xs font-normal text-muted-foreground">(based here · active highlighted)</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SceneArtistsList slug={slug} />
-          </CardContent>
-        </Card>
+          Every one of them is empty-capable and every one of them HIDES or
+          SUBSTITUTES rather than scaffolding (decision 11). Wave 1A left the
+          two cards these replace rendering `0 venues in X` and a collapsed
+          roster stub, because its own ticket said both "hide empty modules" and
+          "keep existing modules in their current form"; this wave rebuilds them
+          and the sparse matrix governs. */}
+      <div className="mt-10 space-y-8">
+        <SceneRooms scene={scene} />
+
+        <SceneNewBands scene={scene} />
+
+        {/* anchorId: the mobile graph teaser's link-out target (SceneGraph,
+            PSY-1472). It travels with the roster because that is the section
+            the teaser is sending the reader to. */}
+        <SceneRoster scene={scene} anchorId={SCENE_ARTISTS_ANCHOR} />
 
         {/* Scene graph (PSY-367): read-only artist relationship map. Section
             self-hides when there are <3 connected artists or container is mobile. */}

@@ -418,6 +418,8 @@ export const API_ENDPOINTS = {
     LIST: `${API_BASE_URL}/scenes`,
     DETAIL: (slug: string) => `${API_BASE_URL}/scenes/${slug}`,
     ARTISTS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/artists`,
+    /** Bands first LISTED in the scene inside a rolling window (PSY-1781). */
+    NEW_ARTISTS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/new-artists`,
     SHOWS: (slug: string) => `${API_BASE_URL}/scenes/${slug}/shows`,
     GRAPH: (slug: string) => `${API_BASE_URL}/scenes/${slug}/graph`,
   },

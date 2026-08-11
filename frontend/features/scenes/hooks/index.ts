@@ -2,6 +2,7 @@ export {
   useScenes,
   useSceneDetail,
   useSceneArtists,
+  useSceneNewArtists,
   useSceneGraph,
   useSceneShows,
 } from './useScenes'

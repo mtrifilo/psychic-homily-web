@@ -14,6 +14,7 @@ import type {
   SceneDetail,
   SceneArtistsResponse,
   SceneGraphResponse,
+  SceneNewArtistsResponse,
   SceneShowsResponse,
 } from '../types'
 
@@ -53,6 +54,17 @@ interface UseSceneArtistsOptions {
   period?: number
   limit?: number
   offset?: number
+  /**
+   * Retain the previous page while a NEW `limit` resolves.
+   *
+   * Opt-in rather than the hook's default, because the two behaviours are only
+   * safe on different callers. The scene roster changes `limit` in place when a
+   * reader asks for the rest of the list, and dropping to a spinner there would
+   * unmount a section the reader is looking at. The /atlas preview changes
+   * `slug` instead, where retaining would paint the PREVIOUS scene's bands
+   * under the new scene's name.
+   */
+  keepPreviousPage?: boolean
 }
 
 /**
@@ -63,7 +75,7 @@ interface UseSceneArtistsOptions {
  * re-default it here, or the FE-sent window would contradict that model.
  */
 export function useSceneArtists(options: UseSceneArtistsOptions) {
-  const { slug, period, limit = 20, offset = 0 } = options
+  const { slug, period, limit = 20, offset = 0, keepPreviousPage = false } = options
 
   const params = new URLSearchParams()
   if (period) params.set('period', period.toString())
@@ -84,6 +96,48 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
       return apiRequest<SceneArtistsResponse>(endpoint, {
         method: 'GET',
       })
+    },
+    enabled: Boolean(slug),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: keepPreviousPage ? keepPreviousData : undefined,
+  })
+}
+
+interface UseSceneNewArtistsOptions {
+  slug: string
+  /** Window in days, `[now-days, now]`. Backend default 30, maximum 365. */
+  days?: number
+  /** Rows to return, most recently listed first. Backend default 10, max 50. */
+  limit?: number
+}
+
+/**
+ * Hook to fetch a scene's NEW bands — the named list that replaced Scene Pulse.
+ *
+ * "New" is FIRST LISTED: the band's catalog row was created inside the window,
+ * which is the weekly digest's definition, not the retired pulse's
+ * first-approved-show-in-30-days. That matters to the caller because it is the
+ * fact the rendered date states, so the two can never disagree.
+ *
+ * Both parameters are OMITTED when the caller does not pass them, so the
+ * backend's own defaults own the window — the same rule `useSceneArtists`'
+ * `period` and `useSceneShows`' `days` already follow.
+ */
+export function useSceneNewArtists(options: UseSceneNewArtistsOptions) {
+  const { slug, days, limit } = options
+
+  const params = new URLSearchParams()
+  if (days) params.set('days', days.toString())
+  if (limit) params.set('limit', limit.toString())
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${API_ENDPOINTS.SCENES.NEW_ARTISTS(slug)}?${queryString}`
+    : API_ENDPOINTS.SCENES.NEW_ARTISTS(slug)
+
+  return useQuery({
+    queryKey: queryKeys.scenes.newArtists(slug, days, limit),
+    queryFn: async (): Promise<SceneNewArtistsResponse> => {
+      return apiRequest<SceneNewArtistsResponse>(endpoint, { method: 'GET' })
     },
     enabled: Boolean(slug),
     staleTime: 5 * 60 * 1000, // 5 minutes

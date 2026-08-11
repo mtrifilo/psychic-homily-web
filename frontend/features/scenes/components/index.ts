@@ -28,5 +28,10 @@ export { SceneList } from './SceneList'
 // reason and stays off this barrel deliberately: it is the scene page's
 // heaviest client module after the graph, and listing it here would put four
 // weeks of calendar rendering into the chunk every route loads.
+//
+// SceneRooms / SceneNewBands / SceneRoster (PSY-1784) are off it for the same
+// reason. SceneRoster is the one to be careful with: it pulls MusicEmbed, and
+// listing it here would put Bandcamp/Spotify embed resolution into the global
+// chunk on behalf of one section of one route.
 export { AtlasGlobe } from './AtlasGlobe'
 export { ScenePreviewPanel } from './ScenePreviewPanel'

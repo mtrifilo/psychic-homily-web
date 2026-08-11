@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { SCENE_ARTISTS_ANCHOR } from './SceneGraph'
-import type { SceneDetail, SceneArtistsResponse } from '../types'
+import type { SceneDetail } from '../types'
 
 // SceneDetailView orchestrates the scene page: loading / not-found branches,
 // the status band, the header, and the modules under the calendar. The calendar
@@ -62,11 +62,27 @@ vi.mock('./SceneGraph', async importOriginal => ({
   SceneGraph: () => <div data-testid="scene-graph" />,
 }))
 
+// The three identity sections each own a request and a suite (SceneRooms /
+// SceneNewBands / SceneRoster). Stub them here, same rule as the calendar and
+// the graph above: this file is about the view's COMPOSITION — what renders,
+// in what order, and what the anchor hangs off.
+vi.mock('./SceneRooms', () => ({
+  SceneRooms: () => <div data-testid="scene-rooms" />,
+}))
+vi.mock('./SceneNewBands', () => ({
+  SceneNewBands: () => <div data-testid="scene-new-bands" />,
+}))
+const rosterAnchors: (string | undefined)[] = []
+vi.mock('./SceneRoster', () => ({
+  SceneRoster: ({ anchorId }: { anchorId?: string }) => {
+    rosterAnchors.push(anchorId)
+    return <div data-testid="scene-roster" id={anchorId} />
+  },
+}))
+
 const mockUseSceneDetail = vi.fn()
-const mockUseSceneArtists = vi.fn()
 vi.mock('../hooks', () => ({
   useSceneDetail: () => mockUseSceneDetail(),
-  useSceneArtists: () => mockUseSceneArtists(),
 }))
 
 import { SceneDetailView } from './SceneDetail'
@@ -110,13 +126,11 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
   }
 }
 
-const emptyArtists: SceneArtistsResponse = { artists: [], total: 0 }
-
 describe('SceneDetailView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     calendarScenes.length = 0
-    mockUseSceneArtists.mockReturnValue({ data: emptyArtists, isLoading: false })
+    rosterAnchors.length = 0
     mockCalendarWindow.mockReturnValue({ timeZone: 'America/Phoenix' })
   })
 
@@ -275,20 +289,33 @@ describe('SceneDetailView', () => {
     it('renders the calendar above every module below it', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       const calendar = screen.getByTestId('scene-calendar')
-      for (const testId of ['scene-graph']) {
+      for (const testId of [
+        'scene-rooms',
+        'scene-new-bands',
+        'scene-roster',
+        'scene-graph',
+      ]) {
         expect(
           calendar.compareDocumentPosition(screen.getByTestId(testId)) &
             Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
       }
-      expect(
-        calendar.compareDocumentPosition(screen.getByText('Venues')) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
-      expect(
-        calendar.compareDocumentPosition(screen.getByText('Local Artists')) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
+    })
+
+    // The mock's identity order, which is not arbitrary: the rooms this page
+    // speaks for (its coverage disclosure), then who is new, then who lives
+    // here. The graph is demoted below all three.
+    it('orders the identity sections rooms → new bands → roster → map', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      const order = ['scene-rooms', 'scene-new-bands', 'scene-roster', 'scene-graph']
+      for (let i = 0; i < order.length - 1; i++) {
+        expect(
+          screen
+            .getByTestId(order[i])
+            .compareDocumentPosition(screen.getByTestId(order[i + 1])) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      }
     })
 
     // The h1 is followed directly by the stat line. Anything between them would
@@ -301,9 +328,16 @@ describe('SceneDetailView', () => {
       )
     })
 
-    it('renders the #scene-artists anchor the mobile graph teaser links to (PSY-1472)', () => {
+    // The anchor travels with the ROSTER, which is where the mobile graph
+    // teaser is sending the reader. Asserted through the prop as well as the
+    // DOM, so moving it onto some other section fails here rather than
+    // silently landing the teaser somewhere else on the page.
+    it('hangs the #scene-artists anchor off the roster (PSY-1472)', () => {
       const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBeInTheDocument()
+      expect(rosterAnchors).toEqual([SCENE_ARTISTS_ANCHOR])
+      expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBe(
+        screen.getByTestId('scene-roster')
+      )
     })
 
     it('mounts the SceneGraph below the calendar substance', () => {
@@ -311,18 +345,15 @@ describe('SceneDetailView', () => {
       expect(screen.getByTestId('scene-graph')).toBeInTheDocument()
     })
 
-    it('deep-links venues via the canonical ?cities= param', () => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene({ city: 'Los Angeles', state: 'CA', slug: 'los-angeles-ca' }),
-        isLoading: false,
-        error: null,
-      })
-      renderWithProviders(<SceneDetailView slug="los-angeles-ca" />)
-
-      expect(screen.getByRole('link', { name: /View all venues/i })).toHaveAttribute(
-        'href',
-        '/venues?cities=Los%20Angeles%2CCA'
-      )
+    // The count-only Venues card the rooms leaderboard replaces. It printed
+    // `12 venues in Phoenix` and one link, and named no room — the module the
+    // brief called an integer where a list belonged.
+    it('no longer renders the count-only venues card', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(
+        screen.queryByRole('link', { name: /View all venues/i })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(/12 venues in Phoenix/)).not.toBeInTheDocument()
     })
   })
 
@@ -390,79 +421,6 @@ describe('SceneDetailView', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(screen.getByText('Festivals')).toBeInTheDocument()
       expect(screen.getByText(/3 festivals in Phoenix/)).toBeInTheDocument()
-    })
-  })
-
-  describe('local artists', () => {
-    beforeEach(() => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene(),
-        isLoading: false,
-        error: null,
-      })
-    })
-
-    it('renders an artist row per result with a pluralized show-count badge', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: {
-          artists: [
-            { id: 1, slug: 'gatecreeper', name: 'Gatecreeper', city: 'Phoenix', state: 'AZ', show_count: 5 },
-            { id: 2, slug: 'sundressed', name: 'Sundressed', city: 'Phoenix', state: 'AZ', show_count: 1 },
-          ],
-          total: 2,
-        } as SceneArtistsResponse,
-        isLoading: false,
-      })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
-      const gatecreeper = screen.getByText('Gatecreeper').closest('a')!
-      expect(gatecreeper).toHaveAttribute('href', '/artists/gatecreeper')
-      expect(within(gatecreeper).getByText('5 shows')).toBeInTheDocument()
-
-      const sundressed = screen.getByText('Sundressed').closest('a')!
-      expect(within(sundressed).getByText('1 show')).toBeInTheDocument()
-    })
-
-    it('renders an empty-state message when the roster is empty', () => {
-      mockUseSceneArtists.mockReturnValue({ data: emptyArtists, isLoading: false })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(
-        screen.getByText('No artists based in this scene yet.')
-      ).toBeInTheDocument()
-    })
-
-    it('marks active roster members with an "Active" badge, inactive ones without', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: {
-          artists: [
-            { id: 1, slug: 'gatecreeper', name: 'Gatecreeper', city: 'Phoenix', state: 'AZ', show_count: 5, is_active: true },
-            { id: 2, slug: 'sundressed', name: 'Sundressed', city: 'Phoenix', state: 'AZ', show_count: 1, is_active: false },
-          ],
-          total: 2,
-        } as SceneArtistsResponse,
-        isLoading: false,
-      })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-
-      const gatecreeper = screen.getByText('Gatecreeper').closest('a')!
-      expect(within(gatecreeper).getByText('Active')).toBeInTheDocument()
-
-      const sundressed = screen.getByText('Sundressed').closest('a')!
-      expect(within(sundressed).queryByText('Active')).not.toBeInTheDocument()
-    })
-
-    it('renders the "and N more" overflow line when total exceeds 10', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: {
-          artists: [
-            { id: 1, slug: 'a-1', name: 'Artist 1', city: 'Phoenix', state: 'AZ', show_count: 9 },
-          ],
-          total: 14,
-        } as SceneArtistsResponse,
-        isLoading: false,
-      })
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.getByText(/and 4 more artists/)).toBeInTheDocument()
     })
   })
 })
