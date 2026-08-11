@@ -139,6 +139,76 @@ func (h *VenueHandler) ListVenuesHandler(ctx context.Context, req *ListVenuesReq
 	return resp, nil
 }
 
+// ListVenueListingRequest is deliberately empty.
+//
+// No filters, and none should be added without a consumer that needs them: this
+// endpoint exists to be small and complete, and every query parameter is another
+// cache key whose payload nobody is watching. A `limit` in particular is what
+// this endpoint was created to remove. Filtering belongs on GET /venues.
+type ListVenueListingRequest struct{}
+
+// venueListingCacheControl bounds repeat hits from callers that are NOT the
+// /venues page, for the reasons spelled out on sitemapEntriesCacheControl — the
+// same shape of endpoint (public, unpaginated, viewer-independent projection)
+// and the same 5 minutes, short enough that a shared cache never becomes the
+// reason a new venue is invisible. The page itself is already bounded to one
+// origin hit per hour by Next's fetch Data Cache; this covers everything else
+// that can point at a public URL, and an uncached hit here scans every verified
+// venue.
+//
+// IT IS A COURTESY TO COOPERATIVE CALLERS, NOT A CEILING. The request struct is
+// empty and huma ignores unknown query parameters, so `?cb=1`, `?cb=2`, … are
+// distinct cache keys that all reach the origin. What bounds a hostile caller is
+// the global PublicReadRateLimiter this route inherits — which is itself gated
+// on ENABLE_PUBLIC_READ_RATE_LIMITS, so that flag being set is a deploy-time
+// precondition for this endpoint, not an optimisation.
+//
+// The artist twin carries no equivalent header. That is a gap in the twin, not a
+// venue-only decision.
+const venueListingCacheControl = "public, max-age=300"
+
+// ListVenueListingResponse is the slug+name projection of the venue list.
+//
+// Total is NOT pagination metadata — there is no next page. It is the size of
+// the browse set the projection was taken from, read in the SAME statement and
+// therefore the same snapshot as the rows, so a caller can compare the two and
+// read a gap as exactly one thing: venues that cannot form a URL. See
+// GetVenueListing.
+type ListVenueListingResponse struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Venues []contracts.VenueListingEntry `json:"venues" doc:"Venues reduced to slug and name, ordered by name"`
+		Count  int                           `json:"count" doc:"Number of venues in this response"`
+		Total  int64                         `json:"total" doc:"Size of the browse set this was projected from, read in the same snapshot as the rows. Not pagination metadata: this endpoint has no next page. Equal to count unless some venue cannot form a URL."`
+	}
+}
+
+// ListVenueListingHandler handles GET /venues/listing.
+//
+// The narrow twin of ListVenuesHandler, for callers that build one link per
+// venue and read nothing else — see contracts.VenueListingEntry for the measured
+// reason that distinction earns its own endpoint rather than a wider `maximum`
+// on GET /venues.
+func (h *VenueHandler) ListVenueListingHandler(ctx context.Context, _ *ListVenueListingRequest) (*ListVenueListingResponse, error) {
+	entries, total, err := h.venueService.GetVenueListing()
+	if err != nil {
+		logger.FromContext(ctx).Error("venue_listing_failed",
+			"error", err.Error(),
+			"request_id", logger.GetRequestID(ctx),
+		)
+		// The error is logged, not returned: it would be serialised into the
+		// body for an unauthenticated caller, handing over raw driver text.
+		return nil, huma.Error500InternalServerError("Failed to fetch venue listing")
+	}
+
+	resp := &ListVenueListingResponse{CacheControl: venueListingCacheControl}
+	resp.Body.Venues = entries
+	resp.Body.Count = len(entries)
+	resp.Body.Total = total
+
+	return resp, nil
+}
+
 // GetVenueRequest represents the request parameters for getting a single venue
 type GetVenueRequest struct {
 	VenueID string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`

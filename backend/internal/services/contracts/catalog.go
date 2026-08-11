@@ -688,6 +688,78 @@ type VenueWithShowCountResponse struct {
 	DominantGenre string `json:"dominant_genre,omitempty"`
 }
 
+// VenueListingEntry is a venue reduced to the two fields a link needs: the slug
+// that builds the href, and the name that labels it. The venue twin of
+// ArtistListingEntry, for the same reason and by the same reasoning — read that
+// one first; only what differs for venues is written down here.
+//
+// # Why /venues needed its own projection
+//
+// The `/venues` page's JSON-LD `ItemList` was built from `GET /venues?limit=100`,
+// so it advertised the hundred most active venues and silently dropped the rest.
+// The cap was not a product decision: the call had asked for 200, `GET /venues`
+// declares `maximum:"100"` on `limit`, and huma rejected it with a 422 before the
+// handler ran — which the frontend's fail-open turned into no `ItemList` at all
+// for months. Capping at 100 fixed the 422 and left the truncation (PSY-1764).
+//
+// A projection removes the limit rather than raising it, which is what makes the
+// truncation impossible rather than merely further away. Measured against
+// production on 2026-08-09, 297 verified venues:
+//
+//	                                raw bytes    % of the 2 MB item cap (base64)
+//	GET /venues?limit=100              71,172     4.5%   (100 of 297 venues)
+//	GET /venues, all 297 rows         195,657    12.4%
+//	GET /venues/listing, all 297       18,289     1.2%
+//
+// The row width is what decides the headroom, and that is why raising the
+// `maximum` was rejected: at 659 raw bytes per full row the build gate (80% of
+// the ~1.5 MB raw budget, lib/data-cache-budget) fires at ~1,900 venues, against
+// 61.6 bytes here, which reaches it at ~20,400. The catalogue went from 198
+// venues on 2026-07-29 to 297 on 2026-08-09 — 50% in eleven days — so ~1,900 is
+// not a comfortable ceiling, and paginating would have kept carrying the unread
+// fields while adding a round trip per page above the Suspense boundary.
+//
+// # ~20,400 IS NOT THE CEILING, AND THE CACHE GATE DOES NOT COVER THE REAL ONE
+//
+// Everything above weighs the API response. The artifact the change actually
+// enlarges is the `/venues` HTML: one JSON-LD `ListItem` per venue, in the
+// document every human and every crawler downloads. Measured on the production
+// page the same day, before this change, its 100-item block was 12,735 raw bytes
+// — 127.3 bytes per item, TWICE the 61.6 the cache budget counts, because each
+// item carries `@type`, `position`, the absolute URL and the name.
+//
+// So the page grows at ~127 bytes per venue: ~38 KB at 297, and roughly 2.6 MB
+// at the ~20,400 the cache figure suggests is safe. Nothing gates that. The
+// build-time budget in lib/data-cache-budget weighs the fetch, and its
+// request-time half only reports, so page weight is the constraint that binds
+// first and it binds unmeasured. This is recorded rather than solved: at today's
+// size the block is ~16% of a 239 KB document, which is not worth a gate of its
+// own. When it is, the answer is not a limit — a truncated ItemList is the
+// defect this endpoint exists to remove — but dropping the block and leaning on
+// the sitemap, which is already sharded for exactly this reason (SitemapEntry).
+//
+// # The set this returns, and the order it does NOT share
+//
+// The SET is exactly what unfiltered `GET /venues` returns — verified venues —
+// minus rows with a NULL or empty slug, which cannot form a URL. That gate is
+// stated once, as catalog.venueBrowseGate. Note it differs from the artists one:
+// venues are gated on `verified`, NOT on having an upcoming show, so a quiet
+// venue is still listed and still indexed.
+//
+// The ORDER is by name, and deliberately NOT the browse page's activity sort
+// that the artist twin reuses. The consumer stamps `position` from it, so an
+// activity sort would renumber the whole list every time a show is booked, and
+// reproducing it costs an aggregate over every upcoming booking on a public
+// endpoint. GetVenueListing carries the full argument.
+//
+// The venues sitemap family does NOT share the gate: it filters on slug alone,
+// so an unverified venue can appear there and not here. Identical sets today
+// (both 297 on 2026-08-09), by data rather than by construction.
+type VenueListingEntry struct {
+	Slug string `json:"slug" doc:"URL slug for the venue"`
+	Name string `json:"name" doc:"Venue display name"`
+}
+
 // VenueListFilters contains filter options for listing venues
 type VenueListFilters struct {
 	State    string
@@ -937,7 +1009,8 @@ type ArtistWithShowCountResponse struct {
 // because the fields, not the row count, are what blew the budget: sharding
 // would keep carrying the fourteen unread fields and need its shard count
 // revisited on every growth spurt, and truncating would silently drop URLs from
-// the ItemList — the defect `/venues` already exhibits at 100 of 198.
+// the ItemList — the defect `/venues` exhibited at 100 of 297 until
+// VenueListingEntry removed it the same way (PSY-1764).
 //
 // That argument is about the ItemList's feed, which needs the whole set in one
 // read. It does NOT generalise to the browse list a human pages through, and
@@ -958,6 +1031,12 @@ type ArtistWithShowCountResponse struct {
 // page decides how much of it to advertise. What that bound should be — and
 // whether this endpoint should take a `limit` of its own now that its sibling
 // has one — is PSY-1794.
+//
+// `/venues` answers that question differently and deliberately: its ItemList is
+// NOT sliced, because the venue catalogue is two orders of magnitude smaller
+// (297 against 6,279) and its rendered block is ~38 KB rather than ~0.7 MB. See
+// VenueListingEntry, which records the measurement and the point at which page
+// weight would force the same decision there.
 //
 // # Why not SitemapEntry
 //
@@ -1929,6 +2008,14 @@ type VenueServiceInterface interface {
 	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error)
 	VerifyVenue(venueID uint) (*VenueDetailResponse, error)
 	GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error)
+	// GetVenueListing is the slug+name projection behind GET /venues/listing.
+	// Same SET as an unfiltered GetVenuesWithShowCounts, two columns wide and
+	// unpaginated, ordered by name rather than by that path's activity sort; see
+	// VenueListingEntry for why that earns its own endpoint and why the order is
+	// deliberately not shared. The second return is the size of the browse set
+	// BEFORE the slug filter, read in the same snapshot as the rows so a caller
+	// can tell a complete listing from a short one — see the handler.
+	GetVenueListing() ([]VenueListingEntry, int64, error)
 	GetShowsForVenue(venueID uint, timezone string, query VenueShowsQuery) ([]*VenueShowResponse, int64, error)
 	// GetVenueShowYears is the year histogram behind the show list's year
 	// picker. It deliberately ignores VenueShowsQuery.Year: the picker has to
