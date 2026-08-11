@@ -1,11 +1,17 @@
 export { EntityTagList, AddTagDialog } from './EntityTagList'
 export type { AddTagDialogProps } from './EntityTagList'
 export { TagBrowse } from './TagBrowse'
-// TagDetail is intentionally NOT re-exported here (PSY-1772). The route page
-// `app/tags/[slug]/page.tsx` imports it directly via `dynamic()` from the
-// component file so Turbopack can evict it from the global shared client chunk.
-// Re-adding a barrel export makes it multi-route-reachable again and re-hoists
-// TagDetail.tsx into the chunk that loads on every route.
+// TagDetail is intentionally NOT re-exported here, and not from
+// `features/tags/index.ts` either (PSY-1772). Its only consumer,
+// `app/tags/[slug]/page.tsx`, imports the file directly via `dynamic()`.
+//
+// WHY, and why `dynamic()` alone is not enough: Turbopack hoists any client
+// module reachable from two or more route entries into one global chunk that
+// every route loads eagerly. It does not tree-shake `'use client'` barrels
+// per-export, so simply LISTING a component here makes it reachable from every
+// route that imports this barrel for anything else — no one has to import the
+// name. Re-adding the export silently puts TagDetail back in that chunk.
+// Same recipe and same reason as ArtistDetail (PSY-950, spike PSY-944).
 export { TagOfficialIndicator } from './TagOfficialIndicator'
 export {
   TagFacetPanel,

@@ -30,11 +30,7 @@ export {
 } from './hooks'
 
 // Components
-// NOTE: SceneDetailView is intentionally omitted (PSY-1772). The route page
-// imports it directly via `dynamic()` from
-// '@/features/scenes/components/SceneDetail' so Turbopack evicts it from the
-// global shared client chunk (loaded on every route). Re-adding it here
-// re-hoists SceneDetail.tsx into that chunk.
+// SceneDetailView is deliberately absent — see the note in ./components/index.ts.
 export { SceneList, ScenePulse as ScenePulseCard } from './components'
 
 // Cross-surface rules (PSY-1344): the ONE liveliest-first ordering (globe

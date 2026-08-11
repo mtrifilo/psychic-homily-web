@@ -1,8 +1,14 @@
-// ShowDetail is intentionally NOT re-exported here (PSY-1772). The route page
-// `app/shows/[slug]/page.tsx` imports it directly via `dynamic()` from the
-// component file so Turbopack can evict it from the global shared client chunk.
-// Re-adding a barrel export makes it multi-route-reachable again and re-hoists
-// ShowDetail.tsx into the chunk that loads on every route.
+// ShowDetail is intentionally NOT re-exported here, and not from
+// `features/shows/index.ts` either (PSY-1772). Its only consumer,
+// `app/shows/[slug]/page.tsx`, imports the file directly via `dynamic()`.
+//
+// WHY, and why `dynamic()` alone is not enough: Turbopack hoists any client
+// module reachable from two or more route entries into one global chunk that
+// every route loads eagerly. It does not tree-shake `'use client'` barrels
+// per-export, so simply LISTING a component here makes it reachable from every
+// route that imports this barrel for anything else — no one has to import the
+// name. Re-adding the export silently puts ShowDetail back in that chunk.
+// Same recipe and same reason as ArtistDetail (PSY-950, spike PSY-944).
 export { ShowHeader } from './ShowHeader'
 export { ShowStatusStripe } from './ShowStatusStripe'
 export { ShowActions } from './ShowActions'

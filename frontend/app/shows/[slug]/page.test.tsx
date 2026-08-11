@@ -17,15 +17,15 @@ vi.mock('next/navigation', () => ({
 }))
 
 
-// Stub the heavy shows feature module so invoking the page body doesn't pull
-// in the real ShowDetail render path — this ticket exercises the page-level
-// metadata + JSON-LD + notFound wiring, not ShowDetail.
+// Stub the shows feature barrel so invoking the page body doesn't evaluate it.
+// These tests exercise the page-level metadata + JSON-LD + notFound wiring.
+// ShowDetail is deliberately NOT stubbed here: since PSY-1772 the page reaches
+// it through `dynamic(() => import('@/features/shows/components/ShowDetail'))`,
+// which this mock does not intercept — and does not need to, because the lazy
+// component is never rendered by these tests.
 vi.mock('@/features/shows', () => ({
-  ShowDetail: (): null => null,
-  // The page also reads the show's timezone inputs to compute the status
-  // stripe's lifecycle. Stubbed rather than omitted so the first test that
-  // renders the page's dynamic subtree fails on its own terms instead of on a
-  // missing mock export.
+  // The page reads the show's timezone inputs to compute the status stripe's
+  // lifecycle. This is the only barrel export the page still uses.
   showTimingInput: (show: { event_date: string }) => ({
     eventDate: show.event_date,
     state: null,

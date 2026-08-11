@@ -8,15 +8,10 @@ import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import type { TagEnrichedDetailResponse } from '@/features/tags/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 
-// Dynamic-imported from the component FILE (never a `@/features/tags` barrel)
-// to evict TagDetail.tsx from Turbopack's global shared client chunk, which
-// loads eagerly on every route. Same recipe as ArtistDetail (PSY-950 / spike
-// PSY-944): `dynamic()` alone is a no-op, because a barrel re-export keeps the
-// module reachable from the ~17 other files that import the tags barrels, and
-// Turbopack does not tree-shake `'use client'` barrels per-export. The eviction
-// only holds while TagDetail is ALSO absent from features/tags/index.ts and
-// features/tags/components/index.ts. Do NOT re-add those barrel exports.
-// `ssr: true` preserves the HydrationBoundary server render.
+// Imported from the component FILE, never a `@/features/tags` barrel — see the
+// note in features/tags/components/index.ts for why the barrel would undo this.
+// `ssr: true` preserves the HydrationBoundary server render; the page's own
+// <Suspense> below is the boundary this lazy resolves against.
 const TagDetail = dynamic(
   () =>
     import('@/features/tags/components/TagDetail').then(m => ({

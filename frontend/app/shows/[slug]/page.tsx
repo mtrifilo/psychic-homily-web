@@ -16,15 +16,10 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 
-// Dynamic-imported from the component FILE (never the `@/features/shows`
-// barrel) to evict ShowDetail.tsx from Turbopack's global shared client chunk,
-// which loads eagerly on every route. Same recipe as ArtistDetail (PSY-950 /
-// spike PSY-944): `dynamic()` alone is a no-op, because the barrel re-export
-// keeps the module reachable from the 30+ other files that import
-// `@/features/shows`, and Turbopack does not tree-shake `'use client'` barrels
-// per-export. The eviction only holds while ShowDetail is ALSO absent from
-// features/shows/index.ts. Do NOT re-add that barrel export.
-// `ssr: true` preserves the prefetchEntity + HydrationBoundary server render.
+// Imported from the component FILE, never `@/features/shows` — see the note in
+// features/shows/components/index.ts for why the barrel would undo this.
+// `ssr: true` preserves the prefetchEntity + HydrationBoundary server render;
+// the page's own <Suspense> below is the boundary this lazy resolves against.
 const ShowDetail = dynamic(
   () =>
     import('@/features/shows/components/ShowDetail').then(m => ({

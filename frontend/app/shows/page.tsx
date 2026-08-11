@@ -2,7 +2,7 @@ import { Suspense, cache } from 'react'
 import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
 // Imported by path rather than through the `@/features/scenes` barrel, which
-// is a surface of client components (`SceneList`, `SceneDetailView`, the Atlas
+// is a surface of client components (`SceneList`, `ScenePulseCard`, the Atlas
 // globe). This is a server component that needs none of them, and the sibling
 // page-level scene components — `SceneWeekView`, `SceneDayView` — are imported
 // by path for the same reason. NOTE: this is not a claim that the barrel would
