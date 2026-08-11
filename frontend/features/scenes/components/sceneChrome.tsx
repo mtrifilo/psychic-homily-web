@@ -23,6 +23,81 @@ import Link from 'next/link'
 export const SCENE_NAV_CHIP_CLASS =
   'rounded border border-border px-3 py-2 text-center font-mono text-xs text-muted-foreground transition-colors hover:bg-muted/50'
 
+/**
+ * One named entity, linked to its own page when it has one.
+ *
+ * The guard is the point, and it is why this is a component rather than three
+ * ternaries. Entity slugs are NULLABLE and `GenerateSlug` can return `""`, and
+ * `/artists/` or `/venues/` with an empty slug resolves to the INDEX page
+ * rather than 404ing (PSY-1754) — so the naive `href={`/artists/${slug}`}`
+ * silently sends the reader to a directory that never mentions the thing they
+ * clicked. That is a rule the codebase has now learned twice; it lives here
+ * once.
+ *
+ * A row is still NAMED when it cannot be linked. Dropping an unlinkable entity
+ * would misstate the list it belongs to — the rooms list discloses which rooms
+ * a page speaks for, and a missing one makes the coverage claim false.
+ */
+export function EntityNameLink({
+  name,
+  slug,
+  basePath,
+  className = 'font-medium hover:underline',
+  unlinkedClassName = 'font-medium',
+}: {
+  name: string
+  slug?: string | null
+  /** Route prefix WITHOUT a trailing slash, e.g. `/artists`. */
+  basePath: string
+  className?: string
+  unlinkedClassName?: string
+}) {
+  const trimmed = slug?.trim()
+  if (!trimmed) return <span className={unlinkedClassName}>{name}</span>
+  return (
+    <Link href={`${basePath}/${trimmed}`} className={className}>
+      {name}
+    </Link>
+  )
+}
+
+/**
+ * A scene-page section heading, with an optional muted qualifier and one
+ * trailing control.
+ *
+ * The type treatment is the wave's visual contract — letterspaced mono small
+ * caps, the qualifier greyed inside the same heading — and it now appears on
+ * every module of the detail page. Kept feature-local rather than reaching for
+ * the shared `SectionHeader` primitive, whose `title` is a plain string and
+ * whose caps variant is a different family and scale entirely.
+ */
+export function SceneSectionHeading({
+  title,
+  note,
+  action,
+}: {
+  title: React.ReactNode
+  /** Rendered muted inside the heading, after a middot. */
+  note?: React.ReactNode
+  /** A single trailing control, right-aligned on the heading's baseline. */
+  action?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+      <h2 className="font-mono text-[11px] uppercase tracking-widest">
+        {title}
+        {note != null && (
+          <>
+            {' '}
+            <span className="text-muted-foreground">· {note}</span>
+          </>
+        )}
+      </h2>
+      {action}
+    </div>
+  )
+}
+
 /** `Scenes / Chicago, IL` */
 export function SceneBreadcrumb({ slug, sceneName }: { slug: string; sceneName: string }) {
   return (
@@ -80,21 +155,15 @@ export type TrackedRoom = {
 
 /** One tracked room → `/venues/{slug}` when we have a slug, else plain text. */
 export function RoomLink({ venue }: { venue: TrackedRoom }) {
-  const slug = venue.slug?.trim()
-  if (slug) {
-    return (
-      <Link
-        href={`/venues/${slug}`}
-        className="underline underline-offset-4 hover:text-primary"
-      >
-        {venue.name}
-      </Link>
-    )
-  }
-  // No page of its own: name it anyway. The list's job is to tell the reader
-  // WHICH rooms this page speaks for, and dropping one would misstate the
-  // coverage it is there to disclose.
-  return <span>{venue.name}</span>
+  return (
+    <EntityNameLink
+      name={venue.name}
+      slug={venue.slug}
+      basePath="/venues"
+      className="underline underline-offset-4 hover:text-primary"
+      unlinkedClassName=""
+    />
+  )
 }
 
 /** `A · B · C`, with each room linked when it has a slug. */

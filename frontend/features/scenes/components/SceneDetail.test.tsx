@@ -72,12 +72,10 @@ vi.mock('./SceneRooms', () => ({
 vi.mock('./SceneNewBands', () => ({
   SceneNewBands: () => <div data-testid="scene-new-bands" />,
 }))
-const rosterAnchors: (string | undefined)[] = []
 vi.mock('./SceneRoster', () => ({
-  SceneRoster: ({ anchorId }: { anchorId?: string }) => {
-    rosterAnchors.push(anchorId)
-    return <div data-testid="scene-roster" id={anchorId} />
-  },
+  SceneRoster: ({ anchorId }: { anchorId?: string }) => (
+    <div data-testid="scene-roster" id={anchorId} />
+  ),
 }))
 
 const mockUseSceneDetail = vi.fn()
@@ -130,7 +128,6 @@ describe('SceneDetailView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     calendarScenes.length = 0
-    rosterAnchors.length = 0
     mockCalendarWindow.mockReturnValue({ timeZone: 'America/Phoenix' })
   })
 
@@ -284,30 +281,20 @@ describe('SceneDetailView', () => {
       expect(calendarScenes[0].slug).toBe('phoenix-az')
     })
 
-    // AC1 is about ORDER: the calendar is the page's object and everything
-    // else sits under it.
-    it('renders the calendar above every module below it', () => {
+    // AC1 is about ORDER, and the whole page order proves it in one pass: the
+    // calendar is the page's object, and the identity that used to outrank it
+    // sits underneath in the mock's sequence — the rooms this page speaks for
+    // (its coverage disclosure), then who is new, then who lives here, with the
+    // graph demoted below all three.
+    it('renders the calendar first, then the identity sections in the mock order', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      const calendar = screen.getByTestId('scene-calendar')
-      for (const testId of [
+      const order = [
+        'scene-calendar',
         'scene-rooms',
         'scene-new-bands',
         'scene-roster',
         'scene-graph',
-      ]) {
-        expect(
-          calendar.compareDocumentPosition(screen.getByTestId(testId)) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        ).toBeTruthy()
-      }
-    })
-
-    // The mock's identity order, which is not arbitrary: the rooms this page
-    // speaks for (its coverage disclosure), then who is new, then who lives
-    // here. The graph is demoted below all three.
-    it('orders the identity sections rooms → new bands → roster → map', () => {
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      const order = ['scene-rooms', 'scene-new-bands', 'scene-roster', 'scene-graph']
+      ]
       for (let i = 0; i < order.length - 1; i++) {
         expect(
           screen
@@ -328,13 +315,24 @@ describe('SceneDetailView', () => {
       )
     })
 
+    // The two stateful sections are keyed by slug so their state resets on a
+    // scene-to-scene navigation, and a bare `scene.slug` on both made them two
+    // SIBLINGS WITH THE SAME KEY — which React reports only as a console error,
+    // so every assertion above still passed while the page logged on every
+    // render. Nothing here should be writing to console.error.
+    it('renders without a React key or validation warning', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(consoleError).not.toHaveBeenCalled()
+      consoleError.mockRestore()
+    })
+
     // The anchor travels with the ROSTER, which is where the mobile graph
-    // teaser is sending the reader. Asserted through the prop as well as the
-    // DOM, so moving it onto some other section fails here rather than
+    // teaser is sending the reader. Identity-asserted rather than merely
+    // present, so moving it onto some other section fails here rather than
     // silently landing the teaser somewhere else on the page.
     it('hangs the #scene-artists anchor off the roster (PSY-1472)', () => {
       const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(rosterAnchors).toEqual([SCENE_ARTISTS_ANCHOR])
       expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBe(
         screen.getByTestId('scene-roster')
       )

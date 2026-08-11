@@ -67,15 +67,18 @@ function band(overrides: Partial<SceneNewArtistRow> = {}): SceneNewArtistRow {
   }
 }
 
+/** The only thing that varies between these tests is the band list itself. */
+function givenNewBands(artists: SceneNewArtistRow[], total = artists.length) {
+  mockUseSceneNewArtists.mockReturnValue({ data: { artists, total } })
+}
+
 describe('SceneNewBands', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it('names each new band with the fact the window selected on', () => {
-    mockUseSceneNewArtists.mockReturnValue({
-      data: { artists: [band()], total: 1 },
-    })
+    givenNewBands([band()], 1)
     renderWithProviders(<SceneNewBands scene={buildScene()} />)
 
     expect(
@@ -106,9 +109,7 @@ describe('SceneNewBands', () => {
   // Entity slugs are nullable and can generate as "", and `/artists/` resolves
   // to the artists INDEX rather than 404ing.
   it('names a slugless band without linking it', () => {
-    mockUseSceneNewArtists.mockReturnValue({
-      data: { artists: [band({ slug: '' })], total: 1 },
-    })
+    givenNewBands([band({ slug: '' })], 1)
     renderWithProviders(<SceneNewBands scene={buildScene()} />)
     expect(screen.getByText('Saguaro Teeth')).toBeInTheDocument()
     expect(
@@ -117,17 +118,13 @@ describe('SceneNewBands', () => {
   })
 
   it('counts the bands the cap withheld', () => {
-    mockUseSceneNewArtists.mockReturnValue({
-      data: { artists: [band(), band({ id: 2, name: 'Verdugo', slug: 'verdugo' })], total: 8 },
-    })
+    givenNewBands([band(), band({ id: 2, name: 'Verdugo', slug: 'verdugo' })], 8)
     renderWithProviders(<SceneNewBands scene={buildScene()} />)
     expect(screen.getByText('+6 more')).toBeInTheDocument()
   })
 
   it('withholds nothing when the window fits', () => {
-    mockUseSceneNewArtists.mockReturnValue({
-      data: { artists: [band()], total: 1 },
-    })
+    givenNewBands([band()], 1)
     renderWithProviders(<SceneNewBands scene={buildScene()} />)
     expect(screen.queryByText(/more$/)).not.toBeInTheDocument()
   })
@@ -155,9 +152,7 @@ describe('SceneNewBands', () => {
   })
 
   it('reads the scene canonical slug, not the requested one', () => {
-    mockUseSceneNewArtists.mockReturnValue({
-      data: { artists: [band()], total: 1 },
-    })
+    givenNewBands([band()], 1)
     renderWithProviders(<SceneNewBands scene={buildScene()} />)
     expect(mockUseSceneNewArtists).toHaveBeenCalledWith(
       expect.objectContaining({ slug: 'phoenix-az' })
@@ -165,9 +160,7 @@ describe('SceneNewBands', () => {
   })
 
   it('uses no em dashes', () => {
-    mockUseSceneNewArtists.mockReturnValue({
-      data: { artists: [band()], total: 4 },
-    })
+    givenNewBands([band()], 4)
     const { container } = renderWithProviders(<SceneNewBands scene={buildScene()} />)
     expect(container.textContent).not.toContain('—')
   })

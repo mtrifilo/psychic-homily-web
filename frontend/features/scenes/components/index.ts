@@ -30,8 +30,16 @@ export { SceneList } from './SceneList'
 // weeks of calendar rendering into the chunk every route loads.
 //
 // SceneRooms / SceneNewBands / SceneRoster (PSY-1784) are off it for the same
-// reason. SceneRoster is the one to be careful with: it pulls MusicEmbed, and
-// listing it here would put Bandcamp/Spotify embed resolution into the global
-// chunk on behalf of one section of one route.
+// reason: listing any of them would put that module's markup, and everything it
+// reaches, into the global chunk on behalf of one section of one route.
+//
+// NOT because of MusicEmbed, which an earlier version of this note claimed:
+// MusicEmbed is ALREADY global (layout -> @/components/layout -> AppShell ->
+// CommandPalette -> the @/components/shared barrel, which exports it). The
+// three modules deep-import their shared primitives anyway, which is the habit
+// that keeps that from being load-bearing in the wrong direction later.
+//
+// All three are also named in features/sharedChunkBarrelGuard.test.ts, because
+// this comment cannot fail a build and that list can.
 export { AtlasGlobe } from './AtlasGlobe'
 export { ScenePreviewPanel } from './ScenePreviewPanel'

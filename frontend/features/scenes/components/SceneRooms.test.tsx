@@ -106,6 +106,8 @@ const sparseRooms = [
   }),
 ]
 
+const portlandScene = buildScene(sparseRooms, { city: 'Portland', state: 'OR' })
+
 function roomNames() {
   return screen
     .getAllByRole('listitem')
@@ -203,7 +205,7 @@ describe('SceneRooms — dense', () => {
 describe('SceneRooms — sparse', () => {
   it('drops the counts and lists the rooms alphabetically', () => {
     renderWithProviders(
-      <SceneRooms scene={buildScene(sparseRooms, { city: 'Portland', state: 'OR' })} />
+      <SceneRooms scene={portlandScene} />
     )
 
     expect(roomNames()).toEqual([
@@ -220,7 +222,7 @@ describe('SceneRooms — sparse', () => {
   // A ranking of 1, 0, 0 orders nothing, so there is no second order to offer.
   it('offers no order toggle when the counts order nothing', () => {
     renderWithProviders(
-      <SceneRooms scene={buildScene(sparseRooms, { city: 'Portland', state: 'OR' })} />
+      <SceneRooms scene={portlandScene} />
     )
     expect(screen.queryByRole('button', { name: 'Alphabetical' })).not.toBeInTheDocument()
     expect(
@@ -232,7 +234,7 @@ describe('SceneRooms — sparse', () => {
   // rooms this page speaks for, and dropping one would misstate the coverage.
   it('names a slugless room without linking it', () => {
     renderWithProviders(
-      <SceneRooms scene={buildScene(sparseRooms, { city: 'Portland', state: 'OR' })} />
+      <SceneRooms scene={portlandScene} />
     )
     expect(screen.getByText('Turn! Turn! Turn!')).toBeInTheDocument()
     expect(
@@ -242,7 +244,7 @@ describe('SceneRooms — sparse', () => {
 
   it('still asks for the rooms we are missing', () => {
     renderWithProviders(
-      <SceneRooms scene={buildScene(sparseRooms, { city: 'Portland', state: 'OR' })} />
+      <SceneRooms scene={portlandScene} />
     )
     expect(
       screen.getByRole('link', { name: 'Suggest a venue →' })

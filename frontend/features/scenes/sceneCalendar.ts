@@ -287,6 +287,18 @@ export function venueSubLocality(show: SceneShowSummary): string | null {
 }
 
 /**
+ * `12 venues`, `1 venue`. Naive -s pluralization, which is all this feature
+ * needs — every noun it counts (venue, artist, show, room, band) is regular.
+ *
+ * Exported so the scene page's modules stop each keeping a copy. It is NOT a
+ * general-purpose pluralizer and should not become one here; a real one belongs
+ * in `lib/utils` alongside the thirty-odd inline copies elsewhere in the app.
+ */
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+/**
  * The header's middot stat line, with ZERO-VALUED PARTS KEPT.
  *
  * The bug this replaces dropped any part that was zero, so London rendered
@@ -300,7 +312,6 @@ export function sceneStatParts(stats: {
   artist_count: number
   upcoming_show_count: number
 }): string[] {
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
   return [
     plural(stats.venue_count, 'venue'),
     `${plural(stats.artist_count, 'artist')} based here`,

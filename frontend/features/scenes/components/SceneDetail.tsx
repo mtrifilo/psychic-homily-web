@@ -165,15 +165,31 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           roster stub, because its own ticket said both "hide empty modules" and
           "keep existing modules in their current form"; this wave rebuilds them
           and the sparse matrix governs. */}
+      {/* The slug-suffixed keys on the two stateful sections are LOAD-BEARING,
+          not decoration. This view is one component across every /scenes/{slug}
+          route, so React reuses the same instances on a scene-to-scene
+          navigation and their state would ride along: a reader who flipped
+          Phoenix's rooms to alphabetical would land on the next scene still
+          flipped, and one who expanded a 340-band roster would send `limit=100`
+          at a scene with nine bands. Keying by the identity the state is ABOUT
+          resets both without a single effect.
+
+          The prefixes are required, not stylistic: keys must be unique among
+          SIBLINGS, and a bare `scene.slug` on both is two children with the
+          same key. */}
       <div className="mt-10 space-y-8">
-        <SceneRooms scene={scene} />
+        <SceneRooms key={`rooms-${scene.slug}`} scene={scene} />
 
         <SceneNewBands scene={scene} />
 
         {/* anchorId: the mobile graph teaser's link-out target (SceneGraph,
             PSY-1472). It travels with the roster because that is the section
             the teaser is sending the reader to. */}
-        <SceneRoster scene={scene} anchorId={SCENE_ARTISTS_ANCHOR} />
+        <SceneRoster
+          key={`roster-${scene.slug}`}
+          scene={scene}
+          anchorId={SCENE_ARTISTS_ANCHOR}
+        />
 
         {/* Scene graph (PSY-367): read-only artist relationship map. Section
             self-hides when there are <3 connected artists or container is mobile. */}

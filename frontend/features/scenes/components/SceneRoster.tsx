@@ -1,9 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { BracketLink, MusicEmbed } from '@/components/shared'
+// Deep-imported, not through `@/components/shared` — see the note in
+// SceneRooms.tsx and features/scenes/components/index.ts (PSY-1772).
+import { BracketLink } from '@/components/shared/BracketLink'
+import { MusicEmbed } from '@/components/shared/MusicEmbed'
 import { useSceneArtists } from '../hooks'
+import { plural } from '../sceneCalendar'
+import { EntityNameLink, SceneSectionHeading } from './sceneChrome'
 import type { SceneArtist, SceneDetail } from '../types'
 
 /**
@@ -45,25 +49,14 @@ const ROSTER_MAX = 100
  * band's `THIS WEEK` and `TONIGHT` clauses, for the same reason.
  */
 function showsLabel(artist: SceneArtist): string {
-  const count = artist.show_count
-  return `${count} show${count === 1 ? '' : 's'} listed`
+  return `${plural(artist.show_count, 'show')} listed`
 }
 
 function RosterRow({ artist }: { artist: SceneArtist }) {
-  const slug = artist.slug?.trim()
-
   return (
     <li className="border-b border-border/40 py-3 last:border-b-0">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        {/* Guarded: an artist slug is nullable and can generate as "", and
-            `/artists/` resolves to the artists INDEX rather than 404ing. */}
-        {slug ? (
-          <Link href={`/artists/${slug}`} className="font-medium hover:underline">
-            {artist.name}
-          </Link>
-        ) : (
-          <span className="font-medium">{artist.name}</span>
-        )}
+        <EntityNameLink name={artist.name} slug={artist.slug} basePath="/artists" />
 
         {/* The one-line descriptor slot sits HERE, and renders nothing.
             Descriptors are a global per-artist field authored through the
@@ -74,18 +67,20 @@ function RosterRow({ artist }: { artist: SceneArtist }) {
             is simply nothing, which is what the locked sparse frame draws for
             every other unauthored slot on this page. */}
 
-        <span className="hidden flex-1 sm:block" aria-hidden="true" />
-
-        {artist.is_active && (
-          <span
-            className="font-mono text-xs uppercase tracking-wide text-primary"
-            title="Has an upcoming show or one in the last ~6 months"
-          >
-            Active
+        {/* One trailing group, so `sm:ml-auto` has a single owner regardless of
+            which of its two parts render. */}
+        <span className="flex items-baseline gap-x-3 sm:ml-auto">
+          {artist.is_active && (
+            <span
+              className="font-mono text-xs uppercase tracking-wide text-primary"
+              title="Has an upcoming show or one in the last ~6 months"
+            >
+              Active
+            </span>
+          )}
+          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            {showsLabel(artist)}
           </span>
-        )}
-        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {showsLabel(artist)}
         </span>
       </div>
 
@@ -114,12 +109,9 @@ export function SceneRoster({
   anchorId?: string
 }) {
   const [limit, setLimit] = useState(ROSTER_PAGE_SIZE)
-  const { data, isLoading } = useSceneArtists({
-    slug: scene.slug,
-    limit,
-    // The reader stays looking at the list while the rest of it arrives.
-    keepPreviousPage: true,
-  })
+  // The hook retains the previous page across a limit change on its own, so the
+  // reader keeps looking at the list while the rest of it arrives.
+  const { data, isLoading } = useSceneArtists({ slug: scene.slug, limit })
 
   const artists = data?.artists ?? []
 
@@ -130,25 +122,29 @@ export function SceneRoster({
 
   const total = data?.total ?? artists.length
   const withheld = Math.max(total - artists.length, 0)
-  // A roster past the endpoint's ceiling cannot be shown in full here, so the
-  // control must not promise it. `/artists` is the page that can.
-  const canExpand = withheld > 0 && artists.length < ROSTER_MAX
+  // What one more fetch could actually put on the page — capped, because the
+  // endpoint is. The control is LABELLED from this rather than from `total`:
+  // a 340-band roster offering "Show all 340" and then delivering 100 breaks
+  // its promise on the click, which is worse than naming the ceiling up front.
+  const expandTo = Math.min(total, ROSTER_MAX)
+  const canExpand = withheld > 0 && artists.length < expandTo
 
   return (
     <section id={anchorId} className="scroll-mt-20 border-t border-border pt-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <h2 className="font-mono text-[11px] uppercase tracking-widest">
-          Bands / based in {scene.city}{' '}
-          <span className="text-muted-foreground">· {total}</span>
-        </h2>
-
-        {canExpand && (
-          <BracketLink
-            label={`Show all ${total}`}
-            onClick={() => setLimit(Math.min(total, ROSTER_MAX))}
-          />
-        )}
-      </div>
+      <SceneSectionHeading
+        title={`Bands / based in ${scene.city}`}
+        note={total}
+        action={
+          canExpand ? (
+            <BracketLink
+              label={
+                expandTo === total ? `Show all ${total}` : `Show ${expandTo} of ${total}`
+              }
+              onClick={() => setLimit(expandTo)}
+            />
+          ) : undefined
+        }
+      />
 
       <ul className="mt-2">
         {artists.map(artist => (

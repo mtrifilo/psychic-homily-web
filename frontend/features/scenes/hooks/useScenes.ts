@@ -54,18 +54,10 @@ interface UseSceneArtistsOptions {
   period?: number
   limit?: number
   offset?: number
-  /**
-   * Retain the previous page while a NEW `limit` resolves.
-   *
-   * Opt-in rather than the hook's default, because the two behaviours are only
-   * safe on different callers. The scene roster changes `limit` in place when a
-   * reader asks for the rest of the list, and dropping to a spinner there would
-   * unmount a section the reader is looking at. The /atlas preview changes
-   * `slug` instead, where retaining would paint the PREVIOUS scene's bands
-   * under the new scene's name.
-   */
-  keepPreviousPage?: boolean
 }
+
+/** Position of `slug` in `queryKeys.scenes.artists`, which this hook reads back. */
+const ARTISTS_KEY_SLUG_INDEX = 2
 
 /**
  * Hook to fetch a scene's roster — the bands BASED in the metro (PSY-1255 step C).
@@ -75,7 +67,7 @@ interface UseSceneArtistsOptions {
  * re-default it here, or the FE-sent window would contradict that model.
  */
 export function useSceneArtists(options: UseSceneArtistsOptions) {
-  const { slug, period, limit = 20, offset = 0, keepPreviousPage = false } = options
+  const { slug, period, limit = 20, offset = 0 } = options
 
   const params = new URLSearchParams()
   if (period) params.set('period', period.toString())
@@ -99,7 +91,22 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
     },
     enabled: Boolean(slug),
     staleTime: 5 * 60 * 1000, // 5 minutes
-    placeholderData: keepPreviousPage ? keepPreviousData : undefined,
+    // Retain the previous page across a LIMIT change, drop it across a SLUG
+    // change. Both callers need exactly this and neither has to ask for it.
+    //
+    // The scene roster raises `limit` in place when a reader asks for the rest
+    // of the list; dropping to nothing there would unmount a section they are
+    // looking at. The /atlas preview changes `slug` instead, where retaining
+    // would paint the PREVIOUS scene's bands under the new scene's name.
+    //
+    // Deliberately NOT a caller opt-in flag. That spelling is fail-OPEN: it is
+    // correct only while nobody passes it on a slug-varying call, and the day
+    // someone copies the roster's options onto one, the wrong scene's bands
+    // render with nothing to catch it. Stating the invariant here — retain only
+    // within one scene — makes every present and future caller right by
+    // construction.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[ARTISTS_KEY_SLUG_INDEX] === slug ? previous : undefined,
   })
 }
 

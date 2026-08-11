@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { useSceneNewArtists } from '../hooks'
 import { formatFirstListed, formatNewBandShow } from '../sceneNewBands'
+import { EntityNameLink, SceneSectionHeading } from './sceneChrome'
 import type { SceneDetail, SceneNewArtistRow } from '../types'
 
 /**
@@ -22,7 +22,6 @@ import type { SceneDetail, SceneNewArtistRow } from '../types'
 const NEW_BANDS_LIMIT = 5
 
 function NewBandRow({ band }: { band: SceneNewArtistRow }) {
-  const slug = band.slug?.trim()
   const firstListed = formatFirstListed(band.first_listed_at)
   const clauses = [
     firstListed && `first listed ${firstListed}`,
@@ -31,17 +30,7 @@ function NewBandRow({ band }: { band: SceneNewArtistRow }) {
 
   return (
     <li className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 border-b border-border/40 py-2 last:border-b-0">
-      {/* Guarded: an artist slug is nullable and can generate as "", and
-          `/artists/` resolves to the artists INDEX rather than 404ing, so a
-          naive href would send the reader to a directory that never mentions
-          the band the row is about. */}
-      {slug ? (
-        <Link href={`/artists/${slug}`} className="font-medium hover:underline">
-          {band.name}
-        </Link>
-      ) : (
-        <span className="font-medium">{band.name}</span>
-      )}
+      <EntityNameLink name={band.name} slug={band.slug} basePath="/artists" />
       <span className="font-mono text-xs text-muted-foreground">
         {clauses.join(' · ')}
       </span>
@@ -64,10 +53,10 @@ export function SceneNewBands({ scene }: { scene: SceneDetail }) {
 
   return (
     <section className="border-t border-border pt-4">
-      <h2 className="font-mono text-[11px] uppercase tracking-widest">
-        New / first listed in {scene.city}{' '}
-        <span className="text-muted-foreground">· last 30 days</span>
-      </h2>
+      <SceneSectionHeading
+        title={`New / first listed in ${scene.city}`}
+        note="last 30 days"
+      />
 
       <ul className="mt-2">
         {bands.map(band => (

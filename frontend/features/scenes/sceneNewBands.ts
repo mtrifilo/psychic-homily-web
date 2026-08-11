@@ -7,22 +7,22 @@
  * date helpers below are so fussy about which clock they read.
  */
 
-import { parseCalendarDate } from './sceneWeek'
+import { isCalendarDate, parseCalendarDate } from './sceneWeek'
 import type { SceneNewArtistShow } from './types'
 
 /**
  * `Aug 22` from a `YYYY-MM-DD` calendar date, or null when it is not one.
  *
- * The shape is checked BEFORE parsing, not after. `parseCalendarDate` builds
- * its Date component-wise from `split('-').map(Number)`, so `""` yields
- * `Number('') === 0` in every slot and a perfectly valid Date in the year 1900
- * — a garbage input that renders as a confident "Jan 1" rather than failing.
+ * The SHAPE is the whole guard, and it has to run first — see `isCalendarDate`
+ * for why a post-hoc NaN check would never fire.
  */
 function formatCalendarMonthDay(iso: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) return null
-  const date = parseCalendarDate(iso.trim())
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const trimmed = iso.trim()
+  if (!isCalendarDate(trimmed)) return null
+  return parseCalendarDate(trimmed).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 /**

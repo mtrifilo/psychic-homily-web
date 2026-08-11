@@ -3,7 +3,6 @@ import {
   bookedRoomCount,
   defaultRoomOrder,
   orderRooms,
-  roomHref,
   roomLocationLabel,
   roomWebsite,
 } from './sceneRooms'
@@ -131,19 +130,8 @@ describe('roomLocationLabel', () => {
   })
 })
 
-describe('roomHref', () => {
-  it('links a slugged room to its own page', () => {
-    expect(roomHref(room({ slug: 'valley-bar' }))).toBe('/venues/valley-bar')
-  })
-
-  // `/venues/` resolves to the venues INDEX rather than 404ing, so a slugless
-  // room must not be linked at all.
-  it('returns null for a missing or empty slug', () => {
-    expect(roomHref(room({ slug: '' }))).toBeNull()
-    expect(roomHref(room({ slug: undefined }))).toBeNull()
-    expect(roomHref(room({ slug: '  ' }))).toBeNull()
-  })
-})
+// The nullable-slug href guard lives in `EntityNameLink` (sceneChrome.tsx) and
+// is covered by sceneChrome.test.tsx plus each section's own suite.
 
 describe('roomWebsite', () => {
   it('accepts http and https', () => {

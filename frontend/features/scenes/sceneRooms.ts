@@ -87,20 +87,6 @@ export function roomLocationLabel(
 }
 
 /**
- * The room's own page, or nothing.
- *
- * Entity slugs are NULLABLE and the generator can return `""`, and
- * `/venues/` (empty slug) resolves to the venues INDEX rather than 404ing —
- * so a slugless room linked naively sends the reader to a directory that does
- * not mention it. Returning null instead lets the caller name it unlinked,
- * which is what the day page's rooms footer already does.
- */
-export function roomHref(room: SceneVenue): string | null {
-  const slug = room.slug?.trim()
-  return slug ? `/venues/${slug}` : null
-}
-
-/**
  * The room's own website, or nothing.
  *
  * Scheme-checked before it becomes an `href`. The column is operator-entered

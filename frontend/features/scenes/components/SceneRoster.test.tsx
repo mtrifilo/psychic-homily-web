@@ -22,9 +22,12 @@ vi.mock('next/link', () => ({
 // MusicEmbed resolves a Bandcamp URL through a route handler and has its own
 // suite. Stub it at the boundary and record what it was handed, so "the player
 // renders, open, for the right band" is assertable without a network.
+//
+// Mocked at the MODULE the component imports, not at the `@/components/shared`
+// barrel: SceneRoster deep-imports to keep the barrel off its dependency path
+// (PSY-1772), so a barrel mock would silently stop intercepting.
 const embedProps: { artistName: string; bandcampAlbumUrl?: string | null }[] = []
-vi.mock('@/components/shared', async importOriginal => ({
-  ...(await importOriginal<typeof import('@/components/shared')>()),
+vi.mock('@/components/shared/MusicEmbed', () => ({
   MusicEmbed: (props: { artistName: string; bandcampAlbumUrl?: string | null }) => {
     embedProps.push(props)
     return <div data-testid={`embed-${props.artistName}`} />
@@ -76,6 +79,11 @@ function artist(overrides: Partial<SceneArtist> = {}): SceneArtist {
   }
 }
 
+/** The only thing that varies between these tests is the roster itself. */
+function givenRoster(artists: SceneArtist[], total = artists.length) {
+  mockUseSceneArtists.mockReturnValue({ data: { artists, total }, isLoading: false })
+}
+
 function rosterOf(count: number): SceneArtist[] {
   return Array.from({ length: count }, (_, i) =>
     artist({ id: i + 1, slug: `band-${i + 1}`, name: `Band ${i + 1}` })
@@ -89,10 +97,7 @@ describe('SceneRoster', () => {
   })
 
   it('names the bands based here and how many there are', () => {
-    mockUseSceneArtists.mockReturnValue({
-      data: { artists: [artist()], total: 17 },
-      isLoading: false,
-    })
+    givenRoster([artist()], 17)
     renderWithProviders(<SceneRoster scene={buildScene()} />)
 
     expect(
@@ -105,10 +110,7 @@ describe('SceneRoster', () => {
   })
 
   it('names a slugless band without linking it to the artists index', () => {
-    mockUseSceneArtists.mockReturnValue({
-      data: { artists: [artist({ slug: '' })], total: 1 },
-      isLoading: false,
-    })
+    givenRoster([artist({ slug: '' })], 1)
     renderWithProviders(<SceneRoster scene={buildScene()} />)
     expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Gatecreeper' })).not.toBeInTheDocument()
@@ -116,16 +118,7 @@ describe('SceneRoster', () => {
 
   describe('players', () => {
     it('renders an OPEN player for each band that has an embed', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: {
-          artists: [
-            artist({ bandcamp_embed_url: 'https://gatecreeper.bandcamp.com/album/deserted' }),
-            artist({ id: 2, slug: 'diners', name: 'Diners', bandcamp_embed_url: null }),
-          ],
-          total: 2,
-        },
-        isLoading: false,
-      })
+      givenRoster([ artist({ bandcamp_embed_url: 'https://gatecreeper.bandcamp.com/album/deserted' }), artist({ id: 2, slug: 'diners', name: 'Diners', bandcamp_embed_url: null }), ], 2)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
       expect(screen.getByTestId('embed-Gatecreeper')).toBeInTheDocument()
@@ -142,25 +135,14 @@ describe('SceneRoster', () => {
     // Never behind a disclosure. There is no toggle, summary or details
     // element to fail open on, which is the point of asserting it.
     it('puts no expand control between the reader and the player', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: {
-          artists: [
-            artist({ bandcamp_embed_url: 'https://gatecreeper.bandcamp.com/album/deserted' }),
-          ],
-          total: 1,
-        },
-        isLoading: false,
-      })
+      givenRoster([ artist({ bandcamp_embed_url: 'https://gatecreeper.bandcamp.com/album/deserted' }), ], 1)
       const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(container.querySelector('details')).toBeNull()
       expect(screen.queryByRole('button', { name: /play|listen|expand/i })).toBeNull()
     })
 
     it('renders a plain list when no band has music', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: { artists: [artist({ bandcamp_embed_url: null })], total: 1 },
-        isLoading: false,
-      })
+      givenRoster([artist({ bandcamp_embed_url: null })], 1)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(embedProps).toHaveLength(0)
     })
@@ -171,16 +153,7 @@ describe('SceneRoster', () => {
     // carries neither half — only a total, all-time approved count — so the row
     // states what it has under the label that is true of it.
     it('labels the count as LISTED shows, never as upcoming', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: {
-          artists: [
-            artist({ show_count: 6 }),
-            artist({ id: 2, slug: 'latter', name: 'Latter', show_count: 1 }),
-          ],
-          total: 2,
-        },
-        isLoading: false,
-      })
+      givenRoster([ artist({ show_count: 6 }), artist({ id: 2, slug: 'latter', name: 'Latter', show_count: 1 }), ], 2)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
       expect(screen.getByText('6 shows listed')).toBeInTheDocument()
@@ -189,16 +162,7 @@ describe('SceneRoster', () => {
     })
 
     it('marks active bands and leaves the rest unmarked', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: {
-          artists: [
-            artist({ is_active: true }),
-            artist({ id: 2, slug: 'latter', name: 'Latter', is_active: false }),
-          ],
-          total: 2,
-        },
-        isLoading: false,
-      })
+      givenRoster([ artist({ is_active: true }), artist({ id: 2, slug: 'latter', name: 'Latter', is_active: false }), ], 2)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
       const rows = screen.getAllByRole('listitem')
@@ -209,24 +173,18 @@ describe('SceneRoster', () => {
 
   describe('pagination', () => {
     it('asks for the first page and offers the rest', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: { artists: rosterOf(10), total: 17 },
-        isLoading: false,
-      })
+      givenRoster(rosterOf(10), 17)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
       expect(mockUseSceneArtists).toHaveBeenCalledWith(
-        expect.objectContaining({ slug: 'phoenix-az', limit: 10, keepPreviousPage: true })
+        expect.objectContaining({ slug: 'phoenix-az', limit: 10 })
       )
       expect(screen.getByRole('button', { name: 'Show all 17' })).toBeInTheDocument()
     })
 
     it('fetches the whole roster when the reader asks for it', async () => {
       const user = userEvent.setup()
-      mockUseSceneArtists.mockReturnValue({
-        data: { artists: rosterOf(10), total: 17 },
-        isLoading: false,
-      })
+      givenRoster(rosterOf(10), 17)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
       await user.click(screen.getByRole('button', { name: 'Show all 17' }))
@@ -237,34 +195,31 @@ describe('SceneRoster', () => {
     })
 
     it('offers no control when the whole roster already fits', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: { artists: rosterOf(9), total: 9 },
-        isLoading: false,
-      })
+      givenRoster(rosterOf(9), 9)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(screen.queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument()
     })
 
-    // The endpoint caps `limit` at 100, so a control promising "Show all 340"
-    // would be a promise this page cannot keep.
-    it('states the ceiling instead of promising a roster it cannot fetch', async () => {
+    // The endpoint caps `limit` at 100. A control labelled "Show all 340" that
+    // then delivers 100 breaks its promise ON THE CLICK, so the ceiling is
+    // named BEFORE the reader commits, not after.
+    it('names the ceiling in the label rather than over-promising', async () => {
       const user = userEvent.setup()
-      mockUseSceneArtists.mockReturnValue({
-        data: { artists: rosterOf(10), total: 340 },
-        isLoading: false,
-      })
+      givenRoster(rosterOf(10), 340)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
 
-      await user.click(screen.getByRole('button', { name: 'Show all 340' }))
+      expect(screen.queryByRole('button', { name: 'Show all 340' })).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Show 100 of 340' }))
       expect(mockUseSceneArtists).toHaveBeenLastCalledWith(
         expect.objectContaining({ limit: 100 })
       )
+    })
 
-      mockUseSceneArtists.mockReturnValue({
-        data: { artists: rosterOf(100), total: 340 },
-        isLoading: false,
-      })
+    it('stops offering the control once the ceiling is what is withholding bands', () => {
+      givenRoster(rosterOf(100), 340)
       renderWithProviders(<SceneRoster scene={buildScene()} />)
+
+      expect(screen.queryByRole('button', { name: /Show/ })).toBeNull()
       expect(
         screen.getByText('Showing 100 of 340 bands based in Phoenix')
       ).toBeInTheDocument()
@@ -275,10 +230,7 @@ describe('SceneRoster', () => {
     // London: 197 upcoming shows and 0 based-here artists. The retired shape
     // was a titled card over a 130px collapsed stub.
     it('renders nothing when no band is based here', () => {
-      mockUseSceneArtists.mockReturnValue({
-        data: { artists: [], total: 0 },
-        isLoading: false,
-      })
+      givenRoster([], 0)
       const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
       expect(container).toBeEmptyDOMElement()
     })
@@ -291,10 +243,7 @@ describe('SceneRoster', () => {
   })
 
   it('carries the anchor the mobile graph teaser links to', () => {
-    mockUseSceneArtists.mockReturnValue({
-      data: { artists: [artist()], total: 1 },
-      isLoading: false,
-    })
+    givenRoster([artist()], 1)
     const { container } = renderWithProviders(
       <SceneRoster scene={buildScene()} anchorId="scene-artists" />
     )
@@ -302,10 +251,7 @@ describe('SceneRoster', () => {
   })
 
   it('uses no em dashes', () => {
-    mockUseSceneArtists.mockReturnValue({
-      data: { artists: rosterOf(10), total: 17 },
-      isLoading: false,
-    })
+    givenRoster(rosterOf(10), 17)
     const { container } = renderWithProviders(<SceneRoster scene={buildScene()} />)
     expect(container.textContent).not.toContain('—')
   })

@@ -153,6 +153,11 @@ export function MusicEmbed({
             title={`${artistName} on Bandcamp`}
             style={{ border: 0, width: '100%', maxWidth: '700px', height: '120px' }}
             src={bandcampEmbedSrc({ kind: embed.embedKind, id: embed.embedId })}
+            // Matches the Spotify branch below, which has always had it. It
+            // costs nothing on the one-embed pages this component was built for
+            // and matters on the scene roster (PSY-1784), which is the first
+            // surface to put ten of these on one page.
+            loading="lazy"
             seamless
           />
         </div>

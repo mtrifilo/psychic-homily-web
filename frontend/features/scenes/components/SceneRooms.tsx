@@ -1,16 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import { BracketLink } from '@/components/shared'
+// Deep-imported, not through `@/components/shared`: that barrel is reachable
+// from the root layout, so importing a name through it is the habit that puts
+// unrelated modules in the chunk every route loads (PSY-1772).
+import { BracketLink } from '@/components/shared/BracketLink'
+import { plural } from '../sceneCalendar'
 import {
   defaultRoomOrder,
   orderRooms,
-  roomHref,
   roomLocationLabel,
   roomWebsite,
   type RoomOrder,
 } from '../sceneRooms'
+import { EntityNameLink, SceneSectionHeading } from './sceneChrome'
 import type { SceneDetail, SceneVenue } from '../types'
 
 /**
@@ -36,22 +39,12 @@ function RoomRow({
   sceneState: string
   showCount: boolean
 }) {
-  const href = roomHref(room)
   const location = roomLocationLabel(room, sceneState)
   const website = roomWebsite(room)
 
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-border/40 py-2 last:border-b-0">
-      {href ? (
-        <Link href={href} className="font-medium hover:underline">
-          {room.name}
-        </Link>
-      ) : (
-        // No page of its own: name it anyway. The list's job is to say WHICH
-        // rooms this page speaks for, and dropping one would misstate the
-        // coverage it exists to disclose.
-        <span className="font-medium">{room.name}</span>
-      )}
+      <EntityNameLink name={room.name} slug={room.slug} basePath="/venues" />
 
       {location && (
         <span className="font-mono text-xs text-muted-foreground">({location})</span>
@@ -69,11 +62,9 @@ function RoomRow({
         </a>
       )}
 
-      <span className="hidden flex-1 sm:block" aria-hidden="true" />
-
       {showCount && (
-        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {room.upcoming_show_count} show{room.upcoming_show_count === 1 ? '' : 's'}
+        <span className="font-mono text-xs tabular-nums text-muted-foreground sm:ml-auto">
+          {plural(room.upcoming_show_count, 'show')}
         </span>
       )}
     </li>
@@ -110,9 +101,7 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
   if (rooms.length === 0) {
     return (
       <section className="border-t border-border pt-4">
-        <h2 className="font-mono text-[11px] uppercase tracking-widest">
-          Rooms / none tracked yet
-        </h2>
+        <SceneSectionHeading title="Rooms / none tracked yet" />
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Everything on this page&apos;s calendar comes from rooms we track, and we
           track none in {scene.city} yet.
@@ -126,29 +115,26 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
 
   return (
     <section className="border-t border-border pt-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <h2 className="font-mono text-[11px] uppercase tracking-widest">
-          Rooms / {rooms.length} tracked{' '}
-          {/* Names the order the list is ACTUALLY in, so it follows the escape
-              hatch. `showCounts` is a separate question and deliberately does
-              not move with it. */}
-          <span className="text-muted-foreground">
-            · {order === 'ranked' ? 'ordered by upcoming shows' : 'alphabetical'}
-          </span>
-        </h2>
-
-        {/* The escape hatch only exists where there is something to escape.
-            A scene already listed alphabetically because its counts order
-            nothing has no second order to offer. */}
-        {naturalOrder === 'ranked' && (
-          <BracketLink
-            label={order === 'ranked' ? 'Alphabetical' : 'By upcoming shows'}
-            onClick={() =>
-              setChosenOrder(order === 'ranked' ? 'alphabetical' : 'ranked')
-            }
-          />
-        )}
-      </div>
+      <SceneSectionHeading
+        title={`Rooms / ${rooms.length} tracked`}
+        // Names the order the list is ACTUALLY in, so it follows the escape
+        // hatch. `showCounts` is a separate question and deliberately does not
+        // move with it.
+        note={order === 'ranked' ? 'ordered by upcoming shows' : 'alphabetical'}
+        // The escape hatch only exists where there is something to escape. A
+        // scene already listed alphabetically because its counts order nothing
+        // has no second order to offer.
+        action={
+          naturalOrder === 'ranked' ? (
+            <BracketLink
+              label={order === 'ranked' ? 'Alphabetical' : 'By upcoming shows'}
+              onClick={() =>
+                setChosenOrder(order === 'ranked' ? 'alphabetical' : 'ranked')
+              }
+            />
+          ) : undefined
+        }
+      />
 
       <ul className="mt-2">
         {ordered.map(room => (
