@@ -86,6 +86,7 @@
 import {
   ALL_SHARD_IDS,
   PAGES_SHARD_ID,
+  shardFamily,
   shardRoutePath,
 } from '@/app/sitemap-shards'
 
@@ -308,6 +309,50 @@ export function shardIdFromRoute(route: string): string | null {
   return ALL_SHARD_IDS.find(id => shardRoutePath(id) === route) ?? null
 }
 
+/**
+ * What the pending shards actually cost, which is NOT the same for the two
+ * things that can be pending — and the gate can tell them apart even though it
+ * must not BLOCK on the difference.
+ *
+ * A brand-new family: the backend has no rows either, so the empty document is
+ * true and nothing is missing. A slug range of a family the backend already
+ * serves: the rows exist and go unannounced, so a share of a live family leaves
+ * the index. Naming which case applies is the difference between a reassuring
+ * message and an accurate one.
+ *
+ * Recovery is deliberately NOT described as "within the hour". A pending shard
+ * shipped Dynamic — it has no prerendered body and therefore no ISR timer — so
+ * it recovers when it is next RENDERED, and sitemap documents are rendered when
+ * something requests them. The next build restores the prerender.
+ */
+function describePendingCost(pending: readonly ShardPrerenderFailure[]): string[] {
+  const families = new Set<string>()
+  for (const failure of pending) {
+    const shardId = shardIdFromRoute(failure.route)
+    const family = shardId === null ? undefined : shardFamily(shardId)
+    // A shard whose id IS its family is a whole new family; anything else is a
+    // slice of a family the backend already serves.
+    if (family && family !== shardId) families.add(family)
+  }
+
+  if (families.size === 0) {
+    return [
+      'Each of these is a whole new FAMILY, so the backend has no rows for it either —',
+      'the empty document is true and no known URL is missing from the index.',
+    ]
+  }
+
+  return [
+    `These include slug ranges of ${[...families].map(f => `"${f}"`).join(', ')}, which the`,
+    'backend ALREADY serves rows for. Those URLs exist and are simply not being',
+    'announced while this deployment is live, so a share of a live family is absent',
+    'from the index — not nothing. A pending shard is Dynamic, so it has no ISR timer:',
+    'it recovers when it is next rendered, and fully on the next build after the',
+    'backend ships. The freshness monitor is the backstop and it runs DAILY, so do not',
+    'rely on it to notice this within the deploy window.',
+  ]
+}
+
 /** The build-log message for shards the backend has not caught up with yet. */
 export function formatPendingShards(
   pending: readonly ShardPrerenderFailure[]
@@ -324,11 +369,7 @@ export function formatPendingShards(
     'have no stale-serving fallback, so they would 500 during a backend outage in this',
     'window.',
     '',
-    'Whether that empty document costs anything depends on WHAT is pending. A brand',
-    'new family has no rows on the backend either, so nothing is missing. A new SLUG',
-    'RANGE of a family the backend already serves is different: those URLs exist and',
-    'are simply not being announced until the backend learns the id, which the route',
-    "revalidates into on its own within the hour — no rebuild needed.",
+    ...describePendingCost(pending),
     '',
     'If this is still printing after the backend has deployed, an id has drifted',
     'between the two sides. Start at SITEMAP_FAMILIES and RELEASE_SHARD_IDS in',

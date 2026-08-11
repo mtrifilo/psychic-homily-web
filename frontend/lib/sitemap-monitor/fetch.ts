@@ -329,6 +329,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
 
   const known = new Set<string>(ALL_SHARD_IDS)
   const listed = new Set<string>()
+  const locsPerShard = new Map<string, number>()
 
   for (const shardUrl of shardUrls) {
     const id = shardIdFromUrl(shardUrl)
@@ -352,8 +353,21 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
       // zero, which the evaluator reports as a vanished family — a false alarm
       // that looks exactly like the real incident. Resolved through the shared
       // table so a new sub-shard cannot reintroduce the confusion.
-      const bucket: LocBucket =
-        id === PAGES_SHARD_ID ? PAGES_SHARD_ID : (shardFamily(id) ?? 'other')
+      //
+      // NOT `?? 'other'`: `format.ts` prints the unclassified tally only for
+      // the single-document shape, so an id that fell through would have its
+      // URLs counted into a bucket the report never shows. An id that resolves
+      // to no family here is a table inconsistency, not a URL to bucket — the
+      // `known.has(id)` guard above should already have rejected it — so say so
+      // and skip rather than swallow it.
+      const family = id === PAGES_SHARD_ID ? PAGES_SHARD_ID : shardFamily(id)
+      if (!family) {
+        observation.errors.push(
+          `shard "${id}" is listed and known but maps to no family — the shard table is inconsistent`
+        )
+        continue
+      }
+      const bucket: LocBucket = family
       const locs = parseUrlset(xml)
       // One at a time, not `push(...locs)`: the releases family is already ~20k
       // entries and spreading it into the argument list approaches the engine's
@@ -361,6 +375,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
       for (const loc of locs) recordLoc(observation, bucket, loc, config.target)
       if (bucket === 'shows') collectShowDates(locs, observation.showDates)
       countInto(observation, bucket, locs.length)
+      locsPerShard.set(id, locs.length)
     } catch (error) {
       observation.errors.push(`shard "${id}": ${(error as Error).message}`)
     }
@@ -379,6 +394,39 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   for (const shardId of ENTITY_SHARD_IDS) {
     if (!listed.has(shardId)) {
       observation.errors.push(`sitemap index is missing the "${shardId}" shard`)
+    }
+  }
+
+  // A shard that is LISTED but serves an empty document is the same loss wearing
+  // a healthy face, and the check above cannot see it. It is reachable: a
+  // generator fetch that 400/422s degrades to an empty-but-valid <urlset>
+  // (UNKNOWN_FAMILY_STATUSES in app/sitemap.ts), so one range of a family can go
+  // dark while its siblings are fine.
+  //
+  // The family-level `vanished` rule in evaluate.ts does not cover it either —
+  // that needs the WHOLE family at zero. All that is left is drift, and one
+  // range is a fraction of its family: `releases-t-z` is ~20% of releases
+  // against a default 0.2 tolerance, i.e. detected by a couple of percent, and
+  // only by where the cut points happen to fall. That is the coincidence the
+  // per-shard check above exists to avoid depending on.
+  //
+  // Compared against SIBLINGS rather than against the API's expected counts,
+  // which walkSitemap does not have: a range serving nothing while another range
+  // of the same family serves rows cannot be a legitimately empty catalogue.
+  // A family that is entirely empty stays silent here and is `vanished`'s job.
+  for (const [shardId, count] of locsPerShard) {
+    if (count > 0 || shardId === PAGES_SHARD_ID) continue
+    const family = shardFamily(shardId)
+    if (!family) continue
+    const siblingsWithRows = [...locsPerShard].some(
+      ([otherId, otherCount]) =>
+        otherId !== shardId && otherCount > 0 && shardFamily(otherId) === family
+    )
+    if (siblingsWithRows) {
+      observation.errors.push(
+        `shard "${shardId}" served an empty document while other shards of the ` +
+          `"${family}" family served URLs — that range is not being announced`
+      )
     }
   }
 

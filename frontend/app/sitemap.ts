@@ -17,12 +17,12 @@
  * `[__metadata_id__]` route).
  *
  * SHARDING BY FAMILY ALONE STOPPED BEING ENOUGH, and that was measured rather
- * than assumed: on 2026-08-09 the whole `releases` family answered 1.53 MB raw,
- * which is 2.04 MB as a base64 cache entry — 97% of the cap. `fetchShard` weighs
- * every response, so a genuine breach fails the build; the sub-shards keep the
- * largest release document at roughly a quarter of the cap. The scheme, its
- * measured balance and how to split it again are documented on
- * RELEASE_SHARD_IDS in ./sitemap-shards.ts.
+ * than assumed: on 2026-08-09 the whole `releases` family answered 1,530,206
+ * raw bytes, which is 2,040,275 as a base64 cache entry — 1.95 MiB of the
+ * 2.00 MiB cap, 97.3%. `fetchShard` weighs every response, so a genuine breach
+ * fails the build; the sub-shards keep the largest release entry at 26.9% of
+ * the cap. The scheme, its measured balance and how to split it again are
+ * documented on RELEASE_SHARD_IDS in ./sitemap-shards.ts.
  *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
@@ -128,7 +128,7 @@
  * against a feed timestamp, or on-demand revalidation driven by a health
  * signal. Not a cache-layer knob; that was tried and disproven above.
  *
- * Fail-closed is unchanged and orthogonal: `fetchSitemapFamily` still throws on
+ * Fail-closed is unchanged and orthogonal: `fetchShard` still throws on
  * a bad answer, so a WRONG document is never published. Fail-closed governs
  * what gets written; stale-wins governs what gets served when nothing new can
  * be written.
@@ -367,7 +367,7 @@ function mapFamilyEntries(
 ): MetadataRoute.Sitemap {
   const { changeFrequency, priority } = FAMILY_ROUTES[family]
   const prefix = FAMILY_URL_PREFIXES[family]
-  // Rows are known well-formed: fetchSitemapFamily rejected the response
+  // Rows are known well-formed: fetchShard rejected the response
   // otherwise. The remaining filter is the empty-slug case — a real row whose
   // name produced no slug — which is legitimately skipped, not an error.
   return rows

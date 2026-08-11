@@ -41,12 +41,16 @@ var sitemapFamilies = []string{
 // wire as if it were a family of its own.
 //
 // WHY THE RELEASES FAMILY IS SUB-SHARDED (PSY-1763). Sharding the sitemap per
-// family (PSY-1622) exists to keep each Next Data Cache entry under the 2 MB
-// per-item cap. Measured against production on 2026-08-09, the releases family
-// answered 1,530,206 raw bytes across 21,525 rows — 2.04 MB once base64-encoded
-// into a cache entry, i.e. 97% of the cap. The next sizeable import crosses it,
-// at which point that shard silently stops being cached. One family no longer
-// fits one entry, so it is served in slug ranges.
+// family (PSY-1622) exists to keep each Next Data Cache entry under the
+// per-item cap of 2 MiB — 2,097,152 bytes, MEBIbytes, which is the unit the
+// frontend's lib/data-cache-budget/budget.ts insists on for this route family
+// precisely because decimal MB put the label and the arithmetic in
+// disagreement. Measured against production on 2026-08-09, the releases family
+// answered 1,530,206 raw bytes across 21,525 rows — 2,040,275 bytes once
+// base64-encoded into a cache entry, i.e. 1.95 MiB of the 2.00 MiB cap, 97.3%.
+// The next sizeable import crosses it, at which point that shard silently stops
+// being cached. One family no longer fits one entry, so it is served in slug
+// ranges.
 //
 // WHY A SLUG RANGE, and not a page number or a date range. The partition key
 // has to be STABLE: a release that changes shard churns what crawlers refetch,
@@ -61,10 +65,12 @@ var sitemapFamilies = []string{
 //     new rows land almost entirely at the recent end — so the hot bucket needs
 //     re-cutting again and again while the cold ones stay permanently thin. It
 //     also needs a second projected column, and release_year is nullable.
-//   - A slug range is stable BY CONSTRUCTION: the slug is regenerated only when
-//     the title changes (see ReleaseService.UpdateRelease), which changes the
-//     URL itself — so a row cannot move between shards while keeping the URL a
-//     crawler already has.
+//   - A slug range is stable for the reason that matters: the slug is
+//     regenerated only when the title changes (see ReleaseService.UpdateRelease),
+//     which changes the URL itself — so ordinary catalogue churn cannot move a
+//     row between shards while keeping the URL a crawler already has. The one
+//     thing that could is a change to the database's collation; see the note on
+//     releaseShard below, which is why the test pins the awkward placements.
 //
 // And it stays balanced, which was measured rather than hoped for. Serving the
 // cut points below from a database holding the real production rows, the four
@@ -96,13 +102,35 @@ var sitemapFamilies = []string{
 // deliberately NOT generic today: one caller does not justify threading an
 // optional shard through the eight entriesFor call sites, and the artists cut
 // points would need their own measurement regardless.
+// THE BOUNDS ARE EVALUATED BY THE DATABASE'S COLLATION, NOT AS PREFIXES — read
+// this before re-cutting the ranges. Production and the test containers run
+// en_US.utf8 (libc), which gives punctuation a lower weight than letters at the
+// primary level, so a slug does NOT necessarily land in the range its first
+// character suggests. Measured, against both:
+//
+//	'1999-remastered' < 'f'          → true   (digits sort below every letter)
+//	'-quiet-start'   >= 'n'          → true   (collates as "quietstart")
+//	'Eclair'          < 'f'          → true   (case-insensitive at this level)
+//
+// So `-quiet-start` is served by releases-n-s, not by the first range. That is
+// harmless — totality and disjointness come from the ranges being contiguous
+// and open at both outer ends, which holds under ANY total order — but it means
+// new cut points must be measured with these same predicates, NOT read off a
+// `SELECT left(slug, 1)` histogram, or the shares will not come out as planned.
+//
+// It also bounds the stability claim above: "stable by construction" holds for
+// a FIXED collation. A glibc upgrade or base-image bump can reorder strcoll
+// (the hazard Postgres tracks as pg_collation.collversion), which would move
+// some rows between ranges with no slug and no URL change. The integration test
+// pins the placements of the awkward cases so that surfaces as a red build
+// rather than as silent crawler churn.
 type releaseShard struct {
-	// id is the value a caller passes as `family` to request this range. It
-	// names the span of leading characters the range holds; the ends are open
-	// (see from/before), so the label is a legible summary, not the predicate.
+	// id is the value a caller passes as `family` to request this range. It is
+	// a legible label for the span, NOT the predicate — the outer ends are open
+	// and the comparison is collation-based; see the note above.
 	id string
 	// from is the inclusive lower bound on slug. Empty means unbounded below,
-	// which is what puts digit- and hyphen-leading slugs in the first range.
+	// which is what keeps the partition total no matter how a slug collates.
 	from string
 	// before is the exclusive upper bound on slug. Empty means unbounded above.
 	before string

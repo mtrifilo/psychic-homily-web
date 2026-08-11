@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ALL_SHARD_IDS,
   ENTITY_SHARD_IDS,
+  RELEASE_SHARD_IDS,
   PAGES_SHARD_ID,
   shardRoutePath,
 } from '@/app/sitemap-shards'
@@ -90,7 +91,7 @@ describe('findShardsWithoutFallback', () => {
   })
 
   it('does not require a URL count — an empty family is a legitimate shard', () => {
-    // Existence is the assertion. fetchSitemapFamily throws rather than
+    // Existence is the assertion. fetchShard throws rather than
     // emitting a partial document, so a body at all proves the fetch succeeded,
     // while a threshold would fail the build on a real empty catalogue.
     expect(
@@ -286,5 +287,45 @@ describe('formatPendingShards', () => {
     expect(message).toContain('backend does not serve that family yet')
     // The reader has to be told this is temporary AND how to tell when it is not.
     expect(message).toContain('SITEMAP_FAMILIES')
+  })
+
+  /**
+   * The two pending cases do NOT cost the same, and saying so is the whole
+   * point of the message. A new family's empty document is true; a new slug
+   * range of a family the backend already serves is a live family going partly
+   * unannounced. Getting these the wrong way round tells an operator to relax
+   * during the one window where they should not.
+   */
+  it('says nothing is missing when only whole new families are pending', () => {
+    const message = formatPendingShards([
+      { route: shardRoutePath('venue_years'), reason: 'whatever' },
+    ])
+
+    expect(message).toContain('no known URL is missing')
+    expect(message).not.toContain('ALREADY serves rows')
+  })
+
+  it('names the live family whose URLs are unannounced when a slug range is pending', () => {
+    const message = formatPendingShards(
+      RELEASE_SHARD_IDS.map(id => ({ route: shardRoutePath(id), reason: 'whatever' }))
+    )
+
+    expect(message).toContain('ALREADY serves rows')
+    expect(message).toContain('"releases"')
+    expect(message).not.toContain('no known URL is missing')
+  })
+
+  /**
+   * A pending shard shipped Dynamic, so it has no prerendered body and no ISR
+   * timer. Promising hourly self-healing would be wrong, and it is the kind of
+   * wrong that stops someone re-running the build.
+   */
+  it('does not promise an ISR window for a Dynamic shard', () => {
+    const message = formatPendingShards(
+      RELEASE_SHARD_IDS.map(id => ({ route: shardRoutePath(id), reason: 'whatever' }))
+    )
+
+    expect(message).toContain('no ISR timer')
+    expect(message).not.toMatch(/within the hour/i)
   })
 })

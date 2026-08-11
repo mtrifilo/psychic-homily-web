@@ -63,10 +63,12 @@ void _assertNoMissingFamily
  * The slug ranges the `releases` family is served in (PSY-1763).
  *
  * WHY. Sharding per family (PSY-1622) exists to keep each fetch under Next's
- * 2 MB Data Cache item cap. Measured against production on 2026-08-09, the
- * releases family answered 1,530,206 raw bytes over 21,525 rows — 2.04 MB once
- * base64-encoded into a cache entry, i.e. 97% of the cap, with the next
- * sizeable import crossing it. One family no longer fits one entry.
+ * Data Cache item cap of 2 MiB (2,097,152 bytes — MEBIbytes, per the unit note
+ * on formatMiB in lib/data-cache-budget/budget.ts). Measured against production
+ * on 2026-08-09, the releases family answered 1,530,206 raw bytes over 21,525
+ * rows — 2,040,275 bytes once base64-encoded into a cache entry, i.e. 1.95 MiB
+ * of the 2.00 MiB cap, 97.3%, with the next sizeable import crossing it. One
+ * family no longer fits one entry.
  *
  * WHY A SLUG RANGE — and not a page number or a date range, what the balance
  * measures, and how to choose new cut points: all of that lives with the
@@ -76,15 +78,15 @@ void _assertNoMissingFamily
  * for the rest, so re-tuning a cut point is one edit rather than three.
  *
  * What a build actually wrote, read out of `.next/cache/fetch-cache` against
- * the production release catalogue — these are the entry sizes Next's own 2 MB
- * check is applied to, not the raw body scaled by the base64 ratio:
+ * the production release catalogue — these are the entry sizes Next's own cap
+ * is applied to, not the raw body scaled by the base64 ratio:
  *
  *   releases-a-e  563,747  26.9% of the cap
  *   releases-f-m  562,227  26.8%
  *   releases-n-s  489,967  23.4%
  *   releases-t-z  428,751  20.4%
  *
- * against 97% for the family as one document. `artists`, at 40.8%, is now the
+ * against 97.3% for the family as one document. `artists`, at 40.8%, is now the
  * largest sitemap entry — so this is the shard family to watch next, and it is
  * a whole family rather than a range.
  *
@@ -109,12 +111,48 @@ export const RELEASE_SHARD_IDS = [
 ] as const satisfies readonly WireFamily[]
 
 /**
+ * Compile-time guard: every value the backend accepts must be SERVED by some
+ * shard here.
+ *
+ * The `satisfies` above and this are not the same check, and only having the
+ * first is a trap. `satisfies` is element-wise: it catches an id RENAMED or
+ * REMOVED on the backend, because the stale literal stops being assignable.
+ * It cannot catch an id ADDED, because a shorter list is still a list of valid
+ * values — which is exactly the documented growth path (split one range, add
+ * one id). Without this second half, a backend range the frontend never learned
+ * is simply never fetched: the build is green, `tsc` is green, the Go enum test
+ * is green, and those releases leave the sitemap with the loss sitting inside
+ * the monitor's per-family drift tolerance.
+ *
+ * `SITEMAP_FAMILIES` has carried the same pair since PSY-1622 (`MissingFamily`
+ * above is its addition-guard); this is the sub-shard's.
+ *
+ * Written over the whole wire vocabulary rather than just `releases-*` so it
+ * keeps working when a second family is sub-sharded: add the new list to the
+ * Exclude and the guard covers it.
+ */
+type UnservedWireFamily = Exclude<
+  WireFamily,
+  (typeof SITEMAP_FAMILIES)[number] | (typeof RELEASE_SHARD_IDS)[number]
+>
+type AssertEveryWireValueServed = [UnservedWireFamily] extends [never]
+  ? true
+  : { unserved: UnservedWireFamily }
+const _assertEveryWireValueServed: AssertEveryWireValueServed = true
+void _assertEveryWireValueServed
+
+/**
  * Families served by more than one document, and the ids those documents use.
  *
  * A family absent from this table is served by a single shard whose id IS the
  * family name, which is the case for nine of the ten.
+ *
+ * Valued `readonly WireFamily[]`, not `readonly string[]`: an id written here
+ * that the backend does not accept would be fetched, 422'd, and degraded to an
+ * empty document — a shard silently serving nothing. Typing it against the
+ * generated enum makes that a compile error instead.
  */
-const SUB_SHARD_IDS: Partial<Record<Family, readonly string[]>> = {
+const SUB_SHARD_IDS: Partial<Record<Family, readonly WireFamily[]>> = {
   releases: RELEASE_SHARD_IDS,
 }
 

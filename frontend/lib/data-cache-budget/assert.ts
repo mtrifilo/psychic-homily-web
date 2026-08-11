@@ -78,7 +78,7 @@ export async function readJsonWithinDataCacheBudget<T>(
  *   app/artists/page.tsx)
  *
  *   metadata route (app/sitemap.ts   EXIT 0      NOT the throw. The shard
- *   via fetchSitemapFamily)                      degrades to Dynamic with no
+ *   via fetchShard)                      degrades to Dynamic with no
  *                                                prerendered body and the build
  *                                                still succeeds.
  *
