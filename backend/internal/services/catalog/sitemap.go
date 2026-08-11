@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -84,6 +85,17 @@ var sitemapFamilies = []string{
 // HOW IT GROWS. Add a cut point and split ONE range; the other ranges keep both
 // their ids and their exact contents, so re-tuning churns only the range being
 // split. That is the property page-numbering cannot offer at any count.
+//
+// HOW IT GROWS TO A SECOND FAMILY, written down so the next person does not
+// have to re-derive it. `artists` is the largest remaining entry at 40.8% of
+// the cap and is the likely next candidate. When it gets there, WIDEN THIS
+// TABLE to carry the family — (family, id, from, before) — rather than adding a
+// parallel `artistShards` beside it. The frontend already models it that way
+// (SUB_SHARD_IDS in app/sitemap-shards.ts is keyed by family), so widening
+// converges the two sides; a parallel table diverges them further. It is
+// deliberately NOT generic today: one caller does not justify threading an
+// optional shard through the eight entriesFor call sites, and the artists cut
+// points would need their own measurement regardless.
 type releaseShard struct {
 	// id is the value a caller passes as `family` to request this range. It
 	// names the span of leading characters the range holds; the ends are open
@@ -100,6 +112,13 @@ type releaseShard struct {
 // outer ends, so every slug lands in exactly one — asserted by
 // TestReleaseShardsPartitionTheFamily rather than left to inspection.
 //
+// Keep the ids in sync with RELEASE_SHARD_IDS in frontend/app/sitemap-shards.ts
+// and with the `family` enum on GetSitemapEntriesRequest, the same way
+// sitemapFamilies above is. The enum half is test-enforced
+// (TestSitemapFamilyEnumMatchesTheService); the frontend half is enforced by
+// `bun run api:types` regenerating the wire enum that RELEASE_SHARD_IDS is
+// declared against, so a renamed id fails tsc there.
+//
 // Cut points chosen to minimise the largest range's byte share over the
 // measured production catalogue; see the releaseShard doc for the numbers.
 var releaseShards = []releaseShard{
@@ -109,11 +128,14 @@ var releaseShards = []releaseShard{
 	{id: "releases-t-z", from: "t"},
 }
 
-// SitemapFamilyValues is every accepted value of the `family` query parameter:
-// the entity families, plus the sub-shard ids that address a slice of one.
+// SitemapFamilyValues is every accepted value of the `family` query parameter,
+// in enum order: the entity families, then the sub-shard ids that address a
+// slice of one.
 //
-// Exported so the Huma enum can be tested against it. The enum is a struct tag
-// and therefore a hand-written literal; this is what keeps the literal honest.
+// Paired with SitemapFamilyValuesCSV below, mirroring
+// contracts.SetTypeVocabulary / SetTypeVocabularyCSV — the same problem
+// (a vocabulary that a struct tag cannot be built from) already has a shape in
+// this codebase, and this follows it.
 func SitemapFamilyValues() []string {
 	values := make([]string, 0, len(sitemapFamilies)+len(releaseShards))
 	values = append(values, sitemapFamilies...)
@@ -121,6 +143,14 @@ func SitemapFamilyValues() []string {
 		values = append(values, shard.id)
 	}
 	return values
+}
+
+// SitemapFamilyValuesCSV renders the accepted values as a comma-separated list,
+// for the OpenAPI enum tag. The tag is a constant literal, so it cannot call
+// this; TestSitemapFamilyEnumMatchesTheService is the join that keeps the two
+// equal.
+func SitemapFamilyValuesCSV() string {
+	return strings.Join(SitemapFamilyValues(), ",")
 }
 
 // releaseShardByID returns the range a sub-shard id names, or nil.
@@ -210,19 +240,12 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 
 	// A sub-shard id resolves to the family it slices plus the range to slice
 	// it by, so everything downstream reasons in families only.
-	releases := releaseShardByID(family)
-	if releases != nil {
+	shard := releaseShardByID(family)
+	if shard != nil {
 		family = "releases"
 	}
 
-	known := false
-	for _, name := range sitemapFamilies {
-		if name == family {
-			known = true
-			break
-		}
-	}
-	if family != "" && !known {
+	if family != "" && !slices.Contains(sitemapFamilies, family) {
 		return nil, fmt.Errorf("unknown sitemap family %q", family)
 	}
 
@@ -294,14 +317,14 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("releases") {
-		// `releases` is nil for the whole family and non-nil for one slug
-		// range of it; the range predicate lives on the shard so the scope
-		// here stays the plain single-table projection entriesFor requires.
-		entries, err := s.entriesFor(ctx, releases.narrow(s.db.Model(&catalogm.Release{})))
+		// A nil shard is the whole family; the range predicate lives on the
+		// shard so the scope here stays the plain single-table projection
+		// entriesFor requires.
+		releases, err := s.entriesFor(ctx, shard.narrow(s.db.Model(&catalogm.Release{})))
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect release sitemap entries: %w", err)
 		}
-		out.Releases = entries
+		out.Releases = releases
 	}
 
 	if want("festivals") {

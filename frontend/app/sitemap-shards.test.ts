@@ -15,26 +15,26 @@ import {
  * The shard table is what four independent modules read to agree on which
  * documents exist: the generator, the /sitemap-index route, the freshness
  * monitor, and the post-build prerender gate. TypeScript catches a family
- * missing from SITEMAP_FAMILIES, but nothing in the type system catches a
- * family that is enumerated and then served by no shard, or a shard id that
- * two families both claim — both of which silently drop or duplicate URLs
- * while every build stays green.
+ * missing from SITEMAP_FAMILIES and a sub-shard id that is not a wire enum
+ * value, and the table itself throws on two families claiming one id. What is
+ * left for a test is the composition: a family enumerated and then served by no
+ * shard, and the pages shard colliding with an entity one.
  */
 describe('the shard table', () => {
   it('serves every family with at least one shard', () => {
+    // Not vacuous: `SUB_SHARD_IDS[family] ?? [family]` falls back only on
+    // undefined, so mapping a family to an EMPTY array would enumerate it here
+    // and serve it nowhere — a whole family silently absent from the sitemap.
     const served = new Set(ENTITY_SHARD_IDS.map(id => shardFamily(id)))
     const unserved = SITEMAP_FAMILIES.filter(family => !served.has(family))
 
     expect(unserved).toEqual([])
   })
 
-  it('gives every shard exactly one family', () => {
-    const orphans = ENTITY_SHARD_IDS.filter(id => shardFamily(id) === undefined)
-
-    expect(orphans).toEqual([])
-  })
-
-  it('has no duplicate ids', () => {
+  it('has no duplicate ids once the pages shard is included', () => {
+    // The table's own collision check covers two FAMILIES claiming one id. It
+    // cannot cover the pages shard, which is not in that map — a sub-shard
+    // named `pages` would appear twice here and be fetched twice.
     expect(new Set(ALL_SHARD_IDS).size).toBe(ALL_SHARD_IDS.length)
   })
 

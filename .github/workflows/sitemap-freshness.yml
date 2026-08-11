@@ -87,10 +87,26 @@ jobs:
   check:
     name: Sitemap vs API
     runs-on: ubuntu-latest
-    # Walking every shard means ~33k URLs across 10 documents plus the sampled
-    # probes; a couple of minutes is normal, so this ceiling only catches a
-    # genuinely wedged endpoint.
-    timeout-minutes: 15
+    # Walking every shard means ~33k URLs across 15 documents (the index, 14
+    # shards) plus the projection feed and the sampled probes; a couple of
+    # minutes is normal, so this ceiling only catches a genuinely wedged
+    # endpoint.
+    #
+    # DERIVE IT, don't guess it — the walk is SEQUENTIAL, so the ceiling is a
+    # function of the shard count and this job goes silent when it trips (the
+    # runner kills the process, main()'s crash handler never runs, and no
+    # Discord alert is posted). Worst case per document is one fetch timeout,
+    # one retry delay, one more fetch: 30s + 5s + 30s = 65s from the
+    # SITEMAP_MONITOR_* defaults in lib/sitemap-monitor/config.ts. So:
+    #
+    #   (1 index + N shards + 1 projection feed) x 65s
+    #
+    # At N=14 that is 17.3 minutes, which is why 15 no longer fits — PSY-1763
+    # split releases into four slug ranges and pushed the count from 11 to 14.
+    # 25 leaves room for one more split before this has to be revisited; past
+    # that, fetch the shards with bounded concurrency instead of raising it
+    # again.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 

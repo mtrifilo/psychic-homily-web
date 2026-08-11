@@ -1,9 +1,21 @@
-import type { components } from '@/types/api'
+import type { components, operations } from '@/types/api'
 
 type SitemapEntries = components['schemas']['SitemapEntries']
 
 /** The entity families, minus the `$schema` key Huma adds to every response. */
 export type Family = Exclude<keyof SitemapEntries, '$schema'>
+
+/**
+ * Every value the backend accepts as `?family=` on GET /sitemap/entries.
+ *
+ * A superset of `Family`: it also carries the sub-shard ids, which address a
+ * SLICE of a family and so are not keys of the response schema. Taken from the
+ * generated operation type rather than restated, which is what lets the shard
+ * ids below be checked at compile time the way the family names already are.
+ */
+type WireFamily = NonNullable<
+  NonNullable<operations['get-sitemap-entries']['parameters']['query']>['family']
+>
 
 /** Non-entity shard: static pages + local MDX (blog / DJ sets). */
 export const PAGES_SHARD_ID = 'pages'
@@ -56,22 +68,12 @@ void _assertNoMissingFamily
  * base64-encoded into a cache entry, i.e. 97% of the cap, with the next
  * sizeable import crossing it. One family no longer fits one entry.
  *
- * WHY A SLUG RANGE. The partition key has to be STABLE, because a release that
- * changes shard churns what crawlers refetch for no new information. A page
- * number (OFFSET over the slug order) is perfectly balanced and maximally
- * unstable: one insert near the front shifts every later row across every
- * boundary, on every import. A release-year range is stable but does not stay
- * balanced — the catalogue is heavily weighted to recent decades and new rows
- * land almost only at the recent end, so the hot bucket needs re-cutting
- * forever while the cold ones stay thin. A slug range is stable by
- * construction: the backend regenerates a release's slug only when its title
- * changes, which changes the URL itself, so a row cannot move between shards
- * while keeping a URL a crawler already holds.
- *
- * The cut points, the bounds they stand for, and the two readings that say the
- * balance is a property of naming rather than of one import all live with the
- * predicate that enforces them, in `releaseShards` in
- * backend/internal/services/catalog/sitemap.go.
+ * WHY A SLUG RANGE — and not a page number or a date range, what the balance
+ * measures, and how to choose new cut points: all of that lives with the
+ * predicate that enforces it, in `releaseShards` in
+ * backend/internal/services/catalog/sitemap.go. That is the normative
+ * statement; this note carries only what is frontend-specific and points there
+ * for the rest, so re-tuning a cut point is one edit rather than three.
  *
  * What a build actually wrote, read out of `.next/cache/fetch-cache` against
  * the production release catalogue — these are the entry sizes Next's own 2 MB
@@ -104,7 +106,7 @@ export const RELEASE_SHARD_IDS = [
   'releases-f-m',
   'releases-n-s',
   'releases-t-z',
-] as const
+] as const satisfies readonly WireFamily[]
 
 /**
  * Families served by more than one document, and the ids those documents use.
@@ -128,6 +130,19 @@ const SUB_SHARD_IDS: Partial<Record<Family, readonly string[]>> = {
 const FAMILY_BY_SHARD_ID = new Map<string, Family>()
 for (const family of SITEMAP_FAMILIES) {
   for (const id of SUB_SHARD_IDS[family] ?? [family]) {
+    // THROW rather than overwrite. `Map.set` would silently keep the last
+    // writer, so two families claiming one id would yield a table that looks
+    // consistent, an ENTITY_SHARD_IDS one entry short, and a family whose URLs
+    // are attributed to the other one. A test cannot catch it after the fact —
+    // by then the collision has already collapsed — so it is enforced here,
+    // where every consumer of this module (the generator, the index route, the
+    // monitor, the build gate) trips over it at import.
+    const claimed = FAMILY_BY_SHARD_ID.get(id)
+    if (claimed) {
+      throw new Error(
+        `sitemap shard id "${id}" is claimed by both "${claimed}" and "${family}"`
+      )
+    }
     FAMILY_BY_SHARD_ID.set(id, family)
   }
 }

@@ -110,10 +110,15 @@ async function requestFollowing(
 ): Promise<Response> {
   // ONE budget for the whole redirect chain, not one per hop. A per-hop signal
   // multiplies: 6 hops × 2 attempts × 30s is 6 minutes for a single document,
-  // and ~11 documents in sequence would blow the job's timeout-minutes. The
-  // runner then kills the process, main()'s crash handler never runs, and NO
-  // alert is posted — the monitor goes silent exactly when an origin is
-  // unhealthy, which is the failure class it exists to eliminate.
+  // and the documents are walked in SEQUENCE, so that blows the job's
+  // timeout-minutes. The runner then kills the process, main()'s crash handler
+  // never runs, and NO alert is posted — the monitor goes silent exactly when
+  // an origin is unhealthy, which is the failure class it exists to eliminate.
+  //
+  // The same arithmetic binds the shard count itself: every shard added to
+  // app/sitemap-shards.ts costs another 65s of worst case here, which is why
+  // .github/workflows/sitemap-freshness.yml derives its ceiling from the count
+  // rather than picking a round number. Check that budget when adding shards.
   const deadline = AbortSignal.timeout(timeoutMs)
   let current = url
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -286,9 +291,11 @@ function collectShowDates(locs: readonly string[], into: string[]): void {
  * is reported so a silent regression from index back to single-document is
  * visible rather than merely tolerated.
  *
- * When an index is served the shard id IS the family, so the family counts
- * cannot be skewed by a URL-classification gap. classifyLoc is only used for
- * the single-document shape.
+ * When an index is served the shard id RESOLVES to a family through the shared
+ * table, so the family counts cannot be skewed by a URL-classification gap.
+ * classifyLoc is only used for the single-document shape. The id is no longer
+ * the family itself — a sub-sharded family answers to several ids (PSY-1763) —
+ * which is why the resolution goes through `shardFamily` rather than a cast.
  */
 export async function walkSitemap(config: MonitorConfig): Promise<SitemapObservation> {
   const observation: SitemapObservation = {
@@ -361,10 +368,14 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
 
   // Every shard the sitemap claims to emit must actually be listed. A shard
   // silently dropped from the index is thousands of URLs vanishing with no
-  // other signal — the incident's exact shape. Checked per SHARD rather than
-  // per family: a family served by four documents loses a quarter of its URLs
-  // if one goes missing, which is well inside the per-family drift tolerance
-  // and would otherwise pass.
+  // other signal — the incident's exact shape.
+  //
+  // Checked per SHARD rather than per family. What that buys is a NAMED,
+  // immediate error instead of a drift number: a sub-sharded family that loses
+  // one of its documents is still short only a fraction of its URLs, and
+  // whether that fraction clears `driftRatio` is a coincidence of where the cut
+  // points fell rather than something this check should depend on. Naming the
+  // missing document also says which one, which a drift percentage cannot.
   for (const shardId of ENTITY_SHARD_IDS) {
     if (!listed.has(shardId)) {
       observation.errors.push(`sitemap index is missing the "${shardId}" shard`)

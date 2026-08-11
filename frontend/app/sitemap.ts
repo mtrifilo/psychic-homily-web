@@ -260,11 +260,15 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  * and Railway's backend deploy, and hand-sequencing two deploy pipelines is not
  * a fix anyone can be relied on to repeat.
  *
- * So the family degrades to an EMPTY, valid document. That keeps the gate's
+ * So the shard degrades to an EMPTY, valid document. That keeps the gate's
  * intent rather than bending it: the shard still prerenders, so it still ships a
- * body that survives a later outage, and the document is TRUE — a backend
- * without the family genuinely has no such URLs to announce. It self-heals on
- * the first build after the backend ships, with no manual step.
+ * body that survives a later outage. For a new FAMILY the document is also TRUE
+ * — a backend without the family genuinely has no such URLs to announce. For a
+ * new SLUG RANGE of a family the backend already serves (PSY-1763) it is not:
+ * those rows exist and go unannounced until the backend learns the id. Both
+ * self-heal without a rebuild, on the route's hourly revalidation; see
+ * `partitionShardFailures` in lib/sitemap-prerender/check.ts for why the gate
+ * cannot distinguish them and what covers the gap instead.
  *
  * The residual risk is a family being RENAMED on the backend while the frontend
  * still asks for the old name: that would empty a real family quietly. Two
@@ -273,12 +277,13 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  * `SITEMAP_FAMILIES` carries a compile-time exhaustiveness guard, so a renamed
  * family fails `bun run api:types` and then `tsc` before it can reach a build.
  *
- * A SUB-SHARD id is not covered by either guard, because it is not a schema key
- * — renaming one leaves it looking exactly like the deploy-race above, and it
- * self-heals the same way as long as the two sides converge. What keeps them
- * converging is that the backend's enum is asserted against its own shard table
- * (TestSitemapFamilyEnumMatchesTheService), so the wire values cannot drift
- * within one side without a red build.
+ * A SUB-SHARD id is not a schema key, so `FAMILY_ROUTES` cannot cover it — but
+ * it IS in the generated `operations` type, because it is a value of the
+ * `family` query enum. `RELEASE_SHARD_IDS` is declared `satisfies readonly
+ * WireFamily[]` against exactly that, so a renamed sub-shard fails
+ * `bun run api:types` and then `tsc`, the same two steps a renamed family fails
+ * on. The backend's own enum is separately asserted against its shard table
+ * (TestSitemapFamilyEnumMatchesTheService), so neither side can drift alone.
  *
  * `shardId` is what goes on the wire and `family` is which key of the response
  * carries the rows: they are the same string for nine of the ten families, and

@@ -122,12 +122,9 @@ describe('looksLikeManifestShapeChange', () => {
 })
 
 describe('ALL_SHARD_IDS', () => {
-  it('covers the pages shard plus every family generateSitemaps() emits', () => {
-    // Derived from sitemap-shards.ts on purpose: a family added there must be
-    // covered by this gate without anyone remembering to update it.
-    expect(ALL_SHARD_IDS).toEqual([PAGES_SHARD_ID, ...ENTITY_SHARD_IDS])
-  })
-
+  // How ALL_SHARD_IDS is COMPOSED is asserted in app/sitemap-shards.test.ts,
+  // which owns that table. What this gate owns is the mapping from an id to the
+  // two build artifacts it looks up, so that is what is pinned here.
   it('maps ids onto the served route paths and build artifacts', () => {
     expect(shardRoutePath('artists')).toBe('/sitemap/artists.xml')
     expect(shardBodyPath('artists')).toBe('server/app/sitemap/artists.xml.body')

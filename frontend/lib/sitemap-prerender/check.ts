@@ -157,11 +157,11 @@ export function findShardsWithoutFallback(
  * them are the shards this module expects.
  *
  * A backend outage cannot produce that: the pages shard makes no network call,
- * so it survives and at most nine of ten shards fail (measured, row 3 above).
- * Losing all ten while other routes prerendered normally points at the shard
- * route naming or the manifest shape moving under a Next upgrade — a different
- * debugging session, and worth saying so rather than sending the reader at a
- * backend that was healthy.
+ * so it survives and every OTHER shard is the worst an outage can do (measured,
+ * row 3 above). Losing the pages shard too, while other routes prerendered
+ * normally, points at the shard route naming or the manifest shape moving under
+ * a Next upgrade — a different debugging session, and worth saying so rather
+ * than sending the reader at a backend that was healthy.
  */
 export function looksLikeManifestShapeChange(
   manifest: PrerenderManifestLike,
@@ -253,15 +253,31 @@ export interface PartitionedFailures {
  * the backend: HTTP 400/422 for that family, i.e. "I do not serve that". A
  * backend that is down, slow, or erroring returns `unreachable`, so every row
  * of the measured outage table still fails closed — including the row 3 case
- * where nine families lose their bodies at once, because a down backend cannot
- * say "I do not serve shows". The `pages` shard is never excused: it makes no
- * network call, so nothing about the backend can explain its absence.
+ * where every entity shard loses its body at once, because a down backend
+ * cannot say "I do not serve shows". The `pages` shard is never excused: it
+ * makes no network call, so nothing about the backend can explain its absence.
  *
- * WHAT THE EXCUSED SHARD COSTS. It ships Dynamic for one deploy window, so it
- * would 500 during a backend outage in that window instead of serving a stale
- * body. What it would have served is an EMPTY document — the backend has no
- * URLs for that family yet — so no known URL is lost, and the next build after
- * the backend ships prerenders it normally with no manual step.
+ * WHAT THE EXCUSED SHARD COSTS, and it is NOT the same for the two things that
+ * can be excused. Either way the shard ships Dynamic for one deploy window, so
+ * it would 500 during a backend outage in that window instead of serving a
+ * stale body, and the next build after the backend ships prerenders it normally
+ * with no manual step. What differs is whether the empty document it serves in
+ * the meantime is TRUE:
+ *
+ *   - A new FAMILY (PSY-1756's `venue_years`): true. The backend has no URLs
+ *     for that family yet, so nothing is lost by announcing none.
+ *   - A new SUB-SHARD of an existing family (PSY-1763's releases ranges):
+ *     FALSE. The backend holds every one of those rows and simply does not
+ *     recognise the id, and because a rollout adds all the ranges at once the
+ *     whole family drops out of the index until the first revalidation after
+ *     the backend ships (~1h on the route's ISR window, no rebuild needed).
+ *
+ * The gate cannot tell the two apart and must not try: during a legitimate
+ * sub-shard rollout the old backend serves `releases` and rejects
+ * `releases-a-e`, which is indistinguishable from a genuinely drifted id. So
+ * the excuse stays, and the compensating control is elsewhere — `compareFamilies`
+ * in lib/sitemap-monitor/evaluate.ts flags a family as `vanished` when the API
+ * has rows and the sitemap serves none, at any tolerance.
  */
 export async function partitionShardFailures(
   failures: readonly ShardPrerenderFailure[],
@@ -304,11 +320,19 @@ export function formatPendingShards(
     'backend ships.',
     ...pending.map(f => `  ${f.route}`),
     '',
-    'Until then those shards render per request and serve an EMPTY document, so no',
-    'known URL is missing from the index — but they have no stale-serving fallback,',
-    'so they would 500 during a backend outage in this window.',
+    'Until then those shards render per request and serve an EMPTY document, and they',
+    'have no stale-serving fallback, so they would 500 during a backend outage in this',
+    'window.',
     '',
-    'If this is still printing after the backend has deployed, the family name has',
-    'drifted between the two sides. Start at SITEMAP_FAMILIES in app/sitemap-shards.ts.',
+    'Whether that empty document costs anything depends on WHAT is pending. A brand',
+    'new family has no rows on the backend either, so nothing is missing. A new SLUG',
+    'RANGE of a family the backend already serves is different: those URLs exist and',
+    'are simply not being announced until the backend learns the id, which the route',
+    "revalidates into on its own within the hour — no rebuild needed.",
+    '',
+    'If this is still printing after the backend has deployed, an id has drifted',
+    'between the two sides. Start at SITEMAP_FAMILIES and RELEASE_SHARD_IDS in',
+    'app/sitemap-shards.ts, and at sitemapFamilies / releaseShards in',
+    'backend/internal/services/catalog/sitemap.go.',
   ].join('\n')
 }

@@ -413,24 +413,11 @@ describe('sitemap', () => {
 
   /**
    * The releases family outgrew a single Data Cache entry and is served in slug
-   * ranges (PSY-1763). Two facts have to hold for that to be invisible from
-   * outside: each shard asks the backend for ITS OWN id, and each reads the
-   * rows back out of the FAMILY's key.
+   * ranges (PSY-1763). What has to hold for that to be invisible from outside is
+   * that each range reads its rows out of the FAMILY's key — the other half,
+   * that each asks for its own id, is covered once for every shard below.
    */
   describe('releases sub-shards', () => {
-    it('sends its own id as the family query value', async () => {
-      const fetchMock = respondWith(emptyFamilies())
-      vi.stubGlobal('fetch', fetchMock)
-
-      await sitemap({ id: Promise.resolve(RELEASE_SHARD) })
-
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining(`/sitemap/entries?family=${RELEASE_SHARD}`),
-        expect.anything()
-      )
-    })
-
     it('reads its rows from the releases key of the response', async () => {
       vi.stubGlobal(
         'fetch',
@@ -466,24 +453,17 @@ describe('sitemap', () => {
       )
     })
 
-    it('is one fetch per shard, not one per family', async () => {
-      // The whole point: four documents, four independently-cached fetches. A
-      // shared fetch would put the over-cap payload back in one cache entry.
-      const fetchMock = respondWith(emptyFamilies())
-      vi.stubGlobal('fetch', fetchMock)
-
-      for (const shard of RELEASE_SHARD_IDS) {
-        await sitemap({ id: Promise.resolve(shard) })
-      }
-
-      const requested = fetchMock.mock.calls.map(([input]) =>
-        new URL(String(input)).searchParams.get('family')
-      )
-      expect(requested).toEqual([...RELEASE_SHARD_IDS])
-    })
   })
 
-  it('fetches exactly one feed per entity shard and none twice', async () => {
+  /**
+   * One fetch per shard, each carrying the shard's OWN id — which is the whole
+   * point for the releases ranges: four documents, four independently-cached
+   * fetches, so the over-cap payload never lands back in one entry. Driven from
+   * ENTITY_SHARD_IDS rather than a release-specific list because that list
+   * CONTAINS the release ranges, so a separate release-only case would assert a
+   * strict subset of this.
+   */
+  it('fetches exactly one feed per entity shard, keyed by shard id, none twice', async () => {
     const fetchMock = respondWith(emptyFamilies())
     vi.stubGlobal('fetch', fetchMock)
 

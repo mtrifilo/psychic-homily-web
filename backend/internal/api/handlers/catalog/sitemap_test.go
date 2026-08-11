@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -101,21 +103,10 @@ func TestSitemapEntriesHandlerSetsCacheControl(t *testing.T) {
 // document — thousands of URLs quietly leaving the index with a green build.
 func TestSitemapFamilyEnumMatchesTheService(t *testing.T) {
 	field, ok := reflect.TypeOf(GetSitemapEntriesRequest{}).FieldByName("Family")
-	if !ok {
-		t.Fatal("GetSitemapEntriesRequest has no Family field")
-	}
-	enum := field.Tag.Get("enum")
-	if enum == "" {
-		t.Fatal(`Family has no enum tag — huma would accept any value`)
-	}
+	require.True(t, ok, "GetSitemapEntriesRequest.Family must exist")
 
-	got := strings.Split(enum, ",")
-	want := catalog.SitemapFamilyValues()
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("enum tag = %v,\n            want %v\n"+
-			"(the enum must list every value catalog.SitemapService.Entries accepts, in the same order)",
-			got, want)
-	}
+	assert.Equal(t, catalog.SitemapFamilyValuesCSV(), field.Tag.Get("enum"),
+		"the enum tag on family must list exactly the values SitemapService.Entries accepts, in order")
 }
 
 // TestSitemapEntriesHandlerUnknownFamilyIs400 pins the family filter's

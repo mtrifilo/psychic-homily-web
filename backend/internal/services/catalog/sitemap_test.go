@@ -58,31 +58,6 @@ func TestReleaseShardsPartitionTheFamily(t *testing.T) {
 	}
 }
 
-// TestSitemapFamilyValuesCoversFamiliesAndShards pins what the Huma enum is
-// tested against. Without it, an accidentally empty SitemapFamilyValues() would
-// make the handler's parity test pass by agreeing on nothing.
-func TestSitemapFamilyValuesCoversFamiliesAndShards(t *testing.T) {
-	values := SitemapFamilyValues()
-	if len(values) != len(sitemapFamilies)+len(releaseShards) {
-		t.Fatalf("SitemapFamilyValues() has %d entries, want %d families + %d sub-shards",
-			len(values), len(sitemapFamilies), len(releaseShards))
-	}
-	index := map[string]bool{}
-	for _, v := range values {
-		index[v] = true
-	}
-	for _, family := range sitemapFamilies {
-		if !index[family] {
-			t.Errorf("SitemapFamilyValues() is missing the %q family", family)
-		}
-	}
-	for _, shard := range releaseShards {
-		if !index[shard.id] {
-			t.Errorf("SitemapFamilyValues() is missing the %q sub-shard", shard.id)
-		}
-	}
-}
-
 // TestReleaseShardByIDRejectsAFamilyName guards the resolution step: `releases`
 // itself must NOT resolve to a shard, or a caller asking for the whole family
 // would silently receive one range of it.
