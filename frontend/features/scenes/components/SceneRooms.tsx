@@ -88,7 +88,12 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
   // null = "the reader has not chosen", so the default tracks the data rather
   // than freezing whatever it was on first render.
   const [chosenOrder, setChosenOrder] = useState<RoomOrder | null>(null)
-  const order = chosenOrder ?? naturalOrder
+  // A choice only survives while the choice EXISTS. If a refetch drops the
+  // scene below the rankable threshold, the toggle disappears with it, and a
+  // retained `ranked` would leave the list sorted by counts it no longer prints
+  // and no control to get back from.
+  const order =
+    naturalOrder === 'ranked' ? (chosenOrder ?? 'ranked') : 'alphabetical'
 
   // Tied to whether the counts can ORDER the list, not to the current sort. A
   // reader on a dense scene who flips to alphabetical is changing the order,

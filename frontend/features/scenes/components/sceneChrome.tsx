@@ -54,8 +54,12 @@ export function EntityNameLink({
 }) {
   const trimmed = slug?.trim()
   if (!trimmed) return <span className={unlinkedClassName}>{name}</span>
+  // Encoded, so the slug can only ever be ONE path segment. Slugs are generated
+  // server-side and are `[a-z0-9-]` in practice, which survives encoding
+  // untouched — this costs nothing on every real row and stops a stored `/`
+  // from splicing a second segment onto a route the caller chose.
   return (
-    <Link href={`${basePath}/${trimmed}`} className={className}>
+    <Link href={`${basePath}/${encodeURIComponent(trimmed)}`} className={className}>
       {name}
     </Link>
   )

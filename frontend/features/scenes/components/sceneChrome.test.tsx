@@ -48,6 +48,18 @@ describe('EntityNameLink', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
+  // A stored slug is data, and a `/` in it would splice a second path segment
+  // onto a route the caller chose.
+  it('keeps a slug to one path segment', () => {
+    renderWithProviders(
+      <EntityNameLink name="Sneaky" slug="../admin/users" basePath="/artists" />
+    )
+    expect(screen.getByRole('link', { name: 'Sneaky' })).toHaveAttribute(
+      'href',
+      '/artists/..%2Fadmin%2Fusers'
+    )
+  })
+
   it('trims a padded slug rather than minting a second URL for one entity', () => {
     renderWithProviders(
       <EntityNameLink name="Valley Bar" slug=" valley-bar " basePath="/venues" />

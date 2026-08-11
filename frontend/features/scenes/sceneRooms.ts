@@ -54,8 +54,13 @@ export function defaultRoomOrder(rooms: SceneVenue[]): RoomOrder {
  * so one scene really can hold two rooms of the same name.
  */
 export function orderRooms(rooms: SceneVenue[], order: RoomOrder): SceneVenue[] {
+  // The locale is PINNED, and that is not pedantry. `localeCompare()` with no
+  // locale uses the runtime's, which is the server's on the prerender and the
+  // reader's in the browser — so a room list containing an accented or
+  // non-Latin name could sort one way in the HTML and another after hydration,
+  // which React reports as a mismatch and repairs by re-rendering the list.
   const byNameThenId = (a: SceneVenue, b: SceneVenue) =>
-    a.name.localeCompare(b.name) || a.id - b.id
+    a.name.localeCompare(b.name, 'en') || a.id - b.id
 
   return [...rooms].sort((a, b) =>
     order === 'ranked'

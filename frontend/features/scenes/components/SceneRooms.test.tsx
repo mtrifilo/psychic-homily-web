@@ -242,6 +242,36 @@ describe('SceneRooms — sparse', () => {
     ).not.toBeInTheDocument()
   })
 
+  // A reader's sort choice only survives while the control that made it does.
+  // A refetch that drops the scene below the rankable threshold takes the
+  // toggle away, and a retained `ranked` would leave the list sorted by counts
+  // it no longer prints with no control to get back from.
+  it('drops a retained ranked choice when the scene stops being rankable', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(<SceneRooms scene={buildScene(denseRooms)} />)
+
+    await user.click(screen.getByRole('button', { name: 'Alphabetical' }))
+    await user.click(screen.getByRole('button', { name: 'By upcoming shows' }))
+    expect(roomNames()).toEqual(['Crescent Ballroom', 'Nile Theater', 'Trunk Space'])
+
+    // Same rooms, now with only one of them booked.
+    rerender(
+      <SceneRooms
+        scene={buildScene([
+          venue({ id: 1, name: 'Crescent Ballroom', upcoming_show_count: 3 }),
+          venue({ id: 2, name: 'Nile Theater', slug: 'nile-theater', upcoming_show_count: 0 }),
+          venue({ id: 3, name: 'Apple Bar', slug: 'apple-bar', upcoming_show_count: 0 }),
+        ])}
+      />
+    )
+
+    expect(roomNames()).toEqual(['Apple Bar', 'Crescent Ballroom', 'Nile Theater'])
+    expect(
+      screen.getByRole('heading', { name: /Rooms \/ 3 tracked · alphabetical/i })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Alphabetical|By upcoming/ })).toBeNull()
+  })
+
   it('still asks for the rooms we are missing', () => {
     renderWithProviders(
       <SceneRooms scene={portlandScene} />
