@@ -3,10 +3,10 @@ package catalog
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 
 	"gorm.io/gorm"
 )
@@ -28,9 +28,10 @@ import (
 //   - artist:     no gate. /artists?tags= sets skip_active_filter=true, so a tag
 //     page is an evergreen surface (every tagged artist, active or not).
 //   - venue:      verified = true only (the public /venues list).
-//   - show:       status = approved AND event_date >= start-of-today UTC
-//     (upcoming), a COARSER boundary than GetUpcomingShows' venue-local one;
-//     counted transitively via the lineup.
+//   - show:       status = approved AND upcoming on the show's OWN venue-local
+//     calendar day (shared.VenueLocalDateCondition) — the same boundary
+//     GetUpcomingShows lists and GetShowCities counts; counted transitively via
+//     the lineup.
 //   - festival:   no gate; counted transitively via the lineup.
 //   - release:    no gate.
 //   - label:      no gate.
@@ -227,28 +228,28 @@ func (s *TagService) intersectBaseQuery(entityType string) *gorm.DB {
 	case catalogm.TagEntityLabel:
 		return s.db.Table("labels")
 	case catalogm.TagEntityShow:
-		// Shows: approved + upcoming (event_date >= start of today, UTC). This is
-		// a discovery surface, so past shows are excluded from the count. The
-		// boundary is UTC start-of-day, coarser than ShowService's venue-local
-		// one (see startOfTodayUTC). The original justification, that this
-		// endpoint is city-agnostic and carries no request timezone, expired
-		// with PSY-1678: the venue-local condition needs no request timezone
-		// either, so this is now an unmigrated surface rather than a reasoned
-		// divergence. PSY-1760 tracks migrating it; the reason it is not done
-		// here is SCOPE, not risk. The comparable aggregate WAS measured on the
-		// way past: PSY-1678 put the venue-local lateral under GetShowCities,
-		// which is this same unnarrowed whole-catalog shape on a hotter path,
-		// and recorded 3.8ms at ~670 upcoming rows against 0.6ms before, rising
-		// to 91ms at a synthetic 19,900. Re-measure here rather than assuming
-		// those transfer — the tag gate sorts and groups differently — but do
-		// not treat this surface as uniquely dangerous.
+		// Shows: approved + upcoming on the show's OWN venue-local calendar day.
+		// This is a discovery surface, so past shows are excluded from the count.
+		//
+		// The boundary is the SAME one GetUpcomingShows lists behind and
+		// GetShowCities counts (PSY-1678), which is what stops a non-zero count
+		// here from dead-ending at an empty /shows page. It used to be
+		// start-of-today in UTC, justified by this endpoint being city-agnostic
+		// with no request timezone to work from; that reasoning expired the
+		// moment the boundary stopped needing one, since VenueLocalDateCondition
+		// reads each row's own venue zone in SQL.
+		//
+		// The base query is fully `shows.`-qualified and shared.VenueTZJoin
+		// aliases its projected columns under `venue_tz_*`, so the lateral can
+		// neither collide with a `shows` column nor widen a projection.
 		//
 		// PSY-993 owns the "show all shows" link target and must point it at an
 		// upcoming-scoped shows surface so the linked list agrees with this
 		// count.
 		return s.db.Table("shows").
+			Joins(shared.VenueTZJoin).
 			Where("shows.status = ?", catalogm.ShowStatusApproved).
-			Where("shows.event_date >= ?", startOfTodayUTC())
+			Where(shared.VenueLocalDateCondition("upcoming"))
 	case catalogm.TagEntityFestival:
 		return s.db.Table("festivals")
 	case catalogm.TagEntityCollection:
@@ -282,29 +283,38 @@ func (s *TagService) applyIntersectionTagFilter(query *gorm.DB, entityType, idCo
 // artist and venue order by upcoming-show count DESC — the busiest entities
 // first, matching GetAllArtists' `upcoming_show_count DESC` browse sort and the
 // PSY-993 design's "12 shows / 8 shows / 5 shows" rows. That count isn't a base
-// column, so those two types LEFT JOIN the same upcoming-count subquery the
-// enrich* helpers use and order by it (name ASC as the stable tiebreaker).
+// column, so those two types LEFT JOIN venueLocalUpcomingCountSQL and order by
+// it (name ASC as the stable tiebreaker).
+//
+// It has to be the SAME renderer the enrich* helpers print from, not merely a
+// similar one: this is the sort key for the very numbers those helpers put on
+// the card, so any divergence renders as "12 shows" sitting below "8 shows".
+//
+// COST, measured rather than assumed (670 upcoming / 6000 past shows, 240
+// venues, 3000 artists): 34ms before, 141ms after. Those two numbers predate
+// PSY-1761, which replaced the per-row zone validation with a hashed probe of
+// timezone_names_snapshot, so treat them as the SHAPE of the regression rather
+// than its current size — PSY-1810 owns the re-measure. Unlike the enrich* helpers
+// this sorts the whole tag-filtered set, so there is no bounded id set to hand
+// venueLocalUpcomingCountSQL and it pays the unrestricted shape — the aggregate
+// covers every artist with an upcoming show, and the venue lateral is evaluated
+// once per upcoming show rather than once per rendered card. The two levers, if
+// this ever matters: narrow the aggregate to the tag-filtered ids (needs the
+// tag subquery duplicated into the join), or give VenueLocalDateCondition a
+// lossless tail arm that skips the exact condition beyond +2 days, where every
+// show is upcoming in every zone. The second is a services/shared change and
+// has to be re-measured across every migrated surface, so neither is done here.
 func (s *TagService) applyPreviewOrder(query *gorm.DB, entityType string) *gorm.DB {
 	switch entityType {
 	case catalogm.TagEntityArtist:
 		return query.
-			Joins(`LEFT JOIN (
-				SELECT sa.artist_id, COUNT(DISTINCT s.id) AS cnt
-				FROM show_artists sa
-				JOIN shows s ON s.id = sa.show_id
-				WHERE s.event_date >= NOW()
-				GROUP BY sa.artist_id
-			) usc ON usc.artist_id = artists.id`).
+			Joins(`LEFT JOIN ` + venueLocalUpcomingCountSQL("show_artists", "artist_id", "") +
+				` usc ON usc.artist_id = artists.id`).
 			Order("COALESCE(usc.cnt, 0) DESC, artists.name ASC")
 	case catalogm.TagEntityVenue:
 		return query.
-			Joins(`LEFT JOIN (
-				SELECT sv.venue_id, COUNT(DISTINCT s.id) AS cnt
-				FROM show_venues sv
-				JOIN shows s ON s.id = sv.show_id
-				WHERE s.event_date >= NOW()
-				GROUP BY sv.venue_id
-			) usc ON usc.venue_id = venues.id`).
+			Joins(`LEFT JOIN ` + venueLocalUpcomingCountSQL("show_venues", "venue_id", "") +
+				` usc ON usc.venue_id = venues.id`).
 			Order("COALESCE(usc.cnt, 0) DESC, venues.name ASC")
 	default:
 		return query.Order(s.intersectPreviewOrder(entityType))
@@ -356,20 +366,4 @@ func (s *TagService) enrichForType(entityType string, ids []uint) map[uint]contr
 	default:
 		return s.enrichBare(entityType, ids)
 	}
-}
-
-// startOfTodayUTC returns midnight UTC for the current day — the lower bound for
-// the upcoming-show gate. ShowService's upcoming filter partitions on each
-// show's venue-local calendar day instead (PSY-1678), so the two boundaries can
-// differ by up to a day near the UTC/local date line: this gate can drop a show
-// that /shows still lists. That is an accepted approximation for a tag-discovery
-// count, NOT a claim of parity with ShowService. Migrating it means swapping
-// this for shared.VenueTZJoin + shared.VenueLocalDateCondition("upcoming"),
-// which needs no request timezone either; it is left out of PSY-1678 only to
-// keep that change scoped to the /shows feed. PSY-1760 owns it, and the
-// measured cost of the same shape on a hotter path is recorded there and in
-// intersectBaseQuery above.
-func startOfTodayUTC() time.Time {
-	now := time.Now().UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 }

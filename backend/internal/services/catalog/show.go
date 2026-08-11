@@ -1102,7 +1102,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	// straddling venue-local midnight in some venue's zone would return a page
 	// and a total drawn from different partitions, and the count PSY-1653 put on
 	// screen would read "51 of 50". The old code could not hit this: it computed
-	// one startOfTodayUTC in Go and bound it into both.
+	// one start-of-today instant in Go and bound it into both.
 	//
 	// ONE SNAPSHOT, which is why the isolation level is explicit. READ COMMITTED
 	// takes a FRESH snapshot per statement, so the default would leave the same
