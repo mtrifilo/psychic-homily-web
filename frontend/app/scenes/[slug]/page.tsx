@@ -1,14 +1,32 @@
 import { Suspense, cache } from 'react'
 import type { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { HydrationBoundary } from '@tanstack/react-query'
-import { SceneDetailView } from '@/features/scenes'
 import type { SceneDetail } from '@/features/scenes'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+
+// Dynamic-imported from the component FILE (never the `@/features/scenes`
+// barrel) to evict SceneDetail.tsx — and the SceneGraph subtree it owns — from
+// Turbopack's global shared client chunk, which loads eagerly on every route.
+// Same recipe as ArtistDetail (PSY-950 / spike PSY-944): `dynamic()` alone is a
+// no-op, because a barrel re-export keeps the module reachable from the other
+// `@/features/scenes` importers (/scenes, notification settings), and Turbopack
+// does not tree-shake `'use client'` barrels per-export. The eviction only holds
+// while SceneDetailView is ALSO absent from features/scenes/index.ts and
+// features/scenes/components/index.ts. Do NOT re-add those barrel exports.
+// `ssr: true` preserves the prefetchEntity + HydrationBoundary server render.
+const SceneDetailView = dynamic(
+  () =>
+    import('@/features/scenes/components/SceneDetail').then(m => ({
+      default: m.SceneDetailView,
+    })),
+  { ssr: true },
+)
 
 interface ScenePageProps {
   params: Promise<{ slug: string }>
