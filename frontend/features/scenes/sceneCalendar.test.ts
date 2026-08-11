@@ -208,13 +208,10 @@ describe('formatCalendarDateHeading', () => {
   })
 })
 
-describe('formatGroupCount', () => {
-  it('pluralizes, and prints an honest zero', () => {
-    expect(formatGroupCount(0)).toBe('0 shows')
-    expect(formatGroupCount(1)).toBe('1 show')
-    expect(formatGroupCount(5)).toBe('5 shows')
-  })
-})
+// No date-group count helper is tested here: the calendar renders
+// `formatDayCountLine` from sceneDay.ts, so the nightly page and this one say
+// "0 shows listed" about the same night in the same words. That helper has its
+// own coverage in sceneDay.test.ts.
 
 describe('formatTimeZoneLabel', () => {
   it('names the scene zone, not the reader zone', () => {

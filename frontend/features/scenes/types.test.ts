@@ -107,17 +107,10 @@ describe('scene types contract', () => {
     expect(response.artists[0].show_count).toBe(5)
   })
 
-  it('GenreCount / SceneGenreResponse', () => {
-    const genre: GenreCount = { tag_id: 1, name: 'punk', slug: 'punk', count: 12 }
-    const response: SceneGenreResponse = {
-      genres: [genre],
-      diversity_index: 0.8,
-      diversity_label: 'High diversity',
-    }
-
-    expect(response.diversity_index).toBeCloseTo(0.8)
-    expect(response.genres[0].slug).toBe('punk')
-  })
+  // No GenreCount / SceneGenreResponse case: Genre Distribution is killed at
+  // any threshold (PSY-1783), and the frontend's whole binding to
+  // `GET /scenes/{slug}/genres` went with it. The endpoint still exists
+  // server-side; nothing on the web app calls it.
 
   it('SceneGraphInfo / SceneGraphCluster', () => {
     const info: SceneGraphInfo = {

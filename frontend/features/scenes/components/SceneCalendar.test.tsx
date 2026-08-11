@@ -50,6 +50,10 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
       active_venues_this_month: 0,
       shows_by_month: [],
     },
+    // The calendar reads rows from its own endpoint, never from this list
+    // (PSY-1780 added it; rendering the rooms leaderboard is Wave 1B). Present
+    // so the fixture is a real `SceneDetail` rather than a cast.
+    venues: [],
     ...overrides,
   }
 }
