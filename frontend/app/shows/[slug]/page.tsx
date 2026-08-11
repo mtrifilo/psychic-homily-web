@@ -6,7 +6,12 @@ import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { HydrationBoundary } from '@tanstack/react-query'
 import { connection } from 'next/server'
-import { showTimingInput } from '@/features/shows'
+// From '@/features/shows/utils', not the '@/features/shows' barrel: this is the
+// route's only VALUE import from the feature, and the barrel re-exports the
+// whole client-component surface. Importing it through the barrel would keep
+// that surface eagerly reachable from this route and quietly undo the eviction
+// below. utils.ts has type-only imports of its own, so it costs nothing.
+import { showTimingInput } from '@/features/shows/utils'
 import type { ShowResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'

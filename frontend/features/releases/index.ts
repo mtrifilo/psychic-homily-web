@@ -9,6 +9,8 @@ export type {
   ReleaseSortOption,
   ReleaseArtist,
   ReleaseExternalLink,
+  // TYPE only. The component of the same name is not exported anywhere — see
+  // the note further down and in ./components/index.ts.
   ReleaseDetail,
   ReleaseListArtist,
   ReleaseListItem,
