@@ -2,12 +2,13 @@ import { Suspense, cache } from 'react'
 import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
 // Imported by path rather than through the `@/features/scenes` barrel, which
-// is a surface of client components (`SceneList`, `SceneDetailView`, the Atlas
+// is a surface of client components (`SceneList`, `ScenePulseCard`, the Atlas
 // globe). This is a server component that needs none of them, and the sibling
 // page-level scene components — `SceneWeekView`, `SceneDayView` — are imported
-// by path for the same reason. NOTE: this is not a claim that the barrel would
-// ship maplibre or the force graph to this route; both are already behind
-// `next/dynamic` in their own chunks.
+// by path for the same reason. NOTE: maplibre is safe either way — AtlasGlobe
+// dynamic-imports its canvas. The force graph is NOT: `ForceGraphView` was
+// reachable through this barrel via SceneGraph until PSY-1772 removed that
+// export. See features/scenes/components/index.ts before adding anything back.
 import { ThisWeekByCity } from '@/features/scenes/components/ThisWeekByCity'
 import {
   currentWeekBounds,

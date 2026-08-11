@@ -99,8 +99,8 @@ export {
 } from './utils'
 
 // Components
+// ShowDetail is deliberately absent — see the note in ./components/index.ts.
 export {
-  ShowDetail,
   ShowCard,
   ShowForm,
   ShowList,

@@ -1,4 +1,23 @@
-export { ShowDetail } from './ShowDetail'
+// ShowDetail is intentionally NOT re-exported here, and not from
+// `features/shows/index.ts` either (PSY-1772). Its only consumer,
+// `app/shows/[slug]/page.tsx`, imports the file directly via `dynamic()`.
+//
+// WHY, and why `dynamic()` alone is not enough: Turbopack does not tree-shake
+// `'use client'` barrels per-export, and anything reachable from `app/layout.tsx`
+// lands in the one client chunk every route loads eagerly. This barrel IS
+// root-reachable (layout -> CommandPalette -> components/shared -> SaveButton ->
+// features/shows -> here), so simply LISTING a component makes it global — no
+// one has to import the name. Re-adding the export silently puts ShowDetail
+// back in that chunk.
+// Same recipe and same reason as ArtistDetail (PSY-950, spike PSY-944).
+//
+// The route page pairs this absence with `dynamic(ssr: true)`. Both halves are
+// load-bearing: de-barreling is what evicts the module from the global chunk,
+// and `dynamic()` is what keeps it out of the route's own eager bundle. The
+// explicit `ssr: true` matches `next/dynamic`'s default on purpose — it records
+// that SSR must NOT be turned off here (these are crawlable entity pages that
+// server-render through prefetchEntity + HydrationBoundary).
+// Guarded by features/sharedChunkBarrelGuard.test.ts.
 export { ShowHeader } from './ShowHeader'
 export { ShowStatusStripe } from './ShowStatusStripe'
 export { ShowActions } from './ShowActions'

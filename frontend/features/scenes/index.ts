@@ -30,7 +30,8 @@ export {
 } from './hooks'
 
 // Components
-export { SceneList, ScenePulse as ScenePulseCard, SceneDetailView } from './components'
+// SceneDetailView is deliberately absent — see the note in ./components/index.ts.
+export { SceneList, ScenePulse as ScenePulseCard } from './components'
 
 // Cross-surface rules (PSY-1344): the ONE liveliest-first ordering (globe
 // labels / search / mobile list / homepage graph default) and the ONE

@@ -1,12 +1,24 @@
 import { Suspense, cache } from 'react'
 import type { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
-import { TagDetail } from '@/features/tags/components'
 import type { TagEnrichedDetailResponse } from '@/features/tags/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
+
+// Imported from the component FILE, never a `@/features/tags` barrel — see the
+// note in features/tags/components/index.ts for why the barrel would undo this.
+// `ssr: true` preserves the HydrationBoundary server render; the page's own
+// <Suspense> below is the boundary this lazy resolves against.
+const TagDetail = dynamic(
+  () =>
+    import('@/features/tags/components/TagDetail').then(m => ({
+      default: m.TagDetail,
+    })),
+  { ssr: true },
+)
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||

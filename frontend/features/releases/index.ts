@@ -9,6 +9,8 @@ export type {
   ReleaseSortOption,
   ReleaseArtist,
   ReleaseExternalLink,
+  // TYPE only. The component of the same name is not exported anywhere — see
+  // the note further down and in ./components/index.ts.
   ReleaseDetail,
   ReleaseListArtist,
   ReleaseListItem,
@@ -43,6 +45,7 @@ export {
 
 // Components
 export { ReleaseCard, ReleaseList } from './components'
-// Note: ReleaseDetail component is exported from './components' directly.
-// Import it as: import { ReleaseDetail } from '@/features/releases/components'
-// The type ReleaseDetail is available from '@/features/releases/types'
+// Note: the ReleaseDetail COMPONENT is barrel-exported from nowhere — import
+// '@/features/releases/components/ReleaseDetail' directly. See the note in
+// ./components/index.ts.
+// The TYPE ReleaseDetail is available from '@/features/releases/types'.

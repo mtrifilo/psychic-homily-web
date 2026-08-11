@@ -44,11 +44,11 @@ export {
   useRemoveTagVote,
 } from './hooks'
 
+// TagDetail is deliberately absent — see the note in ./components/index.ts.
 export {
   EntityTagList,
   AddTagDialog,
   TagBrowse,
-  TagDetail,
   TagOfficialIndicator,
   TagFacetPanel,
   TagFacetSheet,

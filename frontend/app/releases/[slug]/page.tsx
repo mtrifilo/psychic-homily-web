@@ -1,14 +1,26 @@
 import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
-import { ReleaseDetail } from '@/features/releases/components'
 import type { ReleaseDetail as ReleaseDetailData } from '@/features/releases/types'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+
+// Imported from the component FILE, never the `@/features/releases/components`
+// barrel — see the note there for why the barrel would undo this.
+// `ssr: true` preserves the prefetchEntity + HydrationBoundary server render;
+// the page's own <Suspense> below is the boundary this lazy resolves against.
+const ReleaseDetail = dynamic(
+  () =>
+    import('@/features/releases/components/ReleaseDetail').then(m => ({
+      default: m.ReleaseDetail,
+    })),
+  { ssr: true },
+)
 
 interface ReleasePageProps {
   params: Promise<{ slug: string }>

@@ -1,5 +1,11 @@
 export { VenueCard } from './VenueCard'
 export { VenueSearch } from './VenueSearch'
+// VenueDetail stays barrel-exported, unlike its shows/tags/scenes/releases
+// peers (PSY-1772): this barrel is NOT reachable from `app/layout.tsx`, so it
+// was measured to be outside the global shared chunk. It is not free, though —
+// `features/festivals/admin/FestivalManagement.tsx` imports `useVenueSearch`
+// from `@/features/venues`, which drags VenueDetail (and VenueBillNetwork's
+// canvas) onto /admin/festivals. See the PSY-1772 PR for the follow-up.
 export { VenueDetail } from './VenueDetail'
 export { VenueList } from './VenueList'
 export { VenueLocationCard } from './VenueLocationCard'

@@ -59,7 +59,7 @@ import { GraphSkeleton as BaseGraphSkeleton } from '@/components/graph/GraphSkel
 import { createLazyForceGraphView } from '@/components/graph/lazyForceGraphView'
 import { GraphSectionErrorBoundary } from '@/components/graph/GraphSectionErrorBoundary'
 // Deep imports, deliberately NOT the '@/features/scenes' barrel: the barrel
-// re-exports the scenes component tree (SceneDetailView / AtlasGlobe / …)
+// re-exports the scenes component tree (AtlasGlobe / SceneList / …)
 // whose module bodies run top-level dynamic() calls the bundler can't drop,
 // so importing it from a statically-mounted homepage component would drag
 // scenes module code into the homepage's initial JS. Same precedent as

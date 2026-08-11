@@ -1,14 +1,27 @@
 import { Suspense, cache } from 'react'
 import type { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { HydrationBoundary } from '@tanstack/react-query'
-import { SceneDetailView } from '@/features/scenes'
 import type { SceneDetail } from '@/features/scenes'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+
+// Imported from the component FILE, never a `@/features/scenes` barrel — see
+// the note in features/scenes/components/index.ts for why the barrel would undo
+// this. `ssr: true` preserves the prefetchEntity + HydrationBoundary server
+// render; the page's own <Suspense> below is the boundary this lazy resolves
+// against.
+const SceneDetailView = dynamic(
+  () =>
+    import('@/features/scenes/components/SceneDetail').then(m => ({
+      default: m.SceneDetailView,
+    })),
+  { ssr: true },
+)
 
 interface ScenePageProps {
   params: Promise<{ slug: string }>
