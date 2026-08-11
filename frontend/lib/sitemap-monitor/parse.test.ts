@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAMILY_SHARD_IDS, FAMILY_URL_PREFIXES } from '@/app/sitemap-shards'
+import { SITEMAP_FAMILIES, FAMILY_URL_PREFIXES } from '@/app/sitemap-shards'
 import {
   classifyLoc,
   detectShape,
@@ -164,11 +164,11 @@ describe('classifyLoc', () => {
    */
   it('classifies every family from the shared prefix table', () => {
     // The composite-slug families, whose slug is itself a path tail.
-    const compositeSlugs: Partial<Record<(typeof FAMILY_SHARD_IDS)[number], string>> = {
+    const compositeSlugs: Partial<Record<(typeof SITEMAP_FAMILIES)[number], string>> = {
       scene_weeks: 'austin-tx/2026-W28',
       venue_years: 'the-van-buren/shows/2025',
     }
-    for (const family of FAMILY_SHARD_IDS) {
+    for (const family of SITEMAP_FAMILIES) {
       const slug = compositeSlugs[family] ?? 'a-slug'
       const loc = `https://psychichomily.com${FAMILY_URL_PREFIXES[family]}/${slug}`
       expect(classifyLoc(loc), `misclassified ${family} (${loc})`).toBe(family)

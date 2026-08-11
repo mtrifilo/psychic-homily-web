@@ -32485,7 +32485,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description When set, only this family is populated; others are empty arrays. */
-                family?: "shows" | "artists" | "venues" | "venue_years" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags";
+                family?: "shows" | "artists" | "venues" | "venue_years" | "scenes" | "scene_weeks" | "labels" | "releases" | "festivals" | "tags" | "releases-a-e" | "releases-f-m" | "releases-n-s" | "releases-t-z";
             };
             header?: never;
             path?: never;

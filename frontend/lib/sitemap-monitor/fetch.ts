@@ -7,7 +7,9 @@
 
 import {
   ALL_SHARD_IDS,
-  FAMILY_SHARD_IDS,
+  ENTITY_SHARD_IDS,
+  shardFamily,
+  SITEMAP_FAMILIES,
   PAGES_SHARD_ID,
   type Family,
 } from '@/app/sitemap-shards'
@@ -53,7 +55,7 @@ export interface SitemapObservation {
 const USER_AGENT = 'psychic-homily-sitemap-monitor'
 
 function emptyCounts(): Record<Family, number> {
-  return Object.fromEntries(FAMILY_SHARD_IDS.map(f => [f, 0])) as Record<Family, number>
+  return Object.fromEntries(SITEMAP_FAMILIES.map(f => [f, 0])) as Record<Family, number>
 }
 
 /** How many hops to follow. The real chain is at most one (apex → www). */
@@ -338,25 +340,34 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
         observation.errors.push(`shard "${id}" served a <${shape}> where a <urlset> was expected`)
         continue
       }
-      const bucket = id as Family | typeof PAGES_SHARD_ID
+      // The shard id is NOT the family once a family is sub-sharded: counting
+      // `releases-a-e` as its own bucket would leave `releases` observed at
+      // zero, which the evaluator reports as a vanished family — a false alarm
+      // that looks exactly like the real incident. Resolved through the shared
+      // table so a new sub-shard cannot reintroduce the confusion.
+      const bucket: LocBucket =
+        id === PAGES_SHARD_ID ? PAGES_SHARD_ID : (shardFamily(id) ?? 'other')
       const locs = parseUrlset(xml)
-      // One at a time, not `push(...locs)`: the releases shard is already ~20k
+      // One at a time, not `push(...locs)`: the releases family is already ~20k
       // entries and spreading it into the argument list approaches the engine's
       // stack argument limit.
       for (const loc of locs) recordLoc(observation, bucket, loc, config.target)
-      if (id === 'shows') collectShowDates(locs, observation.showDates)
+      if (bucket === 'shows') collectShowDates(locs, observation.showDates)
       countInto(observation, bucket, locs.length)
     } catch (error) {
       observation.errors.push(`shard "${id}": ${(error as Error).message}`)
     }
   }
 
-  // Every family the sitemap claims to shard must actually be listed. A family
+  // Every shard the sitemap claims to emit must actually be listed. A shard
   // silently dropped from the index is thousands of URLs vanishing with no
-  // other signal — the incident's exact shape.
-  for (const family of FAMILY_SHARD_IDS) {
-    if (!listed.has(family)) {
-      observation.errors.push(`sitemap index is missing the "${family}" shard`)
+  // other signal — the incident's exact shape. Checked per SHARD rather than
+  // per family: a family served by four documents loses a quarter of its URLs
+  // if one goes missing, which is well inside the per-family drift tolerance
+  // and would otherwise pass.
+  for (const shardId of ENTITY_SHARD_IDS) {
+    if (!listed.has(shardId)) {
+      observation.errors.push(`sitemap index is missing the "${shardId}" shard`)
     }
   }
 
@@ -385,7 +396,7 @@ export async function fetchExpectedCounts(
 
   const record = body as Record<string, unknown>
   const counts = emptyCounts()
-  for (const family of FAMILY_SHARD_IDS) {
+  for (const family of SITEMAP_FAMILIES) {
     const rows = record[family]
     if (!Array.isArray(rows)) {
       // Coercing a missing family to 0 would report it as 100% drift and blame

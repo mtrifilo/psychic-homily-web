@@ -125,12 +125,13 @@ export const buildStampPath = (): string =>
  * Fetches known to be in the warn band already, which the gate reports but does
  * not fail on.
  *
- * A strict gate landing on a codebase that already has a violation has two
- * honest options: fix the violation in the same change, or record it here. This
- * one is recorded because it belongs to a different design — the sitemap shards
- * by FAMILY (PSY-1622), and the fix for a single family outgrowing a shard is to
- * sub-shard that family, which is the sitemap's own decision to make and would
- * more than double this diff.
+ * CURRENTLY EMPTY, and that is the intended steady state. A strict gate landing
+ * on a codebase that already has a violation has two honest options: fix the
+ * violation in the same change, or record it here. The one entry this list has
+ * ever held was the sitemap's `releases` family at 97% of the cap, recorded
+ * because the real fix — sub-sharding the family — was the sitemap's own
+ * decision to make and would have more than doubled that diff. PSY-1763 made
+ * that decision, so the entry went away rather than aging in place.
  *
  * IT WAIVES THE WARN BAND ONLY. A payload over the HARD cap has already stopped
  * being cached, so no entry excuses it and both halves of the gate enforce that
@@ -158,18 +159,7 @@ export const WARN_BAND_ALLOWLIST: ReadonlyArray<{
   /** PSY ticket that removes the need for this entry. Required. */
   ticket: string
   reason: string
-}> = [
-  {
-    match: '/sitemap/entries?family=releases',
-    measuredAt: '2026-08-08',
-    ticket: 'PSY-1763',
-    reason:
-      'Measured at 1.93 MB encoded, 97% of the cap — the largest sitemap family, ' +
-      'already sharded per family by PSY-1622. Sub-sharding releases is the real ' +
-      'fix and is its own change. It is close: expect a breach on the next ' +
-      'sizeable release import, and the hard cap is NOT waived by this entry.',
-  },
-]
+}> = []
 
 /**
  * Whether `url` is a recorded, still-cacheable warn-band exception.

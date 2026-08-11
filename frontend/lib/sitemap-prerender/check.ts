@@ -6,11 +6,19 @@
  *
  *   build backend | build cache | shards prerendered | serving with backend down
  *   --------------|-------------|--------------------|--------------------------
- *   reachable     | clean       | 10 / 10            | 200, previous document
- *   reachable     | clean       | 10 / 10            | 200 even with the Data
+ *   reachable     | clean       | all                | 200, previous document
+ *   reachable     | clean       | all                | 200 even with the Data
  *                 |             |                    | Cache purged first
- *   UNREACHABLE   | clean       | 1 / 10 (pages)     | 500 on all 9 families
- *   UNREACHABLE   | warm        | 10 / 10            | 200, previous document
+ *   UNREACHABLE   | clean       | 1 (pages) of all   | 500 on every entity shard
+ *   UNREACHABLE   | warm        | all                | 200, previous document
+ *
+ * Counts are written as "all" rather than a number on purpose: the shard count
+ * is a property of app/sitemap-shards.ts and has already changed twice (10 with
+ * PSY-1622's families, 14 once PSY-1763 split releases into slug ranges), while
+ * the BEHAVIOUR each row describes did not. Rows 1 and 3 were re-measured at 14
+ * shards on PSY-1763 — `14 of 14 shards have a fallback document` against a
+ * healthy backend, and `13 of 14 shards have no fallback document` with the
+ * backend down, naming each releases sub-shard.
  *
  * The stale-serving fallback the sitemap needs is the PRERENDERED BODY that
  * `next build` writes to disk. It ships inside the deployment, so it survives a
@@ -47,8 +55,8 @@
  * rather than something measured here; what was measured is the gate's exit
  * code.
  *
- * A prerendered body is proof the fetch was ANSWERED, because
- * `fetchSitemapFamily` throws on a bad answer rather than emitting a partial
+ * A prerendered body is proof the fetch was ANSWERED, because `fetchShard`
+ * throws on a bad answer rather than emitting a partial
  * document. So EXISTENCE is the whole assertion — deliberately not a
  * URL count. A family with genuinely zero rows is a legitimate empty shard, and
  * a threshold there would fail builds for a real state of the catalogue.
@@ -201,13 +209,18 @@ export function formatShardFailures(
 }
 
 /**
- * What the backend says about a family, as far as this gate cares.
+ * What the backend says about a shard, as far as this gate cares.
  *
  * `unknown` is the ONLY verdict that excuses a missing shard, and it means the
  * backend answered — definitely and quickly — that it does not serve that
  * family (see UNKNOWN_FAMILY_STATUSES in app/sitemap.ts). `unreachable` covers
  * everything else, including a backend that is simply down, which is the case
  * this gate exists to refuse.
+ *
+ * The probe asks about a SHARD id, not a family, and that keeps working
+ * unchanged for the releases sub-shards (PSY-1763) because a sub-shard id is
+ * itself the wire value of the `family` query — which is precisely why the
+ * sub-shard rides in that parameter rather than a second one.
  */
 export type FamilyVerdict = 'served' | 'unknown' | 'unreachable'
 
@@ -296,6 +309,6 @@ export function formatPendingShards(
     'so they would 500 during a backend outage in this window.',
     '',
     'If this is still printing after the backend has deployed, the family name has',
-    'drifted between the two sides. Start at FAMILY_SHARD_IDS in app/sitemap-shards.ts.',
+    'drifted between the two sides. Start at SITEMAP_FAMILIES in app/sitemap-shards.ts.',
   ].join('\n')
 }

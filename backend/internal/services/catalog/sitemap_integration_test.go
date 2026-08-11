@@ -182,6 +182,83 @@ func TestSitemapEntriesFamilyFilterIsolatesOneFamily(t *testing.T) {
 	}
 }
 
+// TestSitemapEntriesReleaseSubShardsCoverTheFamilyExactly is the behavioural
+// half of the releases sub-shard guard (PSY-1763). Its sibling unit test checks
+// the bounds TABLE; this checks what the DATABASE does with them, which is a
+// different question — collation decides where a slug actually falls, and no
+// amount of reading the table reveals that.
+//
+// The assertion is set equality against the unsharded family, so a gap (URLs
+// silently absent from the sitemap) and an overlap (a URL announced twice) both
+// fail. Seeds include the awkward cases on purpose: slugs sitting exactly on a
+// cut point, and slugs leading with a digit and a hyphen — the ones that belong
+// to no letter range and would fall out of a partition that was closed below.
+func TestSitemapEntriesReleaseSubShardsCoverTheFamilyExactly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	seeded := []string{
+		"1999-remastered", // digit-leading: below every letter range
+		"-quiet-start",    // hyphen-leading: below the digits
+		"aardvark-tapes",
+		"eventide", // last slug under the first cut point
+		"f",        // exactly on a cut point
+		"midnight-sessions",
+		"n", // exactly on a cut point
+		"solar-drift",
+		"t", // exactly on a cut point
+		"zephyr",
+	}
+	for i, slug := range seeded {
+		release := &catalogm.Release{Title: fmt.Sprintf("Release %d", i), Slug: strPtr(slug)}
+		if err := td.DB.Create(release).Error; err != nil {
+			t.Fatalf("seed release %q: %v", slug, err)
+		}
+	}
+
+	service := NewSitemapService(td.DB)
+	whole, err := service.Entries(context.Background(), "releases")
+	if err != nil {
+		t.Fatalf("Entries(releases): %v", err)
+	}
+	wholeSlugs := sitemapSlugsOf(whole.Releases)
+	if len(wholeSlugs) != len(seeded) {
+		t.Fatalf("unsharded releases = %v, want the %d seeded slugs", wholeSlugs, len(seeded))
+	}
+
+	owner := map[string]string{}
+	for _, shard := range releaseShards {
+		entries, err := service.Entries(context.Background(), shard.id)
+		if err != nil {
+			t.Fatalf("Entries(%s): %v", shard.id, err)
+		}
+		// A sub-shard addresses ONE family: anything else leaking into the
+		// response would be paid for by every shard, which is the cost
+		// sharding exists to avoid.
+		if len(entries.Artists)+len(entries.Shows)+len(entries.Labels) != 0 {
+			t.Errorf("Entries(%s) populated families other than releases", shard.id)
+		}
+		for _, slug := range sitemapSlugsOf(entries.Releases) {
+			if prev, dup := owner[slug]; dup {
+				t.Errorf("slug %q is served by both %q and %q — the shards overlap", slug, prev, shard.id)
+			}
+			owner[slug] = shard.id
+		}
+	}
+
+	for _, slug := range wholeSlugs {
+		if _, ok := owner[slug]; !ok {
+			t.Errorf("slug %q belongs to no sub-shard — the partition has a gap and this URL would leave the sitemap", slug)
+		}
+	}
+	if len(owner) != len(wholeSlugs) {
+		t.Errorf("sub-shards served %d slugs, the whole family has %d", len(owner), len(wholeSlugs))
+	}
+}
+
 // TestSitemapEntriesIssuesOneQueryPerSimpleFamily is the regression guard for
 // the defect this service was built to fix — see contracts.SitemapEntry.
 // Scene and scene_weeks use their own multi-query projections (joins + timezone

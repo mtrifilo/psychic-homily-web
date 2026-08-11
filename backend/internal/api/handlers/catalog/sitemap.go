@@ -46,7 +46,18 @@ type GetSitemapEntriesRequest struct {
 	// Family, when set, returns only that family's entries (others empty). The
 	// frontend shards by family so each Data Cache entry stays under Next's
 	// ~1.5 MB effective budget (PSY-1622). Omit to receive every family.
-	Family string `query:"family" required:"false" enum:"shows,artists,venues,venue_years,scenes,scene_weeks,labels,releases,festivals,tags" doc:"When set, only this family is populated; others are empty arrays."`
+	//
+	// The trailing `releases-*` values are SUB-SHARDS: each returns one slug
+	// range of the releases family, which outgrew a single cache entry
+	// (PSY-1763). They ride in this parameter rather than a second one because
+	// an unrecognised value here is a 422 the generator degrades on, whereas an
+	// unrecognised extra parameter would be silently ignored — see
+	// catalog.SitemapService.Entries.
+	//
+	// This literal cannot be built from catalog.SitemapFamilyValues() — huma
+	// reads it off the struct tag — so TestSitemapFamilyEnumMatchesTheService
+	// asserts the two agree.
+	Family string `query:"family" required:"false" enum:"shows,artists,venues,venue_years,scenes,scene_weeks,labels,releases,festivals,tags,releases-a-e,releases-f-m,releases-n-s,releases-t-z" doc:"When set, only this family is populated; others are empty arrays."`
 }
 
 type GetSitemapEntriesResponse struct {

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FAMILY_SHARD_IDS, PAGES_SHARD_ID } from '@/app/sitemap-shards'
+import {
+  ENTITY_SHARD_IDS,
+  PAGES_SHARD_ID,
+  SITEMAP_FAMILIES,
+} from '@/app/sitemap-shards'
 import { resolveConfig } from './config'
 import { fetchExpectedCounts, rebaseOnTarget, sampleUrls, walkSitemap } from './fetch'
 
@@ -71,7 +75,7 @@ ${ids
 // Derived, not hand-copied: a family added to sitemap-shards.ts must flow into
 // these fixtures, or the shard-count assertions below would keep passing for
 // the wrong reason.
-const ALL_IDS: string[] = [PAGES_SHARD_ID, ...FAMILY_SHARD_IDS]
+const ALL_IDS: string[] = [PAGES_SHARD_ID, ...ENTITY_SHARD_IDS]
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -152,8 +156,14 @@ describe('walkSitemap', () => {
     }
   })
 
-  it('records an error when a family shard is absent from the index', async () => {
-    const present = ALL_IDS.filter(id => id !== 'releases')
+  /**
+   * Per SHARD, not per family. A sub-sharded family loses only a fraction of
+   * its URLs when one of its documents goes missing — well inside the
+   * per-family drift tolerance — so a family-level check would pass while a
+   * quarter of the release catalogue quietly left the index.
+   */
+  it.each(ENTITY_SHARD_IDS)('records an error when the %s shard is absent from the index', async missing => {
+    const present = ALL_IDS.filter(id => id !== missing)
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
@@ -162,7 +172,7 @@ describe('walkSitemap', () => {
     )
 
     const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
-    expect(observation.errors).toContain('sitemap index is missing the "releases" shard')
+    expect(observation.errors).toContain(`sitemap index is missing the "${missing}" shard`)
   })
 
   it('records an error when a shard fails to fetch, and keeps going', async () => {
@@ -220,7 +230,10 @@ describe('walkSitemap', () => {
 
 describe('fetchExpectedCounts', () => {
   function entriesBody(overrides: Record<string, unknown> = {}) {
-    const base = Object.fromEntries(FAMILY_SHARD_IDS.map(family => [family, []]))
+    // Keyed by FAMILY: this stands in for the unsharded `/sitemap/entries`
+    // response, whose keys are the schema's families whatever the sitemap
+    // chooses to shard them into.
+    const base = Object.fromEntries(SITEMAP_FAMILIES.map(family => [family, []]))
     return JSON.stringify({ ...base, ...overrides })
   }
 

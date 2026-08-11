@@ -23,6 +23,131 @@ import (
 // not 52 or unbounded — recent weeks are the citable ones.
 const sceneWeekSitemapWindow = 8
 
+// sitemapFamilies is every entity family Entries can populate.
+//
+// Ordered, and the ONE list: the `family` enum on GetSitemapEntriesRequest is
+// asserted against SitemapFamilyValues() in the handler package's tests, so a
+// family added here without being added to the enum fails a test rather than
+// producing a 422 nobody expects. Keep in sync with
+// frontend/app/sitemap-shards.ts SITEMAP_FAMILIES and with
+// contracts.SitemapEntries.
+var sitemapFamilies = []string{
+	"shows", "artists", "venues", "venue_years", "scenes", "scene_weeks",
+	"labels", "releases", "festivals", "tags",
+}
+
+// releaseShard is one slug range of the releases family, addressable on the
+// wire as if it were a family of its own.
+//
+// WHY THE RELEASES FAMILY IS SUB-SHARDED (PSY-1763). Sharding the sitemap per
+// family (PSY-1622) exists to keep each Next Data Cache entry under the 2 MB
+// per-item cap. Measured against production on 2026-08-09, the releases family
+// answered 1,530,206 raw bytes across 21,525 rows — 2.04 MB once base64-encoded
+// into a cache entry, i.e. 97% of the cap. The next sizeable import crosses it,
+// at which point that shard silently stops being cached. One family no longer
+// fits one entry, so it is served in slug ranges.
+//
+// WHY A SLUG RANGE, and not a page number or a date range. The partition key
+// has to be STABLE: a release that changes shard churns what crawlers refetch,
+// for no new information.
+//
+//   - A page number (OFFSET/LIMIT over the slug order) is perfectly balanced and
+//     maximally unstable — one insert near the front shifts every row after it
+//     across every page boundary, on every import.
+//   - A date range (release_year) is stable per release but does not stay
+//     balanced: sampled across the production ordering, 2010s and 2020s titles
+//     are 63% of the catalogue against 5% for the 1970s and 1980s combined, and
+//     new rows land almost entirely at the recent end — so the hot bucket needs
+//     re-cutting again and again while the cold ones stay permanently thin. It
+//     also needs a second projected column, and release_year is nullable.
+//   - A slug range is stable BY CONSTRUCTION: the slug is regenerated only when
+//     the title changes (see ReleaseService.UpdateRelease), which changes the
+//     URL itself — so a row cannot move between shards while keeping the URL a
+//     crawler already has.
+//
+// And it stays balanced, which was measured rather than hoped for. Serving the
+// cut points below from a database holding the real production rows, the four
+// shards answered 422,209 / 421,070 / 366,874 / 320,964 bytes — 27.6% / 27.5% /
+// 24.0% / 21.0% of the family, and 26.9% / 26.8% / 23.4% / 20.4% of the cache
+// item cap once the frontend had written them, against 97% for the family as a
+// single document.
+//
+// That split is a property of how records get titled, not of this particular
+// import, and two further readings of the same production data say so. The same
+// cut points split the ARTISTS corpus — a disjoint set of 9,405 names, run
+// through the same predicates in the same database — 28.0 / 31.1 / 23.1 / 17.7.
+// And splitting the releases themselves into an older and a newer half by
+// updated_at moves no bucket by more than 1.9 points (27.4 / 27.1 / 23.5 / 21.9
+// against 27.7 / 27.9 / 24.4 / 20.0), so the mix is not drifting as the
+// catalogue grows.
+//
+// HOW IT GROWS. Add a cut point and split ONE range; the other ranges keep both
+// their ids and their exact contents, so re-tuning churns only the range being
+// split. That is the property page-numbering cannot offer at any count.
+type releaseShard struct {
+	// id is the value a caller passes as `family` to request this range. It
+	// names the span of leading characters the range holds; the ends are open
+	// (see from/before), so the label is a legible summary, not the predicate.
+	id string
+	// from is the inclusive lower bound on slug. Empty means unbounded below,
+	// which is what puts digit- and hyphen-leading slugs in the first range.
+	from string
+	// before is the exclusive upper bound on slug. Empty means unbounded above.
+	before string
+}
+
+// releaseShards partitions the releases family. Half-open ranges, open at both
+// outer ends, so every slug lands in exactly one — asserted by
+// TestReleaseShardsPartitionTheFamily rather than left to inspection.
+//
+// Cut points chosen to minimise the largest range's byte share over the
+// measured production catalogue; see the releaseShard doc for the numbers.
+var releaseShards = []releaseShard{
+	{id: "releases-a-e", before: "f"},
+	{id: "releases-f-m", from: "f", before: "n"},
+	{id: "releases-n-s", from: "n", before: "t"},
+	{id: "releases-t-z", from: "t"},
+}
+
+// SitemapFamilyValues is every accepted value of the `family` query parameter:
+// the entity families, plus the sub-shard ids that address a slice of one.
+//
+// Exported so the Huma enum can be tested against it. The enum is a struct tag
+// and therefore a hand-written literal; this is what keeps the literal honest.
+func SitemapFamilyValues() []string {
+	values := make([]string, 0, len(sitemapFamilies)+len(releaseShards))
+	values = append(values, sitemapFamilies...)
+	for _, shard := range releaseShards {
+		values = append(values, shard.id)
+	}
+	return values
+}
+
+// releaseShardByID returns the range a sub-shard id names, or nil.
+func releaseShardByID(id string) *releaseShard {
+	for i := range releaseShards {
+		if releaseShards[i].id == id {
+			return &releaseShards[i]
+		}
+	}
+	return nil
+}
+
+// narrow applies the shard's bounds to a releases scope. A nil shard is the
+// whole family, which is what an unsharded `?family=releases` still asks for.
+func (shard *releaseShard) narrow(scope *gorm.DB) *gorm.DB {
+	if shard == nil {
+		return scope
+	}
+	if shard.from != "" {
+		scope = scope.Where("slug >= ?", shard.from)
+	}
+	if shard.before != "" {
+		scope = scope.Where("slug < ?", shard.before)
+	}
+	return scope
+}
+
 // SitemapService answers the sitemap generator's one question: which slugs are
 // indexable, and when did each last change.
 //
@@ -52,6 +177,16 @@ func NewSitemapService(database *gorm.DB) *SitemapService {
 // each shard fetches `?family=…` so Next's Data Cache keys (and ~1.5 MB
 // budgets) stay independent. An unknown family is an error.
 //
+// family also accepts a releases SUB-SHARD id (PSY-1763), which populates
+// Releases with one slug range of the family — see releaseShard for why the
+// largest family outgrew a single cache entry and why the range is keyed on
+// slug. It is carried in this same parameter rather than a second one on
+// purpose: an old backend rejects an unrecognised `family` with 422, which the
+// generator already degrades to an empty shard for one deploy window
+// (UNKNOWN_FAMILY_STATUSES in frontend/app/sitemap.ts). A separate parameter
+// would be IGNORED by an old backend instead, which answers every sub-shard
+// with the whole over-cap family and fails the build with no excuse path.
+//
 // ctx is threaded to the queries so an abandoned request (the generator gives
 // up at 30 s) does not leave unbounded scans running to completion.
 func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts.SitemapEntries, error) {
@@ -73,14 +208,21 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		Tags:       []contracts.SitemapEntry{},
 	}
 
-	known := map[string]bool{
-		// Keep in sync with the Huma `family` enum on GetSitemapEntriesRequest
-		// and frontend/app/sitemap-shards.ts FAMILY_SHARD_IDS.
-		"shows": true, "artists": true, "venues": true, "venue_years": true,
-		"scenes": true, "scene_weeks": true,
-		"labels": true, "releases": true, "festivals": true, "tags": true,
+	// A sub-shard id resolves to the family it slices plus the range to slice
+	// it by, so everything downstream reasons in families only.
+	releases := releaseShardByID(family)
+	if releases != nil {
+		family = "releases"
 	}
-	if family != "" && !known[family] {
+
+	known := false
+	for _, name := range sitemapFamilies {
+		if name == family {
+			known = true
+			break
+		}
+	}
+	if family != "" && !known {
 		return nil, fmt.Errorf("unknown sitemap family %q", family)
 	}
 
@@ -152,11 +294,14 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 	}
 
 	if want("releases") {
-		releases, err := s.entriesFor(ctx, s.db.Model(&catalogm.Release{}))
+		// `releases` is nil for the whole family and non-nil for one slug
+		// range of it; the range predicate lives on the shard so the scope
+		// here stays the plain single-table projection entriesFor requires.
+		entries, err := s.entriesFor(ctx, releases.narrow(s.db.Model(&catalogm.Release{})))
 		if err != nil {
 			return nil, fmt.Errorf("failed to collect release sitemap entries: %w", err)
 		}
-		out.Releases = releases
+		out.Releases = entries
 	}
 
 	if want("festivals") {

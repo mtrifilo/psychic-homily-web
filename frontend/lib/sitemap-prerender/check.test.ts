@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ALL_SHARD_IDS,
-  FAMILY_SHARD_IDS,
+  ENTITY_SHARD_IDS,
   PAGES_SHARD_ID,
   shardRoutePath,
 } from '@/app/sitemap-shards'
@@ -35,16 +35,16 @@ describe('findShardsWithoutFallback', () => {
     ).toEqual([])
   })
 
-  it('reports every entity family when only the pages shard prerendered', () => {
+  it('reports every entity shard when only the pages shard prerendered', () => {
     // The measured degraded build: backend unreachable, clean build cache. The
-    // pages shard makes no network call, so it survives while all nine entity
-    // families fall to Dynamic.
+    // pages shard makes no network call, so it survives while every shard that
+    // fetches a family — or a slug range of one — falls to Dynamic.
     const failures = findShardsWithoutFallback(
       manifestWith([PAGES_SHARD_ID]),
       allBodiesPresent
     )
 
-    expect(failures.map(f => f.route)).toEqual(FAMILY_SHARD_IDS.map(shardRoutePath))
+    expect(failures.map(f => f.route)).toEqual(ENTITY_SHARD_IDS.map(shardRoutePath))
     expect(failures[0].reason).toContain('Dynamic')
   })
 
@@ -125,7 +125,7 @@ describe('ALL_SHARD_IDS', () => {
   it('covers the pages shard plus every family generateSitemaps() emits', () => {
     // Derived from sitemap-shards.ts on purpose: a family added there must be
     // covered by this gate without anyone remembering to update it.
-    expect(ALL_SHARD_IDS).toEqual([PAGES_SHARD_ID, ...FAMILY_SHARD_IDS])
+    expect(ALL_SHARD_IDS).toEqual([PAGES_SHARD_ID, ...ENTITY_SHARD_IDS])
   })
 
   it('maps ids onto the served route paths and build artifacts', () => {
@@ -202,11 +202,11 @@ describe('partitionShardFailures', () => {
    * serve shows", so every family it fails to answer stays blocking.
    */
   it('blocks every shard when the backend is unreachable', async () => {
-    const failures = FAMILY_SHARD_IDS.map(failureFor)
+    const failures = ENTITY_SHARD_IDS.map(failureFor)
 
     const { blocking, pending } = await partitionShardFailures(failures, async () => 'unreachable')
 
-    expect(blocking).toHaveLength(FAMILY_SHARD_IDS.length)
+    expect(blocking).toHaveLength(ENTITY_SHARD_IDS.length)
     expect(pending).toEqual([])
   })
 
@@ -288,6 +288,6 @@ describe('formatPendingShards', () => {
     expect(message).toContain('/sitemap/venue_years.xml')
     expect(message).toContain('backend does not serve that family yet')
     // The reader has to be told this is temporary AND how to tell when it is not.
-    expect(message).toContain('FAMILY_SHARD_IDS')
+    expect(message).toContain('SITEMAP_FAMILIES')
   })
 })

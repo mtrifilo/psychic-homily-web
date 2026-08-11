@@ -7,33 +7,36 @@
  * first two measurements were themselves wrong because they only tested ONE of
  * the two cases below. Re-measure BOTH after any Next upgrade.
  *
- * With `generateSitemaps()` (PSY-1622) the route shards by family. Each shard
- * fetches `GET /sitemap/entries?family=…`, so each Next Data Cache entry stays
- * under the ~1.5 MB effective budget (2 MB cap, body base64-encoded). Children
- * live at `/sitemap/{id}.xml`; the index is `/sitemap-index` (robots points
- * there). `/sitemap.xml` 308s to the index — do not add `app/sitemap.xml/route.ts`
- * (collides with the metadata `[__metadata_id__]` route).
+ * With `generateSitemaps()` (PSY-1622) the route shards by family, and the
+ * `releases` family is further sharded by slug range (PSY-1763). Each shard
+ * fetches `GET /sitemap/entries?family=…` with its OWN id as the value, so each
+ * Next Data Cache entry stays under the ~1.5 MB effective budget (2 MB cap,
+ * body base64-encoded). Children live at `/sitemap/{id}.xml`; the index is
+ * `/sitemap-index` (robots points there). `/sitemap.xml` 308s to the index — do
+ * not add `app/sitemap.xml/route.ts` (collides with the metadata
+ * `[__metadata_id__]` route).
  *
- * THAT BUDGET IS NO LONGER COMFORTABLE, and it is now measured rather than
- * assumed: on 2026-08-08 the `releases` family's cache entry was 1.93 MB, 97%
- * of the cap (PSY-1674). Sharding per family bought room once; the largest
- * family has since grown back to the edge, and the next sizeable release import
- * pushes it over — at which point that shard stops caching and re-pulls from
- * origin on every render. Sub-sharding `releases` is the fix. It is recorded in
- * WARN_BAND_ALLOWLIST in lib/data-cache-budget/budget.ts, which is what keeps
- * the build gate from failing on it in the meantime; `fetchSitemapFamily` now
- * weighs every family response so a genuine breach fails the build.
+ * SHARDING BY FAMILY ALONE STOPPED BEING ENOUGH, and that was measured rather
+ * than assumed: on 2026-08-09 the whole `releases` family answered 1.53 MB raw,
+ * which is 2.04 MB as a base64 cache entry — 97% of the cap. `fetchShard` weighs
+ * every response, so a genuine breach fails the build; the sub-shards keep the
+ * largest release document at roughly a quarter of the cap. The scheme, its
+ * measured balance and how to split it again are documented on
+ * RELEASE_SHARD_IDS in ./sitemap-shards.ts.
  *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
- * build → `next start` → kill the backend → curl:
+ * build → `next start` → kill the backend → curl. The first two were
+ * RE-MEASURED on PSY-1763, against a database holding the production release
+ * catalogue, once the shard count went from 10 to 14:
  *
  *   Backend reachable at build time (the normal production path):
  *     ├ ● /sitemap/[__metadata_id__]         1h      1y
  *     prerender-manifest: renderingMode STATIC, initialRevalidateSeconds 3600,
- *     initialExpireSeconds 31536000, and a rendered body on disk for all ten
- *     shards. A later backend outage is SURVIVED — every shard served 200 with
- *     the previous document. It survives a COLD Data Cache too: deleting
+ *     initialExpireSeconds 31536000, and a rendered body on disk for all
+ *     fourteen shards (`14 of 14 shards have a fallback document`). A later
+ *     backend outage is SURVIVED — every shard served 200 with the previous
+ *     document. It survives a COLD Data Cache too: deleting
  *     `.next/cache/fetch-cache` before starting still served 200 from the
  *     prerender. The prerendered body IS the stale-serving fallback, it ships
  *     inside the deployment, and it does not depend on the Data Cache.
@@ -41,14 +44,14 @@
  *   Backend unreachable at build time, clean build cache (degraded):
  *     ├ ƒ /sitemap/[__metadata_id__]                     ← no window at all
  *     ├ ● /sitemap/[__metadata_id__] └ /sitemap/pages.xml
- *     Only the pages shard prerenders — it makes no network call. All nine
- *     entity families lose their body, re-render per request, and return 500
- *     while the backend is down. `/sitemap-index` still 200s, advertising nine
- *     shards that all 500. `next build` alone EXITS 0, so this used to ship
- *     silently and persist until some later deploy.
+ *     Only the pages shard prerenders — it makes no network call. All thirteen
+ *     entity shards lose their body, re-render per request, and return 500
+ *     while the backend is down. `/sitemap-index` still 200s, advertising
+ *     thirteen shards that all 500. `next build` alone EXITS 0, so this used to
+ *     ship silently and persist until some later deploy.
  *
  *   Backend unreachable at build time, WARM build cache:
- *     All ten shards prerender anyway, from in-window Data Cache entries —
+ *     All shards prerender anyway, from in-window Data Cache entries —
  *     verified by the stamp in the served body. Treat this row as the weakest
  *     of the four: it was measured against a two-slug stub, so it assumes the
  *     family's response fits a Data Cache entry (~2 MB cap), and it assumes
@@ -146,9 +149,9 @@ import { readJsonWithinDataCacheBudget } from '@/lib/data-cache-budget/assert'
 import type { components } from '@/types/api'
 import {
   ALL_SHARD_IDS,
-  FAMILY_SHARD_IDS,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
+  shardFamily,
   type Family,
 } from './sitemap-shards'
 
@@ -163,9 +166,6 @@ const ENTRY_REVALIDATE_SECONDS = 3600
 
 type SitemapEntries = components['schemas']['SitemapEntries']
 type SitemapEntry = components['schemas']['SitemapEntry']
-
-export { FAMILY_SHARD_IDS, PAGES_SHARD_ID }
-export type { Family }
 
 /**
  * The crawl hints each family carries.
@@ -269,15 +269,27 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  * The residual risk is a family being RENAMED on the backend while the frontend
  * still asks for the old name: that would empty a real family quietly. Two
  * things already cover it, and neither is this function — `FAMILY_ROUTES` below
- * is a total `Record<Family, …>` over the generated schema, and `FAMILY_SHARD_IDS`
- * carries a compile-time exhaustiveness guard, so a renamed family fails
- * `bun run api:types` and then `tsc` before it can reach a build.
+ * is a total `Record<Family, …>` over the generated schema, and
+ * `SITEMAP_FAMILIES` carries a compile-time exhaustiveness guard, so a renamed
+ * family fails `bun run api:types` and then `tsc` before it can reach a build.
+ *
+ * A SUB-SHARD id is not covered by either guard, because it is not a schema key
+ * — renaming one leaves it looking exactly like the deploy-race above, and it
+ * self-heals the same way as long as the two sides converge. What keeps them
+ * converging is that the backend's enum is asserted against its own shard table
+ * (TestSitemapFamilyEnumMatchesTheService), so the wire values cannot drift
+ * within one side without a red build.
+ *
+ * `shardId` is what goes on the wire and `family` is which key of the response
+ * carries the rows: they are the same string for nine of the ten families, and
+ * differ for every releases sub-shard. Passing both rather than deriving one
+ * from the other keeps this function ignorant of which families are sharded.
  *
  * Sharded by `?family=` so each generateSitemaps() id gets its own Data Cache
- * entry and its own ~1.5 MB budget (PSY-1622).
+ * entry and its own ~1.5 MB budget (PSY-1622, PSY-1763).
  */
-async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
-  const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(family)}`
+async function fetchShard(shardId: string, family: Family): Promise<SitemapEntry[]> {
+  const url = `${API_BASE_URL}/sitemap/entries?family=${encodeURIComponent(shardId)}`
   try {
     const res = await fetch(url, {
       next: { revalidate: ENTRY_REVALIDATE_SECONDS },
@@ -289,12 +301,12 @@ async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
       // the backend has shipped, the family name has drifted and the message
       // says which one to look at.
       const message =
-        `sitemap: backend does not serve the "${family}" family ` +
+        `sitemap: backend does not serve the "${shardId}" family ` +
         `(HTTP ${res.status}) — emitting an empty shard until it does`
       console.warn(message)
       Sentry.captureMessage(message, {
         level: 'warning',
-        tags: { service: 'sitemap', family },
+        tags: { service: 'sitemap', family, shard: shardId },
         extra: { url, status: res.status },
       })
       return []
@@ -303,13 +315,14 @@ async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
       throw new Error(`sitemap entries fetch returned ${res.status}`)
     }
 
-    // Sharding by family is what keeps each entry under the cache-item cap, but
-    // nothing was checking that it still does: the `releases` shard was at 97%
-    // of the cap when this was added (PSY-1674). Weighed on the way through,
-    // because an over-cap response is never written to the Data Cache and so is
-    // observable nowhere else. The absolute URL is passed deliberately — it is
-    // the same identity the post-build scan reads out of the cache envelope, so
-    // one allowlist entry matches both halves of the gate.
+    // Sharding is what keeps each entry under the cache-item cap, but nothing
+    // was checking that it still does: the `releases` family was at 97% of the
+    // cap when this was added (PSY-1674), which is what forced the sub-shards
+    // (PSY-1763). Weighed on the way through, because an over-cap response is
+    // never written to the Data Cache and so is observable nowhere else. The
+    // absolute URL is passed deliberately — it is the same identity the
+    // post-build scan reads out of the cache envelope, so both halves of the
+    // gate name a breach the same way.
     const entries = await readJsonWithinDataCacheBudget<SitemapEntries>(url, res)
     const rows = entries?.[family]
     if (!Array.isArray(rows)) {
@@ -326,7 +339,7 @@ async function fetchSitemapFamily(family: Family): Promise<SitemapEntry[]> {
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
-      tags: { service: 'sitemap', family },
+      tags: { service: 'sitemap', family, shard: shardId },
     })
     throw error
   }
@@ -406,8 +419,9 @@ function pagesShard(): MetadataRoute.Sitemap {
 }
 
 /**
- * One shard per entity family plus a pages shard. String ids become
- * `/sitemap/{id}.xml` under the `/sitemap.xml` index Next emits.
+ * One shard per entity family — or per slug range, for a family that outgrew a
+ * single Data Cache entry — plus a pages shard. String ids become
+ * `/sitemap/{id}.xml` under the `/sitemap-index` document.
  */
 export async function generateSitemaps() {
   return ALL_SHARD_IDS.map(id => ({ id }))
@@ -422,11 +436,14 @@ export default async function sitemap(props: {
     return pagesShard()
   }
 
-  if (!(id in FAMILY_ROUTES)) {
+  // Resolved through the shard table rather than by checking `id in
+  // FAMILY_ROUTES`: a sub-shard id is not a family key, so the membership test
+  // would reject exactly the ids this route now has to serve.
+  const family = shardFamily(id)
+  if (!family) {
     throw new Error(`unknown sitemap shard id "${id}"`)
   }
 
-  const family = id as Family
-  const rows = await fetchSitemapFamily(family)
+  const rows = await fetchShard(id, family)
   return mapFamilyEntries(family, rows)
 }
