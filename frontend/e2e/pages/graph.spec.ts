@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures'
+import { runE2ESql } from '../e2e-db'
 
 test.describe('Music Knowledge Graph', () => {
   test('search → graph → context → recenter → reset', async ({ page }) => {
@@ -45,9 +46,26 @@ test.describe('Music Knowledge Graph', () => {
   })
 
   test('clickable zero-state example centers the graph (PSY-1474 F1/F4)', async ({ page }) => {
-    // Reduced motion freezes the rotating example on its first entry
-    // ('Diners'), making the clicked name deterministic.
+    // Reduced motion freezes the rotating example on its first entry,
+    // making the clicked name deterministic.
     await page.emulateMedia({ reducedMotion: 'reduce' })
+
+    // PSY-1749 replaced the hardcoded example trio with a pool served by
+    // /graph/starting-points off the nightly snapshot. The e2e catalog has no
+    // snapshot, so the live pool is empty and the surface would offer one
+    // RANDOM catalog artist — a name this spec cannot click deterministically.
+    // Pin the pool to the seeded, relationship-less 'Diners' instead: a
+    // one-entry pool draws deterministically regardless of the visit seed, and
+    // the F4 empty-state coverage below still holds.
+    const dinersId = Number(runE2ESql("SELECT id FROM artists WHERE slug = 'diners'"))
+    expect(dinersId).toBeGreaterThan(0)
+    await page.route('**/graph/starting-points', (route) =>
+      route.fulfill({
+        json: {
+          artists: [{ artist_id: dinersId, artist_name: 'Diners', artist_slug: 'diners' }],
+        },
+      }),
+    )
     await page.goto('/graph')
 
     await page.getByRole('button', { name: 'Search for Diners' }).click()

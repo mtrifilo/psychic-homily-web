@@ -114,10 +114,12 @@ VALUES
   ('Dear and the Headlights', NOW(), NOW(), 'dear-and-the-headlights'),
   ('Sundressed', NOW(), NOW(), 'sundressed'),
   ('ROAR', NOW(), NOW(), 'roar'),
-  -- PSY-1474: 'Diners' is the Observatory zero-state's first curated example
-  -- (frozen under reduced motion). Seeded with NO shows/relationships on
-  -- purpose: the clickable-example e2e lands on the "No mapped connections
-  -- yet" empty state, covering the F4 escape hatches in the same pass.
+  -- PSY-1474/PSY-1803: 'Diners' is the artist the graph zero-state e2e pins
+  -- as its starting suggestion (the spec intercepts /graph/starting-points —
+  -- the live pool is empty here because the e2e catalog has no nightly
+  -- snapshot). Seeded with NO shows/relationships on purpose: the
+  -- clickable-example e2e lands on the "No mapped connections yet" empty
+  -- state, covering the F4 escape hatches in the same pass.
   ('Diners', NOW(), NOW(), 'diners')
 ON CONFLICT DO NOTHING;
 
