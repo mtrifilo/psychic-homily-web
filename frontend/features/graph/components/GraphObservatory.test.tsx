@@ -75,9 +75,11 @@ const { searchRequest, scenesState, geoState, motionState } = vi.hoisted(() => (
 // still names Diners. Multi-entry pools are opted into per test.
 const { startingPointsState } = vi.hoisted(() => ({
   startingPointsState: {
-    artists: [{ artist_id: 1, artist_name: 'Diners', artist_slug: 'diners' }] as Array<
-      Record<string, unknown>
-    >,
+    artists: [{ artist_id: 1, artist_name: 'Diners', artist_slug: 'diners' }] as Array<{
+      artist_id: number
+      artist_name: string
+      artist_slug: string
+    }>,
     isPending: false,
   },
 }))
@@ -313,15 +315,10 @@ import { pickRotationSuggestions } from '../startingSuggestions'
 // Stubbing Math.random therefore pins the draw, and running the SAME pure
 // picker here derives what the sentence must then say — so these assert the
 // wiring (pool → seed → sentence) rather than restating a shuffle.
-function seedFrom(random: number) {
-  return Math.floor(random * 0x7fffffff)
-}
-
 function expectedNames(random: number) {
-  return pickRotationSuggestions(
-    RANKED_POOL as unknown as Parameters<typeof pickRotationSuggestions>[0],
-    seedFrom(random),
-  ).map(suggestion => suggestion.artist_name)
+  return pickRotationSuggestions(RANKED_POOL, Math.floor(random * 0x7fffffff)).map(
+    anchor => anchor.name,
+  )
 }
 
 describe('GraphObservatory', () => {

@@ -287,9 +287,11 @@ type GraphStartingPointsResponse struct {
 	Artists []GraphStartingPoint `json:"artists" doc:"Well-connected artists to suggest as a starting point, most connected first. Empty before the first nightly build."`
 }
 
-// GraphOverviewServiceInterface is the read side of the overview map. The
-// nightly build lives on the radio/catalog compute path and is deliberately not
-// on this interface — nothing over HTTP may trigger a rebuild.
+// GraphOverviewServiceInterface is the READ side of everything the nightly
+// overview build publishes: the map itself, and the starting suggestions
+// derived from the same centrality pass. The build lives on the radio/catalog
+// compute path and is deliberately not on this interface — nothing over HTTP
+// may trigger a rebuild.
 type GraphOverviewServiceInterface interface {
 	// GetGraphOverview returns the newest snapshot and its ETag. It returns a
 	// nil payload with a nil error when no snapshot has been built yet (a cold

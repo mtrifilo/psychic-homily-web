@@ -259,11 +259,16 @@ func (s *GraphOverviewService) GetGraphStartingPoints() ([]contracts.GraphStarti
 // readStartingPointIDs returns the ranked artist ids from the newest snapshot
 // that has any.
 //
-// "THAT HAS ANY", not "the newest snapshot". The two differ for one deploy
-// cycle — every retained row predates the column — and they would differ again
-// if a build ever published without a ranking. Preferring the newest row that
-// actually carries a list degrades to a night-old ranking instead of to none,
-// and the retention cap keeps the scan at three rows.
+// "THAT HAS ANY", not "the newest snapshot", and the difference is narrower
+// than it looks. A published snapshot essentially always carries a ranking: the
+// ranking is derived from the same node set the map is drawn from, and a build
+// with no drawable artists aborts before it publishes. So the only case this
+// clause actually covers is the window between this code deploying and the
+// first build that writes the column, when every retained row predates it.
+//
+// It is one line for a clean first deploy, not a durable degrade path — do not
+// read it as insurance against repeated build failures. The retention cap keeps
+// the scan at three rows either way.
 func (s *GraphOverviewService) readStartingPointIDs() ([]uint, error) {
 	var row struct {
 		StartingPointArtistIDs json.RawMessage `gorm:"column:starting_point_artist_ids"`

@@ -9,7 +9,11 @@
  * through the rendered sentence.
  */
 
-import type { GraphStartingPoint } from './hooks/useGraphStartingPoints'
+import {
+  anchorFromCatalogTarget,
+  type CatalogArtistTarget,
+  type GraphAnchor,
+} from './graphAnchor'
 
 /**
  * How many suggestions rotate in one visit.
@@ -23,25 +27,6 @@ import type { GraphStartingPoint } from './hooks/useGraphStartingPoints'
  * Variation comes from redrawing which three, not from showing more.
  */
 export const SUGGESTION_ROTATION_SIZE = 3
-
-/**
- * A suggestion the client is willing to render.
- *
- * The server already drops rows the catalog cannot honor; this is the boundary
- * check on top of that, because the alternative to an unusable entry here is a
- * button whose accessible name is `Search for undefined`.
- */
-function isOfferable(candidate: GraphStartingPoint | null | undefined): candidate is GraphStartingPoint {
-  return (
-    !!candidate &&
-    typeof candidate.artist_id === 'number' &&
-    candidate.artist_id > 0 &&
-    typeof candidate.artist_name === 'string' &&
-    candidate.artist_name.length > 0 &&
-    typeof candidate.artist_slug === 'string' &&
-    candidate.artist_slug.length > 0
-  )
-}
 
 /**
  * mulberry32 — a 32-bit PRNG seeded from one integer.
@@ -66,35 +51,41 @@ function createRandom(seed: number): () => number {
 
 /**
  * Draws the suggestions for one visit: up to {@link SUGGESTION_ROTATION_SIZE}
- * offerable entries from `pool`, in a seed-determined order.
+ * offerable anchors from `pool`, in a seed-determined order.
  *
  * EVERY ENTRY IN THE POOL IS A VALID ANSWER — the server ranked them all by the
  * same centrality that decides which names the map draws largest — so the draw
- * is a uniform shuffle rather than a weighted one. Preferring the top of the
- * ranking is what produced the bug this replaces: a fixed order shows a fixed
- * first name, and the pool exists to stop that.
+ * is a UNIFORM SHUFFLE over the pool rather than a window into it. A window
+ * would be three lines shorter and would satisfy "varies across visits" just as
+ * well, but it can only ever offer names that are adjacent in the ranking; the
+ * shuffle can put the map's first and eleventh hub in the same sentence, which
+ * is the point of ranking twelve and showing three.
  *
  * Duplicate ids are collapsed. The server does not emit them, but two identical
  * names in one sentence is the kind of thing worth being unable to render
  * rather than worth trusting an upstream about.
  */
 export function pickRotationSuggestions(
-  pool: readonly GraphStartingPoint[],
+  pool: readonly CatalogArtistTarget[],
   seed: number,
-  size: number = SUGGESTION_ROTATION_SIZE,
-): GraphStartingPoint[] {
+): GraphAnchor[] {
   const seen = new Set<number>()
-  const candidates: GraphStartingPoint[] = []
+  const candidates: GraphAnchor[] = []
   for (const candidate of pool) {
-    if (!isOfferable(candidate) || seen.has(candidate.artist_id)) continue
-    seen.add(candidate.artist_id)
-    candidates.push(candidate)
+    // ONE narrowing rule for every source the graph centres on — see
+    // graphAnchor.ts. The server already drops rows the catalog cannot honour;
+    // this is the boundary check on top of that, because the alternative to an
+    // unusable entry is a button announcing "Search for undefined".
+    const anchor = anchorFromCatalogTarget(candidate)
+    if (!anchor || seen.has(anchor.id)) continue
+    seen.add(anchor.id)
+    candidates.push(anchor)
   }
-  if (candidates.length === 0 || size <= 0) return []
+  if (candidates.length === 0) return []
 
   // Partial Fisher-Yates: only the prefix that is actually taken is shuffled.
   const random = createRandom(seed)
-  const take = Math.min(size, candidates.length)
+  const take = Math.min(SUGGESTION_ROTATION_SIZE, candidates.length)
   for (let i = 0; i < take; i += 1) {
     const j = i + Math.floor(random() * (candidates.length - i))
     ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]

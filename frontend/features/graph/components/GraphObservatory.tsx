@@ -42,10 +42,7 @@ import {
   truncateTrail,
   type TraversalEntry,
 } from '@/components/graph/graphTraversalHistory'
-import {
-  useRandomArtistTarget,
-  type RandomArtistTargetResponse,
-} from '@/features/discovery/useRandomArtistTarget'
+import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
 import { useScenes } from '@/features/scenes/hooks/useScenes'
 import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
@@ -54,16 +51,11 @@ import { pickSceneEscapeHatches } from './sceneEscapeHatches'
 import { buildSceneMap } from '../sceneMap'
 import { isGraphOverviewNotBuilt, useGraphOverview } from '../hooks/useGraphOverview'
 import { useGraphStartingPoints } from '../hooks/useGraphStartingPoints'
+import { anchorFromCatalogTarget, type GraphAnchor } from '../graphAnchor'
 import { pickRotationSuggestions } from '../startingSuggestions'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
 import { pickVisitorScene } from './visitorScene'
-
-interface GraphAnchor {
-  id: number
-  slug: string
-  name: string
-}
 
 const RANDOM_GRAPH_ATTEMPTS = 3
 
@@ -83,18 +75,6 @@ function anchorFromArtist(artist: Artist): GraphAnchor {
 
 function anchorFromNode(node: ArtistGraphSelection): GraphAnchor {
   return { id: node.id, slug: node.slug, name: node.name }
-}
-
-// The random-target endpoint's contract, narrowed to a usable anchor: all
-// three fields must be present or the target is unusable. Shared by the
-// shuffle path and the zero-state fallback so the shape check can't drift.
-function anchorFromRandomTarget(
-  target: RandomArtistTargetResponse | undefined,
-): GraphAnchor | null {
-  if (!target?.artist_id || !target.artist_slug || !target.artist_name) {
-    return null
-  }
-  return { id: target.artist_id, slug: target.artist_slug, name: target.artist_name }
 }
 
 /**
@@ -156,7 +136,7 @@ function RotatingExample({
       try {
         const result = await refetchFallback()
         if (cancelled) return
-        const anchor = anchorFromRandomTarget(result.isError ? undefined : result.data)
+        const anchor = anchorFromCatalogTarget(result.isError ? undefined : result.data)
         if (anchor) {
           setFallback(anchor)
         }
@@ -172,25 +152,11 @@ function RotatingExample({
     }
   }, [needsFallback, refetchFallback])
 
-  // One shape for both sources so the sentence, pause wrapper and crossfade
-  // can't fork between the ranked and fallback paths. BOTH are catalog anchors
-  // (id + slug + name), so activating either centers the graph directly — there
-  // is no name lookup left that could fail on a name just promised.
-  const anchors: GraphAnchor[] =
-    suggestions.length > 0
-      ? suggestions.map(suggestion => ({
-          id: suggestion.artist_id,
-          slug: suggestion.artist_slug,
-          name: suggestion.artist_name,
-        }))
-      : fallback
-        ? [fallback]
-        : []
-  const choices = anchors.map(anchor => ({
-    key: `artist-${anchor.id}`,
-    name: anchor.name,
-    activate: () => onPick(anchor),
-  }))
+  // ONE LIST for both sources, so the sentence, pause wrapper and crossfade
+  // can't fork between the ranked and fallback paths. Both are already catalog
+  // anchors (id + slug + name), so activating either centers the graph directly
+  // — there is no name lookup left that could fail on a name just promised.
+  const choices = suggestions.length > 0 ? suggestions : fallback ? [fallback] : []
 
   useEffect(() => {
     if (reducedMotion || isPaused || choices.length < 2) return
@@ -240,7 +206,7 @@ function RotatingExample({
       >
         <button
           type="button"
-          onClick={active.activate}
+          onClick={() => onPick(active)}
           aria-label={`Search for ${active.name}`}
           className="inline-grid text-left align-baseline font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:text-primary focus-visible:underline focus-visible:outline-none"
         >
@@ -250,7 +216,7 @@ function RotatingExample({
               disabled. */}
           {choices.map((choice, choiceIndex) => (
             <span
-              key={choice.key}
+              key={choice.id}
               aria-hidden="true"
               className={`col-start-1 row-start-1 ${
                 reducedMotion ? '' : 'transition-opacity duration-500 motion-reduce:transition-none'
@@ -822,7 +788,7 @@ export function GraphObservatory() {
       for (let attempt = 0; attempt < RANDOM_GRAPH_ATTEMPTS; attempt += 1) {
         const result = await refetchShuffle()
         if (requestGeneration !== lookupGeneration.current) return
-        const anchor = anchorFromRandomTarget(result.isError ? undefined : result.data)
+        const anchor = anchorFromCatalogTarget(result.isError ? undefined : result.data)
         if (!anchor) break
 
         const candidateGraph = await fetchArtistGraph(anchor.id)

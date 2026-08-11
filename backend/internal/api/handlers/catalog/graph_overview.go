@@ -80,12 +80,17 @@ func (h *GraphOverviewHandler) GetGraphOverviewHandler(ctx context.Context, req 
 
 // graphStartingPointsCacheControl is the caching policy for the suggestion list.
 //
-// The RANKING behind it changes once a night, like the map. The identity of
-// each entry is resolved live, so an hour of client freshness is also the
-// longest a renamed artist can keep being suggested — acceptable for a sentence
-// whose click resolves the artist by id either way, and worth the round trips
-// it saves on the surface that renders on every phone-width visit to /graph.
-const graphStartingPointsCacheControl = "public, max-age=3600, stale-while-revalidate=86400"
+// THE SAME POLICY AS THE MAP'S, and aliased rather than repeated so the two
+// cannot drift into disagreeing about how long a nightly artifact is fresh. The
+// ranking behind this list changes once a night, exactly like the map.
+//
+// What the alias costs is worth naming: each entry's identity is resolved live,
+// so an hour of client freshness is also the longest a renamed artist can keep
+// being suggested under its old name. Acceptable — the click resolves the
+// artist by id either way — and worth the round trips it saves on a surface
+// that renders on every phone-width visit to /graph. If the map's policy ever
+// changes for map-specific reasons, split this back out.
+const graphStartingPointsCacheControl = graphOverviewCacheControl
 
 // GetGraphStartingPointsRequest is the Huma request for
 // GET /graph/starting-points. It takes nothing: the list is identical for every
@@ -112,6 +117,10 @@ func (h *GraphOverviewHandler) GetGraphStartingPointsHandler(ctx context.Context
 		logger.FromContext(ctx).Error("graph_starting_points_read_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to load graph starting points")
 	}
+	// The service never returns nil, but the INTERFACE allows it, and a nil
+	// slice marshals as `null` where the schema promises `[]`. This handler is
+	// the last place that can keep that promise, so it keeps it here rather
+	// than relying on every present and future implementation.
 	if artists == nil {
 		artists = []contracts.GraphStartingPoint{}
 	}
