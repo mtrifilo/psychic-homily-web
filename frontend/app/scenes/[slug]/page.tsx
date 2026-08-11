@@ -93,7 +93,11 @@ export async function generateMetadata({
   }
 
   const title = `${scene.city}, ${scene.state} Music Scene`
-  const description = `Explore the ${scene.city}, ${scene.state} music scene — venues, local artists, upcoming shows, and scene pulse.`
+  // No "scene pulse" clause: that module is gone (PSY-1783 kill set), and a
+  // description is both the `<meta name="description">` and the `og:description`,
+  // so a stale one advertises a module the page no longer has to a crawler and
+  // to anyone who shares the link.
+  const description = `Upcoming shows, venues and local artists in the ${scene.city}, ${scene.state} music scene.`
 
   return {
     title,

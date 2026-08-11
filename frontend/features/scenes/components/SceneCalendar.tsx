@@ -6,12 +6,11 @@ import { BracketLink } from '@/components/shared'
 import { buildCitiesParam } from '@/components/filters/cityParams'
 import { useSceneShows } from '../hooks'
 import { showDisplayTitle, showHref } from '../sceneWeek'
-import { formatShowPrice, formatShowStartTime } from '../sceneDay'
+import { formatDayCountLine, formatShowPrice, formatShowStartTime } from '../sceneDay'
 import {
   SCENE_CALENDAR_ROW_CAP,
   SCENE_CALENDAR_WINDOW_DAYS,
   formatCalendarDateHeading,
-  formatGroupCount,
   groupShowsByDate,
   resolveSceneTimeZone,
   sceneTonightDate,
@@ -65,7 +64,7 @@ function SceneWindowNav({ sceneSlug }: { sceneSlug: string }) {
 
   return (
     <nav
-      aria-label="Show window"
+      aria-label="Show windows"
       className="flex flex-wrap items-center gap-x-8 gap-y-2 border-y border-border py-3"
     >
       {windows.map(({ label, href }) =>
@@ -73,14 +72,16 @@ function SceneWindowNav({ sceneSlug }: { sceneSlug: string }) {
           <Link
             key={label}
             href={href}
-            className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
+            className="rounded-sm font-mono text-[11px] uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
           >
             {label}
           </Link>
         ) : (
+          // `aria-current="true"` and not `"page"`: the current PAGE is
+          // /scenes/{slug}, and this chip marks a window within it.
           <span
             key={label}
-            aria-current="page"
+            aria-current="true"
             className="font-mono text-[11px] uppercase tracking-widest text-primary underline decoration-primary decoration-2 underline-offset-[6px]"
           >
             {label}
@@ -177,13 +178,20 @@ function quietWindowCopy(city: string, roomCount: number, scope: 'tonight' | 'wi
  * The cheapest correct empty state in the prior art: state the zero, then offer
  * the next-widest view. No empty-state art, no "clear filters" dead end, and no
  * padding the window with other cities' shows.
+ *
+ * `withLinks` is false for the tonight bucket on a scene that DOES have later
+ * rows: the window footer beneath the list already carries the same two
+ * destinations, and a page offering "All upcoming in Phoenix" twice under one
+ * heading gives a reader two identical targets to choose between.
  */
 function QuietWindow({
   scene,
   scope,
+  withLinks = true,
 }: {
   scene: SceneDetail
   scope: 'tonight' | 'window'
+  withLinks?: boolean
 }) {
   const citiesParam = buildCitiesParam([{ city: scene.city, state: scene.state }])
 
@@ -192,13 +200,15 @@ function QuietWindow({
       <p className="max-w-2xl text-sm text-muted-foreground">
         {quietWindowCopy(scene.city, scene.stats.venue_count, scope)}
       </p>
-      <div className="mt-3 flex flex-wrap items-center gap-4">
-        <BracketLink
-          label={`All upcoming in ${scene.city}`}
-          href={`/shows?cities=${encodeURIComponent(citiesParam)}`}
-        />
-        <BracketLink label="Suggest a venue" href="/contribute" />
-      </div>
+      {withLinks && (
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <BracketLink
+            label={`All upcoming in ${scene.city}`}
+            href={`/shows?cities=${encodeURIComponent(citiesParam)}`}
+          />
+          <BracketLink label="Suggest a venue" href="/contribute" />
+        </div>
+      )}
     </div>
   )
 }
@@ -209,11 +219,13 @@ function SceneDateGroup({
   scene,
   isTonight,
   sceneTimeZone,
+  quietLinks,
 }: {
   group: SceneShowGroup
   scene: SceneDetail
   isTonight: boolean
   sceneTimeZone?: string
+  quietLinks: boolean
 }) {
   return (
     <section className="border-t border-border pt-4">
@@ -223,11 +235,11 @@ function SceneDateGroup({
           {isTonight && <span className="text-primary"> · TONIGHT</span>}
         </h3>
         <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-          {formatGroupCount(group.shows.length)}
+          {formatDayCountLine(group.shows.length)}
         </span>
       </div>
       {group.shows.length === 0 ? (
-        <QuietWindow scene={scene} scope="tonight" />
+        <QuietWindow scene={scene} scope="tonight" withLinks={quietLinks} />
       ) : (
         <ul className="mt-1">
           {group.shows.map(show => (
@@ -242,9 +254,13 @@ function SceneDateGroup({
 /**
  * What the window is showing, and where the rest of it lives.
  *
- * The endpoint caps at 20 rows, so a dense scene is genuinely truncated and the
- * line says which number is which. A scene inside the cap says so in words
- * rather than printing `n of n`, which reads as a limit that was almost hit.
+ * NO `n of {upcoming_show_count}` here, deliberately. That field counts every
+ * future show with no upper bound, so printing it as the denominator under a
+ * heading that says "next 4 weeks" would tell the reader there are 308 more
+ * shows in a window that does not contain them. It is the same defect PSY-1623
+ * removed from two other surfaces, and the status band above refuses it for the
+ * same reason. The truncated line states only what it can check: these are the
+ * first rows, and the two links go where the rest is.
  */
 function WindowFooter({
   scene,
@@ -256,13 +272,12 @@ function WindowFooter({
   truncated: boolean
 }) {
   const citiesParam = buildCitiesParam([{ city: scene.city, state: scene.state }])
-  const total = scene.stats.upcoming_show_count
 
   return (
     <div className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border pt-3">
       <p className="font-mono text-[11px] text-muted-foreground">
         {truncated
-          ? `Showing ${rendered} of ${total} upcoming`
+          ? `Showing the first ${rendered} in the next four weeks`
           : 'Showing everything we have in the next four weeks'}
       </p>
       <div className="flex flex-wrap items-center gap-4">
@@ -300,26 +315,55 @@ export function useSceneCalendarWindow(sceneSlug: string) {
     // query unresolved, so the first client render matches the server's and no
     // date-derived value can differ across hydration.
     const tonight = shows.length > 0 ? sceneTonightDate(new Date(), timeZone) : null
-    const groups = groupShowsByDate(shows, timeZone)
+    const dated = groupShowsByDate(shows, timeZone)
+
+    // The endpoint stops at its row cap wherever that falls, which is usually
+    // part-way through a date. That date's rows are a fragment, but its count
+    // renders in the same register as every verified one, so it would state a
+    // per-day total nobody checked. Drop it rather than qualify it; the footer
+    // says the list was cut and the links go where the rest is. Never drop the
+    // only group there is.
+    const truncated = shows.length >= SCENE_CALENDAR_ROW_CAP
+    const groups = truncated && dated.length > 1 ? dated.slice(0, -1) : dated
+    const rendered = groups.reduce((n, group) => n + group.shows.length, 0)
 
     // The tonight bucket renders even when nothing is on it, so a reader
     // arriving before doors sees the answer to the question they came with
     // instead of the next date that happens to have a row. Only synthesized
     // when the zone is genuinely known. A guessed zone could tag the wrong
     // night, and a wrong TONIGHT is worse than none.
+    //
+    // Re-sorted rather than assumed to belong first: tonight is only earlier
+    // than every dated group while the zone maths holds, and an ordering
+    // invariant that depends on another computation being right is one that
+    // eventually breaks silently.
     const withTonight =
       tonight && !groups.some(group => group.date === tonight)
-        ? [{ date: tonight, shows: [] as SceneShowSummary[] }, ...groups]
+        ? [{ date: tonight, shows: [] as SceneShowSummary[] }, ...groups].sort((a, b) =>
+            a.date.localeCompare(b.date)
+          )
         : groups
 
     return {
       isLoading,
-      isError,
+      // A failed REFETCH keeps the rows it already has (TanStack v5 retains
+      // `data` alongside `status: 'error'`), and a reconnect blip must not
+      // replace four correct weeks with an apology. Only an error with nothing
+      // to show is an error the reader needs to hear about.
+      isError: isError && shows.length === 0,
       timeZone,
       tonight,
+      // What the status band says about tonight, and NULL when the zone is
+      // unknown so the band drops the clause rather than guessing a night.
+      // This is the count the tonight GROUP renders, by construction: the same
+      // number in both places, because the window opens at now and both are
+      // answering "what is still ahead".
+      tonightCount: tonight
+        ? (withTonight.find(group => group.date === tonight)?.shows.length ?? 0)
+        : null,
       groups: withTonight,
-      rendered: shows.length,
-      truncated: shows.length >= SCENE_CALENDAR_ROW_CAP,
+      rendered,
+      truncated,
     }
   }, [shows, isLoading, isError])
 }
@@ -333,20 +377,20 @@ export function SceneCalendar({ scene }: SceneCalendarProps) {
       <SceneWindowNav sceneSlug={scene.slug} />
 
       <section className="mt-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-          <h2 className="font-mono text-[11px] uppercase tracking-widest">
-            Shows / next 4 weeks
-            <span className="text-muted-foreground">
-              {' · '}
-              {scene.city} + metro
-            </span>
-          </h2>
-          <BracketLink
-            label={`Full week in ${scene.city}`}
-            href={`/scenes/${scene.slug}/week`}
-            ariaLabel={`Full week in ${scene.city}`}
-          />
-        </div>
+        {/* The mock draws a `[Full week in {city} →]` link on this header as
+            well as in the footer. Only the footer one ships: the window strip
+            three lines above already carries a THIS WEEK chip to the same page,
+            and a second link with the footer's exact name AND href would give a
+            reader using the links list two identical entries to choose between.
+            The footer keeps its copy because a twenty-row list is long enough
+            that the reader who reaches the bottom is a different reader. */}
+        <h2 className="font-mono text-[11px] uppercase tracking-widest">
+          Shows / next 4 weeks
+          <span className="text-muted-foreground">
+            {' · '}
+            {scene.city} + metro
+          </span>
+        </h2>
 
         {/* Human voice, not machine voice. The prior art's own contrast: a page
             that says "we do our best to keep up" and one that says "this
@@ -389,6 +433,7 @@ export function SceneCalendar({ scene }: SceneCalendarProps) {
                 scene={scene}
                 isTonight={group.date === tonight}
                 sceneTimeZone={timeZone}
+                quietLinks={groups.length === 1}
               />
             ))
           )}

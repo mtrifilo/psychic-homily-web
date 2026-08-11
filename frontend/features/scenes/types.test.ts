@@ -7,8 +7,6 @@ import type {
   SceneDetail,
   SceneArtist,
   SceneArtistsResponse,
-  GenreCount,
-  SceneGenreResponse,
   SceneGraphInfo,
   SceneGraphCluster,
   SceneGraphNode,

@@ -10,8 +10,6 @@ export type {
   SceneDetail,
   SceneArtist,
   SceneArtistsResponse,
-  GenreCount,
-  SceneGenreResponse,
   SceneGraphInfo,
   SceneGraphCluster,
   SceneGraphNode,
@@ -24,7 +22,6 @@ export {
   useScenes,
   useSceneDetail,
   useSceneArtists,
-  useSceneGenres,
   useSceneGraph,
   useSetSceneDigestPreference,
 } from './hooks'

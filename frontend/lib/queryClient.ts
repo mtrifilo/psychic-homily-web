@@ -474,7 +474,6 @@ export const queryKeys = {
     // (the PSY-1109 key-drift class).
     shows: (slug: string, days?: number, limit?: number) =>
       ['scenes', 'shows', slug, days, limit] as const,
-    genres: (slug: string) => ['scenes', 'genres', slug] as const,
     // clusterBy is the literal union (not string) so a drifted value at an
     // invalidation/prefetch site is a compile error, not a silent key
     // mismatch (the PSY-1109 key-drift class).

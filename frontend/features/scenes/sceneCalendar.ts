@@ -8,7 +8,11 @@
  * off-by-one-day faults this module exists to avoid.
  */
 
-import { isValidTimeZone } from '@/lib/utils/formatters'
+import {
+  isShowTimezoneResolved,
+  isValidTimeZone,
+  resolveShowTimezone,
+} from '@/lib/utils/formatters'
 import { parseCalendarDate } from './sceneWeek'
 import type { SceneShowSummary } from './types'
 
@@ -98,16 +102,45 @@ export function calendarDateInZone(instant: Date, timeZone?: string): string {
 /**
  * The date "tonight" names in `timeZone`, honouring the 6am night boundary.
  *
- * Returns `null` when the instant is unusable, so a caller never tags a group
- * TONIGHT on the strength of an invalid clock read.
+ * Returns `null` when the zone is unknown or the instant unusable, so a caller
+ * never tags a group TONIGHT on the strength of a guess. The `!timeZone` guard
+ * is load-bearing and NOT defensive noise: `Intl.DateTimeFormat` treats an
+ * undefined `timeZone` as the RUNTIME's zone, so without it a reader in Tokyo
+ * and a reader in Los Angeles would each be told a different night was tonight
+ * in Phoenix, and one of them would be shown an empty bucket asserting a zero
+ * the page never checked.
  */
 export function sceneTonightDate(now: Date, timeZone?: string): string | null {
+  if (!timeZone) return null
   if (!Number.isFinite(now.getTime())) return null
   const { year, month, day, hour } = zonedParts(now, timeZone)
   if (!Number.isFinite(year) || !Number.isFinite(hour)) return null
   const date = new Date(year, month - 1, day)
   if (hour < NIGHT_START_HOUR) date.setDate(date.getDate() - 1)
   return toCalendarDate(date)
+}
+
+/**
+ * The zone ONE row should be read in, or undefined when nothing knows.
+ *
+ * Two sources, in order. The venue's own `timezone` when it is a real IANA
+ * name. Otherwise the US state map, but ONLY when it actually holds the state:
+ * `resolveShowTimezone` silently answers America/Phoenix for anything it does
+ * not recognise, so it has to be gated on `isShowTimezoneResolved`, which is
+ * the predicate that helper's own docstring nominates for same-day claims.
+ *
+ * This is deliberately the SAME resolution `formatShowStartTime` performs for
+ * the clock time printed on the row. A date heading and a start time that
+ * disagreed about which day a show is on would be the worst possible output:
+ * both look authoritative, and only one can be right.
+ */
+function rowTimeZone(show: SceneShowSummary): string | undefined {
+  const zone = show.venue_timezone
+  if (zone && isValidTimeZone(zone)) return zone
+  if (isShowTimezoneResolved(show.venue_state, zone)) {
+    return resolveShowTimezone(show.venue_state, zone)
+  }
+  return undefined
 }
 
 /**
@@ -120,13 +153,9 @@ export function sceneTonightDate(now: Date, timeZone?: string): string | null {
  * this surface is therefore derived from `starts_at` in the venue's own zone,
  * never from the payload's `event_date`.
  *
- * Rows whose zone is not genuinely known are skipped rather than defaulted.
- * The question asked of each row is `isValidTimeZone(venue_timezone)`, NOT
- * `isShowTimezoneResolved(venue_state, venue_timezone)`: the latter answers yes
- * for any US state on the strength of the state map, so an unset or garbage
- * venue zone would pass and then be handed to `Intl` as a real zone. A guessed
- * zone that is a calendar day wrong reads as fact once it is printed under a
- * TONIGHT tag.
+ * `venues.timezone` is nullable and a geocode miss leaves it NULL, so a real
+ * scene can arrive with no zone on any row. Such rows contribute nothing here
+ * and the caller degrades: no zone in the status band, and no TONIGHT tag.
  *
  * The most common zone wins, not the first: a metro scene can include a member
  * city across a zone line, and the majority room is the one the page speaks for.
@@ -134,8 +163,8 @@ export function sceneTonightDate(now: Date, timeZone?: string): string | null {
 export function resolveSceneTimeZone(shows: SceneShowSummary[]): string | undefined {
   const counts = new Map<string, number>()
   for (const show of shows) {
-    const zone = show.venue_timezone
-    if (!zone || !isValidTimeZone(zone)) continue
+    const zone = rowTimeZone(show)
+    if (!zone) continue
     counts.set(zone, (counts.get(zone) ?? 0) + 1)
   }
   let best: string | undefined
@@ -163,10 +192,7 @@ export function showCalendarDate(
 ): string {
   const startedAt = Date.parse(show.starts_at)
   if (!Number.isFinite(startedAt)) return show.event_date
-  const zone =
-    show.venue_timezone && isValidTimeZone(show.venue_timezone)
-      ? show.venue_timezone
-      : sceneTimeZone
+  const zone = rowTimeZone(show) ?? sceneTimeZone
   if (!zone) return show.event_date
   return calendarDateInZone(new Date(startedAt), zone)
 }
@@ -207,15 +233,16 @@ export function formatCalendarDateHeading(iso: string): string {
 }
 
 /**
- * A date group's count, to the right of its heading.
+ * A date group's count is `formatDayCountLine` from `sceneDay.ts`, imported at
+ * the call site rather than re-exported here.
  *
- * The empty case is only ever reached by the tonight bucket, which renders even
- * when nothing is on it, so a bare `0 shows` is the honest answer and the copy
- * beneath it says whose calendar that zero is about.
+ * Deliberately NOT a second phrasing. A reader clicking TONIGHT lands on
+ * `/scenes/{slug}/tonight` looking at the same night, and the two pages
+ * disagreeing about how to say `0` would be the first thing they noticed. That
+ * helper also already carries the rule: the empty case reads "0 shows listed",
+ * because a bare "0 shows" would assert nothing is happening in the city, which
+ * is a claim this site is not entitled to make about rooms it tracks a slice of.
  */
-export function formatGroupCount(total: number): string {
-  return `${total} ${total === 1 ? 'show' : 'shows'}`
-}
 
 /**
  * `MST`, the zone every time on this page is printed in.

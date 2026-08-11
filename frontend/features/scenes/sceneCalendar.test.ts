@@ -4,7 +4,6 @@ import {
   SCENE_CALENDAR_WINDOW_DAYS,
   calendarDateInZone,
   formatCalendarDateHeading,
-  formatGroupCount,
   formatTimeZoneLabel,
   groupShowsByDate,
   resolveSceneTimeZone,
@@ -92,19 +91,45 @@ describe('sceneTonightDate', () => {
   it('returns null for an unusable clock rather than guessing a night', () => {
     expect(sceneTonightDate(new Date('nonsense'), 'America/Phoenix')).toBeNull()
   })
+
+  // The guard that matters most. `Intl.DateTimeFormat` treats an undefined
+  // `timeZone` as the RUNTIME's zone, so without this a reader in Tokyo and a
+  // reader in Los Angeles would each be told a different night was tonight in
+  // Phoenix, and one of them would be shown an empty bucket asserting a zero
+  // the page never checked.
+  it('returns null rather than falling back to the viewer zone', () => {
+    expect(sceneTonightDate(new Date('2026-08-09T03:00:00Z'))).toBeNull()
+    expect(sceneTonightDate(new Date('2026-08-09T03:00:00Z'), undefined)).toBeNull()
+  })
 })
 
 describe('resolveSceneTimeZone', () => {
-  it('returns undefined when no row carries a resolved zone', () => {
+  it('returns undefined when nothing can name a zone', () => {
     expect(resolveSceneTimeZone([])).toBeUndefined()
     expect(
-      resolveSceneTimeZone([buildShow({ venue_timezone: undefined })])
+      resolveSceneTimeZone([
+        buildShow({ venue_timezone: undefined, venue_state: undefined }),
+      ])
     ).toBeUndefined()
+  })
+
+  // `venues.timezone` is nullable and a geocode miss leaves it NULL, so the
+  // state map is the second source. It is gated on `isShowTimezoneResolved`
+  // because `resolveShowTimezone` silently answers America/Phoenix for any
+  // state it does not recognise.
+  it('falls back to the state map when the venue has no zone', () => {
+    expect(
+      resolveSceneTimeZone([
+        buildShow({ venue_timezone: undefined, venue_state: 'IL' }),
+      ])
+    ).toBe('America/Chicago')
   })
 
   it('ignores a zone name the platform does not know', () => {
     expect(
-      resolveSceneTimeZone([buildShow({ venue_timezone: 'Mars/Olympus' })])
+      resolveSceneTimeZone([
+        buildShow({ venue_timezone: 'Mars/Olympus', venue_state: undefined }),
+      ])
     ).toBeUndefined()
   })
 

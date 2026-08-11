@@ -41,11 +41,17 @@ vi.mock('next/link', () => ({
 }))
 
 // The calendar owns its own request and its own suite. The window hook is
-// stubbed with a resolved zone so the status band's zone clause is exercised
-// here without a network round-trip.
+// stubbed here so the status band's clauses can be driven directly, and the
+// component records the scene it was handed so the canonical-slug rule stays
+// covered after the calendar moved out of this file.
+const mockCalendarWindow = vi.fn()
+const calendarScenes: SceneDetail[] = []
 vi.mock('./SceneCalendar', () => ({
-  SceneCalendar: () => <div data-testid="scene-calendar" />,
-  useSceneCalendarWindow: () => ({ timeZone: 'America/Phoenix' }),
+  SceneCalendar: ({ scene }: { scene: SceneDetail }) => {
+    calendarScenes.push(scene)
+    return <div data-testid="scene-calendar" />
+  },
+  useSceneCalendarWindow: () => mockCalendarWindow(),
 }))
 
 // Keep the REAL SCENE_ARTISTS_ANCHOR (via importActual) so the anchor-id test
@@ -109,7 +115,12 @@ const emptyArtists: SceneArtistsResponse = { artists: [], total: 0 }
 describe('SceneDetailView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    calendarScenes.length = 0
     mockUseSceneArtists.mockReturnValue({ data: emptyArtists, isLoading: false })
+    mockCalendarWindow.mockReturnValue({
+      timeZone: 'America/Phoenix',
+      tonightCount: 2,
+    })
   })
 
   it('renders a loading spinner while the scene detail is loading', () => {
@@ -144,22 +155,52 @@ describe('SceneDetailView', () => {
       })
     })
 
-    it('names the place, the inventory and the clock', () => {
-      const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      const band = container.querySelector('p.font-mono')!
-      expect(band.textContent).toBe(
-        'Phoenix, AZ · 45 upcoming shows · 12 rooms tracked · all times MST'
-      )
+    it('names the place, tonight, the coverage and the clock', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(
+        screen.getByText(
+          'Phoenix, AZ · tonight 2 shows · 12 rooms tracked · all times MST'
+        )
+      ).toBeInTheDocument()
     })
 
-    // Neither number exists honestly on this payload: the detail response has
-    // no calendar-week field, and the calendar window opens at NOW so a
-    // tonight count taken from it is "still to come", not "tonight".
-    it('carries no tonight count and no this-week count', () => {
-      const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      const band = container.querySelector('p.font-mono')!
-      expect(band.textContent).not.toMatch(/tonight/i)
-      expect(band.textContent).not.toMatch(/this week/i)
+    // The mock's zero state for this clause is words, not a numeral.
+    it('says "nothing tonight" rather than printing a zero', () => {
+      mockCalendarWindow.mockReturnValue({
+        timeZone: 'America/Phoenix',
+        tonightCount: 0,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(
+        screen.getByText(
+          'Phoenix, AZ · nothing tonight · 12 rooms tracked · all times MST'
+        )
+      ).toBeInTheDocument()
+    })
+
+    it('pluralizes a single show', () => {
+      mockCalendarWindow.mockReturnValue({
+        timeZone: 'America/Phoenix',
+        tonightCount: 1,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.getByText(/tonight 1 show ·/)).toBeInTheDocument()
+    })
+
+    // "Tonight" is a same-day claim, and a same-day claim made in the reader's
+    // own timezone about a city they are not in is a confidently wrong one.
+    it('drops both the night and the clock when the zone is unknown', () => {
+      mockCalendarWindow.mockReturnValue({ timeZone: undefined, tonightCount: null })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.getByText('Phoenix, AZ · 12 rooms tracked')).toBeInTheDocument()
+    })
+
+    // `GET /scenes/{slug}` has no calendar-week field, and the only count it
+    // carries spans every future show. Labelling that "this week" is the exact
+    // defect PSY-1623 removed from two other surfaces.
+    it('carries no this-week count', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText(/this week/i)).not.toBeInTheDocument()
     })
   })
 
@@ -210,9 +251,50 @@ describe('SceneDetailView', () => {
       ).toBeInTheDocument()
     })
 
-    it('mounts the calendar as the page’s primary object', () => {
+    it('mounts the calendar as the page primary object', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(screen.getByTestId('scene-calendar')).toBeInTheDocument()
+    })
+
+    // A metro MEMBER slug resolves to its principal city, so `/scenes/mesa-az`
+    // renders the Phoenix scene. Every link the calendar builds hangs off the
+    // slug it is handed; building from the requested spelling would mint a
+    // second URL for pages that already have one.
+    it('hands the calendar the canonical scene, not the requested slug', () => {
+      renderWithProviders(<SceneDetailView slug="mesa-az" />)
+      expect(calendarScenes).toHaveLength(1)
+      expect(calendarScenes[0].slug).toBe('phoenix-az')
+    })
+
+    // AC1 is about ORDER: the calendar is the page's object and everything
+    // else sits under it.
+    it('renders the calendar above every module below it', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      const calendar = screen.getByTestId('scene-calendar')
+      for (const testId of ['scene-graph']) {
+        expect(
+          calendar.compareDocumentPosition(screen.getByTestId(testId)) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      }
+      expect(
+        calendar.compareDocumentPosition(screen.getByText('Venues')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        calendar.compareDocumentPosition(screen.getByText('Local Artists')) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    // The h1 is followed directly by the stat line. Anything between them would
+    // be the tagline or crews slot rendering scaffolding it has no data for.
+    it('puts nothing between the heading and the stat line', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      const heading = screen.getByRole('heading', { level: 1, name: 'Phoenix, AZ' })
+      expect(heading.nextElementSibling?.textContent).toBe(
+        '12 venues · 85 artists based here · 45 upcoming shows'
+      )
     })
 
     it('renders the #scene-artists anchor the mobile graph teaser links to (PSY-1472)', () => {
@@ -277,29 +359,6 @@ describe('SceneDetailView', () => {
     })
   })
 
-  // The tagline and crews slots are RESERVED, not built: no field exists behind
-  // either, so the absent state is nothing at all, never a header over blank
-  // space and never derived filler.
-  describe('reserved slots', () => {
-    beforeEach(() => {
-      mockUseSceneDetail.mockReturnValue({
-        data: buildScene(),
-        isLoading: false,
-        error: null,
-      })
-    })
-
-    it('renders no crews header when there are no crews', () => {
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.queryByText(/crews/i)).not.toBeInTheDocument()
-    })
-
-    it('renders no tagline prompt or placeholder', () => {
-      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.queryByText(/add a tagline/i)).not.toBeInTheDocument()
-    })
-  })
-
   describe('conditional modules', () => {
     it('hides the festivals card when festival_count is 0', () => {
       mockUseSceneDetail.mockReturnValue({
@@ -330,7 +389,7 @@ describe('SceneDetailView', () => {
     })
   })
 
-  describe('bands based here', () => {
+  describe('local artists', () => {
     beforeEach(() => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene(),

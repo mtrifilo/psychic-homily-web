@@ -72,33 +72,42 @@ function SceneArtistsList({ slug }: { slug: string }) {
 }
 
 /**
- * The band across the top of the page: where you are, how much is here, and
- * which clock every time below is on.
+ * The band across the top of the page: where you are, what is on tonight, how
+ * many rooms this page speaks for, and which clock every time below is on.
  *
- * DELIBERATELY NOT a tonight count or a this-week count, both of which the mock
- * draws. Neither number is available honestly on this page today:
+ * The tonight clause is the SAME number the tonight group renders below, by
+ * construction. The calendar window opens at now, so both are answering "what
+ * is still ahead", and the two must not be allowed to drift apart. The zero
+ * state is the mock's words rather than a numeral: "nothing tonight".
  *
- *  - `GET /scenes/{slug}` carries no calendar-week field; only `GET /scenes`
- *    does (`shows_calendar_week`). The number beside it is `upcoming_show_count`,
- *    which spans every future show, so labelling that "this week" would put 328
- *    against a week page that says 22, the exact defect PSY-1623 removed from
- *    two other surfaces.
- *  - The calendar window opens at NOW, so a tonight count taken from it is
- *    "still to come tonight", which is not what the words "tonight 5 shows"
- *    promise once doors have opened. `/scenes/{slug}/tonight` answers that
- *    question properly and the window strip links straight to it.
+ * Both clauses DROP when the scene's timezone cannot be resolved from the rows.
+ * "Tonight" is a same-day claim, and a same-day claim made in the reader's own
+ * timezone about a city they are not in is a confidently wrong one.
  *
- * Add the fields to the detail payload first, then draw the numbers. A count
- * that is confidently wrong is worse than a shorter band.
+ * DELIBERATELY NOT the mock's `THIS WEEK n`. `GET /scenes/{slug}` carries no
+ * calendar-week field; only `GET /scenes` does (`shows_calendar_week`). The
+ * only count on this payload is `upcoming_show_count`, which spans every future
+ * show, so labelling that "this week" would put 328 against a week page that
+ * says 22, the exact defect PSY-1623 removed from two other surfaces. Counting
+ * the fetched rows instead would be wrong the other way on any dense scene,
+ * because the window is capped at 20. Add the field to the detail payload
+ * first, then draw the number.
  */
 function SceneStatusBand({ scene }: { scene: SceneDetail }) {
-  const { timeZone } = useSceneCalendarWindow(scene.slug)
+  const { timeZone, tonightCount } = useSceneCalendarWindow(scene.slug)
   const zoneLabel = timeZone ? formatTimeZoneLabel(new Date(), timeZone) : null
 
   const { stats } = scene
+  const tonight =
+    tonightCount === null
+      ? null
+      : tonightCount === 0
+        ? 'nothing tonight'
+        : `tonight ${tonightCount} show${tonightCount === 1 ? '' : 's'}`
+
   const parts = [
     `${scene.city}, ${scene.state}`,
-    `${stats.upcoming_show_count} upcoming show${stats.upcoming_show_count === 1 ? '' : 's'}`,
+    tonight,
     `${stats.venue_count} room${stats.venue_count === 1 ? '' : 's'} tracked`,
     zoneLabel && `all times ${zoneLabel}`,
   ].filter(Boolean)
@@ -203,14 +212,21 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
       </div>
 
       {/* Everything below is the mock's order with each module in its CURRENT
-          form. Refining them (named venue list with counts, roster with open
-          embeds and descriptors, the graph's gate and copy) is Wave 1B/1C. */}
+          form, wording included. Refining them (named venue list with counts,
+          roster with open embeds and descriptors, the graph's gate and copy) is
+          Wave 1B/1C.
+          KNOWN GAP, disclosed rather than guessed at: these two cards still
+          render a header on a scene with nothing in them (`0 venues in X`, and
+          the roster's "No artists based in this scene yet"). The sparse rule
+          says an empty-capable module hides; the "current form" rule says do
+          not touch them this wave. The ticket says both, so 1A leaves them and
+          1B closes it rather than this wave picking a side. */}
       <div className="mt-10 space-y-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Building2 className="h-4 w-4 text-muted-foreground" />
-              Rooms
+              Venues
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -234,8 +250,8 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Mic2 className="h-4 w-4 text-muted-foreground" />
-              Bands based here
-              <span className="text-xs font-normal text-muted-foreground">(active highlighted)</span>
+              Local Artists
+              <span className="text-xs font-normal text-muted-foreground">(based here · active highlighted)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
