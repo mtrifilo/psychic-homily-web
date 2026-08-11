@@ -504,13 +504,18 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 
 	// PSY-985: geocode imported venues so timezone/coordinates are populated like
 	// the VenueService create path (nil on a miss → legacy state->tz fallback).
+	// Since PSY-1747 it is literally the same derivation, not a parallel one.
 	// Street-level geocoding (PSY-1536) is deliberately skipped on this bulk
 	// import seam — new rows start with NULL street fields and the
 	// geocode-venue-addresses backfill CLI resolves them afterwards.
-	newVenue.Latitude, newVenue.Longitude, newVenue.Timezone = geo.LookupPointers(geo.Default(), newVenue.City, newVenue.State, "")
-	// PSY-1707 write-boundary invariant.
-	newVenue.Timezone = shared.NormalizedGeocodedTimezoneOrNull(s.db, newVenue.Timezone, "venue_name", newVenue.Name, "city", newVenue.City, "state", newVenue.State)
-	newVenue.Metro = geo.MetroPointer(geo.Default(), newVenue.City, newVenue.State, "") // PSY-1255 step B
+	//
+	// ExportedVenue carries no country field, so newVenue.Country is nil here and
+	// the location resolves with a blank country exactly as the hardcoded "" this
+	// replaced did — see shared.VenueLocation for why reading the column is the
+	// right shape anyway.
+	shared.DeriveVenueLocation(s.db, geo.Default(), shared.VenueLocation(&newVenue),
+		"venue_name", newVenue.Name, "city", newVenue.City, "state", newVenue.State).
+		ApplyTo(&newVenue)
 
 	if err := s.db.Create(&newVenue).Error; err != nil {
 		return fmt.Sprintf("ERROR: Failed to create venue '%s': %v", venue.Name, err), "error"
@@ -659,11 +664,12 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 					Zipcode:  exportedVenue.Zipcode,
 					Verified: exportedVenue.Verified,
 				}
-				// PSY-985: geocode imported venues (see importVenue).
-				venue.Latitude, venue.Longitude, venue.Timezone = geo.LookupPointers(geo.Default(), venue.City, venue.State, "")
-				// PSY-1707 write-boundary invariant.
-				venue.Timezone = shared.NormalizedGeocodedTimezoneOrNull(tx, venue.Timezone, "venue_name", venue.Name, "city", venue.City, "state", venue.State)
-				venue.Metro = geo.MetroPointer(geo.Default(), venue.City, venue.State, "") // PSY-1255 step B
+				// PSY-985: geocode imported venues (see importVenue). Validates
+				// through tx, not s.db, so the write-boundary guard runs inside the
+				// transaction carrying the write it guards.
+				shared.DeriveVenueLocation(tx, geo.Default(), shared.VenueLocation(&venue),
+					"venue_name", venue.Name, "city", venue.City, "state", venue.State).
+					ApplyTo(&venue)
 				if err := tx.Create(&venue).Error; err != nil {
 					return fmt.Errorf("failed to create venue: %w", err)
 				}

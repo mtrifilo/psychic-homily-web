@@ -7,19 +7,26 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/geo"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // PSY-1255 step B: reconcile the denormalized `metro` (CBSA code) column on
-// artists and venues. metro is DERIVED from (city, state, country) via
-// geo.ResolveMetro, so it must equal that derivation at all times for the scene
-// rollup to be correct. Every FOREGROUND service write path sets it alongside the
-// location: artists via the create funnel (FindOrCreateArtistTx, covering admin
-// create + data-sync import + show-inline/discovery/seed, …) + UpdateArtist + the
-// contribution-edit apply; venues
-// via applyGeocoding (create + UpdateVenue) + the contribution-edit apply +
-// data-sync import. Only the BACKGROUND location writers — the artist location-
-// enrichment fill and the offline state/location backfills (step 0) — change an
-// entity's location WITHOUT touching metro, so it drifts.
+// artists, venues and festivals. metro is DERIVED from (city, state, country), so
+// it must equal that derivation at all times for the scene rollup to be correct.
+// Since PSY-1747 this reconciler and every foreground write path resolve it
+// through the same shared.DeriveMetro, which is what makes "recompute and compare"
+// meaningful — a reconciler with its own resolution could disagree with the write
+// paths and flip rows back and forth forever.
+//
+// Every FOREGROUND service write path sets metro alongside the location: artists
+// via the create funnel (FindOrCreateArtistTx, covering admin create + data-sync
+// import + show-inline/discovery/seed, …) + UpdateArtist + the contribution-edit
+// apply; venues via applyGeocoding (create + UpdateVenue) + the contribution-edit
+// apply + data-sync import; festivals via CreateFestival + UpdateFestival + the
+// contribution-edit apply. Only the BACKGROUND location writers — the artist
+// location-enrichment fill and the offline state/location backfills (step 0) —
+// change an entity's location WITHOUT touching metro, so it drifts.
+//
 // This reconciler recomputes metro for EVERY row and writes only the ones that
 // differ — the backstop, run after a location/state backfill, and a no-op on a
 // clean second run.
@@ -122,7 +129,10 @@ const (
 // one was stored). Both nil, or equal codes, is metroUnchanged — for which it
 // returns a nil desired, since the caller must not write an unchanged row.
 func metroDecision(g geo.Geocoder, city, state, country string, current *string) (*string, metroAction) {
-	desired := geo.MetroPointer(g, city, state, country)
+	// Same resolution the foreground write paths use (PSY-1747), so the reconciler
+	// can never disagree with them about what a location's metro is — a reconciler
+	// that resolves differently would flip rows back and forth on every run.
+	desired := shared.DeriveMetro(g, shared.Location{City: city, State: state, Country: country})
 	switch {
 	case strPtrEq(current, desired):
 		return nil, metroUnchanged

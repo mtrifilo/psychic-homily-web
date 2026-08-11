@@ -166,12 +166,14 @@ func backfillVenuePass(
 
 	for i := range venues {
 		v := &venues[i]
-		country := ""
-		if v.Country != nil {
-			country = *v.Country
-		}
+		loc := shared.VenueLocation(v)
 
-		res, ok := g.Resolve(v.City, v.State, country)
+		// Resolves directly rather than through shared.DeriveVenueLocation because
+		// this pass needs the raw hit/miss to CLASSIFY each venue for the report
+		// (miss vs set vs updated vs skip:invalid-tz), and it deliberately leaves
+		// existing values untouched on a miss instead of nulling them — the backfill
+		// only adds data. Only the location tuple is shared.
+		res, ok := g.Resolve(loc.City, loc.State, loc.Country)
 		if !ok {
 			// Leave existing values untouched — the backfill only adds data.
 			effectiveTz[v.ID] = v.Timezone

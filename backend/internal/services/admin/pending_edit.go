@@ -573,7 +573,7 @@ func (s *PendingEditService) ApprovePendingEdit(ctx context.Context, editID uint
 		// Re-resolution happens on the next daily street-geocode sweep
 		// (catalog.StreetGeocodeSweep) — the cleared geocoded_address key no
 		// longer matches, which is exactly what the reconciler queries for.
-		if addressChanged || zipcodeChanged || locationChanged(updates) {
+		if addressChanged || zipcodeChanged || shared.LocationTouched(updates) {
 			updates["street_latitude"] = (*float64)(nil)
 			updates["street_longitude"] = (*float64)(nil)
 			updates["geocode_precision"] = (*string)(nil)

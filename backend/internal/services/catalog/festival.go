@@ -36,19 +36,6 @@ func NewFestivalService(database *gorm.DB) *FestivalService {
 	}
 }
 
-// festivalMetro derives the CBSA metro pointer for a festival location whose
-// parts may be nil (festival city/state/country are all nullable). Mirrors
-// venue applyGeocoding's deref-then-resolve shape (PSY-1255 step B).
-func (s *FestivalService) festivalMetro(city, state, country *string) *string {
-	deref := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
-	return geo.MetroPointer(s.geocoder, deref(city), deref(state), deref(country))
-}
-
 // CreateFestival creates a new festival
 func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
 	if s.db == nil {
@@ -107,7 +94,7 @@ func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (
 		Country:      req.Country,
 		// metro is derived from the location at every write (PSY-1278) — the
 		// reconcile backfill only backstops background writers.
-		Metro:     s.festivalMetro(req.City, req.State, req.Country),
+		Metro:     shared.DeriveMetro(s.geocoder, shared.NullableLocation(req.City, req.State, req.Country)),
 		StartDate: req.StartDate,
 		EndDate:   req.EndDate,
 		Website:   req.Website,
@@ -410,24 +397,21 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 	if req.Country != nil {
 		updates["country"] = *req.Country
 	}
-	if req.City != nil || req.State != nil || req.Country != nil {
+	if shared.LocationTouched(updates) {
 		// Location changed: recompute metro from the EFFECTIVE post-update
 		// location (changed values overlaid on the stored ones) and forward it
 		// into the partial-updates map — else a relocated festival keeps the OLD
 		// metro's CBSA and mis-counts in the Atlas scene (PSY-1278, mirroring
 		// UpdateVenue's PSY-1255 step-B treatment). A non-resolving location
 		// writes SQL NULL, not the stale value.
-		effCity, effState, effCountry := festival.City, festival.State, festival.Country
-		if req.City != nil {
-			effCity = req.City
-		}
-		if req.State != nil {
-			effState = req.State
-		}
-		if req.Country != nil {
-			effCountry = req.Country
-		}
-		updates["metro"] = s.festivalMetro(effCity, effState, effCountry)
+		//
+		// The overlay reads the updates map rather than req because the three
+		// location keys are staged just above, one per non-nil req field — so the
+		// map already IS the "what is this write changing?" answer, and the shared
+		// helper is the same one every other write path overlays with (PSY-1747).
+		loc := shared.EffectiveLocation(updates,
+			shared.NullableLocation(festival.City, festival.State, festival.Country))
+		updates["metro"] = shared.DeriveMetro(s.geocoder, loc)
 	}
 	if req.StartDate != nil {
 		updates["start_date"] = *req.StartDate
