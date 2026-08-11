@@ -17,10 +17,7 @@ import {
   useVenueConfirm,
   useVenueShows,
 } from '@/features/venues/hooks'
-import {
-  VENUE_SHOWS_PAGE_LIMIT,
-  VENUE_SHOWS_VIEWER_TIMEZONE,
-} from '@/features/venues/api'
+import { VENUE_SHOWS_PAGE_LIMIT } from '@/features/venues/api'
 import type { VenueShow, VenueWithShowCount } from '@/features/venues/types'
 import { formatPrice, formatShowTime } from '@/lib/utils/formatters'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
@@ -136,7 +133,6 @@ export function VenuePanel({ venue, onClose, onShowSelect }: VenuePanelProps) {
 
   const { data, isLoading, isError } = useVenueShows({
     venueId: venue.id,
-    timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
     timeFilter: 'upcoming',
     limit: VENUE_SHOWS_PAGE_LIMIT,
   })

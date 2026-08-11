@@ -32,9 +32,9 @@ interface VenueDetailProps {
    *
    * Threaded to `VenuePastShows` as a prop rather than seeded through the
    * page's `HydrationBoundary`, and the reason is freshness rather than key
-   * mechanics — `venueQueryKeys.showYears` carries no viewer timezone, so
-   * unlike the shows pages it CAN be keyed on the server. `seedFirstScreen`
-   * stamps `dataUpdatedAt: 0`, which would make every venue page refetch a
+   * mechanics — no venue-shows key carries anything per-viewer, so any of them
+   * CAN be built on the server. `seedFirstScreen` stamps `dataUpdatedAt: 0`,
+   * which would make every venue page refetch a
    * histogram it just rendered; `initialData` is treated as fresh for the usual
    * staleTime, which is what a server-rendered strip should be. The cost is
    * this prop passing through two components that do nothing else with it, and

@@ -151,7 +151,6 @@ export function VenuePastShows({
   const pastQuery = useVenueShows({
     venueId,
     timeFilter: 'past',
-    timezone: pageParams.timezone,
     limit: pageParams.limit,
     offset,
     year: pageParams.year,

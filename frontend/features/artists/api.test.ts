@@ -101,20 +101,10 @@ describe('artistQueryKeys', () => {
       artistQueryKeys.showsPage(42, {
         timeFilter: 'past',
         limit: 50,
-        timezone: 'America/Phoenix',
         year: 2025,
         offset: 100,
       }),
-    ).toEqual([
-      'artists',
-      'shows',
-      '42',
-      'past',
-      50,
-      'America/Phoenix',
-      2025,
-      100,
-    ])
+    ).toEqual(['artists', 'shows', '42', 'past', 50, 2025, 100])
   })
 
   it('normalizes every unsent param to one null slot', () => {
@@ -126,7 +116,6 @@ describe('artistQueryKeys', () => {
       'shows',
       '42',
       'upcoming',
-      null,
       null,
       null,
       null,

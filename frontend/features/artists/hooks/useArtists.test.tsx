@@ -42,7 +42,6 @@ vi.mock('@/features/artists/api', () => ({
       params: {
         timeFilter: string
         limit?: number
-        timezone?: string
         year?: number
         offset?: number
       },
@@ -52,7 +51,6 @@ vi.mock('@/features/artists/api', () => ({
       String(artistId),
       params.timeFilter,
       params.limit ?? null,
-      params.timezone ?? null,
       params.year ?? null,
       params.offset ?? null,
     ],
@@ -249,20 +247,6 @@ describe('useArtists', () => {
       )
     })
 
-    it('includes timezone in query params', async () => {
-      mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
-
-      const { result } = renderHook(
-        () => useArtistShows({ artistId: 1, timezone: 'America/Phoenix' }),
-        { wrapper: createWrapper() }
-      )
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      const calledUrl = mockApiRequest.mock.calls[0][0]
-      expect(calledUrl).toContain('timezone=America%2FPhoenix')
-    })
-
     it('supports upcoming time filter', async () => {
       mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
 
@@ -342,7 +326,6 @@ describe('useArtists', () => {
         () =>
           useArtistShows({
             artistId: 5,
-            timezone: 'America/Los_Angeles',
             limit: 10,
             timeFilter: 'past',
           }),
@@ -352,7 +335,6 @@ describe('useArtists', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       const calledUrl = mockApiRequest.mock.calls[0][0]
-      expect(calledUrl).toContain('timezone=America%2FLos_Angeles')
       expect(calledUrl).toContain('limit=10')
       expect(calledUrl).toContain('time_filter=past')
     })

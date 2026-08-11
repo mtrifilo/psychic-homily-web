@@ -14,7 +14,6 @@ vi.mock('@/lib/api', () => ({
 // module, so it cannot see this class of bug at all.
 import {
   VENUE_SHOWS_PAGE_LIMIT,
-  VENUE_SHOWS_VIEWER_TIMEZONE,
   venuePastShowsPageParams,
   venueQueryKeys,
 } from '@/features/venues/api'
@@ -41,10 +40,10 @@ function twentyShows() {
 
 /**
  * PSY-1698. `venueQueryKeys.shows()` used to be the whole cache key for a
- * venue-shows request, keyed on venue + time filter while `limit` and
- * `timezone` varied per caller. Every venue-shows surface therefore shared one
- * entry regardless of what it had actually asked for, and whichever request
- * resolved first answered for all of them for the full 5-minute staleTime.
+ * venue-shows request, keyed on venue + time filter while `limit` varied per
+ * caller. Every venue-shows surface therefore shared one entry regardless of
+ * what it had actually asked for, and whichever request resolved first answered
+ * for all of them for the full 5-minute staleTime.
  *
  * The live instance: `VenueCard`'s expanded preview (20 rows) and the venue
  * page's shows list (50 rows at the time) both keyed on the numeric venue id,
@@ -75,7 +74,6 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
         useVenueShows({
           venueId: VENUE_ID,
           limit: PREVIEW_LIMIT,
-          timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
         }),
       { wrapper },
     )
@@ -88,7 +86,6 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
         useVenueShows({
           venueId: VENUE_ID,
           limit: VENUE_SHOWS_PAGE_LIMIT,
-          timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
           timeFilter: 'upcoming',
         }),
       { wrapper },
@@ -107,7 +104,7 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
     expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
   })
 
-  it('keys the request on limit, timezone and time filter', async () => {
+  it('keys the request on limit and time filter', async () => {
     const queryClient = createTestQueryClient()
     mockApiRequest.mockResolvedValue(fiftyShows())
 
@@ -116,7 +113,6 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
         useVenueShows({
           venueId: VENUE_ID,
           limit: VENUE_SHOWS_PAGE_LIMIT,
-          timezone: 'America/Phoenix',
           timeFilter: 'upcoming',
         }),
       { wrapper: createWrapperWithClient(queryClient) },
@@ -130,7 +126,6 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
         venueQueryKeys.showsPage(VENUE_ID, {
           timeFilter: 'upcoming',
           limit: VENUE_SHOWS_PAGE_LIMIT,
-          timezone: 'America/Phoenix',
         }),
       ),
     )
@@ -146,7 +141,6 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
         useVenueShows({
           venueId: VENUE_ID,
           limit: VENUE_SHOWS_PAGE_LIMIT,
-          timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
           timeFilter: 'upcoming',
         }),
       { wrapper },
@@ -156,7 +150,6 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
         useVenueShows({
           venueId: VENUE_ID,
           limit: PREVIEW_LIMIT,
-          timezone: VENUE_SHOWS_VIEWER_TIMEZONE,
           timeFilter: 'past',
         }),
       { wrapper },
@@ -181,12 +174,13 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
     mockApiRequest.mockResolvedValue(twentyShows())
     const wrapper = createWrapperWithClient(queryClient)
 
-    // A falsy limit and an empty timezone both drop out of the URL, so these
-    // two hooks issue the SAME request. Keying on the raw argument would mint
-    // two entries for it — the mirror image of the collision above, and the
-    // reason the hook resolves the sent values once for both.
+    // A falsy limit drops out of the URL, so the key has to record the absence
+    // rather than the argument. Keying on the raw argument would mint an entry
+    // that does not describe the request that filled it — the mirror image of
+    // the collision above, and the reason the hook resolves the sent values once
+    // for both the URL and the key.
     const zeroLimit = renderHook(
-      () => useVenueShows({ venueId: VENUE_ID, limit: 0, timezone: '' }),
+      () => useVenueShows({ venueId: VENUE_ID, limit: 0 }),
       { wrapper },
     )
     const omitted = renderHook(
@@ -202,34 +196,16 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
     const urls = mockApiRequest.mock.calls.map(c => c[0] as string)
     expect(urls.some(u => !u.includes('limit='))).toBe(true)
     expect(urls.some(u => u.includes('limit=20'))).toBe(true)
+
+    // And no request carries a timezone. The endpoint partitions on each show's
+    // own venue-local calendar day and ignores a caller zone, so sending one
+    // buys nothing and costs a cache entry per viewer — which is what blocked
+    // server-prefetching this list while the zone was in the key. The option is
+    // gone from the hook, so only the hook itself could put one back; that is
+    // exactly what this catches.
     expect(urls.every(u => !u.includes('timezone='))).toBe(true)
   })
 
-  it('separates a caller that omits the timezone from one that sends it', async () => {
-    const queryClient = createTestQueryClient()
-    mockApiRequest.mockResolvedValue(twentyShows())
-    const wrapper = createWrapperWithClient(queryClient)
-
-    // An omitted timezone is not the same question: the backend falls back to
-    // UTC, which puts the upcoming/past boundary somewhere else entirely.
-    const withZone = renderHook(
-      () =>
-        useVenueShows({
-          venueId: VENUE_ID,
-          limit: PREVIEW_LIMIT,
-          timezone: 'America/Phoenix',
-        }),
-      { wrapper },
-    )
-    const withoutZone = renderHook(
-      () => useVenueShows({ venueId: VENUE_ID, limit: PREVIEW_LIMIT }),
-      { wrapper },
-    )
-    await waitFor(() => expect(withZone.result.current.isSuccess).toBe(true))
-    await waitFor(() => expect(withoutZone.result.current.isSuccess).toBe(true))
-
-    expect(queryClient.getQueryCache().getAll()).toHaveLength(2)
-  })
 
   it('lands the past archive on the key its own neighbour peek constructs', async () => {
     const queryClient = createTestQueryClient()
@@ -248,7 +224,6 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
           useVenueShows({
             venueId: VENUE_ID,
             timeFilter: 'past',
-            timezone: params.timezone,
             limit: params.limit,
             offset: params.offset ?? 0,
             year: params.year,
