@@ -43,6 +43,9 @@ export {
 
 // Components
 export { ReleaseCard, ReleaseList } from './components'
-// Note: ReleaseDetail component is exported from './components' directly.
-// Import it as: import { ReleaseDetail } from '@/features/releases/components'
-// The type ReleaseDetail is available from '@/features/releases/types'
+// Note: the ReleaseDetail COMPONENT is barrel-exported from nowhere (PSY-1772).
+// Its only consumer, `app/releases/[slug]/page.tsx`, imports it via `dynamic()`
+// straight from '@/features/releases/components/ReleaseDetail' so Turbopack
+// keeps it out of the global shared client chunk. Any new consumer must import
+// the file directly too — re-adding a barrel export re-hoists it.
+// The TYPE ReleaseDetail is available from '@/features/releases/types'.

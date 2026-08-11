@@ -1,14 +1,32 @@
 import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
-import { ReleaseDetail } from '@/features/releases/components'
 import type { ReleaseDetail as ReleaseDetailData } from '@/features/releases/types'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+
+// Dynamic-imported from the component FILE (never the
+// `@/features/releases/components` barrel) to evict ReleaseDetail.tsx from
+// Turbopack's global shared client chunk, which loads eagerly on every route.
+// Same recipe as ArtistDetail (PSY-950 / spike PSY-944): `dynamic()` alone is a
+// no-op, because a barrel re-export keeps the module reachable from the other
+// routes that import the releases barrels, and Turbopack does not tree-shake
+// `'use client'` barrels per-export. The eviction only holds while ReleaseDetail
+// is ALSO absent from features/releases/components/index.ts. Do NOT re-add that
+// barrel export. `ssr: true` preserves the prefetchEntity + HydrationBoundary
+// server render.
+const ReleaseDetail = dynamic(
+  () =>
+    import('@/features/releases/components/ReleaseDetail').then(m => ({
+      default: m.ReleaseDetail,
+    })),
+  { ssr: true },
+)
 
 interface ReleasePageProps {
   params: Promise<{ slug: string }>
