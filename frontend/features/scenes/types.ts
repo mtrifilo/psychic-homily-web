@@ -128,6 +128,26 @@ export interface SceneArtistsResponse {
 }
 
 /**
+ * The one show attached to a new-band row.
+ *
+ * DERIVED from the generated schema, same rule as `SceneVenue` above. Read
+ * `is_upcoming` BEFORE wording anything around the date: the backend sends the
+ * band's soonest upcoming approved show when it has one and its most recent
+ * PAST show otherwise, so a single "next show" phrasing would be wrong half the
+ * time.
+ */
+export type SceneNewArtistShow = components['schemas']['SceneNewArtistShow']
+
+/** One band first listed in the scene inside the window (PSY-1781). */
+export type SceneNewArtistRow = components['schemas']['SceneNewArtistRow']
+
+export interface SceneNewArtistsResponse {
+  artists: SceneNewArtistRow[]
+  /** Bands in the window BEFORE the limit — the "+N more" denominator. */
+  total: number
+}
+
+/**
  * One upcoming show in the scene preview's "Next 7 days" row (PSY-1309).
  *
  * DERIVED from the generated OpenAPI schema, not hand-written. The hand-written

@@ -37,7 +37,20 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
     // SceneCalendar joins the eviction list (PSY-1783): SceneDetail deep-imports
     // it, and listing it here would put four weeks of calendar rendering into
     // the chunk every route loads.
-    ['SceneDetailView', 'SceneGraph', 'SceneCalendar'],
+    //
+    // SceneRooms / SceneNewBands / SceneRoster join it for the same reason
+    // (PSY-1784). They are named HERE and not only in the barrel's own comment
+    // because a comment does not fail a build: without these entries a future
+    // `export { SceneRoster }` typechecks, passes every test, and ships the
+    // whole roster surface into the global chunk silently.
+    [
+      'SceneDetailView',
+      'SceneGraph',
+      'SceneCalendar',
+      'SceneRooms',
+      'SceneNewBands',
+      'SceneRoster',
+    ],
   ],
   [
     '@/features/releases/components',

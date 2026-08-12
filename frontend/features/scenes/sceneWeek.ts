@@ -107,6 +107,25 @@ export function parseCalendarDate(iso: string): Date {
 }
 
 /**
+ * Is this actually a `YYYY-MM-DD` calendar date?
+ *
+ * Lives beside `parseCalendarDate` because it exists FOR it: that function
+ * builds its Date component-wise from `split('-').map(Number)`, so `""` gives
+ * `Number('') === 0` in every slot and returns a perfectly valid Date in the
+ * year 1900. Junk in therefore renders as a confident wrong date rather than
+ * failing, and every caller handling a field that might be absent has to check
+ * the SHAPE first. Callers that already know their input is a date key (the
+ * week and day routes, whose middleware pre-checks the segment) do not need it.
+ *
+ * Deliberately NOT `sceneDay.ts`'s `looksLikeCalendarDate`: that one also
+ * bounds the year to cap the URL cache-key space, which applied to a payload
+ * field would silently blank a legitimately-dated old show.
+ */
+export function isCalendarDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+/**
  * The zone the cross-city week index names its week in.
  *
  * It names a heading, and that is a different question from resolving

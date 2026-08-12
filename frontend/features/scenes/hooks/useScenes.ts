@@ -14,6 +14,7 @@ import type {
   SceneDetail,
   SceneArtistsResponse,
   SceneGraphResponse,
+  SceneNewArtistsResponse,
   SceneShowsResponse,
 } from '../types'
 
@@ -55,6 +56,9 @@ interface UseSceneArtistsOptions {
   offset?: number
 }
 
+/** Position of `slug` in `queryKeys.scenes.artists`, which this hook reads back. */
+const ARTISTS_KEY_SLUG_INDEX = 2
+
 /**
  * Hook to fetch a scene's roster — the bands BASED in the metro (PSY-1255 step C).
  * Each artist carries `is_active`; the endpoint returns the whole roster, active
@@ -84,6 +88,63 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
       return apiRequest<SceneArtistsResponse>(endpoint, {
         method: 'GET',
       })
+    },
+    enabled: Boolean(slug),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    // Retain the previous page across a LIMIT change, drop it across a SLUG
+    // change. Both callers need exactly this and neither has to ask for it.
+    //
+    // The scene roster raises `limit` in place when a reader asks for the rest
+    // of the list; dropping to nothing there would unmount a section they are
+    // looking at. The /atlas preview changes `slug` instead, where retaining
+    // would paint the PREVIOUS scene's bands under the new scene's name.
+    //
+    // Deliberately NOT a caller opt-in flag. That spelling is fail-OPEN: it is
+    // correct only while nobody passes it on a slug-varying call, and the day
+    // someone copies the roster's options onto one, the wrong scene's bands
+    // render with nothing to catch it. Stating the invariant here — retain only
+    // within one scene — makes every present and future caller right by
+    // construction.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[ARTISTS_KEY_SLUG_INDEX] === slug ? previous : undefined,
+  })
+}
+
+interface UseSceneNewArtistsOptions {
+  slug: string
+  /** Window in days, `[now-days, now]`. Backend default 30, maximum 365. */
+  days?: number
+  /** Rows to return, most recently listed first. Backend default 10, max 50. */
+  limit?: number
+}
+
+/**
+ * Hook to fetch a scene's NEW bands — the named list that replaced Scene Pulse.
+ *
+ * "New" is FIRST LISTED: the band's catalog row was created inside the window,
+ * which is the weekly digest's definition, not the retired pulse's
+ * first-approved-show-in-30-days. That matters to the caller because it is the
+ * fact the rendered date states, so the two can never disagree.
+ *
+ * Both parameters are OMITTED when the caller does not pass them, so the
+ * backend's own defaults own the window — the same rule `useSceneArtists`'
+ * `period` and `useSceneShows`' `days` already follow.
+ */
+export function useSceneNewArtists(options: UseSceneNewArtistsOptions) {
+  const { slug, days, limit } = options
+
+  const params = new URLSearchParams()
+  if (days) params.set('days', days.toString())
+  if (limit) params.set('limit', limit.toString())
+  const queryString = params.toString()
+  const endpoint = queryString
+    ? `${API_ENDPOINTS.SCENES.NEW_ARTISTS(slug)}?${queryString}`
+    : API_ENDPOINTS.SCENES.NEW_ARTISTS(slug)
+
+  return useQuery({
+    queryKey: queryKeys.scenes.newArtists(slug, days, limit),
+    queryFn: async (): Promise<SceneNewArtistsResponse> => {
+      return apiRequest<SceneNewArtistsResponse>(endpoint, { method: 'GET' })
     },
     enabled: Boolean(slug),
     staleTime: 5 * 60 * 1000, // 5 minutes

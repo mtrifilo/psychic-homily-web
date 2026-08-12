@@ -468,6 +468,11 @@ export const queryKeys = {
     detail: (slug: string) => ['scenes', 'detail', slug] as const,
     artists: (slug: string, period?: number, limit?: number) =>
       ['scenes', 'artists', slug, period, limit] as const,
+    // days/limit are part of the key for the same reason they are on `artists`
+    // and `shows`: the window and the cap change WHICH bands come back, so two
+    // callers asking different questions must not share one entry.
+    newArtists: (slug: string, days?: number, limit?: number) =>
+      ['scenes', 'newArtists', slug, days, limit] as const,
     // days/limit are part of the key: the Atlas preview's 7-day/3-row peek and
     // the scene page's 4-week/20-row calendar are different results from the
     // same path, and sharing one entry would paint whichever arrived first

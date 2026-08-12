@@ -4,6 +4,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '@/test/mocks/server'
 import { TEST_API_BASE } from '@/test/mocks/handlers'
 import { createWrapper } from '@/test/utils'
+import { queryKeys } from '@/lib/queryClient'
 import { useScenes, useSceneDetail, useSceneArtists } from './useScenes'
 
 describe('useScenes', () => {
@@ -118,5 +119,15 @@ describe('useSceneArtists', () => {
     )
 
     expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  // The hook's page-retention rule reads the SLUG back out of the previous
+  // query's key by position, so it retains across a limit change and drops
+  // across a scene change. Reordering `queryKeys.scenes.artists` would not fail
+  // to compile and would not fail any render test — it would quietly start
+  // comparing a limit to a slug, and the /atlas preview would paint the
+  // previous scene's bands. This is the assertion that catches that.
+  it('keeps the slug where the retention rule reads it in the artists key', () => {
+    expect(queryKeys.scenes.artists('phoenix-az', 180, 10)[2]).toBe('phoenix-az')
   })
 })
