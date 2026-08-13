@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,12 +37,48 @@ func TestBuildSceneSlug(t *testing.T) {
 		{"New York", "NY", "new-york-ny"},
 		{"San Francisco", "CA", "san-francisco-ca"},
 		{"Mesa", "AZ", "mesa-az"},
+		{"Winston-Salem", "NC", "winston-salem-nc"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.expected, func(t *testing.T) {
 			assert.Equal(t, tc.expected, buildSceneSlug(tc.city, tc.state))
 		})
 	}
+}
+
+func TestSlugMissCache_ExpiresAndBounds(t *testing.T) {
+	s := &SceneService{slugMisses: make(map[string]time.Time)}
+
+	assert.False(t, s.slugMissCached("nope-xx"))
+	s.rememberSlugMiss("Nope-XX")
+	assert.True(t, s.slugMissCached("nope-xx"), "cache key is case-insensitive")
+
+	s.missMu.Lock()
+	s.slugMisses["nope-xx"] = time.Now().Add(-time.Second)
+	s.missMu.Unlock()
+	assert.False(t, s.slugMissCached("nope-xx"), "expired miss must not 404")
+
+	// Overflow drops the map rather than growing without bound.
+	s.slugMisses = make(map[string]time.Time)
+	for i := 0; i < sceneSlugMissCacheMax; i++ {
+		s.rememberSlugMiss(fmt.Sprintf("slug-%d-xx", i))
+	}
+	s.rememberSlugMiss("overflow-xx")
+	s.missMu.Lock()
+	n := len(s.slugMisses)
+	_, keptOld := s.slugMisses["slug-0-xx"]
+	_, hasNew := s.slugMisses["overflow-xx"]
+	s.missMu.Unlock()
+	assert.Equal(t, 1, n)
+	assert.False(t, keptOld)
+	assert.True(t, hasNew)
+}
+
+func TestSlugMissCache_NilMapIsNoop(t *testing.T) {
+	s := &SceneService{}
+	assert.False(t, s.slugMissCached("nope-xx"))
+	s.rememberSlugMiss("nope-xx")
+	assert.False(t, s.slugMissCached("nope-xx"))
 }
 
 // =============================================================================
@@ -67,6 +104,10 @@ func (suite *SceneServiceIntegrationTestSuite) TearDownSuite() {
 }
 
 func (suite *SceneServiceIntegrationTestSuite) TearDownTest() {
+	suite.sceneService.missMu.Lock()
+	suite.sceneService.slugMisses = make(map[string]time.Time)
+	suite.sceneService.missMu.Unlock()
+
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
@@ -1837,6 +1878,112 @@ func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_IgnoresUnverif
 	suite.Contains(err.Error(), "scene not found")
 	suite.Empty(city)
 	suite.Empty(state)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_HyphenatedCity() {
+	// The SQL fallback must match the stored hyphen, not a space-collapsed
+	// re-parse of the slug ("foo bar" would miss "Foo-Bar").
+	suite.createVerifiedVenue("Hyphen Room", "Foo-Bar", "ZZ")
+
+	city, state, err := suite.sceneService.ParseSceneSlug("foo-bar-zz")
+	suite.Require().NoError(err)
+	suite.Equal("Foo-Bar", city)
+	suite.Equal("ZZ", state)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_MissCacheHoldsUntilExpiry() {
+	slug := "cache-me-zz"
+	_, _, err := suite.sceneService.ParseSceneSlug(slug)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "scene not found")
+
+	suite.createVerifiedVenue("Later Room", "Cache Me", "ZZ")
+	_, _, err = suite.sceneService.ParseSceneSlug(slug)
+	suite.Require().Error(err, "cached miss must not resolve a venue that appeared inside the TTL")
+	suite.Contains(err.Error(), "scene not found")
+
+	suite.sceneService.missMu.Lock()
+	suite.sceneService.slugMisses[strings.ToLower(slug)] = time.Now().Add(-time.Second)
+	suite.sceneService.missMu.Unlock()
+
+	city, state, err := suite.sceneService.ParseSceneSlug(slug)
+	suite.Require().NoError(err)
+	suite.Equal("Cache Me", city)
+	suite.Equal("ZZ", state)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_HitIsNotCachedAsMiss() {
+	city, state, err := suite.sceneService.ParseSceneSlug("tempe-az")
+	suite.Require().NoError(err)
+	suite.Equal("Phoenix", city)
+	suite.Equal("AZ", state)
+
+	suite.sceneService.missMu.Lock()
+	_, cached := suite.sceneService.slugMisses["tempe-az"]
+	suite.sceneService.missMu.Unlock()
+	suite.False(cached)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestParseSceneSlug_UnresolvableUsesIndex() {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	_, err = sqlDB.Exec(`
+		INSERT INTO venues (name, city, state, verified, created_at, updated_at)
+		SELECT 'Index Venue ' || g, 'IndexCity' || g, 'ZZ', true, NOW(), NOW()
+		FROM generate_series(1, 3000) g
+	`)
+	suite.Require().NoError(err)
+	_, err = sqlDB.Exec("ANALYZE venues")
+	suite.Require().NoError(err)
+
+	withIndex := explainSceneSlugMiss(suite, "no-such-place-xx")
+	suite.Contains(withIndex, "Index Only Scan")
+	suite.Contains(withIndex, "idx_venues_verified_scene_slug")
+	suite.NotContains(withIndex, "Seq Scan")
+
+	_, err = sqlDB.Exec("DROP INDEX idx_venues_verified_scene_slug")
+	suite.Require().NoError(err)
+	defer func() {
+		_, recErr := sqlDB.Exec(`
+			CREATE INDEX idx_venues_verified_scene_slug
+			    ON venues (
+			        (LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state)),
+			        city,
+			        state
+			    )
+			    WHERE verified = true
+		`)
+		suite.Require().NoError(recErr)
+	}()
+	_, err = sqlDB.Exec("ANALYZE venues")
+	suite.Require().NoError(err)
+	withoutIndex := explainSceneSlugMiss(suite, "no-such-place-xx")
+	suite.Contains(withoutIndex, "Seq Scan")
+}
+
+func explainSceneSlugMiss(suite *SceneServiceIntegrationTestSuite, slug string) string {
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	rows, err := sqlDB.Query(`
+		EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+		SELECT city, state
+		FROM venues
+		WHERE verified = true
+		  AND `+sceneSlugExprSQL+` = $1
+		ORDER BY city, state
+		LIMIT 1
+	`, strings.ToLower(slug))
+	suite.Require().NoError(err)
+	defer rows.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
+	var b strings.Builder
+	for rows.Next() {
+		var line string
+		suite.Require().NoError(rows.Scan(&line))
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	suite.Require().NoError(rows.Err())
+	return b.String()
 }
 
 // =============================================================================

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -35,6 +36,13 @@ type SceneService struct {
 	// scoping could desync. In production both are geo.Default(); a test that
 	// injects a different stub geocoder would break that invariant.
 	geocoder geo.Geocoder
+
+	// slugMisses is a process-local negative cache for ParseSceneSlug. Hits are
+	// not stored: a cached hit would keep resolving a slug after its last
+	// verified venue disappeared. Misses expire so a scene that appears later
+	// does not stay 404 past sceneSlugMissCacheTTL (PSY-1804).
+	missMu     sync.Mutex
+	slugMisses map[string]time.Time
 }
 
 // NewSceneService creates a new scene service.
@@ -42,7 +50,11 @@ func NewSceneService(database *gorm.DB) *SceneService {
 	if database == nil {
 		database = db.GetDB()
 	}
-	return &SceneService{db: database, geocoder: geo.Default()}
+	return &SceneService{
+		db:         database,
+		geocoder:   geo.Default(),
+		slugMisses: make(map[string]time.Time),
+	}
 }
 
 // Thresholds for a city to qualify as a "scene".
@@ -986,6 +998,25 @@ func (s *SceneService) GetRepresentativeEmbed(city, state string, activeWindowDa
 	}, nil
 }
 
+// sceneSlugExprSQL is the no-CBSA slug form stored on venues. Must stay
+// byte-for-byte identical to idx_venues_verified_scene_slug (PSY-1804) and to
+// the WHERE used by sceneExists. Re-parsing the slug by collapsing hyphens to
+// spaces would break hyphenated cities ("Winston-Salem").
+const sceneSlugExprSQL = `LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state)`
+
+const (
+	// sceneSlugMissCacheTTL bounds how long an unresolvable slug stays 404
+	// without re-checking the DB. A verified venue that appears later must
+	// resolve once this window elapses.
+	sceneSlugMissCacheTTL = 2 * time.Minute
+	// sceneSlugMissCacheMax caps the miss map so a crawler enumerating unique
+	// slugs cannot grow it without bound. On overflow the whole map is dropped
+	// rather than evicted LRU-style: the TTL is short, a cold miss is now an
+	// index-only lookup, and a crude bound that is obviously correct beats an
+	// LRU that is subtly wrong (same pattern as the public calendar feeds).
+	sceneSlugMissCacheMax = 4096
+)
+
 // parseSceneSlugParts splits a scene slug "city-state" into its raw lowercase
 // city and 2-letter state. The LAST '-' separates the state; earlier '-' are
 // part of a multi-word city ("los-angeles-ca" → "los angeles", "ca"). Returns
@@ -1011,6 +1042,9 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 	if s.db == nil {
 		return "", "", fmt.Errorf("database not initialized")
 	}
+	if s.slugMissCached(slug) {
+		return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
+	}
 
 	if city, state := parseSceneSlugParts(slug); city != "" && s.geocoder != nil {
 		if m, ok := s.geocoder.ResolveMetro(city, state, usCountry); ok {
@@ -1021,17 +1055,19 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 	}
 
 	// No CBSA (non-US, or a US place not in any metro): resolve to a verified
-	// venue's literal city/state, exactly as before.
+	// venue's literal city/state, exactly as before. DISTINCT is omitted so
+	// idx_venues_verified_scene_slug can serve an Index Only Scan; ORDER BY
+	// city, state LIMIT 1 still picks a stable pair when several rows match.
 	type cityState struct {
 		City  string
 		State string
 	}
 	var result cityState
 	err := s.db.Raw(`
-		SELECT DISTINCT city, state
+		SELECT city, state
 		FROM venues
 		WHERE verified = true
-		  AND LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state) = ?
+		  AND `+sceneSlugExprSQL+` = ?
 		ORDER BY city, state
 		LIMIT 1
 	`, strings.ToLower(slug)).Scan(&result).Error
@@ -1039,10 +1075,42 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 		return "", "", fmt.Errorf("failed to resolve scene slug: %w", err)
 	}
 	if result.City == "" {
+		s.rememberSlugMiss(slug)
 		return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
 	}
 
 	return result.City, result.State, nil
+}
+
+func (s *SceneService) slugMissCached(slug string) bool {
+	if s.slugMisses == nil {
+		return false
+	}
+	key := strings.ToLower(slug)
+	s.missMu.Lock()
+	defer s.missMu.Unlock()
+	exp, ok := s.slugMisses[key]
+	if !ok {
+		return false
+	}
+	if time.Now().After(exp) {
+		delete(s.slugMisses, key)
+		return false
+	}
+	return true
+}
+
+func (s *SceneService) rememberSlugMiss(slug string) {
+	if s.slugMisses == nil {
+		return
+	}
+	key := strings.ToLower(slug)
+	s.missMu.Lock()
+	defer s.missMu.Unlock()
+	if len(s.slugMisses) >= sceneSlugMissCacheMax {
+		s.slugMisses = make(map[string]time.Time, sceneSlugMissCacheMax)
+	}
+	s.slugMisses[key] = time.Now().Add(sceneSlugMissCacheTTL)
 }
 
 // sceneKeyForGroup is the Go-side spelling of sceneGroupKeySQL: the CBSA metro
