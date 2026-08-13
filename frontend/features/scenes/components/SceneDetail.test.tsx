@@ -163,13 +163,21 @@ describe('SceneDetailView', () => {
       })
     })
 
-    it('names the place, the volume, the coverage and the clock', () => {
+    it('names the volume, the coverage and the clock', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
         screen.getByText(
-          'Phoenix, AZ · 45 upcoming shows · 12 rooms tracked · all times MST'
+          '45 upcoming shows · 12 rooms tracked · all times MST'
         )
       ).toBeInTheDocument()
+    })
+
+    it('recedes as a hairline, not an invert, and does not name the city', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      const band = screen.getByTestId('scene-status-band')
+      expect(band).toHaveClass('border-b', 'text-muted-foreground')
+      expect(band).not.toHaveClass('bg-foreground', 'text-background')
+      expect(band).not.toHaveTextContent(/Phoenix/)
     })
 
     it('pluralizes a single upcoming show', () => {
@@ -187,7 +195,7 @@ describe('SceneDetailView', () => {
       })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
-        screen.getByText('Phoenix, AZ · 1 upcoming show · 1 room tracked · all times MST')
+        screen.getByText('1 upcoming show · 1 room tracked · all times MST')
       ).toBeInTheDocument()
     })
 
@@ -198,7 +206,7 @@ describe('SceneDetailView', () => {
       mockCalendarWindow.mockReturnValue({ timeZone: undefined })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
-        screen.getByText('Phoenix, AZ · 45 upcoming shows · 12 rooms tracked')
+        screen.getByText('45 upcoming shows · 12 rooms tracked')
       ).toBeInTheDocument()
     })
 
