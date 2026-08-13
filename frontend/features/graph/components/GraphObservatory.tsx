@@ -43,7 +43,7 @@ import {
   type TraversalEntry,
 } from '@/components/graph/graphTraversalHistory'
 import { useRandomArtistTarget } from '@/features/discovery/useRandomArtistTarget'
-import { useScenes } from '@/features/scenes/hooks/useScenes'
+import { useSceneDetail, useScenes } from '@/features/scenes/hooks/useScenes'
 import { useGeoDefaultScene } from '@/lib/hooks/common/useGeoDefaultScene'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { TOOL_LABEL_TIERS } from '@/components/graph/graphLabels'
@@ -55,7 +55,7 @@ import { anchorFromCatalogTarget, type GraphAnchor } from '../graphAnchor'
 import { pickRotationSuggestions } from '../startingSuggestions'
 import { replayStatusText, useSceneReplay, type SceneReplayController } from '../useSceneReplay'
 import { SceneMapZeroState } from './SceneMapZeroState'
-import { pickVisitorScene } from './visitorScene'
+import { pickVisitorScene, sceneSlugFromPlace } from './visitorScene'
 
 const RANDOM_GRAPH_ATTEMPTS = 3
 
@@ -593,9 +593,10 @@ const SERENDIPITY_FOOTER_LINK_CLASS =
  *
  * A nightly scene page is the better answer for a visitor we can place: one
  * city, tonight, at the rooms we track, rather than every city at once. What
- * counts as "can place" is deliberately strict — see `pickVisitorScene`, which
- * refuses the neighbouring-metro guess precisely because this link is silent
- * about where it is sending anyone.
+ * counts as "can place" is exact city+state, or Census CBSA membership via
+ * the member-slug resolve ParseSceneSlug already does (Tempe → Phoenix). See
+ * `pickVisitorScene`. An uncapped nearest-scene guess is still refused: this
+ * link is silent about where it is sending anyone.
  *
  * The LABEL is fixed; only the href moves. This link sits in a wrap row ahead
  * of the shuffle pill and the resolution lands after mount, so a label that
@@ -610,9 +611,20 @@ function TonightShowsLink() {
   const hydrated = useHydrated()
   const geo = useGeoDefaultScene()
   const scenesQuery = useScenes()
+  const scenes = scenesQuery.data?.scenes ?? []
+  const exact = useMemo(() => pickVisitorScene(scenes, geo), [scenes, geo])
+  // Member-slug resolve only when the list is in and exact city+state missed:
+  // GET /scenes/{slug} is how ParseSceneSlug maps tempe-az onto Phoenix. Skip
+  // it for a visitor we already placed, and skip it before the list arrives
+  // (without the list we cannot apply the quiet-week guard anyway).
+  const memberSlug =
+    !scenesQuery.isPending && !exact && geo
+      ? sceneSlugFromPlace(geo.city, geo.state)
+      : ''
+  const cbsaQuery = useSceneDetail(memberSlug)
   const scene = useMemo(
-    () => pickVisitorScene(scenesQuery.data?.scenes ?? [], geo),
-    [scenesQuery.data, geo],
+    () => pickVisitorScene(scenes, geo, cbsaQuery.data ?? null),
+    [scenes, geo, cbsaQuery.data],
   )
   const href = hydrated && scene ? `/scenes/${scene.slug}/tonight` : '/shows'
 
