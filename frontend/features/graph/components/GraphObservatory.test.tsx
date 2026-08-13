@@ -58,13 +58,18 @@ const { fetchGraph, graphs, reviewState, shuffleRefetch, shuffleTarget } = vi.ho
   }
 })
 
-const { searchRequest, scenesState, geoState, motionState } = vi.hoisted(() => ({
+const { searchRequest, scenesState, geoState, cbsaState, motionState } = vi.hoisted(() => ({
   searchRequest: vi.fn(),
   scenesState: {
     scenes: [] as Array<Record<string, unknown>>,
   },
   geoState: {
     geo: null as { city: string; state: string } | null,
+  },
+  // Member-slug → principal from GET /scenes/{slug} (ParseSceneSlug). Empty
+  // means the slug is not a scene CBSA member (404), which keeps /shows.
+  cbsaState: {
+    bySlug: {} as Record<string, { city: string; state: string; slug: string }>,
   },
   motionState: { reduced: true },
 }))
@@ -123,6 +128,12 @@ vi.mock('@/features/scenes/hooks/useScenes', () => ({
   useScenes: () => ({
     data: { scenes: scenesState.scenes, count: scenesState.scenes.length },
     isLoading: false,
+    isPending: false,
+    isError: false,
+  }),
+  useSceneDetail: (slug: string) => ({
+    data: slug ? cbsaState.bySlug[slug] : undefined,
+    isPending: false,
     isError: false,
   }),
 }))
@@ -333,6 +344,7 @@ describe('GraphObservatory', () => {
     reviewState.graphPending = false
     scenesState.scenes = []
     geoState.geo = null
+    cbsaState.bySlug = {}
     motionState.reduced = true
     overviewState.data = undefined
     overviewState.isPending = false
@@ -1013,12 +1025,37 @@ describe('GraphObservatory', () => {
       expect(tonightLink()).toHaveAttribute('href', '/shows')
     })
 
-    // Nothing on this row names a city, so a neighbouring-metro guess would
-    // move the reader somewhere no part of the page mentioned. The city
-    // filter's uncapped nearest-match rule deliberately does NOT reach here.
-    it('keeps the listing for a suburb rather than guessing the metro', () => {
+    // CBSA membership, not a radius: Tempe is in the Phoenix metro, so the
+    // member-slug resolve (tempe-az → Phoenix principal) is the scene we name.
+    it('points at the metro tonight page for a CBSA suburb', () => {
       scenesState.scenes = [phoenix]
       geoState.geo = { city: 'Tempe', state: 'AZ' }
+      cbsaState.bySlug['tempe-az'] = {
+        city: 'Phoenix',
+        state: 'AZ',
+        slug: 'phoenix-az',
+      }
+      renderWithProviders(<GraphObservatory />)
+
+      expect(tonightLink()).toHaveAttribute('href', '/scenes/phoenix-az/tonight')
+    })
+
+    it('keeps the listing for a city outside every scene CBSA', () => {
+      scenesState.scenes = [phoenix]
+      geoState.geo = { city: 'Honolulu', state: 'HI' }
+      renderWithProviders(<GraphObservatory />)
+
+      expect(tonightLink()).toHaveAttribute('href', '/shows')
+    })
+
+    it('keeps the listing when a CBSA suburb’s metro has been quiet all week', () => {
+      scenesState.scenes = [{ ...phoenix, shows_this_week: 0 }]
+      geoState.geo = { city: 'Tempe', state: 'AZ' }
+      cbsaState.bySlug['tempe-az'] = {
+        city: 'Phoenix',
+        state: 'AZ',
+        slug: 'phoenix-az',
+      }
       renderWithProviders(<GraphObservatory />)
 
       expect(tonightLink()).toHaveAttribute('href', '/shows')

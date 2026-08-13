@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pickVisitorScene } from './visitorScene'
+import { pickVisitorScene, sceneSlugFromPlace } from './visitorScene'
 import type { SceneListItem } from '@/features/scenes/types'
 
 const scene = (over: Partial<SceneListItem> = {}): SceneListItem => ({
@@ -24,10 +24,24 @@ const chicago = scene({
   longitude: -87.63,
 })
 
+const phoenix = scene()
+
+describe('sceneSlugFromPlace', () => {
+  it('builds the ParseSceneSlug form from city and state', () => {
+    expect(sceneSlugFromPlace('Tempe', 'AZ')).toBe('tempe-az')
+    expect(sceneSlugFromPlace('Phoenix', 'AZ')).toBe('phoenix-az')
+    expect(sceneSlugFromPlace('Los Angeles', 'CA')).toBe('los-angeles-ca')
+  })
+
+  it('trims and lowercases both halves', () => {
+    expect(sceneSlugFromPlace(' Tempe ', 'Az')).toBe('tempe-az')
+  })
+})
+
 describe('pickVisitorScene', () => {
   it('returns the scene whose city and state the visitor is in', () => {
     expect(
-      pickVisitorScene([chicago, scene()], { city: 'Phoenix', state: 'AZ' })?.slug
+      pickVisitorScene([chicago, phoenix], { city: 'Phoenix', state: 'AZ' })?.slug
     ).toBe('phoenix-az')
   })
 
@@ -41,25 +55,38 @@ describe('pickVisitorScene', () => {
   // The whole point of the guard: a visitor we cannot name a scene for keeps
   // the global listing rather than being sent to whichever scene exists.
   it('returns null with no geo suggestion', () => {
-    expect(pickVisitorScene([scene()], null)).toBeNull()
-    expect(pickVisitorScene([scene()], undefined)).toBeNull()
+    expect(pickVisitorScene([phoenix], null)).toBeNull()
+    expect(pickVisitorScene([phoenix], undefined)).toBeNull()
   })
 
   it('returns null before the scenes list has loaded', () => {
     expect(pickVisitorScene([], { city: 'Phoenix', state: 'AZ' })).toBeNull()
   })
 
-  // The deliberate divergence from the city filter and the homepage graph,
-  // which would both place this visitor on Phoenix by distance. This link
-  // names no city, so a silent neighbouring-metro answer is worse than none.
-  it('does NOT fall back to the nearest scene for a suburb', () => {
-    const nearPhoenix = { city: 'Tempe', state: 'AZ', latitude: 33.42, longitude: -111.94 }
-    expect(pickVisitorScene([scene()], nearPhoenix)).toBeNull()
+  // CBSA membership, not a radius: Tempe is in the Phoenix metro, so the
+  // principal ParseSceneSlug already returns for "tempe-az" is the scene we
+  // name. The caller supplies that principal; this function does not guess.
+  it('maps a CBSA member to the metro principal', () => {
+    expect(
+      pickVisitorScene(
+        [phoenix],
+        { city: 'Tempe', state: 'AZ' },
+        { city: 'Phoenix', state: 'AZ' },
+      )?.slug,
+    ).toBe('phoenix-az')
   })
 
-  it('does NOT fall back to the nearest scene for a far-away visitor', () => {
+  it('still refuses a suburb when no CBSA principal was resolved', () => {
+    const nearPhoenix = { city: 'Tempe', state: 'AZ', latitude: 33.42, longitude: -111.94 }
+    expect(pickVisitorScene([phoenix], nearPhoenix)).toBeNull()
+  })
+
+  // A city that is not in any scene's CBSA has no principal to name, even
+  // when a far-away scene exists. Haversine would pick Phoenix; we do not.
+  it('returns null for a city outside every scene CBSA', () => {
     const inHonolulu = { city: 'Honolulu', state: 'HI', latitude: 21.31, longitude: -157.86 }
-    expect(pickVisitorScene([scene()], inHonolulu)).toBeNull()
+    expect(pickVisitorScene([phoenix], inHonolulu)).toBeNull()
+    expect(pickVisitorScene([phoenix], inHonolulu, null)).toBeNull()
   })
 
   // A scene dark all week has a nightly page that is correct and empty, which
@@ -67,6 +94,16 @@ describe('pickVisitorScene', () => {
   it('returns null when the matched scene has been quiet all week', () => {
     expect(
       pickVisitorScene([scene({ shows_this_week: 0 })], { city: 'Phoenix', state: 'AZ' })
+    ).toBeNull()
+  })
+
+  it('keeps the quiet-week guard after a CBSA member resolves to the principal', () => {
+    expect(
+      pickVisitorScene(
+        [scene({ shows_this_week: 0 })],
+        { city: 'Tempe', state: 'AZ' },
+        { city: 'Phoenix', state: 'AZ' },
+      ),
     ).toBeNull()
   })
 
@@ -81,7 +118,7 @@ describe('pickVisitorScene', () => {
   // A city name alone is not an identity: Portland OR and Portland ME are
   // different scenes, so a half-answer must not resolve to either.
   it('returns null when the suggestion is missing half of its place', () => {
-    expect(pickVisitorScene([scene()], { city: 'Phoenix', state: '' })).toBeNull()
-    expect(pickVisitorScene([scene()], { city: '', state: 'AZ' })).toBeNull()
+    expect(pickVisitorScene([phoenix], { city: 'Phoenix', state: '' })).toBeNull()
+    expect(pickVisitorScene([phoenix], { city: '', state: 'AZ' })).toBeNull()
   })
 })
