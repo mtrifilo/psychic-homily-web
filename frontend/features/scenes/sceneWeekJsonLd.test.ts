@@ -37,7 +37,7 @@ const week = (shows: SceneWeekShow[]): SceneWeekResponse => ({
   next_week: '2026-W32',
   is_current_week: true,
   is_past_week: false,
-  tracked_venues: ['Crescent Ballroom'],
+  tracked_venues: [{ name: 'Crescent Ballroom' }],
   days: [
     { date: '2026-07-27', shows },
     { date: '2026-07-28', shows: [] },

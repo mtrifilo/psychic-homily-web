@@ -296,32 +296,6 @@ func (s *SceneService) sceneLocation(scope sceneScope, state string) *time.Locat
 	return utils.EventLocation(&tz, state)
 }
 
-// trackedVenues lists the scene's verified venue names, alphabetically.
-//
-// The weekly page names these explicitly. Coverage is a curated slice — 11
-// rooms in Chicago, not all of Chicago — so a page that implied it listed
-// everything happening in the city would be false, and a local would notice
-// immediately.
-//
-// A projection over trackedVenueDetails rather than its own query: what counts
-// as "a room this scene tracks" must have ONE definition, or excluding (say)
-// permanently-closed rooms from one query would leave the weekly page and the
-// nightly page naming different rooms for the same city. The week payload keeps
-// its bare-string shape — its share card and footer read a plain list, and
-// widening the wire format to serve a different page would churn consumers that
-// need none of the extra fields.
-func (s *SceneService) trackedVenues(scope sceneScope) ([]string, error) {
-	venues, err := s.trackedVenueDetails(scope)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, len(venues))
-	for i, v := range venues {
-		names[i] = v.Name
-	}
-	return names, nil
-}
-
 // GetSceneWeek returns one ISO week of a scene's shows, grouped by day in the
 // scene's own timezone.
 //
@@ -389,12 +363,12 @@ func (s *SceneService) GetSceneWeek(city, state, weekKey string) (*contracts.Sce
 		days[i].Shows = byDate[days[i].Date]
 	}
 
-	venues, err := s.trackedVenues(scope)
+	venues, err := s.trackedVenueDetails(scope)
 	if err != nil {
 		return nil, err
 	}
 	if venues == nil {
-		venues = []string{}
+		venues = []contracts.SceneTrackedVenue{}
 	}
 
 	return &contracts.SceneWeekResponse{

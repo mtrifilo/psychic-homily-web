@@ -15277,7 +15277,7 @@ export interface components {
             start_date: string;
             state: string;
             timezone: string;
-            tracked_venues: string[] | null;
+            tracked_venues: components["schemas"]["SceneTrackedVenue"][] | null;
         };
         Schema: {
             AdditionalProperties: unknown;
