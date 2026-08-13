@@ -70,7 +70,10 @@ function SceneStatusBand({ scene }: { scene: SceneDetail }) {
   // of sitting inside its gutter. That is a real coupling to the route shell:
   // if the page's padding changes, these have to change with it.
   return (
-    <div className="-mx-4 -mt-8 mb-6 border-b border-border px-4 py-2.5 text-muted-foreground md:-mx-8 md:px-8">
+    <div
+      data-testid="scene-status-band"
+      className="-mx-4 -mt-8 mb-6 border-b border-border px-4 py-2.5 text-muted-foreground md:-mx-8 md:px-8"
+    >
       <p className="font-mono text-[11px] uppercase tracking-widest">
         {parts.join(' · ')}
       </p>

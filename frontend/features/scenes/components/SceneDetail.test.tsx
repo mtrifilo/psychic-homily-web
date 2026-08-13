@@ -165,19 +165,19 @@ describe('SceneDetailView', () => {
 
     it('names the volume, the coverage and the clock', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      const line = screen.getByText(
-        '45 upcoming shows · 12 rooms tracked · all times MST'
-      )
-      expect(line).toBeInTheDocument()
-      expect(line.parentElement).toHaveClass('border-b')
-      expect(line.parentElement).not.toHaveClass('bg-foreground')
+      expect(
+        screen.getByText(
+          '45 upcoming shows · 12 rooms tracked · all times MST'
+        )
+      ).toBeInTheDocument()
     })
 
-    // Breadcrumb and H1 already name the place. Repeating it here was a
-    // second header under the site nav (PSY-1815).
-    it('does not repeat the city in the band', () => {
+    it('recedes as a hairline, not an invert, and does not name the city', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(screen.queryByText(/Phoenix, AZ ·/)).not.toBeInTheDocument()
+      const band = screen.getByTestId('scene-status-band')
+      expect(band).toHaveClass('border-b', 'text-muted-foreground')
+      expect(band).not.toHaveClass('bg-foreground', 'text-background')
+      expect(band).not.toHaveTextContent(/Phoenix/)
     })
 
     it('pluralizes a single upcoming show', () => {
