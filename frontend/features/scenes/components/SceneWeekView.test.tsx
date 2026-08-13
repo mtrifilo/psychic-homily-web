@@ -3,6 +3,7 @@ import { render, screen, within, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/dom'
 import { SceneWeekView } from './SceneWeekView'
 import type { SceneWeekResponse, SceneWeekShow } from '../sceneWeek'
+import type { SceneTrackedVenue } from '../sceneDay'
 
 const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow => ({
   id: 1,
@@ -15,6 +16,9 @@ const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow => ({
   is_cancelled: false,
   ...over,
 })
+
+const room = (over: Partial<SceneTrackedVenue> = {}): SceneTrackedVenue =>
+  ({ name: 'Empty Bottle', slug: 'empty-bottle', website: '', ...over }) as SceneTrackedVenue
 
 const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
   ({
@@ -32,7 +36,7 @@ const week = (over: Partial<SceneWeekResponse> = {}): SceneWeekResponse =>
     is_current_week: true,
     is_past_week: false,
     days: [{ date: '2026-07-27', shows: [show()] }],
-    tracked_venues: ['Empty Bottle', 'Thalia Hall'],
+    tracked_venues: [room(), room({ name: 'Thalia Hall', slug: 'thalia-hall' })],
     ...over,
   }) as SceneWeekResponse
 
@@ -98,17 +102,49 @@ describe('SceneWeekView', () => {
   })
 
   // Load-bearing, not decoration: coverage is a curated slice, and a page that
-  // implied full city coverage would be false. Week API still sends bare names
-  // (no slugs), so rooms stay unlinked until a follow-up enriches the payload.
+  // implied full city coverage would be false. Slugged rooms link to
+  // /venues/{slug}; rooms without a slug stay plain text.
   it('always discloses that coverage is partial', () => {
     render(<SceneWeekView week={week()} />)
     expect(screen.getByText(/Not a complete city listing/)).toBeInTheDocument()
     const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
     expect(footer).not.toBeNull()
-    expect(within(footer as HTMLElement).getByText('Empty Bottle')).toBeInTheDocument()
-    expect(within(footer as HTMLElement).getByText('Thalia Hall')).toBeInTheDocument()
     expect(
-      within(footer as HTMLElement).queryByRole('link', { name: 'Empty Bottle' })
+      within(footer as HTMLElement).getByRole('link', { name: 'Empty Bottle' })
+    ).toHaveAttribute('href', '/venues/empty-bottle')
+    expect(
+      within(footer as HTMLElement).getByRole('link', { name: 'Thalia Hall' })
+    ).toHaveAttribute('href', '/venues/thalia-hall')
+    const footerLinks = within(footer as HTMLElement)
+      .getAllByRole('link')
+      .filter(a => a.getAttribute('href')?.startsWith('/venues/'))
+    expect(footerLinks).toHaveLength(2)
+  })
+
+  it('names a tracked room without a slug, unlinked, in the listing footer', () => {
+    render(
+      <SceneWeekView
+        week={week({ tracked_venues: [room({ name: 'DIY Basement', slug: '' })] })}
+      />
+    )
+    const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
+    expect(footer).not.toBeNull()
+    expect(within(footer as HTMLElement).getByText('DIY Basement')).toBeInTheDocument()
+    expect(
+      within(footer as HTMLElement).queryByRole('link', { name: 'DIY Basement' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('treats a whitespace-only slug as missing, not a broken /venues/ URL', () => {
+    render(
+      <SceneWeekView
+        week={week({ tracked_venues: [room({ name: 'Whitespace Room', slug: '   ' })] })}
+      />
+    )
+    const footer = screen.getByText(/ROOMS WE TRACK IN CHICAGO/).closest('footer')
+    expect(footer).not.toBeNull()
+    expect(
+      within(footer as HTMLElement).queryByRole('link', { name: 'Whitespace Room' })
     ).not.toBeInTheDocument()
   })
 
@@ -141,7 +177,7 @@ describe('SceneWeekView', () => {
   // The decision was an empty STATE, not a 404 — a real city having a quiet
   // week is a fact, and 404ing would break an already-shared permalink.
   it('renders an empty week with a way forward', () => {
-    render(<SceneWeekView week={week({ show_count: 0, days: [], tracked_venues: ['Empty Bottle'] })} />)
+    render(<SceneWeekView week={week({ show_count: 0, days: [], tracked_venues: [room()] })} />)
     expect(screen.getByText(/No shows at the Chicago rooms we track this week/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Try next week/ })).toHaveAttribute(
       'href',

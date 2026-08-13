@@ -148,9 +148,8 @@ export function ShowStatusBadge({ label }: { label: string }) {
 /**
  * Enough to name a tracked room and, when we have it, link to its page here.
  *
- * Deliberately thinner than the day API's `SceneTrackedVenue`: the week payload
- * still sends bare names, and the footer's locked destination is `/venues/{slug}`
- * (PSY-1733) — an external website is never the href.
+ * Thinner than `SceneTrackedVenue` because the footer's locked destination is
+ * `/venues/{slug}` (PSY-1733) — an external website is never the href.
  */
 export type TrackedRoom = {
   name: string
@@ -191,9 +190,8 @@ export function RoomList({ venues }: { venues: TrackedRoom[] }) {
  * not all of Chicago). A page that implied full city coverage would be false,
  * and a local would notice immediately.
  *
- * When a room has a slug it links to `/venues/{slug}` (PSY-1733). Week callers
- * that only have bare names still render unlinked — the week API has not yet
- * been enriched to `SceneTrackedVenue[]`.
+ * When a room has a slug it links to `/venues/{slug}` (PSY-1733). Rooms without
+ * a slug stay plain text.
  */
 export function TrackedRoomsFooter({ city, rooms }: { city: string; rooms: TrackedRoom[] }) {
   if (rooms.length === 0) return null

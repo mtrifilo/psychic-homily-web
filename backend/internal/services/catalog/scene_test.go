@@ -1375,7 +1375,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesOnNoCBSA
 	suite.Equal(1, detail.Venues[1].UpcomingShowCount)
 }
 
-// The leaderboard and the day payload's tracked-venue footer must never name
+// The leaderboard, the day footer, and the week footer must never name
 // different rooms for one city — they read the same definition, and this is the
 // assertion that keeps it that way if one query is edited alone.
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesMatchTrackedVenueSet() {
@@ -1389,19 +1389,46 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_VenuesMatchTra
 	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ", "")
 	suite.Require().NoError(err)
 
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+
 	leaderboard := make([]string, 0, len(detail.Venues))
 	for _, v := range detail.Venues {
 		leaderboard = append(leaderboard, v.Name)
 	}
-	tracked := make([]string, 0, len(day.TrackedVenues))
+	dayTracked := make([]string, 0, len(day.TrackedVenues))
 	for _, v := range day.TrackedVenues {
-		tracked = append(tracked, v.Name)
+		dayTracked = append(dayTracked, v.Name)
+	}
+	weekTracked := make([]string, 0, len(week.TrackedVenues))
+	for _, v := range week.TrackedVenues {
+		weekTracked = append(weekTracked, v.Name)
 	}
 	// Pin the size first: ElementsMatch of two EMPTY lists passes, so a shared
 	// predicate broken to match nothing would turn the one test whose whole job
 	// is "these two surfaces agree" into a green vacuous truth.
 	suite.Require().Len(leaderboard, 4)
-	suite.ElementsMatch(tracked, leaderboard)
+	suite.ElementsMatch(dayTracked, leaderboard)
+	suite.ElementsMatch(weekTracked, leaderboard)
+}
+
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneWeek_TrackedVenuesCarrySlug() {
+	venues, _ := suite.seedSceneData()
+	const slug = "crescent-ballroom"
+	suite.Require().NoError(suite.db.Model(venues[0]).Update("slug", slug).Error)
+
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+
+	var found *contracts.SceneTrackedVenue
+	for i := range week.TrackedVenues {
+		if week.TrackedVenues[i].Name == venues[0].Name {
+			found = &week.TrackedVenues[i]
+			break
+		}
+	}
+	suite.Require().NotNil(found, "week payload must include the slugged room")
+	suite.Equal(slug, found.Slug)
 }
 
 // =============================================================================

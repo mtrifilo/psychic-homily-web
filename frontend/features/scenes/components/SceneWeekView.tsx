@@ -166,9 +166,7 @@ export function SceneWeekView({ week }: { week: SceneWeekResponse }) {
         days.map(day => <DayGroup key={day.date} date={day.date} shows={day.shows ?? []} />)
       )}
 
-      {/* Week API still sends bare names (no slugs) — rooms render unlinked
-          until a follow-up enriches tracked_venues to SceneTrackedVenue[]. */}
-      <TrackedRoomsFooter city={week.city} rooms={rooms.map(name => ({ name }))} />
+      <TrackedRoomsFooter city={week.city} rooms={rooms} />
     </div>
   )
 }

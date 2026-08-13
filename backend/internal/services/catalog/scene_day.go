@@ -252,12 +252,10 @@ func dayHasEnded(nowLocal, end time.Time, date, tonight calendarDate) bool {
 // trackedVenueDetails lists the scene's verified rooms alphabetically, each with
 // enough to link it.
 //
-// trackedVenues projects the names out of this for the week payload rather than
-// running its own query, so the weekly and nightly pages cannot end up naming
-// different rooms for the same city. The two PAYLOADS still differ in shape —
-// the week sends bare strings — because that is a wire-format decision, not a
-// definition. The definition itself is trackedVenuePredicate, which the detail
-// page's rooms leaderboard selects on too.
+// Day and week both call this rather than each running its own query, so the
+// two pages cannot end up naming different rooms for the same city. The
+// definition itself is trackedVenuePredicate, which the detail page's rooms
+// leaderboard selects on too.
 func (s *SceneService) trackedVenueDetails(scope sceneScope) ([]contracts.SceneTrackedVenue, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

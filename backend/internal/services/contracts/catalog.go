@@ -1331,19 +1331,18 @@ type SceneWeekResponse struct {
 	// week goes live. Answered here because the boundary depends on the SCENE's
 	// timezone; a client comparing dates in UTC would call a week over up to a
 	// day early.
-	IsPastWeek    bool           `json:"is_past_week"`
-	Days          []SceneWeekDay `json:"days"`
-	TrackedVenues []string       `json:"tracked_venues"`
+	IsPastWeek    bool                `json:"is_past_week"`
+	Days          []SceneWeekDay      `json:"days"`
+	TrackedVenues []SceneTrackedVenue `json:"tracked_venues"`
 }
 
 // SceneTrackedVenue is one room a scene draws from, with enough to LINK it.
 //
-// The week payload names its rooms as bare strings, which is all a static
-// footer needs. A quiet night has to do more: it invites the reader to check
-// the rooms themselves, so each room needs either its own site or its page
-// here. Website is served from the venue row's own column — the venue LIST
-// projections omit it, which is why this cannot be assembled client-side from
-// an existing endpoint.
+// Day and week payloads both send this type so the rooms footer can link to
+// /venues/{slug} when a slug is on file. Website is served from the venue
+// row's own column — the venue LIST projections omit it, which is why this
+// cannot be assembled client-side from an existing endpoint. The footer does
+// not use website as an href.
 type SceneTrackedVenue struct {
 	Name    string `json:"name"`
 	Slug    string `json:"slug,omitempty"`    // "" when the venue has no slug; clients then render it unlinked
@@ -1354,11 +1353,10 @@ type SceneTrackedVenue struct {
 // tracked-venue set SceneTrackedVenue describes, ranked by how much is coming up
 // in it.
 //
-// A separate type from SceneTrackedVenue rather than extra fields on it, for
-// the same reason the week payload keeps its bare-string shape: the day page's
-// footer reads a linkable list and needs none of the ranking fields, and
-// widening one wire format to serve a different page churns every consumer of
-// the first. The two types must agree on the SET of rooms, which
+// A separate type from SceneTrackedVenue rather than extra fields on it: the
+// day and week footers read a linkable list and need none of the ranking
+// fields, and widening one wire format to serve a different page churns every
+// consumer of the first. The two types must agree on the SET of rooms, which
 // trackedVenuePredicate enforces; they are free to disagree on shape.
 type SceneVenueSummary struct {
 	// ID is the venue row's id, and it is not decoration: venue names are unique

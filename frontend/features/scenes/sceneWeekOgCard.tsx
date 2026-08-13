@@ -89,7 +89,7 @@ export async function renderSceneWeekOgCard(
   )
 
   const roomsLine = fitItemList(
-    data.tracked_venues ?? [],
+    (data.tracked_venues ?? []).map(v => v.name),
     'satoshiRegular',
     FOOTER_SIZE,
     ROOMS_MAX_WIDTH,
