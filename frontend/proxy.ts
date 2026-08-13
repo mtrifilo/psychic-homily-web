@@ -329,6 +329,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (sub === 'tonight') {
       return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
     }
+    // File-convention OG card on the rolling detail URL. Without this branch
+    // `opengraph-image` is a junk period and 404s before Next sees the route
+    // (PSY-1785). Probe scene existence, same as `/tonight`: the card's own
+    // fetch then draws the current week. The PAGE does not advertise this URL
+    // (unfurl caches key on it forever); it stays addressable on its own.
+    if (sub === 'opengraph-image') {
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+    }
     if (CALENDAR_DATE_SEGMENT.test(sub)) {
       if (!periodYearInRange(sub) || !isRealCalendarDate(sub)) {
         return notFoundResponse(request)

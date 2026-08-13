@@ -44,6 +44,10 @@ describe('proxy — scene period routes', () => {
   it.each([
     ['/scenes/phoenix-az/week', 'http://localhost:8080/scenes/phoenix-az/week'],
     ['/scenes/phoenix-az/tonight', 'http://localhost:8080/entities/scenes/phoenix-az/exists'],
+    [
+      '/scenes/phoenix-az/opengraph-image',
+      'http://localhost:8080/entities/scenes/phoenix-az/exists',
+    ],
     ['/scenes/phoenix-az/2026-W31', 'http://localhost:8080/scenes/phoenix-az/week/2026-W31'],
     ['/scenes/phoenix-az/2026-07-31', 'http://localhost:8080/entities/scenes/phoenix-az/exists'],
   ])('existence-checks %s against %s', async (path, expected) => {
