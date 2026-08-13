@@ -261,6 +261,12 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 // visitor GETs with no Authorization never hit the database. Admin session JWTs
 // still route to the per-user 300/min bucket, not this bypass.
 //
+// Failed validation falls through to anonLimiter, so the DB lookup runs BEFORE
+// the per-IP cap. That order is load-bearing: validating after the limiter
+// would increment the anonymous bucket for real ingest tokens (PSY-1814 AC).
+// Forged-prefix floods can therefore generate hashed lookups beyond 100/min;
+// a per-IP pre-cap on validation would re-starve ingest on a shared IP.
+//
 // AGGREGATE PER-IP BOUND (PSY-1378): the per-user cap bounds a SINGLE account. On
 // its own it does not bound aggregate throughput from one IP running many scripted
 // accounts (N accounts = N × the per-user cap). ipCeilingLimiter closes that: it is
