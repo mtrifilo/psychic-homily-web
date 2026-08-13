@@ -19,8 +19,18 @@ interface SceneDetailProps {
 }
 
 /**
- * The band across the top of the page: where you are, how much is here, how
- * many rooms this page speaks for, and which clock every time below is on.
+ * Quiet metadata under the site nav: how much is here, how many rooms this
+ * page speaks for, and which clock every time below is on.
+ *
+ * Wave 1A copied ShowStatusStripe's inverse fill (`bg-foreground
+ * text-background`). That token swap matches Figma DENSE 1335:16 in light
+ * mode, and in dark mode it becomes a cream masthead. The mock also drew
+ * the strip as the top of the page — no site chrome in the file. Under the
+ * real nav, a filled invert is a second header. PSY-1815 demotes it to a
+ * hairline + muted mono so it recedes in both themes. ShowStatusStripe
+ * stays inverted: on a show page it is the top of the content.
+ *
+ * City/state is not in this line. Breadcrumb and H1 already name the place.
  *
  * The volume clause is the SPARSE frame's spelling (`1 UPCOMING SHOW`), which
  * is `upcoming_show_count` straight off this payload. It repeats a number the
@@ -42,7 +52,7 @@ interface SceneDetailProps {
  *    was therefore either an undercount or a flat "nothing tonight" on a night
  *    that had shows, contradicting `/scenes/{slug}/tonight` one click away in
  *    the window strip. Give the detail payload a real tonight count, or read
- *    the day payload, and the clause can come back.
+ *    the day payload, and the clause can come back (PSY-1807).
  */
 function SceneStatusBand({ scene }: { scene: SceneDetail }) {
   const { timeZone } = useSceneCalendarWindow(scene.slug)
@@ -50,18 +60,17 @@ function SceneStatusBand({ scene }: { scene: SceneDetail }) {
 
   const { stats } = scene
   const parts = [
-    `${scene.city}, ${scene.state}`,
     `${stats.upcoming_show_count} upcoming show${stats.upcoming_show_count === 1 ? '' : 's'}`,
     `${stats.venue_count} room${stats.venue_count === 1 ? '' : 's'} tracked`,
     zoneLabel && `all times ${zoneLabel}`,
   ].filter(Boolean)
 
   // The negative margins cancel `app/scenes/[slug]/page.tsx`'s `px-4 py-8
-  // md:px-8` so the band reaches the edges of the content column instead of
-  // sitting inside its gutter. That is a real coupling to the route shell: if
-  // the page's padding changes, these have to change with it.
+  // md:px-8` so the hairline reaches the edges of the content column instead
+  // of sitting inside its gutter. That is a real coupling to the route shell:
+  // if the page's padding changes, these have to change with it.
   return (
-    <div className="-mx-4 -mt-8 mb-6 bg-foreground px-4 py-2.5 text-background md:-mx-8 md:px-8">
+    <div className="-mx-4 -mt-8 mb-6 border-b border-border px-4 py-2.5 text-muted-foreground md:-mx-8 md:px-8">
       <p className="font-mono text-[11px] uppercase tracking-widest">
         {parts.join(' · ')}
       </p>

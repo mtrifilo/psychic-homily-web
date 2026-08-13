@@ -163,13 +163,21 @@ describe('SceneDetailView', () => {
       })
     })
 
-    it('names the place, the volume, the coverage and the clock', () => {
+    it('names the volume, the coverage and the clock', () => {
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
-      expect(
-        screen.getByText(
-          'Phoenix, AZ · 45 upcoming shows · 12 rooms tracked · all times MST'
-        )
-      ).toBeInTheDocument()
+      const line = screen.getByText(
+        '45 upcoming shows · 12 rooms tracked · all times MST'
+      )
+      expect(line).toBeInTheDocument()
+      expect(line.parentElement).toHaveClass('border-b')
+      expect(line.parentElement).not.toHaveClass('bg-foreground')
+    })
+
+    // Breadcrumb and H1 already name the place. Repeating it here was a
+    // second header under the site nav (PSY-1815).
+    it('does not repeat the city in the band', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText(/Phoenix, AZ ·/)).not.toBeInTheDocument()
     })
 
     it('pluralizes a single upcoming show', () => {
@@ -187,7 +195,7 @@ describe('SceneDetailView', () => {
       })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
-        screen.getByText('Phoenix, AZ · 1 upcoming show · 1 room tracked · all times MST')
+        screen.getByText('1 upcoming show · 1 room tracked · all times MST')
       ).toBeInTheDocument()
     })
 
@@ -198,7 +206,7 @@ describe('SceneDetailView', () => {
       mockCalendarWindow.mockReturnValue({ timeZone: undefined })
       renderWithProviders(<SceneDetailView slug="phoenix-az" />)
       expect(
-        screen.getByText('Phoenix, AZ · 45 upcoming shows · 12 rooms tracked')
+        screen.getByText('45 upcoming shows · 12 rooms tracked')
       ).toBeInTheDocument()
     })
 
