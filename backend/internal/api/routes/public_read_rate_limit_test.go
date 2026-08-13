@@ -39,7 +39,7 @@ func TestIsPublicReadRateLimitEnabled(t *testing.T) {
 // limit. This is what keeps CI/E2E and a fresh prod deploy unthrottled until the
 // limiter is deliberately enabled per environment (stage-first rollout).
 func TestPublicReadRateLimiter_NotEnabledIsNoop(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, func(string) string { return "" })
+	mw := PublicReadRateLimiter(nil, nil, func(string) string { return "" })
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -58,7 +58,7 @@ func TestPublicReadRateLimiter_NotEnabledIsNoop(t *testing.T) {
 // Enabled + nil JWT (all requests anonymous) → anonymous READS are limited:
 // APIRequestsPerMinute pass, the next is 429 with Retry-After.
 func TestPublicReadRateLimiter_EnabledLimitsAnonymousReads(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -90,7 +90,7 @@ func TestPublicReadRateLimiter_EnabledLimitsAnonymousReads(t *testing.T) {
 // GET/HEAD filter — otherwise it is an unmetered aggregate query over
 // user_bookmarks for any anonymous caller.
 func TestPublicReadRateLimiter_LimitsReadViaPostBatch(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -117,7 +117,7 @@ func TestPublicReadRateLimiter_LimitsReadViaPostBatch(t *testing.T) {
 // The batch follow-count endpoint is a READ that carries entity IDs in a POST
 // body. It must share the anonymous read budget (PSY-1397).
 func TestPublicReadRateLimiter_LimitsFollowsBatch(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -165,7 +165,7 @@ func TestReadViaPostPaths_CoversOptionalAuthPosts(t *testing.T) {
 }
 
 func TestPublicReadRateLimiter_LimitsReleaseSaveBatch(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -192,7 +192,7 @@ func TestPublicReadRateLimiter_LimitsReleaseSaveBatch(t *testing.T) {
 // Genuine follow writes must bypass the read budget — only the batch read path
 // is on the read-via-POST allowlist, not /{entity_type}/{entity_id}/follow.
 func TestPublicReadRateLimiter_FollowWriteNotLimited(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -211,7 +211,7 @@ func TestPublicReadRateLimiter_FollowWriteNotLimited(t *testing.T) {
 // A genuine write on a path that merely LOOKS adjacent must still bypass the
 // read budget — the allowlist is exact-match, not a prefix.
 func TestPublicReadRateLimiter_SaveWriteNotLimited(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -230,7 +230,7 @@ func TestPublicReadRateLimiter_SaveWriteNotLimited(t *testing.T) {
 // Writes (non-GET/HEAD) are NOT limited here — they keep their own dedicated
 // limiters, so a shared read budget can't 429 an anonymous write.
 func TestPublicReadRateLimiter_WritesNotLimited(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -259,7 +259,7 @@ func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
 
 	for path, remoteAddr := range probes {
 		t.Run(path, func(t *testing.T) {
-			mw := PublicReadRateLimiter(nil, enableEnv)
+			mw := PublicReadRateLimiter(nil, nil, enableEnv)
 			handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -282,7 +282,7 @@ func TestPublicReadRateLimiter_HealthPathsExempt(t *testing.T) {
 // anonymous public-read per-IP bucket (PSY-1418) or feed fetchers get unfairly
 // 429'd. The /feeds/ prefix covers both saved-shows.ics and follows.atom.
 func TestPublicReadRateLimiter_PersonalFeedPathsExempt(t *testing.T) {
-	mw := PublicReadRateLimiter(nil, enableEnv)
+	mw := PublicReadRateLimiter(nil, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -354,7 +354,7 @@ func TestPublicReadRateLimiter_AuthenticatedUsesPerUserCap(t *testing.T) {
 		t.Fatalf("CreateToken: %v", err)
 	}
 
-	mw := PublicReadRateLimiter(jwtService, enableEnv)
+	mw := PublicReadRateLimiter(jwtService, nil, enableEnv)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -370,5 +370,107 @@ func TestPublicReadRateLimiter_AuthenticatedUsesPerUserCap(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Fatalf("authenticated request %d (past anon cap): status = %d, want 200 (per-user cap is higher)", i, rr.Code)
 		}
+	}
+}
+
+// PSY-1814: a validated phk_ token is exempt from the anonymous per-IP budget.
+func TestPublicReadRateLimiter_ValidatedAPITokenBypassesAnonCap(t *testing.T) {
+	const valid = "phk_validated-ingest"
+	mw := PublicReadRateLimiter(nil, func(tok string) bool { return tok == valid }, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	const sharedIP = "7.7.7.40:100"
+	for i := 0; i < middleware.APIRequestsPerMinute+1; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/artists/search", nil)
+		req.Header.Set("Authorization", "Bearer "+valid)
+		req.RemoteAddr = sharedIP
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("validated ingest %d: status = %d, want 200 (must not 429 at anon cap+1)", i, rr.Code)
+		}
+	}
+
+	// Same-IP anonymous visitor still has a full anonymous budget.
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/scenes", nil)
+		req.RemoteAddr = sharedIP
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("visitor read %d after ingest burst: status = %d, want 200", i, rr.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/scenes", nil)
+	req.RemoteAddr = sharedIP
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("visitor past own cap: status = %d, want 429 (visitor still metered independently)", rr.Code)
+	}
+}
+
+// PSY-1814 / PSY-1362: a forged phk_ prefix still 429s at the anonymous cap.
+func TestPublicReadRateLimiter_ForgedAPITokenHitsAnonCap(t *testing.T) {
+	mw := PublicReadRateLimiter(nil, func(string) bool { return false }, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	const sharedIP = "7.7.7.41:100"
+	for i := 0; i < middleware.APIRequestsPerMinute; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/artists/search", nil)
+		req.Header.Set("Authorization", "Bearer phk_forged")
+		req.RemoteAddr = sharedIP
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("forged %d within limit: status = %d, want 200", i, rr.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/artists/search", nil)
+	req.Header.Set("Authorization", "Bearer phk_forged")
+	req.RemoteAddr = sharedIP
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("forged past limit: status = %d, want 429 (prefix-only must fail closed)", rr.Code)
+	}
+}
+
+func TestPublicReadRateLimiter_CapsUnchanged(t *testing.T) {
+	if middleware.APIRequestsPerMinute != 100 {
+		t.Errorf("APIRequestsPerMinute = %d, want 100", middleware.APIRequestsPerMinute)
+	}
+	if middleware.PublicReadUserRequestsPerMinute != 300 {
+		t.Errorf("PublicReadUserRequestsPerMinute = %d, want 300", middleware.PublicReadUserRequestsPerMinute)
+	}
+	if middleware.PublicReadAuthenticatedIPCeilingPerMinute != 1000 {
+		t.Errorf("PublicReadAuthenticatedIPCeilingPerMinute = %d, want 1000", middleware.PublicReadAuthenticatedIPCeilingPerMinute)
+	}
+}
+
+// PSY-1814: visitor GETs with no Authorization must not invoke ValidateToken.
+func TestPublicReadRateLimiter_NoAuthDoesNotHitValidateCallback(t *testing.T) {
+	called := false
+	mw := PublicReadRateLimiter(nil, func(string) bool {
+		called = true
+		return false
+	}, enableEnv)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/venues/search", nil)
+	req.RemoteAddr = "7.7.7.42:100"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("anonymous GET: status = %d, want 200", rr.Code)
+	}
+	if called {
+		t.Error("validateAPIToken was called with no Authorization header (must stay DB-free)")
 	}
 }

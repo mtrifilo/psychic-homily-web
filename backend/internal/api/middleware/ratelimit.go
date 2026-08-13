@@ -240,20 +240,32 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 // RateLimitPublicReadsByAuthState routes each request to the right limiter:
 // authenticated (a cryptographically-verified session JWT) → a per-USER bucket
 // (userLimiter, higher cap) additionally guarded by a coarse per-IP ceiling
-// (ipCeilingLimiter, PSY-1378); anonymous → a per-IP bucket (anonLimiter).
+// (ipCeilingLimiter, PSY-1378); a validated phk_ API token (PSY-1814) → no
+// public-read limiter at all; anonymous → a per-IP bucket (anonLimiter).
 //
 // PSY-1373: this replaces the old full bypass for authenticated users. A full
 // bypass meant one throwaway signup defeated the anti-scraping limit entirely
 // (session tokens mint without a human gate). A finite per-user cap keeps
 // shared-IP logged-in users un-collided (each keyed by their own id, so an office
 // doesn't share one bucket — PSY-1362's requirement) while still metering a
-// scraper account. DB-free: the id comes from the verified token
-// (auth.JWTService.SessionUserID), no per-request DB query.
+// scraper account. Session-JWT path is DB-free: the id comes from the verified
+// token (auth.JWTService.SessionUserID), no per-request DB query.
 //
-// SECURITY: like PSY-1362 this does NOT honor the phk_ API-token prefix (trusted
-// without validation) — a forged prefix must not grant the higher authenticated
-// cap on these no-downstream-auth public reads. Only an unforgeable JWT with a
-// user_id claim routes to the per-user limiter; everything else is anonymous.
+// SECURITY: do NOT reuse isTrustedAPIToken / SkipRateLimitForAdmin here — those
+// trust the phk_ prefix with no DB lookup, which is safe only on write paths
+// that still authenticate downstream. A forged prefix must not grant a higher
+// cap (or a bypass) on these no-downstream-auth public reads. Only
+// APITokenService.ValidateToken (hashes, DB lookup, revoked/expired/inactive
+// checks), injected as validateAPIToken, exempts a request from the anonymous
+// bucket. The callback is invoked only when the bearer has the phk_ prefix, so
+// visitor GETs with no Authorization never hit the database. Admin session JWTs
+// still route to the per-user 300/min bucket, not this bypass.
+//
+// Failed validation falls through to anonLimiter, so the DB lookup runs BEFORE
+// the per-IP cap. That order is load-bearing: validating after the limiter
+// would increment the anonymous bucket for real ingest tokens (PSY-1814 AC).
+// Forged-prefix floods can therefore generate hashed lookups beyond 100/min;
+// a per-IP pre-cap on validation would re-starve ingest on a shared IP.
 //
 // AGGREGATE PER-IP BOUND (PSY-1378): the per-user cap bounds a SINGLE account. On
 // its own it does not bound aggregate throughput from one IP running many scripted
@@ -275,7 +287,7 @@ func RateLimitPublicReadAuthenticatedIPCeiling() func(http.Handler) http.Handler
 // avoid. With this order the ceiling counts only requests that cleared the per-user
 // cap (real delivered throughput), while the multi-account aggregate bound still
 // holds (e.g. 4 accounts × 300/min = 1200 > 1000 trips the ceiling).
-func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, anonLimiter, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, validateAPIToken func(string) bool, anonLimiter, userLimiter, ipCeilingLimiter func(http.Handler) http.Handler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		anon := anonLimiter(next)
 		// Authenticated path: per-user cap OUTER, per-IP ceiling INNER (see the
@@ -286,6 +298,10 @@ func RateLimitPublicReadsByAuthState(jwtService *auth.JWTService, anonLimiter, u
 			if uid, ok := sessionUserID(jwtService, r); ok {
 				ctx := context.WithValue(r.Context(), rateLimitUserIDKey{}, uid)
 				user.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			if validatedAPIToken(validateAPIToken, r) {
+				next.ServeHTTP(w, r)
 				return
 			}
 			anon.ServeHTTP(w, r)
@@ -305,6 +321,23 @@ func sessionUserID(jwtService *auth.JWTService, r *http.Request) (uint, bool) {
 		return 0, false
 	}
 	return jwtService.SessionUserID(token)
+}
+
+// validatedAPIToken reports whether the request carries a cryptographically
+// validated phk_ API token. Prefix-only is NOT enough (see SECURITY comment on
+// RateLimitPublicReadsByAuthState): a forged phk_ must stay on the anonymous
+// bucket. The callback is the DB lookup (APITokenService.ValidateToken); this
+// helper only invokes it when the token has the phk_ prefix, so visitor GETs
+// with no Authorization — and JWTs that failed SessionUserID — never hit the DB.
+func validatedAPIToken(validate func(string) bool, r *http.Request) bool {
+	if validate == nil {
+		return false
+	}
+	token := extractJWT(r)
+	if !strings.HasPrefix(token, APITokenPrefix) {
+		return false
+	}
+	return validate(token)
 }
 
 // extractJWT reads the JWT from either the Authorization header or the
