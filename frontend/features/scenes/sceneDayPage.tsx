@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import type { Metadata } from 'next'
 import { JsonLd } from '@/components/seo/JsonLd'
+import { OG_CONTENT_TYPE, OG_SIZE } from '@/lib/og/brand'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneDayView } from './components/SceneDayView'
 import { fetchSceneDay } from './sceneDayApi'
@@ -131,6 +132,27 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
       ? { index: false, follow: true }
       : undefined
 
+  // The rolling /tonight URL is a constant (hash of the route source), so
+  // pointing scrapers at `tonight/opengraph-image` would pin whichever week
+  // they first saw. The family has one renderer, and the dated permalink's
+  // file-convention image 404s a date key, so the URL that actually varies
+  // AND serves a card is the archived week image, keyed by the night's
+  // `iso_week` from the payload — the same week this page canonicalizes to,
+  // including Monday before 6am. Setting `images` explicitly also suppresses
+  // the `[period]` convention on the dated permalink, which would otherwise
+  // advertise that 404. The site-wide jpg stays on dated nights and on a
+  // payload that cannot name its week.
+  const ogImage =
+    isRollingRoute && day.iso_week
+      ? {
+          url: `${SITE_URL}/scenes/${day.slug}/${day.iso_week}/opengraph-image`,
+          width: OG_SIZE.width,
+          height: OG_SIZE.height,
+          type: OG_CONTENT_TYPE,
+          alt: description,
+        }
+      : { url: '/og-image.jpg', width: OG_SIZE.width, height: OG_SIZE.height, alt: 'Psychic Homily' }
+
   return {
     title,
     description,
@@ -148,15 +170,7 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
       // both. The dated permalink names exactly the night these tags describe.
       url: dayPermalink,
       type: 'website',
-      // Set explicitly to suppress the `opengraph-image` in the `[period]`
-      // segment — the segment the DATED permalink renders under, so its
-      // convention image would be injected here. That route renders the WEEK
-      // card and answers 404 for a date key, so inheriting it would advertise
-      // a card that does not exist. The site-wide card is a plain truth about
-      // the site rather than a wrong claim about this night. Do not delete
-      // this because it looks redundant from /tonight, where the convention
-      // is not inherited: the dated permalink is the one that needs it.
-      images: [{ url: '/og-image.jpg', width: 1200, height: 630, alt: 'Psychic Homily' }],
+      images: [ogImage],
     },
     // `images` is deliberately absent: Next copies the openGraph descriptor
     // across when Twitter has none, so omitting it inherits the alt and

@@ -124,6 +124,7 @@ describe('buildSceneDayMetadata', () => {
     expect(meta.alternates?.canonical).toBe(
       'https://psychichomily.com/scenes/phoenix-az/2026-07-31'
     )
+    expect(JSON.stringify(meta.openGraph?.images)).toContain('/og-image.jpg')
   })
 
   // The fallback above is only worth anything if the URL it falls back TO is
@@ -193,6 +194,11 @@ describe('buildSceneDayMetadata', () => {
     expect(meta.alternates?.canonical).toBe(
       'https://psychichomily.com/scenes/phoenix-az/2026-W31'
     )
+    const images = meta.openGraph?.images
+    const image = Array.isArray(images) ? images[0] : images
+    expect(image).toMatchObject({
+      url: 'https://psychichomily.com/scenes/phoenix-az/2026-W31/opengraph-image',
+    })
   })
 
   // Thin content — real, worth serving, worth linking out of, not worth an
@@ -240,12 +246,34 @@ describe('buildSceneDayMetadata', () => {
   })
 
   // The sibling [period] route contributes an opengraph-image that renders the
-  // WEEK card and 404s a date key. Setting images explicitly is what stops Next
-  // injecting it — so this assertion is load-bearing, not decorative.
-  it('advertises a share image that exists', async () => {
+  // WEEK card and 404s a date key. The rolling /tonight URL is itself a
+  // constant, so the image we advertise is the archived week card — the URL
+  // that both varies (it carries the night's iso_week) and actually serves a
+  // card. Setting images explicitly is also what stops Next injecting the
+  // dated permalink's 404 convention image.
+  it('points the rolling route at the archived week card', async () => {
     fetchSceneDay.mockResolvedValue(day())
 
     const meta = await buildSceneDayMetadata('phoenix-az')
+    const images = meta.openGraph?.images
+    const image = Array.isArray(images) ? images[0] : images
+
+    expect(image).toEqual({
+      url: 'https://psychichomily.com/scenes/phoenix-az/2026-W31/opengraph-image',
+      width: 1200,
+      height: 630,
+      type: 'image/png',
+      alt: meta.description,
+    })
+    expect(meta.twitter).not.toHaveProperty('images')
+  })
+
+  // Dated permalinks still suppress the [period] convention 404 with the
+  // site-wide card. A generated card per night is a different ticket.
+  it('keeps the site-wide card on a dated permalink', async () => {
+    fetchSceneDay.mockResolvedValue(day())
+
+    const meta = await buildSceneDayMetadata('phoenix-az', '2026-07-31')
 
     expect(meta.openGraph?.images).toBeDefined()
     expect(JSON.stringify(meta.openGraph?.images)).toContain('/og-image.jpg')
