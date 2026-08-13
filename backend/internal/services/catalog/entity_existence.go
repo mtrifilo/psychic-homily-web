@@ -99,7 +99,7 @@ func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
 		// both sides (handles mixed-case venue data) AND is lossless for hyphenated
 		// city names like "Winston-Salem" — unlike re-parsing the slug, which would
 		// collapse the hyphen to a space and miss the stored row.
-		q = q.Where("LOWER(REPLACE(city, ' ', '-')) || '-' || LOWER(state) = ?", strings.ToLower(slug))
+		q = q.Where(sceneSlugExprSQL+" = ?", strings.ToLower(slug))
 	}
 	var verifiedVenueCount int64
 	if err := q.Distinct("id").Count(&verifiedVenueCount).Error; err != nil {
