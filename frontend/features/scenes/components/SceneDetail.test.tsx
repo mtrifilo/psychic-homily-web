@@ -25,6 +25,18 @@ vi.mock('./SceneNotifyModeToggle', () => ({
   SceneNotifyModeToggle: () => null,
 }))
 
+vi.mock('@/components/shared/ShareButton', () => ({
+  ShareButton: ({ path }: { path: string }) => (
+    <button data-testid="share-button">{path}</button>
+  ),
+}))
+
+vi.mock('./SceneAddToCalendar', () => ({
+  SceneAddToCalendar: ({ slug }: { slug: string }) => (
+    <button data-testid="scene-add-to-calendar">{slug}</button>
+  ),
+}))
+
 vi.mock('next/link', () => ({
   default: ({
     href,
@@ -344,6 +356,18 @@ describe('SceneDetailView', () => {
       expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBe(
         screen.getByTestId('scene-roster')
       )
+    })
+
+    it('puts share and the scene .ics feed in the header action row', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.getByTestId('share-button')).toHaveTextContent('/scenes/phoenix-az')
+      expect(screen.getByTestId('scene-add-to-calendar')).toHaveTextContent('phoenix-az')
+    })
+
+    it('does not render editorial scaffolding in the reserved slot', () => {
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText(/scene report/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/newsfeed/i)).not.toBeInTheDocument()
     })
 
     it('mounts the SceneGraph below the calendar substance', () => {

@@ -6,9 +6,13 @@ import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
 import { HydrationBoundary } from '@tanstack/react-query'
 import type { SceneDetail } from '@/features/scenes'
+import { JsonLd } from '@/components/seo/JsonLd'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
+import { buildSceneWeekJsonLd } from '@/features/scenes/sceneWeekJsonLd'
+import { sceneDetailOgImages } from '@/features/scenes/sceneDetailShare'
 
 // Imported from the component FILE, never a `@/features/scenes` barrel — see
 // the note in features/scenes/components/index.ts for why the barrel would undo
@@ -74,6 +78,17 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
   return null
 })
 
+/**
+ * Current week for this scene, cached so `generateMetadata` and the JSON-LD
+ * injection share one trip. Fetched through `sceneWeekApi` rather than
+ * `sceneWeekPage` so this route does not pull the week view (or `next/og`)
+ * into its graph. `undefined` week = the backend's current week, in the
+ * scene's own timezone.
+ */
+const getSceneWeek = cache((slug: string) =>
+  fetchSceneWeek(slug, undefined, 'scene-week')
+)
+
 export async function generateMetadata({
   params,
 }: ScenePageProps): Promise<Metadata> {
@@ -99,6 +114,25 @@ export async function generateMetadata({
   // to anyone who shares the link.
   const description = `Upcoming shows, venues and local artists in the ${scene.city}, ${scene.state} music scene.`
 
+  // Both this rolling URL and `/week` advertise the ARCHIVED card. Next would
+  // otherwise inject this route's own file-convention image, and that URL is a
+  // constant — it carries a hash of the route source, not of the week.
+  // Facebook, Discord and Slack cache an unfurled image against its URL for
+  // far longer than any header we set, so the rolling URL would keep showing
+  // whichever week that scraper happened to see first. The archived URL
+  // carries the week, so a new week is a new image.
+  //
+  // Setting `images` explicitly suppresses the file convention, so the
+  // dimensions and alt that convention would have supplied are given here.
+  // `twitter.images` is deliberately absent: Next copies the openGraph
+  // descriptor across when Twitter has none, so omitting it inherits the alt
+  // and dimensions. Setting a bare URL string there would silently drop them.
+  const week = await getSceneWeek(slug)
+  const ogImages =
+    week?.slug && week.iso_week
+      ? sceneDetailOgImages(week.slug, week.iso_week, description)
+      : undefined
+
   return {
     title,
     description,
@@ -110,7 +144,9 @@ export async function generateMetadata({
       description,
       url: `/scenes/${slug}`,
       type: 'website',
+      ...(ogImages ? { images: ogImages } : {}),
     },
+    twitter: { card: 'summary_large_image', title, description },
   }
 }
 
@@ -145,9 +181,23 @@ export default async function ScenePage({ params }: ScenePageProps) {
     scene,
   )
 
+  // Reuse the week builder (BreadcrumbList + ItemList + MusicEvent[]) rather
+  // than inventing a fourth scene JSON-LD shape. The detail page POINTS at
+  // `/week`; the structured data describes that same week so a crawler that
+  // landed here and one that landed on `/week` cannot disagree about a show.
+  const week = await getSceneWeek(slug)
+  const jsonLd = week ? buildSceneWeekJsonLd(week) : null
+
   return (
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
+        {jsonLd && (
+          <>
+            <JsonLd data={jsonLd.breadcrumb} />
+            {jsonLd.itemList && <JsonLd data={jsonLd.itemList} />}
+            {jsonLd.events.length > 0 && <JsonLd data={jsonLd.events} />}
+          </>
+        )}
         <HydrationBoundary state={dehydratedState}>
           <Suspense fallback={<SceneLoadingFallback />}>
             <SceneDetailView slug={slug} />

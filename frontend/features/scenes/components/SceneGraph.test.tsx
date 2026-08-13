@@ -15,7 +15,7 @@ const mockData: SceneGraphResponse = {
     // two are equal (ArtistCount: len(rows)), and the header renders this
     // contract field via sceneArtistCountPhrase (PSY-1296).
     artist_count: 4,
-    edge_count: 4,
+    edge_count: 8,
     metro_roster_total: 4,
     roster_truncated: false,
   },
@@ -120,8 +120,12 @@ describe('SceneGraph', () => {
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
     expect(screen.getByText('Scene graph')).toBeInTheDocument()
     expect(screen.getByText(/4 artists/)).toBeInTheDocument()
-    expect(screen.getByText(/4 connections/)).toBeInTheDocument()
-    expect(screen.getByText(/1 unconnected/)).toBeInTheDocument()
+    expect(screen.getByText(/8 connections/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /\+1 not yet connected artists\. Add a show or a label to put one on the map/,
+      ),
+    ).toBeInTheDocument()
     // Untruncated roster → plain count, no "top N of M" hint (PSY-1296).
     expect(screen.queryByText(/top \d+ of \d+/i)).not.toBeInTheDocument()
   })
@@ -242,6 +246,35 @@ describe('SceneGraph', () => {
       <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
     )
     expect(container.firstChild).toBeNull()
+  })
+
+  // PSY-1785 / locked decision 14: the section HIDES below 8 edges, even when
+  // the node count would have passed the old MIN_GRAPH_NODES = 3 gate.
+  it('hides the whole section when edge_count is below 8', () => {
+    vi.mocked(useSceneGraph).mockImplementation(
+      () =>
+        ({
+          data: {
+            ...mockData,
+            scene: { ...mockData.scene, edge_count: 7 },
+          },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
+    const { container } = renderWithProviders(
+      <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
+    )
+    expect(container.firstChild).toBeNull()
+    expect(screen.queryByText('Scene graph')).not.toBeInTheDocument()
+  })
+
+  it('links the section foot to /graph, not a re-rooted artist URL', () => {
+    renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+    expect(
+      screen.getByRole('link', { name: 'View this scene on the whole map →' }),
+    ).toHaveAttribute('href', '/graph')
   })
 
   it('renders the header + a height-reserving skeleton (not null) while loading (PSY-1446)', async () => {
@@ -502,6 +535,27 @@ describe('SceneGraph', () => {
       expect(
         within(overlay).getByRole('button', { name: 'Community' }),
       ).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    // Locked P3: the Venue | Community toggle is hidden below 2 resolved
+    // (non-"other") clusters. A single venue cluster has nothing to switch to.
+    it('hides the cluster-by toggle when fewer than 2 clusters are resolved', () => {
+      vi.mocked(useSceneGraph).mockImplementation(
+        () =>
+          ({
+            data: {
+              ...mockData,
+              clusters: [{ id: 'v_1', label: 'Valley Bar', size: 6, color_index: 0 }],
+            },
+            isLoading: false,
+            error: null,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          }) as any,
+      )
+      renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
+      expect(screen.queryByRole('button', { name: 'Venue' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Community' })).not.toBeInTheDocument()
+      expect(screen.getByTestId('scene-graph-canvas')).toBeInTheDocument()
     })
   })
 })

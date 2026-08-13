@@ -10,7 +10,8 @@
  * PSY-516: graph is visible by default at ≥640px (previously hidden behind a
  * "View map" / "Hide map" toggle). Dogfood feedback flagged the toggle as
  * friction on a feature whose value is the immediate visual scan. Mobile
- * gating and the empty-state (`<3` connected artists) gate are unchanged.
+ * gating is unchanged. The empty-state gate is now `edge_count >= 8`
+ * (PSY-1785, locked decision 14): the whole section hides below that.
  *
  * PSY-1320: cluster lenses. A "Clusters: Venue | Community" pill toggle
  * switches the backend's `cluster_by` param between most-frequent-venue
@@ -40,6 +41,7 @@
  */
 
 import { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
@@ -52,10 +54,10 @@ import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useCo
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
 import { SceneGraphVisualization } from './SceneGraphVisualization'
-import { sceneArtistCountPhrase, sceneLabelCountPhrase } from './sceneGraphCopy'
+import { sceneArtistCountPhrase, sceneIsolateHookCopy, sceneLabelCountPhrase } from './sceneGraphCopy'
 import { sentenceCase } from '@/components/graph/truncatedCountPhrase'
 
-const MIN_GRAPH_NODES = 3
+const MIN_GRAPH_EDGES = 8
 
 const CLUSTER_MODES: { value: SceneGraphClusterBy; label: string }[] = [
   { value: 'venue', label: 'Venue' },
@@ -106,7 +108,9 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
   const nodeCount = data?.nodes.length ?? 0
   const edgeCount = data?.scene.edge_count ?? 0
-  const hasEnoughForGraph = nodeCount >= MIN_GRAPH_NODES
+  // Locked decision 14: the section HIDES below 8 edges. Node count is no
+  // longer the gate; a star of isolates is not a map of who plays with whom.
+  const hasEnoughForGraph = edgeCount >= MIN_GRAPH_EDGES
   // Mobile gating: < sm breakpoint (640px) hides the graph entirely; the
   // existing scene page list view remains the only surface (PSY-369 / PSY-511).
   // `containerWidth === null` (pre-measurement) also gates off.
@@ -185,9 +189,16 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   }
 
   // Section is rendered (with the header) so users get scale info even when
-  // the graph is unavailable (e.g. mobile). Empty state: scene has < 3
-  // connected artists — render nothing rather than a confusing skeleton.
-  if (!data || nodeCount === 0) return null
+  // the graph is unavailable (e.g. mobile). Empty state: scene has fewer than
+  // 8 edges — render nothing rather than a confusing skeleton. `nodeCount`
+  // is kept as a backstop for a payload that claims edges but shipped none.
+  if (!data || nodeCount === 0 || !hasEnoughForGraph) return null
+
+  // Locked P3: the Venue | Community toggle is noise when there aren't two
+  // first-class clusters to switch between. "other" is the rolled-up tail,
+  // not a resolved cluster.
+  const resolvedClusterCount = data.clusters.filter(c => c.id !== 'other').length
+  const showClusterByToggle = resolvedClusterCount >= 2
 
   const toggleCluster = (clusterID: string) => {
     setHiddenClusters(prev => {
@@ -269,7 +280,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
         {isolateCount > 0 && (
           <>
             {' · '}
-            {isolateCount} unconnected
+            {sceneIsolateHookCopy(isolateCount)}
           </>
         )}
       </p>
@@ -321,7 +332,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
 
         {graphAvailable && !isFullscreen && (
           <div className="space-y-3">
-            {clusterByToggle}
+            {showClusterByToggle && clusterByToggle}
 
             <div className={`space-y-3 ${transitionDim}`} aria-busy={isPlaceholderData}>
               {/* Cluster legend — click a row to toggle that cluster's visibility.
@@ -352,6 +363,16 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             </div>
           </div>
         )}
+
+        {/* Locked P4: one /graph link at the section foot. /graph overview does
+            not accept an artist query today (GraphObservatory's startAt is
+            in-session only; the page has no searchParams), so this degrades to
+            plain /graph rather than a re-rooted URL. */}
+        <p className="mt-3 text-xs text-muted-foreground">
+          <Link href="/graph" className="underline underline-offset-4 hover:text-foreground">
+            View this scene on the whole map →
+          </Link>
+        </p>
       </div>
 
       {isFullscreen && graphAvailable && (
@@ -382,7 +403,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
           </div>
 
           <div className="px-4 py-2 border-b border-border/30 space-y-2">
-            {clusterByToggle}
+            {showClusterByToggle && clusterByToggle}
             <div className={transitionDim} aria-busy={isPlaceholderData}>
               {clusterLegend}
             </div>

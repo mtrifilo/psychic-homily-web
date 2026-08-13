@@ -5,7 +5,9 @@ import { MapPin, Tent, ArrowRight, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useSceneDetail } from '../hooks'
 import { FollowButton } from '@/components/shared/FollowButton'
+import { ShareButton } from '@/components/shared/ShareButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
+import { SceneAddToCalendar } from './SceneAddToCalendar'
 import { SceneGraph, SCENE_ARTISTS_ANCHOR } from './SceneGraph'
 import { SceneCalendar, useSceneCalendarWindow } from './SceneCalendar'
 import { SceneRooms } from './SceneRooms'
@@ -149,12 +151,17 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           {sceneStatParts(stats).join(' · ')}
         </p>
 
-        {/* Follow-a-scene (PSY-1340) + notify mode (PSY-1341), moved under the
-            stat line into the mock's action row. Share and the scene .ics feed
-            join them in a later wave; neither exists for a scene today. */}
+        {/* Follow-a-scene (PSY-1340) + notify mode (PSY-1341), plus share and
+            the scene .ics feed (PSY-1785 / locked P6). */}
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <FollowButton entityType="scenes" entityId={slug} />
           <SceneNotifyModeToggle slug={slug} />
+          <ShareButton
+            path={`/scenes/${scene.slug}`}
+            variant="bracket"
+            ariaLabel="Share this scene"
+          />
+          <SceneAddToCalendar slug={scene.slug} />
         </div>
 
         {/* The crews and collectives chip row sits HERE, and renders nothing.
@@ -204,8 +211,15 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
         />
 
         {/* Scene graph (PSY-367): read-only artist relationship map. Section
-            self-hides when there are <3 connected artists or container is mobile. */}
+            self-hides when edge_count < 8 (locked decision 14) or the
+            container is mobile. */}
         <SceneGraph slug={slug} city={scene.city} state={scene.state} />
+
+        {/* The editorial slot sits HERE, and renders nothing.
+            Scene reports are a later decision with no field behind them yet
+            (brief decision 9). The locked sparse frame draws the absent state
+            as simply nothing: no placeholder, no prompt, and no line derived
+            from the data. */}
 
         {stats.festival_count > 0 && (
           <Card>

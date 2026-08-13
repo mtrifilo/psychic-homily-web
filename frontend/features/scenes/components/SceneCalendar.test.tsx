@@ -386,6 +386,14 @@ describe('SceneCalendar', () => {
       ).toHaveAttribute('href', '/scenes/phoenix-az/week')
     })
 
+    it('still offers the scene .ics feed when the window is empty', () => {
+      mockShows([])
+      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+      expect(
+        screen.getByRole('button', { name: /subscribe: \.ics/i })
+      ).toBeInTheDocument()
+    })
+
     // No scaffolding under an empty window: the footer counts rows, and there
     // are none to count.
     it('renders no window footer when there is nothing in the window', () => {
@@ -475,6 +483,14 @@ describe('SceneCalendar', () => {
       expect(
         screen.getByRole('link', { name: 'All upcoming in Phoenix' })
       ).toHaveAttribute('href', '/shows?cities=Phoenix%2CAZ')
+    })
+
+    it('offers the scene .ics feed in the footer', () => {
+      mockShows([buildShow()])
+      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+      expect(
+        screen.getByRole('button', { name: /subscribe: \.ics/i })
+      ).toBeInTheDocument()
     })
   })
 
