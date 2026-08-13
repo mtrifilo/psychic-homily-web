@@ -249,13 +249,17 @@ func okHandler() http.Handler {
 // authenticated ceiling is set generously high (1000) so it never interferes with
 // the routing/isolation assertions; ceiling behavior has its own helper below.
 func authStateMW(jwtService *auth.JWTService) func(http.Handler) http.Handler {
+	return authStateMWValidate(jwtService, nil)
+}
+
+func authStateMWValidate(jwtService *auth.JWTService, validateAPIToken func(string) bool) func(http.Handler) http.Handler {
 	anon := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
 	perUser := httprate.Limit(1, time.Minute, httprate.WithKeyFuncs(rateLimitUserKeyFunc),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
 	ipCeiling := httprate.Limit(1000, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	return RateLimitPublicReadsByAuthState(jwtService, anon, perUser, ipCeiling)
+	return RateLimitPublicReadsByAuthState(jwtService, validateAPIToken, anon, perUser, ipCeiling)
 }
 
 // authStateMWWithCeiling saturates the per-IP authenticated ceiling directly for
@@ -269,7 +273,7 @@ func authStateMWWithCeiling(jwtService *auth.JWTService, ceiling int) func(http.
 		httprate.WithLimitHandler(RateLimitExceededHandler))
 	ipCeiling := httprate.Limit(ceiling, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	return RateLimitPublicReadsByAuthState(jwtService, anon, perUser, ipCeiling)
+	return RateLimitPublicReadsByAuthState(jwtService, nil, anon, perUser, ipCeiling)
 }
 
 func readReq(remoteAddr, bearer string) *http.Request {
@@ -364,8 +368,9 @@ func TestRateLimitPublicReadUserEndpoints_StandaloneFailsLoud(t *testing.T) {
 	}
 }
 
-// SECURITY (PSY-1362 CRITICAL, preserved): a forged phk_ carries no session JWT,
-// so it is routed as ANONYMOUS (per-IP) — it does NOT get the higher per-user cap.
+// SECURITY (PSY-1362 CRITICAL, preserved): a forged phk_ carries no session JWT
+// and fails ValidateToken, so it is routed as ANONYMOUS (per-IP) — it does NOT
+// get the higher per-user cap or the validated-token bypass (PSY-1814).
 func TestRateLimitPublicReadsByAuthState_ForgedAPITokenIsAnonymous(t *testing.T) {
 	handler := authStateMW(newTestJWTService())(okHandler())
 
@@ -375,6 +380,81 @@ func TestRateLimitPublicReadsByAuthState_ForgedAPITokenIsAnonymous(t *testing.T)
 	// Same IP → the anonymous per-IP bucket 429s it (no per-user bypass).
 	if rr := serve(handler, readReq("9.9.9.9:1001", APITokenPrefix+"forged")); rr.Code != http.StatusTooManyRequests {
 		t.Errorf("second forged (same IP): status = %d, want 429 (phk_ gets no per-user bucket)", rr.Code)
+	}
+}
+
+// PSY-1814: a callback that rejects the token (forged / revoked / expired) still
+// lands on the anonymous per-IP bucket — prefix alone is not enough.
+func TestRateLimitPublicReadsByAuthState_RejectedAPITokenIsAnonymous(t *testing.T) {
+	handler := authStateMWValidate(newTestJWTService(), func(string) bool { return false })(okHandler())
+
+	if rr := serve(handler, readReq("8.8.8.8:1000", APITokenPrefix+"forged")); rr.Code != http.StatusOK {
+		t.Fatalf("first rejected: status = %d, want 200", rr.Code)
+	}
+	if rr := serve(handler, readReq("8.8.8.8:1001", APITokenPrefix+"forged")); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("second rejected (same IP): status = %d, want 429 (failed ValidateToken stays anonymous)", rr.Code)
+	}
+}
+
+// PSY-1814: a validated phk_ token skips the public-read limiter entirely — it
+// does not 429 past the anonymous cap and does not increment that bucket.
+func TestRateLimitPublicReadsByAuthState_ValidatedAPITokenBypasses(t *testing.T) {
+	const valid = APITokenPrefix + "real"
+	handler := authStateMWValidate(newTestJWTService(), func(tok string) bool { return tok == valid })(okHandler())
+
+	const sharedIP = "6.6.6.6:1000"
+	for i := 0; i < 5; i++ {
+		if rr := serve(handler, readReq(sharedIP, valid)); rr.Code != http.StatusOK {
+			t.Fatalf("validated request %d: status = %d, want 200 (validated phk_ must bypass)", i, rr.Code)
+		}
+	}
+	// Anonymous visitor on the same IP still gets the first anonymous slot —
+	// the ingest burst must not have incremented the per-IP bucket.
+	if rr := serve(handler, readReq(sharedIP, "")); rr.Code != http.StatusOK {
+		t.Errorf("anonymous after validated burst: status = %d, want 200 (validated ingest must not starve visitors)", rr.Code)
+	}
+}
+
+// PSY-1814: visitor GETs with no Authorization must not invoke the DB callback.
+func TestRateLimitPublicReadsByAuthState_NoAuthDoesNotValidateAPIToken(t *testing.T) {
+	called := false
+	handler := authStateMWValidate(newTestJWTService(), func(string) bool {
+		called = true
+		return false
+	})(okHandler())
+
+	if rr := serve(handler, readReq("5.5.5.5:1000", "")); rr.Code != http.StatusOK {
+		t.Fatalf("anonymous: status = %d, want 200", rr.Code)
+	}
+	if called {
+		t.Error("validateAPIToken was called for a request with no Authorization (must stay DB-free)")
+	}
+}
+
+// PSY-1814: admin session JWTs stay on the per-user bucket even when a validate
+// callback is wired — they must not take the full API-token bypass.
+func TestRateLimitPublicReadsByAuthState_SessionJWTDoesNotUseAPITokenBypass(t *testing.T) {
+	jwtService := newTestJWTService()
+	user := &authm.User{Email: strPtr("admin@example.com")}
+	user.ID = 7
+	token, err := jwtService.CreateToken(user)
+	if err != nil {
+		t.Fatalf("CreateToken: %v", err)
+	}
+	called := false
+	handler := authStateMWValidate(jwtService, func(string) bool {
+		called = true
+		return true
+	})(okHandler())
+
+	if rr := serve(handler, readReq("4.4.4.4:1000", token)); rr.Code != http.StatusOK {
+		t.Fatalf("first JWT: status = %d, want 200", rr.Code)
+	}
+	if rr := serve(handler, readReq("4.4.4.4:1001", token)); rr.Code != http.StatusTooManyRequests {
+		t.Errorf("second JWT (same user): status = %d, want 429 (session JWTs stay on the per-user cap)", rr.Code)
+	}
+	if called {
+		t.Error("validateAPIToken was called for a session JWT (SessionUserID must win)")
 	}
 }
 
@@ -466,7 +546,7 @@ func TestRateLimitPublicReadsByAuthState_OwnCapRejectionsDoNotDrainSharedCeiling
 		httprate.WithLimitHandler(RateLimitExceededHandler))
 	ipCeiling := httprate.Limit(2, time.Minute, httprate.WithKeyFuncs(httprate.KeyByIP),
 		httprate.WithLimitHandler(RateLimitExceededHandler))
-	handler := RateLimitPublicReadsByAuthState(jwtService, anon, perUser, ipCeiling)(okHandler())
+	handler := RateLimitPublicReadsByAuthState(jwtService, nil, anon, perUser, ipCeiling)(okHandler())
 
 	const sharedIP = "3.3.3.3:400"
 	tokenA, tokenB := mkToken(1), mkToken(2)

@@ -9,13 +9,16 @@ import (
 	"psychic-homily-backend/internal/testenv"
 )
 
-// PSY-1362/1373: rate limiting for public read endpoints (graph-card, artist/
+// PSY-1362/1373/1814: rate limiting for public read endpoints (graph-card, artist/
 // show/venue/label/scene reads, etc.), mounted globally in cmd/server/main.go.
 // Two properties keep a single global mount safe:
 //   - it keys by AUTH STATE (middleware.RateLimitPublicReadsByAuthState):
-//     anonymous → per-IP (APIRequestsPerMinute); authenticated → per-USER
-//     (PublicReadUserRequestsPerMinute, PSY-1373). Per-user keying means it never
-//     collides shared-IP logged-in users, so it needs no per-route wiring; and
+//     anonymous → per-IP (APIRequestsPerMinute); authenticated session JWT →
+//     per-USER (PublicReadUserRequestsPerMinute, PSY-1373); a validated phk_
+//     API token → exempt (PSY-1814, so ingest search does not share the
+//     anonymous per-IP bucket with logged-out visitors). Per-user keying means
+//     it never collides shared-IP logged-in users, so it needs no per-route
+//     wiring; and
 //   - it only limits READ methods (GET/HEAD) — writes keep their own dedicated
 //     limiters (auth, tag, report, show-create), so a shared read budget can't
 //     429 an unrelated anonymous write (e.g. a login after heavy browsing).
@@ -87,17 +90,20 @@ var personalFeedPathPrefixesExemptFromRateLimit = []string{
 // throwaway signup can't scrape unmetered while shared-IP logged-in users stay
 // un-collided), further backstopped by a coarse per-IP ceiling on authenticated
 // traffic (middleware.PublicReadAuthenticatedIPCeilingPerMinute, 1000/min, PSY-1378)
-// so one IP running many scripted accounts is bounded in aggregate. Infra paths
-// and personal calendar feed prefixes above are exempt. Returns a pass-through
-// noop unless the opt-in flag is set. Mounted once, globally, before route
-// registration.
-func PublicReadRateLimiter(jwtService *auth.JWTService, getenv func(string) string) func(http.Handler) http.Handler {
+// so one IP running many scripted accounts is bounded in aggregate. A request
+// whose bearer passes validateAPIToken (APITokenService.ValidateToken — not the
+// phk_ prefix alone) is exempt so ingest search does not starve visitors on the
+// same IP (PSY-1814). Infra paths and personal calendar feed prefixes above are
+// exempt. Returns a pass-through noop unless the opt-in flag is set. Mounted
+// once, globally, before route registration.
+func PublicReadRateLimiter(jwtService *auth.JWTService, validateAPIToken func(string) bool, getenv func(string) string) func(http.Handler) http.Handler {
 	if !IsPublicReadRateLimitEnabled(getenv) {
 		return noopRateLimiter()
 	}
 	limiter := middleware.RateLimitPublicReadsByAuthState(
 		jwtService,
-		middleware.RateLimitAPIEndpoints(),                     // anonymous → per-IP
+		validateAPIToken,
+		middleware.RateLimitAPIEndpoints(), // anonymous → per-IP
 		middleware.RateLimitPublicReadUserEndpoints(),          // authenticated → per-user
 		middleware.RateLimitPublicReadAuthenticatedIPCeiling(), // authenticated → coarse per-IP ceiling (PSY-1378)
 	)
