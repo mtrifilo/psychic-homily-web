@@ -6,6 +6,7 @@ import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneDayView } from './components/SceneDayView'
 import { fetchSceneDay } from './sceneDayApi'
 import { dayShows, formatDayFull, type SceneDayResponse } from './sceneDay'
+import { looksLikeISOWeek } from './sceneWeek'
 import { buildSceneDayJsonLd } from './sceneDayJsonLd'
 
 /**
@@ -143,7 +144,7 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // advertise that 404. The site-wide jpg stays on dated nights and on a
   // payload that cannot name its week.
   const ogImage =
-    isRollingRoute && day.iso_week
+    isRollingRoute && looksLikeISOWeek(day.iso_week)
       ? {
           url: `${SITE_URL}/scenes/${day.slug}/${day.iso_week}/opengraph-image`,
           width: OG_SIZE.width,

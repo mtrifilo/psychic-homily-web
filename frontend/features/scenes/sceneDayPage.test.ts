@@ -127,6 +127,15 @@ describe('buildSceneDayMetadata', () => {
     expect(JSON.stringify(meta.openGraph?.images)).toContain('/og-image.jpg')
   })
 
+  it('does not advertise a week card URL for a junk iso_week', async () => {
+    fetchSceneDay.mockResolvedValue(day({ iso_week: 'not-a-week' }))
+
+    const meta = await buildSceneDayMetadata('phoenix-az')
+
+    expect(JSON.stringify(meta.openGraph?.images)).toContain('/og-image.jpg')
+    expect(JSON.stringify(meta.openGraph?.images)).not.toContain('opengraph-image')
+  })
+
   // The fallback above is only worth anything if the URL it falls back TO is
   // itself well formed. `slug` and `date` come through the same guard that lets
   // an empty string past, so a payload missing them must produce NO canonical
