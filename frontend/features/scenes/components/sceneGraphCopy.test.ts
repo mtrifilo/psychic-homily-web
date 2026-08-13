@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { SceneGraphInfo } from '../types'
-import { sceneArtistCountPhrase, sceneLabelCountPhrase } from './sceneGraphCopy'
+import { sceneArtistCountPhrase, sceneIsolateHookCopy, sceneLabelCountPhrase } from './sceneGraphCopy'
 
 function scene(overrides: Partial<SceneGraphInfo>): SceneGraphInfo {
   return {
@@ -97,5 +97,20 @@ describe('sceneLabelCountPhrase (PSY-1530)', () => {
   // Payloads served before hubs shipped omit the field entirely.
   it('returns null when label_count is absent', () => {
     expect(sceneLabelCountPhrase(scene(undefined))).toBeNull()
+  })
+})
+
+describe('sceneIsolateHookCopy (PSY-1785, locked P2)', () => {
+  it('is the locked sentence, verbatim, including the leading plus', () => {
+    expect(sceneIsolateHookCopy(10)).toBe(
+      '+10 not yet connected artists. Add a show or a label to put one on the map',
+    )
+    expect(sceneIsolateHookCopy(1)).toBe(
+      '+1 not yet connected artists. Add a show or a label to put one on the map',
+    )
+  })
+
+  it('returns null when there are no isolates', () => {
+    expect(sceneIsolateHookCopy(0)).toBeNull()
   })
 })

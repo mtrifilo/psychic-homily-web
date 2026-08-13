@@ -48,3 +48,13 @@ export function sceneLabelCountPhrase(scene: SceneGraphInfo): string | null {
   if (count <= 0) return null
   return `${count} ${count === 1 ? 'label' : 'labels'}`
 }
+
+/**
+ * Isolate-hook copy (PSY-1785, locked P2). Verbatim: the mock's sentence, not
+ * a count fragment. Null when there are no isolates, so the header has
+ * nothing to join.
+ */
+export function sceneIsolateHookCopy(isolateCount: number): string | null {
+  if (isolateCount <= 0) return null
+  return `+${isolateCount} not yet connected artists. Add a show or a label to put one on the map`
+}

@@ -2,8 +2,9 @@
 
 import { useMemo } from 'react'
 import Link from 'next/link'
-import { BracketLink } from '@/components/shared'
+import { BracketLink, ShareButton } from '@/components/shared'
 import { buildCitiesParam } from '@/components/filters/cityParams'
+import { SceneAddToCalendar } from './SceneAddToCalendar'
 import { useSceneShows } from '../hooks'
 import { showDisplayTitle, showHref } from '../sceneWeek'
 import { formatDayCountLine, formatShowPrice, formatShowStartTime } from '../sceneDay'
@@ -209,6 +210,12 @@ function QuietWindow({ scene }: { scene: SceneDetail }) {
           href={`/shows?cities=${encodeURIComponent(citiesParam)}`}
         />
         <BracketLink label="Suggest a venue" href="/contribute" />
+        <ShareButton
+          path={`/scenes/${scene.slug}`}
+          variant="bracket"
+          ariaLabel="Share this scene"
+        />
+        <SceneAddToCalendar slug={scene.slug} />
       </div>
     </div>
   )
@@ -292,6 +299,12 @@ function WindowFooter({
           label={`All upcoming in ${scene.city}`}
           href={`/shows?cities=${encodeURIComponent(citiesParam)}`}
         />
+        <ShareButton
+          path={`/scenes/${scene.slug}`}
+          variant="bracket"
+          ariaLabel="Share this scene"
+        />
+        <SceneAddToCalendar slug={scene.slug} />
       </div>
     </div>
   )
