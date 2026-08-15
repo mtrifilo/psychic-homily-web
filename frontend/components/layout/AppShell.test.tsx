@@ -33,7 +33,7 @@ vi.mock('./SideNavShell', () => ({
 
 // Async Server Component: resolve the element, then render it.
 async function renderShell(children: React.ReactNode = <div>test content</div>) {
-  render(await AppShell({ children }))
+  return render(await AppShell({ children }))
 }
 
 vi.mock('./nav/BottomTabBar', () => ({
@@ -105,14 +105,14 @@ describe('AppShell', () => {
   })
 
   // PSY-1020: the bar is the primary mobile nav, mounted once in the shell so
-  // it persists on every route (it hides itself at `lg`).
+  // it persists on every route (it hides itself at `xl`, where PrimaryNav appears).
   it('mounts the BottomTabBar and pads the shell so content clears the fixed bar', async () => {
     const { container } = await renderShell(<div>content</div>)
     expect(screen.getByTestId('bottom-tab-bar')).toBeInTheDocument()
-    expect(container.firstChild).toHaveClass('lg:pb-0')
+    expect(container.firstChild).toHaveClass('xl:pb-0')
   })
 
-  it('mounts the BottomTabBar in side-nav mode too — the bar is lg:hidden, so the desktop nav preference must not remove mobile nav', async () => {
+  it('mounts the BottomTabBar in side-nav mode too — the bar is xl:hidden, so the desktop nav preference must not remove mobile nav', async () => {
     cookieValue = 'side'
     await renderShell(<div>content</div>)
     expect(screen.getByTestId('bottom-tab-bar')).toBeInTheDocument()

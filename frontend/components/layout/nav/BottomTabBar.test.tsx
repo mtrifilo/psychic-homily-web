@@ -103,12 +103,13 @@ describe('BottomTabBar', () => {
   })
 
   describe('Browse sheet', () => {
-    it('opens the long-tail sheet with grouped destinations, incl. Explore', async () => {
+    it('opens the long-tail sheet with grouped destinations, incl. Graph + Atlas', async () => {
       const user = userEvent.setup()
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Browse' }))
-      // Explore only lives here on mobile (desktop carries it in PrimaryNav).
-      expect(await screen.findByRole('link', { name: 'Explore' })).toHaveAttribute('href', '/explore')
+      // Graph/Atlas only live here on mobile (desktop carries them in PrimaryNav).
+      expect(await screen.findByRole('link', { name: 'Graph' })).toHaveAttribute('href', '/graph')
+      expect(screen.getByRole('link', { name: 'Atlas' })).toHaveAttribute('href', '/atlas')
       expect(screen.getByRole('link', { name: 'Festivals' })).toHaveAttribute('href', '/festivals')
       expect(screen.getByRole('link', { name: /Substack/ })).toHaveAttribute(
         'href',
@@ -122,7 +123,7 @@ describe('BottomTabBar', () => {
       const user = userEvent.setup()
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Browse' }))
-      await screen.findByRole('link', { name: 'Explore' })
+      await screen.findByRole('link', { name: 'Graph' })
       expect(screen.queryByRole('link', { name: 'My Submissions' })).not.toBeInTheDocument()
     })
 
@@ -142,7 +143,7 @@ describe('BottomTabBar', () => {
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Browse' }))
       await user.click(await screen.findByRole('link', { name: 'Festivals' }))
-      expect(screen.queryByRole('link', { name: 'Explore' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Graph' })).not.toBeInTheDocument()
     })
 
     it('carries the theme toggle (migrated from the retired hamburger sheet)', async () => {

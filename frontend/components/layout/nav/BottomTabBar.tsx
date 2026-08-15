@@ -6,10 +6,11 @@ import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Bell, Calendar, ExternalLink, Home, LayoutGrid, Library, LogOut, Moon, Radio,
-  Settings, Shield, Sun, User, UserCircle,
+  Palette, Settings, Shield, Sun, User, UserCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { Button } from '@/components/ui/button'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
@@ -27,7 +28,8 @@ import { isNavActive, mobileBrowseGroups, mobileBrowseHrefs } from './navData'
 // lists). Account is auth-aware: a /auth link for anonymous visitors, an
 // account sheet mirroring the UserMenu entries when signed in.
 //
-// Rendered by AppShell below `lg` on every page; AppShell adds the matching
+// Rendered by AppShell below `xl` on every page — matching PrimaryNav's
+// xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the matching
 // bottom padding (var(--bottom-tab-bar-height) + safe-area inset) so fixed-bar
 // content is never covered. The bar sits at z-40 — under sheets/dialogs and the
 // z-50 top bar, and deliberately under the z-50 cookie banner (PSY-1029 owns
@@ -43,7 +45,7 @@ const primaryTabs: ReadonlyArray<{ href: string; label: string; icon: LucideIcon
 // destinations. /users/me is the self-profile entry (PSY-1045); after its
 // redirect to /users/<username> the tab goes inactive, which is acceptable for
 // a redirect alias.
-const accountHrefs = ['/notifications', '/library', '/users/me', '/profile', '/admin']
+const accountHrefs = ['/notifications', '/library', '/users/me', '/profile', '/settings/appearance', '/admin']
 
 function tabClassName(active: boolean): string {
   return cn(
@@ -87,7 +89,7 @@ export function BottomTabBar() {
   return (
     <nav
       aria-label="Mobile navigation"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/50 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/50 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 xl:hidden"
     >
       <div className="grid h-[var(--bottom-tab-bar-height)] grid-cols-5">
         {primaryTabs.map(tab => {
@@ -109,6 +111,7 @@ export function BottomTabBar() {
         {/* Browse — the long-tail sheet */}
         <Sheet open={browseOpen} onOpenChange={setBrowseOpen}>
           <SheetTrigger
+            {...replayOnHydrate}
             className={tabClassName(browseActive)}
             aria-current={browseActive ? 'page' : undefined}
           >
@@ -180,6 +183,7 @@ export function BottomTabBar() {
         ) : isAuthenticated && user ? (
           <Sheet open={accountOpen} onOpenChange={setAccountOpen}>
             <SheetTrigger
+              {...replayOnHydrate}
               className={tabClassName(accountActive)}
               aria-current={accountActive ? 'page' : undefined}
             >
@@ -203,6 +207,9 @@ export function BottomTabBar() {
                   { href: '/library', label: 'My Library', icon: Library },
                   { href: '/users/me', label: 'Profile', icon: UserCircle },
                   { href: '/profile', label: 'Settings', icon: Settings },
+                  // Appearance (PSY-1116 nav-mode + theme settings) mirrors the
+                  // desktop UserMenu entry added after this bar was first drafted.
+                  { href: '/settings/appearance', label: 'Appearance', icon: Palette },
                   ...(user.is_admin
                     ? [{ href: '/admin', label: 'Admin', icon: Shield }]
                     : []),
