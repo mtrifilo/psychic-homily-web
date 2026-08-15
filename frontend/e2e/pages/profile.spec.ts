@@ -40,9 +40,10 @@ test.describe('Profile page', () => {
       authenticatedPage.getByRole('heading', { name: /edit profile & settings/i })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Account card (email + verification fold) — not a standalone "Email Verification"
+    // Account card (email + verification fold) — not a standalone "Email Verification".
+    // Scoped to main: the bottom tab bar also renders an "Account" label (PSY-1020).
     await expect(
-      authenticatedPage.getByText('Account', { exact: true })
+      authenticatedPage.getByRole('main').getByText('Account', { exact: true })
     ).toBeVisible({ timeout: 5_000 })
     await expect(
       authenticatedPage.getByText(/^e2e-user(-[1-4])?@test\.local$/).first()
