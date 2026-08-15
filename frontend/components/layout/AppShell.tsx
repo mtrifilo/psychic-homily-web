@@ -4,6 +4,7 @@ import { CommandPalette } from './CommandPalette'
 import { SideNavShell } from './SideNavShell'
 import { NAV_MODE_COOKIE, parseNavMode } from '@/lib/nav-mode'
 import { getAuthenticatedNavMode } from '@/lib/auth-hydration'
+import { BottomTabBar } from './nav/BottomTabBar'
 
 // The global application shell (PSY-1013 top-bar nav; PSY-1116 nav-mode toggle).
 // Resolves the user's nav-style preference at SSR and renders one of two
@@ -29,6 +30,12 @@ import { getAuthenticatedNavMode } from '@/lib/auth-hydration'
 // lib/geo-default.ts). The shell already renders inside the root layout's
 // <Suspense> boundary alongside the cookie-reading AuthHydrator.
 //
+// Below `xl` the BottomTabBar is the primary nav (PSY-1020) in BOTH nav modes —
+// the nav-mode preference is desktop chrome, and the bar is xl:hidden (paired
+// with PrimaryNav's xl:flex). The shell's bottom padding (bar height + iOS
+// safe-area inset) keeps page content and the footer clear of the fixed bar,
+// and collapses at `xl` where the bar disappears.
+//
 // Order matters: the skip-to-content link is the first focusable element (jumps
 // keyboard users past the banner/nav straight to <main id="main-content">, set
 // in app/layout.tsx). The CommandPalette is mounted once here so the global ⌘K
@@ -43,7 +50,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] xl:pb-0">
       <a
         href="#main-content"
         className="fixed left-4 top-3 z-[100] -translate-y-20 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground opacity-0 shadow-md transition-transform focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
@@ -52,6 +59,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       </a>
       <TopBar variant={navMode === 'side' ? 'slim' : 'full'} />
       {navMode === 'side' ? <SideNavShell>{children}</SideNavShell> : children}
+      <BottomTabBar />
       <CommandPalette />
     </div>
   )

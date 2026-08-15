@@ -90,6 +90,14 @@
   --sidebar-width: 15rem;
   --sidebar-width-collapsed: 3.5rem;
   --topbar-height: 3.5rem;
+  /* Mobile bottom tab bar (PSY-1020) — bar height. The env(safe-area-inset-
+   * bottom) terms alongside this var are FUTURE-PROOFING ONLY: the app does
+   * not set viewport-fit=cover, so they currently resolve to 0 everywhere
+   * (follow-up ticket covers enabling it with device verification). Every
+   * viewport-sized surface must subtract this var below `xl` — current
+   * subtractors: AppShell padding, Sidebar + AdminSidebar heights,
+   * AtlasGlobe height, CookieConsentBanner bottom offset. */
+  --bottom-tab-bar-height: 3.5rem;
 
   /* Radius scale — sharp editorial corners (2/4/6/8px) */
   --radius-sm: 2px;

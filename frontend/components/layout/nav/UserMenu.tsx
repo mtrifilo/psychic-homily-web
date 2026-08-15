@@ -24,8 +24,8 @@ import { NotificationBell } from '@/features/notifications'
 // bar, where Submit stays inside the Contribute menu (OQ-2), since logged-in
 // users can be asked to contribute. Visibility is controlled by the parent
 // (hidden below the search/auth breakpoint); on small screens Submit stays
-// reachable through the mobile sheet's Community group (sidebarGroups in
-// Sidebar.tsx), and a dedicated mobile CTA is PSY-1020's scope.
+// reachable through the bottom tab bar's Browse sheet (Contribute group,
+// PSY-1020), which also mirrors these account entries in its Account sheet.
 export function UserMenu() {
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
 
@@ -94,7 +94,7 @@ export function UserMenu() {
                   Profile
                 </Link>
               </DropdownMenuItem>
-              {/* PSY-1486: Settings → /profile editor (parity with MobileNav).
+              {/* PSY-1486: Settings → /profile editor (parity with the retired hamburger sheet).
                   Profile above is the public identity view; this is Edit
                   profile & settings. */}
               <DropdownMenuItem asChild>

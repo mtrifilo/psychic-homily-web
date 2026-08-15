@@ -1,6 +1,7 @@
 import {
   Mic2, MapPin, Disc3, Tag, Tent, LayoutList, TrendingUp, Tags, Globe, Trophy,
   MessageSquarePlus, Music, Send, ClipboardList, HeartHandshake, BookOpen, Headphones, Newspaper,
+  Compass, Map as MapIcon,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -128,3 +129,65 @@ export function navItemClassName(active?: boolean): string {
       : 'font-medium text-muted-foreground hover:text-foreground'
   )
 }
+
+// PSY-1020 — mobile bottom tab bar (Option A, Figma Navigation 540:8).
+// The Browse tab's long-tail sheet: every desktop menu destination, composed
+// from the canonical tables above (no forked destination lists). Graph and
+// Atlas are desktop *primary* links (PrimaryNav) with no home in the
+// Browse/Contribute menus, so they get a leading group here — without it those
+// destinations would be unreachable on mobile, where the primary tabs only
+// carry Home/Shows/Radio.
+// Deduped at composition: Leaderboard legitimately appears in both Curation
+// and Contribute on desktop (two separate menus), but this is ONE sheet — a
+// destination renders once, under the first group that claims it. (IIFE keeps
+// the seen-set out of module scope so nothing can consume it half-drained.)
+export const mobileBrowseGroups: NavGroup[] = (() => {
+  const seen = new Set<string>()
+  return [
+    {
+      label: 'Discover',
+      items: [
+        { href: '/graph', label: 'Graph', icon: Compass },
+        { href: '/atlas', label: 'Atlas', icon: MapIcon },
+      ],
+    },
+    ...browseGroups,
+    { label: 'Contribute', items: contributeItems },
+    { label: 'Editorial', items: editorialItems },
+  ].map(group => ({
+    label: group.label,
+    items: group.items.filter(item => {
+      if (seen.has(item.href)) return false
+      seen.add(item.href)
+      return true
+    }),
+  }))
+})()
+
+// Lights the Browse tab as active when the route lives in its sheet (external
+// links excluded; they never match a pathname).
+export const mobileBrowseHrefs = mobileBrowseGroups.flatMap(g =>
+  g.items.filter(i => !i.external).map(i => i.href)
+)
+
+/**
+ * Row style for links inside bottom sheets and drawers (BottomTabBar's
+ * Browse/Account sheets, AdminDrawerNav) — one definition so the phone-chrome
+ * surfaces can't drift apart (PSY-1020 /simplify).
+ */
+export function sheetLinkClassName(active: boolean): string {
+  return cn(
+    'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+    active
+      ? 'bg-accent text-accent-foreground'
+      : 'text-foreground/70 hover:bg-accent/50 hover:text-accent-foreground'
+  )
+}
+
+/**
+ * The mono uppercase group-label token shared by the desktop menus
+ * (BrowseMenu/ContributeMenu) and the mobile Browse sheet. Callers add their
+ * own layout classes (margins/padding) on top.
+ */
+export const navGroupLabelClassName =
+  'font-mono text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground'

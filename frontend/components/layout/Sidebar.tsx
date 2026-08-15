@@ -103,7 +103,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'sticky top-[var(--topbar-height)] z-40 hidden h-[calc(100vh-var(--topbar-height))] shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex',
+          'sticky top-[var(--topbar-height)] z-40 hidden h-[calc(100vh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] shrink-0 xl:h-[calc(100vh-var(--topbar-height))] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex',
           collapsed ? 'w-[var(--sidebar-width-collapsed)]' : 'w-[var(--sidebar-width)]'
         )}
       >

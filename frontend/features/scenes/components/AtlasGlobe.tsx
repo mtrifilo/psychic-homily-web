@@ -632,8 +632,11 @@ export function AtlasGlobe() {
     content = <GlobeSkeleton />
   }
 
+  // Below `xl` the fixed BottomTabBar owns the last 3.5rem of the viewport
+  // (PSY-1020) — subtract it, or the Drift CTA (bottom-4) and the MapLibre
+  // attribution control (a license requirement, PSY-1543) sit under the bar.
   return (
-    <div className="relative h-[calc(100dvh-4rem)] min-h-[480px] w-full overflow-hidden bg-[#0a0a0a]">
+    <div className="relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] min-h-[480px] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem)]">
       <div ref={measureRef} className="h-full w-full">
         {content}
       </div>

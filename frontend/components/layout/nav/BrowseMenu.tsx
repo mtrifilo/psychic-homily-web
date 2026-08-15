@@ -11,7 +11,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { browseGroups, browseHrefs, isNavActive, navItemClassName } from './navData'
+import { cn } from '@/lib/utils'
+import { browseGroups, browseHrefs, isNavActive, navGroupLabelClassName, navItemClassName } from './navData'
 import { useHoverIntentMenu } from './useHoverIntentMenu'
 
 // Browse ▾ — the wide three-column mega-menu (Catalog / Curation / Scenes) per
@@ -48,7 +49,7 @@ export function BrowseMenu() {
       >
         {browseGroups.map(group => (
           <DropdownMenuGroup key={group.label} className="flex flex-col gap-3">
-            <DropdownMenuLabel className="px-0 py-0 font-mono text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground">
+            <DropdownMenuLabel className={cn('px-0 py-0', navGroupLabelClassName)}>
               {group.label}
             </DropdownMenuLabel>
             {group.items.map(item => (

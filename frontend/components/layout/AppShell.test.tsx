@@ -30,10 +30,13 @@ vi.mock('./SideNavShell', () => ({
     <div data-testid="side-nav-shell">{children}</div>
   ),
 }))
+vi.mock('./nav/BottomTabBar', () => ({
+  BottomTabBar: () => <div data-testid="bottom-tab-bar" />,
+}))
 
 // Async Server Component: resolve the element, then render it.
 async function renderShell(children: React.ReactNode = <div>test content</div>) {
-  render(await AppShell({ children }))
+  return render(await AppShell({ children }))
 }
 
 describe('AppShell', () => {
@@ -98,6 +101,25 @@ describe('AppShell', () => {
     await renderShell(<div>page</div>)
     expect(screen.getByTestId('topbar')).toHaveAttribute('data-variant', 'slim')
     expect(screen.getByTestId('side-nav-shell')).toBeInTheDocument()
+  })
+
+  // PSY-1020: the bar is the primary mobile nav, mounted once in the shell so
+  // it persists on every route (it hides itself at `xl`, where PrimaryNav appears).
+  it('mounts the BottomTabBar and pads the shell so content clears the fixed bar', async () => {
+    const { container } = await renderShell(<div>content</div>)
+    expect(screen.getByTestId('bottom-tab-bar')).toBeInTheDocument()
+    // The reservation itself, not just its xl release — deleting the pb-[calc]
+    // leaves every mobile footer under the fixed bar with no failing test.
+    expect(container.firstChild).toHaveClass(
+      'pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))]',
+      'xl:pb-0'
+    )
+  })
+
+  it('mounts the BottomTabBar in side-nav mode too — the bar is xl:hidden, so the desktop nav preference must not remove mobile nav', async () => {
+    cookieValue = 'side'
+    await renderShell(<div>content</div>)
+    expect(screen.getByTestId('bottom-tab-bar')).toBeInTheDocument()
   })
 
   it('mounts the CommandPalette once so global ⌘K works on every route', async () => {
