@@ -88,6 +88,17 @@ Run all tests relevant to the diff. Failure blocks push (rule 4). Order matters:
 cd frontend && bun run typecheck                          # always for any frontend touch
 cd frontend && bun run test:run features/<scope>          # scoped vitest (e.g. features/festivals)
 
+# Then run the FRONTEND LINTER — typecheck + vitest do NOT run ESLint, so
+# error-level rules that CI's "Frontend Lint" job enforces are invisible
+# to the two commands above. `bun run lint` is the exact CI gate (errors
+# fail, warnings pass), so a clean local run == a green Frontend Lint check:
+cd frontend && bun run lint                               # exit 0 required before push
+# Skipping this is how PSY-1345 shipped a react-hooks/set-state-in-effect error
+# (React 19.2 — a synchronous setState in a useEffect) that typecheck + all unit
+# tests + e2e passed but Frontend Lint failed in CI. The fix for "reset state when
+# a derived value changes" is the previous-value-guard idiom (adjust state DURING
+# render, grep `previous-value-guard`), never a setState in an effect.
+
 # Backend touched? Build BEFORE test (catches whole-graph compile errors):
 cd backend && go build ./...
 cd backend && go test ./internal/services/<pkg>/...       # scoped test, or `./...` for large diffs
@@ -345,6 +356,7 @@ Panel: Saboteur · Future-Maintainer · Security<· Completeness>. Reviewers ran
 ## Test plan
 - [x] `bun run typecheck` — clean
 - [x] `bun run test:run features/<scope>` — N/N passing
+- [x] `bun run lint` — 0 errors (frontend diffs; the CI Frontend Lint gate)
 - [x] `/code-review` — <outcome>
 - [x] `/adversarial-review` — <CLEAN | CONCERNS addressed; fixes in separate commit `<sha>`>
 - [x] `/psy-self-review` — <outcome: clean / N findings addressed>

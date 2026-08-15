@@ -493,6 +493,28 @@ This is the same family as the `resize()`-resets-sizing-to-FIXED gotcha — **an
 - **Prevention:** don't create the slot when there's no content (`if (badge) { … }` around the frame creation too, not just the child), or give empty slots an explicit size: `slot.layoutSizingVertical = 'FIXED'; slot.resize(w, 16)`.
 - **Recovery sweep** (fixes every empty slot in a table): walk the rows, find childless FRAME children, set FIXED height. `for (const tr of table.children) { const s = tr.children.at(-1); if (s?.type === 'FRAME' && !s.children.length) { s.layoutSizingVertical = 'FIXED'; s.resize(s.width, 16); } }`
 
+### G18. Dark-mode boards via `setExplicitVariableModeForCollection` on the REMOTE library collection — one call (caught PSY-1060, 2026-06-12)
+
+You do NOT need to rebind or recolor anything to produce a dark-mode board in the Product Designs file. Resolve the DS library's Color collection from any bound paint, then set the explicit mode on the board frame:
+
+```js
+const varId = someNode.fills[0].boundVariables.color.id;
+const variable = await figma.variables.getVariableByIdAsync(varId);
+const coll = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId); // works for remote/library collections
+clone.setExplicitVariableModeForCollection(coll, '3:1'); // '3:0' Light · '3:1' Dark (verify mode ids via coll.modes)
+```
+
+Every token-bound paint in the subtree re-resolves instantly. This also doubles as a free G1/G15 audit — anything that DOESN'T flip is unbound (hardcoded or default-white) and needs fixing. Canonical: State M (edit-page dark) on the Profile page was produced this way in one call.
+
+### G19. Cloned board-H-style forms are AUTO-LAYOUT inside absolute boards — y-shifts silently no-op; insert by index (caught PSY-1060, 2026-06-12)
+
+The Profile-page boards position CARDS absolutely inside `content`, but the cards themselves (e.g. board H's `profile form`) are vertical auto-layouts. Two traps when amending them:
+
+- Setting `child.y += 72` on an auto-layout child is a **silent no-op** and `appendChild` puts the new field LAST (it rendered below the form footer). Use `form.insertChild(index, node)` — layout handles the rest, and the frame auto-grows (skip the manual `resize`).
+- Check `frame.layoutMode` BEFORE writing positioning code for any frame you didn't build this session; the file mixes both idioms (wrapper = auto-layout stack, boards' `content` = absolute, cards = either).
+
+Also caught same session: `node.query('[name=profile form]')` — attribute values containing SPACES fail to match; fall back to `children.find(c => c.name === '…')`.
+
 ## Resume protocol (for new agents picking this up cold)
 
 ### Track A: DS build (extending the design system)
