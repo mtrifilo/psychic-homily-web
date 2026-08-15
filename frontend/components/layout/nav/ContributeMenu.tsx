@@ -18,6 +18,7 @@ import {
   contributeHrefs,
   editorialItems,
   isNavActive,
+  navGroupLabelClassName,
   navItemClassName,
   type NavLink as NavLinkData,
 } from './navData'
@@ -79,8 +80,7 @@ function renderItem(item: NavLinkData) {
   )
 }
 
-const groupLabelClassName =
-  'px-0 py-0 font-mono text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground'
+const groupLabelClassName = cn('px-0 py-0', navGroupLabelClassName)
 
 export function ContributeMenu() {
   const pathname = usePathname()

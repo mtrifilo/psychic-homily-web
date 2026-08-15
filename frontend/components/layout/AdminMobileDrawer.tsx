@@ -12,18 +12,18 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 
 // Mobile admin drawer (config + the 7 queue-count hooks) is a separate chunk
 // loaded only when an admin opens the drawer on /admin — off the public bundle.
-const AdminDrawerNav = dynamic(() => import('../AdminDrawerNav'), { ssr: false })
+const AdminDrawerNav = dynamic(() => import('./AdminDrawerNav'), { ssr: false })
 
-// The mobile admin-sections drawer. PSY-1020 retired the public hamburger sheet
-// — the bottom tab bar (BottomTabBar) is now the primary mobile nav, with the
-// long tail in its Browse sheet — so this component is reduced to the one job
-// the tab bar doesn't cover: the context-aware admin section nav on the /admin
-// tab-shell (PSY-933). It renders nothing anywhere else.
+// The mobile admin-sections drawer (formerly MobileNav). PSY-1020 retired the
+// public hamburger sheet — the bottom tab bar (BottomTabBar) is now the primary
+// mobile nav, with the long tail in its Browse sheet — so this component keeps
+// the one job the tab bar doesn't cover: the context-aware admin section nav on
+// the /admin tab-shell (PSY-933). It renders nothing anywhere else.
 //
 // Gated on isAdmin (mid-redirect safety) + scoped to the exact /admin shell
 // (usePathname() strips ?tab=); standalone /admin/<section> sub-routes get no
 // drawer, matching their pre-PSY-933 behavior.
-export function MobileNav() {
+export function AdminMobileDrawer() {
   const [open, setOpen] = useState(false)
   const { user } = useAuthContext()
   const pathname = usePathname()
@@ -33,7 +33,9 @@ export function MobileNav() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild className="lg:hidden">
+      {/* md:hidden mirrors AdminSidebar's `hidden md:flex` — this drawer stands
+          in for the rail exactly where the rail is absent, no overlap band. */}
+      <SheetTrigger asChild className="md:hidden">
         <Button variant="ghost" size="icon" aria-label="Open admin menu">
           <Menu className="size-5" />
         </Button>

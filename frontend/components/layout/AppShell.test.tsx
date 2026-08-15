@@ -30,15 +30,14 @@ vi.mock('./SideNavShell', () => ({
     <div data-testid="side-nav-shell">{children}</div>
   ),
 }))
+vi.mock('./nav/BottomTabBar', () => ({
+  BottomTabBar: () => <div data-testid="bottom-tab-bar" />,
+}))
 
 // Async Server Component: resolve the element, then render it.
 async function renderShell(children: React.ReactNode = <div>test content</div>) {
   return render(await AppShell({ children }))
 }
-
-vi.mock('./nav/BottomTabBar', () => ({
-  BottomTabBar: () => <div data-testid="bottom-tab-bar" />,
-}))
 
 describe('AppShell', () => {
   beforeEach(() => {

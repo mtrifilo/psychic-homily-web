@@ -27,7 +27,7 @@ const AdminSidebarNav = dynamic(() => import('./AdminSidebarNav'), { ssr: false 
 // The <aside> chrome + collapse toggle mirror the retired global Sidebar
 // (Sidebar.tsx) so the rail looks and behaves identically; the nav body is the
 // existing AdminSidebarNav. Hidden below `md` — mobile keeps the hamburger
-// drawer (MobileNav + AdminDrawerNav), unaffected by this rail.
+// drawer (AdminMobileDrawer + AdminDrawerNav), unaffected by this rail.
 //
 // Module-level `as const` tuple per useLocalStorageEnum's contract: a stable
 // `allowed` reference keeps the snapshot getter from churning each render.

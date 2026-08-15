@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BottomTabBar } from './BottomTabBar'
+import { BottomTabBar, primaryTabs } from './BottomTabBar'
+import { primaryLinks } from './PrimaryNav'
+import { mobileBrowseHrefs } from './navData'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -57,6 +59,18 @@ describe('BottomTabBar', () => {
       isLoading: false,
       logout: mockLogout,
     })
+  })
+
+  // The guard PSY-1020's Discover group exists to satisfy: a desktop primary
+  // link with no home in the tab bar or its Browse sheet is unreachable on
+  // phones. Adding to PrimaryNav's primaryLinks without a mobile home fails
+  // HERE instead of silently stranding mobile users (canonical near-miss:
+  // Atlas was added to PrimaryNav by PSY-1219 after this bar was drafted).
+  it('keeps every desktop primary destination reachable on mobile', () => {
+    const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
+    for (const link of primaryLinks) {
+      expect(mobile).toContain(link.href)
+    }
   })
 
   describe('tabs', () => {

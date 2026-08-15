@@ -5,11 +5,12 @@ import Link from 'next/link'
 import { useTheme } from 'next-themes'
 import { Moon, Search, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import { PrimaryNav } from './nav/PrimaryNav'
 import { SearchTrigger } from './nav/SearchTrigger'
 import { UserMenu } from './nav/UserMenu'
-import { MobileNav } from './nav/MobileNav'
+import { AdminMobileDrawer } from './AdminMobileDrawer'
 
 // Static SVG filter for the logo glitch effect. Hoisted to module scope so the
 // (animated, non-trivial) filter tree is created once rather than rebuilt on
@@ -37,8 +38,9 @@ const glitchFilter = (
 //   • the dominant search field (→ CommandPalette); below `sm` it condenses to
 //     an icon-only tap target (PSY-1020 — search stays reachable on phones)
 //   • a bare sun/moon theme toggle + the account cluster / login link
-//   • the admin-sections drawer trigger (admins on /admin, below `lg`) — the
-//     public hamburger sheet was retired by PSY-1020's bottom tab bar
+//   • the admin-sections drawer trigger (admins on /admin, below `md`,
+//     mirroring AdminSidebar's md:flex) — the public hamburger sheet was
+//     retired by PSY-1020's bottom tab bar
 // The Browse / Contribute menus, the authenticated bar, and the palette re-skin
 // are each elaborated by their own follow-up tickets (Radio became a plain
 // /radio link in PSY-1057); this file just assembles the seams.
@@ -65,7 +67,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
             field on the right is the designated slack absorber instead. */}
         <div className="flex shrink-0 items-center gap-3 xl:gap-[30px]">
           <div className="flex items-center gap-3">
-            <MobileNav />
+            <AdminMobileDrawer />
             <Link href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
               <div className="relative size-[36px] overflow-hidden rounded-md">
                 {/* Raster, not vector, on purpose (PSY-1771): the predecessor
@@ -124,6 +126,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
               CommandPalette, just without the field chrome the phone top bar
               has no room for. */}
           <Button
+            {...replayOnHydrate}
             variant="ghost"
             size="icon"
             className="sm:hidden"

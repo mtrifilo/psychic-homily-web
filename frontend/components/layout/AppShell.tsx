@@ -30,11 +30,11 @@ import { BottomTabBar } from './nav/BottomTabBar'
 // lib/geo-default.ts). The shell already renders inside the root layout's
 // <Suspense> boundary alongside the cookie-reading AuthHydrator.
 //
-// Below `lg` the BottomTabBar is the primary nav (PSY-1020) in BOTH nav modes —
-// the nav-mode preference is desktop chrome, and the bar is lg:hidden. The
-// shell's bottom padding (bar height + iOS safe-area inset) keeps page content
-// and the footer clear of the fixed bar, and collapses at `lg` where the bar
-// disappears.
+// Below `xl` the BottomTabBar is the primary nav (PSY-1020) in BOTH nav modes —
+// the nav-mode preference is desktop chrome, and the bar is xl:hidden (paired
+// with PrimaryNav's xl:flex). The shell's bottom padding (bar height + iOS
+// safe-area inset) keeps page content and the footer clear of the fixed bar,
+// and collapses at `xl` where the bar disappears.
 //
 // Order matters: the skip-to-content link is the first focusable element (jumps
 // keyboard users past the banner/nav straight to <main id="main-content">, set

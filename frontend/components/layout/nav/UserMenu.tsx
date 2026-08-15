@@ -94,7 +94,7 @@ export function UserMenu() {
                   Profile
                 </Link>
               </DropdownMenuItem>
-              {/* PSY-1486: Settings → /profile editor (parity with MobileNav).
+              {/* PSY-1486: Settings → /profile editor (parity with the retired hamburger sheet..
                   Profile above is the public identity view; this is Edit
                   profile & settings. */}
               <DropdownMenuItem asChild>

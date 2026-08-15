@@ -1,7 +1,7 @@
 import {
   Mic2, MapPin, Disc3, Tag, Tent, LayoutList, TrendingUp, Tags, Globe, Trophy,
   MessageSquarePlus, Music, Send, ClipboardList, HeartHandshake, BookOpen, Headphones, Newspaper,
-  Compass, Map,
+  Compass, Map as MapIcon,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -142,7 +142,7 @@ export const mobileBrowseGroups: NavGroup[] = [
     label: 'Discover',
     items: [
       { href: '/graph', label: 'Graph', icon: Compass },
-      { href: '/atlas', label: 'Atlas', icon: Map },
+      { href: '/atlas', label: 'Atlas', icon: MapIcon },
     ],
   },
   ...browseGroups,
@@ -151,7 +151,32 @@ export const mobileBrowseGroups: NavGroup[] = [
 ]
 
 // Lights the Browse tab as active when the route lives in its sheet (external
-// links excluded; they never match a pathname).
-export const mobileBrowseHrefs = mobileBrowseGroups.flatMap(g =>
-  g.items.filter(i => !i.external).map(i => i.href)
-)
+// links excluded; they never match a pathname). Set-deduped: Leaderboard
+// legitimately appears in both Curation and Contribute.
+export const mobileBrowseHrefs = [
+  ...new Set(
+    mobileBrowseGroups.flatMap(g => g.items.filter(i => !i.external).map(i => i.href))
+  ),
+]
+
+/**
+ * Row style for links inside bottom sheets and drawers (BottomTabBar's
+ * Browse/Account sheets, AdminDrawerNav) — one definition so the phone-chrome
+ * surfaces can't drift apart (PSY-1020 /simplify).
+ */
+export function sheetLinkClassName(active: boolean): string {
+  return cn(
+    'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+    active
+      ? 'bg-accent text-accent-foreground'
+      : 'text-foreground/70 hover:bg-accent/50 hover:text-accent-foreground'
+  )
+}
+
+/**
+ * The mono uppercase group-label token shared by the desktop menus
+ * (BrowseMenu/ContributeMenu) and the mobile Browse sheet. Callers add their
+ * own layout classes (margins/padding) on top.
+ */
+export const navGroupLabelClassName =
+  'font-mono text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground'

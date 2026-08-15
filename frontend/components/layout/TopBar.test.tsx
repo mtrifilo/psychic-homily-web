@@ -255,7 +255,7 @@ describe('TopBar', () => {
       expect(profileItem).toHaveAttribute('href', '/users/me')
     })
 
-    // PSY-1486: desktop UserMenu Settings → /profile (parity with MobileNav).
+    // PSY-1486: desktop UserMenu Settings → /profile (parity with the retired hamburger sheet).
     it('points "Settings" at the /profile editor', async () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', username: 'reggie', is_admin: false },

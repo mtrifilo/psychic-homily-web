@@ -12,7 +12,11 @@ import { isNavActive, navItemClassName } from './navData'
 // PSY-1337 held open for the Observatory rebuild. Radio links
 // straight to the Dial hub (PSY-1057 retired the D2 popover once /radio itself
 // became the dial, PSY-1049). Browse / Contribute carry menus (own components).
-const primaryLinks = [
+// Exported for BottomTabBar's mobile-reachability guard test: every desktop
+// primary destination must stay reachable from the mobile tab bar or its
+// Browse sheet (PSY-1020). Adding a link here without a mobile home fails
+// that test instead of silently stranding phone users.
+export const primaryLinks = [
   { href: '/', label: 'Home' },
   { href: '/shows', label: 'Shows' },
   { href: '/radio', label: 'Radio' },
@@ -23,9 +27,9 @@ const primaryLinks = [
   { href: '/atlas', label: 'Atlas' },
 ]
 
-// Desktop primary navigation. Condenses into the mobile hamburger sheet below
-// `xl` (the dense 8-item row + wide search needs the width); PSY-1020 replaces
-// mobile with the bottom tab bar.
+// Desktop primary navigation. Renders only at `xl` and up — below that the
+// BottomTabBar is the primary nav (PSY-1020), so its xl:hidden and this
+// xl:flex are two ends of one contract: keep them in sync.
 export function PrimaryNav() {
   const pathname = usePathname()
 
