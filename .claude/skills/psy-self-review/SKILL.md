@@ -12,7 +12,7 @@ Born out of the May 16–17 Entity Pages Density Rollout retro: PSY-658 PR claim
 
 ## When this skill fires
 
-The user invokes it explicitly via `/psy-self-review`, OR an upstream skill (`/psy-solo` phase 8.5, `/psy-dispatch` per-agent step 8.5) calls it as part of the standard pre-push sequence.
+The user invokes it explicitly via `/psy-self-review`, OR `/psy-solo` calls it at phase 7.6 as part of the standard pre-push sequence (`/psy-dispatch`'s per-agent step 8.5 is `/adversarial-review`; dispatched agents run this skill's checks inline only if the orchestrator's prompt asks for them).
 
 Do NOT invoke for:
 - Backend-only / docs-only / config-only PRs (test plan is integration-test or "docs-only, no manual repro applicable"; nothing for the sub-agents to evidence-check beyond what `/code-review` already covers).
@@ -243,7 +243,7 @@ Under 250 words.
 
 ## Related skills and memories
 
-- **`/psy-solo`** — single-ticket workflow that invokes this skill at phase 8.5 (between `/code-review` and the PR open).
+- **`/psy-solo`** — single-ticket workflow that invokes this skill at phase 7.6 (after the PR-body draft, before the phase 7.9 rebase and the PR open).
 - **`/psy-dispatch`** — parallel-worktree dispatch; per-agent template should add a `/psy-self-review` step before the `gh pr create` call. (Update pending; will land alongside /psy-self-review commit.)
 - **`/code-review`** — runs immediately before `/psy-self-review`. Different concern (code quality + reuse + efficiency) but same parallel-sub-agent shape.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped audit. Complements this skill: `/psy-self-review` catches pre-push; `/psy-audit` catches what slipped through.

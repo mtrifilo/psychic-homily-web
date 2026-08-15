@@ -41,6 +41,7 @@ which agent-browser               # if any UI screenshots are planned
 7. **Document deferred scope explicitly in the PR body.** If the implementation Q&A produced a "skip this and file a follow-up" decision, link the follow-up ticket(s) in a `## Deferred` section.
 8. **For UI changes: capture screenshots when feasible.** UI tickets benefit from rendered visual evidence in the PR. Use the [Screenshot workflow](#phase-6-screenshots-ui-tickets-only) — skip for backend-only / docs-only / config-only tickets (note "no UI surface" in the test plan instead).
 9. **Adversarial-review fixes ship as a SEPARATE commit, referenced in the PR body.** The implementation (incl. `/code-review` fixes) is committed first; `/adversarial-review`'s findings + fixes land in their own commit (`PSY-{N}: adversarial-review fixes`) so the adversarial pass stays visible in history. The PR body's `## Adversarial review` section names the findings and how each was resolved. See [Phase 5.5](#phase-55-adversarial-review).
+10. **Rebase onto latest `origin/main` immediately before opening the PR (PSY-922).** Non-negotiable #2's pull-at-start only covers the start; a long working window lets `origin/main` advance, and the PR then opens off a stale merge-base regardless (canonical: PR #908, opened 6 commits behind after a parallel session merged through the work window). [Phase 7.9](#phase-79-sync-with-originmain) is the named step; "the orchestrator will catch it after" is not a substitute.
 
 ## Workflow
 
@@ -57,7 +58,16 @@ linear issue view PSY-{N}                            # read description, AC, ope
 
 Run the four commands roughly in parallel where they don't depend on each other (pull + checkout + state-update + view can be batched). If `pull --ff-only` fails with `"Diverging branches"`, see psy-dispatch's "Side-branch checkout recovery" — most commonly local main has a stash-WIP commit ahead of origin; pause and ask.
 
-**Shared-checkout hazard (this repo).** Other agent sessions can share this main checkout, and a parallel session's `git checkout` can flip its HEAD — and your working tree — onto its own branch *mid-ticket* (your commits survive as objects; your edits just appear reverted). A reflog showing the checkout idle for hours is NOT a safe-to-proceed signal — the parallel session can resume anytime. Two defenses: (1) **`git push -u origin PSY-{N}/<branch>` the moment your FIRST commit lands** — push operates on the branch ref, so the work is durable no matter which branch the working tree currently shows; (2) if the checkout gets hijacked, finish in an isolated worktree (see *"Anchored main checkout hijacked by a parallel session"* in Anti-patterns). A quick up-front read tells you the risk level: `pgrep -fl claude` (other sessions running?) + `git reflog -5` (recent HEAD moves you didn't make?).
+**Ownership guard — a HARD GATE, not an advisory read (PSY-922).** Other agent sessions can share this main checkout, and a parallel session's `git checkout` can flip its HEAD — and your working tree — onto its own branch *mid-ticket* (your commits survive as objects; your edits just appear reverted; canonical: the 2026-05-30 session, where a parallel session ping-ponged the checkout and caused most of that day's churn). Before Phase 1's `checkout -b`, run all three checks and **STOP on any hit — surface it to the user instead of proceeding**:
+
+```bash
+git -C <repo> status --porcelain | grep -v '^??'   # foreign UNCOMMITTED edits → STOP: another session's in-flight work; do not checkout over it
+git -C <repo> branch --show-current                 # a foreign PSY-{M} branch (not main, not yours) → STOP: the checkout is owned; ask before switching it
+pgrep -fl claude | grep -v $$                       # other live claude processes → proceed only with the defenses below; expect contention
+git -C <repo> reflog -5                             # HEAD moves you didn't make → the checkout is contested RIGHT NOW; STOP
+```
+
+A reflog showing the checkout idle for hours is NOT a safe-to-proceed signal — the parallel session can resume anytime. Standing defenses once you proceed: (1) **`git push -u origin PSY-{N}/<branch>` the moment your FIRST commit lands** — push operates on the branch ref, so the work is durable no matter which branch the working tree currently shows; (2) if the checkout gets hijacked mid-ticket, finish in an isolated worktree (see *"Anchored main checkout hijacked by a parallel session"* in Anti-patterns).
 
 ### Phase 2: Read + plan + surface ambiguity
 
@@ -319,6 +329,20 @@ Required for any PR with a `## Test plan` containing `[x]` items. Skip only for 
 
 Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` claim that caught a real bug post-merge (PSY-663). This phase exists to prevent that recurring. See `.claude/skills/psy-self-review/SKILL.md`.
 
+### Phase 7.9: Sync with origin/main
+
+**Mandatory (non-negotiable #10, PSY-922) — immediately before Phase 8, not "when convenient".** Phase 1's pull only guaranteed a current base at the START; everything merged since then is invisible to your branch, and a PR opened now would carry a stale merge-base (canonical: PR #908, 6 commits behind at open).
+
+```bash
+git fetch origin main
+git rebase origin/main        # rebase, not merge — matches psy-dispatch's stale-base recovery flow
+```
+
+- **Rebase clean, no new commits pulled in** (`git log HEAD..origin/main` was empty): proceed straight to Phase 8.
+- **Rebase pulled in merged work**: re-run the Phase 4 gates that exercise your diff (typecheck + scoped tests at minimum) before pushing — the point of rebasing locally is to see the interaction failure HERE, not in CI. If the rebase changed any file your `/adversarial-review` pass covered, re-run it (the pass-marker must reflect what you actually push).
+- **Conflicts**: resolve them if the resolution is mechanically obvious within your ticket's scope; otherwise STOP and surface to the user — never auto-resolve a semantic conflict with a parallel ticket.
+- If your diff adds a migration, re-stamp its filename now per the migration-timestamp rule (`bash scripts/check_migration_timestamps.sh origin/main`).
+
 ### Phase 8: Commit + push + open PR
 
 The PR body is the file you wrote in phase 7.5 and refined in phase 7.6 — use `--body-file`, not an inline heredoc.
@@ -331,6 +355,10 @@ git -C <repo> status                               # if this shows uncommitted i
 git -C <repo> push -u origin PSY-{N}/<branch>
 gh pr create --title "PSY-{N}: <under-70-char summary>" --body-file /tmp/psy-{N}-pr-body.md   # hook checks the /adversarial-review pass-marker
 ```
+
+**Body-file freshness (PSY-922).** `Read /tmp/psy-{N}-pr-body.md` in the SAME turn that runs `gh pr create --body-file` (or `gh pr edit --body-file`), and never batch the `Write` that refreshes the file with the command that consumes it — a cancelled or failed `Write` earlier in a batch otherwise ships a stale body silently (canonical 2026-05-30: a PR shipped wrong test counts + a false "lint clean" line because the refreshing `Write` had been cancelled and the old file was consumed). Same rule for Linear `--body-file`/`--description-file` artifacts.
+
+**Never invent an ID.** Every PSY-{N} / PR number written into a PR body, Linear comment, or commit message must come from a just-run `linear issue view` / `gh pr view` / creation output — never derived by incrementing or `sed`-substituting an adjacent number (canonical 2026-05-30: a PR body cited a "PSY-922" that didn't exist yet because the number was fabricated by arithmetic).
 
 #### PR body template (use as starting point for the phase 7.5 draft)
 
