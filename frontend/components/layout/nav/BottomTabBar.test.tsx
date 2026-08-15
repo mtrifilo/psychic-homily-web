@@ -26,9 +26,14 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 let mockTheme = 'dark'
+let mockResolvedTheme = 'dark'
 const mockSetTheme = vi.fn()
 vi.mock('next-themes', () => ({
-  useTheme: () => ({ theme: mockTheme, resolvedTheme: mockTheme, setTheme: mockSetTheme }),
+  useTheme: () => ({
+    theme: mockTheme,
+    resolvedTheme: mockResolvedTheme,
+    setTheme: mockSetTheme,
+  }),
 }))
 
 function authedAs(user: { email: string; is_admin: boolean }) {
@@ -45,6 +50,7 @@ describe('BottomTabBar', () => {
     vi.clearAllMocks()
     mockPathname = '/'
     mockTheme = 'dark'
+    mockResolvedTheme = 'dark'
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -140,6 +146,18 @@ describe('BottomTabBar', () => {
     })
 
     it('carries the theme toggle (migrated from the retired hamburger sheet)', async () => {
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      await user.click(await screen.findByRole('button', { name: 'Light mode' }))
+      expect(mockSetTheme).toHaveBeenCalledWith('light')
+    })
+
+    it('flips the VISIBLE theme on the first click under theme="system"', async () => {
+      // Regression: keying the toggle off `theme` (not resolvedTheme) would
+      // setTheme('dark') on a system-dark device — an apparent no-op.
+      mockTheme = 'system'
+      mockResolvedTheme = 'dark'
       const user = userEvent.setup()
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Browse' }))
