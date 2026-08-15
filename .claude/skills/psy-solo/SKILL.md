@@ -53,7 +53,7 @@ The phases below are how a single PSY ticket goes from a user pointer to a merge
 
 ```bash
 git -C <repo> status --porcelain | grep -v '^??'   # STOP on output: foreign UNCOMMITTED tracked edits — another session's in-flight work; do not checkout over it
-git -C <repo> branch --show-current                 # a PSY-{M} branch that isn't yours: check `gh pr view PSY-{M}/<branch> --json state` — MERGED means it's just parked (a prior ticket ended here; proceed, your checkout-main is safe). An UNMERGED foreign branch → STOP: the checkout is owned
+git -C <repo> branch --show-current                 # a PSY-{M} branch that isn't this ticket's: check `gh pr view PSY-{M}/<branch> --json state` — MERGED means it's just parked (a prior ticket ended here; proceed, your checkout-main is safe). OPEN can also be benign residue: Phase 9's carveout leaves the checkout on the PREVIOUS ticket's branch while its PR awaits review — if no fresh commits (minutes old) and no other holder, proceed. A branch you CANNOT account for → STOP: the checkout is owned
 git -C <repo> reflog -10 --date=relative            # STOP if a checkout/reset to an UNMERGED branch that isn't yours appears within ~30 min: contested right now. Your own prior-ticket moves and moves to main/merged branches are normal residue — discount them
 pgrep -fl claude                                    # ADVISORY, never a STOP: ≥1 match is always you (your own session matches). >1 claude process = other live sessions; expect contention, keep the defenses tight
 ```
@@ -69,7 +69,7 @@ gh pr list --search "PSY-{N}" --state all --json number,state,title,url
 gh pr list --search "<2-3 distinctive title keywords> in:title" --state all --json number,state,title,url   # same work shipped under a DIFFERENT ticket number
 ```
 
-Dispositions: **(a) the match is YOUR OWN prior work on THIS ticket** (a resume/hand-off — confirm via the branch's `git log --format='%an %cr'` or the open PR's head branch) → resume at the appropriate phase, don't re-implement from scratch; **(b) a MERGED PR match** → the work may already be shipped — re-read the ticket against current code and report, don't re-implement; **(c) anything else** (someone else's open PR, a worktree or unmerged branch you don't own) → STOP and report.
+Dispositions: **(a) the match is YOUR OWN prior work on THIS ticket** (a resume/hand-off). NOTE `%an` cannot discriminate here — every session commits as the same git user; test with signals that can: `git log -1 --format=%cr <branch>` (a commit from minutes ago that you didn't make = NOT yours), `git worktree list` (another holder = not yours), `pgrep -fl claude` (>1 = a live session may own it). Accounted for as yours → resume at the appropriate phase, don't re-implement from scratch; **(b) a MERGED PR match** → the work may already be shipped — re-read the ticket against current code and report, don't re-implement; **(c) anything else** (someone else's open PR, a worktree or unmerged branch you don't own) → STOP and report.
 
 Then the branch setup:
 
@@ -349,6 +349,7 @@ Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` clai
 **Mandatory (non-negotiable #10, PSY-922) — immediately before Phase 8, not "when convenient".** Phase 1's pull only guaranteed a current base at the START; everything merged since then is invisible to your branch, and a PR opened now would carry a stale merge-base (canonical: PR #908, 6 commits behind at open). Placement is deliberate: the rebase runs AFTER the review gates so it syncs the final artifact; the re-run rules below are what keep those gates honest about the post-rebase state.
 
 ```bash
+git -C <repo> rev-parse --abbrev-ref HEAD           # MUST print PSY-{N}/<branch>. Anything else = the checkout was hijacked mid-ticket (phases 6-7.6 are a long no-edit window where the hijack signal never fires) → do NOT commit, do NOT rebase the shared checkout; go to the hijack anti-pattern (push your branch ref, finish + rebase in an isolated worktree)
 git -C <repo> status --porcelain | grep -v '^??'    # MUST be empty. Uncommitted implementation? COMMIT it now — a non-trivial commit here re-enters Phase 5.5 (the gates review what ships). Phase 8's status line is then pure verification.
 # The next line is ONE chained invocation — shell variables do NOT survive across Bash tool
 # calls, and the count is echoed BEFORE the rebase so a conflicting (non-zero-exit) rebase

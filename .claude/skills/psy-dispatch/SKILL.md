@@ -117,7 +117,7 @@ Cross-reference the tickets you're about to dispatch against active worktrees + 
 
 ```bash
 git -C <main-repo> branch -a | grep -iE "PSY-{N}( |/|$)"
-git -C <main-repo> worktree list | grep -iE "PSY-{N}( |/|$)"
+git -C <main-repo> worktree list | grep -iE "PSY-{N}( |/|\]|$)"
 gh pr list --search "PSY-{N}" --state all --json number,state,title,url
 gh pr list --search "<2-3 distinctive title keywords> in:title" --state all --json number,state,title,url   # catches the same work shipped under a DIFFERENT ticket number (PSY-922; canonical: dup PR #909 opened after PSY-918/#907 had already merged the identical skill-wiring)
 ```
