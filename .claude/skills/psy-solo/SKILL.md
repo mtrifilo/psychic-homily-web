@@ -41,12 +41,37 @@ which agent-browser               # if any UI screenshots are planned
 7. **Document deferred scope explicitly in the PR body.** If the implementation Q&A produced a "skip this and file a follow-up" decision, link the follow-up ticket(s) in a `## Deferred` section.
 8. **For UI changes: capture screenshots when feasible.** UI tickets benefit from rendered visual evidence in the PR. Use the [Screenshot workflow](#phase-6-screenshots-ui-tickets-only) — skip for backend-only / docs-only / config-only tickets (note "no UI surface" in the test plan instead).
 9. **Adversarial-review fixes ship as a SEPARATE commit, referenced in the PR body.** The implementation (incl. `/code-review` fixes) is committed first; `/adversarial-review`'s findings + fixes land in their own commit (`PSY-{N}: adversarial-review fixes`) so the adversarial pass stays visible in history. The PR body's `## Adversarial review` section names the findings and how each was resolved. See [Phase 5.5](#phase-55-adversarial-review).
+10. **Rebase onto latest `origin/main` immediately before opening the PR (PSY-922).** Non-negotiable #2's pull-at-start only covers the start; a long working window lets `origin/main` advance, and the PR then opens off a stale merge-base regardless (canonical: PR #908, opened 6 commits behind after a parallel session merged through the work window). [Phase 7.9](#phase-79-sync-with-originmain) is the named step; "the orchestrator will catch it after" is not a substitute.
 
 ## Workflow
 
-The phases below are how a single PSY ticket goes from a user pointer to a merge-ready PR. Phases 1–5 + 7–8 apply to every ticket; phase 6 (screenshots) applies to tickets that change the rendered UI.
+The phases below are how a single PSY ticket goes from a user pointer to a merge-ready PR. Phases 1–5, 5.5, 7 (with 7.5/7.9), 8, and 9 apply to every ticket; phase 6 (screenshots) is UI-only, and 7.6 is skippable for backend-only / docs-only / config-only PRs (per its own section).
 
 ### Phase 1: Pre-flight + branch
+
+**Step 0 — ownership guard + collision cross-check (PSY-922). Runs BEFORE any git command in this phase — including `checkout main` — and is never batched with them.** Other agent sessions can share this main checkout, and a parallel session's `git checkout` can flip its HEAD — and your working tree — onto its own branch *mid-ticket* (your commits survive as objects; your edits just appear reverted; canonical: the 2026-05-30 session, where a parallel session ping-ponged the checkout and caused most of that day's churn). Running Phase 1's `checkout main` first would BE that hijack — and it would also blank the very signals these checks read (`branch --show-current` would then say `main`; the reflog's top entries would be yours). Verdict is per check, not blanket:
+
+```bash
+git -C <repo> status --porcelain | grep -v '^??'   # STOP on output: foreign UNCOMMITTED tracked edits — another session's in-flight work; do not checkout over it
+git -C <repo> branch --show-current                 # a PSY-{M} branch that isn't this ticket's: check `gh pr view PSY-{M}/<branch> --json state` — MERGED means it's just parked (a prior ticket ended here; proceed, your checkout-main is safe). OPEN can also be benign residue: Phase 9's carveout leaves the checkout on the PREVIOUS ticket's branch while its PR awaits review — if no fresh commits (minutes old) and no other holder, proceed. A branch you CANNOT account for → STOP: the checkout is owned
+git -C <repo> reflog -10 --date=relative            # STOP if a checkout/reset to an UNMERGED branch that isn't yours appears within ~30 min: contested right now. Your own prior-ticket moves and moves to main/merged branches are normal residue — discount them
+pgrep -fl claude                                    # ADVISORY, never a STOP: ≥1 match is always you (your own session matches). >1 claude process = other live sessions; expect contention, keep the defenses tight
+```
+
+STOP means surface the state to the user and wait — never proceed past it silently. The normal end-state of a PREVIOUS psy-solo ticket is precisely "checkout parked on a merged PSY-{M} branch with its own reflog entries" — that shape is a proceed, not a STOP; the gate exists for a live session's unmerged work, and a gate that fires on your own footprints gets rationalized away exactly when it matters. A reflog showing the checkout idle for hours is NOT a safe-to-proceed signal — the parallel session can resume anytime; the defenses below are what make proceeding survivable, not the idleness.
+
+**Collision cross-check (hard gate, same step).** A match in ANY state means this ticket is not fresh work — triage it; never branch-name-disambiguate around an existing PR:
+
+```bash
+git -C <repo> branch -a | grep -iE "PSY-{N}( |/|$)"          # local/remote branch already exists
+git -C <repo> worktree list | grep -iE "PSY-{N}( |/|\]|$)"   # a worktree holds it (anchored: PSY-173 must not match PSY-1733)
+gh pr list --search "PSY-{N}" --state all --json number,state,title,url
+gh pr list --search "<2-3 distinctive title keywords> in:title" --state all --json number,state,title,url   # same work shipped under a DIFFERENT ticket number
+```
+
+Dispositions: **(a) the match is YOUR OWN prior work on THIS ticket** (a resume/hand-off). NOTE `%an` cannot discriminate here — every session commits as the same git user; test with signals that can: `git log -1 --format=%cr <branch>` (a commit from minutes ago that you didn't make = NOT yours), `git worktree list` (another holder = not yours), `pgrep -fl claude` (>1 = a live session may own it). Accounted for as yours → resume at the appropriate phase, don't re-implement from scratch; **(b) a MERGED PR match** → the work may already be shipped — re-read the ticket against current code and report, don't re-implement; **(c) anything else** (someone else's open PR, a worktree or unmerged branch you don't own) → STOP and report.
+
+Then the branch setup:
 
 ```bash
 git -C <repo> checkout main && git -C <repo> pull --ff-only origin main
@@ -55,9 +80,9 @@ linear issue update PSY-{N} --state "In Progress"   # case-sensitive; "In Progre
 linear issue view PSY-{N}                            # read description, AC, open questions
 ```
 
-Run the four commands roughly in parallel where they don't depend on each other (pull + checkout + state-update + view can be batched). If `pull --ff-only` fails with `"Diverging branches"`, see psy-dispatch's "Side-branch checkout recovery" — most commonly local main has a stash-WIP commit ahead of origin; pause and ask.
+The `state-update + view` pair can be batched with each other; the `checkout`/`pull` commands run only AFTER step 0 passes, and `checkout -b` after the pull. If `pull --ff-only` fails with `"Diverging branches"`, see psy-dispatch's "Side-branch checkout recovery" — most commonly local main has a stash-WIP commit ahead of origin; pause and ask.
 
-**Shared-checkout hazard (this repo).** Other agent sessions can share this main checkout, and a parallel session's `git checkout` can flip its HEAD — and your working tree — onto its own branch *mid-ticket* (your commits survive as objects; your edits just appear reverted). A reflog showing the checkout idle for hours is NOT a safe-to-proceed signal — the parallel session can resume anytime. Two defenses: (1) **`git push -u origin PSY-{N}/<branch>` the moment your FIRST commit lands** — push operates on the branch ref, so the work is durable no matter which branch the working tree currently shows; (2) if the checkout gets hijacked, finish in an isolated worktree (see *"Anchored main checkout hijacked by a parallel session"* in Anti-patterns). A quick up-front read tells you the risk level: `pgrep -fl claude` (other sessions running?) + `git reflog -5` (recent HEAD moves you didn't make?).
+Standing defenses once you proceed: (1) **`git push -u origin PSY-{N}/<branch>` the moment your FIRST commit lands** — push operates on the branch ref, so the work is durable no matter which branch the working tree currently shows (and if Phase 7.9's rebase later rewrites these pushed commits, the Phase 8 push becomes `--force-with-lease` — see Phase 7.9); (2) if the checkout gets hijacked mid-ticket, finish in an isolated worktree (see *"Anchored main checkout hijacked by a parallel session"* in Anti-patterns).
 
 ### Phase 2: Read + plan + surface ambiguity
 
@@ -319,18 +344,44 @@ Required for any PR with a `## Test plan` containing `[x]` items. Skip only for 
 
 Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` claim that caught a real bug post-merge (PSY-663). This phase exists to prevent that recurring. See `.claude/skills/psy-self-review/SKILL.md`.
 
+### Phase 7.9: Sync with origin/main
+
+**Mandatory (non-negotiable #10, PSY-922) — immediately before Phase 8, not "when convenient".** Phase 1's pull only guaranteed a current base at the START; everything merged since then is invisible to your branch, and a PR opened now would carry a stale merge-base (canonical: PR #908, 6 commits behind at open). Placement is deliberate: the rebase runs AFTER the review gates so it syncs the final artifact; the re-run rules below are what keep those gates honest about the post-rebase state.
+
+```bash
+git -C <repo> rev-parse --abbrev-ref HEAD           # MUST print PSY-{N}/<branch>. Anything else = the checkout was hijacked mid-ticket (phases 6-7.6 are a long no-edit window where the hijack signal never fires) → do NOT commit, do NOT rebase the shared checkout; go to the hijack anti-pattern (push your branch ref, finish + rebase in an isolated worktree)
+git -C <repo> status --porcelain | grep -v '^??'    # MUST be empty. Uncommitted implementation? COMMIT it now — a non-trivial commit here re-enters Phase 5.5 (the gates review what ships). Phase 8's status line is then pure verification.
+# The next line is ONE chained invocation — shell variables do NOT survive across Bash tool
+# calls, and the count is echoed BEFORE the rebase so a conflicting (non-zero-exit) rebase
+# can't eat it. After ANY rebase the HEAD..origin/main range is ALWAYS empty — never re-measure.
+git -C <repo> fetch origin main && PULLED=$(git -C <repo> rev-list --count HEAD..origin/main) && echo "pulled in: $PULLED commits" && git -C <repo> rebase origin/main   # rebase, not merge — matches psy-dispatch's flow
+```
+
+- **If your diff adds a migration** — check FIRST, before the SHA bullet below, because the fix amends and an amend rewrites the tip: `bash <repo>/scripts/check_migration_timestamps.sh origin/main`. On failure, `git mv` BOTH the `.up.sql` AND the `.down.sql` to a fresh `date -u +%Y%m%d%H%M%S` stamp with contents unchanged, then amend — golang-migrate silently skips a backdated migration (exit 0, "no change"), which is a four-hour-outage class failure (PSY-1708).
+- **`PULLED` > 0**: the rebase rewrote EVERY commit SHA on the branch. Before Phase 8:
+  - Re-run the Phase 4 gates that exercise your diff (typecheck + scoped tests at minimum) — the point of rebasing locally is to see the interaction failure HERE, not in CI.
+  - **This is the authoritative re-run rule for `/adversarial-review`** (Phase 8's comment defers to it): re-run it if the rebase changed any file the pass covered; a rebase that touched none of them does not invalidate the verdict.
+  - **Re-derive every short-SHA cited in `/tmp/psy-{N}-pr-body.md`** (the `## Adversarial review` section's `fixed in \`<sha>\`` references) from `git -C <repo> log --oneline origin/main..HEAD` — the old SHAs no longer exist, and a reviewer clicking one gets a 404. Do it AFTER any migration-re-stamp amend (the amend would re-dangle the SHA you just wrote). If the body's evidence claims changed materially (new fix commits, changed test counts), re-run `/psy-self-review` against the refreshed body; a pure SHA substitution doesn't require it.
+- **Push mode is decided by the REMOTE, not by `PULLED`**: run `git -C <repo> status -sb` — if the branch and its upstream have DIVERGED (from the rebase, a migration-re-stamp amend, or any other rewrite of a pushed commit), Phase 8's push must be `git -C <repo> push --force-with-lease origin PSY-{N}/<branch>`; **never bare `--force`**, which would clobber a parallel session's push to the same ref (`--force-with-lease` bails out if the remote moved). `PULLED` = 0 does NOT by itself license a plain push — an amend also rewrites.
+- **Conflicts**: this rebase runs in the SHARED main checkout — never leave it mid-rebase (every parallel session's `checkout`/`commit`/`pull` fails with "a rebase is in progress" until a human notices). Resolve only what is mechanically obvious within your ticket's scope. Otherwise: capture the conflict list (`git -C <repo> diff --name-only --diff-filter=U`), then `git -C <repo> rebase --abort` to restore the checkout to a usable state, THEN stop and surface the list to the user — never auto-resolve a semantic conflict with a parallel ticket, and never park the shared checkout in a conflicted rebase while you wait.
+
 ### Phase 8: Commit + push + open PR
 
 The PR body is the file you wrote in phase 7.5 and refined in phase 7.6 — use `--body-file`, not an inline heredoc.
 
 ```bash
 # Implementation (phase 5.5) + any adversarial-review fixes should already be committed.
-# If ANY code changed after Phase 5.5 (e.g. a Phase 6 screenshot-driven fix), re-run
+# If YOUR OWN code changed after Phase 5.5 (e.g. a Phase 6 screenshot-driven fix), re-run
 # /adversarial-review first so the pass-marker reflects exactly what you're pushing.
-git -C <repo> status                               # if this shows uncommitted implementation, COMMIT it now (specific paths) before pushing — never `git add .`
-git -C <repo> push -u origin PSY-{N}/<branch>
+# (For changes a Phase 7.9 rebase pulled in, Phase 7.9's re-run rule is authoritative.)
+git -C <repo> status                               # VERIFICATION ONLY — Phase 7.9's status line owns the commit check; anything dirty here means you skipped it (go back). Never `git add .`
+git -C <repo> push -u origin PSY-{N}/<branch>      # or --force-with-lease if branch/upstream diverged, per Phase 7.9's push-mode rule (never bare --force)
 gh pr create --title "PSY-{N}: <under-70-char summary>" --body-file /tmp/psy-{N}-pr-body.md   # hook checks the /adversarial-review pass-marker
 ```
+
+**Body-file freshness (PSY-922).** `Read /tmp/psy-{N}-pr-body.md` in the SAME turn that runs `gh pr create --body-file` (or `gh pr edit --body-file`), and never batch the `Write` that refreshes the file with the command that consumes it — a cancelled or failed `Write` earlier in a batch otherwise ships a stale body silently (canonical 2026-05-30: a PR shipped wrong test counts + a false "lint clean" line because the refreshing `Write` had been cancelled and the old file was consumed). Same rule for Linear `--body-file`/`--description-file` artifacts.
+
+**Never invent an ID.** Every PSY-{N} / PR number written into a PR body, Linear comment, or commit message must come from a just-run `linear issue view` / `gh pr view` / creation output — never derived by incrementing or `sed`-substituting an adjacent number (canonical 2026-05-30: a PR body cited a "PSY-922" that didn't exist yet because the number was fabricated by arithmetic).
 
 #### PR body template (use as starting point for the phase 7.5 draft)
 
@@ -393,6 +444,8 @@ lsof -i :8080 -i :3000                            # verify no listeners (CLOSED 
 
 PIDs come from the original `run_in_background` task output (each background Bash result includes the PID). If you can't find them, `pgrep -fl "go run cmd/server" -fl "next dev"`.
 
+**Return the checkout to `main` once the PR is open** (`git -C <repo> checkout main`) — the next psy-solo invocation's Step-0 ownership guard reads the checkout's state, and a checkout parked on your merged ticket branch is exactly the residue it then has to discount (PSY-922). Skip this only if you're continuing to iterate on the same branch (e.g. review feedback expected).
+
 Do NOT delete the draft release after the PR is open — the asset URLs depend on it persisting. The user (or you, post-merge cleanup) can sweep old draft releases periodically.
 
 ## Anti-patterns
@@ -412,13 +465,13 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 - **Claiming PR test-plan items you didn't actually verify.** The PSY-658 PR test plan listed `unauthenticated viewer (only [Add to collection] visible in linkbox)` without a screenshot to back it. Post-shipped-UI audit (PSY-663) caught that `AddToCollectionButton.tsx:99` returns null for unauth — the linkbox was empty, not single-bracket as claimed. If you can't visually verify a Test plan item before push, mark it `[ ]` (unchecked) with a brief "deferred manual repro" note. `[x]` is a statement that you verified it.
 - **Asymmetric `if (!isAuthenticated) return null` patterns across peer shared components.** `FollowButton` and `NotifyMeButton` (bracket variants) RENDER for unauth and redirect to `/auth` on click; `AddToCollectionButton` returns null entirely. When auditing a new shared-component variant, check peer components for the convention before deciding the unauth fallback shape. Caught: PSY-663.
 - **Assuming you can `cd` out of the session's launch worktree.** The harness pins the shell's cwd to the directory the session launched in and resets it after every command — even a bare `cd` does NOT persist. So `/code-review`, `/adversarial-review` (+ its branch pass-marker), and `/psy-self-review` all run `git` in that anchored cwd; if your ticket's work lives in a *different* worktree they review the wrong tree / write a marker for the wrong branch and `gh pr create` is blocked. Fix: do the work IN the anchored worktree — if it sits on a stale/merged branch, `git checkout -b PSY-{N}/<desc> origin/main` there (repurpose it) rather than spinning up a separate worktree you can't `cd` into. Caught 2026-06-01 (PSY-947): session anchored to a `.claude/worktrees/PSY-910+admin-table` dir; consolidated the new branch into it. (Note the resulting dir-name vs branch-name mismatch and flag it in any handoff.)
-- **Anchored main checkout hijacked by a parallel session.** Symptom: your edited files appear reverted (a system-reminder says they were "modified by the user or a linter"), and `git status` shows the checkout is now on *another* branch (a parallel session's). Your commits are safe as git objects — the parallel session only switched HEAD + the working tree. Recovery, in order: (1) **push your branch ref immediately** — `git push origin PSY-{N}/<branch>` works regardless of the working tree's current branch (durable backup); (2) create an isolated worktree at YOUR head on a *new* local branch — `git worktree add -b PSY-{N}-wt <path> <your-sha>` (a fresh branch name dodges the "already checked out" error when the main checkout happens to be sitting on your branch); (3) apply the remaining edits there, commit via `git -C <worktree>`, push with an explicit refspec — `git -C <worktree> push origin PSY-{N}-wt:PSY-{N}/<branch>`; (4) run `/psy-self-review` against the worktree diff (`git -C <worktree> diff <base>...HEAD`), then `gh pr create --head PSY-{N}/<branch> --base main` from the worktree. The `/adversarial-review` pass-marker hook keys on the *hijacked* main checkout's (ping-ponging) branch, so write the marker for your REAL branch (audit trail) and run the `gh` command with `ADVERSARIAL_REVIEW_SKIP=1` — the review genuinely ran; document it fully in the PR body + the separate fixes commit. Do NOT switch the main checkout back to your branch to "reclaim" it — that re-enters the ping-pong and disrupts the parallel session. Caught 2026-06-08 (PSY-1018): a parallel session ping-ponged the checkout between PSY-1018 and PSY-1043 mid-ticket; recovered cleanly via worktree → PR #1066, zero lost work.
+- **Anchored main checkout hijacked by a parallel session.** Symptom: your edited files appear reverted (a system-reminder says they were "modified by the user or a linter"), and `git status` shows the checkout is now on *another* branch (a parallel session's). Your commits are safe as git objects — the parallel session only switched HEAD + the working tree. Recovery, in order: (1) **push your branch ref immediately** — `git push origin PSY-{N}/<branch>` works regardless of the working tree's current branch (durable backup); (2) create an isolated worktree at YOUR head on a *new* local branch — `git worktree add -b PSY-{N}-wt <path> <your-sha>` (a fresh branch name dodges the "already checked out" error when the main checkout happens to be sitting on your branch); (3) apply the remaining edits there, commit via `git -C <worktree>`, then `git -C <worktree> fetch origin main && git -C <worktree> rebase origin/main` (Phase 7.9 still applies — the isolated worktree is where it runs now), and push with an explicit refspec — `git -C <worktree> push origin PSY-{N}-wt:PSY-{N}/<branch>` (`--force-with-lease` if the ref was already pushed); (4) run `/psy-self-review` against the worktree diff (`git -C <worktree> diff <base>...HEAD`), then `gh pr create --head PSY-{N}/<branch> --base main` from the worktree. The `/adversarial-review` pass-marker hook keys on the *hijacked* main checkout's (ping-ponging) branch, so write the marker for your REAL branch (audit trail) and run the `gh` command with `ADVERSARIAL_REVIEW_SKIP=1` — the review genuinely ran; document it fully in the PR body + the separate fixes commit. Do NOT switch the main checkout back to your branch to "reclaim" it — that re-enters the ping-pong and disrupts the parallel session. Caught 2026-06-08 (PSY-1018): a parallel session ping-ponged the checkout between PSY-1018 and PSY-1043 mid-ticket; recovered cleanly via worktree → PR #1066, zero lost work.
 - **Orphaned `go run` backend still holding :8080 after teardown.** `go run cmd/server/main.go` spawns a compiled child (`/tmp/.../exe/main`); killing the `go run` wrapper or its background task can leave the child reparented to PID 1, still LISTENing on :8080 → the next `go run` dies with `bind: address already in use` even though the task "failed". Kill the real listener, not the wrapper: `lsof -nP -tiTCP:8080 -sTCP:LISTEN | xargs kill -9`, then verify `:8080` is free before restarting. Caught 2026-06-01 across multiple dev-stack restarts in one session.
 
 ## Related skills and memories
 
 - **`psy-dispatch`** — parallel-worktree batch execution. Use when 2+ tickets need to ship; `psy-solo` is for single tickets where worktree overhead would be friction.
-- **`/psy-self-review`** — invoked at phase 7.6 between follow-up filing (phases 7 / 7.5) and `git push` (phase 8). Sub-agent audits the draft PR body against session evidence; BLOCKING finding (unverified `[x]` claim) stops the push.
+- **`/psy-self-review`** — invoked at phase 7.6, between the PR-body draft (phases 7 / 7.5) and the pre-push rebase (phase 7.9). Sub-agent audits the draft PR body against session evidence; BLOCKING finding (unverified `[x]` claim) stops the push. If the 7.9 rebase then materially changes the body's evidence claims, re-run it (see Phase 7.9).
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped UI audit pattern (sweep N merged tickets via screenshots + DOM-eval, file follow-ups, post project-update). Different scope from `psy-solo` (retrospective sweep vs forward per-ticket). Will be drafted after PSY-656 validates the audit cadence is genuinely reusable. May 16 audit was the first instance: caught PSY-663 + PSY-664 in ~30 minutes.
 - **`psy-ticket`** — ticket creation; pair with phase 7 to file the follow-ups this skill identifies.
 - **`linear-reference`** — workspace-agnostic `linear` CLI reference. Drop down to it when you need a command shape outside `psy-ticket`'s ticket-creation focus — posting status updates via `linear project-update create --health onTrack|atRisk|offTrack`, posting an issue comment via `linear issue comment add` (note: rejects `--no-interactive`), milestone / initiative-update / document ops. Pair with `psy-ticket` when PSY conventions also apply.
