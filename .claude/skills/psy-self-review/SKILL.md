@@ -1,12 +1,12 @@
 ---
 name: psy-self-review
-description: Sub-agent review of an in-flight PR draft against session evidence. Catches unverified `[x]` test-plan claims, missing coverage-gap disclosure, asymmetric peer-component checks, and convention drift. Runs AFTER `/code-review` and BEFORE push as the final gate. Pattern matches `/code-review` (3 parallel reviewer sub-agents); failure forces the agent back to the verification phase rather than letting an unverified claim ship.
+description: Sub-agent review of an in-flight PR draft against session evidence. Catches unverified `[x]` test-plan claims, missing coverage-gap disclosure, asymmetric peer-component checks, and convention drift. Runs AFTER `/code-review` and BEFORE the pre-push rebase (psy-solo phase 7.9) as the evidence gate; a rebase that materially changes the body's claims triggers a re-run. Pattern matches `/code-review` (3 parallel reviewer sub-agents); failure forces the agent back to the verification phase rather than letting an unverified claim ship.
 argument-hint: "[optional: path to draft PR body markdown]"
 ---
 
 # psy-self-review: pre-push evidence-of-verification audit
 
-Encodes the convention that PR test-plan `[x]` items are statements of "I verified this," not aspirations. Spawns 3 parallel reviewer sub-agents to check the in-flight PR draft against the session's evidence trail (bash log, screenshots, test runs). Same shape as `/code-review`; runs immediately after `/code-review` and before `git push`.
+Encodes the convention that PR test-plan `[x]` items are statements of "I verified this," not aspirations. Spawns 3 parallel reviewer sub-agents to check the in-flight PR draft against the session's evidence trail (bash log, screenshots, test runs). Same shape as `/code-review`; runs in the pre-push sequence after `/code-review` (psy-solo: phase 7.6, before the phase 7.9 rebase and `git push`).
 
 Born out of the May 16–17 Entity Pages Density Rollout retro: PSY-658 PR claimed `[Add to collection]` would render for unauth viewers without verifying — that claim was wrong, and the empty-linkbox bug shipped to main, caught only by a post-shipped audit (PSY-663). PSY-664 (Graph Dialog hash bug) had the same shape: assumed-correct CLOSE path, never actually clicked. This skill is the gate that catches that pattern before push.
 
@@ -244,8 +244,8 @@ Under 250 words.
 ## Related skills and memories
 
 - **`/psy-solo`** — single-ticket workflow that invokes this skill at phase 7.6 (after the PR-body draft, before the phase 7.9 rebase and the PR open).
-- **`/psy-dispatch`** — parallel-worktree dispatch; per-agent template should add a `/psy-self-review` step before the `gh pr create` call. (Update pending; will land alongside /psy-self-review commit.)
-- **`/code-review`** — runs immediately before `/psy-self-review`. Different concern (code quality + reuse + efficiency) but same parallel-sub-agent shape.
+- **`/psy-dispatch`** — parallel-worktree dispatch; its per-agent gate is `/adversarial-review` at step 8.5, NOT this skill (dispatched sub-agents lack the Agent tool this skill's 3-way panel needs). Dispatched agents run these checks inline only when the orchestrator's prompt asks for them.
+- **`/code-review`** — runs earlier in the same pre-push sequence (psy-solo phase 5; phases 5.5–7.5 sit between it and this skill). Different concern (code quality + reuse + efficiency) but same parallel-sub-agent shape.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped audit. Complements this skill: `/psy-self-review` catches pre-push; `/psy-audit` catches what slipped through.
 - `feedback_code_review_before_pr.md` — same rule shape: failure blocks push, escalate to user instead of pushing past.
 - `feedback_verify_before_push.md` — verify the fix actually fixes the thing before pushing.
