@@ -21,6 +21,7 @@ import {
   TierAdvancementCard,
 } from '@/features/profile'
 import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { profileHref } from '@/components/layout/nav/navData'
 
 // Sentinel for the adjust-during-render form seeding below: a value guaranteed
 // distinct from any real `user`, so the guard also fires on the FIRST render
@@ -281,9 +282,7 @@ function ProfilePageContent() {
 
   // The Edit target of the public profile (PSY-1054, Figma board H): the
   // page names itself as the EDITOR — the profile lives at /users/[username].
-  const publicProfileHref = user?.username
-    ? `/users/${user.username}`
-    : '/users/me'
+  const publicProfileHref = profileHref(user)
 
   return (
     <div className="container max-w-3xl mx-auto px-4 py-10">

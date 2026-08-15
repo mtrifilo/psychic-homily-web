@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Sidebar } from './Sidebar'
-import { sidebarGroups } from './nav/navData'
 
 const mockPathname = vi.fn(() => '/shows')
 vi.mock('next/navigation', () => ({
@@ -27,41 +26,9 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-describe('sidebarGroups', () => {
-  it('has Discover and Community groups', () => {
-    expect(sidebarGroups.map(g => g.label)).toEqual(['Discover', 'Community'])
-  })
-
-  it('Discover contains the Graph Observatory and catalog destinations', () => {
-    const discover = sidebarGroups.find(g => g.label === 'Discover')!
-    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Graph', 'Releases', 'Labels', 'Tags', 'Scenes', 'Atlas', 'Collections', 'Charts', 'Radio'])
-  })
-
-  it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submit a Show, My Submissions', () => {
-    const community = sidebarGroups.find(g => g.label === 'Community')!
-    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Leaderboard', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'Submit a Show', 'My Submissions'])
-  })
-
-  it('only Substack is marked external', () => {
-    const external = sidebarGroups.flatMap(g => g.items).filter(i => i.external)
-    expect(external).toHaveLength(1)
-    expect(external[0].label).toBe('Substack')
-  })
-
-  it('all internal items have paths starting with /', () => {
-    const internal = sidebarGroups.flatMap(g => g.items).filter(i => !i.external)
-    for (const item of internal) {
-      expect(item.href).toMatch(/^\//)
-    }
-  })
-
-  it('all items have an icon', () => {
-    for (const item of sidebarGroups.flatMap(g => g.items)) {
-      expect(item.icon).toBeTruthy()
-    }
-  })
-})
-
+// The rail's destination tables (sidebarGroups) moved to navData with
+// PSY-1821 — their order/membership/composition tests live in
+// nav/navData.test.ts now. This file tests the component.
 describe('Sidebar', () => {
   const onToggleCollapse = vi.fn()
 
@@ -140,8 +107,6 @@ describe('Sidebar', () => {
       logout: vi.fn(),
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    // "My Library" — the canonical label (navData, PSY-1821); the rail used to
-    // fork it as "Library".
     expect(screen.getByText('My Library')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Show Submissions' })).toHaveAttribute(
       'href',

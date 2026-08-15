@@ -15,10 +15,11 @@ import {
 } from '@/components/ui/sheet'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
-  accountNavItems, isNavActive, mobileBrowseGroups, mobileBrowseHrefs,
-  primaryTabs, sheetLinkClassName, navGroupLabelClassName,
+  PROFILE_CLAIM_HREF, accountNavItems, isNavActive, mobileBrowseGroups,
+  mobileBrowseHrefs, primaryTabs, sheetLinkClassName, navGroupLabelClassName,
+  visibleNavItems,
 } from './navData'
-import type { AccountNavItem, NavLink } from './navData'
+import type { NavDestination, NavLink } from './navData'
 
 // The persistent mobile bottom tab bar (PSY-1020, Figma Navigation 540:8 —
 // Option A, the user-approved pattern; the hamburger-sheet Option B 542:6 is the
@@ -194,7 +195,7 @@ function AccountSheetBody({
   pathname,
   logout,
 }: {
-  items: AccountNavItem[]
+  items: NavDestination[]
   pathname: string
   logout: () => void
 }) {
@@ -229,19 +230,19 @@ export function BottomTabBar() {
   // The canonical account list (navData, PSY-1821) with the username-aware
   // Profile href already resolved. Admin stays in the list (adminOnly) so the
   // tab's active state covers every account route; rendering filters it.
-  const accountItems = accountNavItems(user)
+  // Anonymous visitors never read it, so don't build it for them.
+  const accountItems = isAuthenticated && user ? accountNavItems(user) : []
 
   // At most one tab lights up (off-map routes like /help light none). Primary
   // tabs win on shared prefixes (e.g.
   // /shows/submit is both a Shows descendant and a Browse-sheet destination —
   // Shows takes it); Account owns its own routes; Browse takes the rest of its
-  // sheet's destinations. '/users/me' stays in the active set even when
-  // Profile deep-links to /users/<username> — the self-view alias is still an
-  // account route.
+  // sheet's destinations. The claim-view alias stays in the active set even
+  // when Profile deep-links to /users/<username>.
   const primaryActive = primaryTabs.some(t => isActive(t.href))
-  const accountActive = (
-    isAuthenticated ? [...accountItems.map(i => i.href), '/users/me'] : ['/auth']
-  ).some(isActive)
+  const accountActive = isAuthenticated
+    ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
+    : isActive('/auth')
   const browseActive =
     !primaryActive && !accountActive && mobileBrowseHrefs.some(isActive)
 
@@ -296,7 +297,7 @@ export function BottomTabBar() {
             description="Your account: notifications, library, profile, settings, and sign out."
           >
             <AccountSheetBody
-              items={accountItems.filter(item => !item.adminOnly || user.is_admin)}
+              items={visibleNavItems(accountItems, user)}
               pathname={pathname}
               logout={logout}
             />

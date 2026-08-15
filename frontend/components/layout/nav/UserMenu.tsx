@@ -15,7 +15,7 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { getUserInitials, getUserDisplayName } from './userDisplay'
-import { accountNavItems } from './navData'
+import { accountNavItems, visibleNavItems } from './navData'
 import { NotificationBell } from '@/features/notifications'
 
 // The right-hand actions cluster. Signed in (PSY-1018, Figma 537:91): the
@@ -38,9 +38,10 @@ export function UserMenu() {
     // The canonical account destination list (navData, PSY-1821) — Profile's
     // username-aware href, the Profile/Settings split, and each entry's icon
     // are all decided at that table, shared with the mobile Account sheet.
-    const items = accountNavItems(user)
+    // Admin-gated entries render after a separator, in their own group.
+    const items = visibleNavItems(accountNavItems(user), user)
     const menuItems = items.filter(item => !item.adminOnly)
-    const adminItem = user.is_admin ? items.find(item => item.adminOnly) : undefined
+    const adminItems = items.filter(item => item.adminOnly)
 
     return (
       <div className="flex items-center gap-2">
@@ -87,15 +88,20 @@ export function UserMenu() {
                 )
               })}
             </DropdownMenuGroup>
-            {adminItem && (
+            {adminItems.length > 0 && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href={adminItem.href} prefetch={false}>
-                    <adminItem.icon className="mr-2 size-4" />
-                    {adminItem.label}
-                  </Link>
-                </DropdownMenuItem>
+                {adminItems.map(item => {
+                  const Icon = item.icon
+                  return (
+                    <DropdownMenuItem key={item.href} asChild>
+                      <Link href={item.href} prefetch={false}>
+                        <Icon className="mr-2 size-4" />
+                        {item.label}
+                      </Link>
+                    </DropdownMenuItem>
+                  )
+                })}
               </>
             )}
             <DropdownMenuSeparator />

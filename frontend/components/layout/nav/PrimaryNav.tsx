@@ -4,7 +4,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { BrowseMenu } from './BrowseMenu'
 import { ContributeMenu } from './ContributeMenu'
-import { isNavActive, navItemClassName } from './navData'
+import {
+  atlasItem, graphItem, isNavActive, navDestination, navItemClassName, primaryTabs,
+} from './navData'
 
 // The explicit, labelled primary destinations (NN/G: a labelled "Home" link in
 // addition to the clickable logo — left-aligned logo alone is not discoverable).
@@ -12,19 +14,19 @@ import { isNavActive, navItemClassName } from './navData'
 // PSY-1337 held open for the Observatory rebuild. Radio links
 // straight to the Dial hub (PSY-1057 retired the D2 popover once /radio itself
 // became the dial, PSY-1049). Browse / Contribute carry menus (own components).
+// Composed from navData's canonical entries (PSY-1821) — this list only
+// decides WHICH destinations are top-bar primaries and their order; Atlas is
+// the spin-to-discover globe promoted as a flagship discovery surface
+// (PSY-1219).
 // Exported for BottomTabBar's mobile-reachability guard test: every desktop
 // primary destination must stay reachable from the mobile tab bar or its
 // Browse sheet (PSY-1020). Adding a link here without a mobile home fails
 // that test instead of silently stranding phone users.
 export const primaryLinks = [
-  { href: '/', label: 'Home' },
-  { href: '/shows', label: 'Shows' },
-  { href: '/radio', label: 'Radio' },
-  { href: '/artists', label: 'Artists' },
-  { href: '/graph', label: 'Graph' },
-  // Atlas — the spin-to-discover globe of scenes (PSY-1213); promoted to the top
-  // bar as a flagship discovery surface (PSY-1219).
-  { href: '/atlas', label: 'Atlas' },
+  ...primaryTabs,
+  navDestination('/artists'),
+  graphItem,
+  atlasItem,
 ]
 
 // Desktop primary navigation. Renders only at `xl` and up — below that the

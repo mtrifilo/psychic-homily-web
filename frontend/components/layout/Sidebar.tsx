@@ -8,7 +8,9 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { SidebarNavLink } from './SidebarNavLink'
-import { sidebarGroups, sidebarAccountItems } from './nav/navData'
+import {
+  isNavActive, sidebarGroups, sidebarAccountItems, visibleNavItems,
+} from './nav/navData'
 import type { NavDestination } from './nav/navData'
 
 interface SidebarProps {
@@ -25,10 +27,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   // and in side-nav mode SideNavShell suppresses this sidebar under /admin — so
   // the PSY-933 context-swap that used to render admin nav here is retired
   // (PSY-1116) to avoid a double rail.
-  const isActive = (href: string) => {
-    if (href === '/') return pathname === '/'
-    return pathname === href || pathname.startsWith(href + '/')
-  }
+  const isActive = (href: string) => isNavActive(pathname, href)
 
   const renderItem = (item: NavDestination) => (
     <SidebarNavLink
@@ -71,7 +70,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             <div>
               <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
               <div className="space-y-0.5">
-                {sidebarAccountItems(user).map(renderItem)}
+                {visibleNavItems(sidebarAccountItems(user), user).map(renderItem)}
               </div>
             </div>
           )}

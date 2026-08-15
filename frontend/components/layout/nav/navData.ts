@@ -7,13 +7,12 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// Shared link data + styling for the top-bar primary nav (PSY-1013). The retired
-// left sidebar exposed ~20 destinations; these tables keep every one of them
-// reachable from the new top bar's Browse / Contribute menus so retiring the
-// sidebar doesn't regress desktop discoverability. The menu *presentation* is
-// refined by follow-up tickets (Browse mega-menu → PSY-1014, Contribute →
-// PSY-1015); Radio became a plain /radio link in PSY-1057. The destinations
-// themselves live here.
+// Shared link data + styling for the app's navigation surfaces (PSY-1013).
+// Originally the top-bar Browse/Contribute tables (which absorbed the 2025
+// left sidebar's ~20 destinations); since PSY-1821 this module also owns the
+// live side-nav rail's tables (sidebarGroups, sidebarAccountItems) and the
+// account destination set. The menu *presentation* stays in each component;
+// the destinations themselves live here.
 
 export interface NavLink {
   href: string
@@ -27,6 +26,8 @@ export interface NavLink {
    * this menu rather than as a standalone top-bar CTA (OQ-2, resolved).
    */
   submitPrimary?: boolean
+  /** Rendered only for admin viewers — filter with visibleNavItems. */
+  adminOnly?: boolean
 }
 
 export interface NavGroup {
@@ -105,14 +106,29 @@ export const editorialItems: NavLink[] = [
 
 // ---------------------------------------------------------------------------
 // Single-source destination tables (PSY-1821). A destination's href, label,
-// and icon are decided ONCE here; every surface (PrimaryNav menus, side-nav
-// rail, mobile tab bar/sheets, account menus) composes its own chrome and
-// ordering from these entries, so the same destination can no longer drift
-// between surfaces.
+// and icon are decided ONCE here; the composed surfaces (PrimaryNav + its
+// menus, side-nav rail, mobile tab bar/sheets, account menus) build their own
+// chrome and ordering from these entries, so a destination can no longer
+// drift between them. Two surfaces still fork their own destination lists —
+// CommandPalette's routes and the Footer's link columns (both pre-date this
+// module and have already drifted) — folding them in is follow-up work.
 
 /** A destination whose icon is guaranteed — rails and tab bars render it. */
 export interface NavDestination extends NavLink {
   icon: LucideIcon
+}
+
+/** A labelled group of icon-guaranteed destinations (rail/sheet chrome). */
+export interface NavDestinationGroup extends NavGroup {
+  items: NavDestination[]
+}
+
+/** Apply the viewer-tier gate one way everywhere (adminOnly today). */
+export function visibleNavItems<T extends NavLink>(
+  items: readonly T[],
+  user: { is_admin?: boolean } | null | undefined
+): T[] {
+  return items.filter(item => !item.adminOnly || !!user?.is_admin)
 }
 
 // The mobile bar's plain-link tabs. Also the canonical Shows/Radio entries the
@@ -132,24 +148,26 @@ export const graphItem: NavDestination = { href: '/graph', label: 'Graph', icon:
 export const atlasItem: NavDestination = { href: '/atlas', label: 'Atlas', icon: MapIcon }
 
 /**
+ * The claim-username self view (PSY-1045). Always an account route for
+ * active-state purposes, even when Profile deep-links past it.
+ */
+export const PROFILE_CLAIM_HREF = '/users/me'
+
+/**
  * The PSY-1045 username-or-claim routing rule, in one place: with a username
  * the Profile destination deep-links to the public identity view
  * (`/users/<username>` — the same dense page visitors see, PSY-1025); without
- * one it routes to /users/me, the claim-username self view.
+ * one it routes to the claim-username self view.
  */
 export function profileHref(user: { username?: string | null } | null | undefined): string {
-  return user?.username ? `/users/${user.username}` : '/users/me'
+  return user?.username ? `/users/${user.username}` : PROFILE_CLAIM_HREF
 }
 
 /** The Profile destination with its username-aware href resolved. */
-export function profileNavItem(
+function profileNavItem(
   user: { username?: string | null } | null | undefined
 ): NavDestination {
   return { href: profileHref(user), label: 'Profile', icon: UserCircle }
-}
-
-export interface AccountNavItem extends NavDestination {
-  adminOnly?: boolean
 }
 
 /**
@@ -166,7 +184,7 @@ export interface AccountNavItem extends NavDestination {
  */
 export function accountNavItems(
   user: { username?: string | null } | null | undefined
-): AccountNavItem[] {
+): NavDestination[] {
   return [
     { href: '/notifications', label: 'Notifications', icon: Bell },
     { href: '/library', label: 'My Library', icon: Library },
@@ -191,19 +209,31 @@ const notificationFiltersItem: NavDestination = {
 
 // Every canonical destination, keyed by href, for composition lookups.
 // Leaderboard legitimately appears in two desktop menus with the same
-// definition — the map collapses duplicates.
-const destinationByHref = new Map<string, NavLink>(
-  [
-    ...primaryTabs,
-    graphItem,
-    atlasItem,
-    ...browseGroups.flatMap(g => g.items),
-    ...contributeItems,
-    ...editorialItems,
-    ...accountNavItems(null),
-    notificationFiltersItem,
-  ].map(item => [item.href, item])
-)
+// definition — equal duplicates collapse. CONFLICTING duplicates (same href,
+// different label/icon/external) are the drift this module exists to prevent,
+// so they fail loudly at module load instead of last-wins.
+const destinationByHref = new Map<string, NavLink>()
+for (const item of [
+  ...primaryTabs,
+  graphItem,
+  atlasItem,
+  ...browseGroups.flatMap(g => g.items),
+  ...contributeItems,
+  ...editorialItems,
+  ...accountNavItems(null),
+  notificationFiltersItem,
+]) {
+  const existing = destinationByHref.get(item.href)
+  if (
+    existing &&
+    (existing.label !== item.label ||
+      existing.icon !== item.icon ||
+      !!existing.external !== !!item.external)
+  ) {
+    throw new Error(`navData: conflicting definitions for destination "${item.href}"`)
+  }
+  destinationByHref.set(item.href, item)
+}
 
 /**
  * Resolve a destination from the canonical tables, optionally overriding
@@ -212,10 +242,11 @@ const destinationByHref = new Map<string, NavLink>(
  */
 export function navDestination(
   href: string,
-  overrides?: Partial<Pick<NavLink, 'label'>>
+  overrides?: { label?: string }
 ): NavDestination {
   const item = destinationByHref.get(href)
-  if (!item?.icon) throw new Error(`navData: unknown nav destination "${href}"`)
+  if (!item) throw new Error(`navData: unknown nav destination "${href}"`)
+  if (!item.icon) throw new Error(`navData: destination "${href}" has no icon`)
   return { ...(item as NavDestination), ...overrides }
 }
 
@@ -223,7 +254,7 @@ export function navDestination(
 // keeps its own curated order and grouping; every entry resolves through the
 // canonical tables, and the two label overrides are the rail's flat-chrome
 // copy, decided here rather than forked in the component.
-export const sidebarGroups: Array<{ label: string; items: NavDestination[] }> = [
+export const sidebarGroups: NavDestinationGroup[] = [
   {
     label: 'Discover',
     items: [
@@ -260,22 +291,28 @@ export const sidebarGroups: Array<{ label: string; items: NavDestination[] }> = 
   },
 ]
 
+// The rail's authed block is mostly user-invariant — resolve those entries
+// once at module load (which also makes navDestination's fail-at-load
+// guarantee hold for them).
+const sidebarAccountStatic: NavDestination[] = [
+  navDestination('/library'),
+  navDestination('/contribute/submissions'),
+  navDestination('/settings/notification-filters'),
+  navDestination('/settings/appearance'),
+]
+const sidebarAdminItem = navDestination('/admin') // carries adminOnly from the account table
+
 /**
  * The side-nav rail's authed block, in rail order. Its membership is
  * deliberately NOT accountNavItems (see that function's doc); Notification
- * Filters is desktop-only by the same decision.
+ * Filters is desktop-only by the same decision. Same contract as
+ * accountNavItems: Admin stays in the list flagged adminOnly — filter with
+ * visibleNavItems at the render site.
  */
 export function sidebarAccountItems(
-  user: { username?: string | null; is_admin?: boolean } | null | undefined
+  user: { username?: string | null } | null | undefined
 ): NavDestination[] {
-  return [
-    navDestination('/library'),
-    navDestination('/contribute/submissions'),
-    notificationFiltersItem,
-    navDestination('/settings/appearance'),
-    profileNavItem(user),
-    ...(user?.is_admin ? [navDestination('/admin')] : []),
-  ]
+  return [...sidebarAccountStatic, profileNavItem(user), sidebarAdminItem]
 }
 
 // All destinations a single nav menu links to — used to light up its trigger as
