@@ -139,27 +139,30 @@ export function navItemClassName(active?: boolean): string {
 // carry Home/Shows/Radio.
 // Deduped at composition: Leaderboard legitimately appears in both Curation
 // and Contribute on desktop (two separate menus), but this is ONE sheet — a
-// destination renders once, under the first group that claims it.
-const seenMobileHrefs = new Set<string>()
-export const mobileBrowseGroups: NavGroup[] = [
-  {
-    label: 'Discover',
-    items: [
-      { href: '/graph', label: 'Graph', icon: Compass },
-      { href: '/atlas', label: 'Atlas', icon: MapIcon },
-    ],
-  },
-  ...browseGroups,
-  { label: 'Contribute', items: contributeItems },
-  { label: 'Editorial', items: editorialItems },
-].map(group => ({
-  label: group.label,
-  items: group.items.filter(item => {
-    if (seenMobileHrefs.has(item.href)) return false
-    seenMobileHrefs.add(item.href)
-    return true
-  }),
-}))
+// destination renders once, under the first group that claims it. (IIFE keeps
+// the seen-set out of module scope so nothing can consume it half-drained.)
+export const mobileBrowseGroups: NavGroup[] = (() => {
+  const seen = new Set<string>()
+  return [
+    {
+      label: 'Discover',
+      items: [
+        { href: '/graph', label: 'Graph', icon: Compass },
+        { href: '/atlas', label: 'Atlas', icon: MapIcon },
+      ],
+    },
+    ...browseGroups,
+    { label: 'Contribute', items: contributeItems },
+    { label: 'Editorial', items: editorialItems },
+  ].map(group => ({
+    label: group.label,
+    items: group.items.filter(item => {
+      if (seen.has(item.href)) return false
+      seen.add(item.href)
+      return true
+    }),
+  }))
+})()
 
 // Lights the Browse tab as active when the route lives in its sheet (external
 // links excluded; they never match a pathname).
