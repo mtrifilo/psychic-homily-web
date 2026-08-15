@@ -1,7 +1,8 @@
 import {
   Mic2, MapPin, Disc3, Tag, Tent, LayoutList, TrendingUp, Tags, Globe, Trophy,
   MessageSquarePlus, Music, Send, ClipboardList, HeartHandshake, BookOpen, Headphones, Newspaper,
-  Compass, Map as MapIcon,
+  Map as MapIcon, Home, Calendar, Radio, Orbit, Bell, Library, UserCircle, Settings,
+  Palette, Shield,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -102,6 +103,181 @@ export const editorialItems: NavLink[] = [
   },
 ]
 
+// ---------------------------------------------------------------------------
+// Single-source destination tables (PSY-1821). A destination's href, label,
+// and icon are decided ONCE here; every surface (PrimaryNav menus, side-nav
+// rail, mobile tab bar/sheets, account menus) composes its own chrome and
+// ordering from these entries, so the same destination can no longer drift
+// between surfaces.
+
+/** A destination whose icon is guaranteed — rails and tab bars render it. */
+export interface NavDestination extends NavLink {
+  icon: LucideIcon
+}
+
+// The mobile bar's plain-link tabs. Also the canonical Shows/Radio entries the
+// side-nav rail composes below.
+export const primaryTabs: ReadonlyArray<NavDestination> = [
+  { href: '/', label: 'Home', icon: Home },
+  { href: '/shows', label: 'Shows', icon: Calendar },
+  { href: '/radio', label: 'Radio', icon: Radio },
+]
+
+// Graph/Atlas are desktop *primary* links with no home in the Browse/
+// Contribute menus; these are their canonical entries. One icon per
+// destination: Orbit reads as a node graph, Map is literal for Atlas — this
+// retires both the side rail's old Graph/Atlas double-Orbit and the mobile
+// sheet's Compass.
+export const graphItem: NavDestination = { href: '/graph', label: 'Graph', icon: Orbit }
+export const atlasItem: NavDestination = { href: '/atlas', label: 'Atlas', icon: MapIcon }
+
+/**
+ * The PSY-1045 username-or-claim routing rule, in one place: with a username
+ * the Profile destination deep-links to the public identity view
+ * (`/users/<username>` — the same dense page visitors see, PSY-1025); without
+ * one it routes to /users/me, the claim-username self view.
+ */
+export function profileHref(user: { username?: string | null } | null | undefined): string {
+  return user?.username ? `/users/${user.username}` : '/users/me'
+}
+
+/** The Profile destination with its username-aware href resolved. */
+export function profileNavItem(
+  user: { username?: string | null } | null | undefined
+): NavDestination {
+  return { href: profileHref(user), label: 'Profile', icon: UserCircle }
+}
+
+export interface AccountNavItem extends NavDestination {
+  adminOnly?: boolean
+}
+
+/**
+ * The canonical account destination set — the desktop UserMenu dropdown and
+ * the mobile Account sheet render exactly this list, in this order. The
+ * side-nav rail's authed block keeps its own deliberate subset (composed from
+ * the same entries via navDestination below): the top bar's bell and UserMenu
+ * already cover Notifications/Settings in side-nav mode.
+ *
+ * Admin stays in the list flagged `adminOnly` (surfaces filter it) so
+ * active-state derivations see every account route regardless of viewer tier.
+ * Profile → the public identity view; Settings → the /profile editor
+ * (PSY-1486 split).
+ */
+export function accountNavItems(
+  user: { username?: string | null } | null | undefined
+): AccountNavItem[] {
+  return [
+    { href: '/notifications', label: 'Notifications', icon: Bell },
+    { href: '/library', label: 'My Library', icon: Library },
+    profileNavItem(user),
+    { href: '/profile', label: 'Settings', icon: Settings },
+    // Reachable from the account menus in the DEFAULT top-bar mode — the side
+    // rail's own Appearance entry only renders once already in side-nav mode.
+    { href: '/settings/appearance', label: 'Appearance', icon: Palette },
+    { href: '/admin', label: 'Admin', icon: Shield, adminOnly: true },
+  ]
+}
+
+// Desktop-only by decision (PSY-1821): only the side-nav rail lists it. On
+// phones it stays reachable through the Account sheet → Notifications → the
+// filters link on that page (app/notifications/page.tsx). Deliberately NOT in
+// accountNavItems.
+const notificationFiltersItem: NavDestination = {
+  href: '/settings/notification-filters',
+  label: 'Notification Filters',
+  icon: Bell,
+}
+
+// Every canonical destination, keyed by href, for composition lookups.
+// Leaderboard legitimately appears in two desktop menus with the same
+// definition — the map collapses duplicates.
+const destinationByHref = new Map<string, NavLink>(
+  [
+    ...primaryTabs,
+    graphItem,
+    atlasItem,
+    ...browseGroups.flatMap(g => g.items),
+    ...contributeItems,
+    ...editorialItems,
+    ...accountNavItems(null),
+    notificationFiltersItem,
+  ].map(item => [item.href, item])
+)
+
+/**
+ * Resolve a destination from the canonical tables, optionally overriding
+ * per-surface copy. Throws on an unknown href so a typo fails at module load
+ * (any test importing a composed table), never as a silent dead link.
+ */
+export function navDestination(
+  href: string,
+  overrides?: Partial<Pick<NavLink, 'label'>>
+): NavDestination {
+  const item = destinationByHref.get(href)
+  if (!item?.icon) throw new Error(`navData: unknown nav destination "${href}"`)
+  return { ...(item as NavDestination), ...overrides }
+}
+
+// The side-nav rail's tables (PSY-1821: folded in from Sidebar.tsx). The rail
+// keeps its own curated order and grouping; every entry resolves through the
+// canonical tables, and the two label overrides are the rail's flat-chrome
+// copy, decided here rather than forked in the component.
+export const sidebarGroups: Array<{ label: string; items: NavDestination[] }> = [
+  {
+    label: 'Discover',
+    items: [
+      navDestination('/shows'),
+      navDestination('/festivals'),
+      navDestination('/artists'),
+      navDestination('/venues'),
+      navDestination('/graph'),
+      navDestination('/releases'),
+      navDestination('/labels'),
+      navDestination('/tags'),
+      // The rail links the scenes INDEX; "All scenes" is Browse-menu copy for
+      // a list that sits under a "Scenes" group label.
+      navDestination('/scenes', { label: 'Scenes' }),
+      navDestination('/atlas'),
+      navDestination('/collections'),
+      navDestination('/charts'),
+      navDestination('/radio'),
+    ],
+  },
+  {
+    label: 'Community',
+    items: [
+      // "Contribute hub" is Contribute-menu copy; the rail keeps the short label.
+      navDestination('/contribute', { label: 'Contribute' }),
+      navDestination('/community/leaderboard'),
+      navDestination('/requests'),
+      navDestination('/blog'),
+      navDestination('/dj-sets'),
+      navDestination('https://psychichomily.substack.com/'),
+      navDestination('/shows/submit'),
+      navDestination('/submissions'),
+    ],
+  },
+]
+
+/**
+ * The side-nav rail's authed block, in rail order. Its membership is
+ * deliberately NOT accountNavItems (see that function's doc); Notification
+ * Filters is desktop-only by the same decision.
+ */
+export function sidebarAccountItems(
+  user: { username?: string | null; is_admin?: boolean } | null | undefined
+): NavDestination[] {
+  return [
+    navDestination('/library'),
+    navDestination('/contribute/submissions'),
+    notificationFiltersItem,
+    navDestination('/settings/appearance'),
+    profileNavItem(user),
+    ...(user?.is_admin ? [navDestination('/admin')] : []),
+  ]
+}
+
 // All destinations a single nav menu links to — used to light up its trigger as
 // active when the current route lives inside it.
 export const browseHrefs = browseGroups.flatMap(g => g.items.map(i => i.href))
@@ -146,10 +322,7 @@ export const mobileBrowseGroups: NavGroup[] = (() => {
   return [
     {
       label: 'Discover',
-      items: [
-        { href: '/graph', label: 'Graph', icon: Compass },
-        { href: '/atlas', label: 'Atlas', icon: MapIcon },
-      ],
+      items: [graphItem, atlasItem],
     },
     ...browseGroups,
     { label: 'Contribute', items: contributeItems },

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Loader2, LogOut, Shield, UserCircle, Library, Bell, Palette, Settings } from 'lucide-react'
+import { Loader2, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,6 +15,7 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { getUserInitials, getUserDisplayName } from './userDisplay'
+import { accountNavItems } from './navData'
 import { NotificationBell } from '@/features/notifications'
 
 // The right-hand actions cluster. Signed in (PSY-1018, Figma 537:91): the
@@ -34,14 +35,12 @@ export function UserMenu() {
   }
 
   if (isAuthenticated && user) {
-    // "Profile" lands the user on their OWN public identity view
-    // (`/users/[username]`) — the same dense page visitors see — not the
-    // settings form. The route is keyed on username, which is nullable
-    // (OAuth-only accounts; see users.username migration). When the user has
-    // no username yet, route to /users/me — the claim-username self view that
-    // renders the profile experience with a "set username" banner (PSY-1045;
-    // previously fell back to the /profile settings form). PSY-1025.
-    const profileHref = user.username ? `/users/${user.username}` : '/users/me'
+    // The canonical account destination list (navData, PSY-1821) — Profile's
+    // username-aware href, the Profile/Settings split, and each entry's icon
+    // are all decided at that table, shared with the mobile Account sheet.
+    const items = accountNavItems(user)
+    const menuItems = items.filter(item => !item.adminOnly)
+    const adminItem = user.is_admin ? items.find(item => item.adminOnly) : undefined
 
     return (
       <div className="flex items-center gap-2">
@@ -76,50 +75,25 @@ export function UserMenu() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem asChild>
-                <Link href="/notifications">
-                  <Bell className="mr-2 size-4" />
-                  Notifications
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/library">
-                  <Library className="mr-2 size-4" />
-                  My Library
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href={profileHref}>
-                  <UserCircle className="mr-2 size-4" />
-                  Profile
-                </Link>
-              </DropdownMenuItem>
-              {/* PSY-1486: Settings → /profile editor (parity with the retired hamburger sheet).
-                  Profile above is the public identity view; this is Edit
-                  profile & settings. */}
-              <DropdownMenuItem asChild>
-                <Link href="/profile">
-                  <Settings className="mr-2 size-4" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
-              {/* Appearance is reachable here in the DEFAULT top-bar mode — the
-                  Sidebar entry only renders once already in side-nav mode, so
-                  this is the entry point for the primary top → side switch. */}
-              <DropdownMenuItem asChild>
-                <Link href="/settings/appearance">
-                  <Palette className="mr-2 size-4" />
-                  Appearance
-                </Link>
-              </DropdownMenuItem>
+              {menuItems.map(item => {
+                const Icon = item.icon
+                return (
+                  <DropdownMenuItem key={item.href} asChild>
+                    <Link href={item.href}>
+                      <Icon className="mr-2 size-4" />
+                      {item.label}
+                    </Link>
+                  </DropdownMenuItem>
+                )
+              })}
             </DropdownMenuGroup>
-            {user.is_admin && (
+            {adminItem && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/admin" prefetch={false}>
-                    <Shield className="mr-2 size-4" />
-                    Admin
+                  <Link href={adminItem.href} prefetch={false}>
+                    <adminItem.icon className="mr-2 size-4" />
+                    {adminItem.label}
                   </Link>
                 </DropdownMenuItem>
               </>

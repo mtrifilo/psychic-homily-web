@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BottomTabBar, primaryTabs } from './BottomTabBar'
+import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
-import { mobileBrowseHrefs } from './navData'
-import { sidebarGroups } from '../Sidebar'
+import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -74,10 +73,10 @@ describe('BottomTabBar', () => {
     }
   })
 
-  // Same guard for the side-nav rail's table: sidebarGroups is the one
-  // destination list navData does not own (follow-up folds it in), so pin its
-  // entries to a mobile home too — the retired hamburger used to be that
-  // coupling.
+  // Same guard for the side-nav rail's table. navData owns sidebarGroups now
+  // (PSY-1821), so most entries are reachable by construction — the guard
+  // remains for rail-only additions (a navDestination the mobile sheets don't
+  // compose) landing without a mobile home.
   it('keeps every side-nav rail destination reachable on mobile', () => {
     const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
     for (const item of sidebarGroups.flatMap(g => g.items)) {

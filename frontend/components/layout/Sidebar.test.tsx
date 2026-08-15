@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Sidebar, sidebarGroups } from './Sidebar'
+import { Sidebar } from './Sidebar'
+import { sidebarGroups } from './nav/navData'
 
 const mockPathname = vi.fn(() => '/shows')
 vi.mock('next/navigation', () => ({
@@ -126,7 +127,7 @@ describe('Sidebar', () => {
 
   it('does not show Library/Profile when unauthenticated', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    expect(screen.queryByText('Library')).not.toBeInTheDocument()
+    expect(screen.queryByText('My Library')).not.toBeInTheDocument()
     expect(screen.queryByText('Show Submissions')).not.toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
   })
@@ -139,7 +140,9 @@ describe('Sidebar', () => {
       logout: vi.fn(),
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    expect(screen.getByText('Library')).toBeInTheDocument()
+    // "My Library" — the canonical label (navData, PSY-1821); the rail used to
+    // fork it as "Library".
+    expect(screen.getByText('My Library')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Show Submissions' })).toHaveAttribute(
       'href',
       '/contribute/submissions'
