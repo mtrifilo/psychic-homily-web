@@ -66,7 +66,10 @@ function sheetLinkClassName(active: boolean): string {
 export function BottomTabBar() {
   const pathname = usePathname()
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
-  const { theme, setTheme } = useTheme()
+  // resolvedTheme (not theme) so the first click always flips the *visible*
+  // theme — with theme==='system' a `theme === 'dark'` check would set explicit
+  // 'dark' and appear to do nothing. Matches TopBar and the canonical ModeToggle.
+  const { resolvedTheme, setTheme } = useTheme()
   const [browseOpen, setBrowseOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
 
@@ -155,12 +158,12 @@ export function BottomTabBar() {
                   reachable for everyone (incl. anonymous) on phones. */}
               <div className="mx-3 my-2 border-t border-border/30" />
               <button
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
                 className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-foreground/70 transition-colors hover:bg-accent/50 hover:text-accent-foreground"
               >
                 <Sun className="size-4 dark:hidden" aria-hidden />
                 <Moon className="hidden size-4 dark:block" aria-hidden />
-                {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                {resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
               </button>
             </nav>
           </SheetContent>
