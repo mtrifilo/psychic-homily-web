@@ -12,7 +12,7 @@ Born out of the May 16–17 Entity Pages Density Rollout retro: PSY-658 PR claim
 
 ## When this skill fires
 
-The user invokes it explicitly via `/psy-self-review`, OR `/psy-solo` calls it at phase 7.6 as part of the standard pre-push sequence (`/psy-dispatch`'s per-agent step 8.5 is `/adversarial-review`; dispatched agents run this skill's checks inline only if the orchestrator's prompt asks for them).
+The user invokes it explicitly via `/psy-self-review`, OR `/psy-solo` calls it at phase 7.6 as part of the standard pre-push sequence — and re-runs it after a phase 7.9 rebase that materially changes the PR body's evidence claims (`/psy-dispatch`'s per-agent step 8.5 is `/adversarial-review`; dispatched agents run this skill's checks inline only if the orchestrator's prompt asks for them).
 
 Do NOT invoke for:
 - Backend-only / docs-only / config-only PRs (test plan is integration-test or "docs-only, no manual repro applicable"; nothing for the sub-agents to evidence-check beyond what `/code-review` already covers).

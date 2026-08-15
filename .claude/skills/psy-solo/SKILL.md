@@ -45,7 +45,7 @@ which agent-browser               # if any UI screenshots are planned
 
 ## Workflow
 
-The phases below are how a single PSY ticket goes from a user pointer to a merge-ready PR. Phases 1–5, 7 (with 7.5/7.6/7.9), and 8 apply to every ticket; phase 6 (screenshots) applies to tickets that change the rendered UI.
+The phases below are how a single PSY ticket goes from a user pointer to a merge-ready PR. Phases 1–5, 5.5, 7 (with 7.5/7.9), 8, and 9 apply to every ticket; phase 6 (screenshots) is UI-only, and 7.6 is skippable for backend-only / docs-only / config-only PRs (per its own section).
 
 ### Phase 1: Pre-flight + branch
 
@@ -53,22 +53,23 @@ The phases below are how a single PSY ticket goes from a user pointer to a merge
 
 ```bash
 git -C <repo> status --porcelain | grep -v '^??'   # STOP on output: foreign UNCOMMITTED tracked edits — another session's in-flight work; do not checkout over it
-git -C <repo> branch --show-current                 # STOP if a foreign PSY-{M} branch (not main, not yours): the checkout is owned; ask before switching it
-git -C <repo> reflog -10 --date=relative            # STOP if a checkout/reset YOU didn't run appears within the last ~30 min: contested right now. Older foreign moves: proceed, with the standing defenses
+git -C <repo> branch --show-current                 # a PSY-{M} branch that isn't yours: check `gh pr view PSY-{M}/<branch> --json state` — MERGED means it's just parked (a prior ticket ended here; proceed, your checkout-main is safe). An UNMERGED foreign branch → STOP: the checkout is owned
+git -C <repo> reflog -10 --date=relative            # STOP if a checkout/reset to an UNMERGED branch that isn't yours appears within ~30 min: contested right now. Your own prior-ticket moves and moves to main/merged branches are normal residue — discount them
 pgrep -fl claude                                    # ADVISORY, never a STOP: ≥1 match is always you (your own session matches). >1 claude process = other live sessions; expect contention, keep the defenses tight
 ```
 
-STOP means surface the state to the user and wait — never proceed past it silently. A reflog showing the checkout idle for hours is NOT a safe-to-proceed signal — the parallel session can resume anytime; the defenses below are what make proceeding survivable, not the idleness.
+STOP means surface the state to the user and wait — never proceed past it silently. The normal end-state of a PREVIOUS psy-solo ticket is precisely "checkout parked on a merged PSY-{M} branch with its own reflog entries" — that shape is a proceed, not a STOP; the gate exists for a live session's unmerged work, and a gate that fires on your own footprints gets rationalized away exactly when it matters. A reflog showing the checkout idle for hours is NOT a safe-to-proceed signal — the parallel session can resume anytime; the defenses below are what make proceeding survivable, not the idleness.
 
-**Collision cross-check (hard gate, same step).** A match in ANY state means this ticket is not fresh work — STOP and report; never branch-name-disambiguate around an existing PR:
+**Collision cross-check (hard gate, same step).** A match in ANY state means this ticket is not fresh work — triage it; never branch-name-disambiguate around an existing PR:
 
 ```bash
-git -C <repo> branch -a | grep -iE "PSY-{N}( |/|$)"          # local/remote branch already exists → STOP (a parallel session may hold it; checkout -b would fail anyway)
-git -C <repo> worktree list | grep -i "PSY-{N}"              # a worktree holds it → STOP
+git -C <repo> branch -a | grep -iE "PSY-{N}( |/|$)"          # local/remote branch already exists
+git -C <repo> worktree list | grep -iE "PSY-{N}( |/|\]|$)"   # a worktree holds it (anchored: PSY-173 must not match PSY-1733)
 gh pr list --search "PSY-{N}" --state all --json number,state,title,url
 gh pr list --search "<2-3 distinctive title keywords> in:title" --state all --json number,state,title,url   # same work shipped under a DIFFERENT ticket number
-# ANY PR hit (open/merged/closed) → STOP. A MERGED match usually means the work already shipped — re-read the ticket against current code and report, don't re-implement.
 ```
+
+Dispositions: **(a) the match is YOUR OWN prior work on THIS ticket** (a resume/hand-off — confirm via the branch's `git log --format='%an %cr'` or the open PR's head branch) → resume at the appropriate phase, don't re-implement from scratch; **(b) a MERGED PR match** → the work may already be shipped — re-read the ticket against current code and report, don't re-implement; **(c) anything else** (someone else's open PR, a worktree or unmerged branch you don't own) → STOP and report.
 
 Then the branch setup:
 
@@ -348,21 +349,20 @@ Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` clai
 **Mandatory (non-negotiable #10, PSY-922) — immediately before Phase 8, not "when convenient".** Phase 1's pull only guaranteed a current base at the START; everything merged since then is invisible to your branch, and a PR opened now would carry a stale merge-base (canonical: PR #908, 6 commits behind at open). Placement is deliberate: the rebase runs AFTER the review gates so it syncs the final artifact; the re-run rules below are what keep those gates honest about the post-rebase state.
 
 ```bash
-git -C <repo> status --porcelain | grep -v '^??'    # tracked changes? COMMIT them first (rebase refuses a dirty tree; Phase 8's "commit now" check effectively lives here)
-git -C <repo> fetch origin main
-PULLED=$(git -C <repo> rev-list --count HEAD..origin/main)   # measure BEFORE the rebase — after it this range is ALWAYS empty
-git -C <repo> rebase origin/main    # rebase, not merge — matches psy-dispatch's stale-base recovery flow
-echo "pulled in: $PULLED commits"
+git -C <repo> status --porcelain | grep -v '^??'    # MUST be empty. Uncommitted implementation? COMMIT it now — a non-trivial commit here re-enters Phase 5.5 (the gates review what ships). Phase 8's status line is then pure verification.
+# The next line is ONE chained invocation — shell variables do NOT survive across Bash tool
+# calls, and the count is echoed BEFORE the rebase so a conflicting (non-zero-exit) rebase
+# can't eat it. After ANY rebase the HEAD..origin/main range is ALWAYS empty — never re-measure.
+git -C <repo> fetch origin main && PULLED=$(git -C <repo> rev-list --count HEAD..origin/main) && echo "pulled in: $PULLED commits" && git -C <repo> rebase origin/main   # rebase, not merge — matches psy-dispatch's flow
 ```
 
-- **`PULLED` = 0**: the rebase was a no-op, no history rewrite; proceed straight to Phase 8 (plain push works).
+- **If your diff adds a migration** — check FIRST, before the SHA bullet below, because the fix amends and an amend rewrites the tip: `bash <repo>/scripts/check_migration_timestamps.sh origin/main`. On failure, `git mv` BOTH the `.up.sql` AND the `.down.sql` to a fresh `date -u +%Y%m%d%H%M%S` stamp with contents unchanged, then amend — golang-migrate silently skips a backdated migration (exit 0, "no change"), which is a four-hour-outage class failure (PSY-1708).
 - **`PULLED` > 0**: the rebase rewrote EVERY commit SHA on the branch. Before Phase 8:
   - Re-run the Phase 4 gates that exercise your diff (typecheck + scoped tests at minimum) — the point of rebasing locally is to see the interaction failure HERE, not in CI.
   - **This is the authoritative re-run rule for `/adversarial-review`** (Phase 8's comment defers to it): re-run it if the rebase changed any file the pass covered; a rebase that touched none of them does not invalidate the verdict.
-  - **Re-derive every short-SHA cited in `/tmp/psy-{N}-pr-body.md`** (the `## Adversarial review` section's `fixed in \`<sha>\`` references) from `git -C <repo> log --oneline origin/main..HEAD` — the old SHAs no longer exist, and a reviewer clicking one gets a 404. If the body's evidence claims changed materially (new fix commits, changed test counts), re-run `/psy-self-review` against the refreshed body; a pure SHA substitution doesn't require it.
-  - Your already-pushed branch (Phase 1 standing defense) now diverges from the remote: Phase 8's push must be `git -C <repo> push --force-with-lease origin PSY-{N}/<branch>` — **never bare `--force`**, which would clobber a parallel session's push to the same ref; `--force-with-lease` bails out if the remote moved.
-- **Conflicts**: resolve them if the resolution is mechanically obvious within your ticket's scope; otherwise STOP and surface to the user — never auto-resolve a semantic conflict with a parallel ticket.
-- **If your diff adds a migration**, verify the timestamp still beats everything merged: `bash scripts/check_migration_timestamps.sh origin/main`. On failure, `git mv` BOTH the `.up.sql` AND the `.down.sql` to a fresh `date -u +%Y%m%d%H%M%S` stamp with contents unchanged, then amend — golang-migrate silently skips a backdated migration (exit 0, "no change"), which is a four-hour-outage class failure (PSY-1708).
+  - **Re-derive every short-SHA cited in `/tmp/psy-{N}-pr-body.md`** (the `## Adversarial review` section's `fixed in \`<sha>\`` references) from `git -C <repo> log --oneline origin/main..HEAD` — the old SHAs no longer exist, and a reviewer clicking one gets a 404. Do it AFTER any migration-re-stamp amend (the amend would re-dangle the SHA you just wrote). If the body's evidence claims changed materially (new fix commits, changed test counts), re-run `/psy-self-review` against the refreshed body; a pure SHA substitution doesn't require it.
+- **Push mode is decided by the REMOTE, not by `PULLED`**: run `git -C <repo> status -sb` — if the branch and its upstream have DIVERGED (from the rebase, a migration-re-stamp amend, or any other rewrite of a pushed commit), Phase 8's push must be `git -C <repo> push --force-with-lease origin PSY-{N}/<branch>`; **never bare `--force`**, which would clobber a parallel session's push to the same ref (`--force-with-lease` bails out if the remote moved). `PULLED` = 0 does NOT by itself license a plain push — an amend also rewrites.
+- **Conflicts**: this rebase runs in the SHARED main checkout — never leave it mid-rebase (every parallel session's `checkout`/`commit`/`pull` fails with "a rebase is in progress" until a human notices). Resolve only what is mechanically obvious within your ticket's scope. Otherwise: capture the conflict list (`git -C <repo> diff --name-only --diff-filter=U`), then `git -C <repo> rebase --abort` to restore the checkout to a usable state, THEN stop and surface the list to the user — never auto-resolve a semantic conflict with a parallel ticket, and never park the shared checkout in a conflicted rebase while you wait.
 
 ### Phase 8: Commit + push + open PR
 
@@ -373,8 +373,8 @@ The PR body is the file you wrote in phase 7.5 and refined in phase 7.6 — use 
 # If YOUR OWN code changed after Phase 5.5 (e.g. a Phase 6 screenshot-driven fix), re-run
 # /adversarial-review first so the pass-marker reflects exactly what you're pushing.
 # (For changes a Phase 7.9 rebase pulled in, Phase 7.9's re-run rule is authoritative.)
-git -C <repo> status                               # if this shows uncommitted implementation, COMMIT it now (specific paths) before pushing — never `git add .`
-git -C <repo> push -u origin PSY-{N}/<branch>      # if Phase 7.9's rebase rewrote pushed commits: push --force-with-lease instead (never bare --force)
+git -C <repo> status                               # VERIFICATION ONLY — Phase 7.9's first line owns the commit check; anything dirty here means you skipped it (go back). Never `git add .`
+git -C <repo> push -u origin PSY-{N}/<branch>      # or --force-with-lease if branch/upstream diverged, per Phase 7.9's push-mode rule (never bare --force)
 gh pr create --title "PSY-{N}: <under-70-char summary>" --body-file /tmp/psy-{N}-pr-body.md   # hook checks the /adversarial-review pass-marker
 ```
 
@@ -442,6 +442,8 @@ lsof -i :8080 -i :3000                            # verify no listeners (CLOSED 
 ```
 
 PIDs come from the original `run_in_background` task output (each background Bash result includes the PID). If you can't find them, `pgrep -fl "go run cmd/server" -fl "next dev"`.
+
+**Return the checkout to `main` once the PR is open** (`git -C <repo> checkout main`) — the next psy-solo invocation's Step-0 ownership guard reads the checkout's state, and a checkout parked on your merged ticket branch is exactly the residue it then has to discount (PSY-922). Skip this only if you're continuing to iterate on the same branch (e.g. review feedback expected).
 
 Do NOT delete the draft release after the PR is open — the asset URLs depend on it persisting. The user (or you, post-merge cleanup) can sweep old draft releases periodically.
 
