@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
@@ -36,7 +37,7 @@ export function AdminMobileDrawer() {
       {/* md:hidden mirrors AdminSidebar's `hidden md:flex` — this drawer stands
           in for the rail exactly where the rail is absent, no overlap band. */}
       <SheetTrigger asChild className="md:hidden">
-        <Button variant="ghost" size="icon" aria-label="Open admin menu">
+        <Button {...replayOnHydrate} variant="ghost" size="icon" aria-label="Open admin menu">
           <Menu className="size-5" />
         </Button>
       </SheetTrigger>

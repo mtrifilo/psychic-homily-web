@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useTheme } from 'next-themes'
 import { Moon, Search, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import { PrimaryNav } from './nav/PrimaryNav'
 import { SearchTrigger } from './nav/SearchTrigger'
@@ -124,9 +123,13 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
 
           {/* Icon-only search tap target below `sm` (PSY-1020) — same
               CommandPalette, just without the field chrome the phone top bar
-              has no room for. */}
+              has no room for. Deliberately NO replayOnHydrate: the palette's
+              open-event listener registers in a passive effect that flushes
+              AFTER the hydration-commit replay would fire, so a replayed tap
+              would dispatch into an empty listener set AND consume the buffered
+              click — worse than dropping it. Same reason SearchTrigger doesn't
+              carry it. */}
           <Button
-            {...replayOnHydrate}
             variant="ghost"
             size="icon"
             className="sm:hidden"

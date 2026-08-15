@@ -137,6 +137,10 @@ export function navItemClassName(active?: boolean): string {
 // Browse/Contribute menus, so they get a leading group here — without it those
 // destinations would be unreachable on mobile, where the primary tabs only
 // carry Home/Shows/Radio.
+// Deduped at composition: Leaderboard legitimately appears in both Curation
+// and Contribute on desktop (two separate menus), but this is ONE sheet — a
+// destination renders once, under the first group that claims it.
+const seenMobileHrefs = new Set<string>()
 export const mobileBrowseGroups: NavGroup[] = [
   {
     label: 'Discover',
@@ -148,16 +152,20 @@ export const mobileBrowseGroups: NavGroup[] = [
   ...browseGroups,
   { label: 'Contribute', items: contributeItems },
   { label: 'Editorial', items: editorialItems },
-]
+].map(group => ({
+  label: group.label,
+  items: group.items.filter(item => {
+    if (seenMobileHrefs.has(item.href)) return false
+    seenMobileHrefs.add(item.href)
+    return true
+  }),
+}))
 
 // Lights the Browse tab as active when the route lives in its sheet (external
-// links excluded; they never match a pathname). Set-deduped: Leaderboard
-// legitimately appears in both Curation and Contribute.
-export const mobileBrowseHrefs = [
-  ...new Set(
-    mobileBrowseGroups.flatMap(g => g.items.filter(i => !i.external).map(i => i.href))
-  ),
-]
+// links excluded; they never match a pathname).
+export const mobileBrowseHrefs = mobileBrowseGroups.flatMap(g =>
+  g.items.filter(i => !i.external).map(i => i.href)
+)
 
 /**
  * Row style for links inside bottom sheets and drawers (BottomTabBar's

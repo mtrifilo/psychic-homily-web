@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar, primaryTabs } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
 import { mobileBrowseHrefs } from './navData'
+import { sidebarGroups } from '../Sidebar'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -12,7 +13,7 @@ vi.mock('next/navigation', () => ({
 
 const mockLogout = vi.fn()
 type MockAuthContextValue = {
-  user: { email: string; is_admin: boolean } | null
+  user: { email: string; username?: string; is_admin: boolean } | null
   isAuthenticated: boolean
   isLoading: boolean
   logout: () => void
@@ -38,7 +39,7 @@ vi.mock('next-themes', () => ({
   }),
 }))
 
-function authedAs(user: { email: string; is_admin: boolean }) {
+function authedAs(user: { email: string; username?: string; is_admin: boolean }) {
   mockAuthContext.mockReturnValue({
     user,
     isAuthenticated: true,
@@ -71,6 +72,28 @@ describe('BottomTabBar', () => {
     for (const link of primaryLinks) {
       expect(mobile).toContain(link.href)
     }
+  })
+
+  // Same guard for the side-nav rail's table: sidebarGroups is the one
+  // destination list navData does not own (follow-up folds it in), so pin its
+  // entries to a mobile home too — the retired hamburger used to be that
+  // coupling.
+  it('keeps every side-nav rail destination reachable on mobile', () => {
+    const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
+    for (const item of sidebarGroups.flatMap(g => g.items)) {
+      if (item.external) continue
+      expect(mobile).toContain(item.href)
+    }
+  })
+
+  // The bar/PrimaryNav breakpoint contract: the bar hides exactly where the
+  // desktop primary nav appears. If either literal changes alone, tablets get
+  // double nav or none.
+  it('hides at xl, the breakpoint PrimaryNav appears at', () => {
+    const { container } = render(<BottomTabBar />)
+    expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
+      'xl:hidden'
+    )
   })
 
   describe('tabs', () => {
@@ -150,6 +173,32 @@ describe('BottomTabBar', () => {
         'href',
         '/submissions'
       )
+      // The hamburger sheet's Show Submissions link, re-homed here (its old
+      // TopBar test was deleted with that surface).
+      expect(screen.getByRole('link', { name: 'Show Submissions' })).toHaveAttribute(
+        'href',
+        '/contribute/submissions'
+      )
+    })
+
+    it('renders each destination once — Leaderboard is in two desktop menus but ONE sheet', async () => {
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      // getByRole throws on multiple matches, so this is the dedup guard.
+      expect(await screen.findByRole('link', { name: 'Leaderboard' })).toHaveAttribute(
+        'href',
+        '/community/leaderboard'
+      )
+    })
+
+    it('keeps the primary-color CTA treatment on Submit a Show (Figma 460:3)', async () => {
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      expect(await screen.findByRole('link', { name: 'Submit a Show' })).toHaveClass(
+        'text-primary'
+      )
     })
 
     it('closes when a destination is clicked', async () => {
@@ -158,6 +207,18 @@ describe('BottomTabBar', () => {
       await user.click(screen.getByRole('button', { name: 'Browse' }))
       await user.click(await screen.findByRole('link', { name: 'Festivals' }))
       expect(screen.queryByRole('link', { name: 'Graph' })).not.toBeInTheDocument()
+    })
+
+    it('closes on a route change it did not cause — Android Back must land on a visible page', async () => {
+      const user = userEvent.setup()
+      const { rerender } = render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      await screen.findByRole('link', { name: 'Graph' })
+      mockPathname = '/shows'
+      rerender(<BottomTabBar />)
+      await waitFor(() =>
+        expect(screen.queryByRole('link', { name: 'Graph' })).not.toBeInTheDocument()
+      )
     })
 
     it('carries the theme toggle (migrated from the retired hamburger sheet)', async () => {
@@ -191,6 +252,27 @@ describe('BottomTabBar', () => {
       mockPathname = '/auth'
       render(<BottomTabBar />)
       expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('deep-links Profile to /users/<username> when the user has one (PSY-1045 rule)', async () => {
+      authedAs({ email: 'reg@test.com', username: 'reggie', is_admin: false })
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Account' }))
+      expect(await screen.findByRole('link', { name: 'Profile' })).toHaveAttribute(
+        'href',
+        '/users/reggie'
+      )
+    })
+
+    it('lights the Account tab on the username profile route', () => {
+      authedAs({ email: 'reg@test.com', username: 'reggie', is_admin: false })
+      mockPathname = '/users/reggie'
+      render(<BottomTabBar />)
+      expect(screen.getByRole('button', { name: 'Account' })).toHaveAttribute(
+        'aria-current',
+        'page'
+      )
     })
 
     it('is inert while auth is hydrating', () => {

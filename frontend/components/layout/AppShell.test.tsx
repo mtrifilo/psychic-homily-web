@@ -108,7 +108,12 @@ describe('AppShell', () => {
   it('mounts the BottomTabBar and pads the shell so content clears the fixed bar', async () => {
     const { container } = await renderShell(<div>content</div>)
     expect(screen.getByTestId('bottom-tab-bar')).toBeInTheDocument()
-    expect(container.firstChild).toHaveClass('xl:pb-0')
+    // The reservation itself, not just its xl release — deleting the pb-[calc]
+    // leaves every mobile footer under the fixed bar with no failing test.
+    expect(container.firstChild).toHaveClass(
+      'pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))]',
+      'xl:pb-0'
+    )
   })
 
   it('mounts the BottomTabBar in side-nav mode too — the bar is xl:hidden, so the desktop nav preference must not remove mobile nav', async () => {

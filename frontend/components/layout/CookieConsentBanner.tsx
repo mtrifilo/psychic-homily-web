@@ -38,9 +38,15 @@ function ConsentBar() {
   }, [])
 
   return (
+    // Below `xl` the banner sits ABOVE the BottomTabBar's slot (PSY-1020): both
+    // are fixed to the viewport bottom and the banner is z-50 over the bar's
+    // z-40, so bottom-0 would fully occlude the primary mobile nav for every
+    // pre-consent visitor. The bar's side of this contract is the comment in
+    // BottomTabBar.tsx. At `xl` the bar is gone and the banner returns to the
+    // true bottom.
     <div
       ref={barRef}
-      className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background px-4 py-2.5 motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300"
+      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background px-4 py-2.5 motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0"
       role="dialog"
       aria-label="Cookie consent"
       aria-describedby="cookie-consent-description"

@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
@@ -12,7 +13,8 @@ import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { Button } from '@/components/ui/button'
 import {
-  Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
+  Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle,
+  SheetTrigger,
 } from '@/components/ui/sheet'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
@@ -33,10 +35,14 @@ import type { NavLink } from './navData'
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the
-// matching bottom padding (var(--bottom-tab-bar-height) + safe-area inset) so
-// fixed-bar content is never covered. The bar sits at z-40 — under
-// sheets/dialogs and the z-50 top bar, and deliberately under the z-50 cookie
-// banner (PSY-1029 owns that surface; see the PR note on stacking).
+// matching bottom padding so fixed-bar content is never covered. (The
+// env(safe-area-inset-bottom) terms here are inert until viewport-fit=cover
+// ships — see the --bottom-tab-bar-height comment in globals.css, which also
+// lists every surface that must subtract the bar's height.) The bar sits at
+// z-40 — under sheets/dialogs and the z-50 top bar. The z-50 cookie banner
+// offsets itself ABOVE the bar below `xl` (CookieConsentBanner.tsx carries the
+// other end of that contract): the two must never co-occupy the bottom band,
+// or every pre-consent visitor loses the primary nav.
 
 // Exported for the mobile-reachability guard test against PrimaryNav's
 // primaryLinks: every desktop primary destination must appear here or in
@@ -69,8 +75,8 @@ function tabClassName(active: boolean): string {
   )
 }
 
-// A row inside a bottom sheet. SheetClose makes the sheets uncontrolled — the
-// sheet closes on navigation without the component tracking open state.
+// A row inside a bottom sheet. SheetClose closes the (controlled) sheet on tap
+// immediately, without waiting for the route change that SheetTab also reacts to.
 function SheetNavLink({ item, active }: { item: NavLink; active: boolean }) {
   const Icon = item.icon
   return (
@@ -79,7 +85,13 @@ function SheetNavLink({ item, active }: { item: NavLink; active: boolean }) {
         href={item.href}
         target={item.external ? '_blank' : undefined}
         rel={item.external ? 'noopener noreferrer' : undefined}
-        className={sheetLinkClassName(active)}
+        className={cn(
+          sheetLinkClassName(active),
+          // The Contribute menu's "+ Submit a show" CTA keeps its primary-color
+          // treatment in the sheet (Figma 460:3 — same rule the desktop menu
+          // applies via navData's submitPrimary flag).
+          item.submitPrimary && !active && 'text-primary hover:text-primary'
+        )}
       >
         {Icon && <Icon className="size-4" aria-hidden />}
         <span>{item.label}</span>
@@ -95,21 +107,40 @@ function SheetNavLink({ item, active }: { item: NavLink; active: boolean }) {
 // as a COMPONENT'S children so a closed sheet never renders (Radix keeps closed
 // content unmounted) — the bar re-renders on every navigation, and desktop
 // (xl+) can never open these at all.
+//
+// CONTROLLED, closed on route change: Radix sheets don't push a history entry,
+// so Android hardware-Back / iOS edge-swipe performs a client-side navigation
+// with the sheet still open — the user "goes back" and the nav sheet is still
+// covering the new page. Back IS the dismiss gesture on the platform this bar
+// exists for. (Same pattern the retired hamburger sheet used; row taps still
+// close instantly via SheetClose without waiting for the route.)
 function SheetTab({
   label,
   icon: Icon,
   active,
   subtitle,
+  description,
   children,
 }: {
   label: string
   icon: LucideIcon
   active: boolean
   subtitle?: string
+  description: string
   children: React.ReactNode
 }) {
+  const pathname = usePathname()
+  const [open, setOpen] = useState(false)
+  // previous-value-guard: adjust state DURING render on a pathname change, not
+  // in an effect (react-hooks/set-state-in-effect; the PSY-1345 idiom).
+  const [prevPathname, setPrevPathname] = useState(pathname)
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname)
+    if (open) setOpen(false)
+  }
+
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         {...replayOnHydrate}
         className={tabClassName(active)}
@@ -124,6 +155,7 @@ function SheetTab({
       >
         <SheetHeader className="border-b border-border/50 px-4 py-3">
           <SheetTitle className="text-left text-base">{label}</SheetTitle>
+          <SheetDescription className="sr-only">{description}</SheetDescription>
           {subtitle && (
             <p className="truncate text-sm text-muted-foreground">{subtitle}</p>
           )}
@@ -169,12 +201,15 @@ function BrowseSheetBody({
           VISIBLE theme under theme="system" — matches the canonical
           ModeToggle. */}
       <div className="mx-3 my-2 border-t border-border/30" />
+      {/* Icon tracks the ACTION like the label does (Sun + "Light mode" in
+          dark), not the current state — an icon meaning "you are in dark"
+          beside a label meaning "switch to light" reads as two controls. */}
       <button
         onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
         className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-foreground/70 transition-colors hover:bg-accent/50 hover:text-accent-foreground"
       >
-        <Sun className="size-4 dark:hidden" aria-hidden />
-        <Moon className="hidden size-4 dark:block" aria-hidden />
+        <Sun className="hidden size-4 dark:block" aria-hidden />
+        <Moon className="size-4 dark:hidden" aria-hidden />
         {resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
       </button>
     </>
@@ -230,7 +265,8 @@ export function BottomTabBar() {
   // lights on the landing route); without one it routes to the claim view.
   const profileHref = user?.username ? `/users/${user.username}` : '/users/me'
 
-  // Exactly one tab lights up. Primary tabs win on shared prefixes (e.g.
+  // At most one tab lights up (off-map routes like /help light none). Primary
+  // tabs win on shared prefixes (e.g.
   // /shows/submit is both a Shows descendant and a Browse-sheet destination —
   // Shows takes it); Account owns its own routes; Browse takes the rest of its
   // sheet's destinations.
@@ -264,7 +300,12 @@ export function BottomTabBar() {
         })}
 
         {/* Browse — the long-tail sheet */}
-        <SheetTab label="Browse" icon={LayoutGrid} active={browseActive}>
+        <SheetTab
+          label="Browse"
+          icon={LayoutGrid}
+          active={browseActive}
+          description="All destinations: catalog, curation, scenes, contribute, and editorial links."
+        >
           <BrowseSheetBody isAuthenticated={isAuthenticated} pathname={pathname} />
         </SheetTab>
 
@@ -282,6 +323,7 @@ export function BottomTabBar() {
             icon={User}
             active={accountActive}
             subtitle={user.email}
+            description="Your account: notifications, library, profile, settings, and sign out."
           >
             <AccountSheetBody
               isAdmin={!!user.is_admin}
