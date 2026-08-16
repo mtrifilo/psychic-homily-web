@@ -12,7 +12,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { browseGroups, browseHrefs, isNavActive, navGroupLabelClassName, navItemClassName } from './navData'
+import { useAuthContext } from '@/lib/context/AuthContext'
+import {
+  browseGroups, browseHrefs, isNavActive, navGroupLabelClassName,
+  navItemClassName, visibleNavItems,
+} from './navData'
 import { useHoverIntentMenu } from './useHoverIntentMenu'
 
 // Browse ▾ — the wide three-column mega-menu (Catalog / Curation / Scenes) per
@@ -27,6 +31,7 @@ import { useHoverIntentMenu } from './useHoverIntentMenu'
 // requires `modal={false}` below — see its docblock for the rationale.
 export function BrowseMenu() {
   const pathname = usePathname()
+  const { user } = useAuthContext()
   const active = browseHrefs.some(href => isNavActive(pathname, href))
 
   const { open, onOpenChange, triggerHoverProps, contentHoverProps } = useHoverIntentMenu()
@@ -52,7 +57,7 @@ export function BrowseMenu() {
             <DropdownMenuLabel className={cn('px-0 py-0', navGroupLabelClassName)}>
               {group.label}
             </DropdownMenuLabel>
-            {group.items.map(item => (
+            {visibleNavItems(group.items, user).map(item => (
               <DropdownMenuItem
                 key={item.href}
                 asChild

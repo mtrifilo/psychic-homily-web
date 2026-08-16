@@ -37,6 +37,9 @@ interface RouteItem {
   requireAdmin?: boolean
 }
 
+// Forked destination list — canonical entries live in nav/navData.ts; folding
+// this table into composition from them (keywords keyed by href) is tracked
+// follow-up work. Keep labels aligned with the canonical table meanwhile.
 const routes: RouteItem[] = [
   {
     label: 'Shows',
@@ -140,6 +143,7 @@ const routes: RouteItem[] = [
     label: 'My Submissions',
     href: '/submissions',
     keywords: ['submissions', 'pending', 'edits', 'my submissions', 'my edits', 'my pending edits'],
+    requireAuth: true,
   },
   {
     label: 'My Library',

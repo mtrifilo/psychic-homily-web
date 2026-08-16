@@ -4,8 +4,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { BrowseMenu } from './BrowseMenu'
 import { ContributeMenu } from './ContributeMenu'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import {
-  atlasItem, graphItem, isNavActive, navDestination, navItemClassName, primaryTabs,
+  atlasItem, graphItem, isNavActive, navDestination, navItemClassName,
+  visibleNavItems,
 } from './navData'
 
 // The explicit, labelled primary destinations (NN/G: a labelled "Home" link in
@@ -15,15 +17,18 @@ import {
 // straight to the Dial hub (PSY-1057 retired the D2 popover once /radio itself
 // became the dial, PSY-1049). Browse / Contribute carry menus (own components).
 // Composed from navData's canonical entries (PSY-1821) — this list only
-// decides WHICH destinations are top-bar primaries and their order; Atlas is
-// the spin-to-discover globe promoted as a flagship discovery surface
-// (PSY-1219).
+// decides WHICH destinations are top-bar primaries and their order (each
+// destination is named individually; the mobile bar's primaryTabs is a
+// separate membership decision, deliberately NOT spread here). Atlas is the
+// spin-to-discover globe promoted as a flagship discovery surface (PSY-1219).
 // Exported for BottomTabBar's mobile-reachability guard test: every desktop
 // primary destination must stay reachable from the mobile tab bar or its
 // Browse sheet (PSY-1020). Adding a link here without a mobile home fails
 // that test instead of silently stranding phone users.
 export const primaryLinks = [
-  ...primaryTabs,
+  navDestination('/'),
+  navDestination('/shows'),
+  navDestination('/radio'),
   navDestination('/artists'),
   graphItem,
   atlasItem,
@@ -34,10 +39,11 @@ export const primaryLinks = [
 // xl:flex are two ends of one contract: keep them in sync.
 export function PrimaryNav() {
   const pathname = usePathname()
+  const { user } = useAuthContext()
 
   return (
     <nav aria-label="Primary" className="hidden items-center gap-[22px] xl:flex">
-      {primaryLinks.map(link => {
+      {visibleNavItems(primaryLinks, user).map(link => {
         const active = isNavActive(pathname, link.href)
         return (
           <Link

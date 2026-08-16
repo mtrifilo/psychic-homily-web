@@ -24,6 +24,9 @@ interface FooterColumn {
   links: ReadonlyArray<{ href: string; label: string; external?: boolean }>
 }
 
+// Forked destination list — canonical entries live in nav/navData.ts; folding
+// these columns into composition from them (with deliberate footer-copy
+// overrides) is tracked follow-up work.
 const FOOTER_COLUMNS: ReadonlyArray<FooterColumn> = [
   {
     heading: 'Discover',

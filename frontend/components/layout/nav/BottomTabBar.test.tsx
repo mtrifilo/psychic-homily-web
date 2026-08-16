@@ -75,15 +75,14 @@ describe('BottomTabBar', () => {
     }
   })
 
-  // primaryTabs' length is coupled to the bar's literal grid-cols-5 (three
-  // tabs + Browse + Account). A 4th tab would wrap Account onto a second row
-  // outside the fixed bar height — this pin fails first.
-  it('pins primaryTabs to the 5-column grid contract', () => {
-    expect(primaryTabs).toHaveLength(3)
+  // primaryTabs' length is coupled to the bar's literal grid-cols-N (tabs +
+  // Browse + Account). A tab added without updating the grid class would wrap
+  // Account onto a second row outside the fixed bar height — this asserts the
+  // RELATIONSHIP, so it fails on the mismatch, not on a correct 4-tab change.
+  it('pins the bar grid to primaryTabs + Browse + Account', () => {
     const { container } = render(<BottomTabBar />)
-    expect(
-      container.querySelector('nav[aria-label="Mobile navigation"] > div')
-    ).toHaveClass('grid-cols-5')
+    const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
+    expect(grid?.className).toContain(`grid-cols-${primaryTabs.length + 2}`)
   })
 
   // The bar/PrimaryNav breakpoint contract: the bar hides exactly where the

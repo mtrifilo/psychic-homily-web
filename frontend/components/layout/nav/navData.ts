@@ -126,13 +126,15 @@ export interface NavDestinationGroup extends NavGroup {
 /**
  * Apply BOTH viewer gates one way everywhere: adminOnly needs an admin
  * viewer, authOnly needs any signed-in viewer. A null/undefined viewer is
- * anonymous (AuthContext's user is non-null exactly when authenticated).
- * Every surface that renders a composed table filters through this — a
- * hand-rolled filter is the drift this module exists to prevent.
+ * anonymous (AuthContext's user is non-null exactly when authenticated) —
+ * `email` is required in the type so an empty object can't accidentally
+ * stand in for "some signed-in viewer". Every surface that renders a
+ * composed table filters through this — a hand-rolled filter is the drift
+ * this module exists to prevent.
  */
 export function visibleNavItems<T extends NavLink>(
   items: readonly T[],
-  viewer: { is_admin?: boolean } | null | undefined
+  viewer: { email: string; is_admin?: boolean } | null | undefined
 ): T[] {
   return items.filter(
     item =>
@@ -140,11 +142,11 @@ export function visibleNavItems<T extends NavLink>(
   )
 }
 
-// The mobile bar's plain-link tabs. Also the canonical Shows/Radio entries the
-// side-nav rail composes below, and the LEADING order of the desktop top bar
-// (PrimaryNav spreads this list first). Its length is pinned: BottomTabBar
-// renders these three + Browse + Account into a literal grid-cols-5 — a
-// guard test in BottomTabBar.test.tsx fails if the two drift apart.
+// The mobile bar's plain-link tabs — this list IS the mobile-tab membership
+// and order decision, nothing else's (PrimaryNav names its own destinations).
+// Its length is pinned: BottomTabBar renders these three + Browse + Account
+// into a literal grid-cols-5 — a guard test in BottomTabBar.test.tsx fails
+// if the two drift apart.
 export const primaryTabs: ReadonlyArray<NavDestination> = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/shows', label: 'Shows', icon: Calendar },
@@ -189,9 +191,11 @@ function profileNavItem(
  * its own group, while the Account sheet renders it inline — so a non-admin
  * entry added AFTER Admin would land above the separator on desktop but
  * below Admin on mobile. Keep Admin last. The side-nav rail's authed block
- * keeps its own deliberate subset (composed from the same entries via
- * navDestination below): the top bar's bell and UserMenu already cover
- * Notifications/Settings in side-nav mode.
+ * keeps its own deliberate list (composed via navDestination below) —
+ * overlapping but neither a subset nor a superset: it drops
+ * Notifications/Settings (the top bar's bell and UserMenu cover those in
+ * side-nav mode) and adds Show Submissions and the desktop-only
+ * Notification Filters.
  *
  * Admin stays in the list flagged `adminOnly` (surfaces filter it) so
  * active-state derivations see every account route regardless of viewer tier.
@@ -238,16 +242,21 @@ export function buildDestinationIndex(
   const index = new Map<string, NavLink>()
   for (const item of sources.flat()) {
     const existing = index.get(item.href)
-    if (
-      existing &&
-      (existing.label !== item.label ||
-        existing.icon !== item.icon ||
-        !!existing.external !== !!item.external ||
-        !!existing.authOnly !== !!item.authOnly ||
-        !!existing.adminOnly !== !!item.adminOnly ||
-        !!existing.submitPrimary !== !!item.submitPrimary)
-    ) {
-      throw new Error(`navData: conflicting definitions for destination "${item.href}"`)
+    if (existing) {
+      // Structural comparison over the key union, not an enumerated field
+      // list — a field added to NavLink later is compared automatically
+      // instead of silently reverting to last-wins. `?? false` folds the
+      // undefined-vs-absent boolean flag case into one value.
+      for (const key of new Set([...Object.keys(existing), ...Object.keys(item)])) {
+        if (key === 'href') continue
+        const a = existing[key as keyof NavLink]
+        const b = item[key as keyof NavLink]
+        if ((a ?? false) !== (b ?? false)) {
+          throw new Error(
+            `navData: conflicting definitions for destination "${item.href}" (${key})`
+          )
+        }
+      }
     }
     index.set(item.href, item)
   }
@@ -316,6 +325,8 @@ export const sidebarGroups: NavDestinationGroup[] = [
       navDestination('/blog'),
       navDestination('/dj-sets'),
       navDestination('https://psychichomily.substack.com/'),
+      // The rail renders this plain — SidebarNavLink ignores submitPrimary;
+      // the CTA color treatment is menu/sheet chrome.
       navDestination('/shows/submit'),
       navDestination('/submissions'),
     ],
@@ -335,10 +346,11 @@ const sidebarAdminItem = navDestination('/admin') // carries adminOnly from the 
 
 /**
  * The side-nav rail's authed block, in rail order. Its membership is
- * deliberately NOT accountNavItems (see that function's doc); Notification
- * Filters is desktop-only by the same decision. Same contract as
- * accountNavItems: Admin stays in the list flagged adminOnly — filter with
- * visibleNavItems at the render site.
+ * deliberately NOT accountNavItems (see that function's doc): it adds Show
+ * Submissions (borrowed from contributeItems, authOnly and all) and the
+ * desktop-only Notification Filters, and drops Notifications/Settings. Same
+ * contract as accountNavItems: Admin stays in the list flagged adminOnly —
+ * filter with visibleNavItems at the render site.
  */
 export function sidebarAccountItems(
   user: { username?: string | null } | null | undefined

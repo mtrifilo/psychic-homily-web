@@ -146,7 +146,7 @@ function BrowseSheetBody({
   user,
   pathname,
 }: {
-  user: { is_admin?: boolean } | null
+  user: { email: string; is_admin?: boolean } | null
   pathname: string
 }) {
   const { resolvedTheme, setTheme } = useTheme()

@@ -47,10 +47,13 @@ describe('accountNavItems', () => {
 })
 
 describe('visibleNavItems', () => {
+  const admin = { email: 'a@test.com', is_admin: true }
+  const member = { email: 'm@test.com', is_admin: false }
+
   it('gates adminOnly entries on the viewer, one way for every surface', () => {
     for (const items of [accountNavItems(null), sidebarAccountItems(null)]) {
-      expect(visibleNavItems(items, { is_admin: true }).map(i => i.label)).toContain('Admin')
-      expect(visibleNavItems(items, { is_admin: false }).map(i => i.label)).not.toContain('Admin')
+      expect(visibleNavItems(items, admin).map(i => i.label)).toContain('Admin')
+      expect(visibleNavItems(items, member).map(i => i.label)).not.toContain('Admin')
       expect(visibleNavItems(items, null).map(i => i.label)).not.toContain('Admin')
     }
   })
@@ -60,7 +63,7 @@ describe('visibleNavItems', () => {
     expect(visibleNavItems(community.items, null).map(i => i.label)).not.toContain(
       'My Submissions'
     )
-    expect(visibleNavItems(community.items, { is_admin: false }).map(i => i.label)).toContain(
+    expect(visibleNavItems(community.items, member).map(i => i.label)).toContain(
       'My Submissions'
     )
   })
@@ -149,9 +152,10 @@ describe('navDestination', () => {
   })
 
   it('applies per-surface label overrides without touching the canonical entry', () => {
-    const overridden = navDestination('/scenes', { label: 'Scenes' })
-    expect(overridden.href).toBe('/scenes')
-    expect(overridden.label).toBe('Scenes')
-    expect(navDestination('/scenes').label).not.toBe(overridden.label)
+    // Asserts the mechanism only — deliberately independent of what the
+    // canonical copy actually says, so a pure copy edit can't fail it.
+    const canonical = navDestination('/scenes').label
+    expect(navDestination('/scenes', { label: 'Zzz' }).label).toBe('Zzz')
+    expect(navDestination('/scenes').label).toBe(canonical)
   })
 })
