@@ -104,6 +104,26 @@ describe('TopBar', () => {
       ).toHaveLength(1)
       expect(screen.queryByRole('button', { name: 'Search' })).not.toBeInTheDocument()
     })
+
+    // Collapsing the two nodes into one split the responsive contract across
+    // two files: this bar owns the BOX WIDTH, SearchTrigger owns the CHROME
+    // that fills it, and both must switch at the same breakpoint. Diverge and
+    // there is a viewport band rendering field chrome inside a 36px box, or a
+    // 220px box holding a centred bare icon — CSS-only, so no other test here
+    // can see it. Asserts the RELATIONSHIP (same prefix), not the literal `sm`,
+    // so moving both together still passes.
+    it('grows the search box and the trigger chrome at the same breakpoint', () => {
+      const { container } = render(<TopBar />)
+      const box = container.querySelector('[role="search"]') as HTMLElement
+      const trigger = box.querySelector('button') as HTMLElement
+      const breakpointOf = (className: string, utility: string) =>
+        className.split(/\s+/).find(c => c.endsWith(`:${utility}`))?.split(':')[0]
+
+      const widthGrowsAt = breakpointOf(box.className, 'w-[220px]')
+      const chromeAppearsAt = breakpointOf(trigger.className, 'border')
+      expect(widthGrowsAt).toBeDefined()
+      expect(chromeAppearsAt).toBe(widthGrowsAt)
+    })
   })
 
   describe('primary nav', () => {
