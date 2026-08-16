@@ -229,19 +229,11 @@ describe('BottomTabBar', () => {
       )
     })
 
+    // PSY-1818: the flip and the theme="system" regression it used to re-pin
+    // here belong to useThemeToggle, covered once in mode-toggle.test.tsx.
+    // This sheet's own contract is that the row is present, is labelled by the
+    // ACTION, and is wired to that hook.
     it('carries the theme toggle (migrated from the retired hamburger sheet)', async () => {
-      const user = userEvent.setup()
-      render(<BottomTabBar />)
-      await user.click(screen.getByRole('button', { name: 'Browse' }))
-      await user.click(await screen.findByRole('button', { name: 'Light mode' }))
-      expect(mockSetTheme).toHaveBeenCalledWith('light')
-    })
-
-    it('flips the VISIBLE theme on the first click under theme="system"', async () => {
-      // Regression: keying the toggle off `theme` (not resolvedTheme) would
-      // setTheme('dark') on a system-dark device — an apparent no-op.
-      mockTheme = 'system'
-      mockResolvedTheme = 'dark'
       const user = userEvent.setup()
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Browse' }))

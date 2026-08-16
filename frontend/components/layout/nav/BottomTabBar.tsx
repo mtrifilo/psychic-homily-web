@@ -3,12 +3,12 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useTheme } from 'next-themes'
 import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { Button } from '@/components/ui/button'
+import { useThemeToggle } from '../mode-toggle'
 import {
   Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle,
   SheetTrigger,
@@ -187,7 +187,7 @@ function BrowseSheetBody({
   user: { email: string; is_admin?: boolean } | null
   pathname: string
 }) {
-  const { resolvedTheme, setTheme } = useTheme()
+  const { toggle: toggleTheme, label: themeLabel } = useThemeToggle()
   return (
     <>
       {mobileBrowseGroups.map(group => (
@@ -207,20 +207,19 @@ function BrowseSheetBody({
           top bar's toggle is hidden below `sm`, so this keeps it reachable
           for everyone (incl. anonymous) on phones. Deliberately NOT a
           SheetClose: flipping the theme should show the result in place.
-          resolvedTheme (not theme) so the first click always flips the
-          VISIBLE theme under theme="system" — matches the canonical
-          ModeToggle. */}
+          The flip itself is useThemeToggle's (PSY-1818), which documents why
+          it keys off resolvedTheme rather than theme. */}
       <div className="mx-3 my-2 border-t border-border/30" />
       {/* Icon tracks the ACTION like the label does (Sun + "Light mode" in
           dark), not the current state — an icon meaning "you are in dark"
           beside a label meaning "switch to light" reads as two controls. */}
       <button
-        onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+        onClick={toggleTheme}
         className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-foreground/70 transition-colors hover:bg-accent/50 hover:text-accent-foreground"
       >
         <Sun className="hidden size-4 dark:block" aria-hidden />
         <Moon className="size-4 dark:hidden" aria-hidden />
-        {resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
+        {themeLabel}
       </button>
     </>
   )

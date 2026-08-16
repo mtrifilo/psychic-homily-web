@@ -15,6 +15,21 @@ import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 // flex row and pushed the account cluster off-screen (PSY-1638). Its own
 // children already degrade gracefully at any width — the icon and ⌘K hint are
 // `shrink-0` and the label truncates — so the container can size it freely.
+//
+// Below `sm` it condenses to a bare icon tap target (PSY-1020 — search stays
+// reachable on phones, where the top bar has no room for field chrome). That is
+// a responsive form of THIS button, not a second control (PSY-1818): the top
+// bar used to render a forked icon-only button beside this one, so both nodes
+// were always in the DOM with two different accessible names ("Search" vs
+// "Search shows, artists, labels") and only CSS deciding which one a user or a
+// test could see. One node, one name, every width.
+//
+// Deliberately NO replayOnHydrate on this button: the CommandPalette's
+// open-event listener registers in a passive effect that flushes AFTER the
+// hydration-commit replay would fire, so a replayed tap would dispatch into an
+// empty listener set AND consume the buffered click — worse than dropping it.
+// Adding it here (or to any other palette trigger) requires moving that
+// listener to useLayoutEffect or module scope first.
 export function SearchTrigger({ className }: { className?: string }) {
   return (
     <button
@@ -23,13 +38,14 @@ export function SearchTrigger({ className }: { className?: string }) {
       aria-label="Search shows, artists, labels"
       aria-keyshortcuts="Meta+K Control+K"
       className={cn(
-        'flex h-9 w-full items-center gap-2 rounded-lg border border-input bg-muted px-3 text-left text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        'flex h-9 w-full items-center justify-center rounded-lg text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        'sm:justify-start sm:gap-2 sm:border sm:border-input sm:bg-muted sm:px-3 sm:text-left sm:hover:bg-muted sm:hover:text-foreground',
         className
       )}
     >
-      <Search className="size-4 shrink-0" aria-hidden />
-      <span className="flex-1 truncate">Search shows, artists, labels…</span>
-      <kbd className="pointer-events-none inline-flex shrink-0 items-center rounded border border-input bg-background px-1.5 font-mono text-[11px] text-muted-foreground">
+      <Search className="size-5 shrink-0 sm:size-4" aria-hidden />
+      <span className="hidden flex-1 truncate sm:block">Search shows, artists, labels…</span>
+      <kbd className="pointer-events-none hidden shrink-0 items-center rounded border border-input bg-background px-1.5 font-mono text-[11px] text-muted-foreground sm:inline-flex">
         ⌘K
       </kbd>
     </button>

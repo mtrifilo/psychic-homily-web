@@ -9,7 +9,7 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { useTheme } from 'next-themes'
+import { useThemeToggle } from '@/components/layout/mode-toggle'
 import { StageFrame, type StageMeta } from './StageFrame'
 import { ScryingGrid } from './ScryingGrid'
 import { MirageHaze } from './MirageHaze'
@@ -89,7 +89,7 @@ function ControlButton({ onClick, children }: { onClick: () => void; children: R
 export function HeroLab() {
   const prefersReduced = usePrefersReducedMotion()
   const [forceReduced, setForceReduced] = useState(false)
-  const { resolvedTheme, setTheme } = useTheme()
+  const { isDark, toggle: toggleTheme } = useThemeToggle()
   const reducedMotion = prefersReduced || forceReduced
 
   return (
@@ -101,8 +101,8 @@ export function HeroLab() {
             Hero Lab · <span className="text-primary">PSYCHIC HOMILY</span>
           </span>
           <div className="flex items-center gap-2">
-            <ControlButton onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
-              Theme: {resolvedTheme ?? '…'}
+            <ControlButton onClick={toggleTheme}>
+              Theme: {isDark ? 'dark' : 'light'}
             </ControlButton>
             <ControlButton onClick={() => setForceReduced((v) => !v)}>
               Reduced-motion: {reducedMotion ? 'on' : 'off'}
