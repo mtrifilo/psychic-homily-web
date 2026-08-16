@@ -85,10 +85,30 @@ jobs:
           POSTGRES_DB: test
         ports:
           - 5432:5432
+        # Probe over TCP (`-h 127.0.0.1`), not the default unix socket. The
+        # postgres entrypoint runs first-boot initdb behind a temp server
+        # started with `listen_addresses=''`, which answers on the socket but
+        # never on TCP. A socket probe therefore reports healthy for a server
+        # that is about to be stopped and restarted, and the steps below (which
+        # the runner gates on this health state) race it against a database
+        # that is still starting up. Same defect, and same fix, as the db
+        # healthcheck in backend/docker-compose.e2e.yml; keep them in sync.
+        #
+        # That file's probe runs `psql -tAc 'SELECT 1'`. This one cannot:
+        # GitHub tokenizes the `options` string before `docker create` sees it,
+        # so the nested quotes a quoted SQL argument needs are not safe to rely
+        # on. TCP `pg_isready` is the quote-free equivalent. It reports
+        # PQPING_REJECT (non-zero) while the postmaster is still starting up,
+        # so it also goes green only once the real server takes connections.
+        #
+        # --health-start-period: probe failures inside it do not count toward
+        # --health-retries, so a slow cold initdb cannot burn the retry budget
+        # and flip the service to unhealthy.
         options: >-
-          --health-cmd="pg_isready -U test"
+          --health-cmd="pg_isready -h 127.0.0.1 -p 5432 -U test -d test"
+          --health-start-period=60s
           --health-interval=5s
-          --health-timeout=5s
+          --health-timeout=10s
           --health-retries=10
     env:
       DB_URL: postgres://test:test@localhost:5432/test?sslmode=disable

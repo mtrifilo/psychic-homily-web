@@ -24,8 +24,23 @@ services:
       #   answers. `SELECT 1` proves the database itself is serving.
       #
       # Credentials come from the container's own POSTGRES_* env, so this
-      # string is identical in docker-compose.dispatch.yml. `$$` escapes
-      # Compose's host-side interpolation.
+      # string is copied verbatim into every other stack that gates a migrate
+      # one-shot on postgres becoming healthy. `$$` escapes Compose's host-side
+      # interpolation. The full set of copies to keep in sync:
+      #
+      #   - docker-compose.dispatch.yml  (per-worktree dev stack)
+      #   - docker-compose.yml           (local dev)
+      #   - .github/workflows/ci.yml     (`migration-reversibility` job's
+      #     postgres service; `docker create --health-*` options rather than
+      #     Compose keys, and a TCP `pg_isready` rather than this psql query,
+      #     because GitHub tokenizes the `options` string before docker sees
+      #     it and nested quotes are not safe to rely on there)
+      #
+      # docker-compose.prod.yml and docker-compose.stage.yml are NOT in that
+      # set. Both still use the socket `pg_isready` with `start_period: 60s`,
+      # untouched by PSY-1741 and PSY-1789, so both still carry the first-boot
+      # window described above on an empty volume. Left alone on purpose (they
+      # are not part of any developer or CI provisioning path), not overlooked.
       test:
         [
           'CMD-SHELL',
