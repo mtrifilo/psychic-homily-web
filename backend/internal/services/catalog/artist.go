@@ -1576,7 +1576,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		// is published in full, so there is none to carry — see
 		// noRedactionCarryover for when that stops being true.
 		if _, err := repointRevisions(
-			tx, revisionEntityArtist, canonicalID, mergeFromID, noRedactionCarryover,
+			tx, mergeEntityArtist, canonicalID, mergeFromID, noRedactionCarryover,
 		); err != nil {
 			return err
 		}

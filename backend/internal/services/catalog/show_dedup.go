@@ -37,30 +37,31 @@ type ShowDedupCluster struct {
 // dedup pass. Used by both --dry-run and --confirm flows so reviewers
 // can audit the merge before live writes.
 type ShowDedupSummary struct {
-	ClustersFound      int
-	LosersMerged       int
-	ShowVenuesMoved    int64
-	ShowVenuesSkipped  int64
-	ShowArtistsMoved   int64
-	ShowArtistsSkipped int64
-	ShowReportsMoved   int64
-	EnrichmentMoved    int64
-	BookmarksMoved     int64
-	BookmarksSkipped   int64
-	CommentsRepointed  int64
-	SubsRepointed      int64
-	SubsSkipped        int64
-	EntityTagsMoved    int64
-	EntityTagsSkipped  int64
-	EntityReportsMoved int64
-	PendingEditsMoved  int64
-	RevisionsMoved     int64
-	RequestsMoved      int64
-	AuditLogsMoved     int64
-	CollectionsMoved   int64
-	CollectionsSkipped int64
-	DuplicateOfRepoint int64
-	SlugsRewritten     int
+	ClustersFound       int
+	LosersMerged        int
+	ShowVenuesMoved     int64
+	ShowVenuesSkipped   int64
+	ShowArtistsMoved    int64
+	ShowArtistsSkipped  int64
+	ShowReportsMoved    int64
+	EnrichmentMoved     int64
+	BookmarksMoved      int64
+	BookmarksSkipped    int64
+	CommentsRepointed   int64
+	SubsRepointed       int64
+	SubsSkipped         int64
+	EntityTagsMoved     int64
+	EntityTagsSkipped   int64
+	EntityReportsMoved  int64
+	PendingEditsMoved   int64
+	PendingEditsSkipped int64
+	RevisionsMoved      int64
+	RequestsMoved       int64
+	AuditLogsMoved      int64
+	CollectionsMoved    int64
+	CollectionsSkipped  int64
+	DuplicateOfRepoint  int64
+	SlugsRewritten      int
 }
 
 // FindShowDedupClusters finds groups of shows that share the same
@@ -244,7 +245,6 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	}{
 		{"comments", `UPDATE comments SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.CommentsRepointed},
 		{"entity_reports", `UPDATE entity_reports SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.EntityReportsMoved},
-		{"pending_entity_edits", `UPDATE pending_entity_edits SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.PendingEditsMoved},
 		{"audit_logs", `UPDATE audit_logs SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.AuditLogsMoved},
 		// requests uses requested_entity_id, not entity_id.
 		{"requests", `UPDATE requests SET requested_entity_id = ? WHERE entity_type = 'show' AND requested_entity_id = ?`, &summary.RequestsMoved},
@@ -256,12 +256,34 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		*op.dst += res.RowsAffected
 	}
 
+	// pending_entity_edits: a plain re-point today, but it has to say so, for
+	// the same reason revisions does below — this CLI deletes the show a
+	// read-time gate would have consulted. See editHistoryCarriesNoRedaction.
+	//
+	// It moved with the no-uniqueness group above until PSY-1788, which was
+	// wrong on the facts: idx_pending_entity_edits_unique is UNIQUE on
+	// (entity_type, entity_id, submitted_by) WHERE status = 'pending', so a bare
+	// UPDATE aborted the whole dedup transaction whenever one contributor had a
+	// pending edit on both shows. The helper dedupes first, which is this
+	// function's stated conflict policy — the winner's row wins.
+	//
+	// entity_edit_audit_logs is deliberately NOT re-pointed here: this merge has
+	// never touched it, and adding a re-point is a separate change from routing
+	// the ones that exist.
+	pendingEditsMoved, pendingEditsDropped, err := repointEditHistory(
+		tx, pendingEditsHistory, mergeEntityShow, winnerID, loserID, editHistoryCarriesNoRedaction)
+	if err != nil {
+		return err
+	}
+	summary.PendingEditsMoved += pendingEditsMoved
+	summary.PendingEditsSkipped += pendingEditsDropped
+
 	// revisions: a plain re-point today, but it has to say so. Show history is
 	// published in full, so there is no redaction to carry — and when that
 	// changes, THIS is the site the revisiondiff package doc names, because
 	// the dedup CLI deletes the show a read-time gate would have consulted.
 	// See noRedactionCarryover.
-	revisionsMoved, err := repointRevisions(tx, revisionEntityShow, winnerID, loserID, noRedactionCarryover)
+	revisionsMoved, err := repointRevisions(tx, mergeEntityShow, winnerID, loserID, noRedactionCarryover)
 	if err != nil {
 		return err
 	}

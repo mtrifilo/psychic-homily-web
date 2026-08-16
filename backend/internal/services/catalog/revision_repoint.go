@@ -24,24 +24,26 @@ import (
 // TestNoRevisionRepointOutsideTheHelper, which fails on an entity_id write
 // against revisions anywhere else in the backend.
 
-// revisionEntityType is the revisions.entity_type value a merge re-points.
+// mergeEntityType is the polymorphic entity_type value a merge re-points. The
+// same three values key every history table a merge touches, so repointRevisions
+// and repointEditHistory share one vocabulary instead of two that can drift.
 //
 // Named rather than spelled at each call site because the failure mode of a
 // typo is silent: 'venues' matches no rows, the UPDATE succeeds, and the
 // loser's history stays pointed at an entity that is deleted moments later.
-type revisionEntityType string
+type mergeEntityType string
 
 const (
-	revisionEntityVenue  revisionEntityType = "venue"
-	revisionEntityArtist revisionEntityType = "artist"
-	revisionEntityShow   revisionEntityType = "show"
+	mergeEntityVenue  mergeEntityType = "venue"
+	mergeEntityArtist mergeEntityType = "artist"
+	mergeEntityShow   mergeEntityType = "show"
 )
 
 // valid reports whether the type is one of the three the merges handle. Guards
 // against a call site conjuring a string through the type conversion.
-func (e revisionEntityType) valid() bool {
+func (e mergeEntityType) valid() bool {
 	switch e {
-	case revisionEntityVenue, revisionEntityArtist, revisionEntityShow:
+	case mergeEntityVenue, mergeEntityArtist, mergeEntityShow:
 		return true
 	default:
 		return false
@@ -123,7 +125,7 @@ func (p revisionProvenance) String() string {
 // Returns the number of revisions re-pointed, for the caller's merge summary.
 func repointRevisions(
 	tx *gorm.DB,
-	entity revisionEntityType,
+	entity mergeEntityType,
 	canonicalID, mergeFromID uint,
 	provenance revisionProvenance,
 ) (int64, error) {
@@ -144,7 +146,7 @@ func repointRevisions(
 	setClause := "entity_id = ?"
 	switch provenance {
 	case stampFromUnverifiedVenue:
-		if entity != revisionEntityVenue {
+		if entity != mergeEntityVenue {
 			return 0, fmt.Errorf(
 				"repoint revisions: %s is venue-only, but entity type is %q",
 				provenance, string(entity))
