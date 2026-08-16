@@ -76,6 +76,15 @@ export function useFullscreenGraphOverlay(available: boolean): {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
+    // These are window measurements, NOT container measurements, and the
+    // canvas is sized from them directly rather than by flex. So do not add
+    // safe-area padding to the overlay root (PSY-1820): env() is unreadable
+    // from JS, the canvas would keep its full-display width inside a narrower
+    // box, and ForceGraphView's overflow-hidden wrapper would silently clip
+    // the difference — nodes and cluster centroids included. The overlay's
+    // chrome rows carry the landscape insets instead, so the Exit button
+    // clears the notch while the canvas stays deliberately full-bleed, which
+    // is what you want for a graph surface anyway.
     const updateDimensions = () => {
       setOverlayWidth(window.innerWidth)
       setOverlayHeight(Math.max(200, window.innerHeight - OVERLAY_VERTICAL_RESERVE_PX))

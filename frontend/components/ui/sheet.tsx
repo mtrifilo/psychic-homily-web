@@ -59,14 +59,22 @@ function SheetContent({
         data-slot="sheet-content"
         className={cn(
           "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-50 flex flex-col gap-4 shadow-sm transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+          // SAFE AREA (PSY-1820). Under viewport-fit=cover a sheet's anchored
+          // edges are the PHYSICAL screen edges, so each variant absorbs the
+          // insets its own edges own: the side it is anchored to, plus the
+          // bottom for anything full-height. Without this a landscape notch
+          // covers the trailing edge of every control in the sheet — including
+          // submit buttons, which stay hit-testable while invisible.
+          //
+          // Padding, never an offset, so the sheet's background still reaches
+          // the screen edge. A consumer that wants the full bleed back can
+          // override with p-0 (twMerge takes the caller's className last).
           side === "right" &&
-            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm",
+            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)]",
           side === "left" &&
-            "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm",
+            "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm pl-[env(safe-area-inset-left)] pb-[env(safe-area-inset-bottom)]",
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
-          // A bottom sheet ends at the physical screen bottom under
-          // viewport-fit=cover, so it owns the home-indicator band (PSY-1820).
           side === "bottom" &&
             "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t pb-[env(safe-area-inset-bottom)]",
           className

@@ -263,6 +263,14 @@ describe('BottomTabBar', () => {
       const rows = [...document.querySelectorAll('[data-slot="sheet-content"] a')]
       expect(rows.length).toBeGreaterThan(10)
       expect(rows.every(a => a.getAttribute('data-prefetch') === 'false')).toBe(true)
+
+      // The sheet's one target="_blank" row (Substack) carries the
+      // reverse-tabnabbing guard. Asserted here because these anchors are
+      // already in hand and nothing else in the repo pins it — the mock added
+      // for the prefetch assertion is what made it observable at all.
+      const external = rows.find(a => a.getAttribute('target') === '_blank')
+      expect(external).toBeDefined()
+      expect(external).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
     it('hides auth-only destinations from anonymous visitors', async () => {

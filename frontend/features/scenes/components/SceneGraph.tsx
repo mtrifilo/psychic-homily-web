@@ -386,10 +386,10 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
           role="dialog"
           aria-modal="true"
           aria-label={`Scene graph for ${city}, ${state}, fullscreen`}
-          className="fixed inset-0 z-[60] bg-background flex flex-col pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+          className="fixed inset-0 z-[60] bg-background flex flex-col"
           data-testid="scene-graph-overlay"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border/50">
+          <div className="flex flex-wrap items-center justify-between gap-2 py-3 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] border-b border-border/50">
             {sceneHeader}
             <button
               type="button"
