@@ -562,7 +562,7 @@ func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.V
 // loop. Rows dropped as duplicates are not added, also matching the loop, which
 // only ever counted the UPDATE.
 func reassignVenueEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
-	for _, table := range []editHistoryTable{pendingEditsHistory, auditedEditsHistory} {
+	for _, table := range []editHistoryTable{pendingEditsHistory, entityEditAuditHistory} {
 		moved, _, err := repointEditHistory(
 			tx, table, mergeEntityVenue, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
 		if err != nil {

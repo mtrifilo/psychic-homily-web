@@ -59,9 +59,9 @@ var (
 		dedupeOn: []string{"submitted_by"},
 	}
 
-	// auditedEditsHistory has no unique key on its entity reference — it is an
+	// entityEditAuditHistory has no unique key on its entity reference — it is an
 	// append-only trail, so every row moves.
-	auditedEditsHistory = editHistoryTable{name: "entity_edit_audit_logs"}
+	entityEditAuditHistory = editHistoryTable{name: "entity_edit_audit_logs"}
 )
 
 // editHistoryProvenance is the decision a merge makes about the redaction

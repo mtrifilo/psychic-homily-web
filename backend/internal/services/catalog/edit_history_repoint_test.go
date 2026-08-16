@@ -79,7 +79,7 @@ func TestEditHistoryTablesCarryTheirOwnDedupePolicy(t *testing.T) {
 	if got := pendingEditsHistory.dedupeOn; len(got) != 1 || got[0] != "submitted_by" {
 		t.Errorf("pending_entity_edits must dedupe on submitted_by (idx_pending_entity_edits_unique), got %v", got)
 	}
-	if got := auditedEditsHistory.dedupeOn; len(got) != 0 {
+	if got := entityEditAuditHistory.dedupeOn; len(got) != 0 {
 		t.Errorf("entity_edit_audit_logs is append-only and has no unique key on its entity reference, got %v", got)
 	}
 }
