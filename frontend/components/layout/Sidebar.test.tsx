@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Sidebar, sidebarGroups } from './Sidebar'
+import { Sidebar } from './Sidebar'
 
 const mockPathname = vi.fn(() => '/shows')
 vi.mock('next/navigation', () => ({
@@ -26,41 +26,9 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-describe('sidebarGroups', () => {
-  it('has Discover and Community groups', () => {
-    expect(sidebarGroups.map(g => g.label)).toEqual(['Discover', 'Community'])
-  })
-
-  it('Discover contains the Graph Observatory and catalog destinations', () => {
-    const discover = sidebarGroups.find(g => g.label === 'Discover')!
-    expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Graph', 'Releases', 'Labels', 'Tags', 'Scenes', 'Atlas', 'Collections', 'Charts', 'Radio'])
-  })
-
-  it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submit a Show, My Submissions', () => {
-    const community = sidebarGroups.find(g => g.label === 'Community')!
-    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Leaderboard', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'Submit a Show', 'My Submissions'])
-  })
-
-  it('only Substack is marked external', () => {
-    const external = sidebarGroups.flatMap(g => g.items).filter(i => i.external)
-    expect(external).toHaveLength(1)
-    expect(external[0].label).toBe('Substack')
-  })
-
-  it('all internal items have paths starting with /', () => {
-    const internal = sidebarGroups.flatMap(g => g.items).filter(i => !i.external)
-    for (const item of internal) {
-      expect(item.href).toMatch(/^\//)
-    }
-  })
-
-  it('all items have an icon', () => {
-    for (const item of sidebarGroups.flatMap(g => g.items)) {
-      expect(item.icon).toBeTruthy()
-    }
-  })
-})
-
+// The rail's destination tables (sidebarGroups) moved to navData with
+// PSY-1821 — their order/membership/composition tests live in
+// nav/navData.test.ts now. This file tests the component.
 describe('Sidebar', () => {
   const onToggleCollapse = vi.fn()
 
@@ -90,7 +58,41 @@ describe('Sidebar', () => {
     expect(screen.getByText('Blog')).toBeInTheDocument()
     expect(screen.getByText('DJ Sets')).toBeInTheDocument()
     expect(screen.getByText('Substack')).toBeInTheDocument()
+  })
+
+  // PSY-1821: the rail now honors authOnly through the shared visibleNavItems
+  // gate, matching the Browse sheet and Contribute menu (it previously showed
+  // My Submissions to anonymous visitors, who just bounced to /auth).
+  it('hides authOnly destinations from anonymous visitors', () => {
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.queryByText('My Submissions')).not.toBeInTheDocument()
+  })
+
+  it('shows authOnly destinations when signed in', () => {
+    mockAuthContext.mockReturnValue({
+      user: { email: 'test@test.com', is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.getByText('My Submissions')).toBeInTheDocument()
+  })
+
+  // While auth hydrates, user is null, so gated entries render fail-closed
+  // (hidden) and appear once auth settles: the same posture BottomTabBar
+  // takes with its inert Account placeholder. Pinned so the brief
+  // absence-then-appearance reads as intended, not as a flicker bug.
+  it('renders fail-closed (no authOnly entries) while auth is hydrating', () => {
+    mockAuthContext.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.getByText('Shows')).toBeInTheDocument()
+    expect(screen.queryByText('My Submissions')).not.toBeInTheDocument()
   })
 
   it('hides group headers when collapsed', () => {
@@ -126,7 +128,7 @@ describe('Sidebar', () => {
 
   it('does not show Library/Profile when unauthenticated', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    expect(screen.queryByText('Library')).not.toBeInTheDocument()
+    expect(screen.queryByText('My Library')).not.toBeInTheDocument()
     expect(screen.queryByText('Show Submissions')).not.toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
   })
@@ -139,7 +141,7 @@ describe('Sidebar', () => {
       logout: vi.fn(),
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    expect(screen.getByText('Library')).toBeInTheDocument()
+    expect(screen.getByText('My Library')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Show Submissions' })).toHaveAttribute(
       'href',
       '/contribute/submissions'

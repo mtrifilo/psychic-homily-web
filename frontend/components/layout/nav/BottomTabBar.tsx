@@ -4,10 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
-import {
-  Bell, Calendar, ExternalLink, Home, LayoutGrid, Library, LogOut, Moon, Radio,
-  Palette, Settings, Shield, Sun, User, UserCircle,
-} from 'lucide-react'
+import { ExternalLink, LayoutGrid, LogOut, Moon, Sun, User } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
@@ -18,10 +15,11 @@ import {
 } from '@/components/ui/sheet'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
-  isNavActive, mobileBrowseGroups, mobileBrowseHrefs, sheetLinkClassName,
-  navGroupLabelClassName,
+  PROFILE_CLAIM_HREF, accountNavItems, isNavActive, mobileBrowseGroups,
+  mobileBrowseHrefs, primaryTabs, sheetLinkClassName, navGroupLabelClassName,
+  visibleNavItems,
 } from './navData'
-import type { NavLink } from './navData'
+import type { NavDestination, NavLink } from './navData'
 
 // The persistent mobile bottom tab bar (PSY-1020, Figma Navigation 540:8 —
 // Option A, the user-approved pattern; the hamburger-sheet Option B 542:6 is the
@@ -43,30 +41,6 @@ import type { NavLink } from './navData'
 // offsets itself ABOVE the bar below `xl` (CookieConsentBanner.tsx carries the
 // other end of that contract): the two must never co-occupy the bottom band,
 // or every pre-consent visitor loses the primary nav.
-
-// Exported for the mobile-reachability guard test against PrimaryNav's
-// primaryLinks: every desktop primary destination must appear here or in
-// mobileBrowseHrefs.
-export const primaryTabs: ReadonlyArray<{ href: string; label: string; icon: LucideIcon }> = [
-  { href: '/', label: 'Home', icon: Home },
-  { href: '/shows', label: 'Shows', icon: Calendar },
-  { href: '/radio', label: 'Radio', icon: Radio },
-]
-
-// The account sheet's destinations — hrefs for the tab's active state are
-// DERIVED below, so adding an entry can't silently stop the tab lighting up.
-// Mirrors the desktop UserMenu (+ Settings, which the retired hamburger sheet
-// carried). The Profile entry's '/users/me' is a placeholder: the component
-// substitutes the username-aware href (same rule as UserMenu/Sidebar, PSY-1045).
-const accountItems: ReadonlyArray<NavLink & { icon: LucideIcon; adminOnly?: boolean }> = [
-  { href: '/notifications', label: 'Notifications', icon: Bell },
-  { href: '/library', label: 'My Library', icon: Library },
-  { href: '/users/me', label: 'Profile', icon: UserCircle },
-  { href: '/profile', label: 'Settings', icon: Settings },
-  { href: '/settings/appearance', label: 'Appearance', icon: Palette },
-  { href: '/admin', label: 'Admin', icon: Shield, adminOnly: true },
-]
-const accountHrefs = accountItems.map(i => i.href)
 
 function tabClassName(active: boolean): string {
   return cn(
@@ -169,10 +143,10 @@ function SheetTab({
 }
 
 function BrowseSheetBody({
-  isAuthenticated,
+  user,
   pathname,
 }: {
-  isAuthenticated: boolean
+  user: { email: string; is_admin?: boolean } | null
   pathname: string
 }) {
   const { resolvedTheme, setTheme } = useTheme()
@@ -181,15 +155,13 @@ function BrowseSheetBody({
       {mobileBrowseGroups.map(group => (
         <div key={group.label} className="mb-4">
           <p className={cn('mb-2 px-3', navGroupLabelClassName)}>{group.label}</p>
-          {group.items
-            .filter(item => !item.authOnly || isAuthenticated)
-            .map(item => (
-              <SheetNavLink
-                key={item.href}
-                item={item}
-                active={!item.external && isNavActive(pathname, item.href)}
-              />
-            ))}
+          {visibleNavItems(group.items, user).map(item => (
+            <SheetNavLink
+              key={item.href}
+              item={item}
+              active={!item.external && isNavActive(pathname, item.href)}
+            />
+          ))}
         </div>
       ))}
 
@@ -217,30 +189,23 @@ function BrowseSheetBody({
 }
 
 function AccountSheetBody({
-  isAdmin,
-  profileHref,
+  items,
   pathname,
   logout,
 }: {
-  isAdmin: boolean
-  profileHref: string
+  items: NavDestination[]
   pathname: string
   logout: () => void
 }) {
   return (
     <>
-      {accountItems
-        .filter(item => !item.adminOnly || isAdmin)
-        .map(item => {
-          const href = item.href === '/users/me' ? profileHref : item.href
-          return (
-            <SheetNavLink
-              key={item.href}
-              item={{ ...item, href }}
-              active={isNavActive(pathname, href)}
-            />
-          )
-        })}
+      {items.map(item => (
+        <SheetNavLink
+          key={item.href}
+          item={item}
+          active={isNavActive(pathname, item.href)}
+        />
+      ))}
       <div className="mx-3 my-2 border-t border-border/30" />
       <div className="px-3 py-2">
         <SheetClose asChild>
@@ -260,20 +225,22 @@ export function BottomTabBar() {
 
   const isActive = (href: string) => isNavActive(pathname, href)
 
-  // Same username-or-claim routing rule as UserMenu/Sidebar (PSY-1045): with a
-  // username the Profile entry deep-links (no redirect hop, and the Account tab
-  // lights on the landing route); without one it routes to the claim view.
-  const profileHref = user?.username ? `/users/${user.username}` : '/users/me'
+  // The canonical account list (navData, PSY-1821) with the username-aware
+  // Profile href already resolved. Admin stays in the list (adminOnly) so the
+  // tab's active state covers every account route; rendering filters it.
+  // Anonymous visitors never read it, so don't build it for them.
+  const accountItems = isAuthenticated && user ? accountNavItems(user) : []
 
   // At most one tab lights up (off-map routes like /help light none). Primary
   // tabs win on shared prefixes (e.g.
   // /shows/submit is both a Shows descendant and a Browse-sheet destination —
   // Shows takes it); Account owns its own routes; Browse takes the rest of its
-  // sheet's destinations.
+  // sheet's destinations. The claim-view alias stays in the active set even
+  // when Profile deep-links to /users/<username>.
   const primaryActive = primaryTabs.some(t => isActive(t.href))
-  const accountActive = (
-    isAuthenticated ? [...accountHrefs, profileHref] : ['/auth']
-  ).some(isActive)
+  const accountActive = isAuthenticated
+    ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
+    : isActive('/auth')
   const browseActive =
     !primaryActive && !accountActive && mobileBrowseHrefs.some(isActive)
 
@@ -306,7 +273,7 @@ export function BottomTabBar() {
           active={browseActive}
           description="All destinations: catalog, curation, scenes, contribute, and editorial links."
         >
-          <BrowseSheetBody isAuthenticated={isAuthenticated} pathname={pathname} />
+          <BrowseSheetBody user={user} pathname={pathname} />
         </SheetTab>
 
         {/* Account — auth-aware */}
@@ -328,8 +295,7 @@ export function BottomTabBar() {
             description="Your account: notifications, library, profile, settings, and sign out."
           >
             <AccountSheetBody
-              isAdmin={!!user.is_admin}
-              profileHref={profileHref}
+              items={visibleNavItems(accountItems, user)}
               pathname={pathname}
               logout={logout}
             />

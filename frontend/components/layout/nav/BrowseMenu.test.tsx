@@ -9,6 +9,12 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
 
+// Anonymous viewer by default — BrowseMenu gates any authOnly/adminOnly
+// entries through visibleNavItems (none exist in browseGroups today).
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: false, user: null }),
+}))
+
 // Must stay in lockstep with useHoverIntentMenu.ts open/close delays.
 const OPEN_DELAY_MS = 50
 const CLOSE_DELAY_MS = 200

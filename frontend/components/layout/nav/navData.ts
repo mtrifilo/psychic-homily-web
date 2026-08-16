@@ -1,18 +1,18 @@
 import {
   Mic2, MapPin, Disc3, Tag, Tent, LayoutList, TrendingUp, Tags, Globe, Trophy,
   MessageSquarePlus, Music, Send, ClipboardList, HeartHandshake, BookOpen, Headphones, Newspaper,
-  Compass, Map as MapIcon,
+  Map as MapIcon, Home, Calendar, Radio, Orbit, Bell, Library, UserCircle, Settings,
+  Palette, Shield,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// Shared link data + styling for the top-bar primary nav (PSY-1013). The retired
-// left sidebar exposed ~20 destinations; these tables keep every one of them
-// reachable from the new top bar's Browse / Contribute menus so retiring the
-// sidebar doesn't regress desktop discoverability. The menu *presentation* is
-// refined by follow-up tickets (Browse mega-menu → PSY-1014, Contribute →
-// PSY-1015); Radio became a plain /radio link in PSY-1057. The destinations
-// themselves live here.
+// Shared link data + styling for the app's navigation surfaces (PSY-1013).
+// Originally the top-bar Browse/Contribute tables (which absorbed the 2025
+// left sidebar's ~20 destinations); since PSY-1821 this module also owns the
+// live side-nav rail's tables (sidebarGroups, sidebarAccountItems) and the
+// account destination set. The menu *presentation* stays in each component;
+// the destinations themselves live here.
 
 export interface NavLink {
   href: string
@@ -26,6 +26,8 @@ export interface NavLink {
    * this menu rather than as a standalone top-bar CTA (OQ-2, resolved).
    */
   submitPrimary?: boolean
+  /** Rendered only for admin viewers — filter with visibleNavItems. */
+  adminOnly?: boolean
 }
 
 export interface NavGroup {
@@ -102,6 +104,260 @@ export const editorialItems: NavLink[] = [
   },
 ]
 
+// ---------------------------------------------------------------------------
+// Single-source destination tables (PSY-1821). A destination's href, label,
+// and icon are decided ONCE here; the composed surfaces (PrimaryNav + its
+// menus, side-nav rail, mobile tab bar/sheets, account menus) build their own
+// chrome and ordering from these entries, so a destination can no longer
+// drift between them. Two surfaces still fork their own destination lists —
+// CommandPalette's routes and the Footer's link columns (both pre-date this
+// module and have already drifted) — folding them in is follow-up work.
+
+/** A destination whose icon is guaranteed — rails and tab bars render it. */
+export interface NavDestination extends NavLink {
+  icon: LucideIcon
+}
+
+/** A labelled group of icon-guaranteed destinations (rail/sheet chrome). */
+export interface NavDestinationGroup extends NavGroup {
+  items: NavDestination[]
+}
+
+/**
+ * Apply BOTH viewer gates one way everywhere: adminOnly needs an admin
+ * viewer, authOnly needs any signed-in viewer. A null/undefined viewer is
+ * anonymous (AuthContext's user is non-null exactly when authenticated) —
+ * `email` is required in the type so an empty object can't accidentally
+ * stand in for "some signed-in viewer". Every surface that renders a
+ * composed table filters through this — a hand-rolled filter is the drift
+ * this module exists to prevent.
+ */
+export function visibleNavItems<T extends NavLink>(
+  items: readonly T[],
+  viewer: { email: string; is_admin?: boolean } | null | undefined
+): T[] {
+  return items.filter(
+    item =>
+      (!item.adminOnly || !!viewer?.is_admin) && (!item.authOnly || viewer != null)
+  )
+}
+
+// The mobile bar's plain-link tabs — this list IS the mobile-tab membership
+// and order decision, nothing else's (PrimaryNav names its own destinations).
+// Its length is pinned: BottomTabBar renders these three + Browse + Account
+// into a literal grid-cols-5 — a guard test in BottomTabBar.test.tsx fails
+// if the two drift apart.
+export const primaryTabs: ReadonlyArray<NavDestination> = [
+  { href: '/', label: 'Home', icon: Home },
+  { href: '/shows', label: 'Shows', icon: Calendar },
+  { href: '/radio', label: 'Radio', icon: Radio },
+]
+
+// Graph/Atlas are desktop *primary* links with no home in the Browse/
+// Contribute menus; these are their canonical entries. One icon per
+// destination: Orbit reads as a node graph, Map is literal for Atlas — this
+// retires both the side rail's old Graph/Atlas double-Orbit and the mobile
+// sheet's Compass.
+export const graphItem: NavDestination = { href: '/graph', label: 'Graph', icon: Orbit }
+export const atlasItem: NavDestination = { href: '/atlas', label: 'Atlas', icon: MapIcon }
+
+/**
+ * The claim-username self view (PSY-1045). Always an account route for
+ * active-state purposes, even when Profile deep-links past it.
+ */
+export const PROFILE_CLAIM_HREF = '/users/me'
+
+/**
+ * The PSY-1045 username-or-claim routing rule, in one place: with a username
+ * the Profile destination deep-links to the public identity view
+ * (`/users/<username>` — the same dense page visitors see, PSY-1025); without
+ * one it routes to the claim-username self view.
+ */
+export function profileHref(user: { username?: string | null } | null | undefined): string {
+  return user?.username ? `/users/${user.username}` : PROFILE_CLAIM_HREF
+}
+
+/** The Profile destination with its username-aware href resolved. */
+function profileNavItem(
+  user: { username?: string | null } | null | undefined
+): NavDestination {
+  return { href: profileHref(user), label: 'Profile', icon: UserCircle }
+}
+
+/**
+ * The canonical account destination set. The desktop UserMenu dropdown and
+ * the mobile Account sheet both render it in this order, with one chrome
+ * difference: UserMenu renders the adminOnly partition after a separator in
+ * its own group, while the Account sheet renders it inline — so a non-admin
+ * entry added AFTER Admin would land above the separator on desktop but
+ * below Admin on mobile. Keep Admin last. The side-nav rail's authed block
+ * keeps its own deliberate list (composed via navDestination below) —
+ * overlapping but neither a subset nor a superset: it drops
+ * Notifications/Settings (the top bar's bell and UserMenu cover those in
+ * side-nav mode) and adds Show Submissions and the desktop-only
+ * Notification Filters.
+ *
+ * Admin stays in the list flagged `adminOnly` (surfaces filter it) so
+ * active-state derivations see every account route regardless of viewer tier.
+ * Profile → the public identity view; Settings → the /profile editor
+ * (PSY-1486 split).
+ */
+export function accountNavItems(
+  user: { username?: string | null } | null | undefined
+): NavDestination[] {
+  return [
+    { href: '/notifications', label: 'Notifications', icon: Bell },
+    { href: '/library', label: 'My Library', icon: Library },
+    profileNavItem(user),
+    { href: '/profile', label: 'Settings', icon: Settings },
+    // Reachable from the account menus in the DEFAULT top-bar mode — the side
+    // rail's own Appearance entry only renders once already in side-nav mode.
+    { href: '/settings/appearance', label: 'Appearance', icon: Palette },
+    { href: '/admin', label: 'Admin', icon: Shield, adminOnly: true },
+  ]
+}
+
+// Desktop-only by decision (PSY-1821): among the composed surfaces only the
+// side-nav rail lists it (the command palette still forks its own copy — see
+// the header note). On phones it stays reachable through the Account sheet →
+// Notifications → the filters link on that page (app/notifications/page.tsx).
+// Deliberately NOT in accountNavItems.
+const notificationFiltersItem: NavDestination = {
+  href: '/settings/notification-filters',
+  label: 'Notification Filters',
+  icon: Bell,
+}
+
+/**
+ * Index destinations by href for composition lookups. Equal duplicates
+ * collapse (Leaderboard legitimately appears in two desktop menus with one
+ * definition). CONFLICTING duplicates — same href differing on ANY rendered
+ * or behavioral field, the gating flags included — are the drift this module
+ * exists to prevent, so they fail loudly at module load instead of
+ * last-wins. Exported for its unit test only.
+ */
+export function buildDestinationIndex(
+  sources: ReadonlyArray<readonly NavLink[]>
+): Map<string, NavLink> {
+  const index = new Map<string, NavLink>()
+  for (const item of sources.flat()) {
+    const existing = index.get(item.href)
+    if (existing) {
+      // Structural comparison over the key union, not an enumerated field
+      // list — a field added to NavLink later is compared automatically
+      // instead of silently reverting to last-wins. `?? false` folds the
+      // undefined-vs-absent boolean flag case into one value.
+      for (const key of new Set([...Object.keys(existing), ...Object.keys(item)])) {
+        if (key === 'href') continue
+        const a = existing[key as keyof NavLink]
+        const b = item[key as keyof NavLink]
+        if ((a ?? false) !== (b ?? false)) {
+          throw new Error(
+            `navData: conflicting definitions for destination "${item.href}" (${key})`
+          )
+        }
+      }
+    }
+    index.set(item.href, item)
+  }
+  return index
+}
+
+const destinationByHref = buildDestinationIndex([
+  primaryTabs,
+  [graphItem, atlasItem],
+  ...browseGroups.map(g => g.items),
+  contributeItems,
+  editorialItems,
+  accountNavItems(null),
+  [notificationFiltersItem],
+])
+
+/**
+ * Resolve a destination from the canonical tables, optionally overriding
+ * per-surface copy. Throws on an href the canonical tables don't define, so
+ * a typo fails at module load (any test importing a composed table). Note
+ * the guard is table membership only — it does not verify the route exists
+ * in app/, so a canonical href pointing at a renamed route still ships.
+ */
+export function navDestination(
+  href: string,
+  overrides?: { label?: string }
+): NavDestination {
+  const item = destinationByHref.get(href)
+  if (!item) throw new Error(`navData: unknown nav destination "${href}"`)
+  if (!item.icon) throw new Error(`navData: destination "${href}" has no icon`)
+  return { ...(item as NavDestination), ...overrides }
+}
+
+// The side-nav rail's tables (PSY-1821: folded in from Sidebar.tsx). The rail
+// keeps its own curated order and grouping; every entry resolves through the
+// canonical tables, and the two label overrides are the rail's flat-chrome
+// copy, decided here rather than forked in the component.
+export const sidebarGroups: NavDestinationGroup[] = [
+  {
+    label: 'Discover',
+    items: [
+      navDestination('/shows'),
+      navDestination('/festivals'),
+      navDestination('/artists'),
+      navDestination('/venues'),
+      navDestination('/graph'),
+      navDestination('/releases'),
+      navDestination('/labels'),
+      navDestination('/tags'),
+      // The rail links the scenes INDEX; "All scenes" is Browse-menu copy for
+      // a list that sits under a "Scenes" group label.
+      navDestination('/scenes', { label: 'Scenes' }),
+      navDestination('/atlas'),
+      navDestination('/collections'),
+      navDestination('/charts'),
+      navDestination('/radio'),
+    ],
+  },
+  {
+    label: 'Community',
+    items: [
+      // "Contribute hub" is Contribute-menu copy; the rail keeps the short label.
+      navDestination('/contribute', { label: 'Contribute' }),
+      navDestination('/community/leaderboard'),
+      navDestination('/requests'),
+      navDestination('/blog'),
+      navDestination('/dj-sets'),
+      navDestination('https://psychichomily.substack.com/'),
+      // The rail renders this plain — SidebarNavLink ignores submitPrimary;
+      // the CTA color treatment is menu/sheet chrome.
+      navDestination('/shows/submit'),
+      navDestination('/submissions'),
+    ],
+  },
+]
+
+// The rail's authed block is mostly user-invariant — resolve those entries
+// once at module load (which also makes navDestination's fail-at-load
+// guarantee hold for them).
+const sidebarAccountStatic: NavDestination[] = [
+  navDestination('/library'),
+  navDestination('/contribute/submissions'),
+  navDestination('/settings/notification-filters'),
+  navDestination('/settings/appearance'),
+]
+const sidebarAdminItem = navDestination('/admin') // carries adminOnly from the account table
+
+/**
+ * The side-nav rail's authed block, in rail order. Its membership is
+ * deliberately NOT accountNavItems (see that function's doc): it adds Show
+ * Submissions (borrowed from contributeItems, authOnly and all) and the
+ * desktop-only Notification Filters, and drops Notifications/Settings. Same
+ * contract as accountNavItems: Admin stays in the list flagged adminOnly —
+ * filter with visibleNavItems at the render site.
+ */
+export function sidebarAccountItems(
+  user: { username?: string | null } | null | undefined
+): NavDestination[] {
+  return [...sidebarAccountStatic, profileNavItem(user), sidebarAdminItem]
+}
+
 // All destinations a single nav menu links to — used to light up its trigger as
 // active when the current route lives inside it.
 export const browseHrefs = browseGroups.flatMap(g => g.items.map(i => i.href))
@@ -146,10 +402,7 @@ export const mobileBrowseGroups: NavGroup[] = (() => {
   return [
     {
       label: 'Discover',
-      items: [
-        { href: '/graph', label: 'Graph', icon: Compass },
-        { href: '/atlas', label: 'Atlas', icon: MapIcon },
-      ],
+      items: [graphItem, atlasItem],
     },
     ...browseGroups,
     { label: 'Contribute', items: contributeItems },

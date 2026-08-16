@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BottomTabBar, primaryTabs } from './BottomTabBar'
+import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
-import { mobileBrowseHrefs } from './navData'
-import { sidebarGroups } from '../Sidebar'
+import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
@@ -62,28 +61,28 @@ describe('BottomTabBar', () => {
     })
   })
 
-  // The guard PSY-1020's Discover group exists to satisfy: a desktop primary
-  // link with no home in the tab bar or its Browse sheet is unreachable on
-  // phones. Adding to PrimaryNav's primaryLinks without a mobile home fails
-  // HERE instead of silently stranding mobile users (canonical near-miss:
-  // Atlas was added to PrimaryNav by PSY-1219 after this bar was drafted).
-  it('keeps every desktop primary destination reachable on mobile', () => {
+  // Mobile-reachability guard, simplified per PSY-1821: primaryLinks and
+  // sidebarGroups now COMPOSE from the same canonical tables the mobile
+  // surfaces render, so for entries composed the natural way reachability is
+  // structural and this cannot fail. It survives as a fence for the residual
+  // fork paths only: an inline literal added to either list, or a rail entry
+  // composed from the account tables (which the mobile sheets don't render).
+  it('keeps every desktop primary + rail destination reachable on mobile', () => {
     const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
-    for (const link of primaryLinks) {
+    for (const link of [...primaryLinks, ...sidebarGroups.flatMap(g => g.items)]) {
+      if (link.external) continue
       expect(mobile).toContain(link.href)
     }
   })
 
-  // Same guard for the side-nav rail's table: sidebarGroups is the one
-  // destination list navData does not own (follow-up folds it in), so pin its
-  // entries to a mobile home too — the retired hamburger used to be that
-  // coupling.
-  it('keeps every side-nav rail destination reachable on mobile', () => {
-    const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
-    for (const item of sidebarGroups.flatMap(g => g.items)) {
-      if (item.external) continue
-      expect(mobile).toContain(item.href)
-    }
+  // primaryTabs' length is coupled to the bar's literal grid-cols-N (tabs +
+  // Browse + Account). A tab added without updating the grid class would wrap
+  // Account onto a second row outside the fixed bar height — this asserts the
+  // RELATIONSHIP, so it fails on the mismatch, not on a correct 4-tab change.
+  it('pins the bar grid to primaryTabs + Browse + Account', () => {
+    const { container } = render(<BottomTabBar />)
+    const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
+    expect(grid?.className).toContain(`grid-cols-${primaryTabs.length + 2}`)
   })
 
   // The bar/PrimaryNav breakpoint contract: the bar hides exactly where the
