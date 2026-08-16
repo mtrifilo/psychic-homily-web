@@ -9,7 +9,6 @@ import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import { PrimaryNav } from './nav/PrimaryNav'
 import { SearchTrigger } from './nav/SearchTrigger'
 import { UserMenu } from './nav/UserMenu'
-import { AdminMobileDrawer } from './AdminMobileDrawer'
 
 // Static SVG filter for the logo glitch effect. Hoisted to module scope so the
 // (animated, non-trivial) filter tree is created once rather than rebuilt on
@@ -37,9 +36,9 @@ const glitchFilter = (
 //   • the dominant search field (→ CommandPalette); below `sm` it condenses to
 //     an icon-only tap target (PSY-1020 — search stays reachable on phones)
 //   • a bare sun/moon theme toggle + the account cluster / login link
-//   • the admin-sections drawer trigger (admins on /admin, below `md`,
-//     mirroring AdminSidebar's md:flex) — the public hamburger sheet was
-//     retired by PSY-1020's bottom tab bar
+// It is public chrome only: the mobile admin drawer that used to sit in the
+// left cluster moved into app/admin/layout.tsx (PSY-1817), and the public
+// hamburger sheet was retired by PSY-1020's bottom tab bar.
 // The Browse / Contribute menus, the authenticated bar, and the palette re-skin
 // are each elaborated by their own follow-up tickets (Radio became a plain
 // /radio link in PSY-1057); this file just assembles the seams.
@@ -58,45 +57,42 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
       {glitchFilter}
 
       <header className="sticky top-0 z-50 flex h-[var(--topbar-height)] w-full items-center justify-between border-b border-border/50 bg-background/95 px-4 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 sm:px-6">
-        {/* Left: admin drawer trigger (admins on /admin only) + brand + primary nav.
+        {/* Left: brand + primary nav.
             `shrink-0`: the brand and the nav labels are the bar's fixed frame.
             Left to itself the group would absorb part of any width shortfall by
             wrapping the wordmark onto two lines (measured at 1280px before
             PSY-1638) — and it still would not free enough room. The search
             field on the right is the designated slack absorber instead. */}
         <div className="flex shrink-0 items-center gap-3 xl:gap-[30px]">
-          <div className="flex items-center gap-3">
-            <AdminMobileDrawer />
-            <Link href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-              <div className="relative size-[36px] overflow-hidden rounded-md">
-                {/* Raster, not vector, on purpose (PSY-1771): the predecessor
-                    `/PsychicHomilyLogov2.svg` put 166 KB on the wire of every
-                    route because `next/image` cannot optimize SVG. Same artwork
-                    at 144x144, i.e. 4x the 36px display size, so it holds up
-                    to a 4x DPR. Regenerate from the vector source in git
-                    history.
+          <Link href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
+            <div className="relative size-[36px] overflow-hidden rounded-md">
+              {/* Raster, not vector, on purpose (PSY-1771): the predecessor
+                  `/PsychicHomilyLogov2.svg` put 166 KB on the wire of every
+                  route because `next/image` cannot optimize SVG. Same artwork
+                  at 144x144, i.e. 4x the 36px display size, so it holds up
+                  to a 4x DPR. Regenerate from the vector source in git
+                  history.
 
-                    `unoptimized` spends ~3 KB per fetch to buy cacheability;
-                    next.config.ts has the measurement and pins the header. It
-                    also means one file serves every client with no `Accept`
-                    negotiation, which is why this is PNG and not the smaller
-                    WebP. */}
-                <Image
-                  src="/psychic-homily-logo-v1.png"
-                  alt=""
-                  width={36}
-                  height={36}
-                  priority
-                  unoptimized
-                  className="rounded-md"
-                  style={{ filter: 'url(#glitch)' }}
-                />
-              </div>
-              <span className="hidden text-[15px] font-semibold uppercase tracking-[0.04em] text-foreground sm:inline">
-                Psychic Homily
-              </span>
-            </Link>
-          </div>
+                  `unoptimized` spends ~3 KB per fetch to buy cacheability;
+                  next.config.ts has the measurement and pins the header. It
+                  also means one file serves every client with no `Accept`
+                  negotiation, which is why this is PNG and not the smaller
+                  WebP. */}
+              <Image
+                src="/psychic-homily-logo-v1.png"
+                alt=""
+                width={36}
+                height={36}
+                priority
+                unoptimized
+                className="rounded-md"
+                style={{ filter: 'url(#glitch)' }}
+              />
+            </div>
+            <span className="hidden text-[15px] font-semibold uppercase tracking-[0.04em] text-foreground sm:inline">
+              Psychic Homily
+            </span>
+          </Link>
           {variant === 'full' && <PrimaryNav />}
         </div>
 
