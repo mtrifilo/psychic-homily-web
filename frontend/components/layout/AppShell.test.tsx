@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { AppShell } from './AppShell'
+import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 
 // AppShell is an async Server Component that resolves the effective nav mode
 // from the authenticated account first, then the nav-mode cookie (PSY-1117).
@@ -110,9 +111,23 @@ describe('AppShell', () => {
     expect(screen.getByTestId('bottom-tab-bar')).toBeInTheDocument()
     // The reservation itself, not just its xl release — deleting the pb-[calc]
     // leaves every mobile footer under the fixed bar with no failing test.
+    // BOTTOM_TAB_BAR_BOX is the shared copy BottomTabBar.test.tsx asserts as
+    // the bar's rendered `h-[…]`; reserving and rendering must not drift.
     expect(container.firstChild).toHaveClass(
-      'pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))]',
+      `pb-[${BOTTOM_TAB_BAR_BOX}]`,
       'xl:pb-0'
+    )
+  })
+
+  // PSY-1820: viewport-fit=cover makes the landscape notch insets nonzero, and
+  // the shell is where in-flow content absorbs them. It lives here rather than
+  // on `body` because Radix's react-remove-scroll overwrites body padding
+  // whenever an overlay opens — see the comment in AppShell.tsx.
+  it('insets in-flow content from the landscape safe area', async () => {
+    const { container } = await renderShell(<div>content</div>)
+    expect(container.firstChild).toHaveClass(
+      'pl-[env(safe-area-inset-left)]',
+      'pr-[env(safe-area-inset-right)]'
     )
   })
 

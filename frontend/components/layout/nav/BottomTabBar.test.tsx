@@ -1,14 +1,36 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
 import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
+import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
+
+// next/link stands in as a plain anchor so the sheet rows' prefetch posture is
+// assertable (PSY-1820). forwardRef because SheetClose wraps these rows in a
+// Radix Slot, which passes a ref down. `prefetch` is re-emitted as a data-
+// attribute rather than spread: React warns on a `false` non-boolean attribute.
+vi.mock('next/link', () => {
+  const MockLink = React.forwardRef<
+    HTMLAnchorElement,
+    React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+      href: string
+      prefetch?: boolean
+    }
+  >(({ href, children, prefetch, ...props }, ref) => (
+    <a href={href} ref={ref} data-prefetch={String(prefetch)} {...props}>
+      {children}
+    </a>
+  ))
+  MockLink.displayName = 'MockLink'
+  return { default: MockLink }
+})
 
 const mockLogout = vi.fn()
 type MockAuthContextValue = {
@@ -110,15 +132,13 @@ describe('BottomTabBar', () => {
   // that contract as literals, because the failure is invisible in jsdom and
   // on any non-notched device — it only shows up on real hardware.
   describe('geometry', () => {
-    // The same expression AppShell reserves as bottom padding (asserted from
-    // the other side in AppShell.test.tsx). Reserving and rendering must be
-    // the SAME string, or the two drift apart silently.
-    const BAR_BOX = 'h-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))]'
-
+    // BOTTOM_TAB_BAR_BOX is the shared copy AppShell.test.tsx asserts from the
+    // other side as `pb-[…]`. Rendering and reserving must be the SAME string,
+    // so neither file gets to redefine it locally.
     it('renders at exactly the height AppShell reserves for it', () => {
       const { container } = render(<BottomTabBar />)
       expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
-        BAR_BOX
+        `h-[${BOTTOM_TAB_BAR_BOX}]`
       )
     })
 
@@ -204,6 +224,27 @@ describe('BottomTabBar', () => {
       )
       expect(screen.getByText('Catalog')).toBeInTheDocument()
       expect(screen.getByText('Curation')).toBeInTheDocument()
+    })
+
+    // PSY-1820 prefetch posture. Opening the sheet mounts two dozen links on a
+    // phone-only surface, so every ROW opts out of Next's viewport prefetch
+    // while the five always-visible TAB links keep theirs. Asserted as a
+    // partition (all rows opted out, no tab opted out) rather than by naming
+    // routes, so adding a destination cannot quietly reintroduce the burst.
+    it('opts sheet rows out of prefetch while the primary tabs keep it', async () => {
+      const user = userEvent.setup()
+      const { container } = render(<BottomTabBar />)
+
+      const tabs = [...container.querySelectorAll('nav[aria-label="Mobile navigation"] a')]
+      expect(tabs.length).toBeGreaterThan(0)
+      expect(tabs.every(a => a.getAttribute('data-prefetch') !== 'false')).toBe(true)
+
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      await screen.findByRole('link', { name: 'Graph' })
+
+      const rows = [...document.querySelectorAll('[data-slot="sheet-content"] a')]
+      expect(rows.length).toBeGreaterThan(10)
+      expect(rows.every(a => a.getAttribute('data-prefetch') === 'false')).toBe(true)
     })
 
     it('hides auth-only destinations from anonymous visitors', async () => {

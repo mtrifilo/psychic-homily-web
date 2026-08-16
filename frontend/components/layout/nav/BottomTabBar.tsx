@@ -55,10 +55,10 @@ import type { NavDestination, NavLink } from './navData'
 // the outer tabs off the notch and rounded corners in landscape while the
 // background stays full-bleed to both screen edges.
 //
-// The bar sits at z-40 — under sheets/dialogs and the z-50 top bar. The z-50 cookie banner
-// offsets itself ABOVE the bar below `xl` (CookieConsentBanner.tsx carries the
-// other end of that contract): the two must never co-occupy the bottom band,
-// or every pre-consent visitor loses the primary nav.
+// The bar sits at z-40 — under sheets/dialogs and the z-50 top bar. The z-50
+// cookie banner offsets itself ABOVE the bar below `xl` (CookieConsentBanner.tsx
+// carries the other end of that contract): the two must never co-occupy the
+// bottom band, or every pre-consent visitor loses the primary nav.
 
 function tabClassName(active: boolean): string {
   return cn(
@@ -74,13 +74,18 @@ function tabClassName(active: boolean): string {
 // accessible name (the badge itself is decorative). At 0 the row is
 // byte-for-byte what it was — see withUnreadLabel for the guard convention.
 //
-// prefetch={false} (PSY-1820, decided): opening the Browse sheet mounts ~20 of
-// these at once, so the default viewport prefetch fires a burst of route
-// payloads on exactly the clients least able to afford it — phones on mobile
-// data, which is the only place this sheet exists (xl:hidden). The visitor came
-// here to pick ONE destination; paying for twenty to save latency on one is a
-// bad trade at this fan-out. Same call UserMenu already makes for its /admin
-// links.
+// prefetch={false} (decided in PSY-1820): opening the Browse sheet mounts 24 of
+// these at once (22 for anonymous visitors), so the default viewport prefetch
+// fires a burst of route payloads on exactly the clients least able to afford
+// it — phones on mobile data, which is the only place these sheets exist
+// (xl:hidden). The visitor came here to pick ONE destination; paying for two
+// dozen to save latency on one is a bad trade at this fan-out.
+//
+// This applies to the Account sheet's rows too, which is a DELIBERATE
+// divergence from the desktop UserMenu those rows mirror: UserMenu opts out
+// only its /admin links, because a dropdown of ~6 items on desktop bandwidth is
+// not the same trade as a phone sheet. The fan-out is the reason, not the
+// route.
 //
 // Note this is the STRONG opt-out: in the App Router `prefetch={false}` disables
 // prefetching on hover as well as in the viewport (it is not the Pages Router's

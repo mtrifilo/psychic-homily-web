@@ -49,8 +49,9 @@ function ConsentBar() {
     // Every inset is absorbed as PADDING, never as an offset, so the banner's
     // background keeps bleeding to the screen edges instead of leaving a strip
     // of page content showing through beside or beneath it:
-    //   • left/right — the px-4 gutters grow by the landscape notch inset, so
+    //   • left/right — the 1rem gutters grow by the landscape notch inset, so
     //     the copy and buttons stay clear of the notch and rounded corners.
+    //     (The banner is fixed, so the AppShell-level inset never reaches it.)
     //   • bottom — only at `xl`, where the banner owns the true bottom edge and
     //     nothing else clears the home indicator for it. Below `xl` the bar
     //     underneath already absorbs that inset, so adding it here would
@@ -59,7 +60,7 @@ function ConsentBar() {
     // so the scroll reservation stays correct on every device.
     <div
       ref={barRef}
-      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background py-2.5 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0 xl:pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
+      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background py-2.5 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0 xl:pb-[calc(var(--spacing)*2.5+env(safe-area-inset-bottom))]"
       role="dialog"
       aria-label="Cookie consent"
       aria-describedby="cookie-consent-description"
