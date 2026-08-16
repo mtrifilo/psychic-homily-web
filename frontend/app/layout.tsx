@@ -50,15 +50,13 @@ import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
 import { SITE_DESCRIPTION } from '@/lib/seo/siteMetadata'
+import { appViewport } from '@/lib/seo/viewport'
 import InternalTrafficAnalytics from '@/components/analytics/InternalTrafficAnalytics'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 
-export const viewport: Viewport = {
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
-}
+// Defined in lib/seo/viewport.ts so it is unit-testable — see the comment there
+// for why viewport-fit=cover is load-bearing.
+export const viewport: Viewport = appViewport
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://psychichomily.com'),

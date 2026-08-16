@@ -44,9 +44,25 @@ function ConsentBar() {
     // pre-consent visitor. The bar's side of this contract is the comment in
     // BottomTabBar.tsx. At `xl` the bar is gone and the banner returns to the
     // true bottom.
+    //
+    // Safe-area handling (PSY-1820 turned the insets on via viewport-fit=cover).
+    // Every inset is absorbed as PADDING, never as an offset, so the banner's
+    // background keeps bleeding to the screen edges instead of leaving a strip
+    // of page content showing through beside or beneath it:
+    //   • left/right — the 1rem gutters grow by the landscape notch inset, so
+    //     the copy and buttons stay clear of the notch and rounded corners.
+    //     (The banner is fixed, so the AppShell-level inset never reaches it.)
+    //   • bottom — only at `xl`, where the banner owns the true bottom edge and
+    //     nothing else clears the home indicator for it. Below `xl` the bar
+    //     underneath already absorbs that inset, so adding it here would
+    //     double-count it and leave a gap between banner and bar. The 0.625rem
+    //     in that override is py-2.5 restated (Tailwind spacing unit 0.25rem x
+    //     2.5); retune one and retune the other, or the row goes lopsided at xl.
+    // offsetHeight (mirrored into body padding above) grows with this padding,
+    // so the scroll reservation stays correct on every device.
     <div
       ref={barRef}
-      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background px-4 py-2.5 motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0"
+      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background py-2.5 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0 xl:pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
       role="dialog"
       aria-label="Cookie consent"
       aria-describedby="cookie-consent-description"

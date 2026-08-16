@@ -1,14 +1,36 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
 import { mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
+import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
+
+// next/link stands in as a plain anchor so the sheet rows' prefetch posture is
+// assertable (PSY-1820). forwardRef because SheetClose wraps these rows in a
+// Radix Slot, which passes a ref down. `prefetch` is re-emitted as a data-
+// attribute rather than spread: React warns on a `false` non-boolean attribute.
+vi.mock('next/link', () => {
+  const MockLink = React.forwardRef<
+    HTMLAnchorElement,
+    React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+      href: string
+      prefetch?: boolean
+    }
+  >(({ href, children, prefetch, ...props }, ref) => (
+    <a href={href} ref={ref} data-prefetch={String(prefetch)} {...props}>
+      {children}
+    </a>
+  ))
+  MockLink.displayName = 'MockLink'
+  return { default: MockLink }
+})
 
 const mockLogout = vi.fn()
 type MockAuthContextValue = {
@@ -104,6 +126,64 @@ describe('BottomTabBar', () => {
     )
   })
 
+  // PSY-1820 geometry contract. The bar must RENDER exactly the height every
+  // other surface RESERVES for it, or page content slides under the bar.
+  //
+  // What these tests actually prove, precisely: that the two components still
+  // spell the same expression. They do NOT evaluate it — jsdom computes no
+  // layout, and env()/calc() never resolve here. The arithmetic itself (that
+  // the expression yields the bar's true box) was checked in a real engine and
+  // has to be re-checked in one; do not read a green suite as proof of the
+  // pixels.
+  describe('geometry', () => {
+    // BOTTOM_TAB_BAR_BOX is the shared copy AppShell.test.tsx asserts from the
+    // other side as `pb-[…]`, so editing one component's class text without the
+    // other fails here rather than silently shipping.
+    it('renders at exactly the height AppShell reserves for it', () => {
+      const { container } = render(<BottomTabBar />)
+      expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
+        `h-[${BOTTOM_TAB_BAR_BOX}]`
+      )
+    })
+
+    // --bottom-tab-bar-height INCLUDES the border, and the box is border-box,
+    // so the row must derive its height from the bar (h-full). Any restated
+    // height — the old h-[var(--bottom-tab-bar-height)], h-14, h-[3.5rem] —
+    // renders taller than the reservation, which is the bug this exists to
+    // prevent. h-full is the only spelling that cannot drift, so assert it
+    // positively rather than blacklisting one wrong spelling.
+    it('derives the tab row from the bar box instead of restating a height', () => {
+      const { container } = render(<BottomTabBar />)
+      const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
+      expect(grid).toHaveClass('h-full')
+    })
+
+    // --bottom-tab-bar-height hardcodes this border as `+ 1px`, and CSS cannot
+    // read a Tailwind class back. `border-t` is Tailwind's 1px default, so
+    // swapping it for border-t-2 (or dropping it for a shadow) silently makes
+    // every subtractor in the app wrong again — the exact PSY-1820 defect.
+    // Pinning the class is what makes that edit fail here instead of on a
+    // phone. If you change it, change the var in globals.css in the same edit.
+    it('keeps the 1px border the height variable reserves for it', () => {
+      const { container } = render(<BottomTabBar />)
+      expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
+        'border-t'
+      )
+    })
+
+    // viewport-fit=cover makes the left/right insets nonzero in landscape, so
+    // the outermost tabs would otherwise sit under the notch / rounded corner.
+    // Padding (not an inset-x offset) so the background still reaches both
+    // screen edges.
+    it('insets its tabs from the landscape notch band', () => {
+      const { container } = render(<BottomTabBar />)
+      expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
+        'pl-[env(safe-area-inset-left)]',
+        'pr-[env(safe-area-inset-right)]'
+      )
+    })
+  })
+
   describe('tabs', () => {
     it('renders the three primary link tabs with their destinations', () => {
       render(<BottomTabBar />)
@@ -162,6 +242,35 @@ describe('BottomTabBar', () => {
       )
       expect(screen.getByText('Catalog')).toBeInTheDocument()
       expect(screen.getByText('Curation')).toBeInTheDocument()
+    })
+
+    // PSY-1820 prefetch posture. Opening the sheet mounts two dozen links on a
+    // phone-only surface, so every ROW opts out of Next's viewport prefetch
+    // while the five always-visible TAB links keep theirs. Asserted as a
+    // partition (all rows opted out, no tab opted out) rather than by naming
+    // routes, so adding a destination cannot quietly reintroduce the burst.
+    it('opts sheet rows out of prefetch while the primary tabs keep it', async () => {
+      const user = userEvent.setup()
+      const { container } = render(<BottomTabBar />)
+
+      const tabs = [...container.querySelectorAll('nav[aria-label="Mobile navigation"] a')]
+      expect(tabs.length).toBeGreaterThan(0)
+      expect(tabs.every(a => a.getAttribute('data-prefetch') !== 'false')).toBe(true)
+
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      await screen.findByRole('link', { name: 'Graph' })
+
+      const rows = [...document.querySelectorAll('[data-slot="sheet-content"] a')]
+      expect(rows.length).toBeGreaterThan(10)
+      expect(rows.every(a => a.getAttribute('data-prefetch') === 'false')).toBe(true)
+
+      // The sheet's one target="_blank" row (Substack) carries the
+      // reverse-tabnabbing guard. Asserted here because these anchors are
+      // already in hand and nothing else in the repo pins it — the mock added
+      // for the prefetch assertion is what made it observable at all.
+      const external = rows.find(a => a.getAttribute('target') === '_blank')
+      expect(external).toBeDefined()
+      expect(external).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
     it('hides auth-only destinations from anonymous visitors', async () => {

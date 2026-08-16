@@ -50,10 +50,40 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <div className="flex min-h-screen flex-col pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] xl:pb-0">
+    // LANDSCAPE SAFE AREA (PSY-1820). viewport-fit=cover hands the page the
+    // full display, including the notch / rounded-corner band iOS used to
+    // letterbox away. In landscape that band is ~44-59px, and the app's widest
+    // gutter anywhere is px-4/md:px-8 — so without an inset the leading and
+    // trailing edge of every page would render under the notch. Insetting the
+    // shell covers all in-flow content at once: page containers, the sticky
+    // TopBar, and the Footer. In portrait both insets are 0, so this is a
+    // no-op on the common case.
+    //
+    // Deliberately NOT on `body`: Radix mounts react-remove-scroll for every
+    // dialog, sheet, popover, and dropdown menu, which injects an UNLAYERED
+    // `body[data-scroll-locked] { padding-left/right }` rule. Unlayered
+    // declarations beat anything in @layer base, so a body-level inset would
+    // silently collapse to 0 the moment any overlay opened — including this
+    // shell's own Browse sheet — and the page behind it would jump sideways.
+    //
+    // It also does not reach position:fixed descendants, which resolve against
+    // the viewport rather than this box; BottomTabBar, the cookie banner, and
+    // the skip link below each carry their own env() padding. The remaining
+    // fixed and full-bleed surfaces (side sheets, portaled Radix popovers, the
+    // /atlas map) are tracked in PSY-1824.
+    //
+    // Trade-off accepted: in-flow chrome that paints edge-to-edge is inset too,
+    // so TopBar's border-b and Footer's border-t stop at the safe area rather
+    // than the physical screen edge in landscape. Content under the notch is
+    // the worse failure.
+    <div className="flex min-h-screen flex-col pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] xl:pb-[env(safe-area-inset-bottom)]">
+      {/* The left offset carries the landscape safe-area inset itself: this is
+          position:fixed, so the shell's own pl/pr above (its parent) does not
+          apply to it, and as the document's first focusable element it must
+          not land under the notch for keyboard/switch-control users. */}
       <a
         href="#main-content"
-        className="fixed left-4 top-3 z-[100] -translate-y-20 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground opacity-0 shadow-md transition-transform focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
+        className="fixed left-[calc(1rem+env(safe-area-inset-left))] top-3 z-[100] -translate-y-20 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground opacity-0 shadow-md transition-transform focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
       >
         Skip to content
       </a>
