@@ -20,6 +20,11 @@
  * so a boundary that moved with the viewer's clock would make the same cached
  * PNG's counts wrong for most of them. The site's venue-local date rule does
  * not apply and must not be reached for here.
+ *
+ * `formatLastMapped` at the bottom is UTC too, but for its OWN reason, and it
+ * does NOT inherit the `en-US` pin the card's formatters carry — it renders in
+ * the browser per reader, not into a shared PNG. Read its doc before changing
+ * it; the two rules only look like one.
  */
 
 import type { SceneMap } from './sceneMap'
@@ -271,4 +276,42 @@ export function graphWeekKey(week: GraphWeek): string {
   // — so the date half of it IS the key, with no hand-rolled month arithmetic
   // to get off by one.
   return week.end.toISOString().slice(0, 10)
+}
+
+/** Built once for the module, for the same reason as the range formatter above. */
+const LAST_MAPPED_FORMAT = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+})
+
+/**
+ * `Aug 2, 2026` — the calendar day a snapshot was built on, for the map footer.
+ *
+ * UTC, so that this and the week offered beside it in the same footer row name
+ * the same day. The nightly job lands in the small hours UTC, the PREVIOUS
+ * calendar day everywhere in the Americas: a viewer-local footer told a reader
+ * in Phoenix the map was "last mapped Aug 1" while the share affordance beside
+ * it offered a week ending Aug 2, for one and the same snapshot. Two dates for
+ * one instant on one line of chrome, and neither one wrong on its own terms —
+ * which is exactly why the rule has to be chosen once, here, and not per site.
+ *
+ * THE SCOPE IS `last_mapped`, not every date on the map. The replay readout in
+ * `replayTimeline` still formats in the reader's zone, and correctly so: it
+ * renders epoch-plus-`appear` instants at MONTH precision, where no offset on
+ * earth moves the answer except at a month boundary, and it is a scrub position
+ * rather than a claim about when the snapshot was built.
+ *
+ * The LOCALE, unlike the card's, is deliberately left as the reader's: this
+ * string is formatted per visitor in the browser rather than baked into the one
+ * cached PNG every reader is served, so `2 Aug 2026` on a device that says so
+ * is right.
+ *
+ * Returns `''` for an unparseable instant, matching `formatGraphWeekRange`, so
+ * a caller drops the clause instead of printing `Invalid Date`.
+ */
+export function formatLastMapped(lastMapped: Date): string {
+  if (Number.isNaN(lastMapped.getTime())) return ''
+  return LAST_MAPPED_FORMAT.format(lastMapped)
 }

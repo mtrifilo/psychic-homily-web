@@ -25,6 +25,7 @@ import { isolateShelfCaption } from '@/components/graph/isolateShelf'
 import { groupNodesByRegion, type SceneMap, type SceneMapNode } from '../sceneMap'
 import {
   GRAPH_WEEK_PATH,
+  formatLastMapped,
   graphWeekSummary,
   isGraphWeekShareworthy,
   resolveGraphWeek,
@@ -278,13 +279,11 @@ function FreshnessFooter({
     return week && isGraphWeekShareworthy(week) ? week : null
   }, [map])
 
-  const lastMapped = Number.isNaN(map.lastMapped.getTime())
-    ? null
-    : map.lastMapped.toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
+  // UTC, via the module that owns the week maths — the two are the same
+  // `last_mapped` instant and used to be rendered in two different timezones,
+  // so the footer could name the day before the week it sits beside ends on.
+  // Empty string when the instant did not parse; the clause drops out.
+  const lastMapped = formatLastMapped(map.lastMapped)
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/50 px-4 py-2.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
