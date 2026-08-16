@@ -24,23 +24,28 @@ services:
       #   answers. `SELECT 1` proves the database itself is serving.
       #
       # Credentials come from the container's own POSTGRES_* env, so this
-      # string is copied verbatim into every other stack that gates a migrate
-      # one-shot on postgres becoming healthy. `$$` escapes Compose's host-side
-      # interpolation. The full set of copies to keep in sync:
+      # string is copyable verbatim. `$$` escapes Compose's host-side
+      # interpolation. Everywhere the same defect had to be closed:
       #
-      #   - docker-compose.dispatch.yml  (per-worktree dev stack)
-      #   - docker-compose.yml           (local dev)
-      #   - .github/workflows/ci.yml     (`migration-reversibility` job's
-      #     postgres service; `docker create --health-*` options rather than
-      #     Compose keys, and a TCP `pg_isready` rather than this psql query,
-      #     because GitHub tokenizes the `options` string before docker sees
-      #     it and nested quotes are not safe to rely on there)
+      #   - docker-compose.dispatch.yml  (per-worktree dev stack; verbatim)
+      #   - docker-compose.yml           (local dev; verbatim)
+      #   - .github/workflows/ci.yml     (`migration-reversibility` postgres
+      #     service; same defect, different expression, and it says why there)
       #
-      # docker-compose.prod.yml and docker-compose.stage.yml are NOT in that
-      # set. Both still use the socket `pg_isready` with `start_period: 60s`,
-      # untouched by PSY-1741 and PSY-1789, so both still carry the first-boot
-      # window described above on an empty volume. Left alone on purpose (they
-      # are not part of any developer or CI provisioning path), not overlooked.
+      # docker-compose.prod.yml and docker-compose.stage.yml still use the
+      # socket probe, and so do the wait loops in backend/scripts/deploy.sh,
+      # deploy-stage.sh and deploy-production.sh that run migrate against them.
+      # All of those still carry the window described above on an empty volume.
+      # They are deferred rather than judged safe: nothing in CI invokes them
+      # and prod/stage deploy via Railway, so whether that compose path is
+      # still live is a question to settle before touching it.
+      #
+      # Copies, not a shared `extends:` fragment, for the same reason
+      # `start_interval` is rejected below: `extends` across files came back in
+      # Compose v2.20, and these files have to parse on whatever Compose a CI
+      # runner or a contributor happens to have. It would also cover only the
+      # three Compose copies and not the CI one, so the comment above has to
+      # exist either way.
       test:
         [
           'CMD-SHELL',

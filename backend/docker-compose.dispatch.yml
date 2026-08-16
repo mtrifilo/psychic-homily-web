@@ -9,8 +9,8 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     healthcheck:
-      # Identical to the db healthcheck in docker-compose.e2e.yml — the
-      # rationale for every field lives there. Keep the two in sync; the probe
+      # Identical to the db healthcheck in docker-compose.e2e.yml; the
+      # rationale for every field lives there. Keep the two in sync. The probe
       # reads the container's own POSTGRES_* env precisely so this block can be
       # copied verbatim.
       test:
