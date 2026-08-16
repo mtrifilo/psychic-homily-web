@@ -10,53 +10,91 @@
 #
 # DENY-LIST, DELIBERATELY. The builder stage runs `COPY . .` and then
 # `go build ./cmd/server`, so the entire Go tree has to arrive. An allow-list
-# would silently drop the next package someone adds, and the break would
-# surface as a compile error in CI rather than as a missing rule here. Only
-# paths the build provably does not need are listed below.
+# would silently drop the next package someone adds. For the same reason,
+# nothing here excludes `*_test.go` or `testdata/`: `go build` does not need
+# them, but `go vet` and `go test` type-check them, so excluding them would
+# plant a build-time-only break for whoever later adds a verification stage.
+# Measured, that restraint costs 7.24MB of context and buys back ~0.3s.
 #
-# NEVER add an entry that matches any of these — the build needs them:
-#   **/*.go, go.mod, go.sum          the module the builder compiles
-#   db/migrations/                   COPYd into the runtime stage
-#   layout/                          npm ci + fa2-layout.mjs (layout-deps stage)
-#   docker-entrypoint.sh             the image's ENTRYPOINT
-#   internal/services/geo/data/      go:embed cities.tsv / countries.tsv, ~11MB
-#                                    compiled INTO the binary (geo.go)
-# In particular, do NOT reach for a blanket `*.sql`: db/migrations/ is SQL.
+# backend/Dockerfile is the source of truth for what the image needs; do not
+# restate its COPY set here. Two constraints are NOT visible from it, and are
+# the ones an edit to this file is most likely to break:
+#
+#   1. internal/services/geo/data/ — ~11MB of TSV reached only through
+#      `//go:embed` in geo.go. No COPY names it; excluding it fails the
+#      compile, not a COPY.
+#   2. db/migrations/ is SQL, so never reach for a blanket `*.sql`.
+#
+# PATTERN ANCHORING, the other way to break this file. Docker matches with
+# filepath.Match semantics, so `*` does NOT cross `/`: a bare `server` matches
+# only <context>/server. That is load-bearing for the stray-binary block
+# below — `**/server` or `**/main` would delete cmd/server/ and every other
+# cmd/ package. Root-anchored names there, `**/` only where stated.
+#
+# The Backend Image Build check is required on main and runs un-path-filtered
+# on every PR, so a mistake here blocks merge rather than reaching Railway.
 
-# Go coverage profiles. Written by scripts/coverage.sh and by CI's
-# `go test -coverprofile=...`; never an input to anything. Same rule as the
-# repo .gitignore's `backend/**/*.out`.
+# Go coverage output. Written by scripts/coverage.sh and by CI's
+# `go test -coverprofile=...`; never an input to anything. `coverage.sh`
+# rewrites coverage.out on every run, so this also stops a local `COPY . .`
+# cache bust per coverage run. If a future golden-file test ever adopts the
+# conventional testdata/*.out extension, narrow this rule.
 **/*.out
-**/*.cov
-coverage.html
+**/coverage.html
 
-# Local database dumps and backups. `backup_*.tar.gz` and
-# `psychicdb_dump_*.sql` are still tracked in git (out of scope for PSY-1790,
-# noted as a follow-up); the rest are untracked local droppings. These
-# patterns are anchored so they cannot reach db/migrations/.
+# Compiled host-arch binaries left in place by `go build` inside backend/.
+# The names mirror the repo .gitignore's PSY-429 and PSY-1550 blocks, plus
+# `main` (the Dockerfile's own -o target) and cmd/ targets those blocks miss.
+# A darwin/arm64 cmd/server measures 61MB — over twice the whole context —
+# and busts `COPY . .` on every rebuild.
+#
+# ROOT-ANCHORED ON PURPOSE. See PATTERN ANCHORING above: adding `**/` to any
+# line below would exclude the cmd/ source package of the same name.
+main
+server
+seed
+scaffold
+scrape-import
+discovery-import
+backfill-slugs
+link-release-labels
+openapi-spec
+gen-api-token
+
+# Local logs, database dumps, and backups. `backups/` is where every backup
+# producer writes (scripts/backup.sh, restore.sh, railway-migrate-*.sh); the
+# two `backup_*.tar.gz` / `*_dump_*.sql` patterns match files that are still
+# tracked in git at backend/ root, which is where 6.9MB of the measured
+# context saving comes from. Untracking those is a separate change: the blobs
+# are already in the pack, so only a history rewrite would reclaim them.
+logs/
+**/*.log
 backups/
 backup_*.tar.gz
 *_dump_*.sql
-*.dump
 
-# Environment files. The image takes its configuration from the platform's
-# environment at runtime, so nothing here is read at build time and shipping a
-# real .env into a layer would be a credential leak.
-.env*
+# Environment files. Nothing reads them at build time. This is a real
+# containment boundary and not just hygiene: on main the image job runs
+# `cache-to: type=gha,mode=max`, which exports the BUILDER layers — the ones
+# `COPY . .` writes — into the shared GitHub Actions cache.
+**/.env*
 
 # Local orchestration and host provisioning. Compose brings up dev/e2e/stage
 # stacks from OUTSIDE the image, and systemd units target VMs, not containers.
 docker-compose*.yml
 systemd/
 
-# Docs. Prose only; no build stage reads it.
+# Docs. Prose only; no build stage reads it. Excluding these is also what
+# lets a docs-only PR hit the cached `COPY . .` instead of re-running the
+# ~39s Go build in the always-run image job.
 docs/
-*.md
+**/*.md
 
-# Editor / OS droppings that would otherwise bust the context cache.
-.DS_Store
-*.swp
-*.swo
+# Editor / OS droppings. `**/` because Finder writes .DS_Store into whatever
+# directory it browses, not just the root.
+**/.DS_Store
+**/*.swp
+**/*.swo
 
 # A locally-installed dependency tree. The layout-deps stage runs its own
 # `npm ci` from package.json + package-lock.json, so a host node_modules is

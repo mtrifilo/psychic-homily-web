@@ -33,14 +33,14 @@ backend/backups/
 backend/logs/
 backend/*.log
 
-# Go coverage profiles (PSY-1790). Every `.out` under backend/ is a coverage
-# profile: `scripts/coverage.sh` and CI both write them with
-# `go test -coverprofile=...`, and nothing reads one it did not just produce.
-# Nine of them had been committed (895KB), so every local coverage run showed
-# up as a diff against a stale snapshot. The `**/` form matches zero or more
-# directories, so this covers `backend/coverage.out` and a profile dropped
-# inside any package alike.
+# Go coverage output (PSY-1790). Every `.out` under backend/ is a coverage
+# profile, and nothing reads one it did not just write. Nine had been
+# committed under nine different ad-hoc names, so the rule is a wildcard:
+# the producers are hand-typed `-coverprofile=` flags, not one script.
+# `coverage.html` is named exactly, NOT `*.html` — catalog/testdata/*.html
+# are tracked fixtures.
 backend/**/*.out
+backend/**/coverage.html
 
 # PSY-429: stray cmd/ binaries that get built in-place when devs run
 # `go build` from inside backend/. Explicit names only — globs like
