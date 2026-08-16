@@ -168,6 +168,15 @@ export const atlasItem: NavDestination = { href: '/atlas', label: 'Atlas', icon:
 export const PROFILE_CLAIM_HREF = '/users/me'
 
 /**
+ * The notification inbox, named so the table entry below and the mobile Account
+ * sheet — which finds that row to hang the unread badge on (PSY-1819) — agree
+ * by identity rather than by matching string literals. A change of route moves
+ * the badge with it. Other surfaces still inline the path (CommandPalette's
+ * fork, the bell popover's "View all"); this covers the nav table only.
+ */
+export const NOTIFICATIONS_HREF = '/notifications'
+
+/**
  * The PSY-1045 username-or-claim routing rule, in one place: with a username
  * the Profile destination deep-links to the public identity view
  * (`/users/<username>` — the same dense page visitors see, PSY-1025); without
@@ -206,7 +215,7 @@ export function accountNavItems(
   user: { username?: string | null } | null | undefined
 ): NavDestination[] {
   return [
-    { href: '/notifications', label: 'Notifications', icon: Bell },
+    { href: NOTIFICATIONS_HREF, label: 'Notifications', icon: Bell },
     { href: '/library', label: 'My Library', icon: Library },
     profileNavItem(user),
     { href: '/profile', label: 'Settings', icon: Settings },

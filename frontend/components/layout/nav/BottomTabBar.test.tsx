@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
@@ -25,6 +25,14 @@ const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
 }))
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
+}))
+
+// The unread badge's data source (PSY-1819). Mocked rather than provided via a
+// QueryClient so these tests state the COUNT they exercise; the hook's own
+// auth-gating and cache-sharing are covered in features/notifications/hooks.
+const mockUnreadCount = vi.fn(() => 0)
+vi.mock('@/features/notifications', () => ({
+  useUnreadNotificationCount: () => mockUnreadCount(),
 }))
 
 let mockTheme = 'dark'
@@ -53,6 +61,7 @@ describe('BottomTabBar', () => {
     mockPathname = '/'
     mockTheme = 'dark'
     mockResolvedTheme = 'dark'
+    mockUnreadCount.mockReturnValue(0)
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -317,6 +326,63 @@ describe('BottomTabBar', () => {
       mockPathname = '/library'
       render(<BottomTabBar />)
       expect(screen.getByRole('button', { name: 'Account' })).toHaveAttribute('aria-current', 'page')
+    })
+  })
+
+  // PSY-1819. Below `sm` the top bar hides the notification bell, so before
+  // this the unread count was unreachable on a phone. It rides the Account tab
+  // (visible with nothing open) AND the sheet's Notifications row (so it stays
+  // attached to the destination that clears it once the sheet covers the bar).
+  describe('unread badge', () => {
+    it('badges the Account tab with the count, and announces it in the tab name', () => {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      mockUnreadCount.mockReturnValue(3)
+      render(<BottomTabBar />)
+      const tab = screen.getByRole('button', { name: 'Account (3 unread)' })
+      expect(within(tab).getByTestId('unread-count-badge')).toHaveTextContent('3')
+    })
+
+    it('keeps the plain "Account" name at zero unread, with no badge', () => {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      render(<BottomTabBar />)
+      expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument()
+      expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
+    })
+
+    it('badges the sheet Notifications row too, and no other row', async () => {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      mockUnreadCount.mockReturnValue(7)
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Account (7 unread)' }))
+      const row = await screen.findByRole('link', { name: 'Notifications (7 unread)' })
+      expect(row).toHaveAttribute('href', '/notifications')
+      expect(within(row).getByTestId('unread-count-badge')).toHaveTextContent('7')
+      // My Library keeps its bare name — the badge is scoped to its destination.
+      expect(screen.getByRole('link', { name: 'My Library' })).toBeInTheDocument()
+      // Tab + row, and nothing else in the tree.
+      expect(screen.getAllByTestId('unread-count-badge')).toHaveLength(2)
+    })
+
+    // Both non-authed Account renderings are badge-less by construction, not
+    // just because the hook happens to return 0 — so force a non-zero count and
+    // assert nothing renders.
+    it('never badges an anonymous visitor', () => {
+      mockUnreadCount.mockReturnValue(5)
+      render(<BottomTabBar />)
+      expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
+    })
+
+    it('never badges the inert placeholder while auth is hydrating', () => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isLoading: true,
+        logout: mockLogout,
+      })
+      mockUnreadCount.mockReturnValue(5)
+      render(<BottomTabBar />)
+      expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
     })
   })
 })
