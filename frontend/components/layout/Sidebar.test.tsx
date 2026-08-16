@@ -79,6 +79,22 @@ describe('Sidebar', () => {
     expect(screen.getByText('My Submissions')).toBeInTheDocument()
   })
 
+  // While auth hydrates, user is null, so gated entries render fail-closed
+  // (hidden) and appear once auth settles: the same posture BottomTabBar
+  // takes with its inert Account placeholder. Pinned so the brief
+  // absence-then-appearance reads as intended, not as a flicker bug.
+  it('renders fail-closed (no authOnly entries) while auth is hydrating', () => {
+    mockAuthContext.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.getByText('Shows')).toBeInTheDocument()
+    expect(screen.queryByText('My Submissions')).not.toBeInTheDocument()
+  })
+
   it('hides group headers when collapsed', () => {
     render(<Sidebar collapsed={true} onToggleCollapse={onToggleCollapse} />)
     expect(screen.queryByText('Discover')).not.toBeInTheDocument()
