@@ -92,16 +92,21 @@ jobs:
         # releases this job's steps on that health state. Keep the tunables in
         # sync with that file.
         #
-        # The probe itself cannot be copied from there verbatim. That file runs
-        # `psql -tAc 'SELECT 1'`; GitHub tokenizes this `options` string before
+        # A ping, not that file's authenticating `psql ... SELECT 1`, for two
+        # independent reasons. GitHub tokenizes this `options` string before
         # `docker create` sees it, so the nested quotes a quoted SQL argument
-        # needs are not safe to rely on. TCP `pg_isready` is the quote-free
-        # equivalent: it reports PQPING_REJECT (non-zero) while the postmaster
-        # is still starting up, so it also goes green only once the real server
-        # takes connections. It gives up the "a query, not a ping" half of that
-        # file's argument, which is the weaker half of the two.
+        # needs are not safe to rely on. And `pg_isready` cannot be wedged by a
+        # credential mismatch the way an authenticating probe can (see the same
+        # tradeoff, argued at length, in backend/docker-compose.yml).
+        #
+        # TCP `pg_isready` stays non-zero across both windows that matter: exit
+        # 2 (PQPING_NO_RESPONSE) for as long as the initdb temp server holds no
+        # TCP listener, then exit 1 (PQPING_REJECT) if the real postmaster has
+        # bound TCP but is still starting up. It does give up the "a query, not
+        # a ping" half of the e2e file's argument. -U/-d are omitted because
+        # `pg_isready` never authenticates, so they would verify nothing.
         options: >-
-          --health-cmd="pg_isready -h 127.0.0.1 -p 5432 -U test -d test"
+          --health-cmd="pg_isready -h 127.0.0.1 -p 5432"
           --health-start-period=120s
           --health-interval=5s
           --health-timeout=10s

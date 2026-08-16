@@ -14,15 +14,39 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      # Identical to the db healthcheck in docker-compose.e2e.yml; the
-      # rationale for every field lives there. Keep the two in sync. The probe
-      # reads the container's own POSTGRES_* env precisely so this block can be
-      # copied verbatim.
-      test:
-        [
-          'CMD-SHELL',
-          'PGPASSWORD="$$POSTGRES_PASSWORD" psql -h 127.0.0.1 -p 5432 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc "SELECT 1" > /dev/null',
-        ]
+      # Probe over TCP, not the default unix socket, for the reason written out
+      # in full on the db healthcheck in docker-compose.e2e.yml: first-boot
+      # initdb runs behind a TEMP server with `listen_addresses=''`, which
+      # answers on the socket but never on TCP, so a socket probe reports
+      # healthy for a server that is about to be stopped and restarted, and the
+      # migrate one-shot below races it.
+      #
+      # Deliberately a `pg_isready` PING and NOT that file's authenticating
+      # `psql ... SELECT 1`. The two stacks differ in a way that flips which
+      # probe is correct:
+      #
+      #   e2e and dispatch hardcode POSTGRES_* in `environment:` and start from
+      #   a fresh volume every run, so credentials cannot drift and the extra
+      #   assurance of a real query is free.
+      #
+      #   This file host-interpolates POSTGRES_* from backend/.env, and its
+      #   `postgres_data` volume PERSISTS. postgres ignores POSTGRES_* on an
+      #   already-initialized volume, and `docker compose` names this project
+      #   `backend` from the directory, so every worktree and the main checkout
+      #   share the one `backend_postgres_data`. A rotated password or a
+      #   per-worktree .env therefore leaves the volume's baked-in credentials
+      #   disagreeing with the current ones. An authenticating probe turns that
+      #   into a healthcheck that can never pass: `migrate` stays gated, the
+      #   stack fails after start_period + retries*interval (~170s) with
+      #   `dependency failed to start ... is unhealthy`, and the real cause
+      #   (`FATAL: role "..." does not exist`) is only in `docker inspect`.
+      #   A ping stays green, lets `migrate` run, and lets IT print the actual
+      #   error in seconds. Measured: ~11s and a named cause, versus ~171s and
+      #   an opaque one.
+      #
+      # `pg_isready` does not authenticate, so -U/-d would be decorative here;
+      # they are omitted rather than implying a check that does not happen.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -p 5432']
       start_period: 120s
       interval: 5s
       timeout: 10s
