@@ -90,14 +90,21 @@
   --sidebar-width: 15rem;
   --sidebar-width-collapsed: 3.5rem;
   --topbar-height: 3.5rem;
-  /* Mobile bottom tab bar (PSY-1020) — bar height. The env(safe-area-inset-
-   * bottom) terms alongside this var are FUTURE-PROOFING ONLY: the app does
-   * not set viewport-fit=cover, so they currently resolve to 0 everywhere
-   * (follow-up ticket covers enabling it with device verification). Every
-   * viewport-sized surface must subtract this var below `xl` — current
-   * subtractors: AppShell padding, Sidebar + AdminSidebar heights,
-   * AtlasGlobe height, CookieConsentBanner bottom offset. */
-  --bottom-tab-bar-height: 3.5rem;
+  /* Mobile bottom tab bar (PSY-1020) — the bar's FULL rendered height above the
+   * safe area: the 3.5rem tab row PLUS its 1px border-t. The border is folded in
+   * here (PSY-1820) because every subtractor below reserves space for the whole
+   * fixed element, not just its row; reserving a bare 3.5rem left the last 1px
+   * of page content under the bar's border. BottomTabBar consumes this var as
+   * its own border-box height so the tab row still measures exactly 3.5rem —
+   * change the two together or the bar and its reservation drift apart.
+   *
+   * The paired env(safe-area-inset-bottom) terms ARE live as of PSY-1820
+   * (app/layout.tsx sets viewport-fit=cover); on a notched device they add the
+   * home-indicator band on top of this var. Every viewport-sized surface must
+   * subtract `var(--bottom-tab-bar-height) + env(safe-area-inset-bottom)` below
+   * `xl` — current subtractors: AppShell padding, Sidebar + AdminSidebar
+   * heights, AtlasGlobe height, CookieConsentBanner bottom offset. */
+  --bottom-tab-bar-height: calc(3.5rem + 1px);
 
   /* Radius scale — sharp editorial corners (2/4/6/8px) */
   --radius-sm: 2px;
@@ -237,6 +244,24 @@
     inset: 0;
     z-index: -1;
     background: var(--background);
+  }
+  /* PSY-1820 landscape guard. viewport-fit=cover hands the page the full
+   * display, including the notch / rounded-corner band that iOS used to
+   * letterbox away. In LANDSCAPE that band is ~44-59px on the notch side, and
+   * the app's widest gutter anywhere is px-4/md:px-8 (16/32px) — so without
+   * this every page's leading and trailing content would render under the
+   * notch. Insetting `body` fixes all of it at once for in-flow content: page
+   * containers, the sticky TopBar, and the Footer.
+   *
+   * In PORTRAIT both insets are 0, so this is a no-op on the common case.
+   *
+   * It does NOT reach position:fixed surfaces — those resolve against the
+   * viewport, not this box, so each one carries its own env() padding (see
+   * BottomTabBar and CookieConsentBanner). Fixed surfaces still missing theirs
+   * are tracked as follow-up work, not covered here. */
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 }
 

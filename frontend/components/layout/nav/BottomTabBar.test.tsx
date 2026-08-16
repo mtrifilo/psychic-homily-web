@@ -104,6 +104,48 @@ describe('BottomTabBar', () => {
     )
   })
 
+  // PSY-1820 geometry contract. The bar must RENDER exactly the height every
+  // other surface RESERVES for it, or page content slides under the bar (too
+  // small) or floats above a gap (too large). These assert the two halves of
+  // that contract as literals, because the failure is invisible in jsdom and
+  // on any non-notched device — it only shows up on real hardware.
+  describe('geometry', () => {
+    // The same expression AppShell reserves as bottom padding (asserted from
+    // the other side in AppShell.test.tsx). Reserving and rendering must be
+    // the SAME string, or the two drift apart silently.
+    const BAR_BOX = 'h-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))]'
+
+    it('renders at exactly the height AppShell reserves for it', () => {
+      const { container } = render(<BottomTabBar />)
+      expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
+        BAR_BOX
+      )
+    })
+
+    // --bottom-tab-bar-height INCLUDES the 1px border-t, and the box is
+    // border-box, so the row must derive its height from the bar (h-full)
+    // rather than restating the var — restating it would render 1px taller
+    // than the reservation, which is the bug this contract exists to prevent.
+    it('derives the tab row from the bar box instead of restating the var', () => {
+      const { container } = render(<BottomTabBar />)
+      const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
+      expect(grid).toHaveClass('h-full')
+      expect(grid?.className).not.toContain('h-[var(--bottom-tab-bar-height)]')
+    })
+
+    // viewport-fit=cover makes the left/right insets nonzero in landscape, so
+    // the outermost tabs would otherwise sit under the notch / rounded corner.
+    // Padding (not an inset-x offset) so the background still reaches both
+    // screen edges.
+    it('insets its tabs from the landscape notch band', () => {
+      const { container } = render(<BottomTabBar />)
+      expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
+        'pl-[env(safe-area-inset-left)]',
+        'pr-[env(safe-area-inset-right)]'
+      )
+    })
+  })
+
   describe('tabs', () => {
     it('renders the three primary link tabs with their destinations', () => {
       render(<BottomTabBar />)

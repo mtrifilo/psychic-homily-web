@@ -58,6 +58,15 @@ export const viewport: Viewport = {
     { media: '(prefers-color-scheme: light)', color: 'white' },
     { media: '(prefers-color-scheme: dark)', color: 'black' },
   ],
+  // PSY-1820: `viewport-fit=cover` is what makes every env(safe-area-inset-*)
+  // term in this app resolve to a real number. Without it iOS letterboxes the
+  // page inside the safe area and all four insets report 0 — so the bottom tab
+  // bar (PSY-1020) sat flush against the home indicator, and its sheets, the
+  // AppShell padding, and the cookie-banner offset all reserved 0 extra space.
+  // Enabling it also hands us the LANDSCAPE notch/rounded-corner band: full-
+  // bleed fixed surfaces must now inset their own content horizontally (see the
+  // safe-area padding on BottomTabBar and CookieConsentBanner).
+  viewportFit: 'cover',
 }
 
 export const metadata: Metadata = {

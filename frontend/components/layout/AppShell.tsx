@@ -51,9 +51,13 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col pb-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] xl:pb-0">
+      {/* The left offset carries the landscape safe-area inset itself: this is
+          position:fixed, so the body-level inset in globals.css (PSY-1820)
+          does not apply to it, and as the document's first focusable element
+          it must not land under the notch for keyboard/switch-control users. */}
       <a
         href="#main-content"
-        className="fixed left-4 top-3 z-[100] -translate-y-20 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground opacity-0 shadow-md transition-transform focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
+        className="fixed left-[calc(1rem+env(safe-area-inset-left))] top-3 z-[100] -translate-y-20 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground opacity-0 shadow-md transition-transform focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
       >
         Skip to content
       </a>

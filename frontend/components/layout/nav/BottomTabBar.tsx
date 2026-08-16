@@ -41,11 +41,21 @@ import type { NavDestination, NavLink } from './navData'
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the
-// matching bottom padding so fixed-bar content is never covered. (The
-// env(safe-area-inset-bottom) terms here are inert until viewport-fit=cover
-// ships — see the --bottom-tab-bar-height comment in globals.css, which also
-// lists every surface that must subtract the bar's height.) The bar sits at
-// z-40 — under sheets/dialogs and the z-50 top bar. The z-50 cookie banner
+// matching bottom padding so fixed-bar content is never covered.
+//
+// GEOMETRY (PSY-1820). The bar's height is pinned to
+// `--bottom-tab-bar-height + env(safe-area-inset-bottom)` rather than left to
+// grow from its contents, so the element and every surface that subtracts it
+// measure the same thing. The var already includes the 1px border-t, and the
+// box is border-box, so the grid's h-full still resolves to the designed
+// 3.5rem tab row — see the --bottom-tab-bar-height comment in globals.css,
+// which lists every surface that must subtract the bar. The env() terms are
+// LIVE as of PSY-1820 (app/layout.tsx sets viewport-fit=cover): the bottom
+// inset lifts the tabs off the home indicator, and the left/right insets keep
+// the outer tabs off the notch and rounded corners in landscape while the
+// background stays full-bleed to both screen edges.
+//
+// The bar sits at z-40 — under sheets/dialogs and the z-50 top bar. The z-50 cookie banner
 // offsets itself ABOVE the bar below `xl` (CookieConsentBanner.tsx carries the
 // other end of that contract): the two must never co-occupy the bottom band,
 // or every pre-consent visitor loses the primary nav.
@@ -63,6 +73,19 @@ function tabClassName(active: boolean): string {
 // `unreadCount` trails a badge on the row and folds the number into its
 // accessible name (the badge itself is decorative). At 0 the row is
 // byte-for-byte what it was — see withUnreadLabel for the guard convention.
+//
+// prefetch={false} (PSY-1820, decided): opening the Browse sheet mounts ~20 of
+// these at once, so the default viewport prefetch fires a burst of route
+// payloads on exactly the clients least able to afford it — phones on mobile
+// data, which is the only place this sheet exists (xl:hidden). The visitor came
+// here to pick ONE destination; paying for twenty to save latency on one is a
+// bad trade at this fan-out. Same call UserMenu already makes for its /admin
+// links.
+//
+// Note this is the STRONG opt-out: in the App Router `prefetch={false}` disables
+// prefetching on hover as well as in the viewport (it is not the Pages Router's
+// hover-only behaviour), so the tapped row navigates cold. That is the accepted
+// cost — hover barely exists on touch, where the pointer arrives at tap time.
 function SheetNavLink({
   item,
   active,
@@ -77,6 +100,7 @@ function SheetNavLink({
     <SheetClose asChild>
       <Link
         href={item.href}
+        prefetch={false}
         target={item.external ? '_blank' : undefined}
         rel={item.external ? 'noopener noreferrer' : undefined}
         aria-label={
@@ -163,7 +187,7 @@ function SheetTab({
       </SheetTrigger>
       <SheetContent
         side="bottom"
-        className="max-h-[80dvh] gap-0 pb-[env(safe-area-inset-bottom)]"
+        className="max-h-[80dvh] gap-0 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       >
         <SheetHeader className="border-b border-border/50 px-4 py-3">
           <SheetTitle className="text-left text-base">{label}</SheetTitle>
@@ -291,9 +315,9 @@ export function BottomTabBar() {
   return (
     <nav
       aria-label="Mobile navigation"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/50 bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 xl:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 h-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] border-t border-border/50 bg-background/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 xl:hidden"
     >
-      <div className="grid h-[var(--bottom-tab-bar-height)] grid-cols-5">
+      <div className="grid h-full grid-cols-5">
         {primaryTabs.map(tab => {
           const active = isActive(tab.href)
           const Icon = tab.icon
