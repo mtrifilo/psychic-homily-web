@@ -6,13 +6,20 @@
 # would fail silently:
 #   * CI      — .github/workflows/backend-image.yml sets `context: ./backend`.
 #               Verifiable in-repo.
-#   * Railway — the service's root directory is /backend, which is why
-#               railway.toml's `dockerfilePath = "Dockerfile"` resolves. That
-#               root directory is a DASHBOARD setting with no in-repo
-#               representation, so nothing here can prove it. Confirm on the
-#               next deploy: the build log's context-transfer line should read
-#               ~26MB, not ~34MB. If it reads ~34MB this file is being
-#               ignored, and the fix is where the file lives, not what's in it.
+#   * Railway — the service's root directory is /backend, and Railway pulls
+#               down only that directory. NOT verifiable from the repo: it is
+#               a dashboard setting, and railway.toml is NOT evidence for it
+#               (Railway's config file is located independently of the root
+#               directory, so `dockerfilePath = "Dockerfile"` resolving says
+#               nothing either way). Confirm on the next deploy: the build
+#               log's context-transfer line should read ~26MB, not ~34MB.
+#
+# If that Railway assumption is ever wrong, the failure is benign, and it is
+# worth knowing why before anyone panics: everything below is a deny-list of
+# things no build stage reads, verified by listing the built context. A
+# builder that ignored this file would ship a larger context and produce an
+# identical image. There is no arrangement where CI and Railway disagree
+# about the artifact — only about how many bytes they moved to get there.
 #
 # Related trap: BuildKit prefers `<dockerfile>.dockerignore` over the
 # context-root file when it exists. Creating `backend/Dockerfile.dockerignore`
@@ -117,6 +124,17 @@ verify-artist-states
 # match none of the other patterns. Safe against db/migrations/: no migration
 # name contains `_dump_` or `-backup-`, and there is no source directory
 # called `backups`.
+#
+# STILL TRACKED, and these rules do NOT change that — an ignore rule has no
+# effect on a path already in the index: backup_20250929_195433.tar.gz (6.9MB,
+# a raw PGDATA directory) and psychicdb_dump_20250929_200727.sql. They are
+# excluded from the build context here, which is 6.9MB of the measured saving,
+# and that is all this file can do about them. Untracking is a decision for a
+# human, not a side effect of a hygiene ticket: it does not shrink the repo
+# (the blobs are in the pack forever), it does shrink every checkout and
+# worktree, and reviewed contents are dev-only — three synthetic accounts,
+# empty oauth_accounts, and one role password that is the placeholder already
+# published in .env.example.
 logs/
 **/*.log
 **/backups/

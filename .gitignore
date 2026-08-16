@@ -41,6 +41,11 @@ backend/*.log
 # user rows. `*-backup-*.sql` is listed because that script's filenames match
 # none of the other patterns. Migrations are safe: no name under
 # db/migrations/ contains `_dump_` or `-backup-`.
+#
+# These stop the NEXT one only. An ignore rule does nothing to a path already
+# in the index, and two matching files are still tracked at backend/ root
+# (backup_20250929_195433.tar.gz, psychicdb_dump_20250929_200727.sql). Do not
+# read this block as covering them.
 **/backups/
 **/backup_*.tar.gz
 **/*_dump_*.sql
