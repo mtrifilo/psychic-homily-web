@@ -1,4 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// The runner's own zone, pinned BEFORE the module under test constructs its
+// formatters (which is what `vi.hoisted` buys — it runs ahead of the imports
+// below). Without this the UTC rule `formatLastMapped` exists to enforce is
+// untestable on CI, whose boxes are UTC: there, a formatter that had slipped
+// back to the ambient zone would produce the identical string and pass.
+//
+// Phoenix because it is UTC-7 and never observes DST, so the offset that makes
+// the assertions bite is the same in August as in January.
+//
+// Everything else in this file works in explicit UTC instants, so the pin is
+// inert for the rest of it.
+vi.hoisted(() => {
+  process.env.TZ = 'America/Phoenix'
+})
 
 import {
   GRAPH_WEEK_DAYS,
@@ -278,36 +293,34 @@ describe('count copy', () => {
 })
 
 describe('formatLastMapped', () => {
-  // The two ends of one UTC day, and its middle. In ANY timezone but UTC
-  // itself, at least one of the outer two falls on a different LOCAL calendar
-  // day than the middle one — so a formatter that quietly slipped back to the
-  // reader's zone cannot satisfy both assertions, whatever zone (or locale)
-  // the runner happens to sit in. This is the boundary the bug lived on: the
-  // nightly job lands in the small hours UTC, which is still yesterday across
-  // the Americas.
-  const startOfDay = new Date('2026-08-02T00:30:00Z')
-  const middleOfDay = new Date('2026-08-02T12:00:00Z')
-  const endOfDay = new Date('2026-08-02T23:30:00Z')
+  // THE BOUNDARY THE BUG LIVED ON. The nightly job lands in the small hours
+  // UTC, which is still the previous evening across the Americas: 00:30 UTC on
+  // the 2nd is 17:30 on the 1st in the zone pinned at the top of this file.
+  const justAfterUtcMidnight = new Date('2026-08-02T00:30:00Z')
 
-  it('names the UTC day for every instant in it, not the reader-local one', () => {
-    expect(formatLastMapped(startOfDay)).toBe(formatLastMapped(middleOfDay))
-    expect(formatLastMapped(endOfDay)).toBe(formatLastMapped(middleOfDay))
+  it('names the snapshot day, not the day the reader is having', () => {
+    // Against the reader-local render rather than a literal date, so the
+    // assertion is about the TIMEZONE and stays true under any runner locale.
+    expect(formatLastMapped(justAfterUtcMidnight)).not.toBe(
+      justAfterUtcMidnight.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    )
   })
 
   it('agrees with the week the same snapshot ends', () => {
-    // The footer and the share affordance sit on one line of chrome, reading
-    // the same `last_mapped`. Word boundaries rather than a literal date so
-    // this holds under any runner locale: `Aug 2, 2026` and `2. Aug. 2026`
-    // both carry a standalone 2 and neither carries a 1 or a 3.
+    // The whole point: the footer and the share affordance sit on one line of
+    // chrome reading one `last_mapped`, and have to name one day. Word boundary
+    // rather than a literal so `Aug 2, 2026` and `2. Aug. 2026` both pass.
     const snapshot = mapFixture({
-      lastMapped: startOfDay,
+      lastMapped: justAfterUtcMidnight,
       nodes: [node({ id: 1, appear: appearAt('2026-08-01T00:00:00Z') })],
     })
 
     expect(graphWeekKey(resolveGraphWeek(snapshot)!)).toBe('2026-08-02')
-    expect(formatLastMapped(startOfDay)).toMatch(/\b2\b/)
-    expect(formatLastMapped(startOfDay)).not.toMatch(/\b1\b/)
-    expect(formatLastMapped(endOfDay)).not.toMatch(/\b3\b/)
+    expect(formatLastMapped(justAfterUtcMidnight)).toMatch(/\b2\b/)
   })
 
   it('drops the clause for an instant that did not parse', () => {

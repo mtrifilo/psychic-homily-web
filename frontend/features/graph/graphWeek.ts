@@ -19,12 +19,8 @@
  * rendered server-side and then cached in front of every reader in the world —
  * so a boundary that moved with the viewer's clock would make the same cached
  * PNG's counts wrong for most of them. The site's venue-local date rule does
- * not apply and must not be reached for here.
- *
- * That is also why `formatLastMapped` sits at the bottom of this module rather
- * than beside the footer that renders it: the snapshot's own build date is not
- * part of the week, but it is derived from the same `last_mapped` instant, and
- * one timezone rule for that instant is the whole point.
+ * not apply and must not be reached for here. `formatLastMapped` at the bottom
+ * is under the same rule, for the same reason.
  */
 
 import type { SceneMap } from './sceneMap'
@@ -278,14 +274,7 @@ export function graphWeekKey(week: GraphWeek): string {
   return week.end.toISOString().slice(0, 10)
 }
 
-/**
- * Built once for the module, for the same reason as the range formatter above.
- *
- * The LOCALE is deliberately the reader's, unlike the card's: this string is
- * formatted per visitor in the browser rather than baked into the one cached
- * PNG every reader is served, so `2 Aug 2026` for a reader whose device says so
- * is right. The TIMEZONE is not similarly negotiable — see `formatLastMapped`.
- */
+/** Built once for the module, for the same reason as the range formatter above. */
 const LAST_MAPPED_FORMAT = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
   month: 'short',
@@ -303,6 +292,11 @@ const LAST_MAPPED_FORMAT = new Intl.DateTimeFormat(undefined, {
  * it offered a week ending Aug 2, for one and the same snapshot. Two dates for
  * one instant on one line of chrome, and neither one wrong on its own terms —
  * which is exactly why the rule has to be chosen once, here, and not per site.
+ *
+ * The LOCALE, unlike the card's, is deliberately left as the reader's: this
+ * string is formatted per visitor in the browser rather than baked into the one
+ * cached PNG every reader is served, so `2 Aug 2026` on a device that says so
+ * is right.
  *
  * Returns `''` for an unparseable instant, matching `formatGraphWeekRange`, so
  * a caller drops the clause instead of printing `Invalid Date`.

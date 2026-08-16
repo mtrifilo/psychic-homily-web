@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 
 import { renderWithProviders } from '@/test/utils'
 
+import { formatLastMapped } from '../graphWeek'
 import type { SceneMap, SceneMapNode } from '../sceneMap'
 import { SceneMapZeroState } from './SceneMapZeroState'
 
@@ -127,21 +128,18 @@ describe('SceneMapZeroState', () => {
     expect(screen.getByText(/3 connected · 1 labels · 2 regions/)).toBeInTheDocument()
   })
 
-  it('dates the snapshot in UTC, so the footer cannot name the day before its own week', () => {
-    // 00:30 UTC on the 2nd is still the 1st everywhere west of UTC-1, which is
-    // where the nightly job lands for every reader in the Americas. The week
-    // this same snapshot resolves ends on the 2nd, and the footer has to say so.
-    renderZeroState({
-      map: sceneMapFixture({ lastMapped: new Date('2026-08-02T00:30:00Z') }),
-    })
+  it('dates the snapshot through the formatter the week maths shares', () => {
+    // A wiring check, not a second copy of the timezone rule: that rule and its
+    // midnight boundary are pinned once, on `formatLastMapped` in
+    // `graphWeek.test.ts`. What can regress HERE is the footer going back to
+    // formatting the instant itself, which is how it came to name the day
+    // before its own week (00:30 UTC on the 2nd is the 1st across the Americas).
+    const lastMapped = new Date('2026-08-02T00:30:00Z')
+    renderZeroState({ map: sceneMapFixture({ lastMapped }) })
 
-    // Word boundaries rather than a literal date: the string is formatted in
-    // the reader's LOCALE (only the timezone is pinned), so `Aug 2, 2026` and
-    // `2. Aug. 2026` both have to pass, and a local-date regression to the 1st
-    // has to fail.
-    const footer = screen.getByText(/Mapped nightly · Last mapped/).textContent ?? ''
-    expect(footer).toMatch(/\b2\b/)
-    expect(footer).not.toMatch(/\b1\b/)
+    expect(screen.getByText(/Mapped nightly · Last mapped/)).toHaveTextContent(
+      formatLastMapped(lastMapped)
+    )
   })
 
   it('re-roots on an artist dot exactly as search does', async () => {
