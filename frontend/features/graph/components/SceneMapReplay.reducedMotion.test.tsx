@@ -88,7 +88,7 @@ function node(id: number, appear: number): SceneMapNode {
     rank: id,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
-    homeCity: null,
+    homeCaption: null,
     appear,
   }
 }

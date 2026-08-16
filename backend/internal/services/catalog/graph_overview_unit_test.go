@@ -549,11 +549,15 @@ func TestBackboneArtistIDs_AreAscendingAndDeduplicated(t *testing.T) {
 	}
 }
 
-// --- the hub city column ---
+// --- the hub location columns ---
 
-// hubCityBuild indexes two artists and three hubs, so the column's SCOPE (hub
-// indexes only) and its trimming are both visible in one assertion.
-func hubCityBuild(cities ...string) *overviewBuild {
+// hubLocation is one hub's home, as the roster read hands it to the builder.
+type hubLocation struct{ city, state, country string }
+
+// hubLocationBuild indexes two artists and one hub per location, so the
+// columns' SCOPE (hub indexes only) and their trimming are both visible in one
+// assertion.
+func hubLocationBuild(locations ...hubLocation) *overviewBuild {
 	slugA, slugB := "band-a", "band-b"
 	artistIDs := []uint{1, 2}
 	artistMeta := map[uint]overviewArtist{
@@ -561,61 +565,95 @@ func hubCityBuild(cities ...string) *overviewBuild {
 		2: {ID: 2, Name: "Band B", Slug: &slugB},
 	}
 	hubs := labelHubs{}
-	for i, city := range cities {
+	for i, loc := range locations {
 		hubs.Nodes = append(hubs.Nodes, contracts.SceneGraphNode{
 			ID:         uint(labelHubNodeIDOffset + i + 1),
 			EntityType: contracts.SceneNodeKindLabel,
 			Name:       "Label " + strconv.Itoa(i+1),
 			Slug:       "label-" + strconv.Itoa(i+1),
-			City:       city,
+			City:       loc.city,
+			State:      loc.state,
+			Country:    loc.country,
 		})
 	}
 	return newOverviewBuild(artistIDs, artistMeta, hubs, []overviewEdge{{A: 1, B: 2, Weight: 1}})
 }
 
-func TestOverviewBuild_HubCityIsHubScopedAndTrimmed(t *testing.T) {
-	// The column is the HUB CAPTION, not a location column: an artist index is
-	// empty because the map does not carry artist cities, and a hub index is
-	// empty when its label has none on file. A regression that filled artist
-	// indexes would caption the wrong nodes with no error anywhere.
+func TestOverviewBuild_HubLocationIsHubScopedAndTrimmed(t *testing.T) {
+	// The columns are the HUB CAPTION, not location columns: an artist index is
+	// empty because the map does not carry artist locations, and a hub index is
+	// empty for each part its label has nothing on file for. A regression that
+	// filled artist indexes would caption the wrong nodes with no error
+	// anywhere.
 	//
 	// Whitespace is normalized here rather than at the caption, so " " and ""
-	// are the same absent city for every client.
-	b := hubCityBuild(" Austin ", "   ", "")
+	// are the same absent part for every client.
+	//
+	// The THIRD hub is the PSY-1792 case: country only, no city. It captions
+	// "England" on the client through the same helper `/scenes` uses, which it
+	// could not do while the payload carried `hub_city` alone.
+	b := hubLocationBuild(
+		hubLocation{city: " Austin ", state: " TX ", country: " USA "},
+		hubLocation{city: "   ", state: "  ", country: " "},
+		hubLocation{country: " England "},
+	)
 
-	want := []string{"", "", "Austin", "", ""}
-	if len(b.nodeHubCity) != len(want) {
-		t.Fatalf("hub city column has %d entries, want %d (one per node)", len(b.nodeHubCity), len(want))
-	}
-	for i := range want {
-		if b.nodeHubCity[i] != want[i] {
-			t.Errorf("hub city[%d] = %q, want %q", i, b.nodeHubCity[i], want[i])
+	wantCity := []string{"", "", "Austin", "", ""}
+	wantState := []string{"", "", "TX", "", ""}
+	wantCountry := []string{"", "", "USA", "", "England"}
+
+	for _, tc := range []struct {
+		name string
+		got  []string
+		want []string
+	}{
+		{"hub city", b.nodeHubCity, wantCity},
+		{"hub state", b.nodeHubState, wantState},
+		{"hub country", b.nodeHubCountry, wantCountry},
+	} {
+		if len(tc.got) != len(tc.want) {
+			t.Fatalf("%s column has %d entries, want %d (one per node)", tc.name, len(tc.got), len(tc.want))
+		}
+		for i := range tc.want {
+			if tc.got[i] != tc.want[i] {
+				t.Errorf("%s[%d] = %q, want %q", tc.name, i, tc.got[i], tc.want[i])
+			}
 		}
 	}
 
-	// And it reaches the payload at full node length, which is the invariant
+	// And they reach the payload at full node length, which is the invariant
 	// every columnar consumer indexes against.
 	n := len(b.nodeIDs)
 	payload := b.payload(time.Now(), 1, make([]int16, n), make([]int16, n),
 		make([]int32, n), contracts.GraphOverviewRankBetweenness, make([]int32, n),
 		make([]uint8, n), nil, 0)
-	if len(payload.Nodes.HubCity) != payload.NodeCount {
-		t.Errorf("payload hub_city has %d entries, want node_count = %d",
-			len(payload.Nodes.HubCity), payload.NodeCount)
+	for name, column := range map[string][]string{
+		"hub_city":    payload.Nodes.HubCity,
+		"hub_state":   payload.Nodes.HubState,
+		"hub_country": payload.Nodes.HubCountry,
+	} {
+		if len(column) != payload.NodeCount {
+			t.Errorf("payload %s has %d entries, want node_count = %d",
+				name, len(column), payload.NodeCount)
+		}
 	}
 }
 
-func TestOverviewBuild_HubCityDoesNotEnterTheStructureKey(t *testing.T) {
+func TestOverviewBuild_HubLocationDoesNotEnterTheStructureKey(t *testing.T) {
 	// THE STABILITY CONTRACT, at the cheapest place to state it. The structure
 	// key is what lets an unchanged night replay stored positions instead of
-	// re-relaxing them; if an additive payload column entered it, shipping this
-	// field — and every label edit afterwards — would re-lay-out the whole map
+	// re-relaxing them; if an additive payload column entered it, shipping these
+	// fields — and every label edit afterwards — would re-lay-out the whole map
 	// and reshuffle it under the reader.
-	unset := hubCityBuild("", "", "")
-	set := hubCityBuild("Austin", "Brooklyn", "London")
+	unset := hubLocationBuild(hubLocation{}, hubLocation{}, hubLocation{})
+	set := hubLocationBuild(
+		hubLocation{city: "Austin", state: "TX", country: "USA"},
+		hubLocation{city: "Brooklyn", state: "NY", country: "US"},
+		hubLocation{country: "England"},
+	)
 
 	if unset.structureKey() != set.structureKey() {
-		t.Fatalf("hub cities changed the structure key (%s vs %s); an attribute must not move a dot",
+		t.Fatalf("hub locations changed the structure key (%s vs %s); an attribute must not move a dot",
 			unset.structureKey(), set.structureKey())
 	}
 }

@@ -12454,6 +12454,10 @@ export interface components {
             flags: string;
             /** @description Label hub's home city, trimmed; empty at every artist index and at a hub with no city on file. Absent entirely on a snapshot built before the column existed. */
             hub_city?: string[] | null;
+            /** @description Label hub's home country, trimmed; empty at every artist index and at a hub with no country on file. Absent entirely on a snapshot built before the column existed. */
+            hub_country?: string[] | null;
+            /** @description Label hub's home state, trimmed; empty at every artist index and at a hub with no state on file. Absent entirely on a snapshot built before the column existed. */
+            hub_state?: string[] | null;
             id: number[] | null;
             /** @description Base64-encoded byte per node: 0 = artist, 1 = label hub. Decode to a Uint8Array of length node_count. */
             kind: string;

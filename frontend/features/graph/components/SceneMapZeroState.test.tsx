@@ -75,7 +75,7 @@ function node(overrides: Partial<SceneMapNode> & Pick<SceneMapNode, 'id' | 'name
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
-    homeCity: null,
+    homeCaption: null,
     appear: 0,
     ...overrides,
   }
@@ -93,7 +93,7 @@ function sceneMapFixture(overrides: Partial<SceneMap> = {}): SceneMap {
       kind: 'label',
       community: -1,
       degree: 4,
-      homeCity: 'Brooklyn',
+      homeCaption: 'Brooklyn, NY',
     }),
   ]
   return {
@@ -196,25 +196,26 @@ describe('SceneMapZeroState', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('states the hub home city in its panel', async () => {
+  it('states the hub home caption in its panel', async () => {
     // The panel and the canvas caption read the SAME field (PSY-1736), so the
-    // dot and the card cannot disagree about where a label is from.
+    // dot and the card cannot disagree about where a label is from. The field
+    // is the COMPOSED caption since PSY-1792, so the panel states the state too.
     const user = userEvent.setup()
     renderZeroState()
 
     await user.click(screen.getByRole('button', { name: 'Click hub' }))
 
     expect(screen.getByRole('region', { name: 'About Doom Records' })).toHaveTextContent(
-      'Brooklyn',
+      'Brooklyn, NY',
     )
   })
 
-  it('omits the panel city line for a hub with no city on file', async () => {
+  it('omits the panel location line for a hub with nothing on file', async () => {
     // No placeholder: a label known only by name drops the line rather than
     // saying "location unknown".
     const user = userEvent.setup()
     const map = sceneMapFixture()
-    map.nodes[3] = { ...map.nodes[3], homeCity: null }
+    map.nodes[3] = { ...map.nodes[3], homeCaption: null }
     renderZeroState({ map })
 
     await user.click(screen.getByRole('button', { name: 'Click hub' }))
