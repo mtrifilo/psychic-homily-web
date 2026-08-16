@@ -4,6 +4,7 @@ import {
   GRAPH_WEEK_DAYS,
   formatGraphWeekCounts,
   formatGraphWeekRange,
+  formatLastMapped,
   graphWeekKey,
   graphWeekSummary,
   isGraphWeekShareworthy,
@@ -273,5 +274,43 @@ describe('count copy', () => {
 
   it('keys the share image URL on the window end date', () => {
     expect(graphWeekKey(week(1, 1))).toBe('2026-08-02')
+  })
+})
+
+describe('formatLastMapped', () => {
+  // The two ends of one UTC day, and its middle. In ANY timezone but UTC
+  // itself, at least one of the outer two falls on a different LOCAL calendar
+  // day than the middle one — so a formatter that quietly slipped back to the
+  // reader's zone cannot satisfy both assertions, whatever zone (or locale)
+  // the runner happens to sit in. This is the boundary the bug lived on: the
+  // nightly job lands in the small hours UTC, which is still yesterday across
+  // the Americas.
+  const startOfDay = new Date('2026-08-02T00:30:00Z')
+  const middleOfDay = new Date('2026-08-02T12:00:00Z')
+  const endOfDay = new Date('2026-08-02T23:30:00Z')
+
+  it('names the UTC day for every instant in it, not the reader-local one', () => {
+    expect(formatLastMapped(startOfDay)).toBe(formatLastMapped(middleOfDay))
+    expect(formatLastMapped(endOfDay)).toBe(formatLastMapped(middleOfDay))
+  })
+
+  it('agrees with the week the same snapshot ends', () => {
+    // The footer and the share affordance sit on one line of chrome, reading
+    // the same `last_mapped`. Word boundaries rather than a literal date so
+    // this holds under any runner locale: `Aug 2, 2026` and `2. Aug. 2026`
+    // both carry a standalone 2 and neither carries a 1 or a 3.
+    const snapshot = mapFixture({
+      lastMapped: startOfDay,
+      nodes: [node({ id: 1, appear: appearAt('2026-08-01T00:00:00Z') })],
+    })
+
+    expect(graphWeekKey(resolveGraphWeek(snapshot)!)).toBe('2026-08-02')
+    expect(formatLastMapped(startOfDay)).toMatch(/\b2\b/)
+    expect(formatLastMapped(startOfDay)).not.toMatch(/\b1\b/)
+    expect(formatLastMapped(endOfDay)).not.toMatch(/\b3\b/)
+  })
+
+  it('drops the clause for an instant that did not parse', () => {
+    expect(formatLastMapped(new Date('nope'))).toBe('')
   })
 })

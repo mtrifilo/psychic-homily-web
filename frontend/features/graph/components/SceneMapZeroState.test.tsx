@@ -127,6 +127,23 @@ describe('SceneMapZeroState', () => {
     expect(screen.getByText(/3 connected · 1 labels · 2 regions/)).toBeInTheDocument()
   })
 
+  it('dates the snapshot in UTC, so the footer cannot name the day before its own week', () => {
+    // 00:30 UTC on the 2nd is still the 1st everywhere west of UTC-1, which is
+    // where the nightly job lands for every reader in the Americas. The week
+    // this same snapshot resolves ends on the 2nd, and the footer has to say so.
+    renderZeroState({
+      map: sceneMapFixture({ lastMapped: new Date('2026-08-02T00:30:00Z') }),
+    })
+
+    // Word boundaries rather than a literal date: the string is formatted in
+    // the reader's LOCALE (only the timezone is pinned), so `Aug 2, 2026` and
+    // `2. Aug. 2026` both have to pass, and a local-date regression to the 1st
+    // has to fail.
+    const footer = screen.getByText(/Mapped nightly · Last mapped/).textContent ?? ''
+    expect(footer).toMatch(/\b2\b/)
+    expect(footer).not.toMatch(/\b1\b/)
+  })
+
   it('re-roots on an artist dot exactly as search does', async () => {
     const user = userEvent.setup()
     const { onSelectArtist } = renderZeroState()

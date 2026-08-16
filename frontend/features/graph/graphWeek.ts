@@ -20,6 +20,11 @@
  * so a boundary that moved with the viewer's clock would make the same cached
  * PNG's counts wrong for most of them. The site's venue-local date rule does
  * not apply and must not be reached for here.
+ *
+ * That is also why `formatLastMapped` sits at the bottom of this module rather
+ * than beside the footer that renders it: the snapshot's own build date is not
+ * part of the week, but it is derived from the same `last_mapped` instant, and
+ * one timezone rule for that instant is the whole point.
  */
 
 import type { SceneMap } from './sceneMap'
@@ -271,4 +276,38 @@ export function graphWeekKey(week: GraphWeek): string {
   // — so the date half of it IS the key, with no hand-rolled month arithmetic
   // to get off by one.
   return week.end.toISOString().slice(0, 10)
+}
+
+/**
+ * Built once for the module, for the same reason as the range formatter above.
+ *
+ * The LOCALE is deliberately the reader's, unlike the card's: this string is
+ * formatted per visitor in the browser rather than baked into the one cached
+ * PNG every reader is served, so `2 Aug 2026` for a reader whose device says so
+ * is right. The TIMEZONE is not similarly negotiable — see `formatLastMapped`.
+ */
+const LAST_MAPPED_FORMAT = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+})
+
+/**
+ * `Aug 2, 2026` — the calendar day a snapshot was built on, for the map footer.
+ *
+ * UTC, so that this and the week offered beside it in the same footer row name
+ * the same day. The nightly job lands in the small hours UTC, the PREVIOUS
+ * calendar day everywhere in the Americas: a viewer-local footer told a reader
+ * in Phoenix the map was "last mapped Aug 1" while the share affordance beside
+ * it offered a week ending Aug 2, for one and the same snapshot. Two dates for
+ * one instant on one line of chrome, and neither one wrong on its own terms —
+ * which is exactly why the rule has to be chosen once, here, and not per site.
+ *
+ * Returns `''` for an unparseable instant, matching `formatGraphWeekRange`, so
+ * a caller drops the clause instead of printing `Invalid Date`.
+ */
+export function formatLastMapped(lastMapped: Date): string {
+  if (Number.isNaN(lastMapped.getTime())) return ''
+  return LAST_MAPPED_FORMAT.format(lastMapped)
 }
