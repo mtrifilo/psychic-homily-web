@@ -48,12 +48,17 @@ import type { NavDestination, NavLink } from './navData'
 // grow from its contents, so the element and every surface that subtracts it
 // measure the same thing. The var already includes the 1px border-t, and the
 // box is border-box, so the grid's h-full still resolves to the designed
-// 3.5rem tab row — see the --bottom-tab-bar-height comment in globals.css,
-// which lists every surface that must subtract the bar. The env() terms are
-// LIVE as of PSY-1820 (app/layout.tsx sets viewport-fit=cover): the bottom
-// inset lifts the tabs off the home indicator, and the left/right insets keep
-// the outer tabs off the notch and rounded corners in landscape while the
-// background stays full-bleed to both screen edges.
+// tab row — see the --bottom-tab-bar-height comment in globals.css,
+// which lists every surface that must subtract the bar. The env() terms resolve
+// to the device's reported insets as of PSY-1820 (app/layout.tsx sets
+// viewport-fit=cover): the bottom inset is what lifts the tabs off a home
+// indicator, and the left/right insets keep the outer tabs off the notch and
+// rounded corners in landscape while the background stays full-bleed to both
+// screen edges. Note safe-area-inset-TOP is deliberately unhandled here and
+// app-wide: in a Safari tab (this app ships no web-app manifest and no
+// standalone mode) the browser chrome already occupies that band. If the app
+// ever goes installable, the top inset goes live and TopBar needs it — that is
+// tracked with the rest of the uncovered surfaces in PSY-1824.
 //
 // The bar sits at z-40 — under sheets/dialogs and the z-50 top bar. The z-50
 // cookie banner offsets itself ABOVE the bar below `xl` (CookieConsentBanner.tsx
@@ -75,22 +80,29 @@ function tabClassName(active: boolean): string {
 // byte-for-byte what it was — see withUnreadLabel for the guard convention.
 //
 // prefetch={false} (decided in PSY-1820): opening the Browse sheet mounts 24 of
-// these at once (22 for anonymous visitors), so the default viewport prefetch
-// fires a burst of route payloads on exactly the clients least able to afford
-// it — phones on mobile data, which is the only place these sheets exist
-// (xl:hidden). The visitor came here to pick ONE destination; paying for two
-// dozen to save latency on one is a bad trade at this fan-out.
+// these at once (22 for anonymous visitors), so the default fires 24 viewport
+// prefetches on exactly the clients least able to afford them — phones on
+// mobile data, which is the only place these sheets exist (xl:hidden). The
+// visitor came here to pick ONE destination; paying for two dozen to save
+// latency on one is a bad trade at this fan-out.
 //
-// This applies to the Account sheet's rows too, which is a DELIBERATE
-// divergence from the desktop UserMenu those rows mirror: UserMenu opts out
-// only its /admin links, because a dropdown of ~6 items on desktop bandwidth is
-// not the same trade as a phone sheet. The fan-out is the reason, not the
-// route.
+// Sizing the trade honestly: the default is FetchStrategy.PPR, so what we skip
+// is 24 PARTIAL prefetches, not 24 full route payloads. The win is smaller than
+// "a burst of pages" — it is still 24 requests a phone did not ask for.
 //
-// Note this is the STRONG opt-out: in the App Router `prefetch={false}` disables
-// prefetching on hover as well as in the viewport (it is not the Pages Router's
-// hover-only behaviour), so the tapped row navigates cold. That is the accepted
-// cost — hover barely exists on touch, where the pointer arrives at tap time.
+// And the cost is bigger than it looks: `prefetch={false}` is the strong
+// opt-out. In the App Router it disables prefetching on hover AND on
+// touchstart (link.js returns early on !prefetchEnabled in both handlers), so
+// the tapped row loses the ~100-300ms intent head start touchstart would have
+// given it and navigates cold. Accepted deliberately: 24 speculative fetches
+// for one real navigation is the worse end of the trade on a metered phone.
+//
+// This applies to the Account sheet's rows too, a DELIBERATE divergence from
+// the desktop UserMenu those rows mirror: UserMenu opts out only its /admin
+// links, because a dropdown of ~6 items on desktop bandwidth is not the same
+// trade as a phone sheet. The fan-out is the reason, not the route. The admin
+// drawer (AdminDrawerNav) is deliberately left on the default: it is a small,
+// admin-only route set behind a login, not a 24-row public surface.
 function SheetNavLink({
   item,
   active,
@@ -192,7 +204,9 @@ function SheetTab({
       </SheetTrigger>
       <SheetContent
         side="bottom"
-        className="max-h-[80dvh] gap-0 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+        // The home-indicator inset comes from sheet.tsx's shared `bottom`
+        // variant; only the landscape gutters are this sheet's own business.
+        className="max-h-[80dvh] gap-0 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       >
         <SheetHeader className="border-b border-border/50 px-4 py-3">
           <SheetTitle className="text-left text-base">{label}</SheetTitle>

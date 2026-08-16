@@ -115,7 +115,7 @@ describe('AppShell', () => {
     // the bar's rendered `h-[…]`; reserving and rendering must not drift.
     expect(container.firstChild).toHaveClass(
       `pb-[${BOTTOM_TAB_BAR_BOX}]`,
-      'xl:pb-0'
+      'xl:pb-[env(safe-area-inset-bottom)]'
     )
   })
 

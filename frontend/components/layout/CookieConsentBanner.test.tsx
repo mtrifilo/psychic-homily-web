@@ -160,6 +160,40 @@ describe('CookieConsentBanner', () => {
       expect(document.body.style.paddingBottom).toBe('')
     })
 
+    // PSY-1820 safe-area contract. The bottom inset is DIRECTIONAL and easy to
+    // get backwards: below `xl` the tab bar underneath already absorbs it, so
+    // adding it here too would double-count and leave a gap between banner and
+    // bar; at `xl` the bar is gone and the banner owns the bottom edge, so it
+    // must add the inset itself. Both halves are asserted because moving the
+    // override into the base class looks harmless and breaks the first case.
+    it('takes the home-indicator inset only at xl, where no bar is under it', () => {
+      render(<CookieConsentBanner />)
+      const bar = screen.getByRole('dialog', { name: 'Cookie consent' })
+
+      expect(bar).toHaveClass('xl:pb-[calc(0.625rem+env(safe-area-inset-bottom))]')
+      // The base padding must stay inset-free, or it double-counts below xl.
+      expect(bar.className).not.toMatch(/(?<!xl:)pb-\[calc\(0\.625rem\+env/)
+      // Below xl the banner rides on top of the bar's reserved band.
+      expect(bar).toHaveClass(
+        'bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))]'
+      )
+    })
+
+    // Landscape gutters are absorbed as PADDING, never as a left/right offset,
+    // so the banner's background still bleeds to both screen edges instead of
+    // leaving a strip of page showing beside it.
+    it('grows its gutters for the landscape notch without insetting its box', () => {
+      render(<CookieConsentBanner />)
+      const bar = screen.getByRole('dialog', { name: 'Cookie consent' })
+
+      expect(bar).toHaveClass(
+        'pl-[calc(1rem+env(safe-area-inset-left))]',
+        'pr-[calc(1rem+env(safe-area-inset-right))]',
+        'left-0',
+        'right-0'
+      )
+    })
+
     it('clears reserved body padding when consent is given (banner hides)', () => {
       const { rerender } = render(<CookieConsentBanner />)
       expect(document.body.style.paddingBottom).not.toBe('')

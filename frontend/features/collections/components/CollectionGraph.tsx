@@ -300,7 +300,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
           aria-label={`Collection graph for ${collectionTitle}, fullscreen`}
           // z-[60] sits above the cookie consent banner (z-50) so first-time
           // visitors don't see the banner painted over the canvas (PSY-518).
-          className="fixed inset-0 z-[60] bg-background flex flex-col"
+          className="fixed inset-0 z-[60] bg-background flex flex-col pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
           data-testid="collection-graph-overlay"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border/50">

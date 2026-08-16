@@ -58,7 +58,7 @@ export function AdminSidebar() {
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'sticky top-[var(--topbar-height)] z-40 hidden h-[calc(100vh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] shrink-0 xl:h-[calc(100vh-var(--topbar-height))] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex',
+          'sticky top-[var(--topbar-height)] z-40 hidden h-[calc(100vh-var(--topbar-height)-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] shrink-0 xl:h-[calc(100vh-var(--topbar-height)-env(safe-area-inset-bottom))] flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex',
           collapsed ? 'w-[var(--sidebar-width-collapsed)]' : 'w-[var(--sidebar-width)]'
         )}
         aria-label="Admin navigation"

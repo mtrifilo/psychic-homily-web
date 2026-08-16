@@ -358,7 +358,7 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
           role="dialog"
           aria-modal="true"
           aria-label={`Venue bill network for ${venueName}, fullscreen`}
-          className="fixed inset-0 z-[60] bg-background flex flex-col"
+          className="fixed inset-0 z-[60] bg-background flex flex-col pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
           data-testid="venue-bill-network-overlay"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border/50">

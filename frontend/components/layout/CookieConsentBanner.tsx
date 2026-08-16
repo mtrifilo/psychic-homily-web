@@ -55,12 +55,14 @@ function ConsentBar() {
     //   • bottom — only at `xl`, where the banner owns the true bottom edge and
     //     nothing else clears the home indicator for it. Below `xl` the bar
     //     underneath already absorbs that inset, so adding it here would
-    //     double-count it.
+    //     double-count it and leave a gap between banner and bar. The 0.625rem
+    //     in that override is py-2.5 restated (Tailwind spacing unit 0.25rem x
+    //     2.5); retune one and retune the other, or the row goes lopsided at xl.
     // offsetHeight (mirrored into body padding above) grows with this padding,
     // so the scroll reservation stays correct on every device.
     <div
       ref={barRef}
-      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background py-2.5 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0 xl:pb-[calc(var(--spacing)*2.5+env(safe-area-inset-bottom))]"
+      className="fixed bottom-[calc(var(--bottom-tab-bar-height)+env(safe-area-inset-bottom))] left-0 right-0 z-50 border-t bg-background py-2.5 pl-[calc(1rem+env(safe-area-inset-left))] pr-[calc(1rem+env(safe-area-inset-right))] motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300 xl:bottom-0 xl:pb-[calc(0.625rem+env(safe-area-inset-bottom))]"
       role="dialog"
       aria-label="Cookie consent"
       aria-describedby="cookie-consent-description"

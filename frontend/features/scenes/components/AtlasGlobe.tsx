@@ -638,7 +638,7 @@ export function AtlasGlobe() {
   // requirement, PSY-1543) sit under the bar. Read the var rather than
   // restating its value: it carries the bar's border too (PSY-1820).
   return (
-    <div className="relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] min-h-[480px] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem)]">
+    <div className="relative h-[calc(100dvh-4rem-var(--bottom-tab-bar-height)-env(safe-area-inset-bottom))] min-h-[480px] w-full overflow-hidden bg-[#0a0a0a] xl:h-[calc(100dvh-4rem-env(safe-area-inset-bottom))]">
       <div ref={measureRef} className="h-full w-full">
         {content}
       </div>

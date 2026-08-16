@@ -127,14 +127,18 @@ describe('BottomTabBar', () => {
   })
 
   // PSY-1820 geometry contract. The bar must RENDER exactly the height every
-  // other surface RESERVES for it, or page content slides under the bar (too
-  // small) or floats above a gap (too large). These assert the two halves of
-  // that contract as literals, because the failure is invisible in jsdom and
-  // on any non-notched device — it only shows up on real hardware.
+  // other surface RESERVES for it, or page content slides under the bar.
+  //
+  // What these tests actually prove, precisely: that the two components still
+  // spell the same expression. They do NOT evaluate it — jsdom computes no
+  // layout, and env()/calc() never resolve here. The arithmetic itself (that
+  // the expression yields the bar's true box) was checked in a real engine and
+  // has to be re-checked in one; do not read a green suite as proof of the
+  // pixels.
   describe('geometry', () => {
     // BOTTOM_TAB_BAR_BOX is the shared copy AppShell.test.tsx asserts from the
-    // other side as `pb-[…]`. Rendering and reserving must be the SAME string,
-    // so neither file gets to redefine it locally.
+    // other side as `pb-[…]`, so editing one component's class text without the
+    // other fails here rather than silently shipping.
     it('renders at exactly the height AppShell reserves for it', () => {
       const { container } = render(<BottomTabBar />)
       expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
@@ -142,15 +146,29 @@ describe('BottomTabBar', () => {
       )
     })
 
-    // --bottom-tab-bar-height INCLUDES the 1px border-t, and the box is
-    // border-box, so the row must derive its height from the bar (h-full)
-    // rather than restating the var — restating it would render 1px taller
-    // than the reservation, which is the bug this contract exists to prevent.
-    it('derives the tab row from the bar box instead of restating the var', () => {
+    // --bottom-tab-bar-height INCLUDES the border, and the box is border-box,
+    // so the row must derive its height from the bar (h-full). Any restated
+    // height — the old h-[var(--bottom-tab-bar-height)], h-14, h-[3.5rem] —
+    // renders taller than the reservation, which is the bug this exists to
+    // prevent. h-full is the only spelling that cannot drift, so assert it
+    // positively rather than blacklisting one wrong spelling.
+    it('derives the tab row from the bar box instead of restating a height', () => {
       const { container } = render(<BottomTabBar />)
       const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
       expect(grid).toHaveClass('h-full')
-      expect(grid?.className).not.toContain('h-[var(--bottom-tab-bar-height)]')
+    })
+
+    // --bottom-tab-bar-height hardcodes this border as `+ 1px`, and CSS cannot
+    // read a Tailwind class back. `border-t` is Tailwind's 1px default, so
+    // swapping it for border-t-2 (or dropping it for a shadow) silently makes
+    // every subtractor in the app wrong again — the exact PSY-1820 defect.
+    // Pinning the class is what makes that edit fail here instead of on a
+    // phone. If you change it, change the var in globals.css in the same edit.
+    it('keeps the 1px border the height variable reserves for it', () => {
+      const { container } = render(<BottomTabBar />)
+      expect(container.querySelector('nav[aria-label="Mobile navigation"]')).toHaveClass(
+        'border-t'
+      )
     })
 
     // viewport-fit=cover makes the left/right insets nonzero in landscape, so

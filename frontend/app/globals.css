@@ -96,12 +96,22 @@
    * fixed element, not just its row; reserving a bare 3.5rem left the last 1px
    * of page content under the bar's border. BottomTabBar sets its border-box
    * height to this var PLUS env(safe-area-inset-bottom) and derives the tab row
-   * with h-full, so the row still measures exactly 3.5rem — change the two
-   * together or the bar and its reservation drift apart.
+   * with h-full, so the row still measures exactly 3.5rem.
    *
-   * The paired env(safe-area-inset-bottom) terms ARE live as of PSY-1820
-   * (app/layout.tsx sets viewport-fit=cover); on a notched device they add the
-   * home-indicator band on top of this var. Every viewport-sized surface must
+   * The `1px` is BottomTabBar's `border-t` restated. That duplication is
+   * deliberate: driving the border from a shared custom property was tried and
+   * reverted, because `border-t-[length:var(--x)]` falls back to CSS `medium`
+   * (3px) whenever the var fails to resolve — turning a 1px reservation bug
+   * into a silent 3px border with a short tab row. A literal fails loudly
+   * instead, and BottomTabBar.test.tsx pins the border class so changing the
+   * divider cannot land without updating this.
+   *
+   * The paired env(safe-area-inset-bottom) terms resolve to the device's
+   * reported inset as of PSY-1820 (app/layout.tsx sets viewport-fit=cover)
+   * rather than to 0; on a device with a home indicator that adds its band on
+   * top of this var. That is the mechanism, not a measurement — the insets
+   * cannot be reproduced in any desktop or headless browser, which always
+   * reports 0. Every viewport-sized surface must
    * subtract `var(--bottom-tab-bar-height) + env(safe-area-inset-bottom)` below
    * `xl` — current subtractors: AppShell padding, Sidebar + AdminSidebar
    * heights, AtlasGlobe height, CookieConsentBanner bottom offset. */
