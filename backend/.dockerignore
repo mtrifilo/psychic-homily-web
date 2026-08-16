@@ -1,0 +1,64 @@
+# Docker build-context excludes for backend/Dockerfile (PSY-1790).
+#
+# WHY IT LIVES HERE, NOT AT THE REPO ROOT. Docker reads `.dockerignore` from
+# the root of the build CONTEXT, and both builds of this image use `backend/`
+# as the context:
+#   * CI      — .github/workflows/backend-image.yml sets `context: ./backend`
+#   * Railway — the service's root directory is /backend, and railway.toml's
+#               `dockerfilePath = "Dockerfile"` resolves inside it.
+# A repo-root .dockerignore would be read by NEITHER, and would fail silently.
+#
+# DENY-LIST, DELIBERATELY. The builder stage runs `COPY . .` and then
+# `go build ./cmd/server`, so the entire Go tree has to arrive. An allow-list
+# would silently drop the next package someone adds, and the break would
+# surface as a compile error in CI rather than as a missing rule here. Only
+# paths the build provably does not need are listed below.
+#
+# NEVER add an entry that matches any of these — the build needs them:
+#   **/*.go, go.mod, go.sum          the module the builder compiles
+#   db/migrations/                   COPYd into the runtime stage
+#   layout/                          npm ci + fa2-layout.mjs (layout-deps stage)
+#   docker-entrypoint.sh             the image's ENTRYPOINT
+#   internal/services/geo/data/      go:embed cities.tsv / countries.tsv, ~11MB
+#                                    compiled INTO the binary (geo.go)
+# In particular, do NOT reach for a blanket `*.sql`: db/migrations/ is SQL.
+
+# Go coverage profiles. Written by scripts/coverage.sh and by CI's
+# `go test -coverprofile=...`; never an input to anything. Same rule as the
+# repo .gitignore's `backend/**/*.out`.
+**/*.out
+**/*.cov
+coverage.html
+
+# Local database dumps and backups. `backup_*.tar.gz` and
+# `psychicdb_dump_*.sql` are still tracked in git (out of scope for PSY-1790,
+# noted as a follow-up); the rest are untracked local droppings. These
+# patterns are anchored so they cannot reach db/migrations/.
+backups/
+backup_*.tar.gz
+*_dump_*.sql
+*.dump
+
+# Environment files. The image takes its configuration from the platform's
+# environment at runtime, so nothing here is read at build time and shipping a
+# real .env into a layer would be a credential leak.
+.env*
+
+# Local orchestration and host provisioning. Compose brings up dev/e2e/stage
+# stacks from OUTSIDE the image, and systemd units target VMs, not containers.
+docker-compose*.yml
+systemd/
+
+# Docs. Prose only; no build stage reads it.
+docs/
+*.md
+
+# Editor / OS droppings that would otherwise bust the context cache.
+.DS_Store
+*.swp
+*.swo
+
+# A locally-installed dependency tree. The layout-deps stage runs its own
+# `npm ci` from package.json + package-lock.json, so a host node_modules is
+# both unused and (being built for the host arch) wrong.
+**/node_modules/
