@@ -445,6 +445,27 @@ describe('useUnreadNotificationCount', () => {
     expect(mockApiRequest).toHaveBeenCalledTimes(1)
   })
 
+  // The drift that actually happens is not an inlined literal, it's the lazy
+  // call: someone writes `useUserNotifications()` for a count and silently
+  // opens a second 60s poll forever. The bare call must land on the shared
+  // entry, which is why the shared limit is the hook's DEFAULT.
+  it('shares the entry with a bare useUserNotifications() — the lazy call is the correct one', async () => {
+    mockApiRequest.mockResolvedValue({ notifications: [], unread_count: 5 })
+    const wrapper = createWrapper()
+
+    const { result } = renderHook(
+      () => ({
+        lazy: useUserNotifications(),
+        badge: useUnreadNotificationCount(),
+      }),
+      { wrapper }
+    )
+
+    await waitFor(() => expect(result.current.badge).toBe(5))
+    expect(result.current.lazy.data?.unread_count).toBe(5)
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+  })
+
   it('is 0 with no request when anonymous — the bar renders for logged-out visitors too', () => {
     mockUseAuthContext.mockReturnValue({ isAuthenticated: false })
     mockApiRequest.mockRejectedValue(new Error('should not be called'))

@@ -75,6 +75,11 @@ export function UserMenu() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {/* No unread badge on the Notifications row here, unlike the
+                mobile Account sheet which renders this same table (PSY-1819):
+                this dropdown only exists at widths where NotificationBell sits
+                a few pixels away in the same cluster, already carrying the
+                count. Badging both would state it twice in one control group. */}
             <DropdownMenuGroup>
               {menuItems.map(item => {
                 const Icon = item.icon

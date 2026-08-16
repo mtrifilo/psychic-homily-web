@@ -4,8 +4,12 @@
  * /notifications — full inbox page (PSY-595).
  *
  * Sibling surface to the header bell popover (`NotificationBell`).
- * Reuses `useUserNotifications` so the bell + page share one cache entry,
- * and reuses `NotificationList` so row rendering stays identical.
+ * Reuses `useUserNotifications` and `NotificationList` so fetching and row
+ * rendering stay identical. It does NOT share the bell's cache entry: the
+ * query key is parameterized by {limit, offset} and this page deliberately
+ * asks for 50 rows, so it is its own entry with its own poll. That is the
+ * intended trade for a full inbox — see NOTIFICATION_LOG_SHARED_LIMIT, which
+ * every surface that only wants the COUNT must stay on.
  *
  * Mark-read policy (PSY-1513, reverses PSY-1018's view-clears-count):
  * mounting this page marks NOTHING read. A row is marked read when

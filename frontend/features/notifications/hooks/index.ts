@@ -224,11 +224,11 @@ export function useQuickCreateFilter() {
 const NOTIFICATION_LOG_KEY = ['notifications', 'log'] as const
 
 /**
- * Rows the header bell popover requests — and, because the query key is
- * parameterized by {limit, offset}, the ONE cache entry every unread-count
- * consumer must ask for to piggyback on it instead of opening a second
- * request. `useUnreadNotificationCount` is that shared read; don't inline the
- * number at a call site.
+ * The default page size, and therefore the ONE cache entry the bell popover
+ * and every unread-count consumer share — the query key is parameterized by
+ * {limit, offset}, so asking for a different limit opens a second request.
+ * It is `useUserNotifications`' default precisely so the lazy call is also
+ * the correct one; don't inline the number at a call site.
  */
 export const NOTIFICATION_LOG_SHARED_LIMIT = 10
 
@@ -250,10 +250,17 @@ function selectNormalizedNotifications(
  * up new comment replies / mentions without a manual refresh. Stale time
  * matches the poll interval so a TopBar mount inside the window reuses
  * the cached payload.
+ *
+ * `limit` DEFAULTS to the shared entry deliberately: the key is
+ * parameterized by {limit, offset}, so a caller that just wants "the
+ * notifications" lands on the entry the bell and the mobile badge already
+ * subscribe to, instead of silently opening a second poll forever. Pass an
+ * explicit limit only when you actually need a different page size (the
+ * inbox page does, at 50).
  */
 export function useUserNotifications(params?: { limit?: number; offset?: number }) {
   const { isAuthenticated } = useAuthContext()
-  const limit = params?.limit ?? 20
+  const limit = params?.limit ?? NOTIFICATION_LOG_SHARED_LIMIT
   const offset = params?.offset ?? 0
   const url = `${NOTIFICATION_ENDPOINTS.LIST}?limit=${limit}&offset=${offset}`
 
@@ -277,12 +284,16 @@ export function useUserNotifications(params?: { limit?: number; offset?: number 
  * the number without the log itself (the mobile Account tab + its sheet's
  * Notifications row, PSY-1819).
  *
- * Reads the SAME cache entry as the header bell, so it costs no request: the
- * bell is mounted on every page (TopBar hides its cluster with CSS below `sm`,
- * it does not unmount), and this hook inherits that query's auth gate and 60s
- * poll. Anonymous visitors and the auth-hydration window both read 0 — the
- * query is disabled, so a badge keyed off this never renders before auth
- * settles.
+ * Reads the SAME cache entry as the header bell, so for a signed-in viewer it
+ * is a second subscriber to a query that already exists rather than a new
+ * request — the bell stays mounted at every width (TopBar.tsx hides its
+ * cluster with CSS below `sm`, it does not unmount). That is another
+ * component's mount tree, so treat it as the cheap case, not a guarantee: if
+ * the bell ever stops mounting on phones this hook simply becomes the query's
+ * owner. Still correct, no longer free.
+ *
+ * Anonymous visitors and the auth-hydration window both read 0 — the query is
+ * disabled, so a badge keyed off this never renders before auth settles.
  */
 export function useUnreadNotificationCount(): number {
   const { data } = useUserNotifications({ limit: NOTIFICATION_LOG_SHARED_LIMIT })
