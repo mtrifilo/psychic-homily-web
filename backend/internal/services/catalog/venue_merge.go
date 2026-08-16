@@ -75,21 +75,18 @@ var venueEntityRefs = []entityRef{
 	{table: "comment_subscriptions", idCol: "entity_id", dedupe: true, key: []string{"user_id"}},
 	{table: "entity_tags", idCol: "entity_id", dedupe: true, key: []string{"tag_id"}},
 	{table: "notification_log", idCol: "entity_id", dedupe: true, key: []string{"user_id", "filter_id", "channel"}},
-	{table: "pending_entity_edits", idCol: "entity_id", dedupe: true, key: []string{"submitted_by"}},
 	{table: "tag_votes", idCol: "entity_id", dedupe: true, key: []string{"tag_id", "user_id"}},
 	{table: "user_bookmarks", idCol: "entity_id", dedupe: true, key: []string{"user_id", "action"}},
 
-	// Unique on (entity_type, entity_id) alone. image_enrich_queue's and
-	// pending_entity_edits' indexes are partial (status-scoped); deleting the
-	// losing row whenever ANY winning row exists is stricter than the index
-	// needs, which is the safe direction.
+	// Unique on (entity_type, entity_id) alone. image_enrich_queue's index is
+	// partial (status-scoped); deleting the losing row whenever ANY winning row
+	// exists is stricter than the index needs, which is the safe direction.
 	{table: "image_enrich_queue", idCol: "entity_id", dedupe: true},
 	{table: "source_configs", idCol: "entity_id", dedupe: true},
 
 	// No unique key on the entity reference: re-point in place.
 	{table: "audit_logs", idCol: "entity_id"},
 	{table: "comments", idCol: "entity_id"},
-	{table: "entity_edit_audit_logs", idCol: "entity_id"},
 	{table: "entity_reports", idCol: "entity_id"},
 	{table: "requests", idCol: "requested_entity_id"},
 	{table: "entity_requests", idCol: "created_entity_id"},
@@ -99,10 +96,14 @@ var venueEntityRefs = []entityRef{
 // but not through the loop above, so the schema-coverage guard counts them as
 // covered without reassignEntityRefs trying to re-point them a second time.
 //
-// revisions is here because its move is inseparable from a provenance
-// decision — see repointRevisions, and reassignVenueRevisions for this merge's
-// answer.
-var venueRefsRepointedElsewhere = []string{"revisions"}
+// Every table here is one whose move is inseparable from a provenance decision
+// — see repointRevisions and repointEditHistory, and reassignVenueRevisions /
+// reassignVenueEditHistory for this merge's answers.
+var venueRefsRepointedElsewhere = []string{
+	"revisions",
+	"pending_entity_edits",
+	"entity_edit_audit_logs",
+}
 
 // venueFKTables is every table holding a real foreign key to venues.id. Each
 // one is re-pointed explicitly by the steps below.
@@ -226,6 +227,9 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) 
 			return err
 		}
 		if err := reassignVenueRevisions(tx, canonicalID, mergeFrom, result); err != nil {
+			return err
+		}
+		if err := reassignVenueEditHistory(tx, canonicalID, mergeFromID, result); err != nil {
 			return err
 		}
 		if err := reassignEntityRefs(tx, canonicalID, mergeFromID, result); err != nil {
@@ -532,11 +536,40 @@ func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.V
 		provenance = noRedactionCarryover
 	}
 
-	moved, err := repointRevisions(tx, revisionEntityVenue, canonicalID, mergeFrom.ID, provenance)
+	moved, err := repointRevisions(tx, mergeEntityVenue, canonicalID, mergeFrom.ID, provenance)
 	if err != nil {
 		return err
 	}
 	result.EntityRefsMoved += moved
+	return nil
+}
+
+// reassignVenueEditHistory moves the losing venue's contributor edit history
+// onto the canonical venue.
+//
+// Both tables move with editHistoryCarriesNoRedaction, which for venues is the
+// claim that most deserves checking, since venues are the entity that HAS a
+// redaction gate. It holds because that gate is on the revision routes: edit
+// content here reaches only its own submitter and admins, and the anonymous
+// reader sees only venueEditCounts' aggregate. A count carries no address.
+//
+// Split out of reassignEntityRefs rather than left in the loop so the decision
+// is made once, in the open, instead of being implied by a table's presence in
+// a list. Both stay named in venueRefsRepointedElsewhere so the schema-coverage
+// guard still counts them as handled.
+//
+// The counts join EntityRefsMoved, which is what they counted toward inside the
+// loop. Rows dropped as duplicates are not added, also matching the loop, which
+// only ever counted the UPDATE.
+func reassignVenueEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
+	for _, table := range []editHistoryTable{pendingEditsHistory, auditedEditsHistory} {
+		moved, _, err := repointEditHistory(
+			tx, table, mergeEntityVenue, canonicalID, mergeFromID, editHistoryCarriesNoRedaction)
+		if err != nil {
+			return err
+		}
+		result.EntityRefsMoved += moved
+	}
 	return nil
 }
 

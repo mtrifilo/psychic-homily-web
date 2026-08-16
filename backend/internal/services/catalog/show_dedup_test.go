@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -317,6 +318,77 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RevisionsCarryNoRedactionSta
 		"a show merge must not stamp the venue redaction marker on show history")
 	s.Equal(int64(1), summary.RevisionsMoved,
 		"the helper's row count must still reach the dedup summary the CLI reports")
+}
+
+// seedShowPendingEdit records one proposed edit against a show. Written through
+// the model so a column rename breaks the build rather than the test run.
+func (s *ShowDedupTestSuite) seedShowPendingEdit(showID, userID uint) uint {
+	changes := json.RawMessage(`[{"field":"title","old_value":"before","new_value":"after"}]`)
+	edit := &adminm.PendingEntityEdit{
+		EntityType:   "show",
+		EntityID:     showID,
+		SubmittedBy:  userID,
+		FieldChanges: &changes,
+		Summary:      "title fix",
+		Status:       adminm.PendingEditStatusPending,
+	}
+	s.Require().NoError(s.db.Create(edit).Error)
+	return edit.ID
+}
+
+// Same forcing function as revisions, one table over: this CLI deletes the show
+// a read-time gate would consult, so its pending-edit re-point has to state a
+// provenance decision rather than being a raw UPDATE in a list.
+//
+// It also fixes what the raw UPDATE got wrong. idx_pending_entity_edits_unique
+// is UNIQUE on (entity_type, entity_id, submitted_by) WHERE status = 'pending',
+// which the old "no uniqueness constraint" grouping did not account for — one
+// contributor with a pending edit on both shows aborted the entire dedup
+// transaction. The helper drops the loser's row first, which is this merge's
+// documented conflict policy.
+func (s *ShowDedupTestSuite) TestMergeDuplicateShow_PendingEditsRepointAndDedupe() {
+	a := s.seedArtist("Pending")
+	v := s.seedVenue("Pending Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 7, 1, 3, 0, 0, 0, time.UTC)
+	winner := s.seedShow("W", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("L", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+
+	bothShows := s.seedUser("prolific@test.com")
+	loserOnly := s.seedUser("newcomer@test.com")
+
+	kept := s.seedShowPendingEdit(winner, bothShows.ID)
+	// Before the helper, re-pointing this row alongside `kept` violated the
+	// partial unique index and rolled the whole merge back.
+	dropped := s.seedShowPendingEdit(loser, bothShows.ID)
+	survives := s.seedShowPendingEdit(loser, loserOnly.ID)
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var droppedCount int64
+	s.Require().NoError(s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("id = ?", dropped).Count(&droppedCount).Error)
+	s.Zero(droppedCount, "the colliding loser edit must be dropped, not re-pointed into a "+
+		"unique-index violation that aborts the dedup run")
+
+	var keptRow, survivingRow adminm.PendingEntityEdit
+	s.Require().NoError(s.db.First(&keptRow, kept).Error)
+	s.Equal(winner, keptRow.EntityID, "the winner's own pending edit must be untouched")
+	s.Require().NoError(s.db.First(&survivingRow, survives).Error)
+	s.Equal(winner, survivingRow.EntityID,
+		"a contributor with no competing edit on the winner keeps theirs")
+
+	var stale int64
+	s.Require().NoError(s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("entity_type = 'show' AND entity_id = ?", loser).Count(&stale).Error)
+	s.Zero(stale, "pending_entity_edits left a dangling reference to the deleted show")
+
+	s.Equal(int64(1), summary.PendingEditsMoved,
+		"the helper's row count must still reach the dedup summary the CLI reports")
+	s.Equal(int64(1), summary.PendingEditsSkipped,
+		"a dropped contributor edit must be visible in the CLI summary, not silent")
 }
 
 // TestRecanonicaliseShowSlug rewrites a legacy (UTC-derived) slug to

@@ -176,7 +176,7 @@ func printSummary(s *catalog.ShowDedupSummary) {
 	fmt.Printf("  comment_subscriptions:  moved=%d skipped=%d\n", s.SubsRepointed, s.SubsSkipped)
 	fmt.Printf("  entity_tags:            moved=%d skipped=%d\n", s.EntityTagsMoved, s.EntityTagsSkipped)
 	fmt.Printf("  entity_reports:         moved=%d\n", s.EntityReportsMoved)
-	fmt.Printf("  pending_entity_edits:   moved=%d\n", s.PendingEditsMoved)
+	fmt.Printf("  pending_entity_edits:   moved=%d skipped=%d\n", s.PendingEditsMoved, s.PendingEditsSkipped)
 	fmt.Printf("  revisions:              moved=%d\n", s.RevisionsMoved)
 	fmt.Printf("  requests:               moved=%d\n", s.RequestsMoved)
 	fmt.Printf("  audit_logs:             moved=%d\n", s.AuditLogsMoved)

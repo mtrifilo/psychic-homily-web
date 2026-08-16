@@ -50,6 +50,11 @@ func (s *VenueMergeIntegrationSuite) SetupTest() {
 	s.Require().NoError(err)
 	for _, stmt := range []string{
 		"DELETE FROM audit_logs",
+		// pending_entity_edits.submitted_by has no ON DELETE clause, so a stale
+		// row here makes the users delete below fail rather than the test that
+		// left it behind.
+		"DELETE FROM pending_entity_edits",
+		"DELETE FROM entity_edit_audit_logs",
 		"DELETE FROM revisions",
 		"DELETE FROM venue_confirmations",
 		"DELETE FROM entity_tags",
@@ -798,6 +803,15 @@ func (s *VenueMergeIntegrationSuite) TestVenueEntityRefsCoverSchema() {
 		s.Truef(present[ref.table],
 			"venueEntityRefs lists %q, which no longer has an entity_type column", ref.table)
 	}
+
+	// The tables handled by a dedicated step need the same reverse check. They
+	// left venueEntityRefs to gain a provenance decision, and taking that check
+	// with them would mean a dropped entity_type column stops failing here and
+	// starts failing at runtime, on every merge.
+	for _, table := range venueRefsRepointedElsewhere {
+		s.Truef(present[table],
+			"venueRefsRepointedElsewhere lists %q, which no longer has an entity_type column", table)
+	}
 }
 
 // ──────────────────────────────────────────────
@@ -906,4 +920,158 @@ func (s *VenueMergeIntegrationSuite) TestPreviewDoesNotMarkRevisions() {
 	row := s.revisionByID(rev)
 	s.Equal(loser.ID, row.EntityID, "a preview must roll back the re-point")
 	s.False(row.FromUnverifiedVenue, "a preview must roll back the mark too")
+}
+
+// ──────────────────────────────────────────────
+// Edit-history provenance
+// ──────────────────────────────────────────────
+//
+// pending_entity_edits is the table the venue READ side treats as history:
+// venueEditCounts builds the provenance stamp from it. entity_edit_audit_logs
+// rides along because this merge re-points it too. Both moved inside the
+// reassignEntityRefs loop until PSY-1788 pulled them out behind
+// repointEditHistory, which requires the merge to state what happens to the
+// redaction those rows were carrying.
+//
+// These tests exist to pin that the pull-out changed no behavior.
+
+// seedPendingEdit records one proposed venue edit and returns its id.
+//
+// Written through the model rather than raw SQL so a column rename breaks the
+// build instead of the test run.
+func (s *VenueMergeIntegrationSuite) seedPendingEdit(
+	venueID, userID uint, status adminm.PendingEditStatus,
+) uint {
+	changes := json.RawMessage(
+		`[{"field":"address","old_value":"1 Old St","new_value":"1234 Secret St"}]`)
+	edit := &adminm.PendingEntityEdit{
+		EntityType:   adminm.PendingEditEntityVenue,
+		EntityID:     venueID,
+		SubmittedBy:  userID,
+		FieldChanges: &changes,
+		Summary:      "address fix",
+		Status:       status,
+	}
+	s.Require().NoError(s.db.Create(edit).Error)
+	return edit.ID
+}
+
+// seedEntityEditAuditLog records one applied venue edit in the audit trail.
+func (s *VenueMergeIntegrationSuite) seedEntityEditAuditLog(venueID, userID uint) uint {
+	metadata := json.RawMessage(`{"fields":["address"]}`)
+	entry := &adminm.EntityEditAuditLog{
+		ActorID:    &userID,
+		EntityType: "venue",
+		EntityID:   venueID,
+		Metadata:   &metadata,
+		CreatedAt:  time.Now().UTC(),
+	}
+	s.Require().NoError(s.db.Create(entry).Error)
+	return entry.ID
+}
+
+func (s *VenueMergeIntegrationSuite) pendingEditByID(id uint) adminm.PendingEntityEdit {
+	var edit adminm.PendingEntityEdit
+	s.Require().NoError(s.db.First(&edit, id).Error)
+	return edit
+}
+
+// The loser's verification state decides what happens to its REVISIONS. It
+// decides nothing about its edit history, because edit content never reaches an
+// anonymous reader in the first place — only venueEditCounts' aggregate does.
+// Both branches run so that a future change which starts varying edit history
+// by verification has to come here and say so.
+func (s *VenueMergeIntegrationSuite) TestMergeMovesEditHistoryRegardlessOfLoserVerification() {
+	for _, tc := range []struct {
+		name          string
+		loserVerified bool
+	}{
+		{"unverified loser", false},
+		{"verified loser", true},
+	} {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+
+			canonical := s.createVerifiedVenue("Canonical Room")
+			loser := s.createVenue("Dupe Room")
+			if tc.loserVerified {
+				s.Require().NoError(s.db.Model(&catalogm.Venue{}).
+					Where("id = ?", loser.ID).Update("verified", true).Error)
+			}
+			editor := s.createUser("editor")
+
+			pendingEdit := s.seedPendingEdit(loser.ID, editor.ID, adminm.PendingEditStatusApproved)
+			auditEntry := s.seedEntityEditAuditLog(loser.ID, editor.ID)
+
+			result, err := s.svc.MergeVenues(canonical.ID, loser.ID, 0)
+			s.Require().NoError(err)
+
+			moved := s.pendingEditByID(pendingEdit)
+			s.Equal(canonical.ID, moved.EntityID,
+				"the venue's edit history must follow it onto the canonical venue")
+
+			var movedEntry adminm.EntityEditAuditLog
+			s.Require().NoError(s.db.First(&movedEntry, auditEntry).Error)
+			s.Equal(canonical.ID, movedEntry.EntityID,
+				"the edit audit trail must not be left pointing at a deleted venue")
+
+			s.GreaterOrEqual(result.EntityRefsMoved, int64(2),
+				"both rows must still count toward the merge summary the admin reads")
+		})
+	}
+}
+
+// The dedupe is what keeps the re-point from violating
+// idx_pending_entity_edits_unique. It was venue-merge behavior before PSY-1788
+// and it has to survive the move into the helper: one contributor cannot end up
+// with two pending edits on the canonical venue.
+func (s *VenueMergeIntegrationSuite) TestMergeDropsDuplicateContributorPendingEdits() {
+	canonical := s.createVerifiedVenue("Canonical Room")
+	loser := s.createVenue("Dupe Room")
+	bothVenues := s.createUser("prolific")
+	loserOnly := s.createUser("newcomer")
+
+	kept := s.seedPendingEdit(canonical.ID, bothVenues.ID, adminm.PendingEditStatusPending)
+	dropped := s.seedPendingEdit(loser.ID, bothVenues.ID, adminm.PendingEditStatusPending)
+	survives := s.seedPendingEdit(loser.ID, loserOnly.ID, adminm.PendingEditStatusPending)
+
+	_, err := s.svc.MergeVenues(canonical.ID, loser.ID, 0)
+	s.Require().NoError(err)
+
+	var droppedCount int64
+	s.Require().NoError(s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("id = ?", dropped).Count(&droppedCount).Error)
+	s.Zero(droppedCount,
+		"the losing venue's edit from a contributor who already has one on the canonical "+
+			"venue must be dropped — re-pointing it violates idx_pending_entity_edits_unique")
+
+	s.Equal(canonical.ID, s.pendingEditByID(kept).EntityID,
+		"the canonical venue's own pending edit must be untouched")
+	s.Equal(canonical.ID, s.pendingEditByID(survives).EntityID,
+		"a contributor with no competing edit on the canonical venue keeps theirs")
+
+	var stale int64
+	s.Require().NoError(s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("entity_type = ? AND entity_id = ?", adminm.PendingEditEntityVenue, loser.ID).
+		Count(&stale).Error)
+	s.Zero(stale, "pending_entity_edits left a dangling reference to the deleted venue")
+}
+
+// A preview must leave the edit history exactly where it found it, the same way
+// it leaves no audit log and no deleted show. The dedupe makes this worth its
+// own test: a preview that failed to roll back would have DELETED a row.
+func (s *VenueMergeIntegrationSuite) TestPreviewDoesNotMoveOrDropEditHistory() {
+	canonical := s.createVerifiedVenue("Preview Canonical")
+	loser := s.createVenue("Preview Loser")
+	editor := s.createUser("editor")
+
+	kept := s.seedPendingEdit(canonical.ID, editor.ID, adminm.PendingEditStatusPending)
+	wouldDrop := s.seedPendingEdit(loser.ID, editor.ID, adminm.PendingEditStatusPending)
+
+	_, err := s.svc.PreviewMergeVenues(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	s.Equal(loser.ID, s.pendingEditByID(wouldDrop).EntityID,
+		"a preview must roll back the re-point")
+	s.Equal(canonical.ID, s.pendingEditByID(kept).EntityID)
 }
