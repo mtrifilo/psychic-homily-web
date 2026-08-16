@@ -150,6 +150,14 @@ export interface SceneMap {
   labelCount: number
   /** Catalog artists with no surviving edge, reported but not drawn. */
   isolateCount: number
+  /**
+   * When the nightly job built this snapshot.
+   *
+   * DISPLAY IT VIA `formatLastMapped` IN `./graphWeek`, never by formatting
+   * this instant directly. The graph week is computed from it in UTC, so a
+   * surface that renders it in the reader's zone names a different day than the
+   * week beside it does — which is exactly the bug that helper exists to close.
+   */
   lastMapped: Date
   /** Origin every `appear` value counts seconds from. */
   epoch: Date

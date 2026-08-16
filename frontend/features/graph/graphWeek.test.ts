@@ -1,19 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
-
-// The runner's own zone, pinned BEFORE the module under test constructs its
-// formatters (which is what `vi.hoisted` buys — it runs ahead of the imports
-// below). Without this the UTC rule `formatLastMapped` exists to enforce is
-// untestable on CI, whose boxes are UTC: there, a formatter that had slipped
-// back to the ambient zone would produce the identical string and pass.
-//
-// Phoenix because it is UTC-7 and never observes DST, so the offset that makes
-// the assertions bite is the same in August as in January.
-//
-// Everything else in this file works in explicit UTC instants, so the pin is
-// inert for the rest of it.
-vi.hoisted(() => {
-  process.env.TZ = 'America/Phoenix'
-})
+import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import {
   GRAPH_WEEK_DAYS,
@@ -27,6 +12,35 @@ import {
   resolveGraphWeek,
 } from './graphWeek'
 import type { SceneMap, SceneMapEdge, SceneMapNode } from './sceneMap'
+
+// The runner's own zone. Written below the imports but RUN BEFORE them — that
+// is what `vi.hoisted` buys, and it is the point: the module under test builds
+// its `Intl.DateTimeFormat`s at module scope, so the zone has to be set before
+// the import above evaluates.
+//
+// Without this the UTC rule these formatters exist to enforce is untestable on
+// CI, whose boxes are UTC: there, a formatter that had slipped back to the
+// ambient zone produces the identical string and passes. Phoenix because it is
+// UTC-7 and never observes DST, so the offset that makes the assertions bite is
+// the same in August as in January.
+//
+// Everything else in this file works in explicit UTC instants, so the pin is
+// inert for the rest of it.
+//
+// Restored in `afterAll` because `process.env` is per-PROCESS while the module
+// registry is per-file: vitest's default `isolate: true` gives each file its
+// own fork and contains this, but under `--isolate=false` the pin would outlive
+// the file and silently retime whichever ambient-zone suite ran next.
+const { originalTz } = vi.hoisted(() => {
+  const originalTz = process.env.TZ
+  process.env.TZ = 'America/Phoenix'
+  return { originalTz }
+})
+
+afterAll(() => {
+  if (originalTz === undefined) delete process.env.TZ
+  else process.env.TZ = originalTz
+})
 
 const EPOCH = new Date('2005-01-01T00:00:00Z')
 /** The snapshot's build time in every fixture below. */
@@ -293,14 +307,40 @@ describe('count copy', () => {
 })
 
 describe('formatLastMapped', () => {
-  // THE BOUNDARY THE BUG LIVED ON. The nightly job lands in the small hours
-  // UTC, which is still the previous evening across the Americas: 00:30 UTC on
-  // the 2nd is 17:30 on the 1st in the zone pinned at the top of this file.
+  // TWO INSTANTS THAT STRADDLE THE UTC DAY IN OPPOSITE DIRECTIONS, so that no
+  // single zone can satisfy both and "UTC" is pinned rather than merely "not
+  // the runner's zone". 00:30Z is the previous day for every negative offset;
+  // 22:00Z is the next day for every offset past +02.
+  //
+  // The first is where the bug lived — the nightly job lands in the small hours
+  // UTC, still yesterday evening across the Americas. The second earns its keep
+  // against a subtler regression: a formatter pinned to the WRONG fixed zone
+  // (say the office's) would pass every assertion written only around the
+  // first, because it agrees with UTC for most of the UTC day.
   const justAfterUtcMidnight = new Date('2026-08-02T00:30:00Z')
+  const lateUtcEvening = new Date('2026-08-02T22:00:00Z')
 
-  it('names the snapshot day, not the day the reader is having', () => {
-    // Against the reader-local render rather than a literal date, so the
-    // assertion is about the TIMEZONE and stays true under any runner locale.
+  /**
+   * The rule, restated independently of the reader's LOCALE — which
+   * `formatLastMapped` deliberately leaves as the runtime's, so a literal
+   * `'Aug 2, 2026'` here would be asserting the runner's locale, not the rule.
+   */
+  const utcCalendarDay = (instant: Date) =>
+    new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }).format(instant)
+
+  it('names the UTC calendar day, whichever side of it the reader is on', () => {
+    expect(formatLastMapped(justAfterUtcMidnight)).toBe(utcCalendarDay(justAfterUtcMidnight))
+    expect(formatLastMapped(lateUtcEvening)).toBe(utcCalendarDay(lateUtcEvening))
+  })
+
+  it('is not the day the reader is having', () => {
+    // The bug in its own terms, and the reason the zone is pinned at the top of
+    // this file: under UTC-7 this instant is still the 1st for the reader.
     expect(formatLastMapped(justAfterUtcMidnight)).not.toBe(
       justAfterUtcMidnight.toLocaleDateString(undefined, {
         year: 'numeric',

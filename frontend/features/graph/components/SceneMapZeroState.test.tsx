@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -7,6 +7,34 @@ import { renderWithProviders } from '@/test/utils'
 import { formatLastMapped } from '../graphWeek'
 import type { SceneMap, SceneMapNode } from '../sceneMap'
 import { SceneMapZeroState } from './SceneMapZeroState'
+
+// The runner's own zone. Written below the imports but RUN BEFORE them — that
+// is what `vi.hoisted` buys, and it is the point: `formatLastMapped` builds its
+// `Intl.DateTimeFormat` at module scope, so the zone has to be set before the
+// import above evaluates.
+//
+// Without this the footer's date test is vacuous on CI, whose boxes are UTC:
+// there, a footer that had gone back to formatting the instant itself produces
+// the identical string and the test stays green with the bug fully restored.
+// Phoenix because it is UTC-7 and never observes DST, so the offset that makes
+// the assertion bite is the same in August as in January.
+//
+// Nothing else in this file asserts a date, so the pin is inert for the rest.
+//
+// Restored in `afterAll` because `process.env` is per-PROCESS while the module
+// registry is per-file: vitest's default `isolate: true` gives each file its
+// own fork and contains this, but under `--isolate=false` the pin would outlive
+// the file and silently retime whichever ambient-zone suite ran next.
+const { originalTz } = vi.hoisted(() => {
+  const originalTz = process.env.TZ
+  process.env.TZ = 'America/Phoenix'
+  return { originalTz }
+})
+
+afterAll(() => {
+  if (originalTz === undefined) delete process.env.TZ
+  else process.env.TZ = originalTz
+})
 
 // jsdom cannot render a canvas, so the map surface is stubbed down to the
 // callbacks the host wires: this file covers the CARD around the map (band,
