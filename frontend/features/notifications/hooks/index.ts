@@ -223,6 +223,15 @@ export function useQuickCreateFilter() {
 /** Query key for the user's notification log (bell + inbox surfaces). */
 const NOTIFICATION_LOG_KEY = ['notifications', 'log'] as const
 
+/**
+ * Rows the header bell popover requests — and, because the query key is
+ * parameterized by {limit, offset}, the ONE cache entry every unread-count
+ * consumer must ask for to piggyback on it instead of opening a second
+ * request. `useUnreadNotificationCount` is that shared read; don't inline the
+ * number at a call site.
+ */
+export const NOTIFICATION_BELL_LIMIT = 10
+
 /** Stable `select` for useUserNotifications — see normalizeNotificationDeepLinks. */
 function selectNormalizedNotifications(
   data: NotificationListResponse
@@ -261,6 +270,23 @@ export function useUserNotifications(params?: { limit?: number; offset?: number 
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
   })
+}
+
+/**
+ * The current user's unread-notification count, for badge surfaces that want
+ * the number without the log itself (the mobile Account tab + its sheet's
+ * Notifications row, PSY-1819).
+ *
+ * Reads the SAME cache entry as the header bell, so it costs no request: the
+ * bell is mounted on every page (TopBar hides its cluster with CSS below `sm`,
+ * it does not unmount), and this hook inherits that query's auth gate and 60s
+ * poll. Anonymous visitors and the auth-hydration window both read 0 — the
+ * query is disabled, so a badge keyed off this never renders before auth
+ * settles.
+ */
+export function useUnreadNotificationCount(): number {
+  const { data } = useUserNotifications({ limit: NOTIFICATION_BELL_LIMIT })
+  return data?.unread_count ?? 0
 }
 
 /**

@@ -32,6 +32,7 @@ export {
   useDeleteFilter,
   useQuickCreateFilter,
   useUserNotifications,
+  useUnreadNotificationCount,
   useMarkNotificationsRead,
 } from './hooks'
 

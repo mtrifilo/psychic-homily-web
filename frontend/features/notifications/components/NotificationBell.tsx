@@ -21,9 +21,17 @@ import {
 } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
+import {
+  UnreadCountBadge,
+  withUnreadLabel,
+} from '@/components/shared/UnreadCountBadge'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
-import { useUserNotifications, useMarkNotificationsRead } from '../hooks'
+import {
+  NOTIFICATION_BELL_LIMIT,
+  useUserNotifications,
+  useMarkNotificationsRead,
+} from '../hooks'
 import type { NotificationLogEntry } from '../types'
 import {
   EarlierDivider,
@@ -35,7 +43,9 @@ export function NotificationBell() {
   const { isAuthenticated } = useAuthContext()
   const [open, setOpen] = useState(false)
 
-  const { data, isLoading } = useUserNotifications({ limit: 10 })
+  const { data, isLoading } = useUserNotifications({
+    limit: NOTIFICATION_BELL_LIMIT,
+  })
   const markRead = useMarkNotificationsRead()
 
   const unreadCount = data?.unread_count ?? 0
@@ -64,25 +74,13 @@ export function NotificationBell() {
           // hidden below sm); this trigger no longer self-hides so all three
           // cluster siblings (+ Submit, bell, avatar) share one strategy.
           className="relative cursor-pointer"
-          aria-label={
-            hasUnread
-              ? `Notifications (${unreadCount} unread)`
-              : 'Notifications'
-          }
+          aria-label={withUnreadLabel('Notifications', unreadCount)}
         >
           <Bell className="h-[1.2rem] w-[1.2rem]" />
-          {hasUnread && (
-            <span
-              data-testid="notification-unread-badge"
-              // ring-2 ring-background carves a crisp gap so the badge reads
-              // cleanly over the bell's top-right curve. Small rounded-rect
-              // (radius sm), NOT a pill — Figma 1132:12 State B.
-              className="absolute right-0 top-0 min-w-4 rounded-sm bg-primary px-1 text-center font-mono text-[10px] font-bold leading-4 text-primary-foreground ring-2 ring-background"
-              aria-hidden
-            >
-              {unreadCount}
-            </span>
-          )}
+          <UnreadCountBadge
+            count={unreadCount}
+            className="absolute right-0 top-0"
+          />
         </Button>
       </PopoverTrigger>
       <PopoverContent

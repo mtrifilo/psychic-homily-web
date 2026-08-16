@@ -33,6 +33,9 @@ import {
   useUpdateFilter,
   useDeleteFilter,
   useQuickCreateFilter,
+  useUserNotifications,
+  useUnreadNotificationCount,
+  NOTIFICATION_BELL_LIMIT,
 } from './index'
 
 
@@ -401,5 +404,66 @@ describe('useQuickCreateFilter', () => {
         body: JSON.stringify({ entity_type: 'artist', entity_id: 42 }),
       })
     )
+  })
+})
+
+// PSY-1819: the mobile bottom tab bar badges its Account tab with this count.
+// That bar renders on EVERY page below xl, so the acceptance bar is "costs no
+// request" — which holds only while it reads the same {limit, offset} cache
+// entry as the header bell.
+describe('useUnreadNotificationCount', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+    mockUseAuthContext.mockReturnValue({ isAuthenticated: true })
+  })
+
+  it('reads the unread count off the log payload', async () => {
+    mockApiRequest.mockResolvedValue({ notifications: [], unread_count: 4 })
+
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current).toBe(4))
+  })
+
+  it('shares the bell cache entry — a badge alongside the bell fires ONE request', async () => {
+    mockApiRequest.mockResolvedValue({ notifications: [], unread_count: 2 })
+    const wrapper = createWrapper()
+
+    const { result } = renderHook(
+      () => ({
+        bell: useUserNotifications({ limit: NOTIFICATION_BELL_LIMIT }),
+        badge: useUnreadNotificationCount(),
+      }),
+      { wrapper }
+    )
+
+    await waitFor(() => expect(result.current.badge).toBe(2))
+    expect(result.current.bell.data?.unread_count).toBe(2)
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('is 0 with no request when anonymous — the bar renders for logged-out visitors too', () => {
+    mockUseAuthContext.mockReturnValue({ isAuthenticated: false })
+    mockApiRequest.mockRejectedValue(new Error('should not be called'))
+
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current).toBe(0)
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('is 0 before the query resolves, so no badge flashes during hydration', () => {
+    mockApiRequest.mockReturnValue(new Promise(() => {}))
+
+    const { result } = renderHook(() => useUnreadNotificationCount(), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current).toBe(0)
   })
 })

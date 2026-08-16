@@ -25,7 +25,9 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 vi.mock('../hooks', () => ({
-  useUserNotifications: () => mockUseUserNotifications(),
+  NOTIFICATION_BELL_LIMIT: 10,
+  useUserNotifications: (params?: { limit?: number }) =>
+    mockUseUserNotifications(params),
   useMarkNotificationsRead: () => mockUseMarkRead(),
 }))
 
@@ -107,6 +109,18 @@ describe('NotificationBell', () => {
     expect(
       screen.getByRole('button', { name: /3 unread/i })
     ).toBeInTheDocument()
+  })
+
+  // PSY-1819: the mobile Account-tab badge piggybacks on this exact cache
+  // entry. If the bell drifts off the shared limit, that badge silently opens
+  // a second request on every page below xl.
+  it('requests the SHARED bell limit, the cache entry the mobile badge reads', () => {
+    mockUseUserNotifications.mockReturnValue({
+      data: { notifications: [], unread_count: 0 },
+      isLoading: false,
+    })
+    renderBell()
+    expect(mockUseUserNotifications).toHaveBeenCalledWith({ limit: 10 })
   })
 
   it('shows the exact count above 9 (no "9+" cap)', () => {
