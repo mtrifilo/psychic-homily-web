@@ -11,10 +11,12 @@ import { sheetLinkClassName } from './nav/navData'
 import { useAdminNavCounts } from '@/lib/hooks/admin/useAdminNavCounts'
 
 /**
- * Mobile drawer admin nav content (PSY-933). Dynamically imported by TopBar and
- * mounted ONLY on the /admin tab-shell for admins (the desktop Sidebar is
- * hidden < md, so this is the sole admin nav on mobile). Same chunk-splitting
- * rationale as AdminSidebarNav: keeps admin-only code out of the public bundle.
+ * Mobile drawer admin nav content (PSY-933). Dynamically imported by
+ * AdminMobileDrawer, which app/admin/layout.tsx mounts inside AdminGuard
+ * (PSY-1817) — so this only ever loads for an admin under /admin. The desktop
+ * rail is hidden < md, making this the sole admin nav on mobile. Same
+ * chunk-splitting rationale as AdminSidebarNav: the queue-count hooks and the
+ * 18-section config stay out of the bundle until the drawer is opened.
  *
  * `onNavigate` closes the drawer on selection. Default export for `next/dynamic`.
  */

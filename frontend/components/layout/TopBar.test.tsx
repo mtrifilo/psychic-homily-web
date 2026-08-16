@@ -8,16 +8,6 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
 
-// The admin drawer is a dynamically-imported chunk (AdminDrawerNav, kept off the
-// public bundle); stub next/dynamic so the mobile sheet renders a synchronous
-// marker. The drawer's own behavior is covered by AdminDrawerNav.test.tsx.
-vi.mock('next/dynamic', () => ({
-  default: () =>
-    function AdminDrawerNavStub() {
-      return <div data-testid="admin-drawer-nav" />
-    },
-}))
-
 vi.mock('next/image', () => ({
   default: (props: Record<string, unknown>) => {
     const { priority, ...rest } = props
@@ -271,45 +261,20 @@ describe('TopBar', () => {
     })
   })
 
-  // PSY-1020: the public hamburger sheet is retired — the bottom tab bar
-  // (BottomTabBar, mounted by AppShell) is the primary mobile nav. The drawer
-  // survives only as the admin-sections nav on the /admin tab-shell (PSY-933).
-  describe('admin drawer', () => {
+  // PSY-1020 retired the public hamburger sheet (the BottomTabBar mounted by
+  // AppShell is the primary mobile nav); PSY-1817 moved the surviving admin
+  // drawer out of this bar and into app/admin/layout.tsx. The top bar is public
+  // chrome now — it must carry no admin-only surface for ANY user on ANY route,
+  // which is what these guard. The drawer's own behavior lives in
+  // AdminMobileDrawer.test.tsx, its mount in app/admin/layout.test.tsx.
+  describe('no admin chrome (PSY-1817)', () => {
     it('renders no hamburger for the public', () => {
       render(<TopBar />)
       expect(screen.queryByRole('button', { name: 'Open admin menu' })).not.toBeInTheDocument()
     })
 
-    // The public hamburger-sheet tests (theme toggle, Show Submissions link,
-    // close-on-click) moved to BottomTabBar.test.tsx with the surface (PSY-1020).
-    it('opens the admin drawer for an admin on the /admin shell', async () => {
+    it('renders no admin drawer trigger even for an admin on /admin', () => {
       mockPathname = '/admin'
-      mockAuthContext.mockReturnValue({
-        user: { email: 'admin@test.com', is_admin: true },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      const user = userEvent.setup()
-      render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Open admin menu' }))
-      expect(await screen.findByTestId('admin-drawer-nav')).toBeInTheDocument()
-    })
-
-    it('renders no drawer for a non-admin on /admin', () => {
-      mockPathname = '/admin'
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      render(<TopBar />)
-      expect(screen.queryByRole('button', { name: 'Open admin menu' })).not.toBeInTheDocument()
-    })
-
-    it('renders no drawer for an admin off the /admin shell', () => {
-      mockPathname = '/shows'
       mockAuthContext.mockReturnValue({
         user: { email: 'admin@test.com', is_admin: true },
         isAuthenticated: true,
