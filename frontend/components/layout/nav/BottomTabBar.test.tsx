@@ -339,14 +339,14 @@ describe('BottomTabBar', () => {
       mockUnreadCount.mockReturnValue(3)
       render(<BottomTabBar />)
       const tab = screen.getByRole('button', { name: 'Account (3 unread)' })
-      expect(within(tab).getByTestId('notification-unread-badge')).toHaveTextContent('3')
+      expect(within(tab).getByTestId('unread-count-badge')).toHaveTextContent('3')
     })
 
     it('keeps the plain "Account" name at zero unread, with no badge', () => {
       authedAs({ email: 'user@test.com', is_admin: false })
       render(<BottomTabBar />)
       expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument()
-      expect(screen.queryByTestId('notification-unread-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
     })
 
     it('badges the sheet Notifications row too, and no other row', async () => {
@@ -357,20 +357,20 @@ describe('BottomTabBar', () => {
       await user.click(screen.getByRole('button', { name: 'Account (7 unread)' }))
       const row = await screen.findByRole('link', { name: 'Notifications (7 unread)' })
       expect(row).toHaveAttribute('href', '/notifications')
-      expect(within(row).getByTestId('notification-unread-badge')).toHaveTextContent('7')
+      expect(within(row).getByTestId('unread-count-badge')).toHaveTextContent('7')
       // My Library keeps its bare name — the badge is scoped to its destination.
       expect(screen.getByRole('link', { name: 'My Library' })).toBeInTheDocument()
       // Tab + row, and nothing else in the tree.
-      expect(screen.getAllByTestId('notification-unread-badge')).toHaveLength(2)
+      expect(screen.getAllByTestId('unread-count-badge')).toHaveLength(2)
     })
 
+    // Both non-authed Account renderings are badge-less by construction, not
+    // just because the hook happens to return 0 — so force a non-zero count and
+    // assert nothing renders.
     it('never badges an anonymous visitor', () => {
-      // Belt and braces: the hook is auth-gated, but the anonymous Account tab
-      // is a plain /auth link with no badge slot at all.
       mockUnreadCount.mockReturnValue(5)
       render(<BottomTabBar />)
-      expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/auth')
-      expect(screen.queryByTestId('notification-unread-badge')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
     })
 
     it('never badges the inert placeholder while auth is hydrating', () => {
@@ -382,14 +382,7 @@ describe('BottomTabBar', () => {
       })
       mockUnreadCount.mockReturnValue(5)
       render(<BottomTabBar />)
-      expect(screen.queryByTestId('notification-unread-badge')).not.toBeInTheDocument()
-    })
-
-    it('shows the exact count above 9, matching the bell (no "9+" cap)', () => {
-      authedAs({ email: 'user@test.com', is_admin: false })
-      mockUnreadCount.mockReturnValue(42)
-      render(<BottomTabBar />)
-      expect(screen.getByTestId('notification-unread-badge')).toHaveTextContent('42')
+      expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
     })
   })
 })

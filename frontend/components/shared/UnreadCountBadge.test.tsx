@@ -5,28 +5,28 @@ import { UnreadCountBadge, withUnreadLabel } from './UnreadCountBadge'
 describe('UnreadCountBadge', () => {
   it('renders the count', () => {
     render(<UnreadCountBadge count={3} />)
-    expect(screen.getByTestId('notification-unread-badge')).toHaveTextContent('3')
+    expect(screen.getByTestId('unread-count-badge')).toHaveTextContent('3')
   })
 
   // Every consumer renders this unconditionally and lets the count decide, so
   // the zero guard lives here rather than at four call sites.
   it.each([0, -1])('renders nothing at count %i', count => {
     render(<UnreadCountBadge count={count} />)
-    expect(screen.queryByTestId('notification-unread-badge')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
   })
 
   // The count is announced through the host control's accessible name
   // (withUnreadLabel), so the badge itself must not double-announce it.
   it('is decorative — hidden from assistive tech', () => {
     render(<UnreadCountBadge count={3} />)
-    expect(screen.getByTestId('notification-unread-badge')).toHaveAttribute(
+    expect(screen.getByTestId('unread-count-badge')).toHaveAttribute(
       'aria-hidden'
     )
   })
 
   it('takes host placement without dropping its own styling', () => {
     render(<UnreadCountBadge count={1} className="absolute right-0" />)
-    const badge = screen.getByTestId('notification-unread-badge')
+    const badge = screen.getByTestId('unread-count-badge')
     expect(badge).toHaveClass('absolute', 'right-0', 'bg-primary')
   })
 })

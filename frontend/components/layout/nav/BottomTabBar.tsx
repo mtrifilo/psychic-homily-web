@@ -61,9 +61,8 @@ function tabClassName(active: boolean): string {
 // immediately, without waiting for the route change that SheetTab also reacts to.
 //
 // `unreadCount` trails a badge on the row and folds the number into its
-// accessible name (the badge itself is decorative) — the Account sheet's
-// Notifications row uses it so the count stays attached to its destination once
-// the sheet is open (PSY-1819). At 0 the row is byte-for-byte what it was.
+// accessible name (the badge itself is decorative). At 0 the row is
+// byte-for-byte what it was — see withUnreadLabel for the guard convention.
 function SheetNavLink({
   item,
   active,
@@ -102,28 +101,6 @@ function SheetNavLink({
   )
 }
 
-// A tab's icon with its unread badge overlaid at the top-right corner. The
-// offsets pull the badge off the 20px icon box without widening the tab's
-// centred column — the grid cell is fixed-width, so anything that affects
-// layout here shifts the label under it.
-function TabIcon({
-  icon: Icon,
-  unreadCount = 0,
-}: {
-  icon: LucideIcon
-  unreadCount?: number
-}) {
-  return (
-    <span className="relative">
-      <Icon className="size-5" aria-hidden />
-      <UnreadCountBadge
-        count={unreadCount}
-        className="absolute -right-2 -top-1"
-      />
-    </span>
-  )
-}
-
 // One tab-slot bottom sheet: trigger chrome + content shell. The body is passed
 // as a COMPONENT'S children so a closed sheet never renders (Radix keeps closed
 // content unmounted) — the bar re-renders on every navigation, and desktop
@@ -137,7 +114,7 @@ function TabIcon({
 // close instantly via SheetClose without waiting for the route.)
 function SheetTab({
   label,
-  icon,
+  icon: Icon,
   active,
   subtitle,
   description,
@@ -168,13 +145,20 @@ function SheetTab({
         {...replayOnHydrate}
         className={tabClassName(active)}
         aria-current={active ? 'page' : undefined}
-        // Only labelled when there's something to announce: at 0 the trigger
-        // keeps its plain text name, so name-based queries still match exactly.
         aria-label={
           unreadCount > 0 ? withUnreadLabel(label, unreadCount) : undefined
         }
       >
-        <TabIcon icon={icon} unreadCount={unreadCount} />
+        {/* The offsets pull the badge off the 20px icon box without widening
+            the tab's centred column — the grid cell is fixed-width, so
+            anything that affects layout here shifts the label under it. */}
+        <span className="relative">
+          <Icon className="size-5" aria-hidden />
+          <UnreadCountBadge
+            count={unreadCount}
+            className="absolute -right-2 -top-1"
+          />
+        </span>
         {label}
       </SheetTrigger>
       <SheetContent
@@ -260,9 +244,6 @@ function AccountSheetBody({
           key={item.href}
           item={item}
           active={isNavActive(pathname, item.href)}
-          // The badge is on the tab too, but it belongs here as well: once the
-          // sheet covers the bar, the count has to stay attached to the
-          // destination that clears it.
           unreadCount={item.href === NOTIFICATIONS_HREF ? unreadCount : 0}
         />
       ))}
@@ -283,11 +264,7 @@ export function BottomTabBar() {
   const pathname = usePathname()
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
 
-  // Below `sm` the top bar's bell is hidden, so this bar is the only place an
-  // unread count can surface (PSY-1819). Free: it reads the bell's cache entry,
-  // and the bell is mounted at every width (TopBar hides its cluster with CSS).
-  // Self-gating on auth — 0 for anonymous visitors and during auth hydration,
-  // which is exactly the no-badge state both of those want.
+  // Costs no request and self-gates to 0 when signed out — see the hook.
   const unreadCount = useUnreadNotificationCount()
 
   const isActive = (href: string) => isNavActive(pathname, href)

@@ -25,7 +25,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 vi.mock('../hooks', () => ({
-  NOTIFICATION_BELL_LIMIT: 10,
+  NOTIFICATION_LOG_SHARED_LIMIT: 10,
   useUserNotifications: (params?: { limit?: number }) =>
     mockUseUserNotifications(params),
   useMarkNotificationsRead: () => mockUseMarkRead(),
@@ -95,7 +95,7 @@ describe('NotificationBell', () => {
     })
     renderBell()
     expect(screen.getByRole('button', { name: /notifications/i })).toBeInTheDocument()
-    expect(screen.queryByTestId('notification-unread-badge')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('unread-count-badge')).not.toBeInTheDocument()
   })
 
   it('shows a numeric badge with the unread count (PSY-1513)', () => {
@@ -104,7 +104,7 @@ describe('NotificationBell', () => {
       isLoading: false,
     })
     renderBell()
-    const badge = screen.getByTestId('notification-unread-badge')
+    const badge = screen.getByTestId('unread-count-badge')
     expect(badge).toHaveTextContent('3')
     expect(
       screen.getByRole('button', { name: /3 unread/i })
@@ -113,8 +113,10 @@ describe('NotificationBell', () => {
 
   // PSY-1819: the mobile Account-tab badge piggybacks on this exact cache
   // entry. If the bell drifts off the shared limit, that badge silently opens
-  // a second request on every page below xl.
-  it('requests the SHARED bell limit, the cache entry the mobile badge reads', () => {
+  // a second request on every page below xl. This catches the bell inlining a
+  // different literal; that the two hooks genuinely share ONE request is
+  // proven against the real constant in hooks/index.test.tsx.
+  it('requests the shared log limit, the cache entry the mobile badge reads', () => {
     mockUseUserNotifications.mockReturnValue({
       data: { notifications: [], unread_count: 0 },
       isLoading: false,
@@ -129,7 +131,7 @@ describe('NotificationBell', () => {
       isLoading: false,
     })
     renderBell()
-    expect(screen.getByTestId('notification-unread-badge')).toHaveTextContent('47')
+    expect(screen.getByTestId('unread-count-badge')).toHaveTextContent('47')
     expect(screen.queryByText('9+')).not.toBeInTheDocument()
   })
 

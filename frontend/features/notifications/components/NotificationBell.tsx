@@ -28,7 +28,7 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import {
-  NOTIFICATION_BELL_LIMIT,
+  NOTIFICATION_LOG_SHARED_LIMIT,
   useUserNotifications,
   useMarkNotificationsRead,
 } from '../hooks'
@@ -44,7 +44,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
 
   const { data, isLoading } = useUserNotifications({
-    limit: NOTIFICATION_BELL_LIMIT,
+    limit: NOTIFICATION_LOG_SHARED_LIMIT,
   })
   const markRead = useMarkNotificationsRead()
 

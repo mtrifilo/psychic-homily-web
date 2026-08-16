@@ -168,9 +168,11 @@ export const atlasItem: NavDestination = { href: '/atlas', label: 'Atlas', icon:
 export const PROFILE_CLAIM_HREF = '/users/me'
 
 /**
- * The notification inbox. Named because chrome attaches to it by identity, not
- * by string literal: the mobile Account sheet finds this row to hang the unread
- * badge on (PSY-1819), so a change of route moves the badge with it.
+ * The notification inbox, named so the table entry below and the mobile Account
+ * sheet — which finds that row to hang the unread badge on (PSY-1819) — agree
+ * by identity rather than by matching string literals. A change of route moves
+ * the badge with it. Other surfaces still inline the path (CommandPalette's
+ * fork, the bell popover's "View all"); this covers the nav table only.
  */
 export const NOTIFICATIONS_HREF = '/notifications'
 

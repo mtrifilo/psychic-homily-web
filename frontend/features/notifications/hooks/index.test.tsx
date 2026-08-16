@@ -35,7 +35,7 @@ import {
   useQuickCreateFilter,
   useUserNotifications,
   useUnreadNotificationCount,
-  NOTIFICATION_BELL_LIMIT,
+  NOTIFICATION_LOG_SHARED_LIMIT,
 } from './index'
 
 
@@ -434,7 +434,7 @@ describe('useUnreadNotificationCount', () => {
 
     const { result } = renderHook(
       () => ({
-        bell: useUserNotifications({ limit: NOTIFICATION_BELL_LIMIT }),
+        bell: useUserNotifications({ limit: NOTIFICATION_LOG_SHARED_LIMIT }),
         badge: useUnreadNotificationCount(),
       }),
       { wrapper }

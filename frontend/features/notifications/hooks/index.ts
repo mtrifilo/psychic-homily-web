@@ -230,7 +230,7 @@ const NOTIFICATION_LOG_KEY = ['notifications', 'log'] as const
  * request. `useUnreadNotificationCount` is that shared read; don't inline the
  * number at a call site.
  */
-export const NOTIFICATION_BELL_LIMIT = 10
+export const NOTIFICATION_LOG_SHARED_LIMIT = 10
 
 /** Stable `select` for useUserNotifications — see normalizeNotificationDeepLinks. */
 function selectNormalizedNotifications(
@@ -285,7 +285,7 @@ export function useUserNotifications(params?: { limit?: number; offset?: number 
  * settles.
  */
 export function useUnreadNotificationCount(): number {
-  const { data } = useUserNotifications({ limit: NOTIFICATION_BELL_LIMIT })
+  const { data } = useUserNotifications({ limit: NOTIFICATION_LOG_SHARED_LIMIT })
   return data?.unread_count ?? 0
 }
 
