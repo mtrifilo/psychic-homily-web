@@ -5,6 +5,7 @@ import { ModeToggle, useThemeToggle } from './mode-toggle'
 
 const mockSetTheme = vi.fn()
 const mockUseTheme = vi.fn(() => ({
+  theme: 'light',
   resolvedTheme: 'light',
   setTheme: mockSetTheme,
 }))
@@ -13,19 +14,20 @@ vi.mock('next-themes', () => ({
   useTheme: () => mockUseTheme(),
 }))
 
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockUseTheme.mockReturnValue({
+    theme: 'light',
+    resolvedTheme: 'light',
+    setTheme: mockSetTheme,
+  })
+})
+
 // PSY-1818: useThemeToggle is the ONE theme-flip implementation. Every flip
 // rule is pinned here, once — the top bar, the mobile Browse sheet and the hero
 // lab each used to carry their own copy of the expression and, for the
 // resolvedTheme rule, their own copy of the regression test.
 describe('useThemeToggle', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockUseTheme.mockReturnValue({
-      resolvedTheme: 'light',
-      setTheme: mockSetTheme,
-    })
-  })
-
   it('reports the light theme and labels the action "Dark mode"', () => {
     const { result } = renderHook(() => useThemeToggle())
     expect(result.current.isDark).toBe(false)
@@ -34,6 +36,7 @@ describe('useThemeToggle', () => {
 
   it('reports the dark theme and labels the ACTION, not the state', () => {
     mockUseTheme.mockReturnValue({
+      theme: 'dark',
       resolvedTheme: 'dark',
       setTheme: mockSetTheme,
     })
@@ -43,32 +46,29 @@ describe('useThemeToggle', () => {
     expect(result.current.label).toBe('Light mode')
   })
 
-  it('toggles light → dark', () => {
-    const { result } = renderHook(() => useThemeToggle())
-    act(() => result.current.toggle())
-    expect(mockSetTheme).toHaveBeenCalledTimes(1)
-    expect(mockSetTheme).toHaveBeenCalledWith('dark')
-  })
-
   it('flips the VISIBLE theme under theme="system" — resolvedTheme, not theme', () => {
     // The regression this hook exists to hold in one place: with
     // theme === 'system' on a dark device, a `theme === 'dark'` check sets an
     // explicit 'dark' — the first click appears to do nothing. resolvedTheme
-    // reports what the user is actually looking at.
+    // reports what the user is actually looking at. `theme` is set to 'system'
+    // here on purpose: without it the test would pass against a hook that keys
+    // off `theme`, which is exactly the bug.
     mockUseTheme.mockReturnValue({
+      theme: 'system',
       resolvedTheme: 'dark',
       setTheme: mockSetTheme,
     })
     const { result } = renderHook(() => useThemeToggle())
     act(() => result.current.toggle())
+    expect(mockSetTheme).toHaveBeenCalledTimes(1)
     expect(mockSetTheme).toHaveBeenCalledWith('light')
-    expect(mockSetTheme).not.toHaveBeenCalledWith('dark')
   })
 
   it('treats an undefined resolvedTheme (pre-hydration) as not-dark', () => {
     // next-themes reports undefined until it has read storage; the toggle must
     // default sensibly rather than throw.
     mockUseTheme.mockReturnValue({
+      theme: 'system',
       resolvedTheme: undefined as unknown as string,
       setTheme: mockSetTheme,
     })
@@ -86,6 +86,7 @@ describe('useThemeToggle', () => {
       mockSetTheme(t)
     })
     mockUseTheme.mockImplementation(() => ({
+      theme: currentTheme,
       resolvedTheme: currentTheme,
       setTheme: statefulSetTheme,
     }))
@@ -105,14 +106,6 @@ describe('useThemeToggle', () => {
 // ModeToggle's own contract is the button chrome around that hook. The flip
 // rules above are not re-asserted through the component.
 describe('ModeToggle', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockUseTheme.mockReturnValue({
-      resolvedTheme: 'light',
-      setTheme: mockSetTheme,
-    })
-  })
-
   it('renders the toggle button', () => {
     render(<ModeToggle />)
     expect(screen.getByRole('button', { name: 'Toggle theme' })).toBeInTheDocument()

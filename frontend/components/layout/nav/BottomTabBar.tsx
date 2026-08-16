@@ -206,9 +206,7 @@ function BrowseSheetBody({
       {/* Theme toggle — migrated from the retired hamburger sheet; the
           top bar's toggle is hidden below `sm`, so this keeps it reachable
           for everyone (incl. anonymous) on phones. Deliberately NOT a
-          SheetClose: flipping the theme should show the result in place.
-          The flip itself is useThemeToggle's (PSY-1818), which documents why
-          it keys off resolvedTheme rather than theme. */}
+          SheetClose: flipping the theme should show the result in place. */}
       <div className="mx-3 my-2 border-t border-border/30" />
       {/* Icon tracks the ACTION like the label does (Sun + "Light mode" in
           dark), not the current state — an icon meaning "you are in dark"

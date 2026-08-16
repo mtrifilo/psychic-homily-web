@@ -46,8 +46,6 @@ const glitchFilter = (
 // Sidebar, so the top bar drops its PrimaryNav and becomes a slim brand +
 // search + theme + account bar. 'full' (default) is the top-nav-mode chrome.
 export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {}) {
-  // The one theme-flip implementation lives in mode-toggle.tsx (PSY-1818); it
-  // documents why this keys off resolvedTheme rather than theme.
   const { toggle: toggleTheme } = useThemeToggle()
 
   return (
@@ -113,10 +111,11 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
         <div className="flex min-w-0 items-center gap-[14px]">
           {/* ONE search trigger at every width (PSY-1818): the box is 36px —
               an icon tap target — below `sm` and the full field above it, and
-              SearchTrigger adapts its own chrome to fit. `shrink-0` below `sm`
+              SearchTrigger adapts its own chrome to fit. The `sm` here and the
+              `sm` in SearchTrigger's class list are one contract; SearchTrigger
+              documents what breaks if they diverge. `shrink-0` below `sm`
               because a 36px icon has nothing to give; at `sm`+ it goes back to
-              being the row's designated slack absorber per the note above.
-              SearchTrigger documents why it carries no replayOnHydrate. */}
+              being the row's designated slack absorber per the note above. */}
           <div role="search" className="w-9 min-w-0 shrink-0 sm:w-[220px] sm:shrink xl:w-[320px]">
             <SearchTrigger />
           </div>

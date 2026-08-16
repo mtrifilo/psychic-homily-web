@@ -35,12 +35,14 @@ vi.mock('@/features/notifications', () => ({
   useUnreadNotificationCount: () => mockUnreadCount(),
 }))
 
-let mockTheme = 'dark'
-let mockResolvedTheme = 'dark'
+// No `theme` field on purpose: the sheet reads useThemeToggle, which keys off
+// resolvedTheme alone. Advertising a `theme` the tree cannot observe is what
+// made the removed theme="system" duplicate here look meaningful; that rule is
+// pinned once, in mode-toggle.test.tsx.
+const mockResolvedTheme = 'dark'
 const mockSetTheme = vi.fn()
 vi.mock('next-themes', () => ({
   useTheme: () => ({
-    theme: mockTheme,
     resolvedTheme: mockResolvedTheme,
     setTheme: mockSetTheme,
   }),
@@ -59,8 +61,6 @@ describe('BottomTabBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname = '/'
-    mockTheme = 'dark'
-    mockResolvedTheme = 'dark'
     mockUnreadCount.mockReturnValue(0)
     mockAuthContext.mockReturnValue({
       user: null,

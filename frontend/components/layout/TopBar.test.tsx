@@ -38,7 +38,9 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-let mockTheme = 'dark'
+// Constant: the flip's direction is useThemeToggle's, covered in
+// mode-toggle.test.tsx. TopBar's test only needs one settled theme to click in.
+const mockTheme = 'dark'
 const mockSetTheme = vi.fn()
 vi.mock('next-themes', () => ({
   useTheme: () => ({ theme: mockTheme, resolvedTheme: mockTheme, setTheme: mockSetTheme }),
@@ -58,7 +60,6 @@ describe('TopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname = '/'
-    mockTheme = 'dark'
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
