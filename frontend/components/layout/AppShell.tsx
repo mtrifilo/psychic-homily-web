@@ -70,7 +70,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     // the viewport rather than this box; BottomTabBar, the cookie banner, and
     // the skip link below each carry their own env() padding. The remaining
     // fixed and full-bleed surfaces (side sheets, portaled Radix popovers, the
-    // /atlas map) are tracked in PSY-1822.
+    // /atlas map) are tracked in PSY-1824.
     //
     // Trade-off accepted: in-flow chrome that paints edge-to-edge is inset too,
     // so TopBar's border-b and Footer's border-t stop at the safe area rather
