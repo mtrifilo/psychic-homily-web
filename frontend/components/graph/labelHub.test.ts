@@ -50,6 +50,19 @@ describe('labelHubHomeCaption', () => {
     expect(labelHubHomeCaption({ country: 'US' })).toBe('US')
   })
 
+  // A named PSY-1792 acceptance case, and the one with a non-obvious output: a
+  // BARE state. The US-country suppression keys off the state alone, not off
+  // "city AND state", so a label placed only in a state captions "TX" rather
+  // than "TX, USA". Pinned because a hub captioned with two letters looks like
+  // a bug to anyone who has not read `formatLocation`.
+  it('falls back to state alone, still without the redundant US country', () => {
+    expect(labelHubHomeCaption({ state: 'TX', country: 'USA' })).toBe('TX')
+    // Non-US keeps the country, which is what makes the state legible.
+    expect(labelHubHomeCaption({ state: 'Ontario', country: 'Canada' })).toBe(
+      'Ontario, Canada',
+    )
+  })
+
   it('returns undefined — not a placeholder — when nothing is on file', () => {
     expect(labelHubHomeCaption({})).toBeUndefined()
     expect(

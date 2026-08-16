@@ -382,9 +382,12 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
 		Where("id = ?", artists[0].ID).
 		Update("name", "Renamed Band").Error)
+	// All THREE location parts, not just the city: they take the identical
+	// path, so a build that stopped emitting two of them while preserving the
+	// warm start would otherwise still pass this test.
 	s.Require().NoError(s.db.Model(&catalogm.Label{}).
 		Where("name = ?", "HubRecords").
-		Update("city", "Austin").Error)
+		Updates(map[string]any{"city": "Austin", "state": "TX", "country": "USA"}).Error)
 
 	runner := &stubLayoutRunner{transform: rotateScaleTranslate}
 	_, err = s.build(runner, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
@@ -396,6 +399,8 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 	s.Assert().Equal(before.Nodes.Y, after.Nodes.Y)
 	s.Assert().Contains(after.Nodes.Name, "Renamed Band", "the rename still reached the payload")
 	s.Assert().Contains(after.Nodes.HubCity, "Austin", "the city edit still reached the payload")
+	s.Assert().Contains(after.Nodes.HubState, "TX", "the state edit still reached the payload")
+	s.Assert().Contains(after.Nodes.HubCountry, "USA", "the country edit still reached the payload")
 }
 
 func (s *GraphOverviewSuite) TestBuild_WarmStartResumesFromThePreviousSnapshot() {

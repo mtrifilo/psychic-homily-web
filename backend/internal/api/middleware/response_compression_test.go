@@ -38,18 +38,31 @@ func productionScaleOverview() *contracts.GraphOverview {
 	const nodeCount, edgeCount = 5000, 20000
 
 	nodes := contracts.GraphOverviewNodes{
-		ID:        make([]uint, nodeCount),
-		Kind:      make([]uint8, nodeCount),
-		Name:      make([]string, nodeCount),
-		Slug:      make([]string, nodeCount),
-		X:         make([]int16, nodeCount),
-		Y:         make([]int16, nodeCount),
-		Community: make([]int32, nodeCount),
-		Degree:    make([]int32, nodeCount),
-		Rank:      make([]int32, nodeCount),
-		Flags:     make([]uint8, nodeCount),
-		Appear:    make([]int32, nodeCount),
+		ID:   make([]uint, nodeCount),
+		Kind: make([]uint8, nodeCount),
+		Name: make([]string, nodeCount),
+		Slug: make([]string, nodeCount),
+		// The hub caption columns are full-length and overwhelmingly "" — one
+		// short value per LOCATED label hub, nothing at any artist index. They
+		// are modelled here rather than omitted because this fixture is the
+		// instrument the payload-budget figure is quoted from (PSY-1792), and a
+		// fixture missing three of the shipped columns understates the body.
+		HubCity:    make([]string, nodeCount),
+		HubState:   make([]string, nodeCount),
+		HubCountry: make([]string, nodeCount),
+		X:          make([]int16, nodeCount),
+		Y:          make([]int16, nodeCount),
+		Community:  make([]int32, nodeCount),
+		Degree:     make([]int32, nodeCount),
+		Rank:       make([]int32, nodeCount),
+		Flags:      make([]uint8, nodeCount),
+		Appear:     make([]int32, nodeCount),
 	}
+	// Label hubs are a small minority of the node set, and only some have each
+	// part on file — the shape that decides what these columns actually cost.
+	hubCities := []string{"Phoenix", "Tempe", "Brooklyn", "Austin", "London", ""}
+	hubStates := []string{"AZ", "AZ", "NY", "TX", "", ""}
+	hubCountries := []string{"US", "US", "US", "USA", "England", ""}
 	for i := 0; i < nodeCount; i++ {
 		nodes.ID[i] = uint(i + 1)
 		nodes.Kind[i] = uint8(i % 2)
@@ -62,6 +75,12 @@ func productionScaleOverview() *contracts.GraphOverview {
 		nodes.Rank[i] = int32(i)
 		nodes.Flags[i] = uint8(i % 4)
 		nodes.Appear[i] = int32(i * 1000)
+		// Roughly 1 node in 12 is a hub; every other index stays "".
+		if i%12 == 0 {
+			nodes.HubCity[i] = hubCities[(i/12)%len(hubCities)]
+			nodes.HubState[i] = hubStates[(i/12)%len(hubStates)]
+			nodes.HubCountry[i] = hubCountries[(i/12)%len(hubCountries)]
+		}
 	}
 
 	slots := edgeCount * 2

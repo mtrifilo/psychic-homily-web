@@ -589,18 +589,20 @@ func TestOverviewBuild_HubLocationIsHubScopedAndTrimmed(t *testing.T) {
 	// Whitespace is normalized here rather than at the caption, so " " and ""
 	// are the same absent part for every client.
 	//
-	// The THIRD hub is the PSY-1792 case: country only, no city. It captions
-	// "England" on the client through the same helper `/scenes` uses, which it
-	// could not do while the payload carried `hub_city` alone.
+	// The THIRD and FOURTH hubs are the PSY-1792 cases the AC names: country
+	// only, and state only. Each captions on the client through the same helper
+	// `/scenes` uses ("England", "AZ"), which neither could do while the payload
+	// carried `hub_city` alone.
 	b := hubLocationBuild(
 		hubLocation{city: " Austin ", state: " TX ", country: " USA "},
 		hubLocation{city: "   ", state: "  ", country: " "},
 		hubLocation{country: " England "},
+		hubLocation{state: " AZ ", country: " USA "},
 	)
 
-	wantCity := []string{"", "", "Austin", "", ""}
-	wantState := []string{"", "", "TX", "", ""}
-	wantCountry := []string{"", "", "USA", "", "England"}
+	wantCity := []string{"", "", "Austin", "", "", ""}
+	wantState := []string{"", "", "TX", "", "", "AZ"}
+	wantCountry := []string{"", "", "USA", "", "England", "USA"}
 
 	for _, tc := range []struct {
 		name string

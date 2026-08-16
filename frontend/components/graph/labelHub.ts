@@ -11,6 +11,16 @@
  * metro gate would strip New York back to two edges and misfire on labels with
  * no city on file. Instead the canvas captions the hub's home, so an
  * out-of-town anchor reads as out-of-town without a fetch.
+ *
+ * KEEP THIS MODULE DEPENDENCY-FREE. Despite living under `components/graph/`,
+ * it is imported by `features/graph/sceneMap.ts`, which is on the EDGE runtime
+ * path for the `/graph/this-week` share card (see `graphOverviewApi.ts` — that
+ * function already sits near Vercel's 1 MB per-function limit). Today the only
+ * import here is `formatLocation`, which imports nothing, and the caption code
+ * minifies into that bundle at a few hundred bytes. Adding an import that pulls
+ * React, d3, or react-force-graph — all of which sibling modules in this
+ * directory do pull — would blow that budget AT DEPLOY, not at build. See
+ * `pattern_og_edge_size_and_font_hermeticity`.
  */
 
 import { formatLocation } from '@/lib/formatLocation'
@@ -82,6 +92,13 @@ export const LABEL_HUB_HALF_EXTENT = 11
  * — see `features/graph/sceneMap.ts`. Changing the rule here changes every
  * surface, which is the point; the map additionally needs a nightly rebuild
  * before a newly-emitted part can reach it.
+ *
+ * THE RULE IS SHARED; TRUNCATION IS NOT. `GraphLabelSpec.caption` requires each
+ * caller to truncate for itself, and the callers differ: `SceneMapCanvas` runs
+ * the result through `truncateLabel`, `ForceGraphView` does not, and the hub
+ * context panels render it in full. Do not read "one rule" as "interchangeable
+ * surfaces" — a composed caption is materially longer than the bare city this
+ * replaced, and each surface decides what it can fit.
  */
 export function labelHubHomeCaption(node: {
   city?: string

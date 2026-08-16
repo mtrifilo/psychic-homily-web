@@ -417,6 +417,12 @@ func (b *overviewBuild) payload(
 // ADDITIVE column is free: a column the key does not read cannot invalidate a
 // warm start.
 //
+// FREE MEANS THE LAYOUT, NOT THE SNAPSHOT'S IDENTITY. `content_hash` digests
+// the whole payload JSON, so the first build after a column ships produces a
+// new hash — and a new ETag — over data that did not change. That is a one-time
+// cost at the deploy, not a nightly churn, and it is the correct behaviour: the
+// body really is different, so a cache holding the old one must revalidate.
+//
 // It is what lets an unchanged night skip the physics entirely and reuse the
 // previous positions verbatim. Without it, 50 more relaxation iterations run on
 // an already-relaxed layout and every node drifts a little every night, which is
