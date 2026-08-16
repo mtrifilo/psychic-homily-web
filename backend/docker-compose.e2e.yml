@@ -24,8 +24,43 @@ services:
       #   answers. `SELECT 1` proves the database itself is serving.
       #
       # Credentials come from the container's own POSTGRES_* env, so this
-      # string is identical in docker-compose.dispatch.yml. `$$` escapes
-      # Compose's host-side interpolation.
+      # string is copyable verbatim. `$$` escapes Compose's host-side
+      # interpolation. Everywhere the same defect had to be closed:
+      #
+      #   - docker-compose.dispatch.yml  (per-worktree dev stack) — this exact
+      #     string, verbatim; that stack also hardcodes its credentials and
+      #     starts from a fresh volume, so the query costs it nothing
+      #   - docker-compose.yml           (local dev) — TCP, but a `pg_isready`
+      #     PING rather than this query
+      #   - .github/workflows/ci.yml     (`migration-reversibility` postgres
+      #     service) — likewise a TCP ping, as `docker create --health-*`
+      #     options rather than Compose keys
+      #
+      # Only the TCP-ness is universal. Both of those files explain in place
+      # why authenticating would be wrong for them; do not "restore" the query
+      # there without reading those reasons.
+      #
+      # Copies rather than one shared `extends:` fragment. `extends` across
+      # files is a Compose v2.20-era feature, and these files have to parse on
+      # whatever Compose a CI runner or a contributor happens to have (the same
+      # portability floor that rules out `start_interval`, below). It would
+      # also cover only the Compose copies and not the CI one, so this list has
+      # to exist either way.
+      #
+      # NOT fixed, and still carrying the window described above on an empty
+      # volume, all of them still on the socket probe:
+      #
+      #   - docker-compose.prod.yml, docker-compose.stage.yml
+      #   - the wait loops in backend/scripts/deploy.sh, deploy-stage.sh and
+      #     deploy-production.sh, which run migrate against those files
+      #   - backend/scripts/update-production.sh, which runs migrate with no
+      #     wait loop at all and leans entirely on the prod healthcheck
+      #   - backend/scripts/verify.sh, report-only, so it can print a healthy
+      #     database that is not yet serving
+      #
+      # Deferred rather than judged safe. Nothing in CI invokes any of them and
+      # prod/stage deploy via Railway, so whether that compose path is still
+      # live is the question to settle before touching it.
       test:
         [
           'CMD-SHELL',
@@ -34,13 +69,21 @@ services:
       # A cold initdb under host load takes far longer than interval*retries.
       # Probe failures inside start_period don't count toward `retries`, so a
       # slow first boot no longer flips the container to `unhealthy` — which
-      # would strand migrate in `created` forever, since neither compose caller
-      # passes `--wait`. `start_interval` would let the probe run faster during
-      # start_period only; it is deliberately NOT used, because it is a newer
-      # schema field and this file has to parse on whatever Compose a CI runner
-      # or a contributor happens to have. `interval: 5s` is the compromise: it
-      # costs a few seconds of detection granularity on a cold boot and cuts
-      # the probe traffic the container generates for the rest of the run.
+      # would strand migrate in `created` forever, since NO caller passes
+      # `--wait`: not frontend/e2e/global-setup.ts, not
+      # scripts/dispatch/stack-up.sh, and not the local-dev `docker compose up
+      # -d db migrate` in backend/README.md. `start_interval` would let the
+      # probe run faster during start_period only; it is deliberately NOT used,
+      # for the portability reason given above. `interval: 5s` is the
+      # compromise: it costs a few seconds of detection granularity on a cold
+      # boot and cuts the probe traffic the container generates for the rest of
+      # the run.
+      #
+      # The cost of start_period is on the failure path: a database that never
+      # comes up is not declared `unhealthy` until start_period plus
+      # retries*interval, so ~170s here rather than the ~25s a bare
+      # interval*retries would give. That is the trade for not flaking on a
+      # slow cold boot.
       start_period: 120s
       interval: 5s
       timeout: 10s
