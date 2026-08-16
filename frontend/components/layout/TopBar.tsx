@@ -2,10 +2,9 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useTheme } from 'next-themes'
-import { Moon, Search, Sun } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { openCommandPalette } from '@/lib/hooks/common/useCommandPalette'
+import { useThemeToggle } from './mode-toggle'
 import { PrimaryNav } from './nav/PrimaryNav'
 import { SearchTrigger } from './nav/SearchTrigger'
 import { UserMenu } from './nav/UserMenu'
@@ -47,10 +46,7 @@ const glitchFilter = (
 // Sidebar, so the top bar drops its PrimaryNav and becomes a slim brand +
 // search + theme + account bar. 'full' (default) is the top-nav-mode chrome.
 export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {}) {
-  // resolvedTheme (not theme) so the first click always flips the *visible*
-  // theme — with theme==='system' a `theme === 'dark'` check would set explicit
-  // 'dark' and appear to do nothing. Matches the canonical ModeToggle.
-  const { resolvedTheme, setTheme } = useTheme()
+  const { toggle: toggleTheme } = useThemeToggle()
 
   return (
     <>
@@ -113,34 +109,22 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
             adding a nav item now costs search width rather than pushing the
             account cluster off-screen again. */}
         <div className="flex min-w-0 items-center gap-[14px]">
-          <div role="search" className="hidden w-[220px] min-w-0 sm:block xl:w-[320px]">
+          {/* ONE search trigger at every width (PSY-1818): the box is 36px —
+              an icon tap target — below `sm` and the full field above it, and
+              SearchTrigger adapts its own chrome to fit. The `sm` here and the
+              `sm` in SearchTrigger's class list are one contract; SearchTrigger
+              documents what breaks if they diverge. `shrink-0` below `sm`
+              because a 36px icon has nothing to give; at `sm`+ it goes back to
+              being the row's designated slack absorber per the note above. */}
+          <div role="search" className="w-9 min-w-0 shrink-0 sm:w-[220px] sm:shrink xl:w-[320px]">
             <SearchTrigger />
           </div>
-
-          {/* Icon-only search tap target below `sm` (PSY-1020) — same
-              CommandPalette, just without the field chrome the phone top bar
-              has no room for. Deliberately NO replayOnHydrate: the palette's
-              open-event listener registers in a passive effect that flushes
-              AFTER the hydration-commit replay would fire, so a replayed tap
-              would dispatch into an empty listener set AND consume the buffered
-              click — worse than dropping it. Same reason SearchTrigger doesn't
-              carry it. */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="sm:hidden"
-            aria-label="Search"
-            aria-keyshortcuts="Meta+K Control+K"
-            onClick={() => openCommandPalette()}
-          >
-            <Search className="size-5" />
-          </Button>
 
           <Button
             variant="ghost"
             size="icon"
             className="hidden cursor-pointer sm:flex"
-            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            onClick={toggleTheme}
           >
             <Sun className="size-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute size-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />

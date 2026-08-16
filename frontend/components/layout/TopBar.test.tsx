@@ -38,7 +38,9 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-let mockTheme = 'dark'
+// Constant: the flip's direction is useThemeToggle's, covered in
+// mode-toggle.test.tsx. TopBar's test only needs one settled theme to click in.
+const mockTheme = 'dark'
 const mockSetTheme = vi.fn()
 vi.mock('next-themes', () => ({
   useTheme: () => ({ theme: mockTheme, resolvedTheme: mockTheme, setTheme: mockSetTheme }),
@@ -58,7 +60,6 @@ describe('TopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname = '/'
-    mockTheme = 'dark'
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -91,13 +92,37 @@ describe('TopBar', () => {
       expect(mockOpenCommandPalette).toHaveBeenCalledTimes(1)
     })
 
-    // PSY-1020: below `sm` the field condenses to an icon-only tap target so
-    // search stays reachable on phones.
-    it('opens the command palette from the mobile search icon', async () => {
-      const user = userEvent.setup()
+    // PSY-1818: below `sm` the field condenses to an icon-only tap target
+    // (PSY-1020), but as a responsive form of the SAME button — not a second
+    // one. The forked icon button this replaced was always in the DOM beside
+    // the field with its own accessible name ("Search"), so assistive tech and
+    // tests saw two search controls at every width.
+    it('renders exactly one search trigger, under one accessible name', () => {
       render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Search' }))
-      expect(mockOpenCommandPalette).toHaveBeenCalledTimes(1)
+      expect(
+        screen.getAllByRole('button', { name: 'Search shows, artists, labels' })
+      ).toHaveLength(1)
+      expect(screen.queryByRole('button', { name: 'Search' })).not.toBeInTheDocument()
+    })
+
+    // Collapsing the two nodes into one split the responsive contract across
+    // two files: this bar owns the BOX WIDTH, SearchTrigger owns the CHROME
+    // that fills it, and both must switch at the same breakpoint. Diverge and
+    // there is a viewport band rendering field chrome inside a 36px box, or a
+    // 220px box holding a centred bare icon — CSS-only, so no other test here
+    // can see it. Asserts the RELATIONSHIP (same prefix), not the literal `sm`,
+    // so moving both together still passes.
+    it('grows the search box and the trigger chrome at the same breakpoint', () => {
+      const { container } = render(<TopBar />)
+      const box = container.querySelector('[role="search"]') as HTMLElement
+      const trigger = box.querySelector('button') as HTMLElement
+      const breakpointOf = (className: string, utility: string) =>
+        className.split(/\s+/).find(c => c.endsWith(`:${utility}`))?.split(':')[0]
+
+      const widthGrowsAt = breakpointOf(box.className, 'w-[220px]')
+      const chromeAppearsAt = breakpointOf(trigger.className, 'border')
+      expect(widthGrowsAt).toBeDefined()
+      expect(chromeAppearsAt).toBe(widthGrowsAt)
     })
   })
 
@@ -121,25 +146,22 @@ describe('TopBar', () => {
     })
   })
 
+  // PSY-1818: the flip itself (both directions, the theme="system" regression,
+  // the undefined-during-hydration case) belongs to useThemeToggle and is
+  // covered once, in mode-toggle.test.tsx. What is TopBar's own is that its
+  // button is wired to that hook at all.
   describe('theme toggle', () => {
     it('renders a bare sun/moon toggle', () => {
       render(<TopBar />)
       expect(screen.getByRole('button', { name: 'Toggle theme' })).toBeInTheDocument()
     })
 
-    it('toggles to light when current theme is dark', async () => {
+    it('flips the theme through useThemeToggle when clicked', async () => {
       const user = userEvent.setup()
       render(<TopBar />)
       await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
+      expect(mockSetTheme).toHaveBeenCalledTimes(1)
       expect(mockSetTheme).toHaveBeenCalledWith('light')
-    })
-
-    it('toggles to dark when current theme is light', async () => {
-      mockTheme = 'light'
-      const user = userEvent.setup()
-      render(<TopBar />)
-      await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
-      expect(mockSetTheme).toHaveBeenCalledWith('dark')
     })
   })
 
