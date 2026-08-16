@@ -2,11 +2,21 @@
 #
 # WHY IT LIVES HERE, NOT AT THE REPO ROOT. Docker reads `.dockerignore` from
 # the root of the build CONTEXT, and both builds of this image use `backend/`
-# as the context:
-#   * CI      — .github/workflows/backend-image.yml sets `context: ./backend`
-#   * Railway — the service's root directory is /backend, and railway.toml's
-#               `dockerfilePath = "Dockerfile"` resolves inside it.
-# A repo-root .dockerignore would be read by NEITHER, and would fail silently.
+# as the context. A repo-root .dockerignore would be read by NEITHER, and
+# would fail silently:
+#   * CI      — .github/workflows/backend-image.yml sets `context: ./backend`.
+#               Verifiable in-repo.
+#   * Railway — the service's root directory is /backend, which is why
+#               railway.toml's `dockerfilePath = "Dockerfile"` resolves. That
+#               root directory is a DASHBOARD setting with no in-repo
+#               representation, so nothing here can prove it. Confirm on the
+#               next deploy: the build log's context-transfer line should read
+#               ~26MB, not ~34MB. If it reads ~34MB this file is being
+#               ignored, and the fix is where the file lives, not what's in it.
+#
+# Related trap: BuildKit prefers `<dockerfile>.dockerignore` over the
+# context-root file when it exists. Creating `backend/Dockerfile.dockerignore`
+# would silently disable every rule below. Nothing of that name exists today.
 #
 # DENY-LIST, DELIBERATELY. The builder stage runs `COPY . .` and then
 # `go build ./cmd/server`, so the entire Go tree has to arrive. An allow-list
@@ -14,7 +24,8 @@
 # nothing here excludes `*_test.go` or `testdata/`: `go build` does not need
 # them, but `go vet` and `go test` type-check them, so excluding them would
 # plant a build-time-only break for whoever later adds a verification stage.
-# Measured, that restraint costs 7.24MB of context and buys back ~0.3s.
+# Measured on this tree, that restraint costs 7.24MB of context and buys back
+# ~0.3s, against a ~39s Go build (backend-image.yml).
 #
 # backend/Dockerfile is the source of truth for what the image needs; do not
 # restate its COPY set here. Two constraints are NOT visible from it, and are
@@ -29,10 +40,21 @@
 # filepath.Match semantics, so `*` does NOT cross `/`: a bare `server` matches
 # only <context>/server. That is load-bearing for the stray-binary block
 # below — `**/server` or `**/main` would delete cmd/server/ and every other
-# cmd/ package. Root-anchored names there, `**/` only where stated.
+# cmd/ package. Root-anchored names there, `**/` everywhere else, and the
+# difference is deliberate in both directions.
 #
-# The Backend Image Build check is required on main and runs un-path-filtered
-# on every PR, so a mistake here blocks merge rather than reaching Railway.
+# HOW WRONG EDITS SURFACE. An exclusion that breaks the compile fails the
+# Backend Image Build job, which runs un-path-filtered on every PR — loud, and
+# before Railway. An exclusion that only removes something a FUTURE stage would
+# need (see the test-file note above) is invisible to that job, because the
+# Dockerfile has no test or vet stage today. Those are the edits to think
+# twice about.
+#
+# Re-measuring, since the numbers above are a point in time and are host- and
+# arch-specific (measured on darwin/arm64):
+#   docker buildx create --name ctx --driver docker-container
+#   docker buildx build --builder ctx --progress=plain --target builder \
+#     -f ./backend/Dockerfile ./backend 2>&1 | grep 'transferring context'
 
 # Go coverage output. Written by scripts/coverage.sh and by CI's
 # `go test -coverprofile=...`; never an input to anything. `coverage.sh`
@@ -42,41 +64,92 @@
 **/*.out
 **/coverage.html
 
-# Compiled host-arch binaries left in place by `go build` inside backend/.
-# The names mirror the repo .gitignore's PSY-429 and PSY-1550 blocks, plus
-# `main` (the Dockerfile's own -o target) and cmd/ targets those blocks miss.
-# A darwin/arm64 cmd/server measures 61MB — over twice the whole context —
-# and busts `COPY . .` on every rebuild.
+# Compiled host-arch binaries left in place by `go build ./cmd/...`, which
+# drops one per package into backend/. A darwin/arm64 cmd/server measures
+# 61MB — over twice the whole context — and busts `COPY . .` on every rebuild.
+#
+# This is a cache-and-size optimization, NOT a correctness guard, and it
+# drifts: it is the full `ls backend/cmd` as of this commit, plus `main` (the
+# Dockerfile's own -o target) and three legacy names whose packages are gone
+# but whose binaries may still sit on an old machine. A new cmd/ package needs
+# a line here and in the repo .gitignore. Nothing enforces that.
 #
 # ROOT-ANCHORED ON PURPOSE. See PATTERN ANCHORING above: adding `**/` to any
 # line below would exclude the cmd/ source package of the same name.
 main
-server
-seed
-scaffold
-scrape-import
-discovery-import
+apply-link-suggestions
+backfill-artist-bandcamp-embeds
+backfill-artist-discography
+backfill-artist-location
+backfill-artist-member-edges
+backfill-artist-state
+backfill-commons-photos
+backfill-cover-art
+backfill-entity-metro
+backfill-release-links
 backfill-slugs
+backfill-spotify-images
+backfill-venue-slugs
+backfill-venue-timezones
+community-gamma-sweep
+dedup-radio-shows
+dedup-shows
+discovery-import
+disparity-analysis
+festival-entry
+gen-api-token
+gen-e2e-seed
+geocode-venue-addresses
 link-release-labels
 openapi-spec
-gen-api-token
+scaffold
+scrape-import
+seed
+server
+sweep-link-suggestions
+upgrade-scene-scopes
+verify-artist-states
 
-# Local logs, database dumps, and backups. `backups/` is where every backup
-# producer writes (scripts/backup.sh, restore.sh, railway-migrate-*.sh); the
-# two `backup_*.tar.gz` / `*_dump_*.sql` patterns match files that are still
-# tracked in git at backend/ root, which is where 6.9MB of the measured
-# context saving comes from. Untracking those is a separate change: the blobs
-# are already in the pack, so only a history rewrite would reclaim them.
+# Local logs, database dumps, and backups. `**/` and not root-anchored,
+# because `scripts/railway-migrate-prod.sh` writes `./backups/prod-backup-*.sql`
+# relative to the caller's cwd with no `cd` guard, so a production pg_dump can
+# land at any depth. `*-backup-*.sql` covers that script's filenames, which
+# match none of the other patterns. Safe against db/migrations/: no migration
+# name contains `_dump_` or `-backup-`, and there is no source directory
+# called `backups`.
 logs/
 **/*.log
-backups/
-backup_*.tar.gz
-*_dump_*.sql
+**/backups/
+**/backup_*.tar.gz
+**/*_dump_*.sql
+**/*-backup-*.sql
 
-# Environment files. Nothing reads them at build time. This is a real
-# containment boundary and not just hygiene: on main the image job runs
-# `cache-to: type=gha,mode=max`, which exports the BUILDER layers — the ones
-# `COPY . .` writes — into the shared GitHub Actions cache.
+# Credentials, at any depth. Root .gitignore already classifies these as
+# secrets, so none can be tracked; this closes the same class for the LOCAL
+# build, where untracked files do enter the context.
+**/*.pem
+**/*.key
+**/*.crt
+**/*.csr
+**/*.p12
+**/*.pfx
+**/.netrc
+**/.npmrc
+**/.git-credentials
+**/id_rsa*
+
+# Environment files. Nothing reads them at build time.
+#
+# Be precise about where this bites, because the obvious reading is wrong. CI
+# and Railway build from a git checkout, and a real `.env` is gitignored, so
+# only the four tracked `.env*.example`/`.template` files can exist there —
+# on those legs this rule is inert. It matters for LOCAL `docker build`, where
+# an untracked `.env` sits in the context. That is worth closing rather than
+# reasoning about each time: the builder stage is discarded, but a discarded
+# stage is still a cache layer, and on main the image job runs
+# `cache-to: type=gha,mode=max`, which exports builder layers — context and
+# all — into the shared GitHub Actions cache. The layer being thrown away is
+# not the same as the bytes being gone.
 **/.env*
 
 # Local orchestration and host provisioning. Compose brings up dev/e2e/stage
@@ -90,11 +163,24 @@ systemd/
 docs/
 **/*.md
 
+# Local databases and scratch copies. Mirrors the repo .gitignore's classes;
+# db/migrations/ is unaffected (none of these extensions appear there).
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.bak
+**/*.backup
+**/*.tmp
+docker-volumes/
+postgres-data/
+
 # Editor / OS droppings. `**/` because Finder writes .DS_Store into whatever
 # directory it browses, not just the root.
 **/.DS_Store
 **/*.swp
 **/*.swo
+.idea/
+.vscode/
 
 # A locally-installed dependency tree. The layout-deps stage runs its own
 # `npm ci` from package.json + package-lock.json, so a host node_modules is

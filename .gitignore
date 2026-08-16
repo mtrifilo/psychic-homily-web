@@ -29,29 +29,75 @@ xcshareddata/
 node_modules/
 
 # Backend specific
-backend/backups/
 backend/logs/
 backend/*.log
+
+# Database dumps and backups, at ANY depth (PSY-1790). Depth matters: the
+# old rule was the single literal `backend/backups/`, but
+# `backend/scripts/railway-migrate-prod.sh` writes `./backups/prod-backup-*.sql`
+# relative to the CALLER's cwd, with no `cd` guard — run it from anywhere but
+# backend/ and a production pg_dump lands somewhere the old rule did not
+# reach. This repo is public, so a stray `git add -A` there publishes real
+# user rows. `*-backup-*.sql` is listed because that script's filenames match
+# none of the other patterns. Migrations are safe: no name under
+# db/migrations/ contains `_dump_` or `-backup-`.
+**/backups/
+**/backup_*.tar.gz
+**/*_dump_*.sql
+**/*-backup-*.sql
 
 # Go coverage output (PSY-1790). Every `.out` under backend/ is a coverage
 # profile, and nothing reads one it did not just write. Nine had been
 # committed under nine different ad-hoc names, so the rule is a wildcard:
 # the producers are hand-typed `-coverprofile=` flags, not one script.
 # `coverage.html` is named exactly, NOT `*.html` — catalog/testdata/*.html
-# are tracked fixtures.
+# are tracked fixtures. If a golden-file test ever adopts the conventional
+# testdata/*.out extension, narrow this rule: `git add` on an ignored path
+# fails silently, so the symptom would be a fixture that never lands.
 backend/**/*.out
 backend/**/coverage.html
 
-# PSY-429: stray cmd/ binaries that get built in-place when devs run
-# `go build` from inside backend/. Explicit names only — globs like
-# `backend/*` would match too much.
+# Stray cmd/ binaries built in-place by `go build ./cmd/...` from inside
+# backend/ (PSY-429, PSY-1550). Explicit names only — a glob like `backend/*`
+# would match too much. Now the FULL set: the old list held 8 of the then-29
+# targets, and `backend/gen-api-token` (17MB) was sitting untracked and
+# unignored as a result. Regenerate with `ls backend/cmd`; three legacy names
+# below outlive their packages, kept so an old binary on an old machine still
+# matches. `main` is the Dockerfile's own `-o` target, hit by anyone
+# reproducing the image build by hand. Duplicated in backend/.dockerignore —
+# update both.
+backend/apply-link-suggestions
+backend/backfill-artist-bandcamp-embeds
+backend/backfill-artist-discography
+backend/backfill-artist-location
+backend/backfill-artist-member-edges
+backend/backfill-artist-state
+backend/backfill-commons-photos
+backend/backfill-cover-art
+backend/backfill-entity-metro
+backend/backfill-release-links
 backend/backfill-slugs
+backend/backfill-spotify-images
+backend/backfill-venue-slugs
+backend/backfill-venue-timezones
+backend/community-gamma-sweep
+backend/dedup-radio-shows
+backend/dedup-shows
 backend/discovery-import
+backend/disparity-analysis
+backend/festival-entry
+backend/gen-api-token
+backend/gen-e2e-seed
+backend/geocode-venue-addresses
 backend/link-release-labels
+backend/main
 backend/scaffold
 backend/scrape-import
 backend/seed
 backend/server
+backend/sweep-link-suggestions
+backend/upgrade-scene-scopes
+backend/verify-artist-states
 
 # Database files
 *.db
