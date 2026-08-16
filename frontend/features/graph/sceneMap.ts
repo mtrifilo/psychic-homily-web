@@ -95,12 +95,16 @@ export interface SceneMapNode {
    * it — and null at a hub whose label has no location at all on file, which
    * reads as no caption rather than a placeholder.
    *
-   * COMPOSED, not a bare city (PSY-1792). The wire carries city, state and
-   * country separately and this module runs them through the same
-   * `labelHubHomeCaption` helper `/scenes` and the home graph use, so a hub
-   * captions "Austin, TX" / "London, England" / "England" identically on every
-   * surface. Composing here rather than at the canvas keeps the payload spoken
-   * in exactly one place. This supersedes the PSY-1721 city-only lock.
+   * COMPOSED, not a bare city (PSY-1792) — see `labelHubHomeCaption` for the
+   * rule and `contracts.GraphOverviewNodes.HubCity` for why the wire ships the
+   * parts rather than a finished caption.
+   *
+   * Composed HERE rather than at the canvas, which is the dividing line on this
+   * path: a geometry-INDEPENDENT display rule belongs to the decode, so both
+   * the canvas and the hub's context panel are handed the same string and
+   * cannot disagree; geometry-DEPENDENT presentation (truncation to the label's
+   * collision box) stays at the canvas, which is the only layer that knows the
+   * zoom.
    */
   homeCaption: string | null
   /**
@@ -300,10 +304,13 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
   // an off-by-one would put a real city under a label that is not from there,
   // which is worse than no caption at all.
   //
-  // Checked INDEPENDENTLY, not as a group. A snapshot built before PSY-1792
-  // has `hub_city` and neither of the other two; degrading that to no caption
-  // at all would be a regression, so each part simply contributes what it has
-  // and the fallback below composes whatever is present.
+  // Checked INDEPENDENTLY, not as a group — a PERMANENT property, not just the
+  // PSY-1792 upgrade. The contract declares each column optional on its own, so
+  // a mixed snapshot (some columns present, some not) is reachable whenever the
+  // serving binary is older or newer than the snapshot it reads — at the deploy
+  // that ships this, and again after any rollback. Each part contributes what
+  // it has and the composition below uses whatever is present; collapsing these
+  // into one group check would silently drop the caption on any such snapshot.
   const hubCities = optionalColumn(overview.nodes.hub_city, nodeCount)
   const hubStates = optionalColumn(overview.nodes.hub_state, nodeCount)
   const hubCountries = optionalColumn(overview.nodes.hub_country, nodeCount)

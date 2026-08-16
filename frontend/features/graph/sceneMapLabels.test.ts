@@ -116,7 +116,8 @@ describe('selectSceneMapLabels', () => {
   })
 
   it('carries a hub caption through to the drawn spec', () => {
-    // The caption is the hub's home city (PSY-1736). `renderGraphLabels`
+    // The caption is the hub's composed home (PSY-1736, PSY-1792).
+    // `renderGraphLabels`
     // measures it into the collision box, so dropping it here would both lose
     // the caption and under-reserve the box it needs.
     const specs = selectSceneMapLabels(

@@ -180,34 +180,21 @@ describe('buildSceneMap', () => {
   })
 
   // ── The label hub's home caption (PSY-1736, PSY-1792) ──────────────────
-  it('carries a hub home caption only where the snapshot sets one', () => {
-    const map = buildSceneMap(overviewFixture())!
-
-    // "US" is suppressed because the state is set — the site-wide PSY-558 rule,
-    // reached through `labelHubHomeCaption` rather than reimplemented here.
-    expect(map.nodes.map(node => node.homeCaption)).toEqual([
-      null,
-      null,
-      null,
-      'Brooklyn, NY',
-    ])
-  })
-
+  //
+  // The city/state/country RULE itself belongs to `formatLocation` and is
+  // pinned in its own suite and in `labelHub.test.ts`. What these tests own is
+  // narrower and is all this module can get wrong: that the three columns are
+  // read at the right index, hub-scoped, and handed to the shared helper rather
+  // than re-derived here.
   it.each([
-    { parts: ['Austin', 'TX', 'USA'], want: 'Austin, TX', case: 'city + state, US' },
-    { parts: ['London', '', 'England'], want: 'London, England', case: 'city + country' },
-    // "USA" is suppressed by the site-wide rule whenever a state is set, with
-    // or without a city — so a state-only US label captions the bare state.
-    { parts: ['', 'TX', 'USA'], want: 'TX', case: 'state-only, US' },
-    { parts: ['', '', 'England'], want: 'England', case: 'country-only, non-US' },
-    { parts: ['', '', 'US'], want: 'US', case: 'country-only, US' },
-    { parts: ['Berlin', '', ''], want: 'Berlin', case: 'city-only (unchanged)' },
+    // The PSY-1792 case: before this, the map carried `hub_city` alone, so a
+    // label known only as "England" captioned nothing here while `/scenes`
+    // captioned it fine.
+    { parts: ['', '', 'England'], want: 'England', case: 'country only' },
+    { parts: ['Berlin', '', ''], want: 'Berlin', case: 'city only (unchanged)' },
   ])(
-    'captions a hub from $case exactly as /scenes does',
+    'captions a hub from $case through the same helper /scenes uses',
     ({ parts: [city, state, country], want }) => {
-      // THE POINT OF PSY-1792. Before this, the map carried only `hub_city`, so
-      // a label known only as "England" captioned nothing here while `/scenes`
-      // captioned it fine. Both surfaces now run the same helper.
       const map = buildSceneMap(
         overviewFixture({
           nodes: {
@@ -219,6 +206,9 @@ describe('buildSceneMap', () => {
         }),
       )!
 
+      // Both assertions earn their place: the literal documents the caption a
+      // reader should expect, and the helper comparison is what would fail if
+      // this module ever grew its own copy of the composition rule.
       expect(map.nodes[3].homeCaption).toBe(want)
       expect(map.nodes[3].homeCaption).toBe(labelHubHomeCaption({ city, state, country }))
     },
@@ -296,11 +286,12 @@ describe('buildSceneMap', () => {
     expect(short!.nodes.every(node => node.homeCaption === null)).toBe(true)
   })
 
-  it('captions a pre-PSY-1792 snapshot from hub_city alone', () => {
-    // THE UPGRADE PATH, and the reason the three columns are length-checked
-    // INDEPENDENTLY. The snapshot live at deploy time has `hub_city` and neither
-    // of the other two; degrading that to no caption at all would regress the
-    // map for a nightly cycle rather than merely leave the fallback unbuilt.
+  it('captions a snapshot carrying hub_city alone from the column it has', () => {
+    // Why the three columns are length-checked INDEPENDENTLY. A mixed snapshot
+    // is reachable whenever the serving binary and the snapshot disagree — at
+    // the deploy that ships this, and again after any rollback — so this is a
+    // standing guarantee, not a one-cycle migration. Grouping the checks would
+    // drop the caption entirely instead of falling back to the part present.
     const map = buildSceneMap(
       overviewFixture({
         nodes: {

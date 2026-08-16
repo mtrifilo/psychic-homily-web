@@ -683,7 +683,7 @@ func (s *GraphOverviewSuite) TestBuild_HubCarriesItsLabelsHomeLocation() {
 			"%s must be a full-length column, like every other node column", name)
 	}
 
-	type hubLocation struct{ city, state, country string }
+	// hubLocation is the package-level type from graph_overview_unit_test.go.
 	locationByHub := make(map[string]hubLocation)
 	for i, kind := range payload.Nodes.Kind {
 		if kind == contracts.GraphOverviewNodeLabelHub {
