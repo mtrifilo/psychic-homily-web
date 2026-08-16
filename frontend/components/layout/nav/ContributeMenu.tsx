@@ -20,6 +20,7 @@ import {
   isNavActive,
   navGroupLabelClassName,
   navItemClassName,
+  visibleNavItems,
   type NavLink as NavLinkData,
 } from './navData'
 import { useHoverIntentMenu } from './useHoverIntentMenu'
@@ -84,7 +85,7 @@ const groupLabelClassName = cn('px-0 py-0', navGroupLabelClassName)
 
 export function ContributeMenu() {
   const pathname = usePathname()
-  const { isAuthenticated } = useAuthContext()
+  const { user } = useAuthContext()
   const active = contributeHrefs.some(href => isNavActive(pathname, href))
 
   // NN/G hover-intent (open on hover), shared with BrowseMenu so the two menus
@@ -109,9 +110,7 @@ export function ContributeMenu() {
       >
         <DropdownMenuGroup className="flex flex-col gap-3">
           <DropdownMenuLabel className={groupLabelClassName}>Participate</DropdownMenuLabel>
-          {contributeItems
-            .filter(item => isAuthenticated || !item.authOnly)
-            .map(renderItem)}
+          {visibleNavItems(contributeItems, user).map(renderItem)}
         </DropdownMenuGroup>
         <DropdownMenuGroup className="flex flex-col gap-3">
           <DropdownMenuLabel className={groupLabelClassName}>Editorial</DropdownMenuLabel>

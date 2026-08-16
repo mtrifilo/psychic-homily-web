@@ -8,9 +8,14 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
 
+// Mirrors the real AuthContext contract: user is non-null exactly when
+// authenticated (visibleNavItems keys authOnly off user presence).
 let mockIsAuthenticated = false
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated }),
+  useAuthContext: () => ({
+    isAuthenticated: mockIsAuthenticated,
+    user: mockIsAuthenticated ? { email: 'test@test.com', is_admin: false } : null,
+  }),
 }))
 
 describe('ContributeMenu', () => {

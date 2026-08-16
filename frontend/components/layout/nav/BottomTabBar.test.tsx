@@ -61,28 +61,29 @@ describe('BottomTabBar', () => {
     })
   })
 
-  // The guard PSY-1020's Discover group exists to satisfy: a desktop primary
-  // link with no home in the tab bar or its Browse sheet is unreachable on
-  // phones. Adding to PrimaryNav's primaryLinks without a mobile home fails
-  // HERE instead of silently stranding mobile users (canonical near-miss:
-  // Atlas was added to PrimaryNav by PSY-1219 after this bar was drafted).
-  it('keeps every desktop primary destination reachable on mobile', () => {
+  // Mobile-reachability guard, simplified per PSY-1821: primaryLinks and
+  // sidebarGroups now COMPOSE from the same canonical tables the mobile
+  // surfaces render, so for entries composed the natural way reachability is
+  // structural and this cannot fail. It survives as a fence for the residual
+  // fork paths only: an inline literal added to either list, or a rail entry
+  // composed from the account tables (which the mobile sheets don't render).
+  it('keeps every desktop primary + rail destination reachable on mobile', () => {
     const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
-    for (const link of primaryLinks) {
+    for (const link of [...primaryLinks, ...sidebarGroups.flatMap(g => g.items)]) {
+      if (link.external) continue
       expect(mobile).toContain(link.href)
     }
   })
 
-  // Same guard for the side-nav rail's table. navData owns sidebarGroups now
-  // (PSY-1821), so most entries are reachable by construction — the guard
-  // remains for rail-only additions (a navDestination the mobile sheets don't
-  // compose) landing without a mobile home.
-  it('keeps every side-nav rail destination reachable on mobile', () => {
-    const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
-    for (const item of sidebarGroups.flatMap(g => g.items)) {
-      if (item.external) continue
-      expect(mobile).toContain(item.href)
-    }
+  // primaryTabs' length is coupled to the bar's literal grid-cols-5 (three
+  // tabs + Browse + Account). A 4th tab would wrap Account onto a second row
+  // outside the fixed bar height — this pin fails first.
+  it('pins primaryTabs to the 5-column grid contract', () => {
+    expect(primaryTabs).toHaveLength(3)
+    const { container } = render(<BottomTabBar />)
+    expect(
+      container.querySelector('nav[aria-label="Mobile navigation"] > div')
+    ).toHaveClass('grid-cols-5')
   })
 
   // The bar/PrimaryNav breakpoint contract: the bar hides exactly where the

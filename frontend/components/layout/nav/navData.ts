@@ -123,16 +123,28 @@ export interface NavDestinationGroup extends NavGroup {
   items: NavDestination[]
 }
 
-/** Apply the viewer-tier gate one way everywhere (adminOnly today). */
+/**
+ * Apply BOTH viewer gates one way everywhere: adminOnly needs an admin
+ * viewer, authOnly needs any signed-in viewer. A null/undefined viewer is
+ * anonymous (AuthContext's user is non-null exactly when authenticated).
+ * Every surface that renders a composed table filters through this — a
+ * hand-rolled filter is the drift this module exists to prevent.
+ */
 export function visibleNavItems<T extends NavLink>(
   items: readonly T[],
-  user: { is_admin?: boolean } | null | undefined
+  viewer: { is_admin?: boolean } | null | undefined
 ): T[] {
-  return items.filter(item => !item.adminOnly || !!user?.is_admin)
+  return items.filter(
+    item =>
+      (!item.adminOnly || !!viewer?.is_admin) && (!item.authOnly || viewer != null)
+  )
 }
 
 // The mobile bar's plain-link tabs. Also the canonical Shows/Radio entries the
-// side-nav rail composes below.
+// side-nav rail composes below, and the LEADING order of the desktop top bar
+// (PrimaryNav spreads this list first). Its length is pinned: BottomTabBar
+// renders these three + Browse + Account into a literal grid-cols-5 — a
+// guard test in BottomTabBar.test.tsx fails if the two drift apart.
 export const primaryTabs: ReadonlyArray<NavDestination> = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/shows', label: 'Shows', icon: Calendar },
@@ -171,11 +183,15 @@ function profileNavItem(
 }
 
 /**
- * The canonical account destination set — the desktop UserMenu dropdown and
- * the mobile Account sheet render exactly this list, in this order. The
- * side-nav rail's authed block keeps its own deliberate subset (composed from
- * the same entries via navDestination below): the top bar's bell and UserMenu
- * already cover Notifications/Settings in side-nav mode.
+ * The canonical account destination set. The desktop UserMenu dropdown and
+ * the mobile Account sheet both render it in this order, with one chrome
+ * difference: UserMenu renders the adminOnly partition after a separator in
+ * its own group, while the Account sheet renders it inline — so a non-admin
+ * entry added AFTER Admin would land above the separator on desktop but
+ * below Admin on mobile. Keep Admin last. The side-nav rail's authed block
+ * keeps its own deliberate subset (composed from the same entries via
+ * navDestination below): the top bar's bell and UserMenu already cover
+ * Notifications/Settings in side-nav mode.
  *
  * Admin stays in the list flagged `adminOnly` (surfaces filter it) so
  * active-state derivations see every account route regardless of viewer tier.
@@ -197,48 +213,63 @@ export function accountNavItems(
   ]
 }
 
-// Desktop-only by decision (PSY-1821): only the side-nav rail lists it. On
-// phones it stays reachable through the Account sheet → Notifications → the
-// filters link on that page (app/notifications/page.tsx). Deliberately NOT in
-// accountNavItems.
+// Desktop-only by decision (PSY-1821): among the composed surfaces only the
+// side-nav rail lists it (the command palette still forks its own copy — see
+// the header note). On phones it stays reachable through the Account sheet →
+// Notifications → the filters link on that page (app/notifications/page.tsx).
+// Deliberately NOT in accountNavItems.
 const notificationFiltersItem: NavDestination = {
   href: '/settings/notification-filters',
   label: 'Notification Filters',
   icon: Bell,
 }
 
-// Every canonical destination, keyed by href, for composition lookups.
-// Leaderboard legitimately appears in two desktop menus with the same
-// definition — equal duplicates collapse. CONFLICTING duplicates (same href,
-// different label/icon/external) are the drift this module exists to prevent,
-// so they fail loudly at module load instead of last-wins.
-const destinationByHref = new Map<string, NavLink>()
-for (const item of [
-  ...primaryTabs,
-  graphItem,
-  atlasItem,
-  ...browseGroups.flatMap(g => g.items),
-  ...contributeItems,
-  ...editorialItems,
-  ...accountNavItems(null),
-  notificationFiltersItem,
-]) {
-  const existing = destinationByHref.get(item.href)
-  if (
-    existing &&
-    (existing.label !== item.label ||
-      existing.icon !== item.icon ||
-      !!existing.external !== !!item.external)
-  ) {
-    throw new Error(`navData: conflicting definitions for destination "${item.href}"`)
+/**
+ * Index destinations by href for composition lookups. Equal duplicates
+ * collapse (Leaderboard legitimately appears in two desktop menus with one
+ * definition). CONFLICTING duplicates — same href differing on ANY rendered
+ * or behavioral field, the gating flags included — are the drift this module
+ * exists to prevent, so they fail loudly at module load instead of
+ * last-wins. Exported for its unit test only.
+ */
+export function buildDestinationIndex(
+  sources: ReadonlyArray<readonly NavLink[]>
+): Map<string, NavLink> {
+  const index = new Map<string, NavLink>()
+  for (const item of sources.flat()) {
+    const existing = index.get(item.href)
+    if (
+      existing &&
+      (existing.label !== item.label ||
+        existing.icon !== item.icon ||
+        !!existing.external !== !!item.external ||
+        !!existing.authOnly !== !!item.authOnly ||
+        !!existing.adminOnly !== !!item.adminOnly ||
+        !!existing.submitPrimary !== !!item.submitPrimary)
+    ) {
+      throw new Error(`navData: conflicting definitions for destination "${item.href}"`)
+    }
+    index.set(item.href, item)
   }
-  destinationByHref.set(item.href, item)
+  return index
 }
+
+const destinationByHref = buildDestinationIndex([
+  primaryTabs,
+  [graphItem, atlasItem],
+  ...browseGroups.map(g => g.items),
+  contributeItems,
+  editorialItems,
+  accountNavItems(null),
+  [notificationFiltersItem],
+])
 
 /**
  * Resolve a destination from the canonical tables, optionally overriding
- * per-surface copy. Throws on an unknown href so a typo fails at module load
- * (any test importing a composed table), never as a silent dead link.
+ * per-surface copy. Throws on an href the canonical tables don't define, so
+ * a typo fails at module load (any test importing a composed table). Note
+ * the guard is table membership only — it does not verify the route exists
+ * in app/, so a canonical href pointing at a renamed route still ships.
  */
 export function navDestination(
   href: string,

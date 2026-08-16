@@ -61,7 +61,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             <div key={group.label}>
               {renderGroupHeader(group.label)}
               <div className="space-y-0.5">
-                {group.items.map(renderItem)}
+                {visibleNavItems(group.items, user).map(renderItem)}
               </div>
             </div>
           ))}

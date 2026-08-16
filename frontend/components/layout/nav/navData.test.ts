@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { Bell, Library } from 'lucide-react'
 import {
-  accountNavItems, navDestination, profileHref, sidebarAccountItems,
-  sidebarGroups, visibleNavItems,
+  PROFILE_CLAIM_HREF, accountNavItems, buildDestinationIndex, mobileBrowseGroups,
+  navDestination, profileHref, sidebarAccountItems, sidebarGroups, visibleNavItems,
 } from './navData'
 
 describe('profileHref', () => {
@@ -10,8 +11,8 @@ describe('profileHref', () => {
   })
 
   it('routes to the claim-username self view without one', () => {
-    expect(profileHref({})).toBe('/users/me')
-    expect(profileHref(null)).toBe('/users/me')
+    expect(profileHref({})).toBe(PROFILE_CLAIM_HREF)
+    expect(profileHref(null)).toBe(PROFILE_CLAIM_HREF)
   })
 })
 
@@ -21,6 +22,9 @@ describe('accountNavItems', () => {
     expect(items.map(i => i.label)).toEqual([
       'Notifications', 'My Library', 'Profile', 'Settings', 'Appearance', 'Admin',
     ])
+    // Admin last is load-bearing: UserMenu renders the adminOnly partition
+    // after a separator while the mobile sheet renders in list order — a
+    // non-admin entry after Admin would order differently per surface.
     expect(items.at(-1)?.adminOnly).toBe(true)
     expect(items.filter(i => i.adminOnly)).toHaveLength(1)
   })
@@ -49,6 +53,39 @@ describe('visibleNavItems', () => {
       expect(visibleNavItems(items, { is_admin: false }).map(i => i.label)).not.toContain('Admin')
       expect(visibleNavItems(items, null).map(i => i.label)).not.toContain('Admin')
     }
+  })
+
+  it('gates authOnly entries on any signed-in viewer', () => {
+    const community = sidebarGroups.find(g => g.label === 'Community')!
+    expect(visibleNavItems(community.items, null).map(i => i.label)).not.toContain(
+      'My Submissions'
+    )
+    expect(visibleNavItems(community.items, { is_admin: false }).map(i => i.label)).toContain(
+      'My Submissions'
+    )
+  })
+})
+
+describe('buildDestinationIndex', () => {
+  const entry = { href: '/x', label: 'X', icon: Bell }
+
+  it('collapses equal duplicates', () => {
+    expect(buildDestinationIndex([[entry], [{ ...entry }]]).size).toBe(1)
+  })
+
+  it('throws on conflicting duplicates, gating flags included', () => {
+    expect(() =>
+      buildDestinationIndex([[entry], [{ ...entry, label: 'Y' }]])
+    ).toThrow(/conflicting definitions/)
+    expect(() =>
+      buildDestinationIndex([[entry], [{ ...entry, icon: Library }]])
+    ).toThrow(/conflicting definitions/)
+    expect(() =>
+      buildDestinationIndex([[entry], [{ ...entry, authOnly: true }]])
+    ).toThrow(/conflicting definitions/)
+    expect(() =>
+      buildDestinationIndex([[entry], [{ ...entry, adminOnly: true }]])
+    ).toThrow(/conflicting definitions/)
   })
 })
 
@@ -82,15 +119,23 @@ describe('sidebarGroups', () => {
 describe('composition integrity', () => {
   it('every rail entry matches its canonical definition (modulo declared label overrides)', () => {
     for (const item of [...sidebarGroups.flatMap(g => g.items), ...sidebarAccountItems(null)]) {
-      if (item.href === '/users/me') continue // Profile: href resolved per-user
+      expect(item.href, `${item.href} shape`).toMatch(/^(\/|https?:\/\/)/)
+      if (item.href === PROFILE_CLAIM_HREF) continue // Profile: href resolved per-user
       const canonical = navDestination(item.href)
       expect(item.icon, `${item.href} icon`).toBe(canonical.icon)
       expect(!!item.external, `${item.href} external`).toBe(!!canonical.external)
     }
   })
 
-  it('no two destinations within a rail group share an icon (the double-Orbit defect class)', () => {
-    const blocks = [...sidebarGroups.map(g => g.items), sidebarAccountItems(null)]
+  it('no two destinations within a rendered group share an icon (the double-Orbit defect class)', () => {
+    // The mobile Scenes group is excluded: its city entries share MapPin on
+    // purpose (same icon = same kind of destination).
+    const blocks = [
+      ...sidebarGroups.map(g => g.items),
+      sidebarAccountItems(null),
+      accountNavItems(null),
+      ...mobileBrowseGroups.filter(g => g.label !== 'Scenes').map(g => g.items),
+    ]
     for (const items of blocks) {
       const icons = items.map(i => i.icon)
       expect(new Set(icons).size, items.map(i => i.label).join(',')).toBe(icons.length)
@@ -104,10 +149,9 @@ describe('navDestination', () => {
   })
 
   it('applies per-surface label overrides without touching the canonical entry', () => {
-    expect(navDestination('/scenes', { label: 'Scenes' })).toMatchObject({
-      href: '/scenes',
-      label: 'Scenes',
-    })
-    expect(navDestination('/scenes').label).toBe('All scenes')
+    const overridden = navDestination('/scenes', { label: 'Scenes' })
+    expect(overridden.href).toBe('/scenes')
+    expect(overridden.label).toBe('Scenes')
+    expect(navDestination('/scenes').label).not.toBe(overridden.label)
   })
 })

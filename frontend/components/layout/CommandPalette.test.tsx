@@ -138,7 +138,7 @@ describe('CommandPalette', () => {
     expect(screen.getByText('My Submissions')).toBeInTheDocument()
 
     // Auth-only pages hidden
-    expect(screen.queryByText('Library')).not.toBeInTheDocument()
+    expect(screen.queryByText('My Library')).not.toBeInTheDocument()
     expect(screen.queryByText('Settings')).not.toBeInTheDocument()
     expect(screen.queryByText('Admin')).not.toBeInTheDocument()
   })
@@ -155,7 +155,7 @@ describe('CommandPalette', () => {
       )
     })
 
-    expect(screen.getByText('Library')).toBeInTheDocument()
+    expect(screen.getByText('My Library')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
     // Admin should still be hidden for non-admin
     expect(screen.queryByText('Admin')).not.toBeInTheDocument()

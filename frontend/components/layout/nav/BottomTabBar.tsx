@@ -143,10 +143,10 @@ function SheetTab({
 }
 
 function BrowseSheetBody({
-  isAuthenticated,
+  user,
   pathname,
 }: {
-  isAuthenticated: boolean
+  user: { is_admin?: boolean } | null
   pathname: string
 }) {
   const { resolvedTheme, setTheme } = useTheme()
@@ -155,15 +155,13 @@ function BrowseSheetBody({
       {mobileBrowseGroups.map(group => (
         <div key={group.label} className="mb-4">
           <p className={cn('mb-2 px-3', navGroupLabelClassName)}>{group.label}</p>
-          {group.items
-            .filter(item => !item.authOnly || isAuthenticated)
-            .map(item => (
-              <SheetNavLink
-                key={item.href}
-                item={item}
-                active={!item.external && isNavActive(pathname, item.href)}
-              />
-            ))}
+          {visibleNavItems(group.items, user).map(item => (
+            <SheetNavLink
+              key={item.href}
+              item={item}
+              active={!item.external && isNavActive(pathname, item.href)}
+            />
+          ))}
         </div>
       ))}
 
@@ -275,7 +273,7 @@ export function BottomTabBar() {
           active={browseActive}
           description="All destinations: catalog, curation, scenes, contribute, and editorial links."
         >
-          <BrowseSheetBody isAuthenticated={isAuthenticated} pathname={pathname} />
+          <BrowseSheetBody user={user} pathname={pathname} />
         </SheetTab>
 
         {/* Account — auth-aware */}

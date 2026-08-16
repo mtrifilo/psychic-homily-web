@@ -58,6 +58,24 @@ describe('Sidebar', () => {
     expect(screen.getByText('Blog')).toBeInTheDocument()
     expect(screen.getByText('DJ Sets')).toBeInTheDocument()
     expect(screen.getByText('Substack')).toBeInTheDocument()
+  })
+
+  // PSY-1821: the rail now honors authOnly through the shared visibleNavItems
+  // gate, matching the Browse sheet and Contribute menu (it previously showed
+  // My Submissions to anonymous visitors, who just bounced to /auth).
+  it('hides authOnly destinations from anonymous visitors', () => {
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.queryByText('My Submissions')).not.toBeInTheDocument()
+  })
+
+  it('shows authOnly destinations when signed in', () => {
+    mockAuthContext.mockReturnValue({
+      user: { email: 'test@test.com', is_admin: false },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     expect(screen.getByText('My Submissions')).toBeInTheDocument()
   })
 

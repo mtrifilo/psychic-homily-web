@@ -8,8 +8,16 @@ vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
 
-const mockAuth = vi.fn<() => { isAuthenticated: boolean }>(() => ({
+// Mirrors the real AuthContext contract: user is non-null exactly when
+// authenticated (visibleNavItems keys authOnly off user presence).
+type MockAuth = {
+  isAuthenticated: boolean
+  user?: { email: string; is_admin: boolean } | null
+}
+const authedUser = { email: 'test@test.com', is_admin: false }
+const mockAuth = vi.fn<() => MockAuth>(() => ({
   isAuthenticated: false,
+  user: null,
 }))
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuth(),
@@ -95,7 +103,7 @@ describe('PrimaryNav', () => {
   })
 
   it('shows the auth-only Contribute item when signed in', async () => {
-    mockAuth.mockReturnValue({ isAuthenticated: true })
+    mockAuth.mockReturnValue({ isAuthenticated: true, user: authedUser })
     const user = userEvent.setup()
     render(<PrimaryNav />)
     await user.click(screen.getByRole('button', { name: 'Contribute' }))

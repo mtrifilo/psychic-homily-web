@@ -142,7 +142,7 @@ const routes: RouteItem[] = [
     keywords: ['submissions', 'pending', 'edits', 'my submissions', 'my edits', 'my pending edits'],
   },
   {
-    label: 'Library',
+    label: 'My Library',
     href: '/library',
     keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'my collection', 'submissions', 'my submissions'],
     requireAuth: true,
@@ -175,7 +175,7 @@ const routes: RouteItem[] = [
     // /users/me redirects to /users/<username> when one is set, and renders
     // the claim-username self view otherwise — so this static entry works for
     // every authed user without needing the username here (PSY-1045).
-    label: 'My Profile',
+    label: 'Profile',
     href: '/users/me',
     keywords: ['my profile', 'profile', 'public profile', 'identity', 'me'],
     requireAuth: true,
