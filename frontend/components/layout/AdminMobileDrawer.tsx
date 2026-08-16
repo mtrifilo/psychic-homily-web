@@ -15,7 +15,7 @@ const AdminDrawerNav = dynamic(() => import('./AdminDrawerNav'), { ssr: false })
 // The mobile admin-sections drawer (formerly MobileNav). PSY-1020 retired the
 // public hamburger sheet — the bottom tab bar (BottomTabBar) is the primary
 // mobile nav, with the long tail in its Browse sheet — leaving this component
-// the one job the tab bar does not cover: reaching the 18 admin sections on a
+// the one job the tab bar does not cover: reaching the admin sections on a
 // phone, where AdminSidebar's rail is hidden.
 //
 // It carries no route or auth gate. app/admin/layout.tsx mounts it inside

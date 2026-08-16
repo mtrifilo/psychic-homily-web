@@ -261,12 +261,10 @@ describe('TopBar', () => {
     })
   })
 
-  // PSY-1020 retired the public hamburger sheet (the BottomTabBar mounted by
-  // AppShell is the primary mobile nav); PSY-1817 moved the surviving admin
-  // drawer out of this bar and into app/admin/layout.tsx. The top bar is public
-  // chrome now — it must carry no admin-only surface for ANY user on ANY route,
-  // which is what these guard. The drawer's own behavior lives in
-  // AdminMobileDrawer.test.tsx, its mount in app/admin/layout.test.tsx.
+  // The top bar is public chrome: it must carry no admin-only surface for ANY
+  // user on ANY route, which is what these guard. The admin drawer lives in
+  // app/admin/layout.tsx (PSY-1817) — its behavior is covered by
+  // AdminMobileDrawer.test.tsx and its mount by app/admin/layout.test.tsx.
   describe('no admin chrome (PSY-1817)', () => {
     it('renders no hamburger for the public', () => {
       render(<TopBar />)

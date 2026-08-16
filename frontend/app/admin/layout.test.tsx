@@ -59,9 +59,8 @@ describe('AdminLayout', () => {
 
   // AdminGuard rejects in two structurally different ways — a bare `null` when
   // unauthenticated (above) and an Access Denied panel for a signed-in
-  // non-admin. Both have to withhold the drawer, and only the first is covered
-  // by the redirect case, so this pins the second. It replaces the deleted
-  // TopBar test that used to assert the drawer's own `is_admin` check.
+  // non-admin, which renders a real subtree. Both have to withhold the drawer,
+  // and the redirect case only covers the first, so this pins the second.
   it('withholds the drawer from a signed-in non-admin (Access Denied branch)', () => {
     mockAuthState = {
       user: { is_admin: false },
@@ -97,8 +96,8 @@ describe('AdminLayout', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
-  // PSY-1817: the drawer trigger is admin-shell chrome, not top-bar chrome, so
-  // it belongs to the content column and precedes the page.
+  // The drawer trigger is admin-shell chrome, not top-bar chrome: it belongs to
+  // the content column, which is what puts it ahead of the page (PSY-1817).
   it('mounts the mobile admin drawer for an admin, above the page content', () => {
     mockAuthState = {
       user: { is_admin: true },
@@ -120,9 +119,20 @@ describe('AdminLayout', () => {
   })
 
   // The rail and the drawer must be exact inverses, or some viewport band gets
-  // both admin navs or neither. Asserting them in the SAME render is the point:
-  // a one-sided assertion in either component's own test still passes when the
-  // other side's breakpoint is what moved.
+  // both admin navs or neither. Asserting them in the SAME render is half the
+  // point — a one-sided assertion in either component's own test still passes
+  // when the other side's breakpoint moved.
+  //
+  // The other half is asserting the PROPERTY, not the two literal strings.
+  // `toHaveClass('md:flex')` is a presence check, so `hidden md:flex lg:hidden`
+  // would sail through it while leaving every viewport at or above `lg` with no
+  // admin nav at all. So: pull every responsive display utility off each side,
+  // require exactly one, and require both to name the same breakpoint.
+  const displayUtilities = (el: Element | null | undefined) =>
+    Array.from(el?.classList ?? []).filter(cls =>
+      /^[a-z0-9]+:(flex|hidden|block|inline|inline-block|grid|contents)$/.test(cls)
+    )
+
   it('pairs the drawer against the rail as exact breakpoint inverses', () => {
     mockAuthState = {
       user: { is_admin: true },
@@ -137,11 +147,24 @@ describe('AdminLayout', () => {
     )
 
     const rail = container.querySelector('aside[aria-label="Admin navigation"]')
-    const drawerBar = screen
-      .getByRole('button', { name: 'Open admin menu' })
-      .closest('div')
+    const drawerBar = screen.getByTestId('admin-drawer-bar')
 
-    expect(rail).toHaveClass('hidden', 'md:flex')
-    expect(drawerBar).toHaveClass('md:hidden')
+    // Base state: the rail is out until its breakpoint, the drawer bar is in.
+    expect(rail).toHaveClass('hidden')
+    expect(drawerBar).not.toHaveClass('hidden')
+
+    const railSwitch = displayUtilities(rail)
+    const drawerSwitch = displayUtilities(drawerBar)
+
+    expect(railSwitch).toEqual(['md:flex'])
+    expect(drawerSwitch).toEqual(['md:hidden'])
+
+    // Restating the invariant independently of the literals above: one switch
+    // each, at the same breakpoint, in opposite directions.
+    const [railBreakpoint, railDisplay] = railSwitch[0].split(':')
+    const [drawerBreakpoint, drawerDisplay] = drawerSwitch[0].split(':')
+    expect(railBreakpoint).toBe(drawerBreakpoint)
+    expect(railDisplay).not.toBe('hidden')
+    expect(drawerDisplay).toBe('hidden')
   })
 })

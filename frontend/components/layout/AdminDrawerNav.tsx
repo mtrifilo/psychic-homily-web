@@ -16,7 +16,7 @@ import { useAdminNavCounts } from '@/lib/hooks/admin/useAdminNavCounts'
  * (PSY-1817) — so this only ever loads for an admin under /admin. The desktop
  * rail is hidden < md, making this the sole admin nav on mobile. Same
  * chunk-splitting rationale as AdminSidebarNav: the queue-count hooks and the
- * 18-section config stay out of the bundle until the drawer is opened.
+ * section config stay out of the bundle until the drawer is opened.
  *
  * `onNavigate` closes the drawer on selection. Default export for `next/dynamic`.
  */
