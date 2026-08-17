@@ -162,10 +162,10 @@ export function SceneMapZeroState({
           entityType="label"
           name={selectedHub.name}
           slug={selectedHub.slug}
-          // The same home city the canvas captions (PSY-1736), so the panel and
-          // the dot agree. Null when the label has none — the panel drops the
-          // line rather than saying "location unknown".
-          meta={selectedHub.homeCity}
+          // The same home caption the canvas draws (PSY-1736, PSY-1792), so the
+          // panel and the dot agree. Null when the label has no location at all
+          // — the panel drops the line rather than saying "location unknown".
+          meta={selectedHub.homeCaption}
           primary={{
             kind: 'emphasis',
             text: `${selectedHub.degree} ${selectedHub.degree === 1 ? 'artist' : 'artists'} on the map`,

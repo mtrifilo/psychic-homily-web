@@ -1345,8 +1345,11 @@ export function ForceGraphView({
         priority: degreeById.get(node.id) ?? 0,
         // Home caption, hubs only: hubs are NOT gated to scene-local labels
         // (locked decision — a metro gate would strip NYC to two edges and
-        // misfire on labels with no city on file), so the canvas has to say
-        // where an anchor is actually from.
+        // misfire on labels with no location on file), so the canvas has to say
+        // where an anchor is actually from. City -> state -> country, so a label
+        // known only as "England" still captions (PSY-1792); this reads the
+        // parts off the LIVE node, where the map reads them off the nightly
+        // snapshot's columns, but both compose through the one helper.
         caption: isHub ? labelHubHomeCaption(node) : undefined,
       }
     },

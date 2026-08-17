@@ -206,9 +206,11 @@ export interface GraphLabelSpec {
   force?: boolean
   /**
    * Optional second line under `text`, drawn smaller and dimmer — the label
-   * hub's home city (PSY-1530), so an out-of-scene anchor reads as out-of-scene
-   * on the canvas rather than only in its panel. Included in the collision box,
-   * so a caption can never overlap a neighbouring label.
+   * hub's home (PSY-1530), so an out-of-scene anchor reads as out-of-scene on
+   * the canvas rather than only in its panel. Composed by the caller from
+   * whichever of city/state/country the label has on file, so it can read
+   * "Austin, TX", "London, England" or just "England" (PSY-1792). Included in
+   * the collision box, so a caption can never overlap a neighbouring label.
    *
    * TRUNCATE IT YOURSELF, like `text`. This pass measures whatever it is given,
    * so an untruncated caption reserves a box as wide as it happens to be.

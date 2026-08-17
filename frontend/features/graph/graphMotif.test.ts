@@ -35,7 +35,7 @@ function node(id: number, x: number, y: number, appear: number): SceneMapNode {
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
-    homeCity: null,
+    homeCaption: null,
     appear,
   }
 }

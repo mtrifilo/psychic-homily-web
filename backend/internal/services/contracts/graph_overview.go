@@ -127,29 +127,38 @@ type GraphOverviewNodes struct {
 	// never empty: an unlinkable node is not emitted.
 	Name []string `json:"name"`
 	Slug []string `json:"slug"`
-	// HubCity is a LABEL HUB's home city, and is empty for everything else.
+	// HubCity, HubState and HubCountry are a LABEL HUB's home location, and are
+	// empty for everything else.
 	//
-	// The name says "hub" because the scope is the point: it is empty at every
-	// ARTIST index — not because artists have no city, but because the map does
-	// not carry theirs — and empty at a hub whose label has no city on file.
-	// Reading it as "this node's location" would silently claim that most of
-	// the catalog is from nowhere.
+	// The names say "hub" because the scope is the point: they are empty at
+	// every ARTIST index — not because artists have no location, but because
+	// the map does not carry theirs — and empty at a hub whose label has that
+	// part missing. Reading them as "this node's location" would silently claim
+	// that most of the catalog is from nowhere.
 	//
-	// City ONLY: no state, no country, no "City, ST" composition. That is the
-	// locked caption rule for this surface (PSY-1721). Note what the lock costs
-	// by living HERE: the client cannot show a state or country it was never
-	// sent, so revisiting the rule is a payload change plus a nightly rebuild,
-	// not a frontend tweak. That is accepted — the alternative, shipping three
-	// columns so the client can compose, would put the composition rule in
-	// every consumer instead of in one place.
+	// THREE COLUMNS, NOT A COMPOSED CAPTION (PSY-1792). The map captions a hub
+	// with the same city -> state -> country fallback every other surface uses
+	// (`/scenes`, artist and venue pages), so a label known only as "England"
+	// captions there too. That rule is the site-wide PSY-558/780 location rule,
+	// and it is implemented ONCE, on the client, as `formatLocation` /
+	// `labelHubHomeCaption`. Composing the caption here instead would mean
+	// porting that rule into Go — a second implementation of a rule whose whole
+	// value is that there is only one — so the wire carries the PARTS and the
+	// client composes. This supersedes the PSY-1721 "city only" caption lock,
+	// which the payload previously enforced by carrying nothing else.
 	//
 	// TRIMMED. A present value is drawable text: the builder normalizes
-	// whitespace, so "  " arrives as "" rather than as a blank caption line.
+	// whitespace, so "  " arrives as "" rather than as a blank caption part.
 	//
-	// OPTIONAL, like Appear. A snapshot written before this column existed
-	// carries no `hub_city` at all — see GraphOverviewVersion for why that is
-	// preferable to a version bump. Length is NodeCount whenever present.
-	HubCity []string `json:"hub_city,omitempty" doc:"Label hub's home city, trimmed; empty at every artist index and at a hub with no city on file. Absent entirely on a snapshot built before the column existed."`
+	// OPTIONAL, like Appear. A snapshot written before a column existed carries
+	// it not at all — see GraphOverviewVersion for why that is preferable to a
+	// version bump. In particular a snapshot built before PSY-1792 has
+	// `hub_city` and neither of the other two, which degrades to exactly the
+	// old city-only caption for one nightly cycle. Length is NodeCount whenever
+	// present, and each column is length-checked independently.
+	HubCity    []string `json:"hub_city,omitempty" doc:"Label hub's home city, trimmed; empty at every artist index and at a hub with no city on file. Absent entirely on a snapshot built before the column existed."`
+	HubState   []string `json:"hub_state,omitempty" doc:"Label hub's home state, trimmed; empty at every artist index and at a hub with no state on file. Absent entirely on a snapshot built before the column existed."`
+	HubCountry []string `json:"hub_country,omitempty" doc:"Label hub's home country, trimmed; empty at every artist index and at a hub with no country on file. Absent entirely on a snapshot built before the column existed."`
 	// X and Y are quantized positions; see GraphOverviewCoordinateScale.
 	X []int16 `json:"x"`
 	Y []int16 `json:"y"`

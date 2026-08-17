@@ -382,9 +382,12 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
 		Where("id = ?", artists[0].ID).
 		Update("name", "Renamed Band").Error)
+	// All THREE location parts, not just the city: they take the identical
+	// path, so a build that stopped emitting two of them while preserving the
+	// warm start would otherwise still pass this test.
 	s.Require().NoError(s.db.Model(&catalogm.Label{}).
 		Where("name = ?", "HubRecords").
-		Update("city", "Austin").Error)
+		Updates(map[string]any{"city": "Austin", "state": "TX", "country": "USA"}).Error)
 
 	runner := &stubLayoutRunner{transform: rotateScaleTranslate}
 	_, err = s.build(runner, time.Date(2026, 8, 2, 3, 0, 0, 0, time.UTC))
@@ -396,6 +399,8 @@ func (s *GraphOverviewSuite) TestBuild_ChangedAttributesAloneStillSkipTheLayout(
 	s.Assert().Equal(before.Nodes.Y, after.Nodes.Y)
 	s.Assert().Contains(after.Nodes.Name, "Renamed Band", "the rename still reached the payload")
 	s.Assert().Contains(after.Nodes.HubCity, "Austin", "the city edit still reached the payload")
+	s.Assert().Contains(after.Nodes.HubState, "TX", "the state edit still reached the payload")
+	s.Assert().Contains(after.Nodes.HubCountry, "USA", "the country edit still reached the payload")
 }
 
 func (s *GraphOverviewSuite) TestBuild_WarmStartResumesFromThePreviousSnapshot() {
@@ -653,42 +658,66 @@ func (s *GraphOverviewSuite) labelIDFor(name string) uint {
 	return label.ID
 }
 
-func (s *GraphOverviewSuite) TestBuild_HubCarriesItsLabelsHomeCity() {
+func (s *GraphOverviewSuite) TestBuild_HubCarriesItsLabelsHomeLocation() {
 	artists := s.seedScene()
 
-	// ONE HUB WITH A CITY AND ONE WITHOUT, in the same payload. "Only when set"
-	// is a claim about the difference between them, and a fixture carrying only
-	// the positive case would pass against a hardcoded string.
+	// ONE FULLY-LOCATED HUB AND ONE KNOWN ONLY BY COUNTRY, in the same payload.
+	// "Only the parts that are set" is a claim about the difference between
+	// them, and a fixture carrying only the positive case would pass against a
+	// hardcoded string. The country-only hub is the PSY-1792 case specifically:
+	// before the state/country columns shipped it captioned nothing on the map
+	// while `/scenes` captioned it "England".
 	s.Require().NoError(s.db.Model(&catalogm.Label{}).
 		Where("name = ?", "HubRecords").
-		Update("city", " Austin ").Error)
-	s.createLabelWithRoster("NoCityRecords", artists[5].ID, artists[6].ID, artists[7].ID)
+		Updates(map[string]any{"city": " Austin ", "state": " TX ", "country": " USA "}).Error)
+	s.createLabelWithRoster("CountryOnlyRecords", artists[5].ID, artists[6].ID, artists[7].ID)
+	s.Require().NoError(s.db.Model(&catalogm.Label{}).
+		Where("name = ?", "CountryOnlyRecords").
+		Update("country", "England").Error)
 
 	_, err := s.build(&stubLayoutRunner{}, time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC))
 	s.Require().NoError(err)
 	payload := s.newestPayload()
 
-	s.Require().Len(payload.Nodes.HubCity, payload.NodeCount,
-		"hub_city must be a full-length column, like every other node column")
+	for name, column := range map[string][]string{
+		"hub_city":    payload.Nodes.HubCity,
+		"hub_state":   payload.Nodes.HubState,
+		"hub_country": payload.Nodes.HubCountry,
+	} {
+		s.Require().Len(column, payload.NodeCount,
+			"%s must be a full-length column, like every other node column", name)
+	}
 
-	cityByHub := make(map[string]string)
+	// hubLocation is the package-level type from graph_overview_unit_test.go.
+	locationByHub := make(map[string]hubLocation)
 	for i, kind := range payload.Nodes.Kind {
 		if kind == contracts.GraphOverviewNodeLabelHub {
-			cityByHub[payload.Nodes.Name[i]] = payload.Nodes.HubCity[i]
+			locationByHub[payload.Nodes.Name[i]] = hubLocation{
+				city:    payload.Nodes.HubCity[i],
+				state:   payload.Nodes.HubState[i],
+				country: payload.Nodes.HubCountry[i],
+			}
 			continue
 		}
 		s.Assert().Empty(payload.Nodes.HubCity[i],
-			"artist %q must carry no hub city: the column is the hub caption, not a location column",
+			"artist %q must carry no hub city: the columns are the hub caption, not location columns",
 			payload.Nodes.Name[i])
+		s.Assert().Empty(payload.Nodes.HubState[i],
+			"artist %q must carry no hub state", payload.Nodes.Name[i])
+		s.Assert().Empty(payload.Nodes.HubCountry[i],
+			"artist %q must carry no hub country", payload.Nodes.Name[i])
 	}
-	// Both hubs must EXIST before their cities mean anything. Without this the
-	// negative case fails open: a missing "NoCityRecords" hub reads back as the
-	// zero value, which is exactly the "" the assertion below wants.
-	s.Require().Contains(cityByHub, "HubRecords")
-	s.Require().Contains(cityByHub, "NoCityRecords")
+	// Both hubs must EXIST before their locations mean anything. Without this
+	// the negative case fails open: a missing "CountryOnlyRecords" hub reads
+	// back as the zero value, which is exactly the "" the assertions want.
+	s.Require().Contains(locationByHub, "HubRecords")
+	s.Require().Contains(locationByHub, "CountryOnlyRecords")
 
-	s.Assert().Equal("Austin", cityByHub["HubRecords"], "a label with a city on file captions it, trimmed")
-	s.Assert().Equal("", cityByHub["NoCityRecords"], "a label with no city on file captions nothing")
+	s.Assert().Equal(hubLocation{city: "Austin", state: "TX", country: "USA"},
+		locationByHub["HubRecords"], "every located part reaches the payload, trimmed")
+	s.Assert().Equal(hubLocation{country: "England"},
+		locationByHub["CountryOnlyRecords"],
+		"a label known only by country carries that country and nothing else")
 }
 
 // --- acceptance: failure posture ---

@@ -22,6 +22,7 @@
  *     the shared node/label geometry was tuned for.
  */
 
+import { labelHubHomeCaption } from '@/components/graph/labelHub'
 import type { components } from '@/types/api'
 
 export type GraphOverview = components['schemas']['GraphOverview']
@@ -88,16 +89,24 @@ export interface SceneMapNode {
   hasUpcomingShow: boolean
   hasPlayableAudio: boolean
   /**
-   * A label hub's home city, or null (PSY-1736). ALWAYS null on an artist node
-   * — the snapshot's `hub_city` column is the hub caption, not a location
-   * column, and `buildSceneMap` enforces that rather than trusting it — and
-   * null at a hub whose label has no city on file, which is the majority case
-   * and reads as no caption rather than a placeholder.
+   * A label hub's home caption, or null (PSY-1736, PSY-1792). ALWAYS null on
+   * an artist node — the snapshot's `hub_*` columns are the hub caption, not
+   * location columns, and `buildSceneMap` enforces that rather than trusting
+   * it — and null at a hub whose label has no location at all on file, which
+   * reads as no caption rather than a placeholder.
    *
-   * City only, by the locked caption rule: no state, no country, no fallback.
-   * The backend has already trimmed it, so a non-null value is drawable text.
+   * COMPOSED, not a bare city (PSY-1792) — see `labelHubHomeCaption` for the
+   * rule and `contracts.GraphOverviewNodes.HubCity` for why the wire ships the
+   * parts rather than a finished caption.
+   *
+   * Composed HERE rather than at the canvas, which is the dividing line on this
+   * path: a geometry-INDEPENDENT display rule belongs to the decode, so both
+   * the canvas and the hub's context panel are handed the same string and
+   * cannot disagree; geometry-DEPENDENT presentation (truncation to the label's
+   * collision box) stays at the canvas, which is the only layer that knows the
+   * zoom.
    */
-  homeCity: string | null
+  homeCaption: string | null
   /**
    * When this node entered the catalog, in seconds after `SceneMap.epoch` —
    * the clock the growth replay runs on (PSY-1737). The backend derives it
@@ -290,11 +299,21 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
   // it should still DRAW — it just cannot be replayed, which is the decision
   // `buildReplayTimeline` makes on its own.
   const appears = optionalColumn(overview.nodes.appear, nodeCount)
-  // Optional for the same reason, and then some: a snapshot built before this
+  // Optional for the same reason, and then some: a snapshot built before a
   // column existed carries none at all. The length check earns its keep here —
   // an off-by-one would put a real city under a label that is not from there,
   // which is worse than no caption at all.
+  //
+  // Checked INDEPENDENTLY, not as a group — a PERMANENT property, not just the
+  // PSY-1792 upgrade. The contract declares each column optional on its own, so
+  // a mixed snapshot (some columns present, some not) is reachable whenever the
+  // serving binary is older or newer than the snapshot it reads — at the deploy
+  // that ships this, and again after any rollback. Each part contributes what
+  // it has and the composition below uses whatever is present; collapsing these
+  // into one group check would silently drop the caption on any such snapshot.
   const hubCities = optionalColumn(overview.nodes.hub_city, nodeCount)
+  const hubStates = optionalColumn(overview.nodes.hub_state, nodeCount)
+  const hubCountries = optionalColumn(overview.nodes.hub_country, nodeCount)
 
   const nodes: SceneMapNode[] = new Array(nodeCount)
   let artistCount = 0
@@ -315,14 +334,22 @@ export function buildSceneMap(overview: GraphOverview): SceneMap | null {
       rank: ranks[i],
       hasUpcomingShow: (flags[i] & FLAG_UPCOMING_SHOW) !== 0,
       hasPlayableAudio: (flags[i] & FLAG_PLAYABLE_AUDIO) !== 0,
-      // HUB-SCOPED HERE, not at the caption. The column is empty at artists
+      // HUB-SCOPED HERE, not at the caption. The columns are empty at artists
       // today, so the `kind` test is redundant against a correct snapshot —
       // it is what stops a future payload that starts carrying artist
       // locations from silently captioning every dot on the map.
       //
-      // `||`, not `??`: "" is how the backend spells an absent city, both at
-      // artists and at a hub whose label has none on file.
-      homeCity: (kind === 'label' && hubCities?.[i]) || null,
+      // The helper already drops empty and whitespace-only parts, so "" — how
+      // the backend spells an absent part — needs no special case here, and a
+      // hub with nothing on file resolves to null rather than a placeholder.
+      homeCaption:
+        kind === 'label'
+          ? (labelHubHomeCaption({
+              city: hubCities?.[i],
+              state: hubStates?.[i],
+              country: hubCountries?.[i],
+            }) ?? null)
+          : null,
       appear: appears ? appears[i] : 0,
     }
   }

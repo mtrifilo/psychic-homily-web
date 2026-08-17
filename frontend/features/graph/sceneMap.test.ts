@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { labelHubHomeCaption } from '@/components/graph/labelHub'
 import {
   SCENE_MAP_WORLD_HALF_EXTENT,
   buildSceneMap,
@@ -39,9 +40,11 @@ function overviewFixture(overrides: Partial<GraphOverview> = {}): GraphOverview 
       kind: encodeBytes([0, 0, 0, 1]),
       name: ['Alpha', 'Beta', 'Gamma', 'Doom Records'],
       slug: ['alpha', 'beta', 'gamma', 'doom-records'],
-      // Hub-scoped: empty at every artist index, set only where a label has a
-      // city on file.
+      // Hub-scoped: empty at every artist index, set only where a label has
+      // that part on file.
       hub_city: ['', '', '', 'Brooklyn'],
+      hub_state: ['', '', '', 'NY'],
+      hub_country: ['', '', '', 'US'],
       x: [0, QUANT_SCALE, -QUANT_SCALE, 0],
       y: [0, 0, 0, QUANT_SCALE],
       community: [7, 7, 7, -1],
@@ -176,15 +179,43 @@ describe('buildSceneMap', () => {
     expect(map!.edges.every(edge => edge.appear === 0)).toBe(true)
   })
 
-  // ── The label hub's home city (PSY-1736) ───────────────────────────────
-  it('carries a hub home city only where the snapshot sets one', () => {
-    const map = buildSceneMap(overviewFixture())!
+  // ── The label hub's home caption (PSY-1736, PSY-1792) ──────────────────
+  //
+  // The city/state/country RULE itself belongs to `formatLocation` and is
+  // pinned in its own suite and in `labelHub.test.ts`. What these tests own is
+  // narrower and is all this module can get wrong: that the three columns are
+  // read at the right index, hub-scoped, and handed to the shared helper rather
+  // than re-derived here.
+  it.each([
+    // The PSY-1792 case: before this, the map carried `hub_city` alone, so a
+    // label known only as "England" captioned nothing here while `/scenes`
+    // captioned it fine.
+    { parts: ['', '', 'England'], want: 'England', case: 'country only' },
+    { parts: ['Berlin', '', ''], want: 'Berlin', case: 'city only (unchanged)' },
+  ])(
+    'captions a hub from $case through the same helper /scenes uses',
+    ({ parts: [city, state, country], want }) => {
+      const map = buildSceneMap(
+        overviewFixture({
+          nodes: {
+            ...overviewFixture().nodes,
+            hub_city: ['', '', '', city],
+            hub_state: ['', '', '', state],
+            hub_country: ['', '', '', country],
+          },
+        }),
+      )!
 
-    expect(map.nodes.map(node => node.homeCity)).toEqual([null, null, null, 'Brooklyn'])
-  })
+      // Both assertions earn their place: the literal documents the caption a
+      // reader should expect, and the helper comparison is what would fail if
+      // this module ever grew its own copy of the composition rule.
+      expect(map.nodes[3].homeCaption).toBe(want)
+      expect(map.nodes[3].homeCaption).toBe(labelHubHomeCaption({ city, state, country }))
+    },
+  )
 
-  it('refuses a city on an artist node even when the snapshot supplies one', () => {
-    // The column is hub-scoped by contract, and the decode enforces it rather
+  it('refuses a location on an artist node even when the snapshot supplies one', () => {
+    // The columns are hub-scoped by contract, and the decode enforces it rather
     // than trusting it: a later payload that starts carrying artist locations
     // must not silently caption every dot on the map.
     const map = buildSceneMap(
@@ -192,44 +223,86 @@ describe('buildSceneMap', () => {
         nodes: {
           ...overviewFixture().nodes,
           hub_city: ['Tempe', 'Mesa', 'Tucson', 'Brooklyn'],
+          hub_state: ['AZ', 'AZ', 'AZ', 'NY'],
+          hub_country: ['US', 'US', 'US', 'US'],
         },
       }),
     )!
 
-    expect(map.nodes.map(node => node.homeCity)).toEqual([null, null, null, 'Brooklyn'])
+    expect(map.nodes.map(node => node.homeCaption)).toEqual([
+      null,
+      null,
+      null,
+      'Brooklyn, NY',
+    ])
   })
 
-  it('reads an empty hub city as no city rather than an empty caption', () => {
-    // The backend writes "" for a label with nothing on file, and an empty
-    // string drawn as a caption is a blank line under the hub, not an absence.
+  it('reads an empty hub location as no caption rather than an empty one', () => {
+    // The backend writes "" for a part a label has nothing on file for, and an
+    // empty string drawn as a caption is a blank line under the hub, not an
+    // absence. "Location Unknown" is likewise not a caption the canvas wants.
     const map = buildSceneMap(
       overviewFixture({
-        nodes: { ...overviewFixture().nodes, hub_city: ['', '', '', ''] },
+        nodes: {
+          ...overviewFixture().nodes,
+          hub_city: ['', '', '', ''],
+          hub_state: ['', '', '', ''],
+          hub_country: ['', '', '', ''],
+        },
       }),
     )!
 
-    expect(map.nodes[3].homeCity).toBeNull()
+    expect(map.nodes[3].homeCaption).toBeNull()
   })
 
-  it('still draws a map whose hub city column is missing or the wrong length', () => {
-    // A snapshot written before the column existed carries none at all. That is
+  it('still draws a map whose hub location columns are missing or the wrong length', () => {
+    // A snapshot written before the columns existed carries none at all. That is
     // the NORMAL state on the deploy that ships this, not a corruption: the map
     // draws, it just has no captions until the next nightly build.
     const missing = buildSceneMap(
       overviewFixture({
-        nodes: { ...overviewFixture().nodes, hub_city: undefined },
+        nodes: {
+          ...overviewFixture().nodes,
+          hub_city: undefined,
+          hub_state: undefined,
+          hub_country: undefined,
+        },
       }),
     )
     const short = buildSceneMap(
       overviewFixture({
-        nodes: { ...overviewFixture().nodes, hub_city: ['Brooklyn'] },
+        nodes: {
+          ...overviewFixture().nodes,
+          hub_city: ['Brooklyn'],
+          hub_state: ['NY'],
+          hub_country: ['US'],
+        },
       }),
     )
 
     expect(missing).not.toBeNull()
-    expect(missing!.nodes.every(node => node.homeCity === null)).toBe(true)
+    expect(missing!.nodes.every(node => node.homeCaption === null)).toBe(true)
     expect(short).not.toBeNull()
-    expect(short!.nodes.every(node => node.homeCity === null)).toBe(true)
+    expect(short!.nodes.every(node => node.homeCaption === null)).toBe(true)
+  })
+
+  it('captions a snapshot carrying hub_city alone from the column it has', () => {
+    // Why the three columns are length-checked INDEPENDENTLY. A mixed snapshot
+    // is reachable whenever the serving binary and the snapshot disagree — at
+    // the deploy that ships this, and again after any rollback — so this is a
+    // standing guarantee, not a one-cycle migration. Grouping the checks would
+    // drop the caption entirely instead of falling back to the part present.
+    const map = buildSceneMap(
+      overviewFixture({
+        nodes: {
+          ...overviewFixture().nodes,
+          hub_state: undefined,
+          hub_country: undefined,
+        },
+      }),
+    )!
+
+    expect(map.nodes[3].homeCaption).toBe('Brooklyn')
   })
 
   it('emits each CSR edge exactly once, keyed by entity id', () => {
@@ -357,7 +430,7 @@ function node(
     rank: 0,
     hasUpcomingShow: false,
     hasPlayableAudio: false,
-    homeCity: null,
+    homeCaption: null,
     appear: 0,
     ...overrides,
   }
