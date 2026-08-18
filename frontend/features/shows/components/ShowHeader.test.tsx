@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { stubAllImagesLoadState } from '@/test/stubAllImagesLoadState'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -163,26 +164,16 @@ describe('ShowHeader layout', () => {
   // stayed reserved and the bill sat in the second column beside a blank
   // gutter, because that error event was fired at nobody.
   it('collapses the column for a flyer that already failed before hydration', () => {
-    const complete = vi
-      .spyOn(HTMLImageElement.prototype, 'complete', 'get')
-      .mockReturnValue(true)
-    const naturalWidth = vi
-      .spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get')
-      .mockReturnValue(0)
+    stubAllImagesLoadState({ complete: true, naturalWidth: 0 })
 
-    try {
-      render(
-        <ShowHeader
-          show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
-        />
-      )
+    render(
+      <ShowHeader
+        show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
+      />
+    )
 
-      expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
-      expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
-    } finally {
-      complete.mockRestore()
-      naturalWidth.mockRestore()
-    }
+    expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
+    expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
   })
 
   // An admin can fix a bad `image_url` from the edit drawer on this very page.

@@ -238,8 +238,9 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
   // with an empty left column.
   const flyerSrc =
     candidateFlyerSrc !== failedFlyerSrc ? candidateFlyerSrc : null
-  // Stable per URL: the plate holds it in a callback ref, and an identity that
-  // changed every render would detach and re-attach that ref every render.
+  // Memoised as ordinary prop hygiene, not a correctness requirement: the
+  // plate's pre-attach ref holds this in a latest-ref, so its identity no
+  // longer affects when that ref attaches.
   const handleFlyerError = useCallback(
     () => setFailedFlyerSrc(candidateFlyerSrc),
     [candidateFlyerSrc]
@@ -514,12 +515,14 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           the mock has it. */}
       {flyerSrc && (
         <ShowFlyerPlate
-          // A new URL gets a NEW element rather than a reused one. The plate
-          // reads `complete` / `naturalWidth` off the node on mount, and on a
-          // reused element those still describe the PREVIOUS image at that
-          // moment (the spec queues the image update as a microtask), so a
-          // good replacement could be judged on the old one's failure.
-          key={flyerSrc}
+          // Deliberately NOT keyed on the URL, matching CollectionCoverImage.
+          // The plate's pre-attach ref is identity-stable, so it cannot re-read
+          // a reused node whose state still describes the previous image, and
+          // a later failure is caught by `onError`, which React attaches at
+          // element creation. Keying would only cost the browser's seamless
+          // swap: it keeps painting the current flyer until the replacement
+          // has fully loaded, instead of blanking the column for the length of
+          // a third-party fetch every time an admin fixes an `image_url`.
           src={flyerSrc}
           credit={flyerCredit(show)}
           onError={handleFlyerError}

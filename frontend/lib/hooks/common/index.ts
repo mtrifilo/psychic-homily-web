@@ -47,3 +47,10 @@ export {
   type EntitySearchResult,
   type EntitySearchResults,
 } from './useEntitySearch'
+
+// NOT exported here on purpose: `usePreAttachImageFailureRef`. Its callers are
+// leaf image components, and this barrel also re-exports the react-query-backed
+// follow / revisions / search hooks above, so importing it would pull that
+// graph into every route they reach. Precautionary rather than measured, by
+// analogy with the Turbopack barrel note in
+// features/collections/components/index.ts. Import the hook file directly.

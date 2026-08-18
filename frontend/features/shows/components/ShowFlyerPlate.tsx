@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback } from 'react'
+// The hook FILE, not the `@/lib/hooks/common` barrel — see the note at the
+// bottom of that barrel.
+import { usePreAttachImageFailureRef } from '@/lib/hooks/common/usePreAttachImageFailureRef'
 
 /**
  * The show's flyer, at its own aspect ratio and uncropped.
@@ -45,26 +47,11 @@ export function ShowFlyerPlate({
 }) {
   // The `onError` prop alone is not enough, and the gap is the common case
   // rather than a corner: this page is server-rendered, so the browser starts
-  // fetching the flyer while parsing the HTML. A dead hotlink can therefore
-  // 404 BEFORE React hydrates and attaches the handler, and that error event
-  // is gone for good. What survives is the element's own state, so the ref
-  // reads it once on mount: `complete` with a zero `naturalWidth` is exactly
-  // "finished, and decoded nothing".
-  //
-  // Known false positive, accepted: an SVG with no intrinsic width reports
-  // naturalWidth 0 in Firefox even when it rendered fine, so an SVG flyer can
-  // collapse the column there. The alternatives (sniffing the extension,
-  // reading the content type) are guesses about a URL, and flyers are
-  // photographs and scans, not vector art.
-  //
-  // A callback ref rather than an effect: this is reading the DOM node the
-  // moment it exists, which is what a ref is for.
-  const reportPreHydrationFailure = useCallback(
-    (node: HTMLImageElement | null) => {
-      if (node?.complete && node.naturalWidth === 0) onError()
-    },
-    [onError]
-  )
+  // fetching the flyer while parsing the HTML and a dead hotlink can 404
+  // before React hydrates and attaches the handler. The hook holds `onError`
+  // in a latest-ref, so this imposes no stability requirement on the prop.
+  // See the hook for the mechanism and its caveats.
+  const preAttachFailureRef = usePreAttachImageFailureRef(onError)
 
   return (
     <figure data-testid="show-flyer-plate" className={className}>
@@ -72,7 +59,7 @@ export function ShowFlyerPlate({
           hotlinked venue/promoter hosts, outside next/image's remotePatterns
           allowlist (see next.config.ts). Same call as LibraryWallGrid. */}
       <img
-        ref={reportPreHydrationFailure}
+        ref={preAttachFailureRef}
         src={src}
         /* Empty on purpose. The image restates the bill that is typeset
            immediately beside it, and its actual content (the poster art) is
