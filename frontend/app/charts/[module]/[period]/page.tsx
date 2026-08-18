@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { LoadingSpinner } from '@/components/shared'
 import { ChartsPage } from '@/features/charts'
@@ -7,18 +8,25 @@ import {
   formatArchiveSubtitle,
   formatArchiveTitle,
 } from '@/features/charts/calendarWindows'
+import { listRootCanonical } from '@/lib/seo/siteMetadata'
 
 /**
  * Closed-window immutability is enforced by the charts API's 24h TTL
  * (PSY-1421). Route-segment `revalidate` is incompatible with
  * `cacheComponents` — do not reintroduce it here.
+ *
+ * The canonical is this quarter's own path, which is the root of this archive,
+ * per the site-wide pagination indexing policy on `listRootCanonical`. It was
+ * already in that posture before PSY-1767; routing it through the helper is
+ * what ties it to the written policy instead of leaving it as a literal that
+ * happens to agree.
  */
 
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ module: string; period: string }>
-}) {
+}): Promise<Metadata> {
   const { module, period } = await params
   const window = calendarWindowFromRoute(module, period)
   if (!window) return { title: 'Charts' }
@@ -26,7 +34,7 @@ export async function generateMetadata({
     title: formatArchiveTitle(window),
     description: formatArchiveSubtitle(window),
     alternates: {
-      canonical: `https://psychichomily.com/charts/${module}/${period}`,
+      canonical: listRootCanonical(`/charts/${module}/${period}`),
     },
     openGraph: {
       title: `${formatArchiveTitle(window)} | Psychic Homily`,

@@ -15,7 +15,46 @@ vi.mock('@/features/charts', () => ({
 }))
 vi.mock('@/components/shared', () => ({ LoadingSpinner: () => null }))
 
-import ChartModuleOrArchiveRoute from './page'
+import ChartModuleOrArchiveRoute, { generateMetadata } from './page'
+
+/**
+ * Canonicals are asserted, not assumed: the drilldown shipped with none at all
+ * for a full release cycle, and nothing about a missing `alternates` key fails
+ * loudly in a browser. See the pagination indexing policy on
+ * `listRootCanonical` (PSY-1767).
+ */
+describe('charts/[module] canonical (pagination indexing policy)', () => {
+  it('points a module drilldown at its own list root', async () => {
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ module: 'most-active-artists' }),
+    })
+
+    expect(metadata.alternates?.canonical).toBe(
+      'https://psychichomily.com/charts/most-active-artists'
+    )
+  })
+
+  it('points a calendar year archive at its own path', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-18T12:00:00Z'))
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ module: '2026' }),
+    })
+
+    expect(metadata.alternates?.canonical).toBe(
+      'https://psychichomily.com/charts/2026'
+    )
+    vi.useRealTimers()
+  })
+
+  it('declares no canonical for a segment neither branch vouches for', async () => {
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ module: 'unknown' }),
+    })
+
+    expect(metadata.alternates).toBeUndefined()
+  })
+})
 
 describe('charts/[module] route', () => {
   it('accepts an existing module slug', async () => {

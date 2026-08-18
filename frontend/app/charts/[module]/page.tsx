@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { LoadingSpinner } from '@/components/shared'
 import { ChartsPage } from '@/features/charts'
@@ -9,6 +10,7 @@ import {
 } from '@/features/charts/calendarWindows'
 import { isChartModuleSlug } from '@/features/charts/moduleConfig'
 import { ChartDrilldownPage } from '@/features/charts/components/ChartDrilldownPage'
+import { listRootCanonical } from '@/lib/seo/siteMetadata'
 
 /**
  * Aggressive closed-window caching lives on the charts API (24h TTL for
@@ -17,14 +19,33 @@ import { ChartDrilldownPage } from '@/features/charts/components/ChartDrilldownP
  * still pins via `pinnedWindow` and hits that API cache.
  */
 
+/**
+ * Both branches canonicalize to their own path, which is the list root, per the
+ * site-wide pagination indexing policy documented on `listRootCanonical`.
+ *
+ * The drilldown branch had NO canonical at all before PSY-1767, so its
+ * `?page=`, `?window=` and `?scene=` variants were each offered to crawlers as
+ * a document in their own right. That is the gap this closes. The drilldown is
+ * one chart; the query string picks which slice of it is on screen.
+ *
+ * `module` reaches the canonical only after `isChartModuleSlug` or
+ * `calendarWindowFromRoute` has vouched for it, so no unvalidated path segment
+ * can be reflected into a canonical URL. That ordering is load bearing: the
+ * unknown-slug case returns before either branch.
+ */
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ module: string }>
-}) {
+}): Promise<Metadata> {
   const { module } = await params
   if (isChartModuleSlug(module)) {
-    return { title: 'Charts' }
+    return {
+      title: 'Charts',
+      alternates: {
+        canonical: listRootCanonical(`/charts/${module}`),
+      },
+    }
   }
   const window = calendarWindowFromRoute(module)
   if (!window) return { title: 'Charts' }
@@ -32,7 +53,7 @@ export async function generateMetadata({
     title: formatArchiveTitle(window),
     description: formatArchiveSubtitle(window),
     alternates: {
-      canonical: `https://psychichomily.com/charts/${module}`,
+      canonical: listRootCanonical(`/charts/${module}`),
     },
     openGraph: {
       title: `${formatArchiveTitle(window)} | Psychic Homily`,

@@ -152,8 +152,10 @@ export function ReleaseList() {
    * needs no special case here.
    *
    * Crawlers will follow these but will not index the deep pages: the route
-   * pins a static `canonical` at `/releases` for every query variant. Making
-   * pagination indexable is a separate call about indexing policy — see the PR.
+   * pins a static `canonical` at `/releases` for every query variant. That is
+   * now the site-wide settled call, not a placeholder. PSY-1767 weighed
+   * per-page canonicals against canonicalize-to-root and kept this posture; the
+   * reasoning is on `listRootCanonical` in `lib/seo/siteMetadata`.
    */
   const releasePageHref = (nextPage: number) =>
     buildReleasesHref({ page: String(nextPage) })

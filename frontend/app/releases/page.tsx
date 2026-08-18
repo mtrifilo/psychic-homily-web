@@ -1,12 +1,23 @@
 import { Suspense } from 'react'
 import { ReleaseList } from '@/features/releases/components'
 import { LoadingSpinner } from '@/components/shared'
+import { listRootCanonical } from '@/lib/seo/siteMetadata'
 
+/**
+ * The canonical is FIXED at `/releases` for every query variant of this page,
+ * and that is deliberate rather than incidental (PSY-1767 reviewed it and kept
+ * it). `?page=`, `?type=`, `?sort=`, `?tags=`, `?year=`, `?label_id=` and
+ * `?search=` all slice one list; none of them mints a second document. See the
+ * site-wide pagination indexing policy on `listRootCanonical`.
+ *
+ * This is a static `metadata` object, so the rule is not merely followed here,
+ * it cannot be broken here: there is no request to read a page number from.
+ */
 export const metadata = {
   title: 'Releases',
   description: 'Browse music releases - albums, EPs, singles, and more.',
   alternates: {
-    canonical: 'https://psychichomily.com/releases',
+    canonical: listRootCanonical('/releases'),
   },
   openGraph: {
     title: 'Releases | Psychic Homily',

@@ -12,7 +12,22 @@ vi.mock('@/features/charts', () => ({
 }))
 vi.mock('@/components/shared', () => ({ LoadingSpinner: () => null }))
 
-import ChartQuarterArchiveRoute from './page'
+import ChartQuarterArchiveRoute, { generateMetadata } from './page'
+
+describe('charts/[module]/[period] canonical (pagination indexing policy)', () => {
+  it('points a quarter archive at its own path', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-18T12:00:00Z'))
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ module: '2026', period: 'q2' }),
+    })
+
+    expect(metadata.alternates?.canonical).toBe(
+      'https://psychichomily.com/charts/2026/q2'
+    )
+    vi.useRealTimers()
+  })
+})
 
 describe('charts/[module]/[period] archive route', () => {
   it('accepts a valid quarter archive', async () => {
