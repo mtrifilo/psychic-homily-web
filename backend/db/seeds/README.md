@@ -104,12 +104,14 @@ that UI (during PR #1904).
 | Timezone | `America/Phoenix`, venue-local evening start times |
 
 What it exercises that nothing else does: the year strip's per-year counts,
-the month-range page labels (`Jun–Aug 2025`, and `Dec 2024–Jan 2025` across
-a year boundary), the pager's ellipsis branch (only reachable above 7
-pages), empty months the labels must skip, `SOLD OUT` and `CANCELLED`
-badges, all three price states (`Free` / `$12.50` / absent), and bill
-wrapping via deliberately uneven artist-name lengths (`Vane (Exemplar)`
-through `Ada Vaughn-Reyes and the Long Goodbye (Exemplar)`).
+the month-range page labels (page 1 is `Oct–Dec 2025`, page 2 `Aug–Oct
+2025`, page 8 `Jan–Mar 2023`; the distribution also puts a page across a
+year boundary, so the crossing-years label form renders too), the pager's
+ellipsis branch (only reachable above 7 pages), empty months the labels
+must skip, `SOLD OUT` and `CANCELLED` badges, all three price states
+(`Free` / `$12.50` / absent), and bill wrapping via deliberately uneven
+artist-name lengths (`Vane (Exemplar)` through `Ada Vaughn-Reyes and the
+Long Goodbye (Exemplar)`).
 
 Useful URLs for a screenshot pass — note the year is a **path segment**,
 not a `?year=` param:
@@ -121,19 +123,11 @@ not a `?year=` param:
 /venues/chronology-hall-exemplar-phoenix-az/shows/2025?page=2
 ```
 
-Two deliberate design choices worth knowing before editing it:
-
-- **Past dates are hardcoded (2023-2025), not offsets from `now()`.** Each
-  show's slug embeds its date, and the slug is the idempotency key — dates
-  derived from "now" would generate different slugs on every run and
-  re-create the whole archive daily. The 5 upcoming shows are the exception
-  and must be relative to now, so they use fixed non-date slugs and their
-  dates are set once, on first seed, and never refreshed (the same
-  trade-off `seedExemplarArtistShows` already makes).
-- **Per-show variation is a pure hash (`archiveNoise`), not `math/rand`.**
-  Its outputs are pinned by a golden test, because changing them would
-  change every generated slug and make a re-seed duplicate the archive
-  rather than skip it.
+Before editing it, read the header comment in `exemplars_archive.go` — the
+fixed-date and deterministic-hash constraints there are what keep the seed
+idempotent, and both are easy to break by accident. The counts above are
+load-bearing too (they are what makes each of those UI branches render), so
+`TestArchiveFixtureMeetsItsReviewThresholds` pins them.
 
 ## Empty-state canaries — DO NOT backfill
 
