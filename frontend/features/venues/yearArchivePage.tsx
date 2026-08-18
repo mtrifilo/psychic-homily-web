@@ -25,7 +25,7 @@
  * a year canonicalize to the year root for free, structurally rather than by
  * remembering to. Since PSY-1770 the BODY reads it, for one decision and no
  * other: whether seeding page 1's rows is worth a request. See
- * `VenueYearArchiveShows`.
+ * `readSeedablePage`.
  */
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
@@ -33,7 +33,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { Breadcrumb } from '@/components/shared'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { archiveIsFirstPage } from '@/features/shows/showArchive'
+import { archiveIsFirstPage } from '@/features/shows/showArchive.server'
 import { VenuePastShows } from './components/VenuePastShows'
 import {
   archiveData,

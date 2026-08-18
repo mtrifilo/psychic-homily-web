@@ -1421,11 +1421,22 @@ func (s *VenueService) GetVenueShowYears(venueID uint, timeFilter string) ([]con
 //
 // It is the existence question `/venues/{slug}/shows/{year}` asks before it will
 // render, and nothing more: the answer is one bit, so this is the cheapest read
-// that can settle it. Built on the same venueShowsBaseQuery every other venue
-// show read goes through, with the same time filter the archive renders under,
-// so the set that answers yes here is exactly the set the page has rows for and
-// the `venue_years` sitemap family announces. A second predicate here would be a
-// fourth authority on which years are documents.
+// that can settle it. Reached through the frontend proxy's venue-year branch —
+// grep `shows/{year}/exists` there — because a page under cacheComponents cannot
+// set its own 404 status.
+//
+// THREE SURFACES MUST AGREE on which years are documents: this probe, the
+// histogram (GetVenueShowYears), and the `venue_years` sitemap family. They do,
+// but NOT by construction, and the difference matters to anyone editing them.
+// This and the histogram share venueShowsBaseQuery; the sitemap
+// (catalog/sitemap.go venueYearEntries) is a separate hand-written query that
+// merely composes the same shared.VenueLocalDateCondition("past") and
+// VenueLocalYearSQL fragments. So adding a predicate HERE — say
+// `AND shows.is_cancelled = false` — moves the page and the probe together and
+// leaves the sitemap announcing years that now 404. What actually enforces the
+// agreement is two chained tests: sitemap↔histogram in sitemap_integration_test,
+// and probe↔histogram in TestHasPastShowsInYear_AgreesWithThePastHistogram.
+// Change the predicate and run both.
 //
 // PAST is fixed rather than a parameter. A year archive is past-only by
 // definition — the page 404s a year whose shows are all still upcoming — and a

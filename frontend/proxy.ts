@@ -296,7 +296,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const sub = segments[3]
     const scene = encodeURIComponent(slug)
     if (sub === 'week') {
-      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`)
+      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`, {
+        // Shipped route; see existenceCheck's note on the four `false`s.
+        requireApiAuthoredNotFound: false,
+      })
     }
     // Both DAY routes probe the cheap scene-existence endpoint rather than the
     // day endpoint itself, because everything else that could make them 404 is
@@ -327,7 +330,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     //    night, uncached, on every request over thousands of dated keys per
     //    scene — was permanent and reachable by anyone.
     if (sub === 'tonight') {
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
+        requireApiAuthoredNotFound: false,
+      })
     }
     // File-convention OG card on the rolling detail URL. Without this branch
     // `opengraph-image` is a junk period and 404s before Next sees the route
@@ -335,13 +340,17 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     // fetch then draws the current week. The PAGE does not advertise this URL
     // (unfurl caches key on it forever); it stays addressable on its own.
     if (sub === 'opengraph-image') {
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
+        requireApiAuthoredNotFound: false,
+      })
     }
     if (CALENDAR_DATE_SEGMENT.test(sub)) {
       if (!periodYearInRange(sub) || !isRealCalendarDate(sub)) {
         return notFoundResponse(request)
       }
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
+        requireApiAuthoredNotFound: false,
+      })
     }
     // The WEEK key still goes to its own endpoint: `2025-W53` is well-formed
     // and unreal, and unlike a calendar date that verdict is ISO-8601 week
@@ -349,7 +358,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (ISO_WEEK_SEGMENT.test(sub) && periodYearInRange(sub)) {
       return existenceCheck(
         request,
-        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`
+        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`,
+        { requireApiAuthoredNotFound: false }
       )
     }
     // Not a servable period (`/scenes/chicago-il/garbage`, `/scenes/chicago-il/
@@ -403,10 +413,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // this branch is what stands between a crawler and an arbitrarily large field
   // of 200-with-a-not-found-body.
   //
-  // Membership is asked of the venue's PAST year histogram, which is the SAME
-  // authority the page renders from and the `venue_years` sitemap family is
-  // built from. Three surfaces, one source: a year in the sitemap resolves, and
-  // a year that resolves is in the strip.
+  // Membership is asked of the year's own existence endpoint (PSY-1770). It is
+  // built on the SAME predicate the page renders from and the `venue_years`
+  // sitemap family is projected from — `venueShowsBaseQuery(venue, "past",
+  // year)` — so the three still cannot drift: a year in the sitemap resolves,
+  // and a year that resolves is in the strip.
   if (
     entityType === 'venues' &&
     segments.length === 5 &&
@@ -442,7 +453,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next()
   }
 
-  return existenceCheck(request, buildCheckUrl(slug))
+  return existenceCheck(request, buildCheckUrl(slug), {
+    requireApiAuthoredNotFound: false,
+  })
 }
 
 /**
@@ -498,17 +511,23 @@ const API_ERROR_CONTENT_TYPE = 'application/problem+json'
  * "not found".
  *
  * `requireApiAuthoredNotFound` narrows what counts as that 404 — see
- * API_ERROR_CONTENT_TYPE. Only the venue-year branch passes it, because only
- * that branch is NEW: the other probes call routes that have shipped for many
- * releases, and turning this on for them would change 404 semantics site-wide
- * on the back of a performance ticket. It probably SHOULD be the default, and
- * their mocked 404s carry no content type today, so flipping it is its own
- * change with its own verification across every entity type.
+ * API_ERROR_CONTENT_TYPE — and is REQUIRED rather than optional on purpose.
+ * Every caller has to state which reading it wants, because the two fail in
+ * opposite directions during a deploy skew and the safe answer depends on how
+ * old the route is. A default would be a trap: the next probe added to this file
+ * would be written by copying a neighbour, and would silently inherit whichever
+ * reading that neighbour happened to need.
+ *
+ * `true` is the answer for a NEW route, and the answer to reach for when unsure.
+ * The four `false`s below are the shipped probes, kept as they are because
+ * turning the guard on for them changes 404 semantics site-wide — worth doing,
+ * but as its own change with its own verification across every entity type, not
+ * as a side effect of a performance ticket.
  */
 async function existenceCheck(
   request: NextRequest,
   url: string,
-  options: { requireApiAuthoredNotFound?: boolean } = {}
+  options: { requireApiAuthoredNotFound: boolean }
 ): Promise<NextResponse> {
   try {
     const res = await fetch(url, {
@@ -573,19 +592,30 @@ async function existenceCheck(
  * its handler still ran a COUNT, plucked a page of ids, and hydrated the row
  * with its bills and artists, then shipped a JSON body back over a link that
  * exists to carry one bit. The backend's probe is
- * `venueShowsBaseQuery(venue, "past", year)` with LIMIT 1: the SAME predicate
- * the page renders from and the `venue_years` sitemap family is projected from,
- * so the three still cannot drift. It is cheaper, not free — see the cost note
+ * `venueShowsBaseQuery(venue, "past", year)` with LIMIT 1 — the same builder the
+ * page's own rows come from, and composing the same venue-local year fragments
+ * the `venue_years` sitemap family does. That the three AGREE is enforced by
+ * tests rather than by construction; see the note on HasPastShowsInYear for
+ * which ones and what breaks them. It is cheaper, not free — see the cost note
  * on the handler, which is honest about the slug resolution it still pays for.
  *
- * DEPLOY THE BACKEND FIRST — still the rule, though no longer a cliff. A
- * frontend live ahead of its backend probes a path chi does not know; that 404
- * arrives as `text/plain` rather than the API's `application/problem+json`, so
- * `existenceCheck` reads it as "could not tell" and fails OPEN. The skew window
- * therefore costs soft-404s on empty years rather than hard 404s across a
- * sitemap-announced family. Ordering the deploy is what keeps even that from
- * happening; the content-type guard is what keeps getting it wrong from being
- * an SEO incident.
+ * THE FRONTEND WILL GO LIVE FIRST, and the guard is what makes that survivable
+ * rather than an instruction to avoid it. A release here is ONE fast-forward
+ * push of `production` that Railway and Vercel react to in parallel; there is no
+ * backend step to sequence ahead of a frontend step, and Next finishes building
+ * well before Go builds, migrates and passes a healthcheck. So on any release
+ * that adds a probed endpoint, this branch WILL spend a window calling a route
+ * the running API does not carry.
+ *
+ * That window is survivable because chi answers an unknown path with a
+ * `text/plain` 404 while the API stamps `application/problem+json` on the ones
+ * it authors — see `requireApiAuthoredNotFound`. The skew therefore costs
+ * soft-404s on empty years, which are transient and recoverable, instead of hard
+ * 404s across a sitemap-announced family, which are neither.
+ *
+ * Do NOT replace this with "deploy the backend first". That sentence has been
+ * written twice already in this file (see the scene `/tonight` branch) and names
+ * a step the release process does not have.
  */
 function venueArchiveYearCheck(
   request: NextRequest,

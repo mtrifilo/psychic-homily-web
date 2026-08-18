@@ -5,13 +5,13 @@ import { describe, it, expect } from 'vitest'
 import { parseAsInteger } from 'nuqs'
 import {
   archiveDocumentTitle,
-  archiveIsFirstPage,
   clampPage,
   groupByMonth,
   monthRangeLabel,
   parseArchiveYear,
   type ShowZone,
 } from './showArchive'
+import { archiveIsFirstPage } from './showArchive.server'
 
 /**
  * The venue archive's own derivations are covered end to end in
@@ -178,13 +178,23 @@ describe('parseArchiveYear', () => {
  */
 describe('archiveIsFirstPage matches the client parser', () => {
   /**
-   * How `VenuePastShows` resolves the same param, modelled through the path the
-   * BROWSER actually takes: `useQueryState` reads one string out of
-   * `URLSearchParams` and hands it to the parser's `parse`. Going through
+   * A MODEL of how `VenuePastShows` resolves the same param — `useQueryState`
+   * reads one string out of the URL and hands it to the parser's `parse` — not
+   * the hook itself. Be precise about what that buys and what it does not.
+   *
+   * WHAT IT PINS, which is the volatile part: that `nuqs/server`'s parser agrees
+   * with `nuqs`'s. Those are two structurally separate bundled copies (verified
+   * in nuqs 2.9.0: `dist/index.js` and `dist/server.js` each carry their own
+   * `createParser`), and the server's answer decides whether page 1's rows are
+   * seeded while the client's decides which page is asked for. Going through
    * `parseServerSide` on both sides would compare the server helper with itself
-   * and prove nothing — least of all for a repeated `?page=`, where the whole
-   * question is whether nuqs' `value[0]` agrees with `URLSearchParams.get`'s
-   * first-occurrence rule.
+   * and prove nothing.
+   *
+   * WHAT IT DOES NOT PIN: the app-router adapter between the URL and `parse`. A
+   * nuqs release that changed how the HOOK resolves a repeated `?page=` while
+   * leaving `parser.parse` alone would diverge production and leave this green.
+   * On a nuqs bump, re-verify rather than trusting the pass; rendering
+   * `VenuePastShows` and asserting the `initialData` it accepts would close it.
    */
   const clientPage = (queryString: string) => {
     const parser = parseAsInteger.withDefault(1)

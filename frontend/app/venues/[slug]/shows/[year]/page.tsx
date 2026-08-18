@@ -45,6 +45,11 @@ function parseYearSegment(segment: string): number | null {
  * default export is a route convention, not a component library — Next owns when
  * it renders, and importing it would tie this boundary to a file that exists to
  * be found by name.
+ *
+ * The cost of that is a copy nothing pins: restyle `app/venues/loading.tsx` and
+ * this route's fallback silently stops matching its siblings. It is markup, so
+ * the failure is cosmetic and visible; if it ever stops being either, lift both
+ * into `components/shared` rather than importing the route file.
  */
 function VenueYearArchiveLoading() {
   return (

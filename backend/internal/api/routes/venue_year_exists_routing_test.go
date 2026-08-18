@@ -3,6 +3,7 @@ package routes
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -72,6 +73,65 @@ func TestVenueYearArchiveRouteResolution(t *testing.T) {
 				t.Errorf("%s %s = %d, want 404/405 — %s", tc.method, tc.path, w.Code, tc.why)
 			}
 		})
+	}
+}
+
+// An unrouted path must NOT answer with the content type the API stamps on
+// errors it authors.
+//
+// That difference is the whole of the frontend proxy's deploy-skew guard
+// (API_ERROR_CONTENT_TYPE in proxy.ts): a release ships one push that Railway
+// and Vercel react to in parallel, so the frontend spends a window probing a
+// route the running API does not carry yet. The proxy reads `text/plain` as
+// "could not tell" and fails OPEN; if an unrouted 404 ever started carrying
+// `application/problem+json` — a custom chi NotFound handler, a middleware that
+// normalises error bodies — that window would silently become a hard 404 across
+// every venue year archive, and the frontend tests could not see it because they
+// mock this header by hand.
+//
+// Both halves are asserted: this one, and that THIS route's own huma error does
+// carry the header (below). A guard needs both sides pinned or it can silently
+// become a constant.
+func TestUnroutedPathDoesNotLookLikeAnApiError(t *testing.T) {
+	router := newTestRouter(t)
+
+	// Deliberately a sibling of the real probe: same prefix, same depth, a
+	// segment chi has no registration for.
+	req := httptest.NewRequest(http.MethodHead, "/venues/some-venue/shows/2024/no-such-leaf", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("HEAD an unrouted path = %d, want 404 — this test's premise is gone", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); strings.Contains(got, "application/problem+json") {
+		t.Errorf("an unrouted 404 carries Content-Type %q — the frontend proxy uses exactly "+
+			"this header to tell a route that does not exist from a resource that does not "+
+			"exist, and can no longer do so", got)
+	}
+}
+
+// The other half: an error THIS route authors carries the API's error content
+// type, so the proxy's guard has something to match on.
+//
+// Asserted through a 422 rather than a 404 because huma validates path params
+// before the handler runs, so an out-of-range year produces a real serialized
+// error with no database behind it. Same writer, same content type as the 404
+// the guard actually reads — what would break one would break both.
+func TestVenueYearArchiveErrorsCarryTheApiErrorContentType(t *testing.T) {
+	router := newTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodHead, "/venues/some-venue/shows/0/exists", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("HEAD an out-of-range year = %d, want 422 — this test's premise is gone", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "application/problem+json") {
+		t.Errorf("an API error on this route carries Content-Type %q, want application/problem+json "+
+			"— the frontend proxy requires it before it will turn a 404 into a real one, so "+
+			"without it every empty venue year silently soft-404s", got)
 	}
 }
 
