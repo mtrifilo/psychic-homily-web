@@ -3,7 +3,6 @@ import { clampPage, parseArchiveYear } from '@/features/shows/showArchive'
 import {
   archiveDocumentTitle,
   groupByMonth,
-  monthRangeLabel,
   venueArchiveHref,
 } from './showArchive'
 
@@ -71,48 +70,6 @@ describe('groupByMonth', () => {
 
   it('returns nothing for an empty page', () => {
     expect(groupByMonth([], PHOENIX)).toEqual([])
-  })
-})
-
-describe('monthRangeLabel', () => {
-  it('drops the year when both ends share it', () => {
-    expect(
-      monthRangeLabel(
-        [row('2025-12-05T03:00:00Z'), row('2025-09-05T03:00:00Z')],
-        PHOENIX
-      )
-    ).toBe('Dec–Sep')
-  })
-
-  it('keeps both years when a page straddles a year boundary', () => {
-    expect(
-      monthRangeLabel(
-        [row('2026-01-05T03:00:00Z'), row('2025-11-05T03:00:00Z')],
-        PHOENIX
-      )
-    ).toBe('Jan 2026–Nov 2025')
-  })
-
-  it('collapses a single-month page to one month', () => {
-    expect(
-      monthRangeLabel(
-        [row('2025-09-20T03:00:00Z'), row('2025-09-02T03:00:00Z')],
-        PHOENIX
-      )
-    ).toBe('Sep')
-  })
-
-  it('returns null for an empty page so callers can omit the label', () => {
-    expect(monthRangeLabel([], PHOENIX)).toBeNull()
-  })
-
-  it('uses an en dash, never an em dash', () => {
-    const label = monthRangeLabel(
-      [row('2025-12-05T03:00:00Z'), row('2025-09-05T03:00:00Z')],
-      PHOENIX
-    )
-    expect(label).toContain('–')
-    expect(label).not.toContain('—')
   })
 })
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
 import type {
   VenueShow,
   VenueShowMonthCount,
@@ -48,6 +49,13 @@ const pastRequests: Array<{
   enabled?: boolean
 }> = []
 
+/**
+ * Whether the month histogram was actually asked for. It is gated on the pager
+ * existing at all (PSY-1769), and a gate is invisible in the rendered output —
+ * the labels are absent either way.
+ */
+const monthsRequests: Array<{ enabled?: boolean }> = []
+
 vi.mock('../hooks/useVenues', () => ({
   useVenueShows: ({
     timeFilter,
@@ -67,7 +75,10 @@ vi.mock('../hooks/useVenues', () => ({
     return pastResult
   },
   useVenueShowYears: () => yearsResult,
-  useVenueShowMonths: () => monthsResult,
+  useVenueShowMonths: ({ enabled }: { enabled?: boolean }) => {
+    monthsRequests.push({ enabled })
+    return monthsResult
+  },
 }))
 
 // nuqs throws without a NuqsAdapter, and the adapter would need a real router.
@@ -248,38 +259,17 @@ function renderArchive(
 }
 
 /**
- * A ResizeObserver stub that honours `disconnect()`, which the shared
- * `installImmediateResizeObserver` deliberately does not — and disconnect is the
- * entire mechanism the anchor window stops itself with, so a shim that ignores
- * it would pass the abandon test no matter what the component did.
+ * Let a pending animation frame run.
+ *
+ * The archive's re-align window coalesces its scrolls through one
+ * `requestAnimationFrame` so a burst of resizes costs one forced layout rather
+ * than one each — which means a resize fired in a test has not done anything yet
+ * when `fireResize` returns.
  */
-function installDisconnectableResizeObserver() {
-  const live = new Set<ResizeObserverCallback>()
-  class Stub {
-    constructor(private readonly callback: ResizeObserverCallback) {}
-    observe() {
-      live.add(this.callback)
-    }
-    unobserve() {
-      live.delete(this.callback)
-    }
-    disconnect() {
-      live.delete(this.callback)
-    }
-  }
-  const original = globalThis.ResizeObserver
-  globalThis.ResizeObserver = Stub as unknown as typeof ResizeObserver
-  return {
-    fireResize: () => {
-      for (const callback of live) {
-        callback([], undefined as unknown as ResizeObserver)
-      }
-    },
-    restore: () => {
-      globalThis.ResizeObserver = original
-    },
-  }
-}
+const flushFrame = () =>
+  act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 32))
+  })
 
 /** The past section's `<section>`, scoped so upcoming rows never leak in. */
 const pastSection = () =>
@@ -292,6 +282,7 @@ beforeEach(() => {
   setMonths(null)
   mockAuthIsAuthenticated.value = false
   pastRequests.length = 0
+  monthsRequests.length = 0
   queryPage = 1
 })
 
@@ -698,16 +689,18 @@ describe('VenuePastShows — year and page state', () => {
   // PSY-1769. The upcoming list above this section and (on mobile) the whole
   // sidebar resolve after the archive does, pushing it down again — so landing
   // on it once is landing on it before most of the page exists.
-  it('re-aligns the archive while the page above it is still settling', () => {
+  it('re-aligns the archive while the page above it is still settling', async () => {
     const scrollIntoView = vi.fn()
     const originalScroll = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrollIntoView
-    const resizeObserver = installDisconnectableResizeObserver()
+    const resizeObserver = installImmediateResizeObserver()
     window.location.hash = '#venue-past-shows'
     try {
       renderList()
+      await flushFrame()
       const afterLanding = scrollIntoView.mock.calls.length
-      act(() => resizeObserver.fireResize())
+      resizeObserver.fireResize(1024)
+      await flushFrame()
       expect(scrollIntoView.mock.calls.length).toBeGreaterThan(afterLanding)
     } finally {
       resizeObserver.restore()
@@ -718,17 +711,19 @@ describe('VenuePastShows — year and page state', () => {
 
   // The restraint that makes the above safe: re-aligning a page the reader has
   // started moving is the worse failure, and is why this used to be a one-shot.
-  it('stops re-aligning the moment the reader takes over the scroll', () => {
+  it('stops re-aligning the moment the reader takes over the scroll', async () => {
     const scrollIntoView = vi.fn()
     const originalScroll = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrollIntoView
-    const resizeObserver = installDisconnectableResizeObserver()
+    const resizeObserver = installImmediateResizeObserver()
     window.location.hash = '#venue-past-shows'
     try {
       renderList()
       fireEvent.wheel(window)
+      await flushFrame()
       const afterHandOver = scrollIntoView.mock.calls.length
-      act(() => resizeObserver.fireResize())
+      resizeObserver.fireResize(1024)
+      await flushFrame()
       expect(scrollIntoView).toHaveBeenCalledTimes(afterHandOver)
     } finally {
       resizeObserver.restore()
@@ -797,6 +792,24 @@ describe('VenuePastShows — year and page state', () => {
     expect(
       within(pager).getByRole('link', { name: 'Page 2, Jan 2025–Dec 2024' })
     ).toBeInTheDocument()
+  })
+
+  it('does not ask for the histogram when the archive fits on one page', () => {
+    // Labels are pager chrome, and a one-page archive renders no pager. The
+    // same gate covers a venue with no past shows at all, whose `totalPages`
+    // floors at 1.
+    setPast({ shows: [makeShow({ id: 5 })], total: 3 })
+    setYears([{ year: 2025, count: 3 }])
+    renderList()
+    expect(monthsRequests.length).toBeGreaterThan(0)
+    expect(monthsRequests.every(request => request.enabled === false)).toBe(true)
+
+    // ...and it IS asked for once there is a pager to label.
+    monthsRequests.length = 0
+    setPast({ shows: [makeShow({ id: 5 })], total: 253 })
+    setYears(threeYears)
+    renderList()
+    expect(monthsRequests.some(request => request.enabled === true)).toBe(true)
   })
 
   it('falls back to bare numerals while the histogram is still loading', () => {

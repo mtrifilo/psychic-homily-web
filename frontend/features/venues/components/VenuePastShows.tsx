@@ -19,7 +19,10 @@ import {
   useVenueShowYears,
   useVenueShows,
 } from '../hooks/useVenues'
-import { venuePastShowsPageParams } from '../api'
+import {
+  venuePastShowsPageParams,
+  VENUE_PAST_SHOWS_PAGE_LIMIT,
+} from '../api'
 // Both entity-agnostic and shared with the artist archive (PSY-1754); the year
 // is no longer read from the URL here, so `parseArchiveYear` moved to the route
 // that owns the `{year}` path segment (PSY-1756). `monthRangeLabelsByPage` needs
@@ -127,9 +130,6 @@ export function VenuePastShows({
 
   const pageParams = venuePastShowsPageParams(page, activeYear)
   const offset = pageParams.offset ?? 0
-  // Named as a primitive so the label memo can depend on it: `pageParams` is a
-  // fresh object every render and would defeat the memo entirely.
-  const pageLimit = pageParams.limit
 
   const yearsQuery = useVenueShowYears({
     venueId,
@@ -234,7 +234,18 @@ export function VenuePastShows({
   // The histogram is one request per venue and carries no year filter, so the
   // slice below is the whole cost of switching years. Reading the pager's own
   // window means at most seven labels are formatted, which is all it can render.
-  const monthsQuery = useVenueShowMonths({ venueId, timeFilter: 'past' })
+  //
+  // Not requested at all for an archive that fits on one page — which is also
+  // every venue with no past shows, since `totalPages` floors at 1. That is
+  // exactly when `Pagination` renders nothing, so the request would buy labels
+  // for a control that is not on the page. It costs no waterfall: both routes
+  // that mount this seed the year histogram server-side, so `totalPages` is
+  // known on the first render.
+  const monthsQuery = useVenueShowMonths({
+    venueId,
+    timeFilter: 'past',
+    enabled: totalPages > 1,
+  })
   const allMonthCounts = monthsQuery.data?.months
   const rangeLabels = useMemo(() => {
     const months = allMonthCounts ?? []
@@ -244,12 +255,12 @@ export function VenuePastShows({
         activeYear === null
           ? months
           : months.filter(bucket => bucket.year === activeYear),
-      pageSize: pageLimit,
+      pageSize: VENUE_PAST_SHOWS_PAGE_LIMIT,
       pages: paginationWindow(page, totalPages).filter(
         (item): item is number => item !== 'ellipsis'
       ),
     })
-  }, [allMonthCounts, activeYear, pageLimit, page, totalPages])
+  }, [allMonthCounts, activeYear, page, totalPages])
 
   // A venue with no past shows carries no archive. Asked of the histogram, not
   // of the current page: a hand-typed year with nothing in it must still render
@@ -368,14 +379,28 @@ export function VenuePastShows({
     // queries that happen to settle late: this section can see none of them, and
     // enumerating them here would mean editing this effect every time something
     // new is added above it. What it actually needs to know is "did the page
-    // above me get taller", and that is one signal. `scrollIntoView` is
-    // idempotent, so a resize that did not move us costs nothing.
-    const observer = new ResizeObserver(() => section.scrollIntoView())
+    // above me get taller", and that is one signal.
+    //
+    // Coalesced through a single frame. `scrollIntoView` lands on the same place
+    // however many times it runs, but it is not FREE to run: it forces layout,
+    // and doing that from inside a ResizeObserver callback is what produces the
+    // "loop completed with undelivered notifications" churn. Several boxes
+    // settling in one burst should cost one scroll, not one each.
+    let frame = 0
+    const realign = () => {
+      if (frame !== 0) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        section.scrollIntoView()
+      })
+    }
+    const observer = new ResizeObserver(realign)
     observer.observe(document.body)
 
     let settleTimer = 0
     const abandon = () => {
       observer.disconnect()
+      if (frame !== 0) cancelAnimationFrame(frame)
       window.clearTimeout(settleTimer)
       for (const event of readerTookOver) {
         window.removeEventListener(event, abandon)

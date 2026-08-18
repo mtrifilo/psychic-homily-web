@@ -143,9 +143,6 @@ const calendarMonthFormatter = new Intl.DateTimeFormat('en-US', {
  * shifting an already-bucketed month by an offset and landing a whole page of
  * September rows under "Aug".
  *
- * The instant it builds is a carrier for the pair, nothing more: mid-month, in
- * UTC, read back in UTC, so no offset or DST rule has anything to move.
- *
  * `month` is 1-12, matching the wire format and `EXTRACT(MONTH …)`, NOT
  * JavaScript's 0-based month. Out-of-range values roll over the way `Date` does;
  * callers reading untrusted input should reject them first.
@@ -154,9 +151,12 @@ export function formatCalendarMonthParts(
   year: number,
   month: number
 ): { month: string; year: string } {
-  // setUTCFullYear rather than Date.UTC: the latter maps years 0-99 onto 1900-1999.
-  const instant = new Date(0)
-  instant.setUTCFullYear(year, month - 1, 15)
+  // The caller's year never reaches the formatter — it is returned verbatim, and
+  // the Date exists only to name the MONTH. So the reference year is a fixed
+  // arbitrary one, which keeps every quirk of building a Date from caller input
+  // (the 0-99 remap `Date.UTC` applies, calendar-boundary drift) out of reach.
+  // Mid-month and read back in UTC, so no offset or DST rule can move it either.
+  const instant = new Date(Date.UTC(2000, month - 1, 15))
   return { month: calendarMonthFormatter.format(instant), year: String(year) }
 }
 

@@ -93,12 +93,15 @@ export function groupByMonth<T extends ArchiveRow>(
 
 /**
  * The span of months a page of rows covers: "Sep" for a single month,
- * "Jun{EN_DASH}Sep" across several.
+ * "Jun{EN_DASH}Sep" across several. The span comes from the FIRST and LAST rows,
+ * not from every distinct month, so it stays a two-part label no matter how many
+ * months a page straddles.
  *
- * This is the Gazelle `451-500` page label ported to the time axis — it tells
- * the reader what is behind a page number before they spend a click on it. The
- * span comes from the FIRST and LAST rows, not from every distinct month, so
- * it stays a two-part label no matter how many months a page straddles.
+ * The ROW-DERIVED half of the page-label family, and the weaker one: rows can
+ * only label a page that has been fetched. {@link monthRangeLabelsByPage} does
+ * the same job from a month histogram and can therefore label every page at
+ * once, which is what the venue archive uses (PSY-1769). This form survives for
+ * the ARTIST archive, which has no month histogram endpoint yet.
  *
  * Returns null for an empty page, so callers can omit the label rather than
  * render an empty separator.
@@ -214,19 +217,17 @@ export function monthRangeLabelsByPage({
   const buckets = months.filter(isUsableMonthCount)
   if (buckets.length === 0) return labels
 
-  // Exclusive upper row ordinal of each bucket, so a row index resolves to a
-  // bucket by one scan of a monotonically increasing array.
-  const bucketEnds: number[] = []
-  let running = 0
-  for (const bucket of buckets) {
-    running += bucket.count
-    bucketEnds.push(running)
-  }
-  const totalRows = running
+  const totalRows = buckets.reduce((sum, bucket) => sum + bucket.count, 0)
 
+  // The bucket a row ordinal falls in, by accumulating counts until the ordinal
+  // is covered. Rescanned per lookup rather than precomputed: the pager asks at
+  // most fourteen times (two ends of at most seven pages) over a list with one
+  // entry per month a venue has ever booked.
   const bucketAt = (rowIndex: number): ArchiveMonthCount | null => {
-    for (let i = 0; i < bucketEnds.length; i++) {
-      if (rowIndex < bucketEnds[i]) return buckets[i]
+    let covered = 0
+    for (const bucket of buckets) {
+      covered += bucket.count
+      if (rowIndex < covered) return bucket
     }
     return null
   }

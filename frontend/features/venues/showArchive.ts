@@ -15,7 +15,6 @@
 
 import {
   groupByMonth as groupRowsByMonth,
-  monthRangeLabel as rowsMonthRangeLabel,
   archiveDocumentTitle as scopedDocumentTitle,
   type ArchiveRow as ShowArchiveRow,
   type ShowZoneResolver,
@@ -53,13 +52,12 @@ export function groupByMonth<T extends ArchiveRow>(
   return groupRowsByMonth(rows, venueZoneResolver<T>(zone))
 }
 
-/** {@link rowsMonthRangeLabel}, in the venue's zone. */
-export function monthRangeLabel(
-  rows: ArchiveRow[],
-  zone: VenueShowZone
-): string | null {
-  return rowsMonthRangeLabel(rows, venueZoneResolver<ArchiveRow>(zone))
-}
+// There is deliberately NO venue-shaped `monthRangeLabel` here any more
+// (PSY-1769). The venue archive's page labels come from the month histogram, not
+// from a page's rows, and a histogram is bucketed venue-side — so the one thing
+// this module exists to bind, the zone, is not part of that question. The
+// row-derived form is still exported from the shared module for the ARTIST
+// archive, which has not been ported.
 
 /**
  * The fragment the venue page's past-shows section is addressed by.
