@@ -2300,6 +2300,14 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 // end in assembleShowResponse, so there stays exactly ONE rule for what a
 // ShowResponse looks like — batching changed where the bill comes from, never
 // how the response is shaped.
+//
+// Treat an assembled bill as read-only. Distinct shows never share one, since
+// they read distinct map keys, but a caller that passed the same show twice
+// would hand both copies the same backing array — where the per-show version
+// built each a private slice. Nothing mutates a bill after assembly today:
+// attachBillLabels is the only writer into resp.Artists and only the two
+// single-show detail reads call it. Batching labels onto a list would have to
+// reckon with this.
 func (s *ShowService) buildShowResponses(shows []catalogm.Show) []*contracts.ShowResponse {
 	showIDs := make([]uint, len(shows))
 	for i := range shows {
