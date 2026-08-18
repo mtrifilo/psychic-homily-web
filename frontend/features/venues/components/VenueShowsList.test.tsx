@@ -774,7 +774,10 @@ describe('VenuePastShows — year and page state', () => {
     }
   })
 
-  it('keeps both years on an all-years page that straddles one', () => {
+  // The all-years pager has no year in context — the strip above it has nothing
+  // selected — so a label that elided the year would give two pages years apart
+  // the same accessible name.
+  it('keeps the year on every label of the all-years pager', () => {
     setYears([
       { year: 2025, count: 60 },
       { year: 2024, count: 40 },
@@ -787,10 +790,55 @@ describe('VenuePastShows — year and page state', () => {
     renderList()
     const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
     expect(
-      within(pager).getByRole('link', { name: 'Page 1, Jan' })
+      within(pager).getByRole('link', { name: 'Page 1, Jan 2025' })
     ).toBeInTheDocument()
     expect(
       within(pager).getByRole('link', { name: 'Page 2, Jan 2025–Dec 2024' })
+    ).toBeInTheDocument()
+  })
+
+  it('distinguishes two same-month pages years apart in the VISIBLE strip', () => {
+    setYears([
+      { year: 2025, count: 50 },
+      { year: 2023, count: 50 },
+    ])
+    setPast({ shows: [makeShow({ id: 5 })], total: 100 })
+    // The same month, two years apart — indistinguishable if the year is elided.
+    setMonths([
+      { year: 2025, month: 8, count: 50 },
+      { year: 2023, month: 8, count: 50 },
+    ])
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    // The rendered text, not the accessible name: the name is always prefixed
+    // "Page N" and so can never collide. It is the strip a sighted reader
+    // chooses from that would show "Aug" twice.
+    const visible = within(pager)
+      .getAllByRole('link')
+      .map(link => link.textContent ?? '')
+      .filter(text => /Aug/.test(text))
+    expect(visible).toHaveLength(2)
+    expect(new Set(visible).size).toBe(2)
+  })
+
+  // A failed histogram must not strip the label from EVERY page link — the
+  // shape this replaced always labelled at least the page being read, and below
+  // `sm` the pager renders no page links at all, so the current page's label is
+  // the only one there is.
+  it('falls back to the rows on screen when the histogram fails', () => {
+    queryPage = 2
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    setMonths(null)
+    monthsResult.isError = true
+    renderArchive(2025)
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    // makeShow's fixture date is June 2025, read on the venue's calendar.
+    expect(
+      within(pager).getByRole('link', { name: 'Page 2, Jun' })
+    ).toBeInTheDocument()
+    // ...and the pages it cannot know about stay bare rather than guessing.
+    expect(
+      within(pager).getByRole('link', { name: 'Page 3' })
     ).toBeInTheDocument()
   })
 

@@ -72,6 +72,13 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // this ticket — it appears after the client fetch — instead of taking the
     // venue page down with it.
     getArchiveYears(slug),
+    // NO month-histogram read here, deliberately (PSY-1769). This route does not
+    // seed `initialShows`, so the archive renders its spinner server-side and no
+    // pager reaches this document — a seeded histogram would buy nothing for the
+    // HTML and cost a full-history aggregate on every render, for every venue,
+    // including the majority whose archive fits on one page and shows no pager
+    // at all. The client fetches it, gated on there being a pager to label. The
+    // year-archive route DOES seed it, because there the pager is in the HTML.
   ])
 
   // Unchanged from before this ticket: ANY failed venue read is a not-found

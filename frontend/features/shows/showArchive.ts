@@ -108,14 +108,22 @@ export function groupByMonth<T extends ArchiveRow>(
  */
 export function monthRangeLabel<T extends ArchiveRow>(
   rows: T[],
-  zoneOf: ShowZoneResolver<T>
+  zoneOf: ShowZoneResolver<T>,
+  // REQUIRED, with no default. A default would be `'one-year'` — the form that
+  // elides the year — so a caller who forgot it would get ambiguous labels and
+  // no error, which is exactly the defect PSY-1769 found in the shipped code.
+  scope: ArchiveLabelScope
 ): string | null {
   if (rows.length === 0) return null
   const partsOf = (row: T) => {
     const zone = zoneOf(row)
     return formatShowMonthParts(row.event_date, zone.state, zone.timezone)
   }
-  return monthSpanLabel(partsOf(rows[0]), partsOf(rows[rows.length - 1]))
+  return monthSpanLabel(
+    partsOf(rows[0]),
+    partsOf(rows[rows.length - 1]),
+    scope
+  )
 }
 
 /** A formatted calendar month, split so the halves can be compared. */
@@ -125,6 +133,14 @@ interface MonthParts {
 }
 
 /**
+ * Whether the pager this label is going into is already scoped to ONE year.
+ *
+ * The distinction decides whether the year may be left out, and getting it wrong
+ * is not cosmetic — see {@link monthSpanLabel}.
+ */
+export type ArchiveLabelScope = 'one-year' | 'all-years'
+
+/**
  * The label for a span running from `first` to `last`, in whichever direction
  * the list runs.
  *
@@ -132,15 +148,41 @@ interface MonthParts {
  * — {@link monthRangeLabel} from a page's rows, {@link monthRangeLabelsByPage}
  * from a histogram — and a pager mixing two spellings of one rule would be a
  * defect nobody could see in either function alone.
+ *
+ * THE YEAR IS ONLY OPTIONAL ON A YEAR-SCOPED PAGER, and that qualifier is
+ * load-bearing (PSY-1769). On `/venues/{slug}/shows/{year}` the year is in the
+ * URL, the heading and every month row, so repeating it in seven page labels is
+ * noise. On the all-years archive none of that is true: `YearStrip` renders with
+ * no year selected, and at 50 rows a page most pages sit inside a single year —
+ * so eliding it gives a ten-year archive several page links reading "Aug{EN_DASH}Jun"
+ * with nothing on the page to say which August.
+ *
+ * The visible strip is where that bites: it renders `2 · Aug{EN_DASH}Jun` beside
+ * `5 · Aug{EN_DASH}Jun`, and a reader choosing between them has only the page
+ * number — which is the thing the label exists to explain. (The ACCESSIBLE name
+ * is not ambiguous either way: `Pagination` prefixes it with "Page N". This is
+ * about what the label communicates, not about name collisions.)
+ *
+ * When the year is kept and both ends share it, it is printed ONCE at the end
+ * ("Dec{EN_DASH}Nov 2025") rather than on both halves. A span across a year boundary
+ * has to name both ("Jan 2025{EN_DASH}Dec 2024"), because there the year IS the news.
  */
-function monthSpanLabel(first: MonthParts, last: MonthParts): string {
-  if (first.month === last.month && first.year === last.year) return first.month
-  // Page labels sit inside a year-scoped pager, and the year is already in the
-  // strip above and the month headings below, so repeating it in every label
-  // is noise. Dropped only when both ends agree on the year — an all-years page
-  // that straddles a new year keeps both, because there the year IS the news.
+function monthSpanLabel(
+  first: MonthParts,
+  last: MonthParts,
+  scope: ArchiveLabelScope
+): string {
+  const sameMonth = first.month === last.month && first.year === last.year
+  if (scope === 'one-year') {
+    if (sameMonth) return first.month
+    return first.year === last.year
+      ? `${first.month}${EN_DASH}${last.month}`
+      : `${first.month} ${first.year}${EN_DASH}${last.month} ${last.year}`
+  }
+
+  if (sameMonth) return `${first.month} ${first.year}`
   return first.year === last.year
-    ? `${first.month}${EN_DASH}${last.month}`
+    ? `${first.month}${EN_DASH}${last.month} ${last.year}`
     : `${first.month} ${first.year}${EN_DASH}${last.month} ${last.year}`
 }
 
@@ -159,9 +201,9 @@ export interface ArchiveMonthCount {
 }
 
 /**
- * A well-formed bucket carrying at least one row. Anything else is dropped
- * rather than trusted: these arrive over the wire, and a NaN or a thirteenth
- * month would silently slide every later page's label instead of failing.
+ * A well-formed bucket carrying at least one row. These arrive over the wire, so
+ * a NaN or a thirteenth month is possible in principle; see the caller for why
+ * one bad bucket voids the whole histogram rather than being skipped.
  */
 function isUsableMonthCount(bucket: ArchiveMonthCount): boolean {
   return (
@@ -192,17 +234,31 @@ function isUsableMonthCount(bucket: ArchiveMonthCount): boolean {
  * that a descending histogram belongs to a descending list. `pageSize` must be
  * the limit the list actually requested.
  *
- * Labels are produced only for the pages ASKED for, because the pager renders at
- * most seven, and only while the histogram covers them: a page whose first row
- * lies past the last bucket gets no label rather than a clamped, wrong one. That
- * is the graceful edge when the counts and the list's own total disagree — a
- * show added between the two reads, a filter drifting apart — and it degrades to
- * exactly the numeral the pager rendered before this existed.
+ * TWO INDEPENDENT COUNTS, and if they disagree this returns NOTHING.
+ *
+ * The histogram is one read and the list's own total is another, taken at
+ * different moments and cached under different keys, so a show that graduated
+ * from upcoming to past between them moves one and not the other. The whole
+ * method rests on one premise — that row ordinal N in the histogram is row
+ * ordinal N in the list — and any disagreement is proof that premise has
+ * lapsed. It cannot be repaired by clamping: this list is ordered newest-first,
+ * so a missing row is missing from the FRONT, and every span after it is shifted
+ * by that much while still looking perfectly well-formed. A histogram one row
+ * behind would confidently label page 1 "Jun" for a page that opens in July.
+ *
+ * So a mismatch produces no labels at all, and the caller falls back to whatever
+ * it can derive from rows it actually has. That is the pre-existing behaviour —
+ * a bare numeral — and it is the right trade: the pager announces the current
+ * page's label into a live region and never corrects it, so a wrong label costs
+ * more than a missing one. The disagreement is transient by construction; the
+ * next read of either count clears it.
  */
 export function monthRangeLabelsByPage({
   months,
   pageSize,
   pages,
+  listTotal,
+  scope,
 }: {
   /** Histogram buckets in list order. */
   months: ArchiveMonthCount[]
@@ -210,14 +266,26 @@ export function monthRangeLabelsByPage({
   pageSize: number
   /** 1-based page numbers to label. */
   pages: number[]
+  /** The list's own row count, which decides where the last page ends. */
+  listTotal: number
+  /** Whether the pager is already scoped to one year. */
+  scope: ArchiveLabelScope
 }): Record<number, string> {
   const labels: Record<number, string> = {}
   if (!Number.isInteger(pageSize) || pageSize < 1) return labels
 
-  const buckets = months.filter(isUsableMonthCount)
-  if (buckets.length === 0) return labels
+  // FAIL CLOSED on a malformed bucket rather than dropping it. Filtering one out
+  // of the MIDDLE would leave a punctured histogram whose ordinals are short
+  // from that point on, so every later page would be labelled with months it
+  // does not contain — the one outcome this whole function is arranged to avoid.
+  if (months.length === 0 || !months.every(isUsableMonthCount)) return labels
+  const buckets = months
 
   const totalRows = buckets.reduce((sum, bucket) => sum + bucket.count, 0)
+  // The premise check. A caller that cannot state its own total (`listTotal` not
+  // a usable number) is taken at its word and the histogram is trusted alone;
+  // one that CAN and disagrees has proved the ordinals no longer line up.
+  if (Number.isInteger(listTotal) && listTotal !== totalRows) return labels
 
   // The bucket a row ordinal falls in, by accumulating counts until the ordinal
   // is covered. Rescanned per lookup rather than precomputed: the pager asks at
@@ -238,13 +306,18 @@ export function monthRangeLabelsByPage({
     if (firstRow >= totalRows) continue
     const lastRow = Math.min(firstRow + pageSize - 1, totalRows - 1)
 
+    // Unreachable by construction — `totalRows` IS the sum of the buckets, so
+    // any ordinal below it lands in one. Kept because `bucketAt` is typed to
+    // admit null and a silent `undefined` in a label would be worse than a
+    // skipped page.
     const first = bucketAt(firstRow)
     const last = bucketAt(lastRow)
     if (!first || !last) continue
 
     labels[page] = monthSpanLabel(
       formatCalendarMonthParts(first.year, first.month),
-      formatCalendarMonthParts(last.year, last.month)
+      formatCalendarMonthParts(last.year, last.month),
+      scope
     )
   }
 

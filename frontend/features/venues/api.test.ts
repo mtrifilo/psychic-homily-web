@@ -113,6 +113,18 @@ describe('venueQueryKeys', () => {
     ).toBe('past')
   })
 
+  it('nests the month histogram the same way, without colliding with years or a page', () => {
+    // The pager's range labels live here (PSY-1769). Same two contracts as the
+    // year histogram: it must sit under the shows() prefix so any invalidation
+    // that clears the rows clears the labels with them, and its discriminator
+    // must not be a value the page-key slot can hold.
+    const prefix = venueQueryKeys.shows(42)
+    const months = venueQueryKeys.showMonths(42, 'past')
+    expect(months.slice(0, prefix.length)).toEqual([...prefix])
+    expect(months[prefix.length]).toBe('months')
+    expect(months).not.toEqual(venueQueryKeys.showYears(42, 'past'))
+  })
+
   it('gives differently-parameterized shows requests distinct keys', () => {
     const base = { timeFilter: 'upcoming' } as const
     const venuePage = venueQueryKeys.showsPage(42, { ...base, limit: 50 })

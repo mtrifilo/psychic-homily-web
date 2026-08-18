@@ -310,6 +310,13 @@ interface UseVenueShowMonthsOptions {
   /** Which side of "today" to count. Defaults to 'past'. */
   timeFilter?: TimeFilter
   enabled?: boolean
+  /**
+   * The histogram the SERVER already fetched, so the pager's labels are in the
+   * HTML rather than popping in after the first client fetch (PSY-1769). Same
+   * contract as `useVenueShowYears`'s: pass it only for the arguments it was
+   * fetched under.
+   */
+  initialData?: VenueShowMonthsResponse
 }
 
 /**
@@ -325,13 +332,14 @@ interface UseVenueShowMonthsOptions {
  * the year histogram beside it, still one small row per month a venue has ever
  * booked, and it does not change as the reader pages.
  *
- * No `initialData` counterpart yet. The year-archive route seeds the rows and the
- * year histogram it renders server-side; the labels are pager chrome and can
- * arrive with the first client fetch, which is when the reader can first click a
- * page link anyway.
+ * Seeded server-side on the YEAR-ARCHIVE route only, where the pager really is
+ * in the served HTML and a label that arrived with a client fetch would be one a
+ * crawler never sees. The venue page renders the archive after its first client
+ * fetch, so there is no pager in its document to label and no seed worth paying
+ * a full-history aggregate for.
  */
 export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
-  const { venueId, timeFilter = 'past', enabled = true } = options
+  const { venueId, timeFilter = 'past', enabled = true, initialData } = options
 
   const endpoint = `${venueEndpoints.SHOW_MONTHS(venueId)}?time_filter=${timeFilter}`
 
@@ -343,6 +351,7 @@ export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
     enabled:
       enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it labels
+    initialData,
   })
 }
 

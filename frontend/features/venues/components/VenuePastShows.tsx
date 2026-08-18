@@ -19,10 +19,7 @@ import {
   useVenueShowYears,
   useVenueShows,
 } from '../hooks/useVenues'
-import {
-  venuePastShowsPageParams,
-  VENUE_PAST_SHOWS_PAGE_LIMIT,
-} from '../api'
+import { venuePastShowsPageParams } from '../api'
 // Both entity-agnostic and shared with the artist archive (PSY-1754); the year
 // is no longer read from the URL here, so `parseArchiveYear` moved to the route
 // that owns the `{year}` path segment (PSY-1756). `monthRangeLabelsByPage` needs
@@ -31,9 +28,11 @@ import {
 import {
   clampPage,
   monthRangeLabelsByPage,
+  type ArchiveLabelScope,
 } from '@/features/shows/showArchive'
 import {
   archiveDocumentTitle,
+  monthRangeLabel,
   venueArchiveHref,
   VENUE_PAST_SHOWS_FRAGMENT,
 } from '../showArchive'
@@ -41,6 +40,7 @@ import { VenueShowsTable } from './VenueShowsTable'
 import type {
   VenueShow,
   VenueShowZone,
+  VenueShowMonthsResponse,
   VenueShowsResponse,
   VenueShowYearsResponse,
 } from '../types'
@@ -63,6 +63,42 @@ export const VENUE_PAST_SHOWS_ANCHOR = VENUE_PAST_SHOWS_FRAGMENT
  */
 const MAX_PAGE = 1_000
 
+/**
+ * The input events that mean a reader is moving the page themselves.
+ *
+ * Deliberately NOT 'scroll': our own `scrollIntoView` fires one, so treating it
+ * as reader intent would end the anchor's settle window on its first
+ * realignment. Scroll is watched separately, by comparing against where we put
+ * the page — see the anchor effect.
+ */
+const READER_SCROLL_INTENT_EVENTS = [
+  'wheel',
+  'touchstart',
+  'keydown',
+  'pointerdown',
+] as const
+
+/**
+ * How far the archive may drift from where we put it before we conclude somebody
+ * else moved it. Small on purpose: this measures the SECTION's offset, which a
+ * reader's scroll changes by a lot and rounding changes by a fraction of a
+ * pixel. It is NOT sized to absorb scroll anchoring — see `onScroll` for why
+ * that would be the wrong axis to measure in the first place.
+ */
+const READER_SCROLL_TOLERANCE_PX = 4
+
+/**
+ * How long the archive keeps re-aligning itself on a cold deep link before
+ * giving up, absent any sign the reader has taken over.
+ *
+ * Long enough to outlast the requests that move the archive after it settles —
+ * the upcoming list, the sidebar's cards — on a slow connection, which is the
+ * whole point. It is safe to be this generous because it is not what protects
+ * the reader: any wheel, touch, key, pointer or reader-driven scroll ends the
+ * window immediately.
+ */
+const ANCHOR_SETTLE_CEILING_MS = 10_000
+
 export interface VenuePastShowsProps {
   venueId: number
   /** Used to build page/year hrefs, so they are absolute and shareable. */
@@ -82,14 +118,25 @@ export interface VenuePastShowsProps {
    */
   activeYear?: number | null
   /**
-   * Page 1's rows and the year histogram, when the SERVER already fetched them
-   * for this exact scope (the year-archive route does; the venue page does
-   * not). Seeded into the query cache so the first render — server AND
-   * client — has them, which is what puts the rows and the year links in the
-   * served HTML.
+   * What the SERVER already fetched for this exact scope, seeded into the query
+   * cache so the first render — server AND client — has it.
+   *
+   * The three are seeded by DIFFERENT sets of routes, which is worth stating
+   * because a reader who assumes they travel together will mis-reason about
+   * what is in the HTML:
+   *
+   *   initialShows   year-archive route ONLY. It is what puts the rows, and
+   *                  therefore the pagers, in the served document; the venue
+   *                  page renders the archive only after its first client fetch.
+   *   initialYears   BOTH routes. The year strip is in the HTML either way.
+   *   initialMonths  year-archive route ONLY (PSY-1769), and it travels with
+   *                  `initialShows` for exactly that reason: labels are pager
+   *                  chrome, so seeding them is worth a server read only where a
+   *                  pager actually reaches the HTML.
    */
   initialShows?: VenueShowsResponse
   initialYears?: VenueShowYearsResponse
+  initialMonths?: VenueShowMonthsResponse
   className?: string
 }
 
@@ -123,6 +170,7 @@ export function VenuePastShows({
   activeYear = null,
   initialShows,
   initialYears,
+  initialMonths,
   className,
 }: VenuePastShowsProps) {
   const [rawPage] = useQueryState('page', parseAsInteger.withDefault(1))
@@ -130,6 +178,13 @@ export function VenuePastShows({
 
   const pageParams = venuePastShowsPageParams(page, activeYear)
   const offset = pageParams.offset ?? 0
+  // Read from the params the LIST actually requested, not from the constant
+  // behind them: the label walk maps row ordinals onto pages, so a page size
+  // that ever diverged from the request would shift every label by the
+  // difference — a wrong label, which is worse than a missing one. Named as a
+  // primitive because `pageParams` is a fresh object each render and would
+  // defeat the memo that depends on it.
+  const pageLimit = pageParams.limit
 
   const yearsQuery = useVenueShowYears({
     venueId,
@@ -235,32 +290,83 @@ export function VenuePastShows({
   // slice below is the whole cost of switching years. Reading the pager's own
   // window means at most seven labels are formatted, which is all it can render.
   //
-  // Not requested at all for an archive that fits on one page — which is also
-  // every venue with no past shows, since `totalPages` floors at 1. That is
-  // exactly when `Pagination` renders nothing, so the request would buy labels
-  // for a control that is not on the page. It costs no waterfall: both routes
-  // that mount this seed the year histogram server-side, so `totalPages` is
-  // known on the first render.
+  // Skipped once the year histogram POSITIVELY says the archive fits on one
+  // page — which includes a venue with no past shows at all. That is exactly
+  // when `Pagination` renders nothing, so the request would buy labels for a
+  // control that is not there.
+  //
+  // Keyed on `yearsQuery.isSuccess` rather than on `totalPages` alone, because
+  // "one page" and "not counted yet" are the same value of `totalPages` and must
+  // not be the same decision: before the counts land — or on a route whose
+  // server seed failed — suppressing the request would leave the pager in bare
+  // numerals for an extra round trip.
+  //
+  // A CLIENT-SIDE saving only. Both routes fetch the histogram server-side
+  // unconditionally, because the count that would gate it is the sibling read in
+  // the same `Promise.all` and waiting for it would put a round trip on the
+  // critical path of every cold render. So a small venue still costs one
+  // aggregate per render there; the `Cache-Control` on the endpoint and the
+  // route's own Data Cache are what bound that, not this flag.
   const monthsQuery = useVenueShowMonths({
     venueId,
     timeFilter: 'past',
-    enabled: totalPages > 1,
+    enabled: !yearsQuery.isSuccess || totalPages > 1,
+    initialData: initialMonths,
   })
   const allMonthCounts = monthsQuery.data?.months
+
+  // The year is only safe to leave out of a label when the pager is already
+  // scoped to one — see `monthSpanLabel`.
+  const labelScope: ArchiveLabelScope =
+    activeYear === null ? 'all-years' : 'one-year'
+
   const rangeLabels = useMemo(() => {
     const months = allMonthCounts ?? []
-    return monthRangeLabelsByPage({
+    const labels = monthRangeLabelsByPage({
       // Newest first from the API, which is the order this archive pages in.
       months:
         activeYear === null
           ? months
           : months.filter(bucket => bucket.year === activeYear),
-      pageSize: VENUE_PAST_SHOWS_PAGE_LIMIT,
+      pageSize: pageLimit,
       pages: paginationWindow(page, totalPages).filter(
         (item): item is number => item !== 'ellipsis'
       ),
+      listTotal: scopedTotal,
+      scope: labelScope,
     })
-  }, [allMonthCounts, activeYear, page, totalPages])
+
+    // The CURRENT page, from the rows already on screen, whenever the histogram
+    // could not label it — it failed, or has not landed yet.
+    //
+    // Without this a failed histogram fetch strips the label from every page
+    // link at once, which is strictly worse than what this replaced: the
+    // row-derived shape always labelled at least the page being read. It matters
+    // most below `sm`, where the pager renders NO page links and the current
+    // page's label is the only one there is.
+    //
+    // Suppressed while `keepPreviousData` holds the outgoing page, for the
+    // reason the caption is: a label taken from rows belonging to another page
+    // is a wrong one, and the pager announces it into a live region without ever
+    // correcting it.
+    if (!labels[page] && rowsAnswerCurrentRequest && rows.length > 0) {
+      const fromRows = monthRangeLabel(rows, zone, labelScope)
+      if (fromRows) labels[page] = fromRows
+    }
+
+    return labels
+  }, [
+    allMonthCounts,
+    activeYear,
+    pageLimit,
+    page,
+    totalPages,
+    scopedTotal,
+    labelScope,
+    rows,
+    rowsAnswerCurrentRequest,
+    zone,
+  ])
 
   // A venue with no past shows carries no archive. Asked of the histogram, not
   // of the current page: a hand-typed year with nothing in it must still render
@@ -334,9 +440,10 @@ export function VenuePastShows({
   // needs none of this — it carries no fragment, because there the archive is
   // the page.)
   //
-  // Honoured ONCE per mount and only for OUR fragment, so it can never fight a
-  // reader who arrived without one. Later page changes need none of this: the
-  // fragment is already on the page, and the pager moves focus to the heading.
+  // Only ever for OUR fragment, so it cannot fight a reader who arrived without
+  // one, and once ended it is never reopened. Later page changes need none of
+  // this: the fragment is already on the page, and the pager moves focus to the
+  // heading.
   //
   // A single scrollIntoView is not enough, which is what PSY-1769 fixes. This
   // section is near the bottom of a page whose height is still being decided
@@ -355,72 +462,183 @@ export function VenuePastShows({
   // why the original took the one-shot restraint. Programmatic scrolling fires
   // none of these events, so nothing here can trip itself.
   const sectionRef = useRef<HTMLElement>(null)
-  const hasHonoredAnchor = useRef(false)
-  const archiveSettled = !pastQuery.isPending
+  /** The window ran its course, or the reader ended it. Never reopened. */
+  const hasAbandonedAnchor = useRef(false)
+  // "This section has reached the state it is going to render in", which is NOT
+  // the same as "the rows arrived". A `?page=` past the end never issues the row
+  // request at all (`pageIsBeyondKnownEnd` disables it), and a disabled query
+  // with no data stays `pending` forever — so waiting on the rows alone would
+  // leave the anchor permanently unfired for the one deep-link shape that cannot
+  // recover on its own: a shared link to a page the archive has since shrunk
+  // past. That reader would be dropped at the top of a long venue page with the
+  // explanation ("That page is past the end…") off-screen at the bottom.
+  const archiveSettled = !pastQuery.isPending || pageIsBeyondKnownEnd
+
+  // Has the reader moved the page themselves, at any point since this mounted?
+  //
+  // Tracked from MOUNT rather than from the moment the archive settles, because
+  // the gap between the two is a real second or more on a slow connection, and a
+  // reader who scrolls during it has just as much claim to the viewport. Without
+  // this they would be yanked back the instant the query landed.
+  const readerHasMoved = useRef(false)
   useEffect(() => {
-    // The one shot is spent only when the scroll can actually happen. The two
-    // queries settle in either order, so on a deep link into an empty year the
-    // page request can land first, leaving the section unrendered and this ref
-    // null — burning the flag there would strand the reader at the top of the
+    const mark = () => {
+      readerHasMoved.current = true
+    }
+    for (const event of READER_SCROLL_INTENT_EVENTS) {
+      window.addEventListener(event, mark, { passive: true })
+    }
+    return () => {
+      for (const event of READER_SCROLL_INTENT_EVENTS) {
+        window.removeEventListener(event, mark)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    // Nothing is spent until the scroll can actually happen. The two queries
+    // settle in either order, so on a deep link into an empty year the page
+    // request can land first, leaving the section unrendered and this ref
+    // null — closing the window there would strand the reader at the top of the
     // page once the histogram brought the section back.
     const section = sectionRef.current
-    if (hasHonoredAnchor.current || !archiveSettled || section === null) return
-    hasHonoredAnchor.current = true
+    if (!archiveSettled || section === null) return
     if (window.location.hash !== `#${VENUE_PAST_SHOWS_ANCHOR}`) return
+    if (hasAbandonedAnchor.current) return
 
-    section.scrollIntoView()
-
-    // Every way a reader can start moving the page themselves. Deliberately NOT
-    // 'scroll', which our own scrollIntoView fires — listening for that would
-    // abandon on the first realignment and leave this a one-shot again.
-    const readerTookOver = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const
-
-    // A ResizeObserver on the document rather than subscriptions to the several
-    // queries that happen to settle late: this section can see none of them, and
-    // enumerating them here would mean editing this effect every time something
-    // new is added above it. What it actually needs to know is "did the page
-    // above me get taller", and that is one signal.
+    // THE FIRST ALIGNMENT IS UNCONDITIONAL. It is what the fragment has always
+    // done, and honouring a fragment on a cold load is not something a reader
+    // opts out of by having touched the screen. Only the RE-ALIGNMENT window
+    // below is withheld from someone who has already started moving the page —
+    // gating the initial scroll on that too would mean a tap on the cookie
+    // banner, or any keypress during the load, silently dropped the reader at
+    // the top of the venue page, which is a regression on the one behaviour this
+    // section already had.
     //
-    // Coalesced through a single frame. `scrollIntoView` lands on the same place
+    // The helpers below are function DECLARATIONS because they refer to each
+    // other in a cycle (realign -> abandon -> close -> onScroll -> abandon).
+    // Nothing invokes any of them until after all of them exist, so this is not
+    // load-bearing today — it just means the order of the definitions is not
+    // something a later edit can get wrong.
+
+    /**
+     * Where WE last put the archive: its top relative to the viewport right
+     * after aligning. Deliberately the SECTION's position and not `window.
+     * scrollY` — see `onScroll`.
+     */
+    let expectedTop = 0
+    let frame = 0
+    let ceilingTimer = 0
+    // Constructed up front, OBSERVED later. `close` reads it and can run on a
+    // path that never started observing, so having the object always exist is
+    // simpler than guarding every use — and disconnecting one that never
+    // observed anything is a no-op. (`realign` is a hoisted declaration, so
+    // referencing it here is fine.)
+    const observer = new ResizeObserver(realign)
+
+    function alignNow() {
+      section!.scrollIntoView()
+      expectedTop = section!.getBoundingClientRect().top
+    }
+
+    // Coalesced through a single frame. `scrollIntoView` lands in the same place
     // however many times it runs, but it is not FREE to run: it forces layout,
     // and doing that from inside a ResizeObserver callback is what produces the
     // "loop completed with undelivered notifications" churn. Several boxes
     // settling in one burst should cost one scroll, not one each.
-    let frame = 0
-    const realign = () => {
+    function realign() {
       if (frame !== 0) return
       frame = requestAnimationFrame(() => {
         frame = 0
-        section.scrollIntoView()
+        alignNow()
       })
     }
-    const observer = new ResizeObserver(realign)
-    observer.observe(document.body)
 
-    let settleTimer = 0
-    const abandon = () => {
+    // `settled` distinguishes the two ways this can end. A window that ran its
+    // course, or a reader who took over, is DONE — `hasAbandonedAnchor` stops a
+    // later effect pass from reopening it. React's own teardown (a dep change,
+    // StrictMode's double-invoke in dev) is NOT: it must leave the flag alone so
+    // the next pass can pick the window back up, or the whole re-align window
+    // would be inert in development and a maintainer would reproduce the very
+    // bug this fixes while running the fix.
+    function close({ settled }: { settled: boolean }) {
+      if (settled) hasAbandonedAnchor.current = true
       observer.disconnect()
       if (frame !== 0) cancelAnimationFrame(frame)
-      window.clearTimeout(settleTimer)
-      for (const event of readerTookOver) {
+      window.clearTimeout(ceilingTimer)
+      window.removeEventListener('scroll', onScroll)
+      for (const event of READER_SCROLL_INTENT_EVENTS) {
         window.removeEventListener(event, abandon)
       }
     }
 
-    for (const event of readerTookOver) {
+    function abandon() {
+      close({ settled: true })
+    }
+
+    // The BACKSTOP, and the one that matters most for the readers least able to
+    // fight a moving viewport. The four input events are what a mouse, finger or
+    // keyboard produces directly — but a screen reader moving its virtual caret,
+    // a VoiceOver swipe the AT consumes, and the browser's own scroll
+    // restoration all move the page while producing NONE of them.
+    //
+    // IT COMPARES THE SECTION'S POSITION, NOT `window.scrollY`, and that is the
+    // whole correctness of it. Chrome has CSS scroll anchoring on by default and
+    // nothing here sets `overflow-anchor: none`, so when the upcoming list above
+    // expands from a spinner to 200 rows the browser SHIFTS scrollY by the full
+    // height of that growth to keep the anchored content still — thousands of
+    // pixels, and it fires a `scroll` event. The scroll steps run BEFORE
+    // ResizeObserver delivery in the same frame, so a scrollY comparison would
+    // see that delta and abandon before `realign` ever ran: the window would
+    // collapse back to the one-shot this ticket replaced, silently, on the
+    // browser family with the largest mobile share.
+    //
+    // The section's own viewport offset has neither problem. An anchoring
+    // adjustment is precisely the browser holding it still, so the offset does
+    // not move. Growth that anchoring does NOT compensate moves the section but
+    // changes no scroll offset, so no scroll event fires and the ResizeObserver
+    // handles it. A reader scrolling moves the section and fires the event —
+    // which is the one case that should end the window.
+    function onScroll() {
+      const drift = Math.abs(
+        section!.getBoundingClientRect().top - expectedTop
+      )
+      if (drift > READER_SCROLL_TOLERANCE_PX) abandon()
+    }
+
+    alignNow()
+
+    // A reader who was already moving the page before the archive settled gets
+    // no re-align window at all — but they still got the alignment above, which
+    // is the fragment doing what it has always done.
+    if (readerHasMoved.current) {
+      hasAbandonedAnchor.current = true
+      return
+    }
+
+    // Observing the DOCUMENT rather than subscribing to the several queries that
+    // happen to settle late: this section can see none of them, and enumerating
+    // them here would mean editing this effect every time something new is added
+    // above it. What it actually needs to know is "did the page above me get
+    // taller", and that is one signal.
+    observer.observe(document.body)
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    for (const event of READER_SCROLL_INTENT_EVENTS) {
       window.addEventListener(event, abandon, { passive: true, once: true })
     }
 
-    // A hard ceiling, so a page that never stops resizing (an animation, a lazy
-    // image with no intrinsic size) cannot hold the reader's scroll hostage.
-    // Long enough to cover the fetches above settling on a slow connection,
-    // short enough that nobody is mid-sentence when it lapses.
-    settleTimer = window.setTimeout(abandon, 3000)
+    // ONE fixed ceiling, and no idle timer. An idle timer was the obvious shape
+    // and is the wrong one: the late movers here are separate REQUESTS — the
+    // 200-row upcoming list, the sidebar's cards — so the page is naturally
+    // still between them, and any idle window short enough to be polite expires
+    // in an ordinary gap between two responses. That is the exact failure this
+    // ticket is about. What actually protects the reader is not a short window
+    // but the abandon signals above, which end it the instant anyone touches the
+    // page; the ceiling only bounds a page that never settles at all.
+    ceilingTimer = window.setTimeout(abandon, ANCHOR_SETTLE_CEILING_MS)
 
-    // Also the cleanup: a dep change or an unmount ends the window early, which
-    // degrades to exactly the one-shot behaviour this replaced rather than
-    // leaving a live observer behind.
-    return abandon
+    return () => close({ settled: false })
   }, [archiveSettled, hasPastShows])
 
   if (!hasPastShows) return null

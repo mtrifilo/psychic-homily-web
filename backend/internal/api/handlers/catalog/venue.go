@@ -237,8 +237,9 @@ func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest
 
 // defaultVenueShowsTimeFilter is what an omitted time_filter means on BOTH the
 // venue show list and its year histogram. One constant because the histogram
-// drives the list's year picker: if the two defaulted differently, a caller that
-// omitted the param would get a picker counting a set the list never shows.
+// drives the list's year picker and its month histogram: if they defaulted
+// differently, a caller that omitted the param would get a picker, or page
+// labels, counting a set the list never shows.
 const defaultVenueShowsTimeFilter = "upcoming"
 
 // GetVenueShowsRequest represents the request parameters for getting shows at a venue
@@ -362,6 +363,17 @@ func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVen
 	return resp, nil
 }
 
+// venueShowMonthsCacheControl matches chartsModuleCacheControl. Sixty seconds is
+// the repo's existing floor for a public, viewer-independent read, and this
+// payload qualifies on every filter it serves: it is an aggregate with no
+// per-viewer input, and it can only change when a show is approved, edited, or
+// graduates from upcoming to past.
+//
+// Deliberately NOT applied to the sibling years endpoint in this change. That is
+// a shipped read with its own consumers (the year strip, the SSR seed), and
+// giving it a cache policy is a behaviour change it should get on its own.
+const venueShowMonthsCacheControl = "public, max-age=60"
+
 // GetVenueShowMonthsRequest represents the request parameters for a venue's
 // show-month histogram.
 type GetVenueShowMonthsRequest struct {
@@ -371,7 +383,17 @@ type GetVenueShowMonthsRequest struct {
 
 // GetVenueShowMonthsResponse represents the response for the venue show-months endpoint
 type GetVenueShowMonthsResponse struct {
-	Body struct {
+	// CacheControl: public, viewer-independent and stale-tolerant, exactly the
+	// class charts.go already caches this way.
+	//
+	// It earns the header more than most: the payload is an aggregate over a
+	// venue's ENTIRE history with no index to answer it (the venue-local month is
+	// an expression over a lateral join), and `proxy.ts` already documents the
+	// year histogram's uncached full-history scan as something a crawler with
+	// curl can walk. A minute of shared caching collapses that burst to one scan
+	// per venue, against a payload whose only consumer is a page label.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
 		Months     []contracts.VenueShowMonthCount `json:"months" doc:"Venue-local calendar months that have at least one show, newest first"`
 		VenueID    uint                            `json:"venue_id" doc:"Venue ID"`
 		TimeFilter string                          `json:"time_filter" doc:"Time filter the counts were taken under"`
@@ -417,7 +439,7 @@ func (h *VenueHandler) GetVenueShowMonthsHandler(ctx context.Context, req *GetVe
 		return nil, huma.Error500InternalServerError("Failed to count shows by month", err)
 	}
 
-	resp := &GetVenueShowMonthsResponse{}
+	resp := &GetVenueShowMonthsResponse{CacheControl: venueShowMonthsCacheControl}
 	resp.Body.Months = months
 	resp.Body.VenueID = venueID
 	resp.Body.TimeFilter = timeFilter

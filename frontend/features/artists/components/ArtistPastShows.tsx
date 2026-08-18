@@ -204,10 +204,9 @@ export function ArtistPastShows({
   // THIS IS THE SUPERSEDED SHAPE. PSY-1769 replaced it on the venue archive with
   // a month histogram (`GET /venues/{id}/shows/months` +
   // `monthRangeLabelsByPage`), which labels every page on first paint from
-  // cumulative counts instead of from fetched rows. The artist archive has NOT
-  // been ported — it would need the matching `/artists/{id}/shows/months` — so
-  // do not read the note below as an argument that the histogram is unavailable.
-  // It exists; this entity just has not been given one yet.
+  // cumulative counts instead of from fetched rows. The venue endpoint exists;
+  // `/artists/{id}/shows/months` does not yet, and that is the only thing
+  // blocking the same treatment here.
   //
   // A WRONG label is worse than a missing one (the pager announces it and never
   // corrects), so the current page contributes nothing until its own rows land.
@@ -228,7 +227,15 @@ export function ArtistPastShows({
             )
           )?.shows ?? []
       }
-      const label = monthRangeLabel(pageRows, artistShowZone)
+      // The year may only be left out when the pager is already scoped to one
+      // (PSY-1769). On the unfiltered archive two pages a few years apart would
+      // otherwise render the identical visible label, leaving a reader choosing
+      // between them with only the page number.
+      const label = monthRangeLabel(
+        pageRows,
+        artistShowZone,
+        activeYear === null ? 'all-years' : 'one-year'
+      )
       if (label) labels[item] = label
     }
     return labels

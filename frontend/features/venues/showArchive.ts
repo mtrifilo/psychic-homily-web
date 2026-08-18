@@ -15,7 +15,9 @@
 
 import {
   groupByMonth as groupRowsByMonth,
+  monthRangeLabel as rowsMonthRangeLabel,
   archiveDocumentTitle as scopedDocumentTitle,
+  type ArchiveLabelScope,
   type ArchiveRow as ShowArchiveRow,
   type ShowZoneResolver,
 } from '@/features/shows/showArchive'
@@ -52,12 +54,24 @@ export function groupByMonth<T extends ArchiveRow>(
   return groupRowsByMonth(rows, venueZoneResolver<T>(zone))
 }
 
-// There is deliberately NO venue-shaped `monthRangeLabel` here any more
-// (PSY-1769). The venue archive's page labels come from the month histogram, not
-// from a page's rows, and a histogram is bucketed venue-side — so the one thing
-// this module exists to bind, the zone, is not part of that question. The
-// row-derived form is still exported from the shared module for the ARTIST
-// archive, which has not been ported.
+/**
+ * {@link rowsMonthRangeLabel}, in the venue's zone.
+ *
+ * No longer the archive's PRIMARY page-label mechanism — the month histogram is
+ * (PSY-1769) — but not dead either. It is the fallback for the CURRENT page when
+ * the histogram is unavailable: a failed histogram fetch would otherwise strip
+ * the label from every page link, and on mobile the pager renders no page links
+ * at all, so the current page's label is the only one there is. Rows for the
+ * page on screen are always in hand, so this costs nothing and keeps the mobile
+ * pager's label a guarantee rather than a second request's good fortune.
+ */
+export function monthRangeLabel(
+  rows: ArchiveRow[],
+  zone: VenueShowZone,
+  scope: ArchiveLabelScope
+): string | null {
+  return rowsMonthRangeLabel(rows, venueZoneResolver<ArchiveRow>(zone), scope)
+}
 
 /**
  * The fragment the venue page's past-shows section is addressed by.

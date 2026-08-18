@@ -52,9 +52,13 @@ function twentyShows() {
  * navigated in, which is why this has to be asserted rather than reviewed.
  *
  * PSY-1753 widened the key again, with `year` and `offset`, and added a second
- * way to get it wrong: the past archive both ISSUES a page request and PEEKS
- * at the cache for its neighbours, through two different code paths that must
- * agree on the key exactly. The last case here pins them together.
+ * way to get it wrong: the page a route SEEDS server-side and the page the hook
+ * REQUESTS are built by two different code paths that must agree on the key
+ * exactly. The last case here pins them together.
+ *
+ * (Until PSY-1769 there was a third reader — the archive peeked at neighbouring
+ * pages' cache entries to label each page button. Those labels come from a month
+ * histogram now, so the peek is gone; the key contract it shared is not.)
  */
 describe('venue-shows cache key isolates differently-parameterized callers', () => {
   beforeEach(() => {
@@ -207,16 +211,17 @@ describe('venue-shows cache key isolates differently-parameterized callers', () 
   })
 
 
-  it('lands the past archive on the key its own neighbour peek constructs', async () => {
+  it("lands the past archive on the key its route's server seed constructs", async () => {
     const queryClient = createTestQueryClient()
     mockApiRequest.mockResolvedValue(fiftyShows())
 
-    // `VenuePastShows` labels each page button with the months it covers by
-    // reading sibling pages straight out of the cache, keyed from
-    // `venuePastShowsPageParams`. If the key the hook registers and the key the
-    // peek builds ever drift, nothing throws: the labels just silently stop
-    // appearing. Both paths are pinned here, on page 1 (where offset is 0 and
-    // must be keyed as "not sent") and on a later page.
+    // The year-archive route fetches page 1 server-side and hands it to
+    // `VenuePastShows` as `initialShows`, keyed from `venuePastShowsPageParams`.
+    // If the key the hook registers and the key that seed lands on ever drift,
+    // nothing throws: the route silently reverts to fetching on the client, so
+    // the rows leave the served HTML with no other symptom. Both paths are
+    // pinned here, on page 1 (where offset is 0 and must be keyed as "not sent")
+    // and on a later page.
     for (const [page, year] of [[1, null], [3, 2025]] as const) {
       const params = venuePastShowsPageParams(page, year)
       const { result } = renderHook(

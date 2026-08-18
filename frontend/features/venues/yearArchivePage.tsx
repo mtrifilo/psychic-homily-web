@@ -38,7 +38,12 @@ import {
   getVenue,
 } from './archiveApi'
 import { venueArchiveHref } from './showArchive'
-import type { Venue, VenueShowsResponse, VenueShowYearsResponse } from './types'
+import type {
+  Venue,
+  VenueShowMonthsResponse,
+  VenueShowsResponse,
+  VenueShowYearsResponse,
+} from './types'
 
 /** The archive's own URL, absolute. Its canonical, and the crumb it links. */
 function archiveUrl(slug: string, year: number): string {
@@ -120,6 +125,7 @@ export function VenueYearArchiveContent({
   venueSlug,
   year,
   years,
+  months,
   firstPage,
 }: {
   venue: Venue
@@ -132,6 +138,13 @@ export function VenueYearArchiveContent({
    * strictly better than 404ing an archive over a transient blip.
    */
   years: VenueShowYearsResponse | null
+  /**
+   * Null when the month-histogram read failed. The pager then renders bare
+   * numerals until the client's own fetch lands — degraded, not broken, and the
+   * current page keeps its label either way because that one comes from the
+   * seeded rows.
+   */
+  months: VenueShowMonthsResponse | null
   firstPage: VenueShowsResponse | null
 }) {
   const venueHref = `/venues/${venueSlug}`
@@ -166,6 +179,7 @@ export function VenueYearArchiveContent({
         venueTimezone={venue.timezone}
         activeYear={year}
         initialYears={years ?? undefined}
+        initialMonths={months ?? undefined}
         // Null when the page read failed. The section then fetches for itself
         // and owns its error state, which is strictly better than throwing away
         // a page whose navigation is intact.

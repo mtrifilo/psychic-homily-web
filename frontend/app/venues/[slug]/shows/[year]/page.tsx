@@ -8,6 +8,7 @@ import {
   archiveData,
   archiveYearExists,
   getArchiveFirstPage,
+  getArchiveMonths,
   getArchiveYears,
   getVenue,
 } from '@/features/venues/archiveApi'
@@ -79,9 +80,13 @@ export default async function VenueYearArchivePage({
   // the venue row first. Serialising them would put a full round trip on the
   // critical path of every cold render, and by the time this route renders the
   // proxy's existence branch has already filtered the years that have no rows.
-  const [venueRead, yearsRead, firstPageRead] = await Promise.all([
+  const [venueRead, yearsRead, monthsRead, firstPageRead] = await Promise.all([
     getVenue(slug, 'venue-year-archive'),
     getArchiveYears(slug),
+    // The pager's range labels (PSY-1769). This route renders the pager into
+    // the served HTML, so without this read every page link in that document
+    // would be a bare numeral until the client fetched the histogram.
+    getArchiveMonths(slug),
     getArchiveFirstPage(slug, parsedYear),
   ])
 
@@ -110,6 +115,7 @@ export default async function VenueYearArchivePage({
       venueSlug={venue.slug || slug}
       year={parsedYear}
       years={archiveData(yearsRead)}
+      months={archiveData(monthsRead)}
       firstPage={archiveData(firstPageRead)}
     />
   )
