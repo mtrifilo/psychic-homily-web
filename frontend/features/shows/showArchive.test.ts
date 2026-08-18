@@ -68,18 +68,19 @@ describe('groupByMonth', () => {
 })
 
 describe('monthRangeLabel', () => {
-  it('spans the first and last rows in their own zones', () => {
+  it('spans the end rows in their own zones, earlier month first', () => {
     expect(
       monthRangeLabel(
         [
-          { event_date: NEW_YEAR_EDGE, zone: LONDON },
+          { event_date: '2025-01-01T12:00:00Z', zone: LONDON },
           { event_date: NEW_YEAR_EDGE, zone: CHICAGO },
         ],
         zoneOf,
         'one-year'
       )
-      // Both ends disagree about the year, so the year is the news and stays.
-    ).toBe('Jan 2025–Dec 2024')
+      // Both ends disagree about the year, so the year is the news and stays;
+      // the newest-first rows come back out chronologically.
+    ).toBe('Dec 2024–Jan 2025')
   })
 
   it('drops the year when both ends agree on it', () => {
@@ -92,7 +93,7 @@ describe('monthRangeLabel', () => {
         zoneOf,
         'one-year'
       )
-    ).toBe('Sep–Jun')
+    ).toBe('Jun–Sep')
   })
 
   // The row-derived twin of the histogram rule, and the form the ARTIST archive
@@ -107,7 +108,7 @@ describe('monthRangeLabel', () => {
         zoneOf,
         'all-years'
       )
-    ).toBe('Sep–Jun 2025')
+    ).toBe('Jun–Sep 2025')
   })
 
   it('returns null for an empty page rather than an empty separator', () => {
@@ -209,8 +210,8 @@ describe('monthRangeLabelsByPage', () => {
 
   it('labels every requested page, not only the ones already fetched', () => {
     expect(labelPages()).toEqual({
-      1: 'Jun–Apr', // rows 0-24: Jun, May, and half of Apr
-      2: 'Apr–Feb', // rows 25-49: the rest of Apr through Feb
+      1: 'Apr–Jun', // rows 0-24: Jun, May, and half of Apr
+      2: 'Feb–Apr', // rows 25-49: the rest of Apr through Feb
       3: 'Jan', // rows 50-59: a short last page that never leaves Jan
     })
   })
@@ -228,13 +229,13 @@ describe('monthRangeLabelsByPage', () => {
 
   // PSY-1769's sharpest edge. On the ALL-YEARS pager the year is nowhere else on
   // the page — the year strip has nothing selected — so eliding it gives a deep
-  // archive several page links reading "Jun–Apr", including, at seven pages or
+  // archive several page links reading "Apr–Jun", including, at seven pages or
   // fewer, two of them in the same control with the same accessible name.
   describe('all-years scope', () => {
     it('keeps the year on every label', () => {
       expect(labelPages({ scope: 'all-years' })).toEqual({
-        1: 'Jun–Apr 2025',
-        2: 'Apr–Feb 2025',
+        1: 'Apr–Jun 2025',
+        2: 'Feb–Apr 2025',
         3: 'Jan 2025',
       })
     })
@@ -266,7 +267,7 @@ describe('monthRangeLabelsByPage', () => {
           pages: [1],
           listTotal: 10,
         })
-      ).toEqual({ 1: 'Jan 2025–Dec 2024' })
+      ).toEqual({ 1: 'Dec 2024–Jan 2025' })
     })
   })
 
@@ -281,7 +282,7 @@ describe('monthRangeLabelsByPage', () => {
         pages: [1],
         listTotal: 10,
       })
-    ).toEqual({ 1: 'Jan 2025–Dec 2024' })
+    ).toEqual({ 1: 'Dec 2024–Jan 2025' })
   })
 
   it('never uses an em dash for the range', () => {
@@ -324,7 +325,7 @@ describe('monthRangeLabelsByPage', () => {
       // A placeholder page, or a list that has not answered yet: the caller
       // passes nothing rather than a count it does not stand behind.
       expect(labelPages({ pages: [1], listTotal: undefined })).toEqual({
-        1: 'Jun–Apr',
+        1: 'Apr–Jun',
       })
     })
   })

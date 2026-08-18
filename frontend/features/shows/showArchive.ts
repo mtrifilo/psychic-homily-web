@@ -93,9 +93,10 @@ export function groupByMonth<T extends ArchiveRow>(
 
 /**
  * The span of months a page of rows covers: "Sep" for a single month,
- * "Jun{EN_DASH}Sep" across several. The span comes from the FIRST and LAST rows,
+ * "Jun{EN_DASH}Sep" across several. The span comes from the two END rows,
  * not from every distinct month, so it stays a two-part label no matter how many
- * months a page straddles.
+ * months a page straddles. The label always prints the earlier month first,
+ * whichever way the list runs; see {@link monthSpanLabel}.
  *
  * The ROW-DERIVED half of the page-label family, and the weaker one: rows can
  * only label a page that has been fetched. {@link monthRangeLabelsByPage} does
@@ -119,11 +120,13 @@ export function monthRangeLabel<T extends ArchiveRow>(
     const zone = zoneOf(row)
     return formatShowMonthParts(row.event_date, zone.state, zone.timezone)
   }
-  return monthSpanLabel(
-    partsOf(rows[0]),
-    partsOf(rows[rows.length - 1]),
-    scope
-  )
+  const head = rows[0]
+  const tail = rows[rows.length - 1]
+  const [early, late] =
+    Date.parse(head.event_date) <= Date.parse(tail.event_date)
+      ? [head, tail]
+      : [tail, head]
+  return monthSpanLabel(partsOf(early), partsOf(late), scope)
 }
 
 /** A formatted calendar month, split so the halves can be compared. */
@@ -141,12 +144,20 @@ interface MonthParts {
 export type ArchiveLabelScope = 'one-year' | 'all-years'
 
 /**
- * The label for a span running from `first` to `last`, in whichever direction
- * the list runs.
+ * The label for the span between `early` and `late`, which MUST arrive in
+ * chronological order.
  *
- * Extracted because two callers now derive the SAME label from different inputs
- * — {@link monthRangeLabel} from a page's rows, {@link monthRangeLabelsByPage}
- * from a histogram — and a pager mixing two spellings of one rule would be a
+ * CHRONOLOGICAL ORDER IS THE CONTRACT even though the archive lists run
+ * newest-first: a date range reads left-to-right in time everywhere else
+ * software prints one, and a reversed label like "Aug{EN_DASH}Jun" scans as a
+ * wrap-around (August through the FOLLOWING June) rather than as a page span
+ * (user call on PSY-1769). Callers own the swap because only they know their
+ * input's order; both do it against a real ordering key, not an assumed list
+ * direction.
+ *
+ * Extracted because two callers derive the SAME label from different inputs
+ * ({@link monthRangeLabel} from a page's rows, {@link monthRangeLabelsByPage}
+ * from a histogram) and a pager mixing two spellings of one rule would be a
  * defect nobody could see in either function alone.
  *
  * THE YEAR IS ONLY OPTIONAL ON A YEAR-SCOPED PAGER, and that qualifier is
@@ -154,36 +165,36 @@ export type ArchiveLabelScope = 'one-year' | 'all-years'
  * URL, the heading and every month row, so repeating it in seven page labels is
  * noise. On the all-years archive none of that is true: `YearStrip` renders with
  * no year selected, and at 50 rows a page most pages sit inside a single year —
- * so eliding it gives a ten-year archive several page links reading "Aug{EN_DASH}Jun"
+ * so eliding it gives a ten-year archive several page links reading "Jun{EN_DASH}Aug"
  * with nothing on the page to say which August.
  *
- * The visible strip is where that bites: it renders `2 · Aug{EN_DASH}Jun` beside
- * `5 · Aug{EN_DASH}Jun`, and a reader choosing between them has only the page
+ * The visible strip is where that bites: it renders `2 · Jun{EN_DASH}Aug` beside
+ * `5 · Jun{EN_DASH}Aug`, and a reader choosing between them has only the page
  * number — which is the thing the label exists to explain. (The ACCESSIBLE name
  * is not ambiguous either way: `Pagination` prefixes it with "Page N". This is
  * about what the label communicates, not about name collisions.)
  *
  * When the year is kept and both ends share it, it is printed ONCE at the end
- * ("Dec{EN_DASH}Nov 2025") rather than on both halves. A span across a year boundary
- * has to name both ("Jan 2025{EN_DASH}Dec 2024"), because there the year IS the news.
+ * ("Nov{EN_DASH}Dec 2025") rather than on both halves. A span across a year boundary
+ * has to name both ("Dec 2024{EN_DASH}Jan 2025"), because there the year IS the news.
  */
 function monthSpanLabel(
-  first: MonthParts,
-  last: MonthParts,
+  early: MonthParts,
+  late: MonthParts,
   scope: ArchiveLabelScope
 ): string {
-  const sameMonth = first.month === last.month && first.year === last.year
+  const sameMonth = early.month === late.month && early.year === late.year
   if (scope === 'one-year') {
-    if (sameMonth) return first.month
-    return first.year === last.year
-      ? `${first.month}${EN_DASH}${last.month}`
-      : `${first.month} ${first.year}${EN_DASH}${last.month} ${last.year}`
+    if (sameMonth) return early.month
+    return early.year === late.year
+      ? `${early.month}${EN_DASH}${late.month}`
+      : `${early.month} ${early.year}${EN_DASH}${late.month} ${late.year}`
   }
 
-  if (sameMonth) return `${first.month} ${first.year}`
-  return first.year === last.year
-    ? `${first.month}${EN_DASH}${last.month} ${last.year}`
-    : `${first.month} ${first.year}${EN_DASH}${last.month} ${last.year}`
+  if (sameMonth) return `${early.month} ${early.year}`
+  return early.year === late.year
+    ? `${early.month}${EN_DASH}${late.month} ${late.year}`
+    : `${early.month} ${early.year}${EN_DASH}${late.month} ${late.year}`
 }
 
 /**
@@ -323,9 +334,13 @@ export function monthRangeLabelsByPage({
     const last = bucketAt(lastRow)
     if (!first || !last) continue
 
+    const ordinalOf = (bucket: ArchiveMonthCount) =>
+      bucket.year * 12 + bucket.month
+    const [early, late] =
+      ordinalOf(first) <= ordinalOf(last) ? [first, last] : [last, first]
     labels[page] = monthSpanLabel(
-      formatCalendarMonthParts(first.year, first.month),
-      formatCalendarMonthParts(last.year, last.month),
+      formatCalendarMonthParts(early.year, early.month),
+      formatCalendarMonthParts(late.year, late.month),
       scope
     )
   }

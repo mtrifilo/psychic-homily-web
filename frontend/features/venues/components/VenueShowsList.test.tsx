@@ -767,9 +767,9 @@ describe('VenuePastShows — year and page state', () => {
     renderArchive(2025)
     const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
     for (const name of [
-      'Page 1, Dec–Nov',
-      'Page 2, Nov–Sep',
-      'Page 3, Sep–Aug',
+      'Page 1, Nov–Dec',
+      'Page 2, Sep–Nov',
+      'Page 3, Aug–Sep',
       'Page 4, Jul',
     ]) {
       expect(within(pager).getByRole('link', { name })).toBeInTheDocument()
@@ -795,7 +795,7 @@ describe('VenuePastShows — year and page state', () => {
       within(pager).getByRole('link', { name: 'Page 1, Jan 2025' })
     ).toBeInTheDocument()
     expect(
-      within(pager).getByRole('link', { name: 'Page 2, Jan 2025–Dec 2024' })
+      within(pager).getByRole('link', { name: 'Page 2, Dec 2024–Jan 2025' })
     ).toBeInTheDocument()
   })
 
