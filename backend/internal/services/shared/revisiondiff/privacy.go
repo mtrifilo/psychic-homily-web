@@ -30,6 +30,25 @@ const RedactedValue = "(hidden)"
 //
 // Capacity is deliberately absent, matching the live gate, which serves it for
 // unverified venues because a room size does not locate anybody's house.
+//
+// # Where the two policies DIVERGE, on purpose (PSY-1717)
+//
+// The FIELD LIST is shared; the CALLER TIER is not. The live gate has no tier —
+// PublicAddress returns nil for an unverified venue to everybody, admins
+// included. Revision history serves an authenticated admin the unmasked view,
+// because the History panel puts a Rollback button beside the diff and that
+// button restores the real stored value: masking there hid what the moderation
+// action used from the only person who could act on it.
+//
+// That asymmetry is a decision, not drift, and it is stated at all three points
+// it could be "corrected" from: here, on catalog.Venue.PublicAddress, and on
+// admin.RevisionService.applyPrivacyRedaction, which is where the tier is
+// actually applied. Do not propagate the tier to the accessors, and do not
+// delete it here to match them. This file is the canonical argument; the other
+// two carry a pointer back to it.
+//
+// Adding a field to this list therefore withholds it from anonymous and
+// non-admin readers only; it is not a way to hide a value from an admin.
 var venuePrivateFields = map[string]struct{}{
 	"address": {},
 	"zipcode": {},
