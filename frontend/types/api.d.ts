@@ -15903,7 +15903,7 @@ export interface components {
              * @description Existing artist ID (optional)
              */
             id?: number;
-            /** @description Headliner flag (first artist defaults to headliner when unset) */
+            /** @description Headliner flag. Ignored when set_type is present, which is authoritative. An entry that sets neither defaults to headliner if it is first on the bill, otherwise to performer. */
             is_headliner?: boolean;
             /** @description Artist name (required) */
             name: string;

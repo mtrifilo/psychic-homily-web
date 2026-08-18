@@ -356,7 +356,7 @@ type ShowVenueInput struct {
 type ShowArtistInput struct {
 	ID          *uint   `json:"id,omitempty" required:"false" doc:"Existing artist ID (optional)"`
 	Name        string  `json:"name" doc:"Artist name (required)"`
-	IsHeadliner *bool   `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag (first artist defaults to headliner when unset)"`
+	IsHeadliner *bool   `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag. Ignored when set_type is present, which is authoritative. An entry that sets neither defaults to headliner if it is first on the bill, otherwise to performer."`
 	SetType     *string `json:"set_type,omitempty" required:"false" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role."`
 }
 

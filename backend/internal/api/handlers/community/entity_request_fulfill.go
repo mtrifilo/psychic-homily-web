@@ -188,10 +188,12 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 // and tests that never see the schema. It is not redundant with the SHOW
 // SERVICE's validateShowArtistSetTypes, though: that one runs inside
 // fulfillment, which on the decide path is after the row has been claimed, so
-// rejecting there would strand the request as approved-but-unfulfilled with no
-// endpoint able to re-process it. Both callers run buildShowAssociations before
-// the claim, which is where the venue/name/image_url checks already live for
-// exactly this reason.
+// rejecting there would turn a typo into an approved-but-unfulfilled row that
+// Decide can no longer re-process (it only claims PENDING rows). Such a row is
+// recoverable, via the PSY-1088 rescue endpoint, but only by a second admin
+// action on a request that now reads as approved with nothing created. Both
+// callers run buildShowAssociations BEFORE the claim, which is where the
+// venue/name/image_url checks already live for the same reason.
 func curatedShowArtistSetType(index int, value *string) (*string, error) {
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return nil, nil
