@@ -375,10 +375,11 @@ func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error
 //
 // The page window is what makes this method affordable. Unbounded it loaded
 // every approved show ever recorded (past included, since nothing here
-// imposes a date floor), and then ran buildShowResponse over the whole result,
-// which costs two queries per show. Measured against production 2026-08-08
-// that was 10,161,875 bytes and ~1+2N round trips for a single anonymous
-// request, and it grew with every show added (PSY-1748).
+// imposes a date floor), and then built a response per show, which then cost
+// two queries each. Measured against production 2026-08-08 that was 10,161,875
+// bytes and ~1+2N round trips for a single anonymous request, and it grew with
+// every show added (PSY-1748). The page bounded N; PSY-1830 then collapsed the
+// 2N into a flat two queries via buildShowResponses.
 func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.ShowsQuery) ([]*contracts.ShowResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
@@ -455,11 +456,11 @@ func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.Sh
 	// Columns are table-qualified because the tag filter's subquery references
 	// show_artists, and an unqualified event_date would read ambiguously to
 	// anyone extending that filter into a join later.
-	// No Preload("Artists"): buildShowResponse rebuilds the bill from
+	// No Preload("Artists"): the response builder rebuilds the bill from
 	// show_artists ordered by position, which the association would not give,
-	// so preloading it is a whole extra join whose result nothing reads. Only
-	// the slice capacity hint would notice. Venues IS read, so it stays. The
-	// artist and venue show lists dropped it for the same reason.
+	// so preloading it is a whole extra join whose result nothing reads. Venues
+	// IS read, so it stays. The artist and venue show lists dropped it for the
+	// same reason.
 	var shows []catalogm.Show
 	if err := baseQuery().
 		Preload("Venues").
@@ -471,10 +472,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.Sh
 	}
 
 	// Build responses
-	responses := make([]*contracts.ShowResponse, len(shows))
-	for i, show := range shows {
-		responses[i] = s.buildShowResponse(&show)
-	}
+	responses := s.buildShowResponses(shows)
 
 	return responses, total, nil
 }
@@ -503,10 +501,13 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]cont
 		return nil, 0, fmt.Errorf("failed to get user submissions: %w", err)
 	}
 
-	// Build responses
-	responses := make([]contracts.ShowResponse, len(shows))
-	for i, show := range shows {
-		responses[i] = *s.buildShowResponse(&show)
+	// Build responses. This is the one list caller whose contract is a slice of
+	// values rather than pointers, so it dereferences what the batch builder
+	// returns instead of forking the builder.
+	built := s.buildShowResponses(shows)
+	responses := make([]contracts.ShowResponse, len(built))
+	for i, resp := range built {
+		responses[i] = *resp
 	}
 
 	return responses, int(total), nil
@@ -1169,10 +1170,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	}
 
 	// Build responses
-	responses := make([]*contracts.ShowResponse, len(shows))
-	for i, show := range shows {
-		responses[i] = s.buildShowResponse(&show)
-	}
+	responses := s.buildShowResponses(shows)
 
 	return responses, nextCursor, total, nil
 }
@@ -1451,10 +1449,7 @@ func (s *ShowService) GetPendingShows(limit, offset int, filters *contracts.Pend
 	}
 
 	// Build responses
-	responses := make([]*contracts.ShowResponse, len(shows))
-	for i, show := range shows {
-		responses[i] = s.buildShowResponse(&show)
-	}
+	responses := s.buildShowResponses(shows)
 
 	return responses, total, nil
 }
@@ -1502,10 +1497,7 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*con
 	}
 
 	// Build responses
-	responses := make([]*contracts.ShowResponse, len(shows))
-	for i, show := range shows {
-		responses[i] = s.buildShowResponse(&show)
-	}
+	responses := s.buildShowResponses(shows)
 
 	return responses, total, nil
 }
@@ -2136,12 +2128,13 @@ func fetchLabelsForArtists(db *gorm.DB, artistIDs []uint) (map[uint][]contracts.
 // attachBillLabels fills in Labels on an already-built show response, in two
 // queries for the whole bill.
 //
-// Deliberately NOT folded into buildShowResponse: that runs once per show
-// inside the list endpoints (GetUpcomingShows serves up to 200 shows per
-// request), so doing the join there would add two queries per show to the
-// hottest public path for a field only the show-detail bill renders. Only the
-// detail reads call this; everyone else leaves Labels nil, so omitempty drops
-// the key rather than claiming the bill is unsigned.
+// Deliberately NOT folded into the show-response builders: this resolves labels
+// for ONE bill, so wiring it into the list path would put it back on a per-row
+// footing (GetUpcomingShows serves up to 200 shows per request) for a field only
+// the show-detail bill renders. Batching it the way fetchBillsForShows batches
+// the bill itself would be the price of admission, and nothing on a list card
+// reads it. Only the detail reads call this; everyone else leaves Labels nil, so
+// omitempty drops the key rather than claiming the bill is unsigned.
 //
 // The cost this does NOT dodge: the non-bill callers that resolve a show
 // through GetShow (the per-show .ics feed, the update/delete ownership
@@ -2179,8 +2172,148 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 	}
 }
 
-// buildShowResponse converts a Show model to contracts.ShowResponse
+// fetchBillsForShows resolves the ordered bill of every show in showIDs, keyed
+// by show id, in two queries for the WHOLE set.
+//
+// Two queries regardless of set size is the whole point. Resolving a bill costs
+// one read of show_artists plus one read of artists, and doing that per row cost
+// the list endpoints 2N round trips — ~100 for a default 50-row GET /shows page,
+// and up to 400 for the 200-show /shows/upcoming window (PSY-1830). Callers
+// holding a single show pay exactly the two queries they always did.
+//
+// Degrades rather than fails, matching the per-show version it replaced: a query
+// error logs and yields no bills, so a page still renders with empty lineups
+// instead of 500ing. Absent key means "no artists billed"; assembleShowResponse
+// turns that into [] so the JSON never claims null.
+func (s *ShowService) fetchBillsForShows(showIDs []uint) map[uint][]contracts.ArtistResponse {
+	bills := make(map[uint][]contracts.ArtistResponse, len(showIDs))
+	if len(showIDs) == 0 {
+		return bills
+	}
+
+	// show_id leads the ORDER BY so one result set partitions cleanly into
+	// per-show bills. position ASC is the contract the bill renders in; artist_id
+	// closes the tie that (show_id, position) leaves open, since only
+	// (show_id, artist_id) is unique — the per-show query this replaces left tied
+	// positions in whatever order the plan produced.
+	var showArtists []catalogm.ShowArtist
+	if err := s.db.Where("show_id IN ?", showIDs).
+		Order("show_id ASC, position ASC, artist_id ASC").
+		Find(&showArtists).Error; err != nil {
+		log.Printf("WARN fetchBillsForShows: failed to fetch show_artists for show_ids=%v: %v", showIDs, err)
+		return bills
+	}
+	if len(showArtists) == 0 {
+		return bills
+	}
+
+	// Deduped: one artist plays many shows on the same page, and the IN list is
+	// what bounds this query's size.
+	artistIDs := make([]uint, 0, len(showArtists))
+	seen := make(map[uint]struct{}, len(showArtists))
+	for _, sa := range showArtists {
+		if _, dup := seen[sa.ArtistID]; dup {
+			continue
+		}
+		seen[sa.ArtistID] = struct{}{}
+		artistIDs = append(artistIDs, sa.ArtistID)
+	}
+
+	var allArtists []catalogm.Artist
+	if err := s.db.Where("id IN ?", artistIDs).Find(&allArtists).Error; err != nil {
+		log.Printf("WARN fetchBillsForShows: failed to batch-fetch artists for show_ids=%v: %v", showIDs, err)
+		return bills
+	}
+
+	artistByID := make(map[uint]*catalogm.Artist, len(allArtists))
+	for i := range allArtists {
+		artistByID[allArtists[i].ID] = &allArtists[i]
+	}
+
+	for _, sa := range showArtists {
+		artist, ok := artistByID[sa.ArtistID]
+		if !ok {
+			continue
+		}
+
+		socials := contracts.ShowArtistSocials{
+			Instagram:  artist.Social.Instagram,
+			Facebook:   artist.Social.Facebook,
+			Twitter:    artist.Social.Twitter,
+			YouTube:    artist.Social.YouTube,
+			Spotify:    artist.Social.Spotify,
+			SoundCloud: artist.Social.SoundCloud,
+			Bandcamp:   artist.Social.Bandcamp,
+			Website:    artist.Social.Website,
+		}
+
+		isHeadliner := sa.SetType == "headliner"
+		isNewArtist := false
+
+		artistSlug := ""
+		if artist.Slug != nil {
+			artistSlug = *artist.Slug
+		}
+		bills[sa.ShowID] = append(bills[sa.ShowID], contracts.ArtistResponse{
+			ID:               artist.ID,
+			Slug:             artistSlug,
+			Name:             artist.Name,
+			State:            artist.State,
+			City:             artist.City,
+			Country:          artist.Country,
+			IsHeadliner:      &isHeadliner,
+			SetType:          sa.SetType,
+			Position:         sa.Position,
+			IsNewArtist:      &isNewArtist,
+			BandcampEmbedURL: artist.BandcampEmbedURL,
+			Socials:          socials,
+		})
+	}
+
+	return bills
+}
+
+// buildShowResponse converts one Show model to contracts.ShowResponse, resolving
+// its bill in two queries. Callers holding a whole page must use
+// buildShowResponses instead, or they pay those two queries per row.
 func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResponse {
+	bills := s.fetchBillsForShows([]uint{show.ID})
+	return assembleShowResponse(show, bills[show.ID])
+}
+
+// buildShowResponses converts a page of Show models to responses, resolving the
+// bills for the entire page in two queries rather than two per row (PSY-1830).
+//
+// Every list endpoint on ShowService funnels through here, and both entry points
+// end in assembleShowResponse, so there stays exactly ONE rule for what a
+// ShowResponse looks like — batching changed where the bill comes from, never
+// how the response is shaped.
+func (s *ShowService) buildShowResponses(shows []catalogm.Show) []*contracts.ShowResponse {
+	showIDs := make([]uint, len(shows))
+	for i := range shows {
+		showIDs[i] = shows[i].ID
+	}
+	bills := s.fetchBillsForShows(showIDs)
+
+	responses := make([]*contracts.ShowResponse, len(shows))
+	for i := range shows {
+		responses[i] = assembleShowResponse(&shows[i], bills[shows[i].ID])
+	}
+	return responses
+}
+
+// assembleShowResponse builds the response for one show from data already in
+// hand. No queries: the bill arrives pre-resolved from fetchBillsForShows, which
+// is what lets the list paths batch. This is the single definition of the
+// ShowResponse shape — every producer on ShowService ends here.
+func assembleShowResponse(show *catalogm.Show, artists []contracts.ArtistResponse) *contracts.ShowResponse {
+	// A show with no billed artists must serialize as [], not null: the field
+	// carries no omitempty, so a nil slice would tell the client the bill is
+	// unknown rather than empty.
+	if artists == nil {
+		artists = []contracts.ArtistResponse{}
+	}
+
 	// Build venue responses
 	venues := make([]contracts.VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
@@ -2204,75 +2337,6 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 			Capacity:  venue.Capacity,
 			AgePolicy: venue.AgePolicy,
 			Verified:  venue.Verified,
-		}
-	}
-
-	// Build artist responses (need to get ordered artists)
-	artists := make([]contracts.ArtistResponse, 0, len(show.Artists))
-
-	// Get ordered artists from show_artists table
-	var showArtists []catalogm.ShowArtist
-	if err := s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists).Error; err != nil {
-		log.Printf("WARN buildShowResponse: failed to fetch show_artists for show_id=%d: %v", show.ID, err)
-	}
-
-	if len(showArtists) > 0 {
-		// Batch-fetch all artists in one query
-		artistIDs := make([]uint, len(showArtists))
-		for i, sa := range showArtists {
-			artistIDs[i] = sa.ArtistID
-		}
-
-		var allArtists []catalogm.Artist
-		if err := s.db.Where("id IN ?", artistIDs).Find(&allArtists).Error; err != nil {
-			log.Printf("WARN buildShowResponse: failed to batch-fetch artists for show_id=%d: %v", show.ID, err)
-		}
-
-		// Build lookup map
-		artistMap := make(map[uint]*catalogm.Artist, len(allArtists))
-		for i := range allArtists {
-			artistMap[allArtists[i].ID] = &allArtists[i]
-		}
-
-		// Iterate in position order
-		for _, sa := range showArtists {
-			artist, ok := artistMap[sa.ArtistID]
-			if !ok {
-				continue
-			}
-
-			socials := contracts.ShowArtistSocials{
-				Instagram:  artist.Social.Instagram,
-				Facebook:   artist.Social.Facebook,
-				Twitter:    artist.Social.Twitter,
-				YouTube:    artist.Social.YouTube,
-				Spotify:    artist.Social.Spotify,
-				SoundCloud: artist.Social.SoundCloud,
-				Bandcamp:   artist.Social.Bandcamp,
-				Website:    artist.Social.Website,
-			}
-
-			isHeadliner := sa.SetType == "headliner"
-			isNewArtist := false
-
-			artistSlug := ""
-			if artist.Slug != nil {
-				artistSlug = *artist.Slug
-			}
-			artists = append(artists, contracts.ArtistResponse{
-				ID:               artist.ID,
-				Slug:             artistSlug,
-				Name:             artist.Name,
-				State:            artist.State,
-				City:             artist.City,
-				Country:          artist.Country,
-				IsHeadliner:      &isHeadliner,
-				SetType:          sa.SetType,
-				Position:         sa.Position,
-				IsNewArtist:      &isNewArtist,
-				BandcampEmbedURL: artist.BandcampEmbedURL,
-				Socials:          socials,
-			})
 		}
 	}
 
@@ -2751,10 +2815,7 @@ func (s *ShowService) GetAdminShows(limit, offset int, filters contracts.AdminSh
 	}
 
 	// Build responses
-	responses := make([]*contracts.ShowResponse, len(shows))
-	for i, show := range shows {
-		responses[i] = s.buildShowResponse(&show)
-	}
+	responses := s.buildShowResponses(shows)
 
 	return responses, total, nil
 }
