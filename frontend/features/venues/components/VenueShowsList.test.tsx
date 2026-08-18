@@ -19,6 +19,7 @@ const upcomingResult = {
   isFetching: false,
   isPlaceholderData: false,
   isError: false,
+  isSuccess: true,
   dataUpdatedAt: 1,
   error: null as Error | null,
 }
@@ -192,6 +193,7 @@ function applyState(
   target.isPlaceholderData = opts?.isPlaceholderData ?? false
   target.error = opts?.error ?? null
   target.isError = Boolean(opts?.error)
+  target.isSuccess = data !== null && !opts?.isPending && !opts?.error
   target.dataUpdatedAt = data ? 1 : 0
 }
 
@@ -863,6 +865,22 @@ describe('VenuePastShows — year and page state', () => {
     monthsRequests.length = 0
     setPast({ shows: [makeShow({ id: 5 })], total: 253 })
     setYears(threeYears)
+    renderList()
+    expect(monthsRequests.some(request => request.enabled === true)).toBe(true)
+  })
+
+  it('waits for a count before asking, when the server seed did not arrive', () => {
+    // During a backend incident `getArchiveYears` times out and seeds nothing.
+    // Asking anyway would answer a struggling backend with an unindexed
+    // full-history aggregate from every venue page at once.
+    setYears(null)
+    setPast(null, { isPending: true })
+    renderList()
+    expect(monthsRequests.every(request => request.enabled === false)).toBe(true)
+
+    // Once the rows themselves show there is more than one page, it asks.
+    monthsRequests.length = 0
+    setPast({ shows: [makeShow({ id: 5 })], total: 253 })
     renderList()
     expect(monthsRequests.some(request => request.enabled === true)).toBe(true)
   })

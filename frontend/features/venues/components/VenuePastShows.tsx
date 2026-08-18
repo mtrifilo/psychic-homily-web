@@ -64,19 +64,57 @@ export const VENUE_PAST_SHOWS_ANCHOR = VENUE_PAST_SHOWS_FRAGMENT
 const MAX_PAGE = 1_000
 
 /**
- * The input events that mean a reader is moving the page themselves.
+ * Gestures that MOVE the document, as opposed to gestures that merely touch it.
  *
- * Deliberately NOT 'scroll': our own `scrollIntoView` fires one, so treating it
- * as reader intent would end the anchor's settle window on its first
- * realignment. Scroll is watched separately, by comparing against where we put
- * the page — see the anchor effect.
+ * The distinction is the whole point. `touchstart` and `pointerdown` fire on
+ * every tap — including the one a first-time mobile visitor makes on the cookie
+ * banner, which is `position: fixed` and moves the archive by exactly zero
+ * pixels. Treating contact as scroll intent would end the settle window before
+ * the upcoming list and the sidebar cards have landed, which is the failure this
+ * whole mechanism exists to prevent, on its single most common scenario.
+ *
+ * Deliberately NOT 'scroll' either: our own `scrollIntoView` fires one. A reader
+ * scroll that these miss — a scrollbar drag, a trackpad gesture the UA reports
+ * oddly, a screen reader moving its virtual caret — is caught by comparing the
+ * archive's position against where we put it. See `onScroll`.
  */
-const READER_SCROLL_INTENT_EVENTS = [
-  'wheel',
-  'touchstart',
-  'keydown',
-  'pointerdown',
-] as const
+const READER_SCROLL_GESTURE_EVENTS = ['wheel', 'touchmove'] as const
+
+/**
+ * Keys that scroll. A keystroke into the search box is not a claim on the
+ * viewport; Page Down is.
+ */
+const READER_SCROLL_KEYS = new Set([
+  ' ',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'End',
+  'Home',
+  'PageDown',
+  'PageUp',
+])
+
+/**
+ * Register `onReaderScroll` for every way a reader moves the page themselves.
+ * Returns the unregister.
+ */
+function watchForReaderScroll(onReaderScroll: () => void): () => void {
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (READER_SCROLL_KEYS.has(event.key)) onReaderScroll()
+  }
+  for (const event of READER_SCROLL_GESTURE_EVENTS) {
+    window.addEventListener(event, onReaderScroll, { passive: true })
+  }
+  window.addEventListener('keydown', onKeyDown, { passive: true })
+  return () => {
+    for (const event of READER_SCROLL_GESTURE_EVENTS) {
+      window.removeEventListener(event, onReaderScroll)
+    }
+    window.removeEventListener('keydown', onKeyDown)
+  }
+}
 
 /**
  * How far the archive may drift from where we put it before we conclude somebody
@@ -94,8 +132,14 @@ const READER_SCROLL_TOLERANCE_PX = 4
  * Long enough to outlast the requests that move the archive after it settles —
  * the upcoming list, the sidebar's cards — on a slow connection, which is the
  * whole point. It is safe to be this generous because it is not what protects
- * the reader: any wheel, touch, key, pointer or reader-driven scroll ends the
- * window immediately.
+ * the reader: any scroll gesture, scroll key, or scroll we did not perform ends
+ * the window immediately.
+ *
+ * Per EFFECT PASS, not per mount. That bound holds today because both of the
+ * effect's deps are monotonic — `pastQuery.isPending` cannot return to true
+ * under `keepPreviousData`, and `hasPastShows` only flips up — so the window
+ * opens at most twice. A future dep that toggles would grant a fresh window each
+ * time; if one is ever added, hold the deadline in a ref instead.
  */
 const ANCHOR_SETTLE_CEILING_MS = 10_000
 
@@ -311,7 +355,15 @@ export function VenuePastShows({
   const monthsQuery = useVenueShowMonths({
     venueId,
     timeFilter: 'past',
-    enabled: !yearsQuery.isSuccess || totalPages > 1,
+    // Wait for a count rather than defaulting to "fetch". `!isSuccess` alone
+    // would mean that during a backend incident — exactly when `getArchiveYears`
+    // times out and the seed goes missing — every visitor to every venue page
+    // immediately issues this unindexed full-history aggregate, including the
+    // majority of venues that render no pager at all. Answering a degraded
+    // backend with more expensive work for it is the wrong reflex.
+    enabled: yearsQuery.isSuccess
+      ? totalPages > 1
+      : pastQuery.isSuccess && envelopeTotal > pageLimit,
     initialData: initialMonths,
   })
   const allMonthCounts = monthsQuery.data?.months
@@ -343,6 +395,14 @@ export function VenuePastShows({
         rowsAnswerCurrentRequest && pastData ? pastData.total : undefined,
       scope: labelScope,
     })
+
+    // The CURRENT page is only ever labelled from rows we can attest to. While
+    // `keepPreviousData` holds the outgoing page, the histogram's label for this
+    // page went unverified — `listTotal` was omitted above, so the premise check
+    // could not run — and this is the exact render on which `Pagination` latches
+    // its live-region announcement and never corrects it. Drop it and let the
+    // fallback below decline too; the label returns a beat later, verified.
+    if (!rowsAnswerCurrentRequest) delete labels[page]
 
     // The CURRENT page, from the rows already on screen, whenever the histogram
     // could not label it — it failed, or has not landed yet.
@@ -490,17 +550,14 @@ export function VenuePastShows({
   // this they would be yanked back the instant the query landed.
   const readerHasMoved = useRef(false)
   useEffect(() => {
-    const mark = () => {
+    // Only where a fragment could ever be honoured. Every other mount of this
+    // component — the whole year-archive route, whose URLs carry no fragment by
+    // design — would otherwise keep three window listeners alive for its entire
+    // lifetime to feed a ref nothing there reads.
+    if (window.location.hash !== `#${VENUE_PAST_SHOWS_ANCHOR}`) return
+    return watchForReaderScroll(() => {
       readerHasMoved.current = true
-    }
-    for (const event of READER_SCROLL_INTENT_EVENTS) {
-      window.addEventListener(event, mark, { passive: true })
-    }
-    return () => {
-      for (const event of READER_SCROLL_INTENT_EVENTS) {
-        window.removeEventListener(event, mark)
-      }
-    }
+    })
   }, [])
 
   useEffect(() => {
@@ -575,9 +632,7 @@ export function VenuePastShows({
       if (frame !== 0) cancelAnimationFrame(frame)
       window.clearTimeout(ceilingTimer)
       window.removeEventListener('scroll', onScroll)
-      for (const event of READER_SCROLL_INTENT_EVENTS) {
-        window.removeEventListener(event, abandon)
-      }
+      unwatchReaderScroll()
     }
 
     function abandon() {
@@ -632,9 +687,7 @@ export function VenuePastShows({
     observer.observe(document.body)
 
     window.addEventListener('scroll', onScroll, { passive: true })
-    for (const event of READER_SCROLL_INTENT_EVENTS) {
-      window.addEventListener(event, abandon, { passive: true, once: true })
-    }
+    const unwatchReaderScroll = watchForReaderScroll(abandon)
 
     // ONE fixed ceiling, and no idle timer. An idle timer was the obvious shape
     // and is the wrong one: the late movers here are separate REQUESTS — the
