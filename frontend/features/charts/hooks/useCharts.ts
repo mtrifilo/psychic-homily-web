@@ -39,13 +39,59 @@ export interface ChartQueryOptions {
   offset?: number
 }
 
+/**
+ * Retains the previous response across an OFFSET change and drops it across
+ * every other key change.
+ *
+ * Holding the outgoing page on screen while the next one loads is what keeps
+ * the drilldown's results region, and with it the pager's live region,
+ * MOUNTED across a page change. An unmounted live region announces nothing, so
+ * without this a screen-reader user gets no feedback at all when they page
+ * (PSY-1768). Callers must dim on `isPlaceholderData` and suppress anything
+ * derived from the outgoing rows, so stale content is never presented as
+ * current.
+ *
+ * Scoped to `offset` because a `window` or `scene` change asks a DIFFERENT
+ * question: retaining there would paint the quarter chart under the "All Time"
+ * heading. The homepage modules never move `offset`, so they are unaffected.
+ *
+ * Deliberately NOT a caller opt-in flag. That spelling is fail-open, correct
+ * only until someone copies the drilldown's options onto a window-varying
+ * call. Stating the invariant here makes every caller right by construction
+ * (`useScenes` precedent).
+ *
+ * Reads `offset` as the LAST segment of the key rather than by a named index,
+ * so inserting a new scope segment ahead of it keeps the retention correct
+ * instead of silently widening it across scenes. Both directions are pinned by
+ * `useCharts.test.tsx`: one test demands retention across an offset change,
+ * the other demands the opposite across a window change.
+ */
+function keepPreviousChartPage<T>(currentKey: readonly unknown[]) {
+  const currentScope = currentKey.slice(0, -1)
+  return (
+    previous: T | undefined,
+    previousQuery: { queryKey: readonly unknown[] } | undefined
+  ): T | undefined => {
+    const previousKey = previousQuery?.queryKey
+    if (!previousKey || previousKey.length !== currentKey.length) {
+      return undefined
+    }
+    const sameScope = currentScope.every(
+      (part, index) => part === previousKey[index]
+    )
+    return sameScope ? previous : undefined
+  }
+}
+
 export function useMostActiveArtists(
   window: ChartWindow,
   limit = 7,
   { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
+  const queryKey = chartQueryKeys.mostActiveArtists(window, scene, limit, offset)
   return useQuery({
-    queryKey: chartQueryKeys.mostActiveArtists(window, scene, limit, offset),
+    queryKey,
+    placeholderData: keepPreviousChartPage<MostActiveArtistsResponse>(queryKey),
     queryFn: () =>
       apiRequest<MostActiveArtistsResponse>(
         withParams(chartEndpoints.MOST_ACTIVE_ARTISTS, {
@@ -65,8 +111,10 @@ export function useOnTheRadio(
   limit = 7,
   { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
+  const queryKey = chartQueryKeys.onTheRadio(window, scene, limit, offset)
   return useQuery({
-    queryKey: chartQueryKeys.onTheRadio(window, scene, limit, offset),
+    queryKey,
+    placeholderData: keepPreviousChartPage<OnTheRadioResponse>(queryKey),
     queryFn: () =>
       apiRequest<OnTheRadioResponse>(
         withParams(chartEndpoints.ON_THE_RADIO, {
@@ -86,8 +134,10 @@ export function useMostAnticipated(
   limit = 6,
   { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
+  const queryKey = chartQueryKeys.mostAnticipated(window, scene, limit, offset)
   return useQuery({
-    queryKey: chartQueryKeys.mostAnticipated(window, scene, limit, offset),
+    queryKey,
+    placeholderData: keepPreviousChartPage<MostAnticipatedResponse>(queryKey),
     queryFn: () =>
       apiRequest<MostAnticipatedResponse>(
         withParams(chartEndpoints.MOST_ANTICIPATED, {
@@ -107,8 +157,10 @@ export function useBusiestVenues(
   limit = 7,
   { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
+  const queryKey = chartQueryKeys.busiestVenues(window, scene, limit, offset)
   return useQuery({
-    queryKey: chartQueryKeys.busiestVenues(window, scene, limit, offset),
+    queryKey,
+    placeholderData: keepPreviousChartPage<BusiestVenuesResponse>(queryKey),
     queryFn: () =>
       apiRequest<BusiestVenuesResponse>(
         withParams(chartEndpoints.BUSIEST_VENUES, {
@@ -128,8 +180,10 @@ export function useNewReleases(
   limit = 6,
   { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
+  const queryKey = chartQueryKeys.newReleases(window, scene, limit, offset)
   return useQuery({
-    queryKey: chartQueryKeys.newReleases(window, scene, limit, offset),
+    queryKey,
+    placeholderData: keepPreviousChartPage<NewReleasesResponse>(queryKey),
     queryFn: () =>
       apiRequest<NewReleasesResponse>(
         withParams(chartEndpoints.NEW_RELEASES, {
@@ -149,8 +203,10 @@ export function useOpenersToWatch(
   limit = 6,
   { scene = '', enabled = true, offset = 0 }: ChartQueryOptions = {}
 ) {
+  const queryKey = chartQueryKeys.openersToWatch(window, scene, limit, offset)
   return useQuery({
-    queryKey: chartQueryKeys.openersToWatch(window, scene, limit, offset),
+    queryKey,
+    placeholderData: keepPreviousChartPage<OpenersToWatchResponse>(queryKey),
     queryFn: () =>
       apiRequest<OpenersToWatchResponse>(
         withParams(chartEndpoints.OPENERS_TO_WATCH, {

@@ -37,6 +37,8 @@ const PAGE_SIZE = 50
 export function ReleaseList() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  // `router` identity is stable across renders in the app router, so it is safe
+  // as an effect dependency below.
   const [isPending, startTransition] = useTransition()
   const { density, setDensity } = useDensity('releases')
   const { isAuthenticated, user } = useAuthContext()
@@ -49,7 +51,11 @@ export function ReleaseList() {
   const labelIdParam = searchParams.get('label_id')
   const pageParam = searchParams.get('page')
 
-  const currentPage = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1
+  // Non-finite input collapses to page one rather than propagating: `?page=abc`
+  // parses to NaN, and NaN defeats every comparison it touches: it would slip
+  // past the out-of-range check below AND reach the API as `offset=NaN`.
+  const parsedPage = parseInt(pageParam ?? '', 10)
+  const currentPage = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1
   const offset = (currentPage - 1) * PAGE_SIZE
 
   // Parse multi-tag from URL (PSY-309)
@@ -85,6 +91,11 @@ export function ReleaseList() {
   const { data: labelsData } = useLabels()
   const labels = labelsData?.labels ?? []
   const releases = data?.releases ?? []
+  // Resolved here rather than beside the render that uses them: the
+  // out-of-range snap-back below is an effect, so it has to run before the
+  // early returns that this component makes for the loading and error states.
+  const total = data?.total ?? 0
+  const totalPages = Math.ceil(total / PAGE_SIZE)
   const releaseSaveCounts = useReleaseSaveCountBatch(
     releases.map(release => release.id),
     isAuthenticated,
@@ -159,6 +170,28 @@ export function ReleaseList() {
    */
   const releasePageHref = (nextPage: number) =>
     buildReleasesHref({ page: String(nextPage) })
+
+  /**
+   * Snaps a stale deep-page URL back onto the last real page.
+   *
+   * `Pagination` clamps `currentPage` for DISPLAY, so without this the strip
+   * shows "Page 4 of 4" while the URL still claims `?page=999`, and the reader
+   * shares, bookmarks, or reloads the URL, not the strip. The list is empty
+   * there too, because the offset is past the end.
+   *
+   * `replace`, not `push`: this is a correction of a URL the reader never chose,
+   * and pushing it would make Back walk them straight into the page that was
+   * just rejected (ChartDrilldownPage precedent).
+   *
+   * Held until the count has actually loaded. `total` is 0 while the first
+   * request is in flight, which would otherwise make every page look
+   * out-of-range and bounce page 2 to page 1 on a cold load.
+   */
+  const pageOutOfRange = !isLoading && total > 0 && currentPage > totalPages
+  const lastPageHref = buildReleasesHref({ page: String(totalPages) })
+  useEffect(() => {
+    if (pageOutOfRange) router.replace(lastPageHref, { scroll: false })
+  }, [pageOutOfRange, lastPageHref, router])
 
   /**
    * Restores the scroll-to-top the button pager did by hand. Reading page 2
@@ -244,8 +277,6 @@ export function ReleaseList() {
     )
   }
 
-  const total = data?.total ?? 0
-  const totalPages = Math.ceil(total / PAGE_SIZE)
   const hasFilters =
     !!typeParam ||
     !!yearParam ||
@@ -400,7 +431,15 @@ export function ReleaseList() {
       <div
         className={`min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}
       >
-        {releases.length === 0 ? (
+        {pageOutOfRange ? (
+          // The offset is past the end, so the API legitimately returns
+          // nothing, but "No releases found matching your filters" is a wrong
+          // answer to a question the reader never asked. Hold the spinner for
+          // the tick the snap-back above takes.
+          <div className="flex justify-center items-center py-12">
+            <LoadingSpinner />
+          </div>
+        ) : releases.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <p>
               {hasFilters || selectedTags.length > 0

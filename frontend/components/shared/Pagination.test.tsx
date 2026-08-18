@@ -283,6 +283,55 @@ describe('Pagination', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Page 3 of 4, Mar–Jun')
   })
 
+  it('drops the live region entirely when a consumer opts out of announcing', () => {
+    renderPager({ announce: false })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('keeps the caption and mobile position readable while opted out', () => {
+    // Opting out silences the SPOKEN duplicate; it must not blank the position
+    // text a second pager still renders on screen.
+    renderPager({ announce: false, captionRange: { start: 51, end: 100, total: 161 } })
+    expect(
+      desktop().getByText('Showing 51–100 of 161 · Page 2 of 4')
+    ).toBeInTheDocument()
+    expect(mobile().getByText(/Page 2 of 4/)).toBeInTheDocument()
+  })
+
+  it('announces a page change exactly once when a surface renders two pagers', () => {
+    // The venue archive's shape: the same list paged from above and below. Both
+    // instances would otherwise ship a live region and update it in the same
+    // commit, and a screen reader speaks each one.
+    function TwoPagers({ currentPage }: { currentPage: number }) {
+      return (
+        <>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={4}
+            pageHref={pageHref}
+            ariaLabel="Past shows pagination, top of list"
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={4}
+            pageHref={pageHref}
+            ariaLabel="Past shows pagination, bottom of list"
+            announce={false}
+          />
+        </>
+      )
+    }
+
+    const { rerender } = render(<TwoPagers currentPage={2} />)
+    rerender(<TwoPagers currentPage={3} />)
+
+    const spoken = screen
+      .getAllByRole('status')
+      .filter((region) => region.textContent !== '')
+    expect(spoken).toHaveLength(1)
+    expect(spoken[0]).toHaveTextContent('Page 3 of 4')
+  })
+
   it('clamps an out-of-range current page onto the last page', () => {
     renderPager({ currentPage: 99 })
     expect(desktop().getByText('Page 4 of 4')).toBeInTheDocument()
