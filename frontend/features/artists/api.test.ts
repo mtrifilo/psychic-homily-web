@@ -122,16 +122,35 @@ describe('artistQueryKeys', () => {
     ])
   })
 
-  it('nests showsPage and showYears under the shows() invalidation prefix', () => {
+  it('nests showsPage, showYears and showMonths under the shows() invalidation prefix', () => {
     // `createInvalidateQueries` reaches one artist's pages through `shows()`.
-    // Both of these are only reachable while they EXTEND it.
+    // All three are only reachable while they EXTEND it — and for the two
+    // histograms that is a correctness contract, not tidiness: labels or a year
+    // strip that outlived their rows would describe pages that no longer exist.
     const prefix = artistQueryKeys.shows(42)
     for (const key of [
       artistQueryKeys.showsPage(42, { timeFilter: 'past', limit: 50 }),
       artistQueryKeys.showYears(42, 'past'),
+      artistQueryKeys.showMonths(42, 'past'),
     ]) {
       expect(key.slice(0, prefix.length)).toEqual([...prefix])
     }
+  })
+
+  it('nests the month histogram without colliding with years or a page (PSY-1842)', () => {
+    // The venue twin carries the identical assertion
+    // (features/venues/api.test.ts). One archive component reads both key
+    // families now, so a contract pinned on one side and not the other is the
+    // asymmetry PSY-1842 exists to close.
+    const prefix = artistQueryKeys.shows(42)
+    const months = artistQueryKeys.showMonths(42, 'past')
+    expect(months[prefix.length]).toBe('months')
+    expect(months).not.toEqual(artistQueryKeys.showYears(42, 'past'))
+    // The slot 'months' occupies in a page key only ever holds a time filter,
+    // which is why the discriminator cannot collide with one.
+    expect(
+      artistQueryKeys.showsPage(42, { timeFilter: 'past' })[prefix.length],
+    ).toBe('past')
   })
 
   it('builds the past-archive page params page 1 sends and page 3 sends', () => {

@@ -355,6 +355,13 @@ export function PastShowsArchive<T extends ArchiveRow>({
   // The histogram is one request per entity and carries no year filter, so the
   // slice below is the whole cost of switching years. Reading the pager's own
   // window means at most seven labels are formatted, which is all it can render.
+  //
+  // Ordinal-for-ordinal with the list only WITHIN ONE ZONE. Both lists sort on
+  // the absolute instant and both histograms bucket venue-locally, so on an
+  // artist archive — whose rows span venues — a page boundary inside the ~1-day
+  // cross-zone band around a month can have that end of its span named as the
+  // adjacent month. Bounded, deliberate, and spelled out in full at
+  // `monthRangeLabelsByPage` (PSY-1842). Do not "fix" it here.
   const rangeLabels = useMemo(() => {
     const buckets = months ?? []
     const labels = monthRangeLabelsByPage({

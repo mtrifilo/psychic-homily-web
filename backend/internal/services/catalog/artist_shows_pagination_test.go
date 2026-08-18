@@ -602,6 +602,64 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_BucketsE
 	}, months, "one instant, two venues, two calendar months")
 }
 
+// THE HISTOGRAM'S ORDER AND THE LIST'S ORDER ARE DIFFERENT AXES, and this pins
+// the case where they disagree so a later edit to EITHER is a deliberate one.
+//
+// The month histogram orders by venue-local (year, month) DESC. GetShowsForArtist
+// orders by `shows.event_date DESC` — the absolute instant. For a VENUE those
+// coincide, because every row shares one zone. For an ARTIST they do not, and
+// this fixture is the smallest case that proves it: the New York show is EARLIER
+// in absolute time but LATER on its own venue's calendar than the Honolulu one.
+//
+// The frontend's page-label walk maps histogram ordinals onto list ordinals, and
+// its fail-closed guard compares TOTALS — which agree here — so it cannot see
+// this. What it costs is bounded and documented at
+// frontend/features/shows/showArchive.ts (monthRangeLabelsByPage): a page
+// boundary landing inside the ~1-day cross-zone band can have that end of its
+// span named as the adjacent month.
+//
+// This test asserts the divergence rather than the absence of it, deliberately.
+// Closing it would mean ordering a shipped list on the venue-local date, which
+// changes which rows land on which page — a behaviour change, not a cleanup, and
+// the same skew ArtistShowsTable already accepts for its month headings.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_HistogramOrderCanDivergeFromTheListOrder() {
+	artist := suite.createTestArtist("Divergent Order Artist")
+	honolulu := newVenueInZone(suite.T(), suite.db, "Divergent Honolulu Room", "HI", "Pacific/Honolulu", false)
+	newYork := newVenueInZone(suite.T(), suite.db, "Divergent New York Room", "NY", "America/New_York", false)
+	user := suite.createTestUser()
+
+	// 2020-01-01 05:30 UTC is 2020-01-01 00:30 in New York: venue-local JANUARY.
+	newYorkShow := suite.seedShowsForArtist(artist.ID, newYork.ID, user.ID,
+		time.Date(2020, time.January, 1, 5, 30, 0, 0, time.UTC))[0]
+	// 2020-01-01 09:00 UTC is 2019-12-31 23:00 in Honolulu: venue-local DECEMBER,
+	// and LATER in absolute time than the January show above.
+	honoluluShow := suite.seedShowsForArtist(artist.ID, honolulu.ID, user.ID,
+		time.Date(2020, time.January, 1, 9, 0, 0, 0, time.UTC))[0]
+
+	// `past` throughout, because that is the only filter the archive uses and the
+	// only one whose list runs newest-first — GetShowsForArtist orders ASCENDING
+	// for every other filter, where no pager consumes it.
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "past")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowMonthCount{
+		{Year: 2020, Month: 1, Count: 1},
+		{Year: 2019, Month: 12, Count: 1},
+	}, months, "histogram is newest-first on the VENUE-LOCAL calendar")
+
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{
+		TimeFilter: "past", Limit: 10,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total, "the totals agree, which is why no downstream check can catch this")
+	suite.Equal([]uint{honoluluShow, newYorkShow}, artistShowIDsOf(shows),
+		"list is newest-first on the ABSOLUTE INSTANT, which puts the December row first")
+
+	// The inversion itself, stated as the assertion rather than left as a side
+	// effect: histogram ordinal 0 is January, list ordinal 0 is the December show.
+	suite.Equal(1, months[0].Month)
+	suite.Equal(honoluluShow, artistShowIDsOf(shows)[0])
+}
+
 // The venue histogram structurally cannot have this case: a show with no
 // show_venues row at all. GetShowsForArtist returns those, and VenueTZJoin is a
 // LEFT JOIN LATERAL, so they must be counted exactly once and land in the month

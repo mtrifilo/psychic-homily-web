@@ -1228,7 +1228,13 @@ type ArtistShowYearCount struct {
 // whole artist — a touring artist's rows span venues, so a New Year's Eve date
 // in Honolulu counts against the month it was played in, not the month it was in
 // UTC. That is the same convention the year histogram and the list's year filter
-// already use, which is what keeps a page label naming months the page contains.
+// already use.
+//
+// It is NOT the axis the list is SORTED on, and a consumer mapping bucket
+// ordinals onto row ordinals has to know that: the list orders by absolute
+// instant, this orders by venue-local month, and for an artist those can
+// disagree inside the ~1-day cross-zone band around a month boundary. See
+// GetArtistShowMonths for the bound and the test that pins it.
 //
 // A twin of VenueShowMonthCount rather than one shared type, for the reason
 // stated on ArtistShowYearCount: two independent public schemas over two

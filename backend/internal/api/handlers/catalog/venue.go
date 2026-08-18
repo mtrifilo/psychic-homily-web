@@ -376,6 +376,15 @@ func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVen
 // on which archive the reader opened — an invariant worth making unbreakable
 // rather than restating in prose beside two literals.
 //
+// IT IS NOT THE ABUSE CONTROL, and an earlier revision of this comment implied it
+// was. The browser reaches this API's origin directly (frontend/lib/api-base.ts),
+// with no CDN or reverse-proxy cache in that path, so `public` here buys a
+// PER-CLIENT freshness window and nothing shared: a crawler with curl, or a
+// distributed caller, gets no collapse at all. What actually bounds repeat hits
+// on this unindexed full-history aggregate is the global PublicReadRateLimiter
+// these routes inherit. Do not weigh a heavier aggregate onto this path on the
+// strength of this header.
+//
 // Deliberately NOT applied to the sibling years endpoints. Those are shipped
 // reads with their own consumers (the year strip, the SSR seed), and giving them
 // a cache policy is a behaviour change they should get on their own.

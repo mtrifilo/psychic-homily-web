@@ -1316,8 +1316,26 @@ func (s *ArtistService) GetArtistShowYears(artistID uint, timeFilter string) ([]
 // filtered on. An artist's rows span venues, so there is no single zone to read
 // them in; scanVenueLocalMonthBuckets resolves the primary venue's zone per row
 // through shared.VenueTZJoin, exactly as the year histogram beside it already
-// does. The list this labels filters years the same way, which is what keeps a
-// label naming months the page actually contains.
+// does. The list this labels filters years the same way.
+//
+// THAT MAKES THE HISTOGRAM'S ORDER AND THE LIST'S ORDER DIFFERENT AXES, and the
+// consumer must not assume otherwise. This histogram is ordered by venue-local
+// (year, month) DESC; GetShowsForArtist orders by `shows.event_date DESC`, the
+// absolute instant. For a VENUE those coincide, because every row shares one
+// zone. For an ARTIST they do not: two shows hours apart in Honolulu and New
+// York can sit in different venue-local months while sorting the other way by
+// instant, so inside the ~1-day band around a month boundary the two orderings
+// permute. The counts still SUM to the list's total, so nothing downstream can
+// detect it by comparing totals.
+//
+// The consequence is bounded and is documented where it is consumed
+// (frontend/features/shows/showArchive.ts, monthRangeLabelsByPage): a page
+// boundary landing inside such a band can have that end of its span named as the
+// adjacent month. Pinned by
+// TestGetArtistShowMonths_HistogramOrderCanDivergeFromTheListOrder, which exists
+// so a later change to EITHER ordering is a deliberate one. It is the same skew
+// ArtistShowsTable already accepts for its month headings; closing it would mean
+// reordering a shipped list on the venue-local date.
 //
 // Months with no shows are absent rather than zero. Nothing downstream needs the
 // gaps: the labels are computed by walking cumulative counts, and a month with no

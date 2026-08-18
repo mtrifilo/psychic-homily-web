@@ -269,6 +269,29 @@ function isUsableMonthCount(bucket: ArchiveMonthCount): boolean {
  * page's label into a live region and never corrects it, so a wrong label costs
  * more than a missing one. The disagreement is transient; the next read clears
  * it.
+ *
+ * THE PREMISE IS EXACT ONLY WITHIN ONE TIMEZONE, and the check above cannot see
+ * the case where it is not (PSY-1842). Both show lists order on the ABSOLUTE
+ * instant (`shows.event_date DESC`) while both histograms bucket on the
+ * VENUE-LOCAL calendar. For a VENUE archive those are the same ordering — every
+ * row shares one zone — so the mapping is exact. For an ARTIST archive they are
+ * not: two shows a few hours apart in Honolulu and New York can fall in
+ * different venue-local months while sorting the other way round by instant, so
+ * inside the ~1-day band around a month boundary the two orderings permute.
+ *
+ * The counts still SUM correctly, so `listTotal` agrees and no label is
+ * withheld. What can be wrong is bounded and worth stating exactly: the
+ * permutation is confined to that band, so a page whose first or last ordinal
+ * lands inside one can have that end of its span named as the ADJACENT month.
+ * Every page boundary outside such a band is unaffected.
+ *
+ * That is the same skew `ArtistShowsTable` already documents for its month
+ * HEADINGS, where it is accepted as the honest rendering of rows sorted on one
+ * axis and labelled on another — see its `groupByMonthHeadings` doc. Making it
+ * exact would mean reordering a shipped list on the venue-local date, which is a
+ * behaviour change to the rows themselves and is deliberately not what this
+ * function's contract asks for. The divergence is pinned from the backend side
+ * by TestGetArtistShowMonths_HistogramOrderCanDivergeFromTheListOrder.
  */
 export function monthRangeLabelsByPage({
   months,

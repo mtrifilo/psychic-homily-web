@@ -431,11 +431,10 @@ type GetArtistShowMonthsResponse struct {
 	// month histogram sends — the two label one shared pager, so they may not
 	// differ in how stale a page label is allowed to be.
 	//
-	// It earns the header more than most: the payload is an aggregate over an
-	// artist's ENTIRE history with no index to answer it (the venue-local month
-	// is an expression over a lateral join). A minute of shared caching collapses
-	// a crawler's burst to one scan per artist, against a payload whose only
-	// consumer is a page label.
+	// A per-client freshness window, not a capacity control; see the constant for
+	// why, and for what actually bounds repeat hits on this aggregate. It matters
+	// more here than on the venue twin: the artist archive has no server-side
+	// seed, so every qualifying artist page view issues this read fresh.
 	CacheControl string `header:"Cache-Control"`
 	Body         struct {
 		Months     []contracts.ArtistShowMonthCount `json:"months" doc:"Venue-local calendar months in which the artist played at least one show, newest first"`
