@@ -1491,6 +1491,12 @@ func (s *ArtistService) GetArtistAliases(artistID uint) ([]*contracts.ArtistAlia
 // All relationships (shows, releases, labels, festivals, etc.) are transferred
 // to the canonical artist. Conflicts (duplicate rows) are deleted before transfer.
 // The merged artist's name is added as an alias, then the merged artist is deleted.
+//
+// Which tables that covers is not decided here: artistEntityRefs and
+// artistFKTables are the inventory, and two schema-drift tests fail when a
+// migration adds a table neither list mentions. Adding a step below without
+// adding it there is the failure this merge already had once — the polymorphic
+// tables it silently missed left rows pointing at a deleted artist id.
 func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1558,20 +1564,11 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		r = tx.Exec("DELETE FROM artist_relationships WHERE source_artist_id = ? OR target_artist_id = ?", mergeFromID, mergeFromID)
 		result.RelationshipsMoved = r.RowsAffected
 
-		// 6. entity_tags: delete conflicts, then update remaining
-		tx.Exec("DELETE FROM entity_tags WHERE entity_type = 'artist' AND entity_id = ? AND tag_id IN (SELECT tag_id FROM entity_tags WHERE entity_type = 'artist' AND entity_id = ?)", mergeFromID, canonicalID)
-		tx.Exec("UPDATE entity_tags SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
-
-		// 7. user_bookmarks: delete conflicts, then update remaining
-		tx.Exec("DELETE FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ? AND (user_id, action) IN (SELECT user_id, action FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?)", mergeFromID, canonicalID)
-		r = tx.Exec("UPDATE user_bookmarks SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
-		result.BookmarksMoved = r.RowsAffected
-
-		// 8. artist_reports: delete conflicts, then update remaining
+		// 6. artist_reports: delete conflicts, then update remaining
 		tx.Exec("DELETE FROM artist_reports WHERE artist_id = ? AND reported_by IN (SELECT reported_by FROM artist_reports WHERE artist_id = ?)", mergeFromID, canonicalID)
 		tx.Exec("UPDATE artist_reports SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
 
-		// 9. revisions: no conflict key, but the re-point has to state what
+		// 7. revisions: no conflict key, but the re-point has to state what
 		// happens to the losing artist's read-time redaction. Artist history
 		// is published in full, so there is none to carry — see
 		// noRedactionCarryover for when that stops being true.
@@ -1581,17 +1578,30 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 			return err
 		}
 
-		// 10. tag_votes for entity tags: delete conflicts, then update remaining
-		tx.Exec(`DELETE FROM tag_votes WHERE entity_type = 'artist' AND entity_id = ?
-			AND (tag_id, user_id) IN (SELECT tag_id, user_id FROM tag_votes WHERE entity_type = 'artist' AND entity_id = ?)`, mergeFromID, canonicalID)
-		tx.Exec("UPDATE tag_votes SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
+		// 8. pending_entity_edits + entity_edit_audit_logs: the contributor edit
+		// history, which also has to state what happens to its redaction.
+		if err := reassignArtistEditHistory(tx, canonicalID, mergeFromID); err != nil {
+			return err
+		}
 
-		// 11. collection_items: delete conflicts (same collection + same entity), then update remaining
-		tx.Exec("DELETE FROM collection_items WHERE entity_type = 'artist' AND entity_id = ? AND collection_id IN (SELECT collection_id FROM collection_items WHERE entity_type = 'artist' AND entity_id = ?)", mergeFromID, canonicalID)
-		r = tx.Exec("UPDATE collection_items SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
-		result.CollectionItemsMoved = r.RowsAffected
+		// 9. Every polymorphic (entity_type, entity_id) table — see
+		// artistEntityRefs for the inventory and the guard that keeps it from
+		// falling behind the schema. Two of them are reported individually.
+		refsMoved, err := repointEntityRefs(
+			tx, artistEntityRefs, mergeEntityArtist, canonicalID, mergeFromID)
+		if err != nil {
+			return err
+		}
+		result.BookmarksMoved = refsMoved["user_bookmarks"]
+		result.CollectionItemsMoved = refsMoved["collection_items"]
 
-		// 12. notification_filters: replace mergeFromID in artist_ids arrays
+		// 10. The foreign-key tables whose ON DELETE clause would otherwise
+		// destroy or blank the losing artist's rows. See reassignArtistFKRefs.
+		if err := reassignArtistFKRefs(tx, canonicalID, mergeFromID); err != nil {
+			return err
+		}
+
+		// 11. notification_filters: replace mergeFromID in artist_ids arrays
 		r = tx.Exec(`UPDATE notification_filters
 			SET artist_ids = array_replace(artist_ids, ?, ?),
 			    updated_at = NOW()
@@ -1606,16 +1616,10 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 			WHERE artist_ids @> ARRAY[?]::bigint[]`,
 			mergeFromID, mergeFromID)
 
-		// 13. notification_log: update entity references (informational, no unique constraint on entity_id)
-		tx.Exec("UPDATE notification_log SET entity_id = ? WHERE entity_type = 'artist' AND entity_id = ?", canonicalID, mergeFromID)
-
-		// 14. requests: update requested_entity_id references
-		tx.Exec("UPDATE requests SET requested_entity_id = ? WHERE entity_type = 'artist' AND requested_entity_id = ?", canonicalID, mergeFromID)
-
-		// 15. Transfer aliases from merged artist to canonical
+		// 12. Transfer aliases from merged artist to canonical
 		tx.Exec("UPDATE artist_aliases SET artist_id = ? WHERE artist_id = ?", canonicalID, mergeFromID)
 
-		// 16. Create alias from merged artist's name (if not conflicting)
+		// 13. Create alias from merged artist's name (if not conflicting)
 		var aliasCount int64
 		tx.Model(&catalogm.ArtistAlias{}).Where("LOWER(alias) = LOWER(?)", mergeFrom.Name).Count(&aliasCount)
 		var nameCount int64
@@ -1631,7 +1635,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 			result.AliasCreated = true
 		}
 
-		// 17. Delete the merged artist
+		// 14. Delete the merged artist
 		if err := tx.Delete(&mergeFrom).Error; err != nil {
 			return fmt.Errorf("failed to delete merged artist: %w", err)
 		}
