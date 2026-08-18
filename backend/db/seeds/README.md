@@ -50,6 +50,7 @@ realistic per the ticket.
 | Festival   | `marfa-myths-exemplar-2026`                            | `/festivals/marfa-myths-exemplar-2026`                  |
 | Show       | `the-path-tour-exemplar-at-the-rhythm-room-exemplar`   | `/shows/the-path-tour-exemplar-at-the-rhythm-room-exemplar` |
 | Collection | `psychic-homily-staff-picks-exemplar`                  | `/collections/psychic-homily-staff-picks-exemplar`      |
+| Venue (archive) | `chronology-hall-exemplar-phoenix-az`             | `/venues/chronology-hall-exemplar-phoenix-az`           |
 
 ### What each exemplar exercises
 
@@ -77,6 +78,62 @@ realistic per the ticket.
 - **Collection** — description, cover image, 6 tags, 6 items spanning
   every entity type (artist / release / festival / show / venue / label)
   with per-item notes, ranked display mode.
+- **Venue (archive)** — see below. The one exemplar whose point is its
+  history rather than its field coverage.
+
+## The archive exemplar (PSY-1843)
+
+The PSY-665 exemplars above cover *rich fields*. They do not cover *depth
+of history*: the richest of them has 3 past shows, so the venue page's
+past-shows archive — year strip with per-year counts, month-range page
+labels, 50-per-page pagination — renders in its degenerate one-page form
+and cannot be visually reviewed on a fresh stack. Before this existed, a
+throwaway venue had to be hand-written into a stack with raw SQL to review
+that UI (during PR #1904).
+
+`chronology-hall-exemplar-phoenix-az` closes that gap. It is implemented in
+`backend/cmd/seed/exemplars_archive.go` and seeded by the same
+`seedRichExemplars` entry point.
+
+| Property | Value |
+| --- | --- |
+| Past shows | 360 across 3 calendar years (2023: 62, 2024: 108, 2025: 190) |
+| Pages at 50/page | 8 all-years; 2 / 3 / 4 per year — every year paginates |
+| Upcoming shows | 5, so the Upcoming/Past split has both halves |
+| Bills | 1-3 acts typically, ~1 in 11 is 6-8 acts, from 14 fictional `-exemplar` artists |
+| Timezone | `America/Phoenix`, venue-local evening start times |
+
+What it exercises that nothing else does: the year strip's per-year counts,
+the month-range page labels (`Jun–Aug 2025`, and `Dec 2024–Jan 2025` across
+a year boundary), the pager's ellipsis branch (only reachable above 7
+pages), empty months the labels must skip, `SOLD OUT` and `CANCELLED`
+badges, all three price states (`Free` / `$12.50` / absent), and bill
+wrapping via deliberately uneven artist-name lengths (`Vane (Exemplar)`
+through `Ada Vaughn-Reyes and the Long Goodbye (Exemplar)`).
+
+Useful URLs for a screenshot pass — note the year is a **path segment**,
+not a `?year=` param:
+
+```
+/venues/chronology-hall-exemplar-phoenix-az            # page 1 + Upcoming
+/venues/chronology-hall-exemplar-phoenix-az?page=4     # mid-archive, ellipsis pager
+/venues/chronology-hall-exemplar-phoenix-az/shows/2025 # single-year archive
+/venues/chronology-hall-exemplar-phoenix-az/shows/2025?page=2
+```
+
+Two deliberate design choices worth knowing before editing it:
+
+- **Past dates are hardcoded (2023-2025), not offsets from `now()`.** Each
+  show's slug embeds its date, and the slug is the idempotency key — dates
+  derived from "now" would generate different slugs on every run and
+  re-create the whole archive daily. The 5 upcoming shows are the exception
+  and must be relative to now, so they use fixed non-date slugs and their
+  dates are set once, on first seed, and never refreshed (the same
+  trade-off `seedExemplarArtistShows` already makes).
+- **Per-show variation is a pure hash (`archiveNoise`), not `math/rand`.**
+  Its outputs are pinned by a golden test, because changing them would
+  change every generated slug and make a re-seed duplicate the archive
+  rather than skip it.
 
 ## Empty-state canaries — DO NOT backfill
 

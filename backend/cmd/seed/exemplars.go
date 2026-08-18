@@ -110,6 +110,14 @@ func seedRichExemplars(db *gorm.DB) {
 	seedExemplarSimilarArtists(db, artistID)
 	seedExemplarCollection(db, admin.ID, artistID, venueID, labelID, showID)
 
+	// Archive exemplar (PSY-1843) — a SECOND venue whose point is its
+	// backlog rather than its field coverage. The venue above has 3 past
+	// shows, which is enough to prove the past-shows list renders and not
+	// nearly enough to review the archive's year strip, month-range page
+	// labels, or pagination. Lives in exemplars_archive.go.
+	archiveVenueID := seedExemplarArchiveVenue(db, admin.ID)
+	seedExemplarArchiveShows(db, archiveVenueID)
+
 	fmt.Println("✅ Rich exemplars seeded (or already present)")
 }
 
