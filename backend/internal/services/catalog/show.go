@@ -460,7 +460,11 @@ func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.Sh
 	// show_artists ordered by position, which the association would not give,
 	// so preloading it is a whole extra join whose result nothing reads. Venues
 	// IS read, so it stays. The artist and venue show lists dropped it for the
-	// same reason.
+	// same reason, and as of PSY-1830 so has every list read on this service —
+	// nothing reads catalogm.Show.Artists here any more, so preloading it just
+	// fetched the page's artist rows a second time alongside fetchBillsForShows.
+	// The single-show reads still carry it; that is one wasted query per
+	// request rather than one per page, and unwinding it needs its own pass.
 	var shows []catalogm.Show
 	if err := baseQuery().
 		Preload("Venues").
@@ -491,7 +495,7 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]cont
 
 	// Query shows with pagination
 	var shows []catalogm.Show
-	err := s.db.Preload("Venues").Preload("Artists").
+	err := s.db.Preload("Venues").
 		Where("submitted_by = ?", userID).
 		Order("created_at DESC").
 		Limit(limit).
@@ -1131,7 +1135,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 		// cannot widen the projection: shared.VenueTZJoin's aliases match no
 		// Show field, so GORM would ignore them anyway, but naming the source
 		// relation keeps that true if the lateral ever projects something else.
-		query := applyUpcomingFilters(tx.Preload("Venues").Preload("Artists").Select("shows.*"))
+		query := applyUpcomingFilters(tx.Preload("Venues").Select("shows.*"))
 
 		// Apply cursor filter if provided (narrows the page, not the total)
 		if cursor != "" {
@@ -1426,7 +1430,7 @@ func (s *ShowService) GetPendingShows(limit, offset int, filters *contracts.Pend
 	}
 
 	// Get pending shows with pagination
-	findQuery := s.db.Preload("Venues").Preload("Artists").
+	findQuery := s.db.Preload("Venues").
 		Where("status = ?", catalogm.ShowStatusPending)
 	if filters != nil {
 		if filters.VenueID != nil {
@@ -1479,7 +1483,7 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*con
 
 	// Get rejected shows with pagination
 	var shows []catalogm.Show
-	err := s.db.Preload("Venues").Preload("Artists").
+	err := s.db.Preload("Venues").
 		Where("status = ?", catalogm.ShowStatusRejected).
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			if search != "" {
@@ -2181,10 +2185,18 @@ func (s *ShowService) attachBillLabels(resp *contracts.ShowResponse) {
 // and up to 400 for the 200-show /shows/upcoming window (PSY-1830). Callers
 // holding a single show pay exactly the two queries they always did.
 //
-// Degrades rather than fails, matching the per-show version it replaced: a query
-// error logs and yields no bills, so a page still renders with empty lineups
-// instead of 500ing. Absent key means "no artists billed"; assembleShowResponse
-// turns that into [] so the JSON never claims null.
+// Degrades rather than fails, the way the per-show version did: a query error
+// logs and yields no bills, so a page still renders instead of 500ing. Absent
+// key means "no artists billed"; assembleShowResponse turns that into [] so the
+// JSON never claims null.
+//
+// Batching widens what that degradation covers, and the widening is deliberate:
+// a failed read now blanks every lineup on the page where before it blanked one
+// row, and an empty-lineup page served as 200 is cacheable downstream. The
+// alternative — failing the list outright — trades a transient blip for a dead
+// /shows, which is the worse of the two. Both queries are unfiltered reads of
+// the page's own ids, so in practice they fail together and for reasons (pool
+// exhaustion, timeout) that would have taken every per-show read down anyway.
 func (s *ShowService) fetchBillsForShows(showIDs []uint) map[uint][]contracts.ArtistResponse {
 	bills := make(map[uint][]contracts.ArtistResponse, len(showIDs))
 	if len(showIDs) == 0 {
@@ -2784,7 +2796,7 @@ func (s *ShowService) GetAdminShows(limit, offset int, filters contracts.AdminSh
 
 	// Get shows with pagination
 	var shows []catalogm.Show
-	err := s.db.Preload("Venues").Preload("Artists").
+	err := s.db.Preload("Venues").
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			if filters.Status != "" {
 				db = db.Where("status = ?", filters.Status)
