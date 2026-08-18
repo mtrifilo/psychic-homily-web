@@ -16,11 +16,24 @@ const upcomingResult = {
   isFetching: false,
   isPlaceholderData: false,
   isError: false,
+  isSuccess: false,
   error: null as Error | null,
 }
 const pastResult = { ...upcomingResult }
 const yearsResult = {
   data: undefined as { years: ArtistShowYearCount[] } | undefined,
+  isSuccess: false,
+  isPending: false,
+  isError: false,
+}
+// The month histogram behind the pager's range labels (PSY-1842). Empty by
+// default: this suite is about the archive's rows, URLs and chrome, and the
+// label derivation itself is pinned in the shared component's own suite. The
+// current page still gets a label from its rows, which is the fallback path.
+const monthsResult = {
+  data: undefined as
+    | { months: Array<{ year: number; month: number; count: number }> }
+    | undefined,
   isSuccess: false,
   isPending: false,
   isError: false,
@@ -55,6 +68,7 @@ vi.mock('../hooks/useArtists', () => ({
     return pastResult
   },
   useArtistShowYears: () => yearsResult,
+  useArtistShowMonths: () => monthsResult,
 }))
 
 // nuqs throws without a NuqsAdapter, and the adapter would need a real router.
@@ -138,6 +152,10 @@ function applyState(
   target.isPlaceholderData = opts?.isPlaceholderData ?? false
   target.error = opts?.error ?? null
   target.isError = Boolean(opts?.error)
+  // What react-query means by it: the request answered. Read by the archive to
+  // decide whether the month histogram is worth fetching before the year
+  // histogram has landed.
+  target.isSuccess = data !== null && !target.isError && !target.isPending
 }
 
 const setUpcoming = (

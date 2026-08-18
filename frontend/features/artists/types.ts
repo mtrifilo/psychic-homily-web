@@ -221,6 +221,32 @@ export interface ArtistShowYearsResponse {
 }
 
 /**
+ * One bar of the past-shows MONTH histogram (PSY-1842).
+ *
+ * Bucketed on EACH SHOW'S OWN venue's calendar, server-side — an artist's rows
+ * span venues, so there is no single zone to read them in, and the year and
+ * month are already decided by the time they arrive. Re-reading them through a
+ * timezone here would be wrong.
+ */
+export interface ArtistShowMonthCount {
+  /** Venue-local calendar year. */
+  year: number
+  /** Venue-local calendar month, 1-12. */
+  month: number
+  /** Shows the artist played that month, within the requested time filter. */
+  count: number
+}
+
+/** Response for `GET /artists/{id}/shows/months`. */
+export interface ArtistShowMonthsResponse {
+  artist_id: number
+  /** Time filter the counts were taken under. */
+  time_filter: string
+  /** Months with at least one show, newest first. Never contains a zero count. */
+  months: ArtistShowMonthCount[]
+}
+
+/**
  * Time filter options for artist shows
  */
 export type ArtistTimeFilter = 'upcoming' | 'past' | 'all'

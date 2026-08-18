@@ -22,6 +22,7 @@ import type {
   ArtistsListResponse,
   ArtistCitiesResponse,
   ArtistShowsResponse,
+  ArtistShowMonthsResponse,
   ArtistShowYearsResponse,
   ArtistTimeFilter,
 } from '../types'
@@ -245,5 +246,48 @@ export function useArtistShowYears(options: UseArtistShowYearsOptions) {
     enabled:
       enabled && (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it navigates
+  })
+}
+
+interface UseArtistShowMonthsOptions {
+  artistId: string | number
+  /** Which side of "today" to count. Defaults to 'past'. */
+  timeFilter?: ArtistTimeFilter
+  enabled?: boolean
+}
+
+/**
+ * Venue-local calendar months in which this artist played at least one show,
+ * newest first, with per-month counts (PSY-1842).
+ *
+ * What the past-shows pager labels its page links from. Cumulative counts place
+ * every page's month span at once, so the label under page 6 is there on first
+ * paint rather than only after the reader has been to page 6 — which is what the
+ * artist archive did before this, leaving unvisited pages as bare numerals.
+ *
+ * One request per artist, whatever year the reader is looking at: the histogram
+ * spans every year and the year-scoped views slice it. Twelve times the rows of
+ * the year histogram beside it, still one small row per month the artist has ever
+ * played, and it does not change as the reader pages.
+ *
+ * NO server seed, unlike the venue twin. The artist page renders its archive
+ * after the first client fetch, so there is no pager in its document to label —
+ * the venue's seed exists for the year-archive ROUTE, which the artist has no
+ * equivalent of yet. When it gets one, this is the hook that takes an
+ * `initialData` prop.
+ */
+export function useArtistShowMonths(options: UseArtistShowMonthsOptions) {
+  const { artistId, timeFilter = 'past', enabled = true } = options
+
+  const endpoint = `${artistEndpoints.SHOW_MONTHS(artistId)}?time_filter=${timeFilter}`
+
+  return useQuery({
+    queryKey: artistQueryKeys.showMonths(artistId, timeFilter),
+    queryFn: async (): Promise<ArtistShowMonthsResponse> => {
+      return apiRequest<ArtistShowMonthsResponse>(endpoint, { method: 'GET' })
+    },
+    enabled:
+      enabled && (typeof artistId === 'string' ? Boolean(artistId) : artistId > 0),
+    staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it labels
   })
 }

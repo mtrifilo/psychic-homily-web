@@ -24,6 +24,12 @@ export const artistEndpoints = {
   // data, never from a range the frontend invents.
   SHOW_YEARS: (artistIdOrSlug: string | number) =>
     `${API_BASE_URL}/artists/${artistIdOrSlug}/shows/years`,
+  // PSY-1842: the same histogram at MONTH resolution, for the past-shows pager's
+  // range labels rather than the year strip. A page's month span is a function of
+  // the row ordinals it covers, so cumulative counts label every page at once —
+  // which is what puts a label under page 6 before the reader has been to page 6.
+  SHOW_MONTHS: (artistIdOrSlug: string | number) =>
+    `${API_BASE_URL}/artists/${artistIdOrSlug}/shows/months`,
   LABELS: (artistIdOrSlug: string | number) => `${API_BASE_URL}/artists/${artistIdOrSlug}/labels`,
   ALIASES: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/aliases`,
   GRAPH: (artistId: string | number) => `${API_BASE_URL}/artists/${artistId}/graph`,
@@ -172,6 +178,25 @@ export const artistQueryKeys = {
     timeFilter: ArtistShowsTimeFilter,
   ) =>
     [...artistQueryKeys.shows(artistIdOrSlug), 'years', timeFilter] as const,
+  /**
+   * The month histogram behind the past-shows pager's range labels (PSY-1842).
+   *
+   * Under the same `shows()` prefix as the pages it labels, for the reason the
+   * year histogram is: labels that outlived their rows would name months the
+   * pages no longer cover, so both are cleared by any invalidation that clears
+   * the rows. `'months'` cannot collide with a `showsPage()` key for the same
+   * reason `'years'` cannot — that slot only ever holds an
+   * `ArtistShowsTimeFilter`.
+   *
+   * NOT keyed on the year, deliberately: the histogram spans every year the
+   * reader visits, and switching years cannot leave the pager labelled from the
+   * previous year's counts if there is only ever one entry.
+   */
+  showMonths: (
+    artistIdOrSlug: string | number,
+    timeFilter: ArtistShowsTimeFilter,
+  ) =>
+    [...artistQueryKeys.shows(artistIdOrSlug), 'months', timeFilter] as const,
   labels: (artistIdOrSlug: string | number) => ['artists', 'labels', String(artistIdOrSlug)] as const,
   aliases: (artistId: number) => ['artists', 'aliases', artistId] as const,
   graph: (idOrSlug: string | number, types?: string[]) =>
@@ -228,14 +253,16 @@ export const ARTIST_LIST_FIRST_SCREEN_KEY = artistQueryKeys.list({
  * The exact `showsPage` parameters for one page of the artist page's PAST shows
  * archive (PSY-1754).
  *
- * The archive both ISSUES a request for the page it is on and PEEKS at the
- * cache for its neighbours (to label each page button with the months it
- * covers). Those two call sites have to agree on the key down to the
- * "sent / not sent" normalization — `showsPage` distinguishes `0` from
- * "absent", so a peek that passed `offset: 0` where the request passed
- * `undefined` would silently never find page 1. Building both from this one
- * function is what makes that class of miss impossible rather than merely
- * unlikely.
+ * One helper so the request and the key it lands on cannot disagree about the
+ * "sent / not sent" normalization: `showsPage` distinguishes `0` from "absent",
+ * and page 1's zero offset must key as "not sent" or nothing that seeds or reads
+ * that entry finds it.
+ *
+ * It used to have a second job — the archive PEEKED at neighbouring pages' cache
+ * entries to label them — and no longer does: labels come from the month
+ * histogram now (PSY-1842), which places every page at once instead of only the
+ * pages the reader has already fetched. The normalization still matters, it just
+ * has one call site again.
  *
  * @param page 1-based page number.
  * @param year Venue-local calendar year, or null for every year.

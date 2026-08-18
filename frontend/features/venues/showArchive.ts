@@ -1,23 +1,27 @@
 /**
  * The venue-shaped face of the shared show archive (PSY-1753, generalized in
- * PSY-1754).
+ * PSY-1754, narrowed to this in PSY-1842).
  *
- * The derivations themselves live in `@/features/shows/showArchive`, which the
- * artist archive uses too, and callers take the entity-agnostic half (year
- * parsing, page clamping, the en dash) straight from there. What is left here
- * is the one thing that is genuinely venue-shaped: where a row's timezone comes
- * from. A venue archive lists ONE venue's shows, so the zone is the venue's for
- * every row, with the row's own denormalized `state` still winning when the two
- * disagree; an artist archive lists shows across venues, so each row carries
- * its own. Binding that answer once is what stops every venue call site from
- * restating it.
+ * Two things live here now, and nothing else does. The first is where a row's
+ * TIMEZONE comes from: a venue archive lists ONE venue's shows, so the zone is
+ * the venue's for every row, with the row's own denormalized `state` still
+ * winning when the two disagree; an artist archive lists shows across venues, so
+ * each row carries its own. Binding that answer once is what stops every venue
+ * call site from restating it. The second is the archive's URL SPACE, which is
+ * genuinely venue-only because the venue is the entity with a crawlable per-year
+ * route.
+ *
+ * Everything else went upstream to `@/features/shows/showArchive` and
+ * `PastShowsArchive`, which the artist archive uses too. Two functions that used
+ * to sit here — a `monthRangeLabel` bound to the venue zone and an
+ * `archiveDocumentTitle` that renamed `entityName` to `venueName` — were removed
+ * with the twin they served: the shared component takes a zone RESOLVER and the
+ * entity's name, so neither venue-shaped spelling has a caller. Their tests moved
+ * to `features/shows/showArchive.test.ts`, where they cover both archives.
  */
 
 import {
   groupByMonth as groupRowsByMonth,
-  monthRangeLabel as rowsMonthRangeLabel,
-  archiveDocumentTitle as scopedDocumentTitle,
-  type ArchiveLabelScope,
   type ArchiveRow as ShowArchiveRow,
   type ShowZoneResolver,
 } from '@/features/shows/showArchive'
@@ -36,8 +40,14 @@ export interface ArchiveRow extends ShowArchiveRow {
  * Every row is read on the venue's calendar, except where the row's own
  * denormalized `state` disagrees with it — that is the older, per-show answer
  * and still wins over the venue-level fallback.
+ *
+ * Exported because the shared archive (`PastShowsArchive`) takes a resolver
+ * rather than a zone: it is the one thing about a ROW that differs between the
+ * two entities, so handing it the venue answer is how the venue archive stays
+ * one component with the artist's (PSY-1842). Callers must memoize the result —
+ * it is a fresh closure per call and feeds a label memo.
  */
-function venueZoneResolver<T extends ArchiveRow>(
+export function venueZoneResolver<T extends ArchiveRow>(
   zone: VenueShowZone
 ): ShowZoneResolver<T> {
   return row => ({
@@ -52,25 +62,6 @@ export function groupByMonth<T extends ArchiveRow>(
   zone: VenueShowZone
 ) {
   return groupRowsByMonth(rows, venueZoneResolver<T>(zone))
-}
-
-/**
- * {@link rowsMonthRangeLabel}, in the venue's zone.
- *
- * No longer the archive's PRIMARY page-label mechanism — the month histogram is
- * (PSY-1769) — but not dead either. It is the fallback for the CURRENT page when
- * the histogram is unavailable: a failed histogram fetch would otherwise strip
- * the label from every page link, and on mobile the pager renders no page links
- * at all, so the current page's label is the only one there is. Rows for the
- * page on screen are always in hand, so this costs nothing and keeps the mobile
- * pager's label a guarantee rather than a second request's good fortune.
- */
-export function monthRangeLabel(
-  rows: ArchiveRow[],
-  zone: VenueShowZone,
-  scope: ArchiveLabelScope
-): string | null {
-  return rowsMonthRangeLabel(rows, venueZoneResolver<ArchiveRow>(zone), scope)
 }
 
 /**
@@ -122,18 +113,4 @@ export function venueArchiveHref(
   return year === null
     ? `/venues/${venueSlug}${query}#${VENUE_PAST_SHOWS_FRAGMENT}`
     : `/venues/${venueSlug}/shows/${year}${query}`
-}
-
-/** {@link scopedDocumentTitle}, named for the venue it scopes. */
-export function archiveDocumentTitle({
-  venueName,
-  ...rest
-}: {
-  baseTitle: string
-  venueName: string
-  year: number | null
-  page: number
-  totalPages: number
-}): string {
-  return scopedDocumentTitle({ ...rest, entityName: venueName })
 }
