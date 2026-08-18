@@ -143,7 +143,7 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		return nil, huma.Error422UnprocessableEntity("show_venue field too long (name/city ≤255, state ≤10, address ≤500)")
 	}
 	out := &showAssociations{venue: v}
-	for _, a := range artists {
+	for i, a := range artists {
 		name := strings.TrimSpace(a.Name)
 		// Name is required even when an ID is supplied: the show service's
 		// duplicate-headliner pre-check matches on artist NAME, so an ID-only
@@ -155,13 +155,54 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		if len(name) > 255 {
 			return nil, huma.Error422UnprocessableEntity("show_artists name must be 255 characters or fewer")
 		}
+		setType, serr := curatedShowArtistSetType(i, a.SetType)
+		if serr != nil {
+			return nil, serr
+		}
 		out.artists = append(out.artists, contracts.CreateShowArtist{
 			ID:          a.ID,
 			Name:        name,
 			IsHeadliner: a.IsHeadliner,
+			SetType:     setType,
 		})
 	}
 	return out, nil
+}
+
+// curatedShowArtistSetType validates one admin-supplied bill role (PSY-1705)
+// and returns the value to hand the show service, or nil when the admin did not
+// curate this act's slot.
+//
+// Absent, nil, and whitespace-only all mean "not curated" and resolve to nil,
+// which the show service turns into contracts.SetTypeDefault ('performer').
+// Nothing here ever infers a role from bill position. That inference is the
+// exact defect the PSY-1673 vocabulary removed.
+//
+// The value is judged EXACTLY as sent, without trimming, so this agrees
+// character-for-character with the OpenAPI enum on the field and with the show
+// service's own curatedSetType/validateShowArtistSetTypes pair. Trimming here
+// would make the handler quietly laxer than its published contract.
+//
+// Over HTTP the generated OpenAPI enum on ShowArtistInput.set_type rejects a
+// bad role first, so this check is the floor beneath it, for in-process callers
+// and tests that never see the schema. It is not redundant with the SHOW
+// SERVICE's validateShowArtistSetTypes, though: that one runs inside
+// fulfillment, which on the decide path is after the row has been claimed, so
+// rejecting there would strand the request as approved-but-unfulfilled with no
+// endpoint able to re-process it. Both callers run buildShowAssociations before
+// the claim, which is where the venue/name/image_url checks already live for
+// exactly this reason.
+func curatedShowArtistSetType(index int, value *string) (*string, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil, nil
+	}
+	if !contracts.IsValidSetType(*value) {
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
+			"show_artists[%d].set_type %q is not a valid set type (allowed: %s)",
+			index, *value, contracts.SetTypeVocabularyCSV(),
+		))
+	}
+	return value, nil
 }
 
 // parseShowEventDate parses a show payload's event_date. An RFC3339 value is

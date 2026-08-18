@@ -15907,6 +15907,11 @@ export interface components {
             is_headliner?: boolean;
             /** @description Artist name (required) */
             name: string;
+            /**
+             * @description Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role.
+             * @enum {string}
+             */
+            set_type?: "headliner" | "direct_support" | "opener" | "special_guest" | "dj" | "performer";
         };
         ShowArtistLabel: {
             /** Format: int64 */

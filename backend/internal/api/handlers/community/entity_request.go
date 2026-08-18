@@ -346,10 +346,18 @@ type ShowVenueInput struct {
 // at approve time (PSY-1037). Name is always required (the show service's
 // duplicate-headliner pre-check matches on name); ID optionally pins an
 // existing artist, otherwise Name find-or-creates one (case-insensitive).
+//
+// PSY-1705: set_type carries the curated bill role, so a request whose source
+// states a support act or a DJ can be fulfilled without flattening that role.
+// It is authoritative over is_headliner when present (the show service derives
+// the headliner flag from it); omitting it leaves the act at the neutral
+// default, 'performer', which means "on the bill, slot unknown". A role is
+// never inferred from bill order; only the headliner has ever been inferable.
 type ShowArtistInput struct {
-	ID          *uint  `json:"id,omitempty" required:"false" doc:"Existing artist ID (optional)"`
-	Name        string `json:"name" doc:"Artist name (required)"`
-	IsHeadliner *bool  `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag (first artist defaults to headliner when unset)"`
+	ID          *uint   `json:"id,omitempty" required:"false" doc:"Existing artist ID (optional)"`
+	Name        string  `json:"name" doc:"Artist name (required)"`
+	IsHeadliner *bool   `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag (first artist defaults to headliner when unset)"`
+	SetType     *string `json:"set_type,omitempty" required:"false" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role."`
 }
 
 // AdminDecideEntityRequestRequest is the Huma request for
