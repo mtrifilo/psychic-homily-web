@@ -134,6 +134,37 @@ describe('CollectionCoverImage', () => {
     expect(screen.queryByAltText('cover')).not.toBeInTheDocument()
   })
 
+  // The `<img>` is deliberately not keyed on the URL, so swapping a WORKING
+  // cover for another one reuses the element — that is the seamless swap the
+  // missing key buys. This pins both halves of that decision: the element is
+  // genuinely reused, and a failure on the replacement still reaches the
+  // fallback, which on this path is `onError`'s job alone.
+  it('reuses the element across a URL change and still catches a later failure', () => {
+    const { rerender } = render(
+      <CollectionCoverImage
+        url="https://example.com/first.jpg"
+        alt="cover"
+        fallback={<Fallback />}
+      />
+    )
+    const first = screen.getByAltText('cover')
+
+    rerender(
+      <CollectionCoverImage
+        url="https://example.com/second.jpg"
+        alt="cover"
+        fallback={<Fallback />}
+      />
+    )
+    const second = screen.getByAltText('cover') as HTMLImageElement
+
+    expect(second).toBe(first) // same DOM node: no remount, no re-fetch flash
+    expect(second.src).toBe('https://example.com/second.jpg')
+
+    fireEvent.error(second)
+    expect(screen.getByTestId('fallback')).toBeInTheDocument()
+  })
+
   // The composition side of the other half of the predicate (the predicate
   // itself is pinned in the hook's own test): a cover the browser HAS decoded
   // must keep its image. Nothing else in this file reaches that branch,

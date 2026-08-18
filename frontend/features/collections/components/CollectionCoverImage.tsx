@@ -27,8 +27,8 @@
 
 import { useCallback, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-// The hook FILE, not the `@/lib/hooks/common` barrel — see the note on the
-// barrel's own index.ts.
+// The hook FILE, not the `@/lib/hooks/common` barrel — see the note at the
+// bottom of that barrel.
 import { usePreAttachImageFailureRef } from '@/lib/hooks/common/usePreAttachImageFailureRef'
 
 interface CollectionCoverImageProps {
@@ -91,11 +91,12 @@ export function CollectionCoverImage({
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           // Deliberately NOT keyed on the URL. The ref is identity-stable, so
-          // it attaches once per element and cannot re-read a reused node
-          // whose state still describes the previous image; a key would buy
-          // nothing and cost the browser's seamless swap, which keeps painting
-          // the current cover until the replacement has fully loaded rather
-          // than blanking the tile for the length of a third-party fetch.
+          // a URL change does not re-run it against a reused node whose state
+          // still describes the previous image, and a failure on the new URL
+          // is caught by `onError`, which React attaches at element creation.
+          // Keying would only cost the browser's seamless swap: it keeps
+          // painting the current cover until the replacement has fully loaded
+          // rather than blanking the tile for a third-party fetch.
           ref={preAttachFailureRef}
           src={trimmed}
           alt={alt}

@@ -4,8 +4,8 @@ import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import type { SavedShowResponse } from '@/features/shows'
 import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
-// The hook FILE, not the `@/lib/hooks/common` barrel — see the note on the
-// barrel's own index.ts.
+// The hook FILE, not the `@/lib/hooks/common` barrel — see the note at the
+// bottom of that barrel.
 import { usePreAttachImageFailureRef } from '@/lib/hooks/common/usePreAttachImageFailureRef'
 
 function displayName(show: SavedShowResponse): string {

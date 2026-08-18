@@ -2,12 +2,6 @@ export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
 export { useHydrated } from './useHydrated'
 
-// `usePreAttachImageFailureRef` is deliberately NOT re-exported here. Its
-// callers are leaf presentational components on image-heavy routes, and this
-// barrel also re-exports the react-query-backed follow / revisions / search
-// hooks — importing it would pull that graph into every route they reach.
-// Import the hook file directly.
-
 export { useGeoDefaultScene } from './useGeoDefaultScene'
 
 export { type Density, useDensity } from './useDensity'
@@ -53,3 +47,10 @@ export {
   type EntitySearchResult,
   type EntitySearchResults,
 } from './useEntitySearch'
+
+// NOT exported here on purpose: `usePreAttachImageFailureRef`. Its callers are
+// leaf image components, and this barrel also re-exports the react-query-backed
+// follow / revisions / search hooks above, so importing it would pull that
+// graph into every route they reach. Precautionary rather than measured, by
+// analogy with the Turbopack barrel note in
+// features/collections/components/index.ts. Import the hook file directly.

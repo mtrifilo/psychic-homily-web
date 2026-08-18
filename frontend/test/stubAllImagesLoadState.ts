@@ -1,6 +1,7 @@
 /**
- * Image load-state stub (PSY-1719) — extracted from the per-file copies in the
- * ShowHeader / LibraryWallGrid / CollectionCoverImage tests.
+ * Image load-state stub — extracted from the inline getter spies in
+ * `ShowHeader.test.tsx`, and reused by the `LibraryWallGrid`,
+ * `CollectionCoverImage` and `usePreAttachImageFailureRef` cases.
  *
  * **This affects EVERY `<img>` rendered while it is installed.** It spies on
  * `HTMLImageElement.prototype`, so there is no per-element control: a test
@@ -11,7 +12,7 @@
  *
  * Why it exists: several components read an `<img>`'s OWN state on mount,
  * because `onError` cannot see a failure that happened before React attached
- * it (PSY-1685). jsdom never loads anything, so it reports `complete: false`
+ * it. jsdom never loads anything, so it reports `complete: false`
  * and `naturalWidth: 0` forever — which is "still in flight", not "already
  * failed". Testing either branch means stubbing the pair together:
  *
@@ -27,7 +28,6 @@
  * `vi.restoreAllMocks()`, and `vitest.config.mts` sets no `restoreMocks`. A
  * prototype getter spy would therefore survive the test that installed it and
  * leave every later test in the file looking at a permanently broken image.
- * The returned `restore` is only for un-stubbing partway through a test.
  *
  * Usage:
  *   stubAllImagesLoadState({ complete: true, naturalWidth: 0 })
@@ -37,14 +37,6 @@
 
 import { onTestFinished, vi } from 'vitest'
 
-interface ImageLoadStateControls {
-  /**
-   * Restore the real `complete` / `naturalWidth` getters early. Optional —
-   * teardown is already registered for the end of the test.
-   */
-  restore: () => void
-}
-
 export function stubAllImagesLoadState({
   complete,
   naturalWidth,
@@ -53,7 +45,7 @@ export function stubAllImagesLoadState({
   complete: boolean
   /** What `HTMLImageElement.prototype.naturalWidth` reports. */
   naturalWidth: number
-}): ImageLoadStateControls {
+}): void {
   const completeSpy = vi
     .spyOn(HTMLImageElement.prototype, 'complete', 'get')
     .mockReturnValue(complete)
@@ -61,12 +53,8 @@ export function stubAllImagesLoadState({
     .spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get')
     .mockReturnValue(naturalWidth)
 
-  const restore = () => {
+  onTestFinished(() => {
     completeSpy.mockRestore()
     naturalWidthSpy.mockRestore()
-  }
-
-  onTestFinished(restore)
-
-  return { restore }
+  })
 }

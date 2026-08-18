@@ -1,10 +1,7 @@
 'use client'
 
-// The hook FILE, not `@/lib/hooks/common`: that barrel also re-exports the
-// react-query-backed follow / revisions / search hooks, so importing it here
-// would pull that graph into every route this plate reaches. Precautionary by
-// analogy with PSY-951, whose note lives in features/collections/components/
-// index.ts — not measured for this barrel, which carries no 'use client'.
+// The hook FILE, not the `@/lib/hooks/common` barrel — see the note at the
+// bottom of that barrel.
 import { usePreAttachImageFailureRef } from '@/lib/hooks/common/usePreAttachImageFailureRef'
 
 /**
@@ -51,9 +48,9 @@ export function ShowFlyerPlate({
   // The `onError` prop alone is not enough, and the gap is the common case
   // rather than a corner: this page is server-rendered, so the browser starts
   // fetching the flyer while parsing the HTML and a dead hotlink can 404
-  // before React hydrates and attaches the handler. See the hook for the
-  // mechanism and its caveats. `onError` is a prop here, so its stability is
-  // the caller's job; ShowHeader memoises it and passes `key={flyerSrc}`.
+  // before React hydrates and attaches the handler. The hook holds `onError`
+  // in a latest-ref, so this imposes no stability requirement on the prop.
+  // See the hook for the mechanism and its caveats.
   const preAttachFailureRef = usePreAttachImageFailureRef(onError)
 
   return (
