@@ -64,7 +64,11 @@ func (s *RevisionService) RecordRevision(entityType string, entityID uint, userI
 }
 
 // GetEntityHistory returns paginated revision history for a specific entity.
-func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+//
+// viewerIsAdmin selects the caller tier the result is redacted for; see
+// applyPrivacyRedaction. False is the masked view, so a caller that cannot prove
+// admin gets the public one.
+func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -92,13 +96,15 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 		return nil, 0, fmt.Errorf("failed to get entity history: %w", err)
 	}
 
-	s.applyPrivacyRedaction(revisions)
+	s.applyPrivacyRedaction(revisions, viewerIsAdmin)
 	return revisions, total, nil
 }
 
 // GetRevision retrieves a single revision by ID, redacted for serving.
 // Returns nil, nil if not found.
-func (s *RevisionService) GetRevision(revisionID uint) (*adminm.Revision, error) {
+//
+// viewerIsAdmin selects the caller tier; see applyPrivacyRedaction.
+func (s *RevisionService) GetRevision(revisionID uint, viewerIsAdmin bool) (*adminm.Revision, error) {
 	revision, err := s.getRevisionRaw(revisionID)
 	if err != nil || revision == nil {
 		return nil, err
@@ -108,7 +114,7 @@ func (s *RevisionService) GetRevision(revisionID uint) (*adminm.Revision, error)
 	// exactly the same code path as a list read; there is no second spelling
 	// of the policy to fall out of sync.
 	batch := []adminm.Revision{*revision}
-	s.applyPrivacyRedaction(batch)
+	s.applyPrivacyRedaction(batch, viewerIsAdmin)
 	return &batch[0], nil
 }
 
@@ -135,7 +141,11 @@ func (s *RevisionService) getRevisionRaw(revisionID uint) (*adminm.Revision, err
 }
 
 // GetUserRevisions returns paginated revisions made by a specific user.
-func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+//
+// userID names the revision AUTHOR; viewerIsAdmin describes the caller READING
+// the page. The two are unrelated — an admin reading their own contributions
+// gets the admin tier, and a contributor reading an admin's page does not.
+func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -161,7 +171,7 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int) ([]ad
 		return nil, 0, fmt.Errorf("failed to get user revisions: %w", err)
 	}
 
-	s.applyPrivacyRedaction(revisions)
+	s.applyPrivacyRedaction(revisions, viewerIsAdmin)
 	return revisions, total, nil
 }
 
@@ -254,11 +264,28 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 // the field list, and the gaps it does not cover are stated once on the
 // revisiondiff package doc; this is the mechanism.
 //
-// It is caller-independent, mirroring the live gate, which turns on
-// venues.verified alone and has no caller tier: an admin loading an unverified
-// venue's detail page does not see its address either. Admin surfaces that
-// legitimately need the raw value read it directly (the moderation queue, the
-// data-sync export), and rollback reads the stored row through getRevisionRaw.
+// It takes a caller tier: an authenticated ADMIN reads revision history
+// unmasked, everyone else gets the masked view (PSY-1717). WHY that tier exists,
+// and why the live venue payload deliberately has none, is argued once on
+// revisiondiff.venuePrivateFields — read it before changing the policy. What
+// follows here is only what a reader of THIS function needs.
+//
+// Admin means admin, not merely authenticated. viewerIsAdmin is resolved in the
+// handler as `user != nil && user.IsAdmin` over the user the route's
+// OptionalHumaJWTMiddleware attached, and that user is loaded FROM THE DATABASE
+// during token validation, so a demoted admin loses the tier on their next
+// request rather than carrying it in a stale claim. Anonymous callers, invalid
+// or expired tokens, and inactive users all leave the context userless, which
+// makes the value false and the view masked — the tier fails closed with the
+// rest of this function.
+//
+// It unmasks the WHOLE view for an admin, prose included, not just the address
+// family: the summary withholding below rides the same verdict, and a moderator
+// reading a rollback candidate needs the contributor's stated reason as much as
+// the values. That is also the standing instruction for the NEXT privacy family
+// added here — everything in this function sits behind the admin return below,
+// so a new gate is admin-transparent unless its author decides otherwise.
+// Decide it rather than inherit it.
 //
 // Fail closed. A lookup error, a nil db, or a missing venue row leaves the
 // venue out of the verified set, so its history is masked. Withholding an
@@ -280,7 +307,13 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 //
 // Summary is the exception to "values, not fields": it is withheld whole. See
 // the package doc named above for why, and for what that costs.
-func (s *RevisionService) applyPrivacyRedaction(revisions []adminm.Revision) {
+func (s *RevisionService) applyPrivacyRedaction(revisions []adminm.Revision, viewerIsAdmin bool) {
+	// Ordering, not just placement: this must precede the venue lookup, which
+	// fails CLOSED. Applied after it, a DB blip would mask an admin.
+	if viewerIsAdmin {
+		return
+	}
+
 	venueIDs := make([]uint, 0, len(revisions))
 	seen := make(map[uint]struct{}, len(revisions))
 	for i := range revisions {

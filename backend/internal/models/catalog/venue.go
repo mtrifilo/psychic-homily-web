@@ -131,6 +131,13 @@ func (Venue) TableName() string {
 // services/shared/revisiondiff/privacy.go, at read time in
 // admin.RevisionService. The two are one policy in two spellings — a field
 // withheld here that is not also withheld there is published by editing it once.
+//
+// The FIELD LIST is shared; the CALLER TIER is not. Revision history tiers its
+// readers and this accessor does not — an admin reads an unverified venue's
+// address HISTORY unmasked (PSY-1717), while this function returns nil to
+// everybody. That is deliberate, not drift: do not add a tier here to match, and
+// do not delete the one there to match this. The argument for the split lives
+// once, on revisiondiff.venuePrivateFields in privacy.go.
 func (v *Venue) PublicAddress() *string {
 	if v == nil || !v.Verified {
 		return nil
@@ -146,6 +153,11 @@ func (v *Venue) PublicAddress() *string {
 // Street-level coordinates carry the rule too but stay inline in
 // buildVenueResponse, their only producer, because they take an extra
 // freshness condition that reads better beside the fields it guards.
+//
+// It carries PublicAddress's caller-tier note as well, for the same reason it
+// carries the field rule: revision history serves an admin this venue's zipcode
+// HISTORY unmasked while this accessor returns nil to everybody. Do not add a
+// tier here. See revisiondiff.venuePrivateFields for the argument.
 func (v *Venue) PublicZipcode() *string {
 	if v == nil || !v.Verified {
 		return nil

@@ -437,9 +437,12 @@ type AdminStatsServiceInterface interface {
 // RevisionServiceInterface defines the contract for revision history operations.
 type RevisionServiceInterface interface {
 	RecordRevision(entityType string, entityID uint, userID uint, changes []adminm.FieldChange, summary string) error
-	GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error)
-	GetRevision(revisionID uint) (*adminm.Revision, error)
-	GetUserRevisions(userID uint, limit, offset int) ([]adminm.Revision, int64, error)
+	// The three read methods take the caller tier the served copy is redacted
+	// for (PSY-1717): false is the public, masked view, true is the admin one.
+	// False being the zero value is deliberate — the gate fails closed.
+	GetEntityHistory(entityType string, entityID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error)
+	GetRevision(revisionID uint, viewerIsAdmin bool) (*adminm.Revision, error)
+	GetUserRevisions(userID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error)
 	Rollback(revisionID uint, adminUserID uint) error
 }
 

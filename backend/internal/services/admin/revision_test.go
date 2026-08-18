@@ -18,6 +18,14 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
+// viewerPublic and viewerAdmin name the caller tier the read methods redact for
+// (PSY-1717), so a call site says which view it is asserting instead of trailing
+// a bare bool. See the ADMIN TIER section at the foot of this file.
+const (
+	viewerPublic = false
+	viewerAdmin  = true
+)
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
@@ -223,7 +231,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_Success() {
 		s.Require().NoError(err)
 	}
 
-	revisions, total, err := s.svc.GetEntityHistory("artist", 10, 10, 0)
+	revisions, total, err := s.svc.GetEntityHistory("artist", 10, 10, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(3), total)
 	s.Len(revisions, 3)
@@ -247,13 +255,13 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_Pagination() 
 	}
 
 	// Page 1
-	revisions, total, err := s.svc.GetEntityHistory("venue", 20, 2, 0)
+	revisions, total, err := s.svc.GetEntityHistory("venue", 20, 2, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(5), total)
 	s.Len(revisions, 2)
 
 	// Page 2
-	revisions2, _, err := s.svc.GetEntityHistory("venue", 20, 2, 2)
+	revisions2, _, err := s.svc.GetEntityHistory("venue", 20, 2, 2, viewerPublic)
 	s.NoError(err)
 	s.Len(revisions2, 2)
 
@@ -261,20 +269,20 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_Pagination() 
 	s.NotEqual(revisions[0].ID, revisions2[0].ID)
 
 	// Page 3
-	revisions3, _, err := s.svc.GetEntityHistory("venue", 20, 2, 4)
+	revisions3, _, err := s.svc.GetEntityHistory("venue", 20, 2, 4, viewerPublic)
 	s.NoError(err)
 	s.Len(revisions3, 1)
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_DefaultLimit() {
-	revisions, total, err := s.svc.GetEntityHistory("artist", 999, 0, 0)
+	revisions, total, err := s.svc.GetEntityHistory("artist", 999, 0, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(0), total)
 	s.Empty(revisions)
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MaxLimit() {
-	revisions, total, err := s.svc.GetEntityHistory("artist", 999, 200, 0)
+	revisions, total, err := s.svc.GetEntityHistory("artist", 999, 200, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(0), total)
 	s.Empty(revisions)
@@ -288,7 +296,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_FiltersByEnti
 	s.Require().NoError(s.svc.RecordRevision("venue", 1, user.ID, changes, "venue edit"))
 	s.Require().NoError(s.svc.RecordRevision("artist", 2, user.ID, changes, "other artist edit"))
 
-	revisions, total, err := s.svc.GetEntityHistory("artist", 1, 10, 0)
+	revisions, total, err := s.svc.GetEntityHistory("artist", 1, 10, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(1), total)
 	s.Len(revisions, 1)
@@ -302,7 +310,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_PreloadsUser(
 	changes := []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	s.Require().NoError(s.svc.RecordRevision("artist", 1, user.ID, changes, "test"))
 
-	revisions, _, err := s.svc.GetEntityHistory("artist", 1, 10, 0)
+	revisions, _, err := s.svc.GetEntityHistory("artist", 1, 10, 0, viewerPublic)
 	s.NoError(err)
 	s.Require().Len(revisions, 1)
 	s.Equal(user.ID, revisions[0].User.ID)
@@ -326,7 +334,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_Found() {
 	var created adminm.Revision
 	s.db.First(&created)
 
-	revision, err := s.svc.GetRevision(created.ID)
+	revision, err := s.svc.GetRevision(created.ID, viewerPublic)
 	s.NoError(err)
 	s.NotNil(revision)
 	s.Equal(created.ID, revision.ID)
@@ -336,7 +344,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_Found() {
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_NotFound() {
-	revision, err := s.svc.GetRevision(99999)
+	revision, err := s.svc.GetRevision(99999, viewerPublic)
 	s.NoError(err)
 	s.Nil(revision)
 }
@@ -360,7 +368,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Success() {
 	s.Require().NoError(s.svc.RecordRevision("venue", 1, user2.ID, changes, "user2 edit"))
 
 	// Get user1's revisions
-	revisions, total, err := s.svc.GetUserRevisions(user1.ID, 10, 0)
+	revisions, total, err := s.svc.GetUserRevisions(user1.ID, 10, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(3), total)
 	s.Len(revisions, 3)
@@ -371,7 +379,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Success() {
 	}
 
 	// Get user2's revisions
-	revisions2, total2, err := s.svc.GetUserRevisions(user2.ID, 10, 0)
+	revisions2, total2, err := s.svc.GetUserRevisions(user2.ID, 10, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(1), total2)
 	s.Len(revisions2, 1)
@@ -385,12 +393,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Pagination() 
 		s.Require().NoError(s.svc.RecordRevision("artist", uint(i+1), user.ID, changes, ""))
 	}
 
-	revisions, total, err := s.svc.GetUserRevisions(user.ID, 2, 0)
+	revisions, total, err := s.svc.GetUserRevisions(user.ID, 2, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(5), total)
 	s.Len(revisions, 2)
 
-	revisions2, _, err := s.svc.GetUserRevisions(user.ID, 2, 2)
+	revisions2, _, err := s.svc.GetUserRevisions(user.ID, 2, 2, viewerPublic)
 	s.NoError(err)
 	s.Len(revisions2, 2)
 
@@ -401,7 +409,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Pagination() 
 func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Empty() {
 	user := s.createTestUser()
 
-	revisions, total, err := s.svc.GetUserRevisions(user.ID, 10, 0)
+	revisions, total, err := s.svc.GetUserRevisions(user.ID, 10, 0, viewerPublic)
 	s.NoError(err)
 	s.Equal(int64(0), total)
 	s.Empty(revisions)
@@ -935,7 +943,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_RedactsUnveri
 
 	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 
-	revisions, total, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	revisions, total, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Equal(int64(1), total)
 	s.Require().Len(revisions, 1)
@@ -965,7 +973,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LookupErrorFa
 	// Poison the transaction: every later statement on it errors until rollback.
 	s.Require().Error(tx.Exec("SELECT 1/0").Error)
 
-	revisions, _, err := NewRevisionService(tx).GetEntityHistory("venue", venue.ID, 10, 0)
+	revisions, _, err := NewRevisionService(tx).GetEntityHistory("venue", venue.ID, 10, 0, viewerPublic)
 	s.Require().Error(err, "the history query itself fails on a poisoned tx")
 	s.Empty(revisions)
 
@@ -981,7 +989,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_NilDBFai
 	raw := json.RawMessage(`[{"field":"address","old_value":"1 Old St","new_value":"1234 Secret St"}]`)
 	revisions := []adminm.Revision{{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: &raw}}
 
-	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions)
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerPublic)
 
 	s.NotContains(string(*revisions[0].FieldChanges), secretAddress)
 	s.NotContains(string(*revisions[0].FieldChanges), "1 Old St")
@@ -993,7 +1001,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesVerifie
 
 	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
 
-	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
 	s.assertPublishableVenueRevision(revisions[0])
@@ -1006,7 +1014,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MissingVenueF
 
 	s.Require().NoError(s.svc.RecordRevision("venue", 987654, user.ID, addressChanges(), leakySummary))
 
-	revisions, _, err := s.svc.GetEntityHistory("venue", 987654, 10, 0)
+	revisions, _, err := s.svc.GetEntityHistory("venue", 987654, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
 	s.assertGatedVenueRevision(revisions[0])
@@ -1026,7 +1034,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_LeavesNonVenu
 	var stored adminm.Revision
 	s.Require().NoError(s.db.Where("entity_type = ?", "artist").First(&stored).Error)
 
-	revisions, _, err := s.svc.GetEntityHistory("artist", 31, 10, 0)
+	revisions, _, err := s.svc.GetEntityHistory("artist", 31, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
 	s.JSONEq(string(*stored.FieldChanges), string(*revisions[0].FieldChanges))
@@ -1053,7 +1061,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_WithholdsSumm
 
 	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, nameOnlyChanges(), leakySummary))
 
-	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
 
@@ -1074,7 +1082,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_Withhold
 		{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: nil, Summary: &summary},
 	}
 
-	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions)
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerPublic)
 
 	s.Nil(revisions[0].Summary)
 	s.Equal(leakySummary, summary, "the pointed-to string must not be overwritten in place")
@@ -1089,7 +1097,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_RedactsUnverifiedV
 	var stored adminm.Revision
 	s.Require().NoError(s.db.First(&stored).Error)
 
-	revision, err := s.svc.GetRevision(stored.ID)
+	revision, err := s.svc.GetRevision(stored.ID, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().NotNil(revision)
 	s.assertGatedVenueRevision(*revision)
@@ -1103,7 +1111,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_RedactsUnveri
 	s.Require().NoError(s.svc.RecordRevision("venue", unverified.ID, user.ID, addressChanges(), leakySummary))
 	s.Require().NoError(s.svc.RecordRevision("venue", verified.ID, user.ID, addressChanges(), leakySummary))
 
-	revisions, _, err := s.svc.GetUserRevisions(user.ID, 10, 0)
+	revisions, _, err := s.svc.GetUserRevisions(user.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 2)
 
@@ -1159,7 +1167,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverif
 
 	s.Require().NoError(s.svc.RecordRevision("venue", loser.ID, user.ID, addressChanges(), leakySummary))
 
-	before, _, err := s.svc.GetEntityHistory("venue", loser.ID, 10, 0)
+	before, _, err := s.svc.GetEntityHistory("venue", loser.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(before, 1)
 	s.assertGatedVenueRevision(before[0])
@@ -1172,7 +1180,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverif
 	s.Require().Equal(canonical.ID, moved.EntityID, "precondition: the revision was re-pointed")
 	s.Require().True(moved.FromUnverifiedVenue, "precondition: the merge marked it")
 
-	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0)
+	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(after, 1)
 	s.assertGatedVenueRevision(after[0])
@@ -1180,7 +1188,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedUnverif
 	// GetRevision too, not because the routes are separately wired (three
 	// pre-existing tests cover that) but because it redacts a COPY that still
 	// shares its FieldChanges pointer with the stored row.
-	single, err := s.svc.GetRevision(moved.ID)
+	single, err := s.svc.GetRevision(moved.ID, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().NotNil(single)
 	s.assertGatedVenueRevision(*single)
@@ -1208,7 +1216,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MergedVerifie
 	s.Require().Equal(canonical.ID, moved.EntityID)
 	s.False(moved.FromUnverifiedVenue)
 
-	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0)
+	after, _, err := s.svc.GetEntityHistory("venue", canonical.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(after, 1)
 	s.assertPublishableVenueRevision(after[0])
@@ -1227,7 +1235,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_MarkedRo
 	s.Require().NoError(s.db.First(&stored).Error)
 	s.markFromUnverifiedVenue(stored.ID)
 
-	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 1)
 	s.assertGatedVenueRevision(revisions[0])
@@ -1253,7 +1261,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MarkerIsPerRo
 	s.Require().Len(stored, 2)
 	s.markFromUnverifiedVenue(stored[0].ID)
 
-	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0)
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerPublic)
 	s.Require().NoError(err)
 	s.Require().Len(revisions, 2)
 
@@ -1263,4 +1271,125 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MarkerIsPerRo
 	}
 	s.assertGatedVenueRevision(byID[stored[0].ID])
 	s.assertPublishableVenueRevision(byID[stored[1].ID])
+}
+
+// =============================================================================
+// THE ADMIN TIER (PSY-1717)
+// =============================================================================
+//
+// PSY-1700 masked unverified-venue history for every caller, matching the
+// tier-less live payload gate. That left an admin reading `address: (hidden)`
+// in the History panel while the Rollback button beside it restored the real
+// stored value — the moderation UI hiding what the moderation action used.
+//
+// Each test below is the exact counterpart of a viewerPublic test above that
+// must keep failing closed, so the pair states the divergence rather than
+// leaving it to a comment.
+//
+// They assert through assertPublishableVenueRevision, the same helper the
+// verified-venue cases use, which pins the property precisely: an admin's view
+// of a gated venue is the view everyone gets of a verified one. The tier reveals
+// nothing beyond what verification would, and withholds nothing from an admin.
+//
+// The third tier of the acceptance criterion — an authenticated NON-admin is
+// treated as the public — cannot be asserted here. This service sits below the
+// auth boundary and sees one bool; which callers resolve to it is pinned in
+// handlers/admin/revision_test.go and end-to-end over real JWTs in
+// routes/revision_viewer_tier_test.go.
+
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesUnverifiedVenueAddressToAdmin() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Unverified Room")
+	s.Require().False(venue.Verified)
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
+
+	revisions, total, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerAdmin)
+	s.Require().NoError(err)
+	s.Equal(int64(1), total)
+	s.Require().Len(revisions, 1)
+	s.assertPublishableVenueRevision(revisions[0])
+	s.Equal(leakySummary, *revisions[0].Summary,
+		"the prose rides the same verdict, so the admin tier restores it too")
+}
+
+func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_ServesUnverifiedVenueAddressToAdmin() {
+	user := s.createTestUser()
+	venue := s.createTestVenue("Unverified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
+
+	var stored adminm.Revision
+	s.Require().NoError(s.db.First(&stored).Error)
+
+	revision, err := s.svc.GetRevision(stored.ID, viewerAdmin)
+	s.Require().NoError(err)
+	s.Require().NotNil(revision)
+	s.assertPublishableVenueRevision(*revision)
+}
+
+// The tier is per CALLER, not per author: the page belongs to the contributor
+// who made the edits, and it is the admin READING it who gets the unmasked view.
+func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_ServesUnverifiedVenueAddressToAdmin() {
+	user := s.createTestUser()
+	unverified := s.createTestVenue("Unverified Room")
+	verified := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", unverified.ID, user.ID, addressChanges(), leakySummary))
+	s.Require().NoError(s.svc.RecordRevision("venue", verified.ID, user.ID, addressChanges(), leakySummary))
+
+	revisions, _, err := s.svc.GetUserRevisions(user.ID, 10, 0, viewerAdmin)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 2)
+
+	// Both rows publish for an admin, where viewerPublic splits this same page
+	// down the middle (TestGetUserRevisions_RedactsUnverifiedVenueAddress).
+	byEntity := s.byEntity(revisions)
+	s.assertPublishableVenueRevision(byEntity[unverified.ID])
+	s.assertPublishableVenueRevision(byEntity[verified.ID])
+}
+
+// The merge marker rides the same verdict as the venue lookup, so the admin tier
+// has to clear it too. Otherwise a merged-away DIY room's history stays masked
+// for the one caller who can roll it back — the original defect surviving on
+// exactly the rows a merge makes hardest to reason about.
+func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_AdminSeesMergeStampedRow() {
+	user := s.createTestUser()
+	venue := s.createVerifiedTestVenue("Verified Room")
+
+	s.Require().NoError(s.svc.RecordRevision("venue", venue.ID, user.ID, addressChanges(), leakySummary))
+
+	var stored adminm.Revision
+	s.Require().NoError(s.db.First(&stored).Error)
+	s.markFromUnverifiedVenue(stored.ID)
+
+	// Same row, both tiers, so the marker is proved live rather than assumed.
+	masked, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerPublic)
+	s.Require().NoError(err)
+	s.Require().Len(masked, 1)
+	s.assertGatedVenueRevision(masked[0])
+
+	revisions, _, err := s.svc.GetEntityHistory("venue", venue.ID, 10, 0, viewerAdmin)
+	s.Require().NoError(err)
+	s.Require().Len(revisions, 1)
+	s.assertPublishableVenueRevision(revisions[0])
+}
+
+// The admin tier must not depend on the verified-venue lookup, which fails
+// CLOSED. Applied after it, a nil db or a poisoned transaction would mask an
+// admin into the view the Rollback button contradicts — the exact defect
+// PSY-1717 fixes, reappearing only when the database is already unhappy. A nil
+// db is the strongest available statement of "no lookup happened".
+func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_AdminTierDoesNotNeedTheLookup() {
+	raw := json.RawMessage(`[{"field":"address","old_value":"1 Old St","new_value":"1234 Secret St"}]`)
+	summary := leakySummary
+	revisions := []adminm.Revision{
+		{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: &raw, Summary: &summary},
+	}
+
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerAdmin)
+
+	s.Contains(string(*revisions[0].FieldChanges), secretAddress)
+	s.Require().NotNil(revisions[0].Summary)
+	s.Equal(leakySummary, *revisions[0].Summary)
 }

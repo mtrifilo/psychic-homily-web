@@ -38,13 +38,20 @@
 //
 // # Privacy: what revision history may publish
 //
-// Revision history is read through ANONYMOUS endpoints
+// Revision history is read through PUBLIC endpoints
 // (GET /revisions/{entity_type}/{entity_id}, GET /revisions/{revision_id},
 // GET /users/{user_id}/revisions), so anything Compare records about an entity
 // is world-readable for the life of the row. A field that the live entity
 // payload withholds must therefore be withheld here too, or the gate on the
 // live payload is decorative: edit the field once and the value is published in
 // the history instead.
+//
+// Those endpoints are optionally authenticated rather than strictly anonymous:
+// they never require a credential, but they read one when it is offered, so an
+// admin is served the unmasked view (PSY-1717). Caller tier is where this policy
+// diverges from the live payload gate, which has none; privacy.go states the
+// divergence in full. Everything below describes the PUBLIC tier — the view an
+// anonymous or non-admin caller gets, which is unchanged by it.
 //
 // One such field family exists today. catalog.Venue.PublicAddress /
 // PublicZipcode withhold an unverified venue's street address and zipcode,
@@ -88,7 +95,7 @@
 // # Privacy: the revision summary
 //
 // revisions.summary is contributor-authored free text served beside the diff on
-// the same anonymous routes, so the natural summary for an address correction
+// the same public routes, so the natural summary for an address correction
 // contains the address the diff beside it masks. On the trusted-tier auto-apply
 // path no reviewer ever reads it before it is published. No field-name rule can
 // reach prose.
@@ -127,6 +134,12 @@
 // rejected or private, while GET /revisions/show/{id} still publishes every
 // recorded field, and its summary. Unpublishing a show hides the show but not
 // its history.
+//
+// One prerequisite for closing it already landed: the three read routes now sit
+// on an optional-auth group (PSY-1717, routes/revisions.go), so a show gate that
+// needs to know WHO is asking — an admin, or the show's own submitter, which is
+// what GET /shows/{id} keys on — can read the caller without changing the
+// routing first.
 //
 // Closing it has to carry all three of the mechanisms above, because a show
 // equivalent that copies only one of them reopens a hole that is already shut:

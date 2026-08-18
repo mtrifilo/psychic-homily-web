@@ -56,7 +56,7 @@ func TestRevisionHandler_GetEntityHistory_Success(t *testing.T) {
 	rev := makeTestRevision(1)
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int, _ bool) ([]adminm.Revision, int64, error) {
 				if entityType != "artist" || entityID != 10 {
 					t.Errorf("unexpected params: type=%s, id=%d", entityType, entityID)
 				}
@@ -125,7 +125,7 @@ func TestRevisionHandler_GetEntityHistory_CreatedAtIsUTC(t *testing.T) {
 
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int, _ bool) ([]adminm.Revision, int64, error) {
 				return []adminm.Revision{rev}, 1, nil
 			},
 		},
@@ -173,7 +173,7 @@ func TestRevisionHandler_GetEntityHistory_InvalidEntityID(t *testing.T) {
 func TestRevisionHandler_GetEntityHistory_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int, _ bool) ([]adminm.Revision, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -191,7 +191,7 @@ func TestRevisionHandler_GetEntityHistory_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int, _ bool) ([]adminm.Revision, int64, error) {
 				receivedLimit = limit
 				return nil, 0, nil
 			},
@@ -238,7 +238,7 @@ func TestRevisionHandler_GetRevision_Success(t *testing.T) {
 	rev := makeTestRevision(42)
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetRevisionFn: func(revisionID uint) (*adminm.Revision, error) {
+			GetRevisionFn: func(revisionID uint, _ bool) (*adminm.Revision, error) {
 				if revisionID != 42 {
 					t.Errorf("expected revisionID=42, got %d", revisionID)
 				}
@@ -263,7 +263,7 @@ func TestRevisionHandler_GetRevision_Success(t *testing.T) {
 func TestRevisionHandler_GetRevision_NotFound(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetRevisionFn: func(revisionID uint) (*adminm.Revision, error) {
+			GetRevisionFn: func(revisionID uint, _ bool) (*adminm.Revision, error) {
 				return nil, nil // not found
 			},
 		},
@@ -284,7 +284,7 @@ func TestRevisionHandler_GetRevision_InvalidID(t *testing.T) {
 func TestRevisionHandler_GetRevision_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetRevisionFn: func(revisionID uint) (*adminm.Revision, error) {
+			GetRevisionFn: func(revisionID uint, _ bool) (*adminm.Revision, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
@@ -303,7 +303,7 @@ func TestRevisionHandler_GetUserRevisions_Success(t *testing.T) {
 	rev := makeTestRevision(1)
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+			GetUserRevisionsFn: func(userID uint, limit, offset int, _ bool) ([]adminm.Revision, int64, error) {
 				if userID != 5 {
 					t.Errorf("expected userID=5, got %d", userID)
 				}
@@ -335,7 +335,7 @@ func TestRevisionHandler_GetUserRevisions_InvalidUserID(t *testing.T) {
 func TestRevisionHandler_GetUserRevisions_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+			GetUserRevisionsFn: func(userID uint, limit, offset int, _ bool) ([]adminm.Revision, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -350,7 +350,7 @@ func TestRevisionHandler_GetUserRevisions_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+			GetUserRevisionsFn: func(userID uint, limit, offset int, _ bool) ([]adminm.Revision, int64, error) {
 				receivedLimit = limit
 				return nil, 0, nil
 			},
@@ -619,5 +619,134 @@ func TestMapRevisionToResponse_EmptyUsernameTreatedAsUnset(t *testing.T) {
 	}
 	if item.UserUsername != nil {
 		t.Errorf("expected user_username=nil when username is empty string, got %v", *item.UserUsername)
+	}
+}
+
+// ============================================================================
+// Tests: viewer tier (PSY-1717)
+// ============================================================================
+//
+// The three read routes serve an unverified venue's address history to an admin
+// and mask it for everyone else. The masking itself lives in the service; what
+// these tests pin is the half the service cannot see — WHICH CALLER resolves to
+// which tier — because from below the auth boundary an anonymous request and an
+// authenticated contributor are the same single false.
+//
+// Every case asserts the bool the handler actually passed down, not the response
+// body, so a regression that stopped forwarding the tier fails here rather than
+// only in an end-to-end test that has to seed a venue to notice.
+
+type revisionViewerTierCase struct {
+	name string
+	ctx  context.Context
+	want bool
+}
+
+// revisionViewerTierCases covers the contexts these handlers must classify.
+// Exactly one is the admin tier; the rest are the public one.
+//
+// The first two and the last are the shapes OptionalHumaJWTMiddleware actually
+// produces today. The typed-nil row is NOT one of them and is not a live request
+// shape — see its own note.
+var revisionViewerTierCases = []revisionViewerTierCase{
+	// No credential at all: the middleware calls next(ctx) untouched, so
+	// nothing is stored under the user key. This is the common case — these
+	// routes are public and most reads of them are anonymous. It also stands in
+	// for every credential the middleware REJECTS (bad signature, expired,
+	// inactive user, bad API token), all of which fall through to this same
+	// no-user context; the end-to-end coverage for those is in
+	// routes/revision_viewer_tier_test.go, over real tokens.
+	{"anonymous", context.Background(), false},
+	// A valid session for an ordinary contributor. Authenticated is NOT admin,
+	// and this is the case a check written as a bare nil test would wrongly
+	// promote.
+	{"authenticated non-admin", testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: false}), false},
+	// A TYPED nil under the user key: GetUserFromContext's type assertion
+	// succeeds on it and returns a nil pointer, so the `user != nil` half of
+	// revisionViewerIsAdmin is the only thing between it and a dereference.
+	//
+	// No production path produces this. Every writer of UserContextKey stores a
+	// user obtained from a validated credential, and neither validator can
+	// return (nil, nil). It is here as a guard on the CHECK, not a claim about
+	// the middleware: a later refactor that stores a *authm.User unconditionally
+	// would make it reachable, and this row is what fails at that moment instead
+	// of a nil dereference in a handler.
+	{"user key present but nil", testhelpers.CtxWithUser(nil), false},
+	{"authenticated admin", revisionAdminCtx(), true},
+}
+
+func TestRevisionHandler_GetEntityHistory_PassesViewerTier(t *testing.T) {
+	for _, tc := range revisionViewerTierCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			h := NewRevisionHandler(
+				&testhelpers.MockRevisionService{
+					GetEntityHistoryFn: func(_ string, _ uint, _, _ int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
+						got = viewerIsAdmin
+						return nil, 0, nil
+					},
+				},
+				nil,
+			)
+
+			if _, err := h.GetEntityHistoryHandler(tc.ctx, &GetEntityHistoryRequest{
+				EntityType: "venue",
+				EntityID:   "10",
+			}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("viewerIsAdmin = %t, want %t for a %s caller", got, tc.want, tc.name)
+			}
+		})
+	}
+}
+
+func TestRevisionHandler_GetRevision_PassesViewerTier(t *testing.T) {
+	for _, tc := range revisionViewerTierCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			rev := makeTestRevision(1)
+			h := NewRevisionHandler(
+				&testhelpers.MockRevisionService{
+					GetRevisionFn: func(_ uint, viewerIsAdmin bool) (*adminm.Revision, error) {
+						got = viewerIsAdmin
+						return &rev, nil
+					},
+				},
+				nil,
+			)
+
+			if _, err := h.GetRevisionHandler(tc.ctx, &GetRevisionRequest{RevisionID: "1"}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("viewerIsAdmin = %t, want %t for a %s caller", got, tc.want, tc.name)
+			}
+		})
+	}
+}
+
+func TestRevisionHandler_GetUserRevisions_PassesViewerTier(t *testing.T) {
+	for _, tc := range revisionViewerTierCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			h := NewRevisionHandler(
+				&testhelpers.MockRevisionService{
+					GetUserRevisionsFn: func(_ uint, _, _ int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
+						got = viewerIsAdmin
+						return nil, 0, nil
+					},
+				},
+				nil,
+			)
+
+			if _, err := h.GetUserRevisionsHandler(tc.ctx, &GetUserRevisionsRequest{UserID: "5"}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("viewerIsAdmin = %t, want %t for a %s caller", got, tc.want, tc.name)
+			}
+		})
 	}
 }
