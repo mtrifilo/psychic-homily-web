@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { VenueShow, VenueShowYearCount } from '../types'
+import { installImmediateResizeObserver } from '@/test/mocks/resizeObserver'
+import type {
+  VenueShow,
+  VenueShowMonthCount,
+  VenueShowYearCount,
+} from '../types'
 import type { TimeFilter } from '../hooks/useVenues'
 
 // ── Query stubs ────────────────────────────────────────────────────────────
@@ -14,12 +19,22 @@ const upcomingResult = {
   isFetching: false,
   isPlaceholderData: false,
   isError: false,
+  isSuccess: true,
   dataUpdatedAt: 1,
   error: null as Error | null,
 }
 const pastResult = { ...upcomingResult }
 const yearsResult = {
   data: undefined as { years: VenueShowYearCount[] } | undefined,
+  isSuccess: false,
+  isPending: false,
+  isError: false,
+}
+// The month histogram the pager labels its page links from (PSY-1769). Separate
+// from the year histogram because it answers a different question: years say
+// which pages exist, months say what is behind each one.
+const monthsResult = {
+  data: undefined as { months: VenueShowMonthCount[] } | undefined,
   isSuccess: false,
   isPending: false,
   isError: false,
@@ -34,6 +49,13 @@ const pastRequests: Array<{
   limit?: number
   enabled?: boolean
 }> = []
+
+/**
+ * Whether the month histogram was actually asked for. It is gated on the pager
+ * existing at all (PSY-1769), and a gate is invisible in the rendered output —
+ * the labels are absent either way.
+ */
+const monthsRequests: Array<{ enabled?: boolean }> = []
 
 vi.mock('../hooks/useVenues', () => ({
   useVenueShows: ({
@@ -54,6 +76,10 @@ vi.mock('../hooks/useVenues', () => ({
     return pastResult
   },
   useVenueShowYears: () => yearsResult,
+  useVenueShowMonths: ({ enabled }: { enabled?: boolean }) => {
+    monthsRequests.push({ enabled })
+    return monthsResult
+  },
 }))
 
 // nuqs throws without a NuqsAdapter, and the adapter would need a real router.
@@ -167,6 +193,7 @@ function applyState(
   target.isPlaceholderData = opts?.isPlaceholderData ?? false
   target.error = opts?.error ?? null
   target.isError = Boolean(opts?.error)
+  target.isSuccess = data !== null && !opts?.isPending && !opts?.error
   target.dataUpdatedAt = data ? 1 : 0
 }
 
@@ -185,6 +212,13 @@ function setYears(years: VenueShowYearCount[] | null) {
   yearsResult.isSuccess = years !== null
   yearsResult.isPending = years === null
   yearsResult.isError = false
+}
+
+function setMonths(months: VenueShowMonthCount[] | null) {
+  monthsResult.data = months ? { months } : undefined
+  monthsResult.isSuccess = months !== null
+  monthsResult.isPending = months === null
+  monthsResult.isError = false
 }
 
 function renderList(overrides?: Partial<Parameters<typeof VenueShowsList>[0]>) {
@@ -226,6 +260,19 @@ function renderArchive(
   )
 }
 
+/**
+ * Let a pending animation frame run.
+ *
+ * The archive's re-align window coalesces its scrolls through one
+ * `requestAnimationFrame` so a burst of resizes costs one forced layout rather
+ * than one each — which means a resize fired in a test has not done anything yet
+ * when `fireResize` returns.
+ */
+const flushFrame = () =>
+  act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 32))
+  })
+
 /** The past section's `<section>`, scoped so upcoming rows never leak in. */
 const pastSection = () =>
   within(document.getElementById('venue-past-shows') as HTMLElement)
@@ -234,8 +281,10 @@ beforeEach(() => {
   setUpcoming(null, { isPending: true })
   setPast(null, { isPending: true })
   setYears(null)
+  setMonths(null)
   mockAuthIsAuthenticated.value = false
   pastRequests.length = 0
+  monthsRequests.length = 0
   queryPage = 1
 })
 
@@ -639,6 +688,52 @@ describe('VenuePastShows — year and page state', () => {
     }
   })
 
+  // PSY-1769. The upcoming list above this section and (on mobile) the whole
+  // sidebar resolve after the archive does, pushing it down again — so landing
+  // on it once is landing on it before most of the page exists.
+  it('re-aligns the archive while the page above it is still settling', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScroll = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    const resizeObserver = installImmediateResizeObserver()
+    window.location.hash = '#venue-past-shows'
+    try {
+      renderList()
+      await flushFrame()
+      const afterLanding = scrollIntoView.mock.calls.length
+      resizeObserver.fireResize(1024)
+      await flushFrame()
+      expect(scrollIntoView.mock.calls.length).toBeGreaterThan(afterLanding)
+    } finally {
+      resizeObserver.restore()
+      Element.prototype.scrollIntoView = originalScroll
+      window.location.hash = ''
+    }
+  })
+
+  // The restraint that makes the above safe: re-aligning a page the reader has
+  // started moving is the worse failure, and is why this used to be a one-shot.
+  it('stops re-aligning the moment the reader takes over the scroll', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScroll = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    const resizeObserver = installImmediateResizeObserver()
+    window.location.hash = '#venue-past-shows'
+    try {
+      renderList()
+      fireEvent.wheel(window)
+      await flushFrame()
+      const afterHandOver = scrollIntoView.mock.calls.length
+      resizeObserver.fireResize(1024)
+      await flushFrame()
+      expect(scrollIntoView).toHaveBeenCalledTimes(afterHandOver)
+    } finally {
+      resizeObserver.restore()
+      Element.prototype.scrollIntoView = originalScroll
+      window.location.hash = ''
+    }
+  })
+
   it('leaves the scroll position alone without our fragment', () => {
     const scrollIntoView = vi.fn()
     const original = Element.prototype.scrollIntoView
@@ -651,6 +746,153 @@ describe('VenuePastShows — year and page state', () => {
       Element.prototype.scrollIntoView = original
       window.location.hash = ''
     }
+  })
+
+  // PSY-1769. Before the month histogram, a label could only be derived from a
+  // page's own rows, so pages the reader had not visited rendered bare numerals
+  // — which is most of the strip on first paint.
+  it('labels every page in the strip, including ones never fetched', () => {
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    setMonths([
+      // A month outside the active year, first in the list: an unfiltered walk
+      // would start page 1 here and shift every label in the strip.
+      { year: 2026, month: 3, count: 34 },
+      { year: 2025, month: 12, count: 30 },
+      { year: 2025, month: 11, count: 30 },
+      { year: 2025, month: 10, count: 30 },
+      { year: 2025, month: 9, count: 30 },
+      { year: 2025, month: 8, count: 30 },
+      { year: 2025, month: 7, count: 11 },
+    ])
+    renderArchive(2025)
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    for (const name of [
+      'Page 1, Nov–Dec',
+      'Page 2, Sep–Nov',
+      'Page 3, Aug–Sep',
+      'Page 4, Jul',
+    ]) {
+      expect(within(pager).getByRole('link', { name })).toBeInTheDocument()
+    }
+  })
+
+  // The all-years pager has no year in context — the strip above it has nothing
+  // selected — so a label that elided the year would give two pages years apart
+  // the same accessible name.
+  it('keeps the year on every label of the all-years pager', () => {
+    setYears([
+      { year: 2025, count: 60 },
+      { year: 2024, count: 40 },
+    ])
+    setPast({ shows: [makeShow({ id: 5 })], total: 100 })
+    setMonths([
+      { year: 2025, month: 1, count: 60 },
+      { year: 2024, month: 12, count: 40 },
+    ])
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(
+      within(pager).getByRole('link', { name: 'Page 1, Jan 2025' })
+    ).toBeInTheDocument()
+    expect(
+      within(pager).getByRole('link', { name: 'Page 2, Dec 2024–Jan 2025' })
+    ).toBeInTheDocument()
+  })
+
+  it('distinguishes two same-month pages years apart in the VISIBLE strip', () => {
+    setYears([
+      { year: 2025, count: 50 },
+      { year: 2023, count: 50 },
+    ])
+    setPast({ shows: [makeShow({ id: 5 })], total: 100 })
+    // The same month, two years apart — indistinguishable if the year is elided.
+    setMonths([
+      { year: 2025, month: 8, count: 50 },
+      { year: 2023, month: 8, count: 50 },
+    ])
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    // The rendered text, not the accessible name: the name is always prefixed
+    // "Page N" and so can never collide. It is the strip a sighted reader
+    // chooses from that would show "Aug" twice.
+    const visible = within(pager)
+      .getAllByRole('link')
+      .map(link => link.textContent ?? '')
+      .filter(text => /Aug/.test(text))
+    expect(visible).toHaveLength(2)
+    expect(new Set(visible).size).toBe(2)
+  })
+
+  // A failed histogram must not strip the label from EVERY page link — the
+  // shape this replaced always labelled at least the page being read, and below
+  // `sm` the pager renders no page links at all, so the current page's label is
+  // the only one there is.
+  it('falls back to the rows on screen when the histogram fails', () => {
+    queryPage = 2
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    setMonths(null)
+    monthsResult.isError = true
+    renderArchive(2025)
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    // makeShow's fixture date is June 2025, read on the venue's calendar.
+    expect(
+      within(pager).getByRole('link', { name: 'Page 2, Jun' })
+    ).toBeInTheDocument()
+    // ...and the pages it cannot know about stay bare rather than guessing.
+    expect(
+      within(pager).getByRole('link', { name: 'Page 3' })
+    ).toBeInTheDocument()
+  })
+
+  it('does not ask for the histogram when there is no pager to label', () => {
+    // A venue with no past shows at all. The counts POSITIVELY say so, which is
+    // the distinction the gate turns on — "none" and "not counted yet" are the
+    // same `totalPages` and must not be the same decision.
+    setPast({ shows: [], total: 0 })
+    setYears([])
+    renderList()
+    expect(monthsRequests.every(request => request.enabled === false)).toBe(true)
+
+    // And a real archive that still fits on one page, so no pager renders.
+    monthsRequests.length = 0
+    setPast({ shows: [makeShow({ id: 5 })], total: 3 })
+    setYears([{ year: 2025, count: 3 }])
+    renderList()
+    expect(monthsRequests.length).toBeGreaterThan(0)
+    expect(monthsRequests.every(request => request.enabled === false)).toBe(true)
+
+    // ...and it IS asked for once there is a pager to label.
+    monthsRequests.length = 0
+    setPast({ shows: [makeShow({ id: 5 })], total: 253 })
+    setYears(threeYears)
+    renderList()
+    expect(monthsRequests.some(request => request.enabled === true)).toBe(true)
+  })
+
+  it('waits for a count before asking, when the server seed did not arrive', () => {
+    // During a backend incident `getArchiveYears` times out and seeds nothing.
+    // Asking anyway would answer a struggling backend with an unindexed
+    // full-history aggregate from every venue page at once.
+    setYears(null)
+    setPast(null, { isPending: true })
+    renderList()
+    expect(monthsRequests.every(request => request.enabled === false)).toBe(true)
+
+    // Once the rows themselves show there is more than one page, it asks.
+    monthsRequests.length = 0
+    setPast({ shows: [makeShow({ id: 5 })], total: 253 })
+    renderList()
+    expect(monthsRequests.some(request => request.enabled === true)).toBe(true)
+  })
+
+  it('falls back to bare numerals while the histogram is still loading', () => {
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    setMonths(null)
+    renderArchive(2025)
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(
+      within(pager).getByRole('link', { name: 'Page 3' })
+    ).toBeInTheDocument()
   })
 
   it('moves focus to the past-shows heading on a client-side page change', () => {

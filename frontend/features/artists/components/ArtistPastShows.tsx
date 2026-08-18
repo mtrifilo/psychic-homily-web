@@ -195,14 +195,18 @@ export function ArtistPastShows({
   // Month-range page labels: what is behind a page number, before the reader
   // spends a click on it (the Gazelle `451-500` label, on the time axis).
   //
-  // A span can only be computed from a page's own rows, so a page can only be
-  // labelled once it has been fetched: the current page from `rows`, its
-  // neighbours from whatever the query cache still holds. Pages the reader has
-  // visited keep their label; the rest render as bare numerals, which is what
-  // `Pagination` does with a missing entry. Labelling every page on first paint
-  // would mean either a per-month histogram the API does not serve, or
-  // prefetching six more 50-row pages on every artist load — too much for a
-  // label. Bounded at seven lookups, because that is all the pager can render.
+  // Derived from ROWS, so a page can only be labelled once it has been fetched:
+  // the current page from `rows`, its neighbours from whatever the query cache
+  // still holds. Pages the reader has visited keep their label; the rest render
+  // as bare numerals, which is what `Pagination` does with a missing entry.
+  // Bounded at seven lookups, because that is all the pager can render.
+  //
+  // THIS IS THE SUPERSEDED SHAPE. PSY-1769 replaced it on the venue archive with
+  // a month histogram (`GET /venues/{id}/shows/months` +
+  // `monthRangeLabelsByPage`), which labels every page on first paint from
+  // cumulative counts instead of from fetched rows. The venue endpoint exists;
+  // `/artists/{id}/shows/months` does not yet, and that is the only thing
+  // blocking the same treatment here.
   //
   // A WRONG label is worse than a missing one (the pager announces it and never
   // corrects), so the current page contributes nothing until its own rows land.
@@ -223,7 +227,15 @@ export function ArtistPastShows({
             )
           )?.shows ?? []
       }
-      const label = monthRangeLabel(pageRows, artistShowZone)
+      // The year may only be left out when the pager is already scoped to one
+      // (PSY-1769). On the unfiltered archive two pages a few years apart would
+      // otherwise render the identical visible label, leaving a reader choosing
+      // between them with only the page number.
+      const label = monthRangeLabel(
+        pageRows,
+        artistShowZone,
+        activeYear === null ? 'all-years' : 'one-year'
+      )
       if (label) labels[item] = label
     }
     return labels

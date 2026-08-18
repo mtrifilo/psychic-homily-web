@@ -13,9 +13,18 @@ vi.mock('nuqs', () => ({
 
 const mockUseVenueShows = vi.fn()
 const mockUseVenueShowYears = vi.fn()
+// The month histogram behind the pager's range labels (PSY-1769). A bare
+// no-data result: these tests are about the two pagers, not the labels.
+const mockUseVenueShowMonths = vi.fn(() => ({
+  data: undefined,
+  isSuccess: false,
+  isPending: false,
+  isError: false,
+}))
 vi.mock('../hooks/useVenues', () => ({
   useVenueShows: (options: unknown) => mockUseVenueShows(options),
   useVenueShowYears: (options: unknown) => mockUseVenueShowYears(options),
+  useVenueShowMonths: () => mockUseVenueShowMonths(),
 }))
 
 // The table has its own suite; stub it to a row-count marker so this one is

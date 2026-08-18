@@ -141,9 +141,10 @@ describe('VenueYearArchiveContent — the page-1 read', () => {
     await renderArchive({ page })
 
     expect(rowReads()).toHaveLength(0)
-    // The venue and the histogram are still read — the archive still renders,
-    // it just does not seed rows the client would refuse.
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // The venue and both histograms (years, and months for the pager's range
+    // labels, PSY-1769) are still read — the archive still renders, it just
+    // does not seed rows the client would refuse.
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   /**

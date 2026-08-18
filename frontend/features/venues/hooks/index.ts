@@ -4,6 +4,7 @@ export {
   type TimeFilter,
   useVenueShows,
   useVenueShowYears,
+  useVenueShowMonths,
   useVenueCities,
   useVenueGenres,
   useVenueBillNetwork,

@@ -14,6 +14,8 @@ export type {
   VenueShowZone,
   VenueShowYearCount,
   VenueShowYearsResponse,
+  VenueShowMonthCount,
+  VenueShowMonthsResponse,
   VenueCity,
   VenueCitiesResponse,
   VenueEditRequest,
@@ -32,6 +34,7 @@ export {
   type TimeFilter,
   useVenueShows,
   useVenueShowYears,
+  useVenueShowMonths,
   useVenueCities,
   useVenueGenres,
 } from './hooks'

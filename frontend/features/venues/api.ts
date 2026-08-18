@@ -24,6 +24,11 @@ export const venueEndpoints = {
   // range the frontend invents.
   SHOW_YEARS: (venueIdOrSlug: string | number) =>
     `${API_BASE_URL}/venues/${venueIdOrSlug}/shows/years`,
+  // PSY-1769: the same histogram at month resolution, for the past-shows pager's
+  // range labels. Counts alone place every page's month span, so each page link
+  // can say what is behind it without that page's rows ever being fetched.
+  SHOW_MONTHS: (venueIdOrSlug: string | number) =>
+    `${API_BASE_URL}/venues/${venueIdOrSlug}/shows/months`,
   GENRES: (venueIdOrSlug: string | number) => `${API_BASE_URL}/venues/${venueIdOrSlug}/genres`,
   // PSY-365: venue-rooted co-bill graph endpoint.
   BILL_NETWORK: (venueIdOrSlug: string | number) =>
@@ -167,6 +172,25 @@ export const venueQueryKeys = {
     timeFilter: VenueShowsTimeFilter,
   ) =>
     [...venueQueryKeys.shows(venueIdOrSlug), 'years', timeFilter] as const,
+  /**
+   * The month histogram behind the past-shows pager's range labels (PSY-1769).
+   *
+   * Same prefix and the same reasoning as `showYears`: labels that outlived
+   * their rows would name months the pages no longer cover, so both are cleared
+   * by any invalidation that clears the rows. `'months'` cannot collide with a
+   * `showsPage()` key for the same reason `'years'` cannot — that slot only ever
+   * holds a `VenueShowsTimeFilter`.
+   *
+   * NOT keyed on the active year: the histogram spans every year, and the
+   * year-scoped views slice it client-side. One entry per venue therefore serves
+   * every year the reader visits, and switching years cannot leave the pager
+   * briefly labelled from the year they just left.
+   */
+  showMonths: (
+    venueIdOrSlug: string | number,
+    timeFilter: VenueShowsTimeFilter,
+  ) =>
+    [...venueQueryKeys.shows(venueIdOrSlug), 'months', timeFilter] as const,
   genres: (venueIdOrSlug: string | number) => ['venues', 'genres', String(venueIdOrSlug)] as const,
   // PSY-365: bill-network cache is keyed by venue + active window so
   // toggling all/12m/year cycles through cache entries instead of refetching.
@@ -188,14 +212,17 @@ export const venueQueryKeys = {
  * The exact `showsPage` parameters for one page of the venue page's PAST shows
  * archive (PSY-1753).
  *
- * The archive both ISSUES a request for the page it is on and PEEKS at the
- * cache for its neighbours (to label each page button with the months it
- * covers). Those two call sites have to agree on the key down to the
- * "sent / not sent" normalization — `showsPage` distinguishes `0` from
- * "absent", so a peek that passed `offset: 0` where the request passed
- * `undefined` would silently never find page 1. Building both from this one
- * function is what makes that class of miss impossible rather than merely
- * unlikely.
+ * The key must record what the request ACTUALLY SENT, not what the caller was
+ * handed: `showsPage` distinguishes `0` from "absent", so page 1 built with an
+ * explicit `offset: 0` hashes differently from the request that omits it, and
+ * would miss the entry the route's server-seeded `initialShows` lands on. One
+ * function for both halves is what makes that class of miss impossible rather
+ * than merely unlikely.
+ *
+ * It used to have a second reader: the archive peeked at neighbouring pages'
+ * cache entries to label each page button. That is gone (PSY-1769) — the labels
+ * come from a month histogram now — so this has one caller. The normalization is
+ * NOT dead with it; the seeding path above still depends on it exactly.
  *
  * @param page 1-based page number.
  * @param year Venue-local calendar year, or null for every year.

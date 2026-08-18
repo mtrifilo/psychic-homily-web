@@ -44,6 +44,7 @@ func TestVenueSubRoutesShareOneParameterName(t *testing.T) {
 		"/venues/{}",
 		"/venues/{}/shows",
 		"/venues/{}/shows/years",
+		"/venues/{}/shows/months",
 		"/venues/{}/genres",
 		"/venues/{}/bill-network",
 		"/venues/{}/calendar.ics",

@@ -19,6 +19,7 @@ import type {
   VenuesListResponse,
   VenueShowsResponse,
   VenueShowYearsResponse,
+  VenueShowMonthsResponse,
   VenueCitiesResponse,
   VenueGenreResponse,
   VenueBillNetworkResponse,
@@ -216,9 +217,12 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   // limit to 20 and sends it — so they get two entries.) Same rule the venues
   // list hook above states for `metroRollup`: key on what was SENT.
   //
-  // The load-bearing case is `offset`, for the same reason as the artist twin:
-  // page 1's zero offset must key as "not sent" or the past archive's cache
-  // peek never finds it.
+  // The load-bearing case is `offset`: page 1's zero offset must key as "not
+  // sent", or the key the year-archive route's server-seeded `initialShows`
+  // lands on is not the key this hook registers, and the rows silently drop out
+  // of the served HTML. (The ARTIST twin has a second reason — its archive still
+  // peeks at neighbouring pages' cache entries to label them. The venue archive
+  // does not any more; its labels come from a month histogram, PSY-1769.)
   const sentTimeFilter = timeFilter || 'upcoming'
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined
@@ -300,6 +304,56 @@ export const useVenueShowYears = (options: UseVenueShowYearsOptions) => {
     enabled:
       enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it navigates
+    initialData,
+  })
+}
+
+interface UseVenueShowMonthsOptions {
+  venueId: string | number
+  /** Which side of "today" to count. Defaults to 'past'. */
+  timeFilter?: TimeFilter
+  enabled?: boolean
+  /**
+   * The histogram the SERVER already fetched, so the pager's labels are in the
+   * HTML rather than popping in after the first client fetch (PSY-1769). Same
+   * contract as `useVenueShowYears`'s: pass it only for the arguments it was
+   * fetched under.
+   */
+  initialData?: VenueShowMonthsResponse
+}
+
+/**
+ * Venue-local calendar months that have at least one show, newest first, with
+ * per-month counts (PSY-1769).
+ *
+ * What the past-shows pager labels its page links from. Cumulative counts place
+ * every page's month span at once, so the label under page 6 is there on first
+ * paint rather than only after the reader has been to page 6.
+ *
+ * One request per venue, whatever year the reader is looking at: the histogram
+ * spans every year and the year-scoped views slice it. Twelve times the rows of
+ * the year histogram beside it, still one small row per month a venue has ever
+ * booked, and it does not change as the reader pages.
+ *
+ * Seeded server-side on the YEAR-ARCHIVE route only, where the pager really is
+ * in the served HTML and a label that arrived with a client fetch would be one a
+ * crawler never sees. The venue page renders the archive after its first client
+ * fetch, so there is no pager in its document to label and no seed worth paying
+ * a full-history aggregate for.
+ */
+export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
+  const { venueId, timeFilter = 'past', enabled = true, initialData } = options
+
+  const endpoint = `${venueEndpoints.SHOW_MONTHS(venueId)}?time_filter=${timeFilter}`
+
+  return useQuery({
+    queryKey: venueQueryKeys.showMonths(venueId, timeFilter),
+    queryFn: async (): Promise<VenueShowMonthsResponse> => {
+      return apiRequest<VenueShowMonthsResponse>(endpoint, { method: 'GET' })
+    },
+    enabled:
+      enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
+    staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it labels
     initialData,
   })
 }

@@ -11,7 +11,12 @@ import * as Sentry from '@sentry/nextjs'
 import { createBuildTimeApiSignal } from '@/lib/build-time-api'
 import { FIRST_SCREEN_FETCH_TIMEOUT_MS } from '@/lib/ssr/fetchListPayload'
 import { venueEndpoints, VENUE_PAST_SHOWS_PAGE_LIMIT } from './api'
-import type { Venue, VenueShowsResponse, VenueShowYearsResponse } from './types'
+import type {
+  Venue,
+  VenueShowMonthsResponse,
+  VenueShowsResponse,
+  VenueShowYearsResponse,
+} from './types'
 
 /**
  * How long the archive's reads stay warm.
@@ -137,6 +142,35 @@ export const getArchiveYears = cache((slug: string) =>
   readArchiveJson<VenueShowYearsResponse>(
     `${venueEndpoints.SHOW_YEARS(encodeURIComponent(slug))}?time_filter=past`,
     'venue-year-archive-years',
+    { slug },
+    FIRST_SCREEN_FETCH_TIMEOUT_MS
+  )
+)
+
+/**
+ * The venue's PAST month histogram — what the pager labels its page links from
+ * (PSY-1769).
+ *
+ * Read server-side for the same reason the year histogram is: the pager is in
+ * the served HTML on the year-archive route, and a label that only exists after
+ * a client fetch is a label a crawler never sees and a reader watches pop in.
+ * Before this the served pager carried exactly one label (page 1's, derived from
+ * the seeded rows); without a seed here the histogram version would have carried
+ * none at all, which is a regression on the one route built to render the
+ * archive server-side.
+ *
+ * Same `time_filter=past` as the years read above, and it must stay that way:
+ * counts taken under a different filter would describe a different set of rows
+ * than the pager is paging.
+ *
+ * Timed out at the first-screen budget like its siblings — labels are pager
+ * chrome, so a slow backend must degrade to "they arrive with the client fetch",
+ * never to a held-open render.
+ */
+export const getArchiveMonths = cache((slug: string) =>
+  readArchiveJson<VenueShowMonthsResponse>(
+    `${venueEndpoints.SHOW_MONTHS(encodeURIComponent(slug))}?time_filter=past`,
+    'venue-year-archive-months',
     { slug },
     FIRST_SCREEN_FETCH_TIMEOUT_MS
   )

@@ -271,6 +271,46 @@ func (s *VenueHandlerIntegrationSuite) TestGetVenueShowYears_VenueNotFound() {
 	s.Equal(404, statusErr.GetStatus())
 }
 
+// --- GetVenueShowMonthsHandler ---
+
+func (s *VenueHandlerIntegrationSuite) TestGetVenueShowMonths_ResolvesBySlugAndEchoesFilter() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Months Bar", "Phoenix", "AZ")
+	show := testhelpers.CreateFutureApprovedShow(s.deps.DB, user.ID, "Months Show", 14)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+
+	resp, err := s.handler.GetVenueShowMonthsHandler(s.deps.Ctx, &GetVenueShowMonthsRequest{
+		VenueID: fmt.Sprintf("%d", venue.ID), TimeFilter: "upcoming",
+	})
+	s.Require().NoError(err)
+	s.Equal(venue.ID, resp.Body.VenueID)
+	s.Equal("upcoming", resp.Body.TimeFilter)
+	s.Require().Len(resp.Body.Months, 1)
+	s.Equal(int64(1), resp.Body.Months[0].Count)
+	s.GreaterOrEqual(resp.Body.Months[0].Month, 1)
+	s.LessOrEqual(resp.Body.Months[0].Month, 12)
+
+	// Same default as the list and the year picker. The labels this drives sit on
+	// the pager for a specific set of rows; counted under a different filter they
+	// would name months the pager is not paging.
+	defaulted, err := s.handler.GetVenueShowMonthsHandler(s.deps.Ctx, &GetVenueShowMonthsRequest{
+		VenueID: fmt.Sprintf("%d", venue.ID),
+	})
+	s.Require().NoError(err)
+	s.Equal("upcoming", defaulted.Body.TimeFilter)
+	s.Equal(resp.Body.Months, defaulted.Body.Months)
+}
+
+func (s *VenueHandlerIntegrationSuite) TestGetVenueShowMonths_VenueNotFound() {
+	_, err := s.handler.GetVenueShowMonthsHandler(s.deps.Ctx, &GetVenueShowMonthsRequest{
+		VenueID: "no-such-venue-slug", TimeFilter: "all",
+	})
+	s.Require().Error(err)
+	var statusErr huma.StatusError
+	s.Require().ErrorAs(err, &statusErr)
+	s.Equal(404, statusErr.GetStatus())
+}
+
 // --- GetVenueCitiesHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestGetVenueCities_Success() {

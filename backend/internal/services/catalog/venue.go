@@ -1416,6 +1416,57 @@ func (s *VenueService) GetVenueShowYears(venueID uint, timeFilter string) ([]con
 	return years, nil
 }
 
+// GetVenueShowMonths returns the venue's show counts bucketed by VENUE-LOCAL
+// calendar month, newest month first, for the given time filter ("upcoming",
+// "past" or "all"). Only approved shows are counted.
+//
+// It exists so the archive's pager can say what is BEHIND a page number without
+// fetching that page (PSY-1769). A page's month span is a function of the row
+// ordinals it covers, and cumulative counts answer that for every page at once —
+// where deriving it from rows could only ever label the pages the reader had
+// already visited, which is the whole defect.
+//
+// Months with no shows are absent rather than zero. Nothing downstream needs the
+// gaps: the labels are computed by walking cumulative counts, and a month with no
+// rows moves no page boundary.
+//
+// It spans EVERY year, like the year histogram and for a related reason: the
+// archive's default view is every year, and its year-scoped views are slices of
+// this same list. One read per venue therefore serves all of them, and switching
+// years never leaves the pager briefly labelled from the previous year's counts.
+func (s *VenueService) GetVenueShowMonths(venueID uint, timeFilter string) ([]contracts.VenueShowMonthCount, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var venue catalogm.Venue
+	if err := s.db.First(&venue, venueID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrVenueNotFound(venueID)
+		}
+		return nil, fmt.Errorf("failed to get venue: %w", err)
+	}
+
+	// year 0: see GetVenueShowYears. A histogram narrowed to one year could not
+	// label the all-years pager, which is the surface that needs it most.
+	baseQuery := s.venueShowsBaseQuery(venueID, timeFilter, 0, venueZoneNeededBySelect)
+
+	buckets, err := scanVenueLocalMonthBuckets(baseQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	// Non-nil even when empty: the histogram must serialize as [] rather than null.
+	months := make([]contracts.VenueShowMonthCount, len(buckets))
+	for i, bucket := range buckets {
+		months[i] = contracts.VenueShowMonthCount{
+			Year:  bucket.Year,
+			Month: bucket.Month,
+			Count: bucket.Count,
+		}
+	}
+	return months, nil
+}
 // HasPastShowsInYear reports whether the venue has at least one approved show on
 // the ARCHIVE's side of the venue-local upcoming/past boundary, inside `year`.
 //

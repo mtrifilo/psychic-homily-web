@@ -14,6 +14,10 @@
  * most recently observed one — fine for single-graph tests, broadcast would
  * be needed for multi-graph fixtures.
  *
+ * `disconnect()`/`unobserve()` really do stop delivery, so a test can assert
+ * that a component TORE DOWN its observer by firing again and expecting
+ * nothing — see the note on the class below.
+ *
  * Usage:
  *   const ro = installImmediateResizeObserver()   // in beforeEach
  *   ro.setWidth(500)                              // before render
@@ -59,8 +63,23 @@ export function installImmediateResizeObserver(
       lastTarget = target
       emit(this.callback, target)
     }
-    unobserve(): void {}
-    disconnect(): void {}
+    unobserve(): void {
+      this.stop()
+    }
+    // REAL, not a no-op (PSY-1769). Teardown is behaviour worth asserting —
+    // a component that stops observing on cleanup, or on some abandon signal,
+    // is indistinguishable from one that never does if `fireResize` keeps
+    // reaching a disconnected observer. Callers that only measure on mount are
+    // unaffected: they never disconnect before firing.
+    disconnect(): void {
+      this.stop()
+    }
+    private stop(): void {
+      if (lastCallback === this.callback) {
+        lastCallback = null
+        lastTarget = null
+      }
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

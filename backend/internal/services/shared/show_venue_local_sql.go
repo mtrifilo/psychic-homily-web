@@ -322,6 +322,18 @@ var VenueLocalDateSQL = `(shows.event_date AT TIME ZONE ` + venueLocalZoneSQL + 
 // joining one cost.
 var VenueLocalYearSQL = `EXTRACT(YEAR FROM ` + VenueLocalDateSQL + `)::int`
 
+// VenueLocalMonthSQL is the calendar MONTH (1-12) of the show's venue-local
+// date, as an int.
+//
+// Never a bucket key on its own: "March" is not a period, and grouping by this
+// alone would fold every March in a venue's history into one row. Every consumer
+// groups by VenueLocalYearSQL alongside it, which is also why the two are
+// defined next to each other rather than at their call sites.
+//
+// Same shape and the same cost as VenueLocalYearSQL — a scalar expression over
+// VenueTZJoin's already-fetched columns, adding no relation to the lateral path.
+var VenueLocalMonthSQL = `EXTRACT(MONTH FROM ` + VenueLocalDateSQL + `)::int`
+
 // VenueLocalTodaySQL is "today" on the venue's local calendar. A show graduates
 // from upcoming to past when this date passes its venue-local event date, i.e.
 // at venue-local midnight, not at the event's start instant. A show already in

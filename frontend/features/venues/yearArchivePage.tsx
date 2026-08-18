@@ -39,6 +39,7 @@ import {
   archiveData,
   archiveYearExists,
   getArchiveFirstPage,
+  getArchiveMonths,
   getArchiveYears,
   getVenue,
 } from './archiveApi'
@@ -186,9 +187,13 @@ export async function VenueYearArchiveContent({
   year: number
   searchParams: ArchiveSearchParams
 }) {
-  const [venueRead, yearsRead, firstPage] = await Promise.all([
+  const [venueRead, yearsRead, monthsRead, firstPage] = await Promise.all([
     getVenue(slug, 'venue-year-archive'),
     getArchiveYears(slug),
+    // The pager's range labels (PSY-1769). This route renders the pager into
+    // the served HTML, so without this read every page link in that document
+    // would be a bare numeral until the client fetched the histogram.
+    getArchiveMonths(slug),
     readSeedablePage(slug, year, searchParams),
   ])
 
@@ -217,6 +222,13 @@ export async function VenueYearArchiveContent({
    * strictly better than 404ing an archive over a transient blip.
    */
   const years = archiveData(yearsRead)
+  /**
+   * Null when the month-histogram read failed. The pager then renders bare
+   * numerals until the client's own fetch lands — degraded, not broken, and the
+   * current page keeps its label either way because that one comes from the
+   * seeded rows.
+   */
+  const months = archiveData(monthsRead)
   const venueSlug = venue.slug || slug
   const venueHref = `/venues/${venueSlug}`
 
@@ -250,6 +262,7 @@ export async function VenueYearArchiveContent({
         venueTimezone={venue.timezone}
         activeYear={year}
         initialYears={years ?? undefined}
+        initialMonths={months ?? undefined}
         // Undefined on a failed read AND on every page but the first. The
         // section then fetches for itself and owns its error state, which is
         // strictly better than throwing away a page whose navigation is intact.

@@ -440,6 +440,132 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowYears_ScopedToOne
 }
 
 // =============================================================================
+// Month histogram (PSY-1769)
+// =============================================================================
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowMonths_BucketsNewestFirstSkippingEmptyMonths() {
+	venue := suite.createTestVenue("Month Histogram Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	// February and April populated in 2018, March deliberately empty, plus a
+	// same-month pair in an earlier year so the ordering has to sort on both
+	// components rather than on the month number alone.
+	suite.seedShowsForVenue(venue.ID, user.ID,
+		fixedUTC(2016, time.November, 1, 20),
+		fixedUTC(2016, time.November, 8, 20),
+		fixedUTC(2018, time.February, 1, 20),
+		fixedUTC(2018, time.April, 1, 20),
+		fixedUTC(2018, time.April, 20, 20),
+		fixedUTC(2018, time.April, 25, 20),
+	)
+
+	months, err := suite.venueService.GetVenueShowMonths(venue.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.VenueShowMonthCount{
+		{Year: 2018, Month: 4, Count: 3},
+		{Year: 2018, Month: 2, Count: 1},
+		{Year: 2016, Month: 11, Count: 2},
+	}, months, "newest first, and no zero-count March bucket")
+}
+
+// The month histogram exists to label pages of the list, so it has to agree with
+// the list about how many rows there are and where they sit. A sum that drifted
+// from the list's total would slide every page label by the difference.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowMonths_SumsToTheListTotal() {
+	venue := suite.createTestVenue("Month Total Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.seedShowsForVenue(venue.ID, user.ID,
+		fixedUTC(2019, time.January, 5, 20),
+		fixedUTC(2019, time.January, 6, 20),
+		fixedUTC(2019, time.June, 5, 20),
+		fixedUTC(2020, time.June, 5, 20),
+	)
+
+	months, err := suite.venueService.GetVenueShowMonths(venue.ID, "past")
+	suite.Require().NoError(err)
+
+	var summed int64
+	for _, bucket := range months {
+		summed += bucket.Count
+	}
+
+	_, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", contracts.VenueShowsQuery{
+		TimeFilter: "past", Limit: 50,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(total, summed)
+}
+
+// The month buckets sit on the same venue-local calendar the year buckets and the
+// list's year filter do. A month bucketed in UTC would put a late-night New
+// Year's Eve show in the wrong year AND the wrong month.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowMonths_BucketsByVenueLocalMonth() {
+	const zone = "Pacific/Honolulu"
+	venue := newVenueInZone(suite.T(), suite.db, "Month NYE Room", "HI", zone, true)
+	user := suite.createTestUser()
+
+	loc, err := time.LoadLocation(zone)
+	suite.Require().NoError(err)
+	newYearsEve := time.Date(2019, time.December, 31, 23, 0, 0, 0, loc)
+	suite.Require().Equal(time.January, newYearsEve.UTC().Month(), "fixture no longer straddles the month boundary")
+	suite.seedShowsForVenue(venue.ID, user.ID, newYearsEve)
+
+	months, err := suite.venueService.GetVenueShowMonths(venue.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.VenueShowMonthCount{{Year: 2019, Month: 12, Count: 1}}, months)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowMonths_RespectsTimeFilter() {
+	venue := suite.createTestVenue("Filtered Month Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.seedShowsForVenue(venue.ID, user.ID,
+		fixedUTC(2019, time.February, 1, 20),
+		time.Now().UTC().AddDate(0, 0, 45),
+	)
+
+	past, err := suite.venueService.GetVenueShowMonths(venue.ID, "past")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.VenueShowMonthCount{{Year: 2019, Month: 2, Count: 1}}, past)
+
+	upcoming, err := suite.venueService.GetVenueShowMonths(venue.ID, "upcoming")
+	suite.Require().NoError(err)
+	suite.Require().Len(upcoming, 1)
+	suite.Equal(int64(1), upcoming[0].Count)
+
+	all, err := suite.venueService.GetVenueShowMonths(venue.ID, "all")
+	suite.Require().NoError(err)
+	suite.Len(all, 2)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowMonths_EmptyVenueReturnsEmptySlice() {
+	venue := suite.createTestVenue("Silent Month Room", "Phoenix", "AZ", true)
+
+	months, err := suite.venueService.GetVenueShowMonths(venue.ID, "all")
+	suite.Require().NoError(err)
+	suite.NotNil(months, "an empty histogram must serialize as [] rather than null")
+	suite.Empty(months)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowMonths_VenueNotFound() {
+	_, err := suite.venueService.GetVenueShowMonths(99999, "all")
+	suite.Require().Error(err)
+	var venueErr *apperrors.VenueError
+	suite.ErrorAs(err, &venueErr)
+	suite.Equal(apperrors.CodeVenueNotFound, venueErr.Code)
+}
+
+// Scoped to ONE venue, like the year histogram. Counts that leaked a neighbour's
+// shows would push every page label out by the leak.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowMonths_ScopedToOneVenue() {
+	venue := suite.createTestVenue("Scoped Month Room", "Phoenix", "AZ", true)
+	other := suite.createTestVenue("Neighbour Month Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.seedShowsForVenue(venue.ID, user.ID, fixedUTC(2015, time.May, 1, 20))
+	suite.seedShowsForVenue(other.ID, user.ID, fixedUTC(2015, time.May, 2, 20))
+
+	months, err := suite.venueService.GetVenueShowMonths(venue.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.VenueShowMonthCount{{Year: 2015, Month: 5, Count: 1}}, months)
+}
 // Year-archive existence probe (PSY-1770)
 // =============================================================================
 //
