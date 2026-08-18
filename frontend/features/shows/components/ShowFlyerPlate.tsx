@@ -1,6 +1,10 @@
 'use client'
 
-import { useCallback } from 'react'
+// Imported from the hook FILE, not `@/lib/hooks/common`: that barrel also
+// re-exports the react-query-backed follow / revisions / search hooks, and
+// pulling it in here would drag that whole graph into every route this plate
+// reaches. Same call as CollectionDetail's component-file import (PSY-951).
+import { useImageFailedBeforeAttach } from '@/lib/hooks/common/useImageFailedBeforeAttach'
 
 /**
  * The show's flyer, at its own aspect ratio and uncropped.
@@ -45,26 +49,12 @@ export function ShowFlyerPlate({
 }) {
   // The `onError` prop alone is not enough, and the gap is the common case
   // rather than a corner: this page is server-rendered, so the browser starts
-  // fetching the flyer while parsing the HTML. A dead hotlink can therefore
-  // 404 BEFORE React hydrates and attaches the handler, and that error event
-  // is gone for good. What survives is the element's own state, so the ref
-  // reads it once on mount: `complete` with a zero `naturalWidth` is exactly
-  // "finished, and decoded nothing".
-  //
-  // Known false positive, accepted: an SVG with no intrinsic width reports
-  // naturalWidth 0 in Firefox even when it rendered fine, so an SVG flyer can
-  // collapse the column there. The alternatives (sniffing the extension,
-  // reading the content type) are guesses about a URL, and flyers are
-  // photographs and scans, not vector art.
-  //
-  // A callback ref rather than an effect: this is reading the DOM node the
-  // moment it exists, which is what a ref is for.
-  const reportPreHydrationFailure = useCallback(
-    (node: HTMLImageElement | null) => {
-      if (node?.complete && node.naturalWidth === 0) onError()
-    },
-    [onError]
-  )
+  // fetching the flyer while parsing the HTML and a dead hotlink can 404
+  // before React hydrates and attaches the handler. See the hook for the
+  // mechanism and its accepted Firefox/SVG false positive. The caller passes
+  // `key={flyerSrc}` so a replacement flyer is never judged on this one's
+  // failure.
+  const reportFailedBeforeAttach = useImageFailedBeforeAttach(onError)
 
   return (
     <figure data-testid="show-flyer-plate" className={className}>
@@ -72,7 +62,7 @@ export function ShowFlyerPlate({
           hotlinked venue/promoter hosts, outside next/image's remotePatterns
           allowlist (see next.config.ts). Same call as LibraryWallGrid. */}
       <img
-        ref={reportPreHydrationFailure}
+        ref={reportFailedBeforeAttach}
         src={src}
         /* Empty on purpose. The image restates the bill that is typeset
            immediately beside it, and its actual content (the poster art) is

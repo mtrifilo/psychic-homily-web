@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { stubImageLoadState } from '@/test/imageLoadState'
 import type { ArtistResponse, SetType, ShowResponse } from '../types'
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -163,12 +164,7 @@ describe('ShowHeader layout', () => {
   // stayed reserved and the bill sat in the second column beside a blank
   // gutter, because that error event was fired at nobody.
   it('collapses the column for a flyer that already failed before hydration', () => {
-    const complete = vi
-      .spyOn(HTMLImageElement.prototype, 'complete', 'get')
-      .mockReturnValue(true)
-    const naturalWidth = vi
-      .spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get')
-      .mockReturnValue(0)
+    const img = stubImageLoadState({ complete: true, naturalWidth: 0 })
 
     try {
       render(
@@ -180,8 +176,7 @@ describe('ShowHeader layout', () => {
       expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
       expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
     } finally {
-      complete.mockRestore()
-      naturalWidth.mockRestore()
+      img.restore()
     }
   })
 

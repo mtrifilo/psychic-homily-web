@@ -1,9 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import type { SavedShowResponse } from '@/features/shows'
 import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
+// The hook FILE, not the `@/lib/hooks/common` barrel — see the note in
+// ShowFlyerPlate.tsx.
+import { useImageFailedBeforeAttach } from '@/lib/hooks/common/useImageFailedBeforeAttach'
 
 function displayName(show: SavedShowResponse): string {
   if (show.artists.length > 0) {
@@ -56,6 +59,16 @@ function WallTile({
   const [imageFailed, setImageFailed] = useState(false)
   const showImage = Boolean(show.image_url) && !imageFailed
 
+  // Belt and braces alongside `onError`, which cannot see a flyer that already
+  // 404'd before React attached it. That gap does not exist on `/library`
+  // today: the route is client-only behind an auth gate, so these tiles are
+  // never in the server HTML and React attaches the handler before it sets
+  // `src`. The check is what keeps the tile correct on any surface that DOES
+  // server-render it. See the hook for the mechanism and its caveats.
+  const markFlyerFailed = useCallback(() => setImageFailed(true), [])
+  const reportFlyerFailedBeforeAttach =
+    useImageFailedBeforeAttach(markFlyerFailed)
+
   return (
     <article
       aria-label={name}
@@ -69,11 +82,12 @@ function WallTile({
         {showImage ? (
           /* eslint-disable-next-line @next/next/no-img-element -- flyer URLs are hotlinked hosts outside next/image remotePatterns */
           <img
+            ref={reportFlyerFailedBeforeAttach}
             src={show.image_url ?? ''}
             alt=""
             className="h-full w-full object-cover"
             data-testid="library-wall-tile-image"
-            onError={() => setImageFailed(true)}
+            onError={markFlyerFailed}
           />
         ) : (
           <TypographicFallback label={tileLabel} />

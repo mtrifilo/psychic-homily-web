@@ -2,6 +2,7 @@ import React from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { CollectionCoverImage } from './CollectionCoverImage'
+import { stubImageLoadState } from '@/test/imageLoadState'
 
 function Fallback() {
   return <span data-testid="fallback">fallback content</span>
@@ -111,5 +112,54 @@ describe('CollectionCoverImage', () => {
     const img = screen.getByAltText('cover') as HTMLImageElement
     expect(img.src).toBe('https://example.com/working.jpg')
     expect(screen.queryByTestId('fallback')).not.toBeInTheDocument()
+  })
+
+  // `/collections/[slug]` prefetches on the server and hydrates, so this
+  // `<img>` is in the initial HTML and the browser fetches it while parsing. A
+  // dead cover therefore 404s before React attaches `onError`, and that event
+  // is lost. Without the mount-time read the cover slot stays blank instead of
+  // showing the fallback the caller supplied.
+  it('falls back for a cover that already failed before the handler attached', () => {
+    const img = stubImageLoadState({ complete: true, naturalWidth: 0 })
+
+    try {
+      render(
+        <CollectionCoverImage
+          url="https://example.com/gone.jpg"
+          alt="cover"
+          fallback={<Fallback />}
+        />
+      )
+
+      expect(screen.getByTestId('fallback')).toBeInTheDocument()
+      expect(screen.queryByAltText('cover')).not.toBeInTheDocument()
+    } finally {
+      img.restore()
+    }
+  })
+
+  // The other half of the predicate, and the only test that pins it. Loosening
+  // the check to `complete` alone would blank every cover the browser HAS
+  // decoded; nothing else here catches that, because jsdom reports
+  // `complete: false` for an http src, so the tests above never reach that
+  // branch. (A loosening to a bare `naturalWidth === 0` is already caught —
+  // jsdom reports 0 for every image, so those same tests would fail.)
+  it('keeps a cover that already finished loading before mount', () => {
+    const img = stubImageLoadState({ complete: true, naturalWidth: 600 })
+
+    try {
+      render(
+        <CollectionCoverImage
+          url="https://example.com/cached.jpg"
+          alt="cover"
+          fallback={<Fallback />}
+        />
+      )
+
+      expect(screen.getByAltText('cover')).toBeInTheDocument()
+      expect(screen.queryByTestId('fallback')).not.toBeInTheDocument()
+    } finally {
+      img.restore()
+    }
   })
 })

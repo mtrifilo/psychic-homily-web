@@ -2,6 +2,8 @@ export { useCommandPalette, openCommandPalette } from './useCommandPalette'
 
 export { useHydrated } from './useHydrated'
 
+export { useImageFailedBeforeAttach } from './useImageFailedBeforeAttach'
+
 export { useGeoDefaultScene } from './useGeoDefaultScene'
 
 export { type Density, useDensity } from './useDensity'

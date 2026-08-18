@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { LibraryWallGrid } from './LibraryWallGrid'
+import { stubImageLoadState } from '@/test/imageLoadState'
 import type { SavedShowResponse } from '@/features/shows'
 
 function makeShow(
@@ -121,5 +122,74 @@ describe('LibraryWallGrid', () => {
     const img = screen.getByTestId('library-wall-tile-image')
     fireEvent.error(img)
     expect(await screen.findByTestId('library-wall-tile-fallback')).toBeTruthy()
+  })
+
+  // `onError` structurally cannot see a failure that happened before React
+  // attached it, which is every failure on a surface that server-renders the
+  // tile: the browser starts fetching the flyer while it parses the HTML, so a
+  // dead hotlink 404s and fires its error event at nobody. Without the
+  // mount-time read this tile keeps a blank bordered square instead of the
+  // typographic fallback. `complete` + zero `naturalWidth` is what the element
+  // still reports afterwards.
+  it('falls back for an image that already failed before the handler attached', () => {
+    const img = stubImageLoadState({ complete: true, naturalWidth: 0 })
+
+    try {
+      render(
+        <LibraryWallGrid
+          shows={[
+            makeShow({
+              id: 5,
+              title: 'Already Dead Flyer',
+              image_url: 'https://example.com/gone.jpg',
+            }),
+          ]}
+          onRemove={vi.fn()}
+          isRemovalPending={false}
+        />
+      )
+
+      expect(
+        screen.getByTestId('library-wall-tile-fallback')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('library-wall-tile-image')
+      ).not.toBeInTheDocument()
+    } finally {
+      img.restore()
+    }
+  })
+
+  // The other half of the predicate, and the only test that pins it. Loosening
+  // the check to `complete` alone would blank every flyer the browser HAS
+  // decoded; nothing else here catches that, because jsdom reports
+  // `complete: false` for an http src, so the tests above never reach that
+  // branch. (A loosening to a bare `naturalWidth === 0` is already caught —
+  // jsdom reports 0 for every image, so those same tests would fail.)
+  it('keeps an image that already finished loading before mount', () => {
+    const img = stubImageLoadState({ complete: true, naturalWidth: 600 })
+
+    try {
+      render(
+        <LibraryWallGrid
+          shows={[
+            makeShow({
+              id: 6,
+              title: 'Cached Flyer',
+              image_url: 'https://example.com/cached.jpg',
+            }),
+          ]}
+          onRemove={vi.fn()}
+          isRemovalPending={false}
+        />
+      )
+
+      expect(screen.getByTestId('library-wall-tile-image')).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('library-wall-tile-fallback')
+      ).not.toBeInTheDocument()
+    } finally {
+      img.restore()
+    }
   })
 })
