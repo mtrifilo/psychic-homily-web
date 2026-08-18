@@ -519,8 +519,12 @@ const MinCatalogYear = 1000
 // would heal only on the next deploy. Resolving per call costs nothing on these
 // paths (one submit, one approve) and cannot go stale.
 //
-// UTC so the ceiling does not depend on the server's local zone; the +1 year of
-// slack absorbs the few hours where UTC and a US zone disagree about the date.
+// UTC so the ceiling does not depend on which zone the server happens to run
+// in, and so the frontend's pre-validator (which uses getUTCFullYear) computes
+// the same number. For the handful of hours each New Year when UTC and a
+// contributor's local zone disagree about the date, the +1 of slack is what
+// absorbs the difference: a contributor west of UTC gets a ceiling one year
+// early, one east of UTC gets it a few hours late.
 func MaxCatalogYear() int {
 	return time.Now().UTC().Year() + 1
 }

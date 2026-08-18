@@ -153,6 +153,30 @@ func TestCheckNumericUpdateBounds(t *testing.T) {
 	assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{"name": "Crescent"}))
 }
 
+// The year ceiling has to be resolved when a value is CHECKED, not when the
+// process starts: a package var initialised from time.Now() would leave a
+// long-running server refusing a legitimate next-year value through early
+// January. That is why the registry is a function, and this pins it. Converting
+// it back to a var would freeze the ceiling and fail here only after a year
+// boundary, which is precisely the bug that would otherwise ship unnoticed.
+func TestNumericEditFieldBoundsResolveTheYearCeiling(t *testing.T) {
+	registry := contracts.NumericEditFieldBounds()
+	for _, field := range []string{"founded_year", "release_year"} {
+		bounds, ok := registry[field]
+		assert.Truef(t, ok, "%s must be registered", field)
+		assert.Equalf(t, contracts.MaxCatalogYear(), bounds.Max,
+			"%s ceiling must track MaxCatalogYear, not a frozen copy", field)
+		assert.Equalf(t, contracts.MinCatalogYear, bounds.Min, "%s floor", field)
+		assert.Truef(t, bounds.LegacyTextEncoding,
+			"%s predates its registration and must keep reading stored strings", field)
+	}
+	// capacity is fixed and has no text history; it must not drift into either.
+	capacity := registry["capacity"]
+	assert.Equal(t, contracts.MaxVenueCapacity, capacity.Max)
+	assert.False(t, capacity.LegacyTextEncoding,
+		"capacity was registered alongside its numeric control, so a string is corrupt")
+}
+
 // PSY-1703: the approve-path range check for the year fields. Its counterpart at
 // submit (shared.ValidateFieldChangeValue) already rejected these, so this is
 // the defence-in-depth half: the last point before an untyped Updates() that

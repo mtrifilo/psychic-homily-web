@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   CATALOG_YEAR_BOUNDS,
   EDITABLE_FIELDS,
@@ -208,22 +208,59 @@ describe('catalog year fields', () => {
     ['release_year', releaseYear],
   ]
 
-  it('resolves the ceiling on every read rather than at module load', () => {
-    // The one direction a client-side pre-validator must never fail in is
-    // "stricter than the server". A ceiling frozen at module load would drift
-    // behind the server's the moment the year turned over.
+  it('derives the ceiling from the current UTC year', () => {
     expect(maxCatalogYear()).toBe(new Date().getUTCFullYear() + 1)
-    expect(CATALOG_YEAR_BOUNDS.max).toBe(maxCatalogYear())
     expect(CATALOG_YEAR_BOUNDS.min).toBe(MIN_CATALOG_YEAR)
+  })
+
+  // The one direction a client-side pre-validator must never fail in is
+  // "stricter than the server", and a ceiling captured at module load fails in
+  // exactly that direction the moment the year turns over.
+  //
+  // Moving the CLOCK is what makes this test able to see that. Comparing
+  // `field.max` against `maxCatalogYear()` in the same instant cannot: a frozen
+  // `max: maxCatalogYear()` literal compares equal to it and passes. The
+  // tempting mistake is real and one line away, since `capacity` on the venue
+  // list is written as `...VENUE_CAPACITY_BOUNDS`; spreading CATALOG_YEAR_BOUNDS
+  // the same way evaluates the getter once and freezes it.
+  it.each(yearFields)('re-reads %s.max after the year turns over', (_key, field) => {
+    const thisYear = new Date().getUTCFullYear()
+    try {
+      vi.useFakeTimers()
+      // Mid-January of next year, in UTC, so no local zone reads it as December.
+      vi.setSystemTime(new Date(Date.UTC(thisYear + 1, 0, 15)))
+      expect(field.max).toBe(thisYear + 2)
+      // And the validator that consumes it must move with it.
+      expect(validateFieldValue(field, String(thisYear + 2))).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+    // Back on the real clock, the ceiling follows again.
+    expect(field.max).toBe(thisYear + 1)
   })
 
   it.each(yearFields)('declares %s as a bounded numeric field', (_key, field) => {
     expect(field).toBeDefined()
     expect(field.type).toBe('number')
     expect(field.min).toBe(MIN_CATALOG_YEAR)
-    // Read through the FIELD, not the constant: this is the assertion that
-    // would break if the bounds were spread into the definition and froze.
     expect(field.max).toBe(maxCatalogYear())
+    // Years print without a thousands separator, matching the server's message.
+    expect(field.numberFormat).toBe('year')
+  })
+
+  it.each(yearFields)('prints %s bounds as years, not as quantities', (_key, field) => {
+    // "between 1,000 and 2,027" is not how anyone writes a year, and the server
+    // says "between 1000 and 2027", so the two surfaces would disagree too.
+    const message = validateFieldValue(field, '0')
+    expect(message).toContain(String(MIN_CATALOG_YEAR))
+    expect(message).toContain(String(maxCatalogYear()))
+    expect(message).not.toMatch(/\d,\d/)
+  })
+
+  it('still groups digits for a capacity, which is a quantity', () => {
+    const capacity = EDITABLE_FIELDS.venue.find((f) => f.key === 'capacity') as EditableField
+    expect(capacity.numberFormat).toBeUndefined()
+    expect(validateFieldValue(capacity, '0')).toContain('200,000')
   })
 
   it.each(yearFields)('accepts a real year for %s, on both bounds', (_key, field) => {
