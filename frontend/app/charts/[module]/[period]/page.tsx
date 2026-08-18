@@ -15,11 +15,8 @@ import { listRootCanonical } from '@/lib/seo/siteMetadata'
  * (PSY-1421). Route-segment `revalidate` is incompatible with
  * `cacheComponents` — do not reintroduce it here.
  *
- * The canonical is this quarter's own path, which is the root of this archive,
- * per the site-wide pagination indexing policy on `listRootCanonical`. It was
- * already in that posture before PSY-1767; routing it through the helper is
- * what ties it to the written policy instead of leaving it as a literal that
- * happens to agree.
+ * The canonical is this quarter's own path, which is this archive's root, per
+ * the pagination indexing policy on `listRootCanonical`.
  */
 
 export async function generateMetadata({

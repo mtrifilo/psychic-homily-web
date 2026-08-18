@@ -21,17 +21,15 @@ import { listRootCanonical } from '@/lib/seo/siteMetadata'
 
 /**
  * Both branches canonicalize to their own path, which is the list root, per the
- * site-wide pagination indexing policy documented on `listRootCanonical`.
+ * pagination indexing policy on `listRootCanonical`. The drilldown branch had
+ * no canonical at all before PSY-1767, so its `?page=`, `?window=` and
+ * `?scene=` variants were each offered to crawlers as a document in their own
+ * right. The drilldown is one chart; the query string picks the slice.
  *
- * The drilldown branch had NO canonical at all before PSY-1767, so its
- * `?page=`, `?window=` and `?scene=` variants were each offered to crawlers as
- * a document in their own right. That is the gap this closes. The drilldown is
- * one chart; the query string picks which slice of it is on screen.
- *
- * `module` reaches the canonical only after `isChartModuleSlug` or
+ * `module` reaches a canonical only after `isChartModuleSlug` or
  * `calendarWindowFromRoute` has vouched for it, so no unvalidated path segment
- * can be reflected into a canonical URL. That ordering is load bearing: the
- * unknown-slug case returns before either branch.
+ * is ever reflected into one. That ordering is load bearing, and it is why the
+ * unrecognized-segment case returns before it can build a URL.
  */
 export async function generateMetadata({
   params,
