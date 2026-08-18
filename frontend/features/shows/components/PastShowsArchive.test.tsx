@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import {
+  ARCHIVE_MONTHS,
+  ARCHIVE_PAGE_LABELS,
+  ARCHIVE_PAGE_SIZE,
+  ARCHIVE_TOTAL,
+} from '@/test/archiveFixtures'
+import {
   archiveScope,
   archiveYearScope,
   type ArchiveMonthCount,
@@ -25,42 +31,12 @@ import { PastShowsArchive, type ArchiveListState } from './PastShowsArchive'
  * fetching, and their own suites cover the wiring.
  */
 
-// The barrel is stubbed to keep unrelated shared components out of this suite,
-// but the pager IS the thing under test, so the real one (live region and all)
-// is spliced back in from its own module.
 vi.mock('@/components/shared', async () => {
-  const actual = await vi.importActual<
-    typeof import('@/components/shared/Pagination')
-  >('@/components/shared/Pagination')
-  const chrome = await vi.importActual<
-    typeof import('@/components/shared/paginationChrome')
-  >('@/components/shared/paginationChrome')
-  return {
-    Pagination: actual.Pagination,
-    paginationWindow: actual.paginationWindow,
-    usePaginationFocusTarget: actual.usePaginationFocusTarget,
-    formatCount: chrome.formatCount,
-    SectionHeader: ({
-      title,
-      action,
-      headingProps,
-    }: {
-      title: string
-      action?: React.ReactNode
-      headingProps?: Record<string, unknown>
-    }) => (
-      <>
-        <h2 {...headingProps}>{title}</h2>
-        <div data-testid="section-action">{action}</div>
-      </>
-    ),
-    YearStrip: ({ years }: { years: unknown[] }) => (
-      <div data-testid="year-strip">{years.length} years</div>
-    ),
-  }
+  const kit = await import('@/test/archiveFixtures')
+  return kit.archiveSharedBarrelMock()
 })
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = ARCHIVE_PAGE_SIZE
 
 /** Phoenix does not observe DST, so every fixture means exactly what it says. */
 const PHOENIX: ShowZone = { state: 'AZ', timezone: 'America/Phoenix' }
@@ -71,23 +47,8 @@ interface Row {
   event_date: string
 }
 
-/**
- * 161 shows across five months of 2025, newest first — the same total the two
- * wrappers' suites use, so "Page 2 of 4" means the same thing in all three.
- *
- * The month boundaries deliberately do NOT line up with the page boundaries:
- * page 1 straddles Sep/Aug, page 2 straddles Jul/Jun. A histogram walk that
- * dropped or double-counted a bucket would produce a well-formed but wrong span,
- * which is the failure mode worth pinning.
- */
-const MONTHS: ArchiveMonthCount[] = [
-  { year: 2025, month: 9, count: 20 },
-  { year: 2025, month: 8, count: 30 },
-  { year: 2025, month: 7, count: 40 },
-  { year: 2025, month: 6, count: 30 },
-  { year: 2025, month: 5, count: 41 },
-]
-const TOTAL = 161
+const MONTHS: ArchiveMonthCount[] = [...ARCHIVE_MONTHS]
+const TOTAL = ARCHIVE_TOTAL
 
 const YEARS: ArchiveYearCount[] = [{ year: 2025, count: TOTAL }]
 
@@ -108,7 +69,6 @@ function listState(overrides: Partial<ArchiveListState<Row>> = {}): ArchiveListS
     isError: false,
     isFetching: false,
     isPlaceholderData: false,
-    isSuccess: true,
     refetch: vi.fn(),
     ...overrides,
   }
@@ -128,7 +88,7 @@ function archive({
   // envelope, which is the only reason the stranded-year branch is reachable.
   yearsSettled = !yearsError,
   list = listState(),
-  yearStripForSingleYear = true,
+  hasPerYearRoute = true,
 }: {
   page?: number
   activeYear?: number | null
@@ -137,7 +97,7 @@ function archive({
   months?: ArchiveMonthCount[] | null
   yearsSettled?: boolean
   list?: ArchiveListState<Row>
-  yearStripForSingleYear?: boolean
+  hasPerYearRoute?: boolean
 } = {}) {
   // The REAL derivation, not a hand-built scope: `totalPages`, `hasPastShows`
   // and the past-the-end branch are all functions of it, and a fixture that
@@ -151,7 +111,7 @@ function archive({
   })
   const scope = archiveScope(yearScope, {
     yearsSettled,
-    listSettled: list.isSuccess,
+    listSettled: !list.isPending && !list.isError,
     listTotal: list.total,
     pageSize: PAGE_SIZE,
   })
@@ -163,7 +123,6 @@ function archive({
       activeYear={activeYear}
       page={page}
       pageSize={PAGE_SIZE}
-      offset={(page - 1) * PAGE_SIZE}
       buildHref={(year, targetPage) =>
         `/test${year === null ? '' : `?year=${year}`}${targetPage > 1 ? `${year === null ? '?' : '&'}page=${targetPage}` : ''}`
       }
@@ -173,7 +132,7 @@ function archive({
       list={list}
       zoneOf={zoneOf}
       renderTable={rows => <div data-testid="shows-table">{rows.length} rows</div>}
-      yearStripForSingleYear={yearStripForSingleYear}
+      hasPerYearRoute={hasPerYearRoute}
     />
   )
 }
@@ -233,12 +192,7 @@ describe('PastShowsArchive page labels', () => {
     // numerals on first paint.
     renderWithProviders(archive())
 
-    for (const [page, label] of [
-      [1, 'Aug–Sep 2025'],
-      [2, 'Jun–Jul 2025'],
-      [3, 'May–Jun 2025'],
-      [4, 'May 2025'],
-    ] as const) {
+    for (const [page, label] of ARCHIVE_PAGE_LABELS) {
       expect(
         screen.getAllByRole('link', { name: `Page ${page}, ${label}` }).length
       ).toBeGreaterThan(0)
@@ -371,17 +325,17 @@ describe('PastShowsArchive year strip', () => {
   it('renders a single-year strip where the year is its own document (venues)', () => {
     // A one-year venue's archive still has its own URL and the sitemap announces
     // it; suppressing the strip left that URL with no inbound link (PSY-1756).
-    renderWithProviders(archive({ years: ONE_YEAR, yearStripForSingleYear: true }))
+    renderWithProviders(archive({ years: ONE_YEAR, hasPerYearRoute: true }))
     expect(screen.getByTestId('year-strip')).toBeInTheDocument()
   })
 
   it('suppresses a single-year strip where there is no per-year route (artists)', () => {
-    renderWithProviders(archive({ years: ONE_YEAR, yearStripForSingleYear: false }))
+    renderWithProviders(archive({ years: ONE_YEAR, hasPerYearRoute: false }))
     expect(screen.queryByTestId('year-strip')).not.toBeInTheDocument()
   })
 
   it('renders a multi-year strip either way', () => {
-    renderWithProviders(archive({ years: TWO_YEARS, yearStripForSingleYear: false }))
+    renderWithProviders(archive({ years: TWO_YEARS, hasPerYearRoute: false }))
     expect(screen.getByTestId('year-strip')).toHaveTextContent('2 years')
   })
 })

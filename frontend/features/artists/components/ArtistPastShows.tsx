@@ -8,6 +8,7 @@ import { parseAsInteger, useQueryState } from 'nuqs'
 // artists value cycle in behind it (the same reason ArtistShowsTable
 // deep-imports ShowBill).
 import {
+  archiveListState,
   PastShowsArchive,
   useArchivePage,
 } from '@/features/shows/components/PastShowsArchive'
@@ -22,7 +23,11 @@ import {
   useArtistShows,
 } from '../hooks/useArtists'
 import { artistPastShowsPageParams } from '../api'
-import { artistShowZone } from '../showArchive'
+import {
+  artistArchiveHref,
+  artistShowZone,
+  ARTIST_PAST_SHOWS_FRAGMENT,
+} from '../showArchive'
 import { ArtistShowsTable } from './ArtistShowsTable'
 import type { ArtistShow } from '../types'
 
@@ -30,8 +35,11 @@ import type { ArtistShow } from '../types'
  * Anchor the past-shows pager and year strip land on. Deliberately its own id
  * rather than one on the whole shows block, which would drop a reader who just
  * changed page at the top of the UPCOMING list.
+ *
+ * Re-exported from `showArchive`, which owns the artist archive's URL space and
+ * has to append this fragment when it builds hrefs.
  */
-export const ARTIST_PAST_SHOWS_ANCHOR = 'artist-past-shows'
+export const ARTIST_PAST_SHOWS_ANCHOR = ARTIST_PAST_SHOWS_FRAGMENT
 
 export interface ArtistPastShowsProps {
   artistId: number
@@ -120,12 +128,11 @@ export function ArtistPastShows({
   // every render would make both recompute forever.
   const pastData = pastQuery.data
   const rows: ArtistShow[] = useMemo(() => pastData?.shows ?? [], [pastData])
-  const envelopeTotal = pastData?.total ?? 0
 
   const scope = archiveScope(yearScope, {
     yearsSettled: yearsQuery.isSuccess,
     listSettled: pastQuery.isSuccess,
-    listTotal: envelopeTotal,
+    listTotal: pastData?.total ?? 0,
     pageSize: pageLimit,
   })
 
@@ -138,42 +145,21 @@ export function ArtistPastShows({
     enabled: scope.monthsAreWorthFetching,
   })
 
-  // Every href starts from the params already on the URL, not from an empty
-  // set, and then overwrites the two this section owns.
-  //
-  // The venue archive can build from scratch because it is the only query-param
-  // writer on its page. This one is not: the connections graph pushes
-  // `?center=<slug>` onto the same URL and leaves it there when its dialog
-  // closes, and IT already preserves `year`/`page`. A fresh `URLSearchParams`
-  // here would make that courtesy one-way — paging the archive would silently
-  // drop the reader's graph center, and a shared link would lose it too.
+  // The archive's URL space lives in `artistArchiveHref`, beside the venue
+  // archive's `venueArchiveHref` — including the slugless-artist fallback and the
+  // rule that params this section does not own are carried through untouched.
+  // `useSearchParams` is read HERE because only a component may.
   const searchParams = useSearchParams()
-  // Falls back to the id, which resolves on the same route.
-  //
-  // `slug` is nullable in the DB and the API sends "" for a missing one — and
-  // `GenerateSlug` returns "" for any name with no [a-z0-9] characters at all,
-  // so a band called `!!!` or `少年ナイフ` reaches this page slugless. An
-  // unguarded `/artists/${''}` is `/artists/`, which is not a 404 but the
-  // artists INDEX: every year link, every page link and both "back to the
-  // first page" links would silently eject the reader from the archive this
-  // ticket exists to make navigable. Resolved HERE rather than at the caller so
-  // no future caller can forget it.
-  const basePath = `/artists/${artistSlug || artistId}`
   const buildHref = useCallback(
-    (year: number | null, targetPage: number) => {
-      const params = new URLSearchParams(searchParams)
-      // Page 1 and "all years" are bare URLs: one canonical address per view,
-      // so a shared link and the link the pager builds are the same string.
-      // That rule is about OUR two params — anything else on the URL belongs to
-      // another owner and is carried through untouched.
-      if (year === null) params.delete('year')
-      else params.set('year', String(year))
-      if (targetPage > 1) params.set('page', String(targetPage))
-      else params.delete('page')
-      const query = params.toString()
-      return `${basePath}${query ? `?${query}` : ''}#${ARTIST_PAST_SHOWS_ANCHOR}`
-    },
-    [basePath, searchParams]
+    (year: number | null, targetPage: number) =>
+      artistArchiveHref({
+        artistSlug,
+        artistId,
+        currentParams: searchParams,
+        year,
+        page: targetPage,
+      }),
+    [artistSlug, artistId, searchParams]
   )
 
   const renderTable = useCallback(
@@ -194,7 +180,6 @@ export function ArtistPastShows({
       activeYear={activeYear}
       page={page}
       pageSize={pageLimit}
-      offset={offset}
       buildHref={buildHref}
       scope={scope}
       years={{
@@ -202,26 +187,17 @@ export function ArtistPastShows({
         isError: yearsQuery.isError,
       }}
       months={monthsQuery.data?.months}
-      list={{
-        rows,
-        total: envelopeTotal,
-        isPending: pastQuery.isPending,
-        isError: pastQuery.isError,
-        isFetching: pastQuery.isFetching,
-        isPlaceholderData: pastQuery.isPlaceholderData,
-        isSuccess: pastQuery.isSuccess,
-        refetch: () => void pastQuery.refetch(),
-      }}
+      list={archiveListState(pastQuery, rows)}
       // Each row carries its own zone: an artist's shows span venues, so there
       // is no single calendar to read them all on. A module-level function, so
       // it is referentially stable without a memo.
       zoneOf={artistShowZone}
       renderTable={renderTable}
-      // FALSE, unlike the venue archive. A single-year strip there is the only
-      // inbound link to a year-archive DOCUMENT the sitemap announces
-      // (PSY-1756); the artist archive has no per-year route, so the same strip
-      // would be a control whose only option is the view already on screen.
-      yearStripForSingleYear={false}
+      // No `/artists/{slug}/shows/{year}` route exists, so nothing here is a
+      // document needing an inbound link the way a venue year archive is
+      // (PSY-1756) — and a single-year strip would be a control whose only
+      // option is the view already on screen.
+      hasPerYearRoute={false}
       className={className}
     />
   )

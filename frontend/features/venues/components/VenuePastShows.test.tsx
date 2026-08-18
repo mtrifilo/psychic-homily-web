@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import { ARCHIVE_MONTHS, ARCHIVE_PAGE_LABELS } from '@/test/archiveFixtures'
 import type { VenueShow, VenueShowsResponse } from '../types'
 
 /**
@@ -45,30 +46,9 @@ vi.mock('./VenueShowsTable', () => ({
   ),
 }))
 
-// The barrel is stubbed to keep unrelated shared components out of this suite,
-// but the pager IS what the wiring is observed through, so the real one (live
-// region and all) is spliced back in from its own module.
 vi.mock('@/components/shared', async () => {
-  const actual = await vi.importActual<
-    typeof import('@/components/shared/Pagination')
-  >('@/components/shared/Pagination')
-  const chrome = await vi.importActual<
-    typeof import('@/components/shared/paginationChrome')
-  >('@/components/shared/paginationChrome')
-  return {
-    Pagination: actual.Pagination,
-    paginationWindow: actual.paginationWindow,
-    usePaginationFocusTarget: actual.usePaginationFocusTarget,
-    formatCount: chrome.formatCount,
-    SectionHeader: ({
-      title,
-      headingProps,
-    }: {
-      title: string
-      headingProps?: Record<string, unknown>
-    }) => <h2 {...headingProps}>{title}</h2>,
-    YearStrip: () => <div data-testid="year-strip" />,
-  }
+  const kit = await import('@/test/archiveFixtures')
+  return kit.archiveSharedBarrelMock()
 })
 
 import { VenuePastShows } from './VenuePastShows'
@@ -100,15 +80,6 @@ function showsResponse(offset: number): VenueShowsResponse {
   }
 }
 
-/** 161 shows across five months of 2025, newest first. Four pages of 50. */
-const MONTHS = [
-  { year: 2025, month: 9, count: 20 },
-  { year: 2025, month: 8, count: 30 },
-  { year: 2025, month: 7, count: 40 },
-  { year: 2025, month: 6, count: 30 },
-  { year: 2025, month: 5, count: 41 },
-]
-
 function archive() {
   return (
     <VenuePastShows
@@ -132,7 +103,7 @@ describe('VenuePastShows', () => {
       isPending: false,
     })
     mockUseVenueShowMonths.mockReturnValue({
-      data: { venue_id: 7, time_filter: 'past', months: MONTHS },
+      data: { venue_id: 7, time_filter: 'past', months: [...ARCHIVE_MONTHS] },
       isSuccess: true,
       isError: false,
       isFetching: false,
@@ -149,6 +120,11 @@ describe('VenuePastShows', () => {
     }))
   })
 
+  // The mount smoke test: everything below asserts something SPECIFIC, and each
+  // of them would also fail if the wrapper rendered nothing at all — this one
+  // says which failure it was. The pager's own contract (one live region, both
+  // instances showing the position) is locked in the shared component's suite,
+  // not re-asserted here.
   it('renders the archive with a pager above and below the table', () => {
     renderWithProviders(archive())
     expect(
@@ -179,28 +155,12 @@ describe('VenuePastShows', () => {
     expect(spoken[0]).toHaveTextContent('Page 2 of 4')
   })
 
-  it('leaves exactly one live region in the tree at all', () => {
-    renderWithProviders(archive())
-    expect(screen.getAllByRole('status')).toHaveLength(1)
-  })
-
-  it('keeps the page position visible in both pagers', () => {
-    renderWithProviders(archive())
-    // Two pagers, each rendering a desktop caption and a mobile position line.
-    expect(screen.getAllByText(/Page 1 of 4/).length).toBeGreaterThanOrEqual(4)
-  })
-
   it('labels every page link from the venue month histogram (PSY-1769)', () => {
     // The wrapper has to request the histogram, hand it down, and hand down the
     // page size the LIST asked for — a mismatch in any of the three shows up as
     // missing or shifted labels rather than as an error.
     renderWithProviders(archive())
-    for (const [page, label] of [
-      [1, 'Aug–Sep 2025'],
-      [2, 'Jun–Jul 2025'],
-      [3, 'May–Jun 2025'],
-      [4, 'May 2025'],
-    ] as const) {
+    for (const [page, label] of ARCHIVE_PAGE_LABELS) {
       expect(
         screen.getAllByRole('link', { name: `Page ${page}, ${label}` }).length
       ).toBeGreaterThan(0)

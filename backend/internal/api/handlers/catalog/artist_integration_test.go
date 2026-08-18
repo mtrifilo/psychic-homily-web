@@ -451,7 +451,7 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowMonths_CarriesTheSameCa
 		ArtistID: fmt.Sprintf("%d", artistID), TimeFilter: "upcoming",
 	})
 	s.Require().NoError(err)
-	s.Equal(venueShowMonthsCacheControl, resp.CacheControl)
+	s.Equal(showMonthHistogramCacheControl, resp.CacheControl)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowMonths_ArtistNotFound() {

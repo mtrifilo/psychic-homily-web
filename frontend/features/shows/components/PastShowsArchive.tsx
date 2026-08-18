@@ -181,9 +181,49 @@ export interface ArchiveListState<T extends ArchiveRow> {
   isFetching: boolean
   /** The rows on screen belong to a DIFFERENT query (`keepPreviousData`). */
   isPlaceholderData: boolean
-  /** Whether the request has answered. Gates the month histogram. */
-  isSuccess: boolean
   refetch: () => void
+}
+
+/**
+ * The shape both entities' row hooks already have, narrowed to what the archive
+ * reads. Structural rather than `UseQueryResult<T>` so this module does not take
+ * a react-query dependency for one adapter.
+ */
+export interface ArchiveListQuery {
+  data: { total: number } | undefined
+  isPending: boolean
+  isError: boolean
+  isFetching: boolean
+  isPlaceholderData: boolean
+  refetch: () => unknown
+}
+
+/**
+ * A row query, reshaped into what {@link PastShowsArchive} reads.
+ *
+ * One function so the two wrappers cannot drift on it. Hand-writing the same
+ * seven-field literal at each mount point is the shape PSY-1842 exists to
+ * remove, one layer up: a field added to {@link ArchiveListState} would be a
+ * two-file edit today and an N-file edit at the next entity, with no compiler
+ * help finding the sites.
+ *
+ * `rows` is passed separately, and must be memoized by the caller: only the
+ * caller knows the row TYPE, and only the caller can memoize on the response
+ * object react-query hands back.
+ */
+export function archiveListState<T extends ArchiveRow>(
+  query: ArchiveListQuery,
+  rows: T[]
+): ArchiveListState<T> {
+  return {
+    rows,
+    total: query.data?.total ?? 0,
+    isPending: query.isPending,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    isPlaceholderData: query.isPlaceholderData,
+    refetch: () => void query.refetch(),
+  }
 }
 
 export interface PastShowsArchiveProps<T extends ArchiveRow> {
@@ -200,10 +240,18 @@ export interface PastShowsArchiveProps<T extends ArchiveRow> {
   activeYear: number | null
   /** The current page, from {@link useArchivePage}. */
   page: number
-  /** Rows per page, as the row request ACTUALLY asked for them. */
+  /**
+   * Rows per page, as the row request ACTUALLY asked for them — not the constant
+   * behind it. The label walk maps row ordinals onto pages, so a page size that
+   * diverged from the request would shift every label by the difference, which is
+   * a WRONG label rather than a missing one.
+   *
+   * The row OFFSET is derived from this and `page` rather than passed: it is
+   * exactly `(page - 1) * pageSize` at both call sites, and a third prop that
+   * must agree with two others is a way for the caption to say "Showing 51-100"
+   * under a pager that says page 1.
+   */
   pageSize: number
-  /** Rows skipped by the current page, as the row request asked. */
-  offset: number
   /** THE address of one view of this archive. Owns the entire URL shape. */
   buildHref: (year: number | null, page: number) => string
   /** The counts, from {@link archiveScope}. */
@@ -230,17 +278,18 @@ export interface PastShowsArchiveProps<T extends ArchiveRow> {
   /** The table. Handed exactly the rows to render, in the order to render them. */
   renderTable: (rows: T[]) => ReactNode
   /**
-   * Render the year strip for an entity with only ONE year.
+   * Whether each of this entity's years is a crawlable DOCUMENT of its own.
    *
-   * True on venues, and it is not cosmetic: a one-year venue's archive is still a
-   * document with its own URL (`/venues/{slug}/shows/{year}`) and the sitemap
-   * announces it, so suppressing the strip left that URL with no inbound link
-   * anywhere on the site, next to a venue page carrying the identical rows
-   * (PSY-1756). False on artists, which have no per-year route — there a
-   * single-year strip is a control whose only option is the view already on
-   * screen.
+   * Named for the FACT rather than for what it renders, because it is the same
+   * fact `buildHref` already encodes (`/venues/{slug}/shows/{year}` against
+   * `?year=`) and the render rule follows from it. True on venues: a one-year
+   * venue's archive still has its own URL and the sitemap announces it, so
+   * suppressing the strip left that URL with no inbound link anywhere on the
+   * site, next to a venue page carrying the identical rows (PSY-1756). False on
+   * artists, which have no per-year route — there a single-year strip is a
+   * control whose only option is the view already on screen.
    */
-  yearStripForSingleYear: boolean
+  hasPerYearRoute: boolean
   className?: string
 }
 
@@ -255,7 +304,6 @@ export function PastShowsArchive<T extends ArchiveRow>({
   activeYear,
   page,
   pageSize,
-  offset,
   buildHref,
   scope,
   years,
@@ -263,12 +311,13 @@ export function PastShowsArchive<T extends ArchiveRow>({
   list,
   zoneOf,
   renderTable,
-  yearStripForSingleYear,
+  hasPerYearRoute,
   className,
 }: PastShowsArchiveProps<T>) {
   const { allTimeTotal, hasPastShows, haveHistogram, scopedTotal, totalPages } =
     scope
   const { rows, isPlaceholderData } = list
+  const offset = (page - 1) * pageSize
 
   const { targetProps, focusTarget } =
     usePaginationFocusTarget<HTMLHeadingElement>()
@@ -715,7 +764,7 @@ export function PastShowsArchive<T extends ArchiveRow>({
         </p>
       )}
 
-      {yearEntries.length > (yearStripForSingleYear ? 0 : 1) && (
+      {yearEntries.length > (hasPerYearRoute ? 0 : 1) && (
         <YearStrip
           ariaLabel="Filter past shows by year"
           allYearsHref={buildHref(null, 1)}

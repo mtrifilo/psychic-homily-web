@@ -418,16 +418,6 @@ func (h *ArtistHandler) GetArtistShowYearsHandler(ctx context.Context, req *GetA
 	return resp, nil
 }
 
-// artistShowMonthsCacheControl matches venueShowMonthsCacheControl, and must:
-// the two histograms label the SAME pager component (PSY-1842), so a difference
-// in how long each is allowed to be stale would be a difference in how fresh a
-// page label is depending on which archive you happened to open.
-//
-// Deliberately NOT applied to the sibling years endpoint, for the reason stated
-// on the venue twin: that is a shipped read with its own consumers, and giving
-// it a cache policy is a behaviour change it should get on its own.
-const artistShowMonthsCacheControl = "public, max-age=60"
-
 // GetArtistShowMonthsRequest represents the request parameters for an artist's
 // show-month histogram.
 type GetArtistShowMonthsRequest struct {
@@ -437,8 +427,9 @@ type GetArtistShowMonthsRequest struct {
 
 // GetArtistShowMonthsResponse represents the response for the artist show-months endpoint
 type GetArtistShowMonthsResponse struct {
-	// CacheControl: public, viewer-independent and stale-tolerant, exactly the
-	// class the venue month histogram already caches this way.
+	// CacheControl: showMonthHistogramCacheControl, the SAME constant the venue
+	// month histogram sends — the two label one shared pager, so they may not
+	// differ in how stale a page label is allowed to be.
 	//
 	// It earns the header more than most: the payload is an aggregate over an
 	// artist's ENTIRE history with no index to answer it (the venue-local month
@@ -492,7 +483,7 @@ func (h *ArtistHandler) GetArtistShowMonthsHandler(ctx context.Context, req *Get
 		return nil, huma.Error500InternalServerError("Failed to count shows by month", err)
 	}
 
-	resp := &GetArtistShowMonthsResponse{CacheControl: artistShowMonthsCacheControl}
+	resp := &GetArtistShowMonthsResponse{CacheControl: showMonthHistogramCacheControl}
 	resp.Body.Months = months
 	resp.Body.ArtistID = artistID
 	resp.Body.TimeFilter = timeFilter

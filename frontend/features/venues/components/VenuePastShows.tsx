@@ -6,6 +6,7 @@ import { useCallback, useMemo } from 'react'
 // venues -> shows -> venues value cycle in behind it (the same reason
 // VenueShowsTable deep-imports ShowBill).
 import {
+  archiveListState,
   PastShowsArchive,
   useArchivePage,
 } from '@/features/shows/components/PastShowsArchive'
@@ -166,12 +167,11 @@ export function VenuePastShows({
   // every render would make both recompute forever.
   const pastData = pastQuery.data
   const rows: VenueShow[] = useMemo(() => pastData?.shows ?? [], [pastData])
-  const envelopeTotal = pastData?.total ?? 0
 
   const scope = archiveScope(yearScope, {
     yearsSettled: yearsQuery.isSuccess,
     listSettled: pastQuery.isSuccess,
-    listTotal: envelopeTotal,
+    listTotal: pastData?.total ?? 0,
     pageSize: pageLimit,
   })
 
@@ -226,7 +226,6 @@ export function VenuePastShows({
       activeYear={activeYear}
       page={page}
       pageSize={pageLimit}
-      offset={offset}
       buildHref={buildHref}
       scope={scope}
       years={{
@@ -234,24 +233,14 @@ export function VenuePastShows({
         isError: yearsQuery.isError,
       }}
       months={monthsQuery.data?.months}
-      list={{
-        rows,
-        total: envelopeTotal,
-        isPending: pastQuery.isPending,
-        isError: pastQuery.isError,
-        isFetching: pastQuery.isFetching,
-        isPlaceholderData: pastQuery.isPlaceholderData,
-        isSuccess: pastQuery.isSuccess,
-        refetch: () => void pastQuery.refetch(),
-      }}
+      list={archiveListState(pastQuery, rows)}
       zoneOf={zoneOf}
       renderTable={renderTable}
-      // A one-year venue's archive is still a document with its own URL, and the
-      // sitemap announces it — so suppressing the strip left that URL with no
-      // inbound link anywhere on the site, next to a venue page carrying the
-      // identical rows. An orphaned near-duplicate is the worst of both, and one
-      // link is what resolves it (PSY-1756).
-      yearStripForSingleYear
+      // `/venues/{slug}/shows/{year}` is a real document the sitemap announces
+      // (PSY-1756), which is what makes even a one-year strip load-bearing here:
+      // suppressing it left that URL with no inbound link anywhere on the site,
+      // next to a venue page carrying the identical rows.
+      hasPerYearRoute
       className={className}
     />
   )
