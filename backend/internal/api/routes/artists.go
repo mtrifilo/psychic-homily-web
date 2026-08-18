@@ -21,6 +21,11 @@ func setupArtistRoutes(rc RouteContext) {
 	// every year regardless of which one the list is filtered to, and the
 	// histogram does not change as the reader pages. See the handler's note.
 	huma.Get(rc.API, "/artists/{artist_id}/shows/years", artistHandler.GetArtistShowYearsHandler)
+	// The same histogram at month resolution, for the pager's range labels rather
+	// than the year picker (PSY-1842, the artist half of PSY-1769). A sibling
+	// static segment under the same parameterised parent, so it resolves exactly
+	// the way `years` does — chi walks static children before parameterised ones.
+	huma.Get(rc.API, "/artists/{artist_id}/shows/months", artistHandler.GetArtistShowMonthsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/labels", artistHandler.GetArtistLabelsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/aliases", artistHandler.GetArtistAliasesHandler)
 

@@ -1217,6 +1217,28 @@ type ArtistShowYearCount struct {
 	Count int64 `json:"count" doc:"Shows the artist played in that year, within the requested time filter"`
 }
 
+// ArtistShowMonthCount is one bar of an artist's show histogram at MONTH
+// resolution (PSY-1842), the artist twin of VenueShowMonthCount.
+//
+// The year is part of the bucket, not context around it: the archive it feeds
+// spans an artist's whole history by default, where a bare month number would
+// fold every March together.
+//
+// Each show is bucketed on ITS OWN venue's calendar, not on one zone for the
+// whole artist — a touring artist's rows span venues, so a New Year's Eve date
+// in Honolulu counts against the month it was played in, not the month it was in
+// UTC. That is the same convention the year histogram and the list's year filter
+// already use, which is what keeps a page label naming months the page contains.
+//
+// A twin of VenueShowMonthCount rather than one shared type, for the reason
+// stated on ArtistShowYearCount: two independent public schemas over two
+// entities.
+type ArtistShowMonthCount struct {
+	Year  int   `json:"year" doc:"Venue-local calendar year"`
+	Month int   `json:"month" doc:"Venue-local calendar month, 1-12"`
+	Count int64 `json:"count" doc:"Shows the artist played in that month, within the requested time filter"`
+}
+
 // ArtistShowVenueResponse represents venue info in artist show response
 type ArtistShowVenueResponse struct {
 	ID       uint    `json:"id"`
@@ -2329,6 +2351,14 @@ type ArtistServiceInterface interface {
 	// render every selectable year, including the ones the current page is
 	// filtered away from.
 	GetArtistShowYears(artistID uint, timeFilter string) ([]ArtistShowYearCount, error)
+	// GetArtistShowMonths is the same histogram one resolution finer, and for a
+	// different consumer: the archive's PAGE LABELS, which need to name the
+	// months behind a page number before the reader has fetched that page. Like
+	// the year histogram it spans every year, so one read serves the all-years
+	// archive and every year-scoped view of it. The venue twin is
+	// GetVenueShowMonths, and the two must keep answering the same question —
+	// one shared archive component labels both surfaces (PSY-1842).
+	GetArtistShowMonths(artistID uint, timeFilter string) ([]ArtistShowMonthCount, error)
 	// GetNextShowForArtist: the soonest upcoming show only (no count, no bill) —
 	// the graph-card's next-show glance (PSY-1352).
 	GetNextShowForArtist(artistID uint, timezone string) (*ArtistShowResponse, error)

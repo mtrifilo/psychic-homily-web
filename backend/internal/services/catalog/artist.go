@@ -1300,6 +1300,67 @@ func (s *ArtistService) GetArtistShowYears(artistID uint, timeFilter string) ([]
 	return years, nil
 }
 
+// GetArtistShowMonths returns the artist's show counts bucketed by VENUE-LOCAL
+// calendar month, newest month first, for the given time filter ("upcoming",
+// "past" or "all"). Only approved shows are counted.
+//
+// It exists so the archive's pager can say what is BEHIND a page number without
+// fetching that page. A page's month span is a function of the row ordinals it
+// covers, and cumulative counts answer that for every page at once — where
+// deriving it from rows could only ever label the pages the reader had already
+// visited, which is the defect PSY-1769 closed for venues and PSY-1842 closes
+// here.
+//
+// EACH SHOW IS BUCKETED ON ITS OWN VENUE'S CALENDAR, which is the one thing that
+// differs from the venue twin in substance rather than in the entity being
+// filtered on. An artist's rows span venues, so there is no single zone to read
+// them in; scanVenueLocalMonthBuckets resolves the primary venue's zone per row
+// through shared.VenueTZJoin, exactly as the year histogram beside it already
+// does. The list this labels filters years the same way, which is what keeps a
+// label naming months the page actually contains.
+//
+// Months with no shows are absent rather than zero. Nothing downstream needs the
+// gaps: the labels are computed by walking cumulative counts, and a month with no
+// rows moves no page boundary.
+//
+// It spans EVERY year, like the year histogram and for a related reason: the
+// archive's default view is every year, and its year-scoped views are slices of
+// this same list. One read per artist therefore serves all of them, and switching
+// years never leaves the pager briefly labelled from the previous year's counts.
+func (s *ArtistService) GetArtistShowMonths(artistID uint, timeFilter string) ([]contracts.ArtistShowMonthCount, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var artist catalogm.Artist
+	if err := s.db.First(&artist, artistID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrArtistNotFound(artistID)
+		}
+		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// year 0: see GetArtistShowYears. A histogram narrowed to one year could not
+	// label the all-years pager, which is the surface that needs it most.
+	baseQuery := s.artistShowsBaseQuery(artistID, timeFilter, 0, venueZoneNeededBySelect)
+
+	buckets, err := scanVenueLocalMonthBuckets(baseQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	// Non-nil even when empty: the histogram must serialize as [] rather than null.
+	months := make([]contracts.ArtistShowMonthCount, len(buckets))
+	for i, bucket := range buckets {
+		months[i] = contracts.ArtistShowMonthCount{
+			Year:  bucket.Year,
+			Month: bucket.Month,
+			Count: bucket.Count,
+		}
+	}
+	return months, nil
+}
+
 // GetNextShowForArtist returns the artist's SOONEST upcoming approved show (with
 // its venue), or nil when there is none — the graph-card's "next show" glance
 // (PSY-1352). Unlike GetShowsForArtist it skips the redundant existence check

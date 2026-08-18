@@ -412,6 +412,55 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowYears_ArtistNotFound() 
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
+// --- GetArtistShowMonthsHandler (PSY-1842) ---
+
+func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowMonths_ResolvesBySlugAndEchoesFilter() {
+	artistID := s.createArtistViaService("Months Artist")
+	s.bookArtist(artistID, "Months Show", 14)
+
+	resp, err := s.handler.GetArtistShowMonthsHandler(s.deps.Ctx, &GetArtistShowMonthsRequest{
+		ArtistID: "months-artist", TimeFilter: "upcoming",
+	})
+	s.Require().NoError(err)
+	s.Equal(artistID, resp.Body.ArtistID, "the slug must resolve to the same artist the list uses")
+	s.Equal("upcoming", resp.Body.TimeFilter)
+	s.Require().Len(resp.Body.Months, 1)
+	s.Equal(int64(1), resp.Body.Months[0].Count)
+	s.GreaterOrEqual(resp.Body.Months[0].Month, 1)
+	s.LessOrEqual(resp.Body.Months[0].Month, 12)
+
+	// Same default as the list and the year picker. The labels this drives sit on
+	// the pager for a specific set of rows; counted under a different filter they
+	// would name months the pager is not paging.
+	defaulted, err := s.handler.GetArtistShowMonthsHandler(s.deps.Ctx, &GetArtistShowMonthsRequest{
+		ArtistID: fmt.Sprintf("%d", artistID),
+	})
+	s.Require().NoError(err)
+	s.Equal("upcoming", defaulted.Body.TimeFilter)
+	s.Equal(resp.Body.Months, defaulted.Body.Months)
+}
+
+// The cache policy must match the venue twin's exactly: both histograms label the
+// same shared pager, so a difference here would be a difference in how stale a
+// page label may be depending on which archive the reader opened.
+func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowMonths_CarriesTheSameCachePolicyAsTheVenueTwin() {
+	artistID := s.createArtistViaService("Cached Months Artist")
+	s.bookArtist(artistID, "Cached Months Show", 14)
+
+	resp, err := s.handler.GetArtistShowMonthsHandler(s.deps.Ctx, &GetArtistShowMonthsRequest{
+		ArtistID: fmt.Sprintf("%d", artistID), TimeFilter: "upcoming",
+	})
+	s.Require().NoError(err)
+	s.Equal(venueShowMonthsCacheControl, resp.CacheControl)
+}
+
+func (s *ArtistHandlerIntegrationSuite) TestGetArtistShowMonths_ArtistNotFound() {
+	_, err := s.handler.GetArtistShowMonthsHandler(s.deps.Ctx, &GetArtistShowMonthsRequest{
+		ArtistID: "no-such-artist-slug", TimeFilter: "all",
+	})
+	testhelpers.AssertHumaError(s.T(), err, 404)
+}
+
 // --- DeleteArtistHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestDeleteArtist_Success() {
