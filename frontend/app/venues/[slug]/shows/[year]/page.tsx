@@ -1,22 +1,26 @@
+import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
 import {
   buildVenueYearArchiveMetadata,
   VenueYearArchiveContent,
+  type ArchiveSearchParams,
 } from '@/features/venues/yearArchivePage'
-import {
-  archiveData,
-  archiveYearExists,
-  getArchiveFirstPage,
-  getArchiveYears,
-  getVenue,
-} from '@/features/venues/archiveApi'
 // Entity-agnostic since PSY-1754 — the artist archive validates its `?year=`
 // with the same function, against the same bounds the backend enforces.
 import { parseArchiveYear } from '@/features/shows/showArchive'
 
 interface VenueYearArchiveProps {
   params: Promise<{ slug: string; year: string }>
+  /**
+   * Passed straight through to `VenueYearArchiveContent` and awaited THERE,
+   * never here. Awaiting it in this body would make the whole route dynamic and
+   * cost it the prerendered shell PSY-1753/1756 measured. `generateMetadata`
+   * does not take it at all — that is what keeps every `?page=` of a year on one
+   * canonical.
+   */
+  searchParams: ArchiveSearchParams
 }
 
 /**
@@ -34,9 +38,36 @@ function parseYearSegment(segment: string): number | null {
   return parseArchiveYear(Number(segment))
 }
 
+/**
+ * The same spinner `app/venues/loading.tsx` shows, for the same wait.
+ *
+ * Declared here rather than imported from that file because a `loading.tsx`
+ * default export is a route convention, not a component library — Next owns when
+ * it renders, and importing it would tie this boundary to a file that exists to
+ * be found by name.
+ *
+ * The cost of that is a copy nothing pins: restyle `app/venues/loading.tsx` and
+ * this route's fallback silently stops matching its siblings. It is markup, so
+ * the failure is cosmetic and visible; if it ever stops being either, lift both
+ * into `components/shared` rather than importing the route file.
+ */
+function VenueYearArchiveLoading() {
+  return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
+/**
+ * Deliberately the params-only half of {@link VenueYearArchiveProps}. Next would
+ * hand `generateMetadata` the search params too; not naming them is what makes
+ * "every `?page=` of a year shares one canonical" a property of the signature
+ * rather than of remembering.
+ */
 export async function generateMetadata({
   params,
-}: VenueYearArchiveProps): Promise<Metadata> {
+}: Pick<VenueYearArchiveProps, 'params'>): Promise<Metadata> {
   const { slug, year } = await params
   const parsed = parseYearSegment(year)
   if (parsed === null) {
@@ -57,16 +88,17 @@ export async function generateMetadata({
  * the set announced, the set that 200s and the set that renders are derived
  * from one source rather than kept in step by hand.
  *
- * The `notFound()` calls below render the not-found BODY; they do not set the
- * status. Measured on this build: `notFound()` reached after the shell has
- * streamed commits a 404 body at HTTP 200 (the soft-404 the whole of proxy.ts
- * exists to prevent), so the real 404 comes from the venue-year branch there.
- * These stay because a page must never render an archive it does not have, and
- * because the proxy fails OPEN on a backend blip — on that path this is what
- * the reader sees.
+ * This body reads NOTHING (PSY-1770). Every fetch, and the `notFound()` rules
+ * that depend on one, moved into `VenueYearArchiveContent` under the boundary
+ * below — which is what lets the archive read `?page=` at all, since awaiting
+ * `searchParams` out here would make the whole route dynamic and cost it the
+ * prerendered shell PSY-1753/1756 measured. What is left is the path-segment
+ * check, which needs no network and so must not sit behind a boundary: a year
+ * segment that cannot be a year is a dead end whatever the database says.
  */
 export default async function VenueYearArchivePage({
   params,
+  searchParams,
 }: VenueYearArchiveProps) {
   const { slug, year } = await params
   const parsedYear = parseYearSegment(year)
@@ -74,43 +106,23 @@ export default async function VenueYearArchivePage({
     notFound()
   }
 
-  // All three take the slug from `params`, so none of them waits on another —
-  // the backend resolves an id or a slug identically, so the rows do not need
-  // the venue row first. Serialising them would put a full round trip on the
-  // critical path of every cold render, and by the time this route renders the
-  // proxy's existence branch has already filtered the years that have no rows.
-  const [venueRead, yearsRead, firstPageRead] = await Promise.all([
-    getVenue(slug, 'venue-year-archive'),
-    getArchiveYears(slug),
-    getArchiveFirstPage(slug, parsedYear),
-  ])
-
-  // 404 only on a POSITIVE absence. A read that failed is not an answer, and
-  // treating it as one is what turns a backend blip into a not-found body for
-  // every archive on the site — which the proxy deliberately does not do
-  // either (it fails open on anything that is not a backend 404).
-  const venue = archiveData(venueRead)
-  if (venueRead.status === 'missing') {
-    notFound()
-  }
-  if (yearsRead.status === 'ok' && !archiveYearExists(yearsRead, parsedYear)) {
-    notFound()
-  }
-  // The venue is what every other piece hangs off. Without it there is nothing
-  // to render, so this falls through to the not-found body — but by way of the
-  // page rather than the head, and `generateMetadata` has already declined to
-  // stamp `noindex` on a URL it could not check.
-  if (!venue) {
-    notFound()
-  }
-
   return (
-    <VenueYearArchiveContent
-      venue={venue}
-      venueSlug={venue.slug || slug}
-      year={parsedYear}
-      years={archiveData(yearsRead)}
-      firstPage={archiveData(firstPageRead)}
-    />
+    // The fallback is a REAL affordance, not `null`, and that is a correction
+    // rather than a flourish. `app/venues/loading.tsx` used to cover this route:
+    // the body awaited its reads, so the segment stayed pending and that spinner
+    // showed. Now the body returns as soon as `params` resolves, so the outer
+    // boundary settles at once and this inner one owns the whole wait — a `null`
+    // here would leave the reader looking at an empty content region for the
+    // full duration of three backend reads, which is worse than what the route
+    // did before this ticket. Matching the venues spinner keeps the two
+    // consistent. A crawler is unaffected either way: it receives shell plus
+    // resume, not the fallback.
+    <Suspense fallback={<VenueYearArchiveLoading />}>
+      <VenueYearArchiveContent
+        slug={slug}
+        year={parsedYear}
+        searchParams={searchParams}
+      />
+    </Suspense>
   )
 }

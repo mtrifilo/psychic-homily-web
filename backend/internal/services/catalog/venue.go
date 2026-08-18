@@ -1416,6 +1416,72 @@ func (s *VenueService) GetVenueShowYears(venueID uint, timeFilter string) ([]con
 	return years, nil
 }
 
+// HasPastShowsInYear reports whether the venue has at least one approved show on
+// the ARCHIVE's side of the venue-local upcoming/past boundary, inside `year`.
+//
+// It is the existence question `/venues/{slug}/shows/{year}` asks before it will
+// render, and nothing more: the answer is one bit, so this is the cheapest read
+// that can settle it. Reached through the frontend proxy's venue-year branch —
+// grep `shows/{year}/exists` there — because a page under cacheComponents cannot
+// set its own 404 status.
+//
+// THREE SURFACES MUST AGREE on which years are documents: this probe, the
+// histogram (GetVenueShowYears), and the `venue_years` sitemap family. They do,
+// but NOT by construction, and the difference matters to anyone editing them.
+// This and the histogram share venueShowsBaseQuery; the sitemap
+// (catalog/sitemap.go venueYearEntries) is a separate hand-written query that
+// merely composes the same shared.VenueLocalDateCondition("past") and
+// VenueLocalYearSQL fragments. So adding a predicate HERE — say
+// `AND shows.is_cancelled = false` — moves the page and the probe together and
+// leaves the sitemap announcing years that now 404. What actually enforces the
+// agreement is two chained tests: sitemap↔histogram in sitemap_integration_test,
+// and probe↔histogram in TestHasPastShowsInYear_AgreesWithThePastHistogram.
+// Change the predicate and run both.
+//
+// PAST is fixed rather than a parameter. A year archive is past-only by
+// definition — the page 404s a year whose shows are all still upcoming — and a
+// probe that could be asked a question its only caller never asks is surface
+// that has to be kept correct for nobody. Widening it later is additive.
+//
+// Cheaper than the histogram, and the honest version of "cheaper" is narrower
+// than it looks. What is certain: no GROUP BY over the venue's whole history, no
+// venue zone in the SELECT (only the WHERE dereferences venue_tz), and LIMIT 1,
+// so a POPULATED year stops at the first matching row. What is NOT verified is
+// the plan: the query drives from show_venues on venue_id, and whether
+// VenueLocalYearCondition's UTC bounds become an index range on
+// idx_shows_event_date or a filter applied after the pk probe into shows has not
+// been EXPLAINed against production-shaped data. For an EMPTY year — the common
+// case when a crawler walks the year space — LIMIT 1 cannot stop early, so the
+// cost scales with the venue's history rather than the year's.
+//
+// Do not harden that comment without measuring. This file has been wrong about
+// its own plans before: see the loops=17228 note in
+// services/shared/show_venue_local_sql.go, where a shape that looked equivalent
+// re-scanned per row.
+//
+// It does NOT verify the venue exists, unlike its siblings, and the difference
+// is invisible to every caller: an unknown venue has no shows, so both roads end
+// at the same 404 at the handler. The handler's own slug resolution already
+// separates the two cases for the shape a caller actually sends.
+func (s *VenueService) HasPastShowsInYear(venueID uint, year int) (bool, error) {
+	if s.db == nil {
+		return false, fmt.Errorf("database not initialized")
+	}
+
+	baseQuery := s.venueShowsBaseQuery(venueID, "past", year, venueZoneNotNeededBySelect)
+
+	// show_id is a primary key, so a zero here can only mean "no row matched" —
+	// the same test EntityExistenceService makes against an id column.
+	var showID uint
+	if err := baseQuery().
+		Select("show_venues.show_id").
+		Limit(1).
+		Scan(&showID).Error; err != nil {
+		return false, fmt.Errorf("failed to probe venue shows for year: %w", err)
+	}
+	return showID != 0, nil
+}
+
 // contracts.VenueCityResponse represents a city with venue count for filtering
 
 // GetVenueCities returns distinct cities that have verified venues, with venue counts.

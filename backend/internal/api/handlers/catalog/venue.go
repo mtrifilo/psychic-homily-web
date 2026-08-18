@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -361,6 +362,113 @@ func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVen
 
 	return resp, nil
 }
+
+// VenueYearArchiveExistsRequest addresses one venue-local calendar year of one
+// venue's archive.
+//
+// The year is BOUNDED here so an out-of-range segment is a 422 naming the field
+// rather than a round trip to the database, and the ceiling matches
+// GetVenueShowsRequest.Year's for the reason given there. The floor is 1 rather
+// than the frontend's 1900: this endpoint owns representability, not editorial
+// range, and the caller that has an opinion about 1900 (the proxy) already
+// rejects anything below it without asking.
+type VenueYearArchiveExistsRequest struct {
+	VenueID string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
+	Year    int    `path:"year" minimum:"1" maximum:"9999" doc:"Venue-local calendar year"`
+}
+
+// VenueYearArchiveExistsResponse carries no body on purpose: the STATUS is the
+// whole answer, which is what lets the caller use HEAD.
+type VenueYearArchiveExistsResponse struct{}
+
+// VenueYearArchiveExistsHandler handles HEAD
+// /venues/{venue_id}/shows/{year}/exists — 200 when the venue has at least one
+// approved PAST show in that venue-local year, 404 when the venue is unknown or
+// the year is empty.
+//
+// 200 rather than the 204 a body-less output would normally get: huma v2.34.1
+// special-cases HEAD and pins DefaultStatus to 200 before the body-less rule
+// applies. The generated OpenAPI document says 200 for the same reason. A huma
+// bump that drops that special case would flip the generated contract to 204
+// without breaking anything — the caller only asks `res.ok` — so treat this as a
+// fact about the pinned version, not about huma.
+//
+// WHY A STATUS AND NOT A BODY. Its caller is the frontend proxy, which turns
+// `/venues/{slug}/shows/{year}` into a real HTTP 404 for a year that is not a
+// document — the page cannot do it itself, because a `notFound()` reached after
+// the shell has streamed commits a 404 body at HTTP 200. Before this endpoint
+// the proxy had to GET the show LIST scoped to the year and read `total` out of
+// the body, because that endpoint answers 200 for any venue that exists; a
+// status-bearing probe makes it a HEAD like every other branch in that file, and
+// the response never leaves the connection.
+//
+// The two failure modes answer alike IN THE RESPONSE, and it takes deliberate
+// effort rather than indifference. An unknown venue and an empty year both
+// return the detail below, because huma writes the error body even for a HEAD
+// and Go still derives a Content-Length from it — so two different messages
+// would be two different Content-Lengths, and a crawler could separate "no such
+// venue" from "no shows that year" off a body it never receives. Measured before
+// they were unified: 121 bytes against 147.
+//
+// They are NOT indistinguishable by TIMING, and this file should not pretend
+// otherwise: an unknown slug returns after one GetVenueBySlug, while a known
+// venue pays that plus a probe whose cost scales with its history (see below).
+// That oracle is wide open and this change widens it. It is tolerable only
+// because nothing secret rides on the distinction — venue existence is already
+// public through GET /venues/{slug} — which is also the reason the byte-level
+// unification is worth doing rather than worth relying on.
+//
+// COST, stated accurately because the shape invites an assumption. This is two
+// statements for a slug, not one: resolveVenueID goes through GetVenueBySlug,
+// which selects the venue row and builds a full detail response purely to read
+// its id, and the probe below is a second query. Using the shared resolver is
+// deliberate — every venue sub-resource must agree on what a bad venue reference
+// returns — but an id-only fast path on that resolver is the obvious win if this
+// ever shows up in the latency profile, and it would benefit its siblings too.
+//
+// Its budget is the ordinary anonymous public-read one, and DO NOT read that as
+// "enable ENABLE_PUBLIC_READ_RATE_LIMITS and this endpoint is defended". It is
+// not, and the reason is worth knowing before anyone acts on the enumeration
+// risk below. The frontend proxy's existence probes forward no client headers,
+// so every one of them — for every entity type, not just this route — arrives
+// from the Vercel egress IP and shares ONE anonymous per-IP bucket, while a
+// crawler hitting the site directly gets a bucket of its own. Turning the flag
+// on under crawl load therefore throttles the site's own probes first;
+// existenceCheck fails open on a 429, and empty years start soft-404ing at HTTP
+// 200 — the exact outcome the venue-year branch exists to prevent, with the
+// crawler unaffected.
+//
+// The exposure is real — the URL space is every venue times 8,100 years, and an
+// EMPTY year is the case LIMIT 1 cannot short-circuit — but bounding it wants a
+// key the proxy's traffic can be told apart by, not this flag.
+func (h *VenueHandler) VenueYearArchiveExistsHandler(ctx context.Context, req *VenueYearArchiveExistsRequest) (*VenueYearArchiveExistsResponse, error) {
+	venueID, err := h.resolveVenueID(req.VenueID)
+	if err != nil {
+		// Restated rather than surfaced, so an unknown venue is byte-identical to
+		// an empty year. resolveVenueID's own "Venue not found" is the right
+		// answer for its other callers and the wrong one here.
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) && statusErr.GetStatus() == http.StatusNotFound {
+			return nil, huma.Error404NotFound(venueYearArchiveAbsent)
+		}
+		return nil, err
+	}
+
+	exists, err := h.venueService.HasPastShowsInYear(venueID, req.Year)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to check venue year archive", err)
+	}
+	if !exists {
+		return nil, huma.Error404NotFound(venueYearArchiveAbsent)
+	}
+
+	return &VenueYearArchiveExistsResponse{}, nil
+}
+
+// venueYearArchiveAbsent is the ONE detail both 404 branches carry. Declared
+// once because the whole point is that the two are indistinguishable, and two
+// string literals is how that stops being true.
+const venueYearArchiveAbsent = "No archived shows for that venue and year"
 
 // resolveVenueID turns the shared {venue_id} path parameter, a numeric id or a
 // slug, into an id, returning a ready-to-surface huma error. Shared by the

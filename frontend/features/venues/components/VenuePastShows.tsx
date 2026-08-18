@@ -50,6 +50,11 @@ export const VENUE_PAST_SHOWS_ANCHOR = VENUE_PAST_SHOWS_FRAGMENT
  * a bounded empty page instead of an unbounded offset the backend has to
  * reject. At 50 rows a page this covers 50,000 shows at one venue, roughly two
  * orders of magnitude past the busiest venue observed.
+ *
+ * Stays private to this component, deliberately. The year-archive route reads
+ * `?page=` server-side too (PSY-1770), but only to ask whether it is page 1 —
+ * and a maximum can only pull a number DOWN to itself, so it cannot change
+ * whether that number is 1. Sharing this would imply the server needs it.
  */
 const MAX_PAGE = 1_000
 
@@ -115,6 +120,14 @@ export function VenuePastShows({
   initialYears,
   className,
 }: VenuePastShowsProps) {
+  // `parseAsInteger.withDefault(1)` is also what the year-archive route resolves
+  // `?page=` with server-side, to decide whether seeding page 1's rows is worth
+  // a request (PSY-1770). The two cannot share one parser CONSTANT — `nuqs` and
+  // `nuqs/server` ship structurally separate type declarations of the same
+  // runtime, and a server module may not import the client entry point — so the
+  // agreement is pinned by test instead: see the equivalence battery in
+  // features/shows/showArchive.test.ts. A disagreement about what `?page=2abc`
+  // names would show up as the canonical page rendering unseeded.
   const [rawPage] = useQueryState('page', parseAsInteger.withDefault(1))
   const page = clampPage(rawPage, MAX_PAGE)
 

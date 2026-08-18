@@ -15,22 +15,32 @@ function requestFor(pathname: string): NextRequest {
 }
 
 /**
- * The venue-shows page the proxy probes: scoped to one year, `limit=1`, and
- * answered by `total` rather than by the status.
+ * A response from the API itself. 404s carry `application/problem+json`, which
+ * is what tells them apart from a 404 the router produced for a path it does not
+ * know — see API_ERROR_CONTENT_TYPE in proxy.ts.
+ *
+ * The success status is 200, not 204: huma pins DefaultStatus to 200 for HEAD
+ * before the body-less rule can apply, and the generated OpenAPI document says
+ * so. Measured against the running backend.
  */
-function mockYearPage(total: number) {
+function mockStatus(status: number) {
   return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(
-      JSON.stringify({ venue_id: 7, shows: [], total, limit: 1, offset: 0 }),
-      { status: 200, headers: { 'content-type': 'application/json' } }
-    )
+    new Response(null, {
+      status,
+      headers:
+        status === 404 ? { 'content-type': 'application/problem+json' } : {},
+    })
   )
 }
 
-function mockStatus(status: number) {
-  return vi
-    .spyOn(globalThis, 'fetch')
-    .mockResolvedValue(new Response(null, { status }))
+/** A 404 from something that is not the API — chi's default for an unknown path. */
+function mockUnroutedNotFound() {
+  return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(null, {
+      status: 404,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    })
+  )
 }
 
 const ARCHIVE = '/venues/the-van-buren/shows'
@@ -50,23 +60,43 @@ describe('proxy — venue year archives', () => {
   })
 
   it('lets a year the venue has past shows in through', async () => {
-    const fetchMock = mockYearPage(60)
+    const fetchMock = mockStatus(200)
 
     const response = await proxy(requestFor(`${ARCHIVE}/2024`))
 
-    // A GET, not the HEAD every other check uses: the endpoint answers 200 for
-    // any venue that exists, so only its body can settle the year. Scoped to
-    // the ONE year asked about, with limit=1 — the whole-history histogram
-    // would make a walk of the 8,100-year URL space a full aggregate per hit.
+    // A HEAD on the year's own existence endpoint, like every other branch in
+    // the file (PSY-1770). Before it, this was the one probe that had to GET a
+    // list and read `total` out of the body, because the list answers 200 for
+    // any venue that exists.
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:8080/venues/the-van-buren/shows?time_filter=past&year=2024&limit=1',
-      expect.objectContaining({ method: 'GET', redirect: 'manual' })
+      'http://localhost:8080/venues/the-van-buren/shows/2024/exists',
+      expect.objectContaining({ method: 'HEAD', redirect: 'manual' })
     )
     expect(response.status).toBe(200)
   })
 
+  /**
+   * No body is read, and that is a property worth asserting rather than
+   * inferring from the method: a probe that parsed a response would reintroduce
+   * the cost the HEAD removes, and HEAD responses have no body to parse.
+   */
+  it('settles the year on the status alone, never on a body', async () => {
+    const body = vi.fn()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      status: 204,
+      ok: true,
+      json: body,
+      text: body,
+    } as unknown as Response)
+
+    const response = await proxy(requestFor(`${ARCHIVE}/2024`))
+
+    expect(response.status).toBe(200)
+    expect(body).not.toHaveBeenCalled()
+  })
+
   it('bounds the probe with a timeout so a slow backend cannot pin the edge', async () => {
-    const fetchMock = mockYearPage(60)
+    const fetchMock = mockStatus(200)
 
     await proxy(requestFor(`${ARCHIVE}/2024`))
 
@@ -74,8 +104,13 @@ describe('proxy — venue year archives', () => {
     expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 
+  /**
+   * The backend answers 404 for BOTH "no such venue" and "no shows that year",
+   * and the proxy deliberately cannot tell them apart — a crawler walking the
+   * 8,100-year space must not be able to either. Both are the same real 404.
+   */
   it('turns a year with no past shows into a real 404', async () => {
-    mockYearPage(0)
+    mockStatus(404)
 
     const response = await proxy(requestFor(`${ARCHIVE}/1999`))
 
@@ -93,7 +128,7 @@ describe('proxy — venue year archives', () => {
   it.each(['20xx', '202', '20255', 'years', '2024a'])(
     '404s the malformed year %p without a round trip',
     async segment => {
-      const fetchMock = mockYearPage(60)
+      const fetchMock = mockStatus(200)
 
       const response = await proxy(requestFor(`${ARCHIVE}/${segment}`))
 
@@ -105,7 +140,7 @@ describe('proxy — venue year archives', () => {
   it.each(['0000', '1899'])(
     '404s the out-of-range year %p without a round trip',
     async segment => {
-      const fetchMock = mockYearPage(60)
+      const fetchMock = mockStatus(200)
 
       const response = await proxy(requestFor(`${ARCHIVE}/${segment}`))
 
@@ -131,7 +166,7 @@ describe('proxy — venue year archives', () => {
 
   /** The lower boundary itself must pass through, not just fail to 404. */
   it('probes the backend for the earliest in-range year', async () => {
-    const fetchMock = mockYearPage(3)
+    const fetchMock = mockStatus(200)
 
     const response = await proxy(
       requestFor(`${ARCHIVE}/${ARCHIVE_YEAR_RANGE.min}`)
@@ -152,12 +187,25 @@ describe('proxy — venue year archives', () => {
     }
   )
 
-  it('fails OPEN when the body is an unrecognised shape', async () => {
+  /**
+   * DEPLOY SKEW. A frontend live ahead of its backend probes a route the running
+   * API does not carry; chi answers 404 as `text/plain`. Reading that as
+   * "missing" would hard-404 every venue year archive — a sitemap-announced
+   * family — for the length of the skew window. Only a 404 the API AUTHORED may
+   * produce a real 404; this one has to fail open.
+   */
+  it('fails OPEN on a 404 the API did not author', async () => {
+    mockUnroutedNotFound()
+
+    const response = await proxy(requestFor(`${ARCHIVE}/2024`))
+
+    expect(response.status).toBe(200)
+  })
+
+  /** A 404 with no content type at all is equally undecidable. */
+  it('fails OPEN on a 404 carrying no content type', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ total: null }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
+      new Response(null, { status: 404 })
     )
 
     const response = await proxy(requestFor(`${ARCHIVE}/2024`))
