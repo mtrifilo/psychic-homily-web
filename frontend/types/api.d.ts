@@ -6702,6 +6702,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/venues/{venue_id}/shows/{year}/exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** Head venues by venue ID shows by year exists */
+        head: operations["head-venues-by-venue-id-shows-by-year-exists"];
+        patch?: never;
+        trace?: never;
+    };
     "/{entity_type}/{entity_id}/follow": {
         parameters: {
             query?: never;
@@ -34284,6 +34301,41 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["GetVenueShowYearsResponseBody"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "head-venues-by-venue-id-shows-by-year-exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Venue ID or slug
+                 * @example valley-bar-phoenix-az
+                 */
+                venue_id: string;
+                /** @description Venue-local calendar year */
+                year: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

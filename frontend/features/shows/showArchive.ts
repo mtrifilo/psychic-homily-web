@@ -361,6 +361,14 @@ export function clampPage(page: number, maxPage: number): number {
 }
 
 /**
+ * NOTE: the SERVER-side `?page=` derivation deliberately does not live here. It
+ * needs `nuqs/server`, and this module is imported by six client modules — both
+ * archives' tables and lists, and both entities' hooks — so an import here ships
+ * a second copy of nuqs to the browser (measured: 24,576 bytes against 134).
+ * See `showArchive.server.ts`.
+ */
+
+/**
  * The range a `?year=` param is accepted in.
  *
  * The upper bound is the backend's own (`maximum:"9999"` on the venue- and

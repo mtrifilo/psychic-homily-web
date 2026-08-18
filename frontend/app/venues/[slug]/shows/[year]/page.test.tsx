@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
 
+// Throws, like the real one — which is typed `never`. A non-throwing mock lets
+// the page body carry on past `notFound()` and return its Suspense element with
+// a null year, so a test could assert "rejected the segment" while the route in
+// fact rendered.
+const NOT_FOUND = 'NEXT_NOT_FOUND'
 vi.mock('next/navigation', () => ({
-  notFound: vi.fn(),
+  notFound: vi.fn(() => {
+    throw new Error(NOT_FOUND)
+  }),
 }))
 
 // The archive body renders the real client archive; these tests only exercise
@@ -13,7 +20,7 @@ vi.mock('@/features/venues/components/VenuePastShows', () => ({
   VENUE_PAST_SHOWS_ANCHOR: 'venue-past-shows',
 }))
 
-import { generateMetadata } from './page'
+import VenueYearArchivePage, { generateMetadata } from './page'
 
 function buildVenue(overrides: Record<string, unknown> = {}) {
   return {
@@ -208,4 +215,78 @@ describe('venues/[slug]/shows/[year] generateMetadata', () => {
     expect(meta.title).toBe('Shows not found')
     expect(fetchMock).not.toHaveBeenCalled()
   })
+})
+
+/**
+ * The page body reads NOTHING since PSY-1770.
+ *
+ * Every fetch moved under the Suspense boundary into `VenueYearArchiveContent`,
+ * which is what lets the archive read `?page=` at all: awaiting `searchParams`
+ * out here would make the whole route dynamic and cost it the prerendered shell
+ * PSY-1753/1756 measured. What is left is the path-segment check, which needs no
+ * network and so must NOT sit behind a boundary.
+ */
+describe('venues/[slug]/shows/[year] page body', () => {
+  it('renders the boundary without fetching anything', async () => {
+    await VenueYearArchivePage({
+      params: params('the-rebel-lounge', '2025'),
+      searchParams: Promise.resolve({}),
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  /**
+   * It does not merely ignore the search params — it never awaits them. A body
+   * that did would take the route dynamic even while reaching the same answer,
+   * which is exactly the regression the boundary exists to prevent and the one a
+   * behavioural assertion can catch without a build.
+   */
+  it('does not await searchParams', async () => {
+    const searchParams = {
+      then: vi.fn(),
+    } as unknown as Promise<Record<string, string | string[] | undefined>>
+
+    await VenueYearArchivePage({
+      params: params('the-rebel-lounge', '2025'),
+      searchParams,
+    })
+
+    expect(searchParams.then).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The dead-end year segments stay settled HERE, in the body, with no round
+   * trip and no boundary. Behind Suspense they would cost a render to reject.
+   *
+   * Asserted as "the render STOPS", not merely "notFound was called": the page
+   * must not go on to mount the archive for a year it has just rejected. With a
+   * non-throwing mock that distinction is invisible.
+   */
+  it.each(['2025abc', ' 2025 ', '25', '20255', '0000', '9999999'])(
+    'stops on the year segment %p without fetching',
+    async segment => {
+      await expect(
+        VenueYearArchivePage({
+          params: params('the-rebel-lounge', segment),
+          searchParams: Promise.resolve({}),
+        })
+      ).rejects.toThrow(NOT_FOUND)
+
+      expect(fetchMock).not.toHaveBeenCalled()
+    }
+  )
+
+  /** The in-range years the body must NOT reject. */
+  it.each(['1900', '2025', '9999'])(
+    'lets the in-range year %p through to the boundary',
+    async segment => {
+      await expect(
+        VenueYearArchivePage({
+          params: params('the-rebel-lounge', segment),
+          searchParams: Promise.resolve({}),
+        })
+      ).resolves.toBeTruthy()
+    }
+  )
 })

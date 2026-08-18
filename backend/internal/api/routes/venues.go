@@ -31,6 +31,17 @@ func setupVenueRoutes(rc RouteContext) {
 	// rather than the year picker (PSY-1769). A sibling static segment under the
 	// same parameterised parent, so it resolves exactly the way `years` does.
 	huma.Get(rc.API, "/venues/{venue_id}/shows/months", venueHandler.GetVenueShowMonthsHandler)
+	// PSY-1770: the year archive's existence probe. HEAD-only, like the
+	// `/entities/{entity_type}/{entity_id}/exists` family it belongs to — the
+	// status is the whole answer, so there is no body worth a GET.
+	//
+	// It sits one level BELOW `/venues/{venue_id}/shows/years`, and the two do not
+	// contend: chi walks static children before parameterised ones, so
+	// `/shows/years` (and its sibling `/shows/months`) resolve to the histograms
+	// and only `/shows/{year}/exists` reaches this. Registering `{year}` under the
+	// same parent as static `years`/`months` is the sibling case chi handles, not
+	// the same-SHAPE collision it does not (see the calendar.ics note below).
+	huma.Head(rc.API, "/venues/{venue_id}/shows/{year}/exists", venueHandler.VenueYearArchiveExistsHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/bill-network", venueHandler.GetVenueBillNetworkHandler)
 

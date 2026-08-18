@@ -296,7 +296,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     const sub = segments[3]
     const scene = encodeURIComponent(slug)
     if (sub === 'week') {
-      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`)
+      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`, {
+        // Shipped route; see existenceCheck's note on the four `false`s.
+        requireApiAuthoredNotFound: false,
+      })
     }
     // Both DAY routes probe the cheap scene-existence endpoint rather than the
     // day endpoint itself, because everything else that could make them 404 is
@@ -327,7 +330,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     //    night, uncached, on every request over thousands of dated keys per
     //    scene — was permanent and reachable by anyone.
     if (sub === 'tonight') {
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
+        requireApiAuthoredNotFound: false,
+      })
     }
     // File-convention OG card on the rolling detail URL. Without this branch
     // `opengraph-image` is a junk period and 404s before Next sees the route
@@ -335,13 +340,17 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     // fetch then draws the current week. The PAGE does not advertise this URL
     // (unfurl caches key on it forever); it stays addressable on its own.
     if (sub === 'opengraph-image') {
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
+        requireApiAuthoredNotFound: false,
+      })
     }
     if (CALENDAR_DATE_SEGMENT.test(sub)) {
       if (!periodYearInRange(sub) || !isRealCalendarDate(sub)) {
         return notFoundResponse(request)
       }
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug))
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
+        requireApiAuthoredNotFound: false,
+      })
     }
     // The WEEK key still goes to its own endpoint: `2025-W53` is well-formed
     // and unreal, and unlike a calendar date that verdict is ISO-8601 week
@@ -349,7 +358,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     if (ISO_WEEK_SEGMENT.test(sub) && periodYearInRange(sub)) {
       return existenceCheck(
         request,
-        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`
+        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`,
+        { requireApiAuthoredNotFound: false }
       )
     }
     // Not a servable period (`/scenes/chicago-il/garbage`, `/scenes/chicago-il/
@@ -403,10 +413,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // this branch is what stands between a crawler and an arbitrarily large field
   // of 200-with-a-not-found-body.
   //
-  // Membership is asked of the venue's PAST year histogram, which is the SAME
-  // authority the page renders from and the `venue_years` sitemap family is
-  // built from. Three surfaces, one source: a year in the sitemap resolves, and
-  // a year that resolves is in the strip.
+  // Membership is asked of the year's own existence endpoint (PSY-1770). It is
+  // built on the SAME predicate the page renders from and the `venue_years`
+  // sitemap family is projected from — `venueShowsBaseQuery(venue, "past",
+  // year)` — so the three still cannot drift: a year in the sitemap resolves,
+  // and a year that resolves is in the strip.
   if (
     entityType === 'venues' &&
     segments.length === 5 &&
@@ -442,7 +453,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next()
   }
 
-  return existenceCheck(request, buildCheckUrl(slug))
+  return existenceCheck(request, buildCheckUrl(slug), {
+    requireApiAuthoredNotFound: false,
+  })
 }
 
 /**
@@ -454,34 +467,71 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
 
 /**
+ * The content type the API stamps on every error it MEANS.
+ *
+ * It is how a 404 that answers the question ("no such venue", "no shows that
+ * year") is told apart from a 404 that means the server never heard of the
+ * path — huma writes `application/problem+json` on its errors, while chi's
+ * default handler for an unregistered route writes `text/plain`. Measured on
+ * this build against the real router:
+ *
+ *   /venues/{slug}/shows/2020/exists      404 application/problem+json
+ *   /entities/venues/{slug}/exists        404 application/problem+json
+ *   /venues/{slug}/shows/2020/no-such     404 text/plain; charset=utf-8
+ *
+ * Load-bearing at DEPLOY time, which is the only time it fires. A frontend that
+ * goes live ahead of its backend probes paths the running API does not carry
+ * yet; without this the bare 404 reads as "missing" and the proxy hard-404s
+ * every URL behind that probe — for the venue year archives, a whole
+ * sitemap-announced family, for the length of the skew window. With it, an
+ * unrouted probe falls through to the same fail-OPEN path as a 5xx: the page
+ * renders, and the worst case is the soft-404 the scene branches already
+ * tolerate, which is transient and recoverable where a hard 404 is not.
+ */
+const API_ERROR_CONTENT_TYPE = 'application/problem+json'
+
+/**
  * Probe a backend URL and turn the result into a pass-through or a real 404.
  *
  * ONE fail-open policy, for every branch above. Extracted originally so the
  * scene-week routes could reuse the generic `/<entity>/<slug>` semantics rather
- * than restate them — a second copy would drift — and widened by PSY-1756 for
- * the one question a status cannot answer.
+ * than restate them — a second copy would drift.
  *
- * `verdict` is what a caller supplies when a 2xx does not settle it. The venue
- * year archive is that case: `/venues/{slug}/shows/years` answers 200 for any
- * venue that exists, so its STATUS says nothing about the year and the answer
- * has to come out of the body. Omitting it keeps the cheap default — HEAD, 2xx
- * means it exists — which is what every other caller wants.
+ * HEAD, and the STATUS is the whole answer. PSY-1756 briefly widened this with a
+ * `verdict` callback, for the one probe that had to read a body because its
+ * endpoint answered 200 for any venue that existed; PSY-1770 gave that probe a
+ * status-bearing endpoint of its own and the callback went with it. A new caller
+ * that finds itself wanting a body should get its endpoint an honest status
+ * instead — the backend can answer the question in one indexed row, and a body
+ * this function parses is a body every OTHER caller pays to receive.
  *
- * Whatever `verdict` does, the fail-open rules around it stay here: a backend
- * 404 is the only "missing", and anything else (5xx, 403, 429, a body that does
- * not parse, a network error) lets the page render. Producing a 404 on a
- * transient blip would mask a real outage as "not found".
+ * The fail-open rules are the load-bearing part: a backend 404 is the only
+ * "missing", and anything else (5xx, 403, 429, a network error) lets the page
+ * render. Producing a 404 on a transient blip would mask a real outage as
+ * "not found".
+ *
+ * `requireApiAuthoredNotFound` narrows what counts as that 404 — see
+ * API_ERROR_CONTENT_TYPE — and is REQUIRED rather than optional on purpose.
+ * Every caller has to state which reading it wants, because the two fail in
+ * opposite directions during a deploy skew and the safe answer depends on how
+ * old the route is. A default would be a trap: the next probe added to this file
+ * would be written by copying a neighbour, and would silently inherit whichever
+ * reading that neighbour happened to need.
+ *
+ * `true` is the answer for a NEW route, and the answer to reach for when unsure.
+ * The four `false`s below are the shipped probes, kept as they are because
+ * turning the guard on for them changes 404 semantics site-wide — worth doing,
+ * but as its own change with its own verification across every entity type, not
+ * as a side effect of a performance ticket.
  */
 async function existenceCheck(
   request: NextRequest,
   url: string,
-  verdict?: (body: unknown) => boolean | null
+  options: { requireApiAuthoredNotFound: boolean }
 ): Promise<NextResponse> {
   try {
     const res = await fetch(url, {
-      // A body question needs a GET; everything else is answered by the status
-      // alone and pays for nothing more.
-      method: verdict ? 'GET' : 'HEAD',
+      method: 'HEAD',
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
       // we don't set it. `redirect: 'manual'` keeps the check cheap and avoids
       // following any backend redirect chain. A 2xx means the slug resolves;
@@ -494,9 +544,21 @@ async function existenceCheck(
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
 
-    // 404 from the backend = slug genuinely does not exist → real 404.
+    // 404 from the backend = the thing genuinely does not exist → real 404.
+    //
+    // Unless the caller asked for the stricter reading, in which case the
+    // content type has to agree that the API AUTHORED this 404 — "not found"
+    // and "I have never heard of this path" arrive as the same status and must
+    // not mean the same thing. See API_ERROR_CONTENT_TYPE.
     if (res.status === 404) {
-      return notFoundResponse(request)
+      if (!options.requireApiAuthoredNotFound) {
+        return notFoundResponse(request)
+      }
+      const contentType = res.headers.get('content-type') ?? ''
+      if (contentType.includes(API_ERROR_CONTENT_TYPE)) {
+        return notFoundResponse(request)
+      }
+      return NextResponse.next()
     }
 
     // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN — let the
@@ -506,17 +568,11 @@ async function existenceCheck(
       return NextResponse.next()
     }
 
-    // Backend reachable and the slug resolves. Without a verdict that settles
-    // it; with one, the body decides — and a null verdict means "I could not
-    // tell", which must never be answered as "it is not there".
-    if (!verdict) {
-      return NextResponse.next()
-    }
-    const decided = verdict(await res.json())
-    return decided === false ? notFoundResponse(request) : NextResponse.next()
+    // Backend reachable and the slug resolves.
+    return NextResponse.next()
   } catch {
-    // Network error reaching the backend, or a body that would not parse: fail
-    // OPEN. The proxy must never take a route down when the check itself fails.
+    // Network error reaching the backend: fail OPEN. The proxy must never take
+    // a route down when the check itself fails.
     return NextResponse.next()
   }
 }
@@ -524,21 +580,42 @@ async function existenceCheck(
 /**
  * Whether a venue actually has past shows in `year`.
  *
- * Asked of the venue-shows LIST scoped to that one year, not of the year
- * histogram, and the difference is the whole point. Both are the same predicate
- * — `venueShowsBaseQuery(venue, "past", year)`, which is also what the page
- * renders and what the `venue_years` sitemap family is projected from — but the
- * histogram enumerates the venue's ENTIRE past history to answer a question
- * about one year, uncached, over a URL space of 8,100 in-range years per venue.
- * A crawler (or anyone with curl) walking that space would pay a full-history
- * aggregate per request. Scoped to a year, the backend's sargable UTC bounds
- * turn it into an index range and `limit=1` keeps the body to a single row.
+ * A status-bearing HEAD probe, like every other branch in this file (PSY-1770).
+ * The backend answers 404 for a venue that does not exist AND for a year with no
+ * archived shows, which is the whole question — so nothing here reads a body,
+ * and the fail-open rules in `existenceCheck` apply unchanged.
  *
- * `total` is what settles it: this endpoint answers 200 for any venue that
- * exists, so its STATUS says nothing about the year — which is why this is the
- * one probe in this file that reads a body. A status-bearing existence endpoint
- * would make it a HEAD like every other branch; that is the shape to reach for
- * if this ever shows up in the backend's latency profile.
+ * It replaces a GET of the venue-shows LIST scoped to the year, which had to
+ * read `total` out of the body because that endpoint answers 200 for any venue
+ * that exists. That form was already scoped rather than aggregating the venue's
+ * whole history — the shape the ticket describes was fixed during PSY-1756 — but
+ * its handler still ran a COUNT, plucked a page of ids, and hydrated the row
+ * with its bills and artists, then shipped a JSON body back over a link that
+ * exists to carry one bit. The backend's probe is
+ * `venueShowsBaseQuery(venue, "past", year)` with LIMIT 1 — the same builder the
+ * page's own rows come from, and composing the same venue-local year fragments
+ * the `venue_years` sitemap family does. That the three AGREE is enforced by
+ * tests rather than by construction; see the note on HasPastShowsInYear for
+ * which ones and what breaks them. It is cheaper, not free — see the cost note
+ * on the handler, which is honest about the slug resolution it still pays for.
+ *
+ * THE FRONTEND WILL GO LIVE FIRST, and the guard is what makes that survivable
+ * rather than an instruction to avoid it. A release here is ONE fast-forward
+ * push of `production` that Railway and Vercel react to in parallel; there is no
+ * backend step to sequence ahead of a frontend step, and Next finishes building
+ * well before Go builds, migrates and passes a healthcheck. So on any release
+ * that adds a probed endpoint, this branch WILL spend a window calling a route
+ * the running API does not carry.
+ *
+ * That window is survivable because chi answers an unknown path with a
+ * `text/plain` 404 while the API stamps `application/problem+json` on the ones
+ * it authors — see `requireApiAuthoredNotFound`. The skew therefore costs
+ * soft-404s on empty years, which are transient and recoverable, instead of hard
+ * 404s across a sitemap-announced family, which are neither.
+ *
+ * Do NOT replace this with "deploy the backend first". That sentence has been
+ * written twice already in this file (see the scene `/tonight` branch) and names
+ * a step the release process does not have.
  */
 function venueArchiveYearCheck(
   request: NextRequest,
@@ -547,15 +624,8 @@ function venueArchiveYearCheck(
 ): Promise<NextResponse> {
   return existenceCheck(
     request,
-    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows` +
-      `?time_filter=past&year=${year}&limit=1`,
-    body => {
-      // Untrusted wire data. An unrecognised shape returns null ("could not
-      // tell"), which existenceCheck reads as a pass-through, not a 404.
-      const total = (body as { total?: unknown })?.total
-      if (typeof total !== 'number' || !Number.isFinite(total)) return null
-      return total > 0
-    }
+    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/${year}/exists`,
+    { requireApiAuthoredNotFound: true }
   )
 }
 

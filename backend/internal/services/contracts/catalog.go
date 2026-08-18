@@ -2038,6 +2038,12 @@ type VenueServiceInterface interface {
 	// the year histogram it spans every year, so one read serves the all-years
 	// archive and every year-scoped view of it.
 	GetVenueShowMonths(venueID uint, timeFilter string) ([]VenueShowMonthCount, error)
+	// HasPastShowsInYear is the ONE-BIT form of the same question, for the year
+	// archive's existence probe: it takes the same venue-local year bucketing as
+	// the histogram but answers from an indexed range with LIMIT 1 instead of
+	// aggregating the venue's whole history. Past-only, because a year archive
+	// is.
+	HasPastShowsInYear(venueID uint, year int) (bool, error)
 	GetVenueCities() ([]*VenueCityResponse, error)
 	GetVenueModel(venueID uint) (*catalogm.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)
