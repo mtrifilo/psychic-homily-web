@@ -438,3 +438,99 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueShowYears_ScopedToOne
 	suite.Require().NoError(err)
 	suite.Equal([]contracts.VenueShowYearCount{{Year: 2015, Count: 1}}, years)
 }
+
+// =============================================================================
+// Year-archive existence probe (PSY-1770)
+// =============================================================================
+//
+// The probe answers the SAME question the past histogram does, one bit at a
+// time, and these tests are written against that equivalence rather than against
+// the SQL: the only reason it may be substituted for the histogram in the
+// proxy's existence branch is that a year it says yes to is a year the archive
+// has rows for.
+
+func (suite *VenueServiceIntegrationTestSuite) TestHasPastShowsInYear_AgreesWithThePastHistogram() {
+	venue := suite.createTestVenue("Probe Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.seedShowsForVenue(venue.ID, user.ID,
+		fixedUTC(2016, time.February, 1, 20),
+		fixedUTC(2018, time.February, 1, 20),
+	)
+
+	years, err := suite.venueService.GetVenueShowYears(venue.ID, "past")
+	suite.Require().NoError(err)
+	populated := map[int]bool{}
+	for _, entry := range years {
+		populated[entry.Year] = true
+	}
+	suite.Require().True(populated[2016] && populated[2018], "fixture no longer seeds both years")
+
+	// 2017 sits BETWEEN two populated years, which is the case a range check
+	// would get wrong and a per-year probe must not.
+	for _, year := range []int{2015, 2016, 2017, 2018, 2019} {
+		exists, err := suite.venueService.HasPastShowsInYear(venue.ID, year)
+		suite.Require().NoError(err, "year %d", year)
+		suite.Equal(populated[year], exists,
+			"year %d: probe and histogram must agree on which years are documents", year)
+	}
+}
+
+// Past-only by construction: an upcoming date is not an archive, and the page
+// 404s that year. A probe that answered yes would turn every one of those URLs
+// into a 200 carrying a not-found body.
+func (suite *VenueServiceIntegrationTestSuite) TestHasPastShowsInYear_IgnoresUpcomingShows() {
+	venue := suite.createTestVenue("Upcoming Probe Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	upcomingAt := time.Now().UTC().AddDate(0, 0, 45)
+	suite.seedShowsForVenue(venue.ID, user.ID, upcomingAt)
+
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	suite.Require().NoError(err)
+	upcomingYear := upcomingAt.In(phoenix).Year()
+
+	exists, err := suite.venueService.HasPastShowsInYear(venue.ID, upcomingYear)
+	suite.Require().NoError(err)
+	suite.False(exists, "year %d holds only an upcoming show, so it is not an archive", upcomingYear)
+}
+
+// The year is the VENUE's, not UTC's — the same rule the list and the histogram
+// apply. A probe on UTC's calendar would 404 an archive the page renders.
+func (suite *VenueServiceIntegrationTestSuite) TestHasPastShowsInYear_UsesTheVenueLocalYear() {
+	user := suite.createTestUser()
+	// 23:00 on 2019-12-31 in Honolulu (UTC-10) is 09:00 on 2020-01-01 UTC.
+	venue := newVenueInZone(suite.T(), suite.db, "Probe New Year Room", "HI", "Pacific/Honolulu", true)
+	local := time.Date(2019, time.December, 31, 23, 0, 0, 0, time.FixedZone("HST", -10*3600))
+	suite.Require().Equal(2020, local.UTC().Year(), "fixture no longer straddles the year boundary")
+	suite.seedShowsForVenue(venue.ID, user.ID, local)
+
+	localYear, err := suite.venueService.HasPastShowsInYear(venue.ID, 2019)
+	suite.Require().NoError(err)
+	suite.True(localYear, "the show belongs to the venue's 2019")
+
+	utcYear, err := suite.venueService.HasPastShowsInYear(venue.ID, 2020)
+	suite.Require().NoError(err)
+	suite.False(utcYear, "UTC's calendar must not file the show under 2020")
+}
+
+// Scoped to ONE venue. A leak here would 200 a neighbour's year on this venue's
+// archive, which then renders empty.
+func (suite *VenueServiceIntegrationTestSuite) TestHasPastShowsInYear_ScopedToOneVenue() {
+	venue := suite.createTestVenue("Probe Scoped Room", "Phoenix", "AZ", true)
+	other := suite.createTestVenue("Probe Neighbour Room", "Phoenix", "AZ", true)
+	user := suite.createTestUser()
+	suite.seedShowsForVenue(other.ID, user.ID, fixedUTC(2014, time.May, 1, 20))
+
+	exists, err := suite.venueService.HasPastShowsInYear(venue.ID, 2014)
+	suite.Require().NoError(err)
+	suite.False(exists)
+}
+
+// An unknown venue is "no", not an error, and the distinction matters at the
+// proxy: an error there fails OPEN and soft-404s the page, while "no" is the
+// 404 the caller asked for. The handler's slug resolution already 404s the shape
+// a real caller sends; this is the numeric-id path.
+func (suite *VenueServiceIntegrationTestSuite) TestHasPastShowsInYear_UnknownVenueIsFalse() {
+	exists, err := suite.venueService.HasPastShowsInYear(99999, 2019)
+	suite.Require().NoError(err)
+	suite.False(exists)
+}

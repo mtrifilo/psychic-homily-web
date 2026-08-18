@@ -362,6 +362,58 @@ func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVen
 	return resp, nil
 }
 
+// VenueYearArchiveExistsRequest addresses one venue-local calendar year of one
+// venue's archive.
+//
+// The year is BOUNDED here so an out-of-range segment is a 422 naming the field
+// rather than a round trip to the database, and the ceiling matches
+// GetVenueShowsRequest.Year's for the reason given there. The floor is 1 rather
+// than the frontend's 1900: this endpoint owns representability, not editorial
+// range, and the caller that has an opinion about 1900 (the proxy) already
+// rejects anything below it without asking.
+type VenueYearArchiveExistsRequest struct {
+	VenueID string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
+	Year    int    `path:"year" minimum:"1" maximum:"9999" doc:"Venue-local calendar year"`
+}
+
+// VenueYearArchiveExistsResponse carries no body on purpose: the STATUS is the
+// whole answer, which is what lets the caller use HEAD.
+type VenueYearArchiveExistsResponse struct{}
+
+// VenueYearArchiveExistsHandler handles HEAD
+// /venues/{venue_id}/shows/{year}/exists — 204 when the venue has at least one
+// approved PAST show in that venue-local year, 404 when the venue is unknown or
+// the year is empty.
+//
+// WHY A STATUS AND NOT A BODY. Its caller is the frontend proxy, which turns
+// `/venues/{slug}/shows/{year}` into a real HTTP 404 for a year that is not a
+// document — the page cannot do it itself, because a `notFound()` reached after
+// the shell has streamed commits a 404 body at HTTP 200. Before this endpoint
+// the proxy had to GET the show LIST scoped to the year and read `total` out of
+// the body, because that endpoint answers 200 for any venue that exists; a
+// status-bearing probe makes it a HEAD like every other branch in that file, and
+// the response never leaves the connection.
+//
+// The two failure modes are deliberately NOT distinguished. A crawler walking
+// 8,100 in-range years per venue must not be able to tell "no such venue" from
+// "no shows that year", and the caller does the same thing with either.
+func (h *VenueHandler) VenueYearArchiveExistsHandler(ctx context.Context, req *VenueYearArchiveExistsRequest) (*VenueYearArchiveExistsResponse, error) {
+	venueID, err := h.resolveVenueID(req.VenueID)
+	if err != nil {
+		return nil, err
+	}
+
+	exists, err := h.venueService.HasPastShowsInYear(venueID, req.Year)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to check venue year archive", err)
+	}
+	if !exists {
+		return nil, huma.Error404NotFound("No archived shows for that venue and year")
+	}
+
+	return &VenueYearArchiveExistsResponse{}, nil
+}
+
 // resolveVenueID turns the shared {venue_id} path parameter, a numeric id or a
 // slug, into an id, returning a ready-to-surface huma error. Shared by the
 // venue sub-resource reads so they cannot drift apart on what a bad venue

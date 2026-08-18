@@ -25,6 +25,7 @@ import {
   archiveDocumentTitle,
   monthRangeLabel,
   venueArchiveHref,
+  VENUE_ARCHIVE_MAX_PAGE,
   VENUE_PAST_SHOWS_FRAGMENT,
 } from '../showArchive'
 import { VenueShowsTable } from './VenueShowsTable'
@@ -44,14 +45,6 @@ import type {
  * append this fragment when it builds the all-years hrefs.
  */
 export const VENUE_PAST_SHOWS_ANCHOR = VENUE_PAST_SHOWS_FRAGMENT
-
-/**
- * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes
- * a bounded empty page instead of an unbounded offset the backend has to
- * reject. At 50 rows a page this covers 50,000 shows at one venue, roughly two
- * orders of magnitude past the busiest venue observed.
- */
-const MAX_PAGE = 1_000
 
 export interface VenuePastShowsProps {
   venueId: number
@@ -116,7 +109,7 @@ export function VenuePastShows({
   className,
 }: VenuePastShowsProps) {
   const [rawPage] = useQueryState('page', parseAsInteger.withDefault(1))
-  const page = clampPage(rawPage, MAX_PAGE)
+  const page = clampPage(rawPage, VENUE_ARCHIVE_MAX_PAGE)
 
   const pageParams = venuePastShowsPageParams(page, activeYear)
   const offset = pageParams.offset ?? 0

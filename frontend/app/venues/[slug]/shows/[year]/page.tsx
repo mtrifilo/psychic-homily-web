@@ -7,7 +7,6 @@ import {
 import {
   archiveData,
   archiveYearExists,
-  getArchiveFirstPage,
   getArchiveYears,
   getVenue,
 } from '@/features/venues/archiveApi'
@@ -17,6 +16,14 @@ import { parseArchiveYear } from '@/features/shows/showArchive'
 
 interface VenueYearArchiveProps {
   params: Promise<{ slug: string; year: string }>
+  /**
+   * Passed straight through to `VenueYearArchiveShows` and awaited THERE, never
+   * here. Awaiting it in this body would make the whole route dynamic and cost
+   * it the prerendered shell PSY-1753/1756 measured; under the boundary, only
+   * the rows resume per request. `generateMetadata` does not take it at all —
+   * that is what keeps every `?page=` of a year on one canonical.
+   */
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
 /**
@@ -34,9 +41,15 @@ function parseYearSegment(segment: string): number | null {
   return parseArchiveYear(Number(segment))
 }
 
+/**
+ * Deliberately the params-only half of {@link VenueYearArchiveProps}. Next would
+ * hand `generateMetadata` the search params too; not naming them is what makes
+ * "every `?page=` of a year shares one canonical" a property of the signature
+ * rather than of remembering.
+ */
 export async function generateMetadata({
   params,
-}: VenueYearArchiveProps): Promise<Metadata> {
+}: Pick<VenueYearArchiveProps, 'params'>): Promise<Metadata> {
   const { slug, year } = await params
   const parsed = parseYearSegment(year)
   if (parsed === null) {
@@ -67,6 +80,7 @@ export async function generateMetadata({
  */
 export default async function VenueYearArchivePage({
   params,
+  searchParams,
 }: VenueYearArchiveProps) {
   const { slug, year } = await params
   const parsedYear = parseYearSegment(year)
@@ -74,15 +88,22 @@ export default async function VenueYearArchivePage({
     notFound()
   }
 
-  // All three take the slug from `params`, so none of them waits on another —
-  // the backend resolves an id or a slug identically, so the rows do not need
-  // the venue row first. Serialising them would put a full round trip on the
-  // critical path of every cold render, and by the time this route renders the
-  // proxy's existence branch has already filtered the years that have no rows.
-  const [venueRead, yearsRead, firstPageRead] = await Promise.all([
+  // Both take the slug from `params`, so neither waits on the other — the
+  // backend resolves an id or a slug identically, so the histogram does not
+  // need the venue row first. Serialising them would put a full round trip on
+  // the critical path of every cold render, and by the time this route renders
+  // the proxy's existence branch has already filtered the years that have no
+  // rows.
+  //
+  // The ROWS are no longer read here (PSY-1770). They depend on `?page=`, and
+  // reading that in this body would make the whole route dynamic, so they moved
+  // under the Suspense boundary in `VenueYearArchiveContent`. Nothing this
+  // function decides needs them: the 404 rules below are the venue's existence
+  // and the histogram's, both of which are still resolved before anything
+  // renders.
+  const [venueRead, yearsRead] = await Promise.all([
     getVenue(slug, 'venue-year-archive'),
     getArchiveYears(slug),
-    getArchiveFirstPage(slug, parsedYear),
   ])
 
   // 404 only on a POSITIVE absence. A read that failed is not an answer, and
@@ -106,11 +127,12 @@ export default async function VenueYearArchivePage({
 
   return (
     <VenueYearArchiveContent
+      slug={slug}
       venue={venue}
       venueSlug={venue.slug || slug}
       year={parsedYear}
       years={archiveData(yearsRead)}
-      firstPage={archiveData(firstPageRead)}
+      searchParams={searchParams}
     />
   )
 }

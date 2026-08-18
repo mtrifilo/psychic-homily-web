@@ -4343,6 +4343,7 @@ type MockVenueService struct {
 	GetVenueListingFn         func() ([]contracts.VenueListingEntry, int64, error)
 	GetShowsForVenueFn        func(uint, string, contracts.VenueShowsQuery) ([]*contracts.VenueShowResponse, int64, error)
 	GetVenueShowYearsFn       func(uint, string) ([]contracts.VenueShowYearCount, error)
+	HasPastShowsInYearFn      func(uint, int) (bool, error)
 	GetVenueCitiesFn          func() ([]*contracts.VenueCityResponse, error)
 	GetVenueModelFn           func(uint) (*catalogm.Venue, error)
 	GetUnverifiedVenuesFn     func(int, int) ([]*contracts.UnverifiedVenueResponse, int64, error)
@@ -4433,6 +4434,12 @@ func (m *MockVenueService) GetVenueShowYears(venueID uint, timeFilter string) ([
 		return m.GetVenueShowYearsFn(venueID, timeFilter)
 	}
 	return nil, nil
+}
+func (m *MockVenueService) HasPastShowsInYear(venueID uint, year int) (bool, error) {
+	if m.HasPastShowsInYearFn != nil {
+		return m.HasPastShowsInYearFn(venueID, year)
+	}
+	return false, nil
 }
 func (m *MockVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
 	if m.GetVenueCitiesFn != nil {

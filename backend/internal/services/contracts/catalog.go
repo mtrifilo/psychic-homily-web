@@ -2020,6 +2020,12 @@ type VenueServiceInterface interface {
 	// render every selectable year, including the ones the current page is
 	// filtered away from.
 	GetVenueShowYears(venueID uint, timeFilter string) ([]VenueShowYearCount, error)
+	// HasPastShowsInYear is the ONE-BIT form of the same question, for the year
+	// archive's existence probe: it takes the same venue-local year bucketing as
+	// the histogram but answers from an indexed range with LIMIT 1 instead of
+	// aggregating the venue's whole history. Past-only, because a year archive
+	// is.
+	HasPastShowsInYear(venueID uint, year int) (bool, error)
 	GetVenueCities() ([]*VenueCityResponse, error)
 	GetVenueModel(venueID uint) (*catalogm.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)

@@ -13,7 +13,7 @@ vi.mock('@/features/venues/components/VenuePastShows', () => ({
   VENUE_PAST_SHOWS_ANCHOR: 'venue-past-shows',
 }))
 
-import { generateMetadata } from './page'
+import VenueYearArchivePage, { generateMetadata } from './page'
 
 function buildVenue(overrides: Record<string, unknown> = {}) {
   return {
@@ -207,5 +207,65 @@ describe('venues/[slug]/shows/[year] generateMetadata', () => {
 
     expect(meta.title).toBe('Shows not found')
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * What the page BODY reads, which since PSY-1770 is a shorter list than it was.
+ *
+ * The rows moved under a Suspense boundary in `VenueYearArchiveContent` because
+ * they depend on `?page=`, and reading search params in this body would make the
+ * whole route dynamic and cost it the prerendered shell PSY-1753/1756 measured.
+ * These assertions hold that line: two reads here, whatever the URL asks for,
+ * and no dependence on the search params at all.
+ */
+describe('venues/[slug]/shows/[year] page body', () => {
+  const noSearchParams = Promise.resolve({})
+
+  it('reads the venue and the histogram, and nothing else', async () => {
+    mockVenueAndYears(buildVenue(), [{ year: 2025, count: 161 }])
+
+    await VenueYearArchivePage({
+      params: params('the-rebel-lounge', '2025'),
+      searchParams: noSearchParams,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const urls = fetchMock.mock.calls.map(call => String(call[0]))
+    expect(urls.some(url => url.includes('/shows/years'))).toBe(true)
+    // The rows are the read that moved. A `limit=` on this list is the
+    // signature of the page-1 fetch.
+    expect(urls.some(url => url.includes('limit='))).toBe(false)
+  })
+
+  /**
+   * It does not merely ignore the search params — it never awaits them. A body
+   * that did would take the route dynamic even while reaching the same answer,
+   * which is exactly the regression the boundary exists to prevent and the one a
+   * behavioural assertion can catch without a build.
+   */
+  it('does not await searchParams', async () => {
+    mockVenueAndYears(buildVenue(), [{ year: 2025, count: 161 }])
+    const searchParams = {
+      then: vi.fn(),
+    } as unknown as Promise<Record<string, string | string[] | undefined>>
+
+    await VenueYearArchivePage({
+      params: params('the-rebel-lounge', '2025'),
+      searchParams,
+    })
+
+    expect(searchParams.then).not.toHaveBeenCalled()
+  })
+
+  it('makes the same two reads on a deep page', async () => {
+    mockVenueAndYears(buildVenue(), [{ year: 2025, count: 161 }])
+
+    await VenueYearArchivePage({
+      params: params('the-rebel-lounge', '2025'),
+      searchParams: Promise.resolve({ page: '4' }),
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

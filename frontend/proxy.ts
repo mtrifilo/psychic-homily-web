@@ -458,30 +458,28 @@ const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
  *
  * ONE fail-open policy, for every branch above. Extracted originally so the
  * scene-week routes could reuse the generic `/<entity>/<slug>` semantics rather
- * than restate them — a second copy would drift — and widened by PSY-1756 for
- * the one question a status cannot answer.
+ * than restate them — a second copy would drift.
  *
- * `verdict` is what a caller supplies when a 2xx does not settle it. The venue
- * year archive is that case: `/venues/{slug}/shows/years` answers 200 for any
- * venue that exists, so its STATUS says nothing about the year and the answer
- * has to come out of the body. Omitting it keeps the cheap default — HEAD, 2xx
- * means it exists — which is what every other caller wants.
+ * HEAD, and the STATUS is the whole answer. PSY-1756 briefly widened this with a
+ * `verdict` callback, for the one probe that had to read a body because its
+ * endpoint answered 200 for any venue that existed; PSY-1770 gave that probe a
+ * status-bearing endpoint of its own and the callback went with it. A new caller
+ * that finds itself wanting a body should get its endpoint an honest status
+ * instead — the backend can answer the question in one indexed row, and a body
+ * this function parses is a body every OTHER caller pays to receive.
  *
- * Whatever `verdict` does, the fail-open rules around it stay here: a backend
- * 404 is the only "missing", and anything else (5xx, 403, 429, a body that does
- * not parse, a network error) lets the page render. Producing a 404 on a
- * transient blip would mask a real outage as "not found".
+ * The fail-open rules are the load-bearing part: a backend 404 is the only
+ * "missing", and anything else (5xx, 403, 429, a network error) lets the page
+ * render. Producing a 404 on a transient blip would mask a real outage as
+ * "not found".
  */
 async function existenceCheck(
   request: NextRequest,
-  url: string,
-  verdict?: (body: unknown) => boolean | null
+  url: string
 ): Promise<NextResponse> {
   try {
     const res = await fetch(url, {
-      // A body question needs a GET; everything else is answered by the status
-      // alone and pays for nothing more.
-      method: verdict ? 'GET' : 'HEAD',
+      method: 'HEAD',
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
       // we don't set it. `redirect: 'manual'` keeps the check cheap and avoids
       // following any backend redirect chain. A 2xx means the slug resolves;
@@ -506,17 +504,11 @@ async function existenceCheck(
       return NextResponse.next()
     }
 
-    // Backend reachable and the slug resolves. Without a verdict that settles
-    // it; with one, the body decides — and a null verdict means "I could not
-    // tell", which must never be answered as "it is not there".
-    if (!verdict) {
-      return NextResponse.next()
-    }
-    const decided = verdict(await res.json())
-    return decided === false ? notFoundResponse(request) : NextResponse.next()
+    // Backend reachable and the slug resolves.
+    return NextResponse.next()
   } catch {
-    // Network error reaching the backend, or a body that would not parse: fail
-    // OPEN. The proxy must never take a route down when the check itself fails.
+    // Network error reaching the backend: fail OPEN. The proxy must never take
+    // a route down when the check itself fails.
     return NextResponse.next()
   }
 }
@@ -524,21 +516,26 @@ async function existenceCheck(
 /**
  * Whether a venue actually has past shows in `year`.
  *
- * Asked of the venue-shows LIST scoped to that one year, not of the year
- * histogram, and the difference is the whole point. Both are the same predicate
- * — `venueShowsBaseQuery(venue, "past", year)`, which is also what the page
- * renders and what the `venue_years` sitemap family is projected from — but the
- * histogram enumerates the venue's ENTIRE past history to answer a question
- * about one year, uncached, over a URL space of 8,100 in-range years per venue.
- * A crawler (or anyone with curl) walking that space would pay a full-history
- * aggregate per request. Scoped to a year, the backend's sargable UTC bounds
- * turn it into an index range and `limit=1` keeps the body to a single row.
+ * A status-bearing HEAD probe, like every other branch in this file (PSY-1770).
+ * The backend answers 404 for a venue that does not exist AND for a year with no
+ * archived shows, which is the whole question — so nothing here reads a body,
+ * and the fail-open rules in `existenceCheck` apply unchanged.
  *
- * `total` is what settles it: this endpoint answers 200 for any venue that
- * exists, so its STATUS says nothing about the year — which is why this is the
- * one probe in this file that reads a body. A status-bearing existence endpoint
- * would make it a HEAD like every other branch; that is the shape to reach for
- * if this ever shows up in the backend's latency profile.
+ * It replaces a GET of the venue-shows LIST scoped to the year, which had to
+ * read `total` out of the body because that endpoint answers 200 for any venue
+ * that exists. That form was already scoped rather than aggregating the venue's
+ * whole history — the shape the ticket describes was fixed during PSY-1756 — but
+ * it still paid for a COUNT over the year plus a hydrated row, and shipped a
+ * JSON body back over a link that exists to carry one bit. The backend's probe
+ * is `venueShowsBaseQuery(venue, "past", year)` with LIMIT 1: the SAME predicate
+ * the page renders from and the `venue_years` sitemap family is projected from,
+ * so the three still cannot drift.
+ *
+ * DEPLOY THE BACKEND FIRST. A frontend live ahead of its backend probes a path
+ * chi does not know, gets a 404, and cannot tell that from "this year has no
+ * shows" — so every venue year archive would 404 for the length of the skew
+ * window. That is fail-CLOSED, unlike the scene branches above, and it is the
+ * one thing about this branch worth remembering at deploy time.
  */
 function venueArchiveYearCheck(
   request: NextRequest,
@@ -547,15 +544,7 @@ function venueArchiveYearCheck(
 ): Promise<NextResponse> {
   return existenceCheck(
     request,
-    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows` +
-      `?time_filter=past&year=${year}&limit=1`,
-    body => {
-      // Untrusted wire data. An unrecognised shape returns null ("could not
-      // tell"), which existenceCheck reads as a pass-through, not a 404.
-      const total = (body as { total?: unknown })?.total
-      if (typeof total !== 'number' || !Number.isFinite(total)) return null
-      return total > 0
-    }
+    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/${year}/exists`
   )
 }
 
