@@ -624,7 +624,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
   // The range is elided while the outgoing page is still on screen: it is
   // computed from the NEW offset over the OLD rows, so it would read
   // "Showing 51–100" above rows 1–50. Dimming says stale; it does not make a
-  // wrong number right (VenuePastShows precedent). The total is safe to keep —
+  // wrong number right (VenuePastShows precedent). The total is safe to keep:
   // the retained response differs from the incoming one by offset alone.
   const showingRange = isStale ? '…' : `${showingStart}–${showingEnd}`
   const chartsBackHref = isArchiveWindow ? archiveHref(window) : '/charts'
@@ -751,7 +751,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             ) : isLoading || pageOutOfRange ? (
               // Skeleton rows now cover the COLD load and the out-of-range
               // correction only. A page change used to land here too, which
-              // unmounted the whole results region — pager included — on every
+              // unmounted the whole results region, pager included, on every
               // click, and a live region that mounts already populated
               // announces nothing, so screen-reader users got no page-change
               // feedback at all (PSY-1768). The rows stay mounted and dimmed

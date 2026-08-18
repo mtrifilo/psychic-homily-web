@@ -370,7 +370,7 @@ describe('ReleaseList', () => {
 
   it('snaps a stale deep-page URL back onto the last real page (PSY-1768)', () => {
     // The pager clamps for DISPLAY, so without this the strip reads "Page 3 of
-    // 3" while the URL still claims `?page=999` — and the URL is what gets
+    // 3" while the URL still claims `?page=999`, and the URL is what gets
     // shared, bookmarked, and reloaded.
     mockGet.mockImplementation((key: string) => (key === 'page' ? '999' : null))
     mockReleasesTotal(120)
@@ -399,7 +399,7 @@ describe('ReleaseList', () => {
   })
 
   it('holds the spinner rather than claiming no releases match while snapping back', () => {
-    // The offset is past the end, so the API legitimately returns nothing —
+    // The offset is past the end, so the API legitimately returns nothing,
     // but "No releases found matching your filters" answers a question the
     // reader never asked.
     mockGet.mockImplementation((key: string) => (key === 'page' ? '999' : null))
@@ -416,6 +416,34 @@ describe('ReleaseList', () => {
     expect(
       screen.queryByText('No releases available at this time.')
     ).not.toBeInTheDocument()
+  })
+
+  it('stays silent through the snap-back, which is not a page change the reader made', () => {
+    // The pager already clamps 999 onto 3 for display, so the correction moves
+    // the URL without moving the pager's position, leaving nothing for the region
+    // to announce. A spurious "Page 3 of 3" here would be the pager speaking
+    // about a navigation nobody performed.
+    mockGet.mockImplementation((key: string) => (key === 'page' ? '999' : null))
+    mockReleasesTotal(120)
+    renderWithProviders(<ReleaseList />)
+
+    const pagerRegion = screen
+      .getByTestId('pagination')
+      .querySelector('[role="status"]')
+    expect(pagerRegion).toBeEmptyDOMElement()
+  })
+
+  it('collapses a non-numeric page param to page one instead of querying offset NaN', () => {
+    // NaN defeats every comparison it touches: it slips past the out-of-range
+    // check silently AND reaches the API as `offset=NaN`.
+    mockGet.mockImplementation((key: string) => (key === 'page' ? 'abc' : null))
+    mockReleasesTotal(120)
+    renderWithProviders(<ReleaseList />)
+
+    expect(mockUseReleases).toHaveBeenCalledWith(
+      expect.objectContaining({ offset: 0 })
+    )
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 
   it('leaves an in-range page alone, including while the first count is loading', () => {

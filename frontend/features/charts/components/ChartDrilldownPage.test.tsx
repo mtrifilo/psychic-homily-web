@@ -476,7 +476,7 @@ describe('ChartDrilldownPage', () => {
 
   it('announces a page change to screen readers (PSY-1768)', () => {
     // The whole point of holding the previous page on screen: the results
-    // region — pager included — stays MOUNTED, so the pager's live region is
+    // region (pager included) stays MOUNTED, so the pager's live region is
     // already in the accessibility tree when its text changes. It used to be
     // torn down and rebuilt on every click, and a live region that mounts
     // already populated announces nothing.

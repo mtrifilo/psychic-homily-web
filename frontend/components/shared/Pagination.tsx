@@ -106,7 +106,7 @@ export interface PaginationProps {
    * Set `false` on every pager but one when a surface renders the SAME list
    * twice (above and below it, the venue archive's shape). Both instances would
    * otherwise ship their own live region and update it in the same commit, and a
-   * screen reader speaks each one — "Page 2 of 4" twice per click. Which
+   * screen reader speaks each one: "Page 2 of 4" twice per click. Which
    * instance keeps it is the consumer's call; the one nearer the focus target
    * is the natural owner.
    *
@@ -214,7 +214,7 @@ function BoundaryControl({
  * consumer that keeps this component mounted across the change. A surface that
  * swaps its results region for a loading state on every page click unmounts the
  * region along with it, and a live region that appears already populated
- * announces nothing — the reader gets no page-change feedback at all (PSY-1768).
+ * announces nothing, so the reader gets no page-change feedback (PSY-1768).
  * Hold the previous page on screen (`placeholderData: keepPreviousData`, dimmed)
  * rather than tearing the list down. Consumers rendering this twice must also
  * pass `announce={false}` on all but one instance.

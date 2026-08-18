@@ -51,7 +51,11 @@ export function ReleaseList() {
   const labelIdParam = searchParams.get('label_id')
   const pageParam = searchParams.get('page')
 
-  const currentPage = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1
+  // Non-finite input collapses to page one rather than propagating: `?page=abc`
+  // parses to NaN, and NaN defeats every comparison it touches: it would slip
+  // past the out-of-range check below AND reach the API as `offset=NaN`.
+  const parsedPage = parseInt(pageParam ?? '', 10)
+  const currentPage = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1
   const offset = (currentPage - 1) * PAGE_SIZE
 
   // Parse multi-tag from URL (PSY-309)
@@ -169,7 +173,7 @@ export function ReleaseList() {
    * Snaps a stale deep-page URL back onto the last real page.
    *
    * `Pagination` clamps `currentPage` for DISPLAY, so without this the strip
-   * shows "Page 4 of 4" while the URL still claims `?page=999` — and the reader
+   * shows "Page 4 of 4" while the URL still claims `?page=999`, and the reader
    * shares, bookmarks, or reloads the URL, not the strip. The list is empty
    * there too, because the offset is past the end.
    *
@@ -177,7 +181,7 @@ export function ReleaseList() {
    * and pushing it would make Back walk them straight into the page that was
    * just rejected (ChartDrilldownPage precedent).
    *
-   * Held until the count has actually loaded — `total` is 0 while the first
+   * Held until the count has actually loaded. `total` is 0 while the first
    * request is in flight, which would otherwise make every page look
    * out-of-range and bounce page 2 to page 1 on a cold load.
    */
@@ -427,7 +431,7 @@ export function ReleaseList() {
       >
         {pageOutOfRange ? (
           // The offset is past the end, so the API legitimately returns
-          // nothing — but "No releases found matching your filters" is a wrong
+          // nothing, but "No releases found matching your filters" is a wrong
           // answer to a question the reader never asked. Hold the spinner for
           // the tick the snap-back above takes.
           <div className="flex justify-center items-center py-12">

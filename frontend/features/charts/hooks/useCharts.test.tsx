@@ -60,8 +60,8 @@ describe('chart hooks', () => {
   })
 
   it('holds the previous page on screen across an offset change', async () => {
-    // What keeps the drilldown's results region — and with it the pager's live
-    // region — MOUNTED across a page change, which is the only way the page
+    // What keeps the drilldown's results region, and with it the pager's live
+    // region, MOUNTED across a page change, which is the only way the page
     // change gets announced at all (PSY-1768).
     mockApiRequest.mockResolvedValueOnce({ artists: [{ artist_id: 1 }], total: 120 })
     const wrapper = createWrapper()
@@ -81,8 +81,8 @@ describe('chart hooks', () => {
 
   it('drops the previous page across a window change, which asks a different question', async () => {
     // Retaining here would paint the quarter chart under the "All Time"
-    // heading. Scoping the retention to `offset` is what makes every caller —
-    // including the homepage modules, which never page — right by construction.
+    // heading. Scoping the retention to `offset` is what makes every caller,
+    // including the homepage modules that never page, right by construction.
     mockApiRequest.mockResolvedValueOnce({ artists: [{ artist_id: 1 }], total: 120 })
     const wrapper = createWrapper()
     type WindowProps = { window: 'quarter' | 'all_time' }

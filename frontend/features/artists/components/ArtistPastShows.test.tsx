@@ -1,28 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import type { VenueShow, VenueShowsResponse } from '../types'
+import type { ArtistShow, ArtistShowsResponse } from '../types'
 
 let queryPage = 1
-const mockSetPage = vi.fn()
+const mockSetter = vi.fn()
 
 vi.mock('nuqs', () => ({
-  parseAsInteger: { withDefault: () => ({}) },
-  useQueryState: () => [queryPage, mockSetPage],
+  parseAsInteger: Object.assign({}, { withDefault: () => ({}) }),
+  useQueryState: (key: string) =>
+    key === 'page' ? [queryPage, mockSetter] : [null, mockSetter],
 }))
 
-const mockUseVenueShows = vi.fn()
-const mockUseVenueShowYears = vi.fn()
-vi.mock('../hooks/useVenues', () => ({
-  useVenueShows: (options: unknown) => mockUseVenueShows(options),
-  useVenueShowYears: (options: unknown) => mockUseVenueShowYears(options),
+const mockUseArtistShows = vi.fn()
+const mockUseArtistShowYears = vi.fn()
+vi.mock('../hooks/useArtists', () => ({
+  useArtistShows: (options: unknown) => mockUseArtistShows(options),
+  useArtistShowYears: (options: unknown) => mockUseArtistShowYears(options),
 }))
 
 // The table has its own suite; stub it to a row-count marker so this one is
 // only about the two pagers.
-vi.mock('./VenueShowsTable', () => ({
-  VenueShowsTable: ({ shows }: { shows: VenueShow[] }) => (
-    <div data-testid="venue-shows-table">{shows.length} rows</div>
+vi.mock('./ArtistShowsTable', () => ({
+  ArtistShowsTable: ({ shows }: { shows: ArtistShow[] }) => (
+    <div data-testid="artist-shows-table">{shows.length} rows</div>
   ),
 }))
 
@@ -52,28 +53,27 @@ vi.mock('@/components/shared', async () => {
   }
 })
 
-import { VenuePastShows } from './VenuePastShows'
+import { ArtistPastShows } from './ArtistPastShows'
 
-function makeShow(id: number): VenueShow {
+function makeShow(id: number): ArtistShow {
   return {
     id,
     slug: `show-${id}`,
     title: `Show ${id}`,
     event_date: '2025-06-14T02:00:00Z',
-    city: 'Phoenix',
-    state: 'AZ',
     price: null,
     age_requirement: null,
     is_cancelled: false,
     is_sold_out: false,
+    venue: null,
     artists: [],
   }
 }
 
-function showsResponse(offset: number): VenueShowsResponse {
+function showsResponse(offset: number): ArtistShowsResponse {
   return {
     shows: Array.from({ length: 50 }, (_, index) => makeShow(offset + index + 1)),
-    venue_id: 7,
+    artist_id: 3,
     total: 161,
     limit: 50,
     offset,
@@ -81,29 +81,24 @@ function showsResponse(offset: number): VenueShowsResponse {
   }
 }
 
-function renderArchive() {
-  return renderWithProviders(
-    <VenuePastShows
-      venueId={7}
-      venueSlug="the-rebel-lounge"
-      venueName="The Rebel Lounge"
-      venueState="AZ"
-    />
+function archive() {
+  return (
+    <ArtistPastShows artistId={3} artistSlug="glass-harbor" artistName="Glass Harbor" />
   )
 }
 
-describe('VenuePastShows pagers', () => {
+describe('ArtistPastShows pagers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     queryPage = 1
-    mockUseVenueShowYears.mockReturnValue({
-      data: { venue_id: 7, time_filter: 'past', years: [{ year: 2025, count: 161 }] },
+    mockUseArtistShowYears.mockReturnValue({
+      data: { artist_id: 3, time_filter: 'past', years: [{ year: 2025, count: 161 }] },
       isSuccess: true,
       isError: false,
       isFetching: false,
       isPending: false,
     })
-    mockUseVenueShows.mockImplementation((options: { offset?: number }) => ({
+    mockUseArtistShows.mockImplementation((options: { offset?: number }) => ({
       data: showsResponse(options.offset ?? 0),
       isError: false,
       isFetching: false,
@@ -114,7 +109,7 @@ describe('VenuePastShows pagers', () => {
   })
 
   it('renders the archive with a pager above and below the table', () => {
-    renderArchive()
+    renderWithProviders(archive())
     expect(
       screen.getByRole('navigation', {
         name: 'Past shows pagination, top of list',
@@ -128,20 +123,12 @@ describe('VenuePastShows pagers', () => {
   })
 
   it('announces a page change exactly once, not once per pager (PSY-1768)', () => {
-    // Two pagers each shipping their own live region meant a screen reader
-    // spoke "Page 2 of 4" twice on every click. Exactly one instance owns the
-    // announcement now.
-    const { rerender } = renderArchive()
+    // The venue twin carries the identical assertion. Fixing one archive and
+    // not the other is exactly the asymmetry that lets this regress.
+    const { rerender } = renderWithProviders(archive())
 
     queryPage = 2
-    rerender(
-      <VenuePastShows
-        venueId={7}
-        venueSlug="the-rebel-lounge"
-        venueName="The Rebel Lounge"
-        venueState="AZ"
-      />
-    )
+    rerender(archive())
 
     const spoken = screen
       .getAllByRole('status')
@@ -151,18 +138,7 @@ describe('VenuePastShows pagers', () => {
   })
 
   it('leaves exactly one live region in the tree at all', () => {
-    // The opted-out pager drops its region entirely rather than shipping a
-    // permanently empty one.
-    renderArchive()
+    renderWithProviders(archive())
     expect(screen.getAllByRole('status')).toHaveLength(1)
-  })
-
-  it('keeps the page position visible in both pagers', () => {
-    // Opting out silences the SPOKEN duplicate; the bottom pager must still
-    // show the reader where they are.
-    renderArchive()
-    const positions = screen.getAllByText(/Page 1 of 4/)
-    // Two pagers, each rendering a desktop caption and a mobile position line.
-    expect(positions.length).toBeGreaterThanOrEqual(4)
   })
 })

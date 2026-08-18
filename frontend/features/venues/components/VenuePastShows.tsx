@@ -387,7 +387,7 @@ export function VenuePastShows({
           : undefined
       }
       // ONE of the two instances owns the announcement, or a screen reader
-      // hears "Page 2 of 4" twice on every click — two identical live regions
+      // hears "Page 2 of 4" twice on every click: two identical live regions
       // updating in the same commit (PSY-1768). The top pager keeps it: it is
       // beside the heading the pager moves focus to, and it is first in DOM
       // order, so its region is the one adjacent to where the reader lands.

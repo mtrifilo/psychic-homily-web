@@ -40,17 +40,11 @@ export interface ChartQueryOptions {
 }
 
 /**
- * Position of `offset` in every paged chart key
- * (`['charts', module, window, scene, limit, offset]`).
- */
-const PAGED_CHART_KEY_OFFSET_INDEX = 5
-
-/**
  * Retains the previous response across an OFFSET change and drops it across
  * every other key change.
  *
  * Holding the outgoing page on screen while the next one loads is what keeps
- * the drilldown's results region — and with it the pager's live region —
+ * the drilldown's results region, and with it the pager's live region,
  * MOUNTED across a page change. An unmounted live region announces nothing, so
  * without this a screen-reader user gets no feedback at all when they page
  * (PSY-1768). Callers must dim on `isPlaceholderData` and suppress anything
@@ -61,23 +55,31 @@ const PAGED_CHART_KEY_OFFSET_INDEX = 5
  * question: retaining there would paint the quarter chart under the "All Time"
  * heading. The homepage modules never move `offset`, so they are unaffected.
  *
- * Deliberately NOT a caller opt-in flag. That spelling is fail-open — correct
+ * Deliberately NOT a caller opt-in flag. That spelling is fail-open, correct
  * only until someone copies the drilldown's options onto a window-varying
  * call. Stating the invariant here makes every caller right by construction
  * (`useScenes` precedent).
+ *
+ * Reads `offset` as the LAST segment of the key rather than by a named index,
+ * so inserting a new scope segment ahead of it keeps the retention correct
+ * instead of silently widening it across scenes. Both directions are pinned by
+ * `useCharts.test.tsx`: one test demands retention across an offset change,
+ * the other demands the opposite across a window change.
  */
 function keepPreviousChartPage<T>(currentKey: readonly unknown[]) {
+  const currentScope = currentKey.slice(0, -1)
   return (
     previous: T | undefined,
     previousQuery: { queryKey: readonly unknown[] } | undefined
   ): T | undefined => {
     const previousKey = previousQuery?.queryKey
-    if (!previousKey || previousKey.length !== currentKey.length) return undefined
-    const differsOnlyByOffset = currentKey.every(
-      (part, index) =>
-        index === PAGED_CHART_KEY_OFFSET_INDEX || part === previousKey[index]
+    if (!previousKey || previousKey.length !== currentKey.length) {
+      return undefined
+    }
+    const sameScope = currentScope.every(
+      (part, index) => part === previousKey[index]
     )
-    return differsOnlyByOffset ? previous : undefined
+    return sameScope ? previous : undefined
   }
 }
 
