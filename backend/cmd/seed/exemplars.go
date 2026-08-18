@@ -41,8 +41,10 @@ import (
 //
 // Slugs are documented in backend/db/seeds/README.md for the screenshot pass.
 
-// exemplar slug constants — the single source of truth for the README table
-// and the idempotency guards below.
+// exemplar slug constants — the source of truth for the README table and
+// the idempotency guards below. The archive exemplar's slug (PSY-1843) is
+// the one exception: it lives beside its implementation in
+// exemplars_archive.go, so the README table draws from both files.
 const (
 	exemplarArtistSlug     = "marissa-nadler-exemplar"
 	exemplarVenueSlug      = "the-rhythm-room-exemplar-phoenix-az"

@@ -95,11 +95,29 @@ that UI (during PR #1904).
 `backend/cmd/seed/exemplars_archive.go` and seeded by the same
 `seedRichExemplars` entry point.
 
+> **A fresh dispatch stack does NOT have this venue.** `stack-up.sh` seeds
+> via `frontend/e2e/setup-db.sh`, which never runs `cmd/seed`. Apply it
+> first, or every URL below 404s:
+>
+> ```bash
+> source dispatch-stack/.env
+> cd backend && DATABASE_URL="$STACK_POSTGRES_URL" ENVIRONMENT=development go run ./cmd/seed
+> ```
+
+> **Not created on stage or production.** `cmd/seed` is not dev-only —
+> `backend/scripts/deploy-stage.sh` runs it on every stage deploy, and
+> `psy-deploy-prod --with-db-restore` copies stage's catalog into prod. A
+> verified venue with hundreds of approved shows would outrank real venues
+> in the graph, scene rollups, and sitemap, so `archiveExemplarEnabled`
+> skips this fixture when `ENVIRONMENT` is `stage` or `production`. An
+> unset or unrecognised `ENVIRONMENT` still seeds, so local workflows are
+> unaffected.
+
 | Property | Value |
 | --- | --- |
 | Past shows | 360 across 3 calendar years (2023: 62, 2024: 108, 2025: 190) |
 | Pages at 50/page | 8 all-years; 2 / 3 / 4 per year — every year paginates |
-| Upcoming shows | 5, so the Upcoming/Past split has both halves |
+| Upcoming shows | 5, re-dated on every seed so they never drift into the past |
 | Bills | 1-3 acts typically, ~1 in 11 is 6-8 acts, from 14 fictional `-exemplar` artists |
 | Timezone | `America/Phoenix`, venue-local evening start times |
 
@@ -123,11 +141,14 @@ not a `?year=` param:
 /venues/chronology-hall-exemplar-phoenix-az/shows/2025?page=2
 ```
 
-Before editing it, read the header comment in `exemplars_archive.go` — the
-fixed-date and deterministic-hash constraints there are what keep the seed
-idempotent, and both are easy to break by accident. The counts above are
-load-bearing too (they are what makes each of those UI branches render), so
-`TestArchiveFixtureMeetsItsReviewThresholds` pins them.
+Before editing it, read the header comment in `exemplars_archive.go`.
+Everything there follows from one fact — the idempotency key is each show's
+generated slug, which embeds its date and headliner — and the ways to break
+it by accident are not obvious. The counts above are load-bearing (they are
+what makes each UI branch render) and are pinned by
+`TestArchiveFixtureMeetsItsReviewThresholds` and
+`TestArchiveDocumentedCountsAreAccurate`; the page labels below are derived
+from them by hand, so re-verify those if you change `archiveYears`.
 
 ## Empty-state canaries — DO NOT backfill
 

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
+	"psychic-homily-backend/internal/config"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
@@ -25,21 +28,31 @@ import (
 // point a screenshot pass at) lives in backend/db/seeds/README.md. The
 // comments here cover the reasoning a person EDITING this file needs.
 //
-// Two constraints shape most of what follows:
+// Everything here is downstream of ONE fact: the seed's idempotency key is
+// each show's generated SLUG, and that slug embeds the show's date and its
+// headliner's name. Anything that changes either re-creates the archive on
+// the next run instead of skipping it, silently doubling it. Hence:
 //
-//   - Past dates are FIXED calendar years, not offsets from time.Now().
-//     Each show's slug embeds its date and the slug is the idempotency
-//     key, so now()-derived dates would generate new slugs on every run
-//     and re-create the whole archive daily. Upcoming shows cannot work
-//     that way, so they use fixed non-date slugs instead — the same
-//     trade-off seedExemplarArtistShows already makes, meaning their dates
-//     are set once on first seed and never refreshed.
+//   - Past dates are FIXED calendar years, not offsets from time.Now(),
+//     which would regenerate every slug daily.
+//
+//   - A show's identity is archiveSeq(year, month, index) — its calendar
+//     position — not a running counter, so editing one month's count does
+//     not renumber (and re-slug) every later show.
 //
 //   - Per-show variation is a pure hash (archiveNoise), not math/rand,
-//     whose sequence is not guaranteed stable across Go releases. An
-//     unstable sequence would change the generated slugs and duplicate the
-//     archive instead of skipping it. A golden test pins the hash so that
-//     stays a deliberate decision rather than an accident.
+//     whose sequence is not guaranteed stable across Go releases. A golden
+//     test pins the hash so a change to it is deliberate.
+//
+//   - The bill roster is all-or-nothing: headliners are chosen modulo the
+//     roster length, so a partially-created roster would re-slug the whole
+//     archive.
+//
+// Upcoming shows cannot use fixed dates, so they are keyed by fixed
+// non-date slugs and RE-STAMPED with a fresh date on every seed, which is
+// what stops them drifting into the past and disturbing the archive.
+//
+// Note that cmd/seed is not dev-only — see archiveExemplarEnabled.
 
 const (
 	exemplarArchiveVenueSlug     = "chronology-hall-exemplar-phoenix-az"
@@ -153,15 +166,24 @@ var archiveDoorTimes = []archiveClock{
 // the choices are decorrelated — sharing one would tie, say, "is sold out"
 // to "is expensive" and make the fixture look patterned.
 //
-// The asymmetry worth knowing before changing any of these: saltBillSize
-// and saltBillWide (and the unsalted archiveNoise(seq) that picks the
-// headliner) feed the show's SLUG, so changing them re-creates the archive
-// on the next seed instead of skipping it. The decoration salts only
-// reshuffle prices and badges and are free to change.
+// The salt is MIXED INTO the hash, not added to the input. An additive
+// salt would only shift one sequence along itself, so two choices whose
+// salts differ by k and share a modulus would track each other exactly k
+// shows apart — visible as a repeating stripe down a 50-row page, which is
+// the very thing these salts exist to prevent.
+//
+// The asymmetry worth knowing before changing any of these: saltHeadliner,
+// saltBillSize, and saltBillWide feed the show's SLUG (through the
+// headliner's name), so changing them re-creates the archive on the next
+// seed instead of skipping it. The decoration salts only reshuffle prices
+// and badges and are free to change.
 const (
+	saltHeadliner   = 1
 	saltBillWide    = 3
 	saltBillSize    = 5
+	saltStride      = 7
 	saltPriceAbsent = 11
+	saltDoorTime    = 17
 	saltPrice       = 23
 	saltAge         = 37
 	saltFlyer       = 53
@@ -169,35 +191,91 @@ const (
 	saltSoldOut     = 97
 )
 
-// upcomingSeqBase keeps the upcoming shows' variation sequence disjoint
-// from the archive's, so adding an archived show never reshuffles them.
-const upcomingSeqBase = 100000
-
 // archiveNoise is a deterministic integer hash (a splitmix-style bit mix)
-// used wherever a show needs a stable arbitrary choice. Same input, same
+// used wherever a show needs a stable arbitrary choice. Same inputs, same
 // output, on every machine and every Go release — which is what keeps the
 // generated slugs stable and therefore the seed idempotent. Always
 // non-negative so callers can use % directly.
-func archiveNoise(n int) int {
-	x := uint32(n)*2654435761 + 374761393
+func archiveNoise(n, salt int) int {
+	x := uint32(n)*2654435761 ^ uint32(salt)*2246822519
+	x ^= x >> 15
+	x *= 2654435761
 	x ^= x >> 13
 	x *= 1274126177
 	x ^= x >> 16
 	return int(x & 0x7fffffff)
 }
 
+// archiveSeq is a show's stable identity, derived from WHERE it sits in the
+// calendar rather than from how many shows were generated before it.
+//
+// This is load-bearing for idempotency. Every per-show choice keys off it,
+// including the headliner — whose name goes into the slug that guards
+// against re-creation. A running counter would make each show's identity
+// depend on the counts of every earlier month, so adding one show to an
+// early month would renumber every later show, change all their slugs, and
+// make the next seed insert a SECOND copy of the rest of the archive
+// instead of skipping it. Keyed by (year, month, index), an edit to one
+// month stays local to that month.
+func archiveSeq(year, month, index int) int {
+	return year*10000 + month*100 + index
+}
+
+// upcomingSeq numbers the upcoming shows in a range archiveSeq cannot
+// produce (its values are year-scaled, so ~20,000,000+).
+func upcomingSeq(i int) int { return 1000 + i }
+
+// archiveExemplarEnabled reports whether this fixture should be seeded.
+//
+// cmd/seed is NOT dev-only: backend/scripts/deploy-stage.sh runs it on
+// every stage deploy to install reference data, and psy-deploy-prod's
+// --with-db-restore copies stage's catalog into production. The other
+// exemplars predate that discovery and add ~10 rows; this one adds a
+// verified venue with hundreds of approved shows and its own artists,
+// which on stage would outrank every real venue in the graph, the scene
+// rollups, and the sitemap — and could reach the public site through a
+// restore.
+//
+// So it opts OUT of deployed environments rather than opting in to
+// development: an unset or unrecognised ENVIRONMENT still seeds, which
+// keeps every existing local workflow working (including the documented
+// dispatch-stack command), while the two environments that are definitely
+// not somebody's laptop are excluded.
+func archiveExemplarEnabled() bool {
+	switch os.Getenv(config.EnvEnvironment) {
+	case config.EnvProduction, config.EnvStage:
+		return false
+	default:
+		return true
+	}
+}
+
 // seedExemplarArchiveVenue creates the archive exemplar venue itself.
-// Returns its ID, or 0 if it could not be created.
+// Returns its ID, or 0 if it was skipped or could not be created.
 func seedExemplarArchiveVenue(db *gorm.DB, userID uint) uint {
+	if !archiveExemplarEnabled() {
+		fmt.Printf("  ⏭️  archive exemplar: skipped (ENVIRONMENT=%s)\n", os.Getenv(config.EnvEnvironment))
+		return 0
+	}
+
 	var existing catalogm.Venue
-	if db.Where("slug = ?", exemplarArchiveVenueSlug).First(&existing).Error == nil {
+	switch err := db.Where("slug = ?", exemplarArchiveVenueSlug).First(&existing).Error; {
+	case err == nil:
 		return existing.ID
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		log.Printf("Warning: failed to probe archive exemplar venue: %v", err)
+		return 0
 	}
 
 	venue := &catalogm.Venue{
-		Name:    exemplarArchiveVenueName,
-		Slug:    strptr(exemplarArchiveVenueSlug),
-		Address: strptr("818 N 2nd St"),
+		Name: exemplarArchiveVenueName,
+		Slug: strptr(exemplarArchiveVenueSlug),
+		// Verified is true below, and Venue.PublicAddress only discloses the
+		// address for verified venues — so this string is published. It is
+		// therefore a deliberately NON-EXISTENT street: attaching a real
+		// Phoenix address to a venue that does not exist would put a real
+		// occupant's location on a fictional listing.
+		Address: strptr("0000 W Nonesuch Way"),
 		City:    "Phoenix",
 		State:   exemplarArchiveVenueState,
 		Country: strptr("USA"),
@@ -233,24 +311,66 @@ func seedExemplarArchiveVenue(db *gorm.DB, userID uint) uint {
 // acts, the fixed-date past shows, and a handful of upcoming shows so the
 // venue page's Upcoming/Past split has both halves.
 func seedExemplarArchiveShows(db *gorm.DB, venueID uint) {
+	// A deliberate environment skip already reported itself; say nothing
+	// more. Only a MISSING venue in an enabled environment is a warning.
+	if !archiveExemplarEnabled() {
+		return
+	}
 	if venueID == 0 {
+		log.Printf("Warning: archive exemplar venue missing; skipping its %d shows", archiveTotalShows())
 		return
 	}
 
 	roster := findOrCreateArchiveBillActs(db)
-	if len(roster) == 0 {
-		log.Printf("Warning: no archive bill acts; skipping archive shows")
+	// All-or-nothing, deliberately. Every show's headliner is chosen modulo
+	// the roster length, so a roster short by even one act would pick
+	// different headliners, hence different slugs, hence a SECOND copy of
+	// the whole archive on the next seed. A partial fixture is not worth
+	// that failure mode.
+	if len(roster) != len(archiveBillArtists) {
+		log.Printf("Warning: resolved only %d of %d archive bill acts; skipping archive shows rather than seeding a roster that would break idempotency",
+			len(roster), len(archiveBillArtists))
 		return
 	}
 
-	created := seedArchivePastShows(db, venueID, roster)
-	created += seedArchiveUpcomingShows(db, venueID, roster)
+	past := seedArchivePastShows(db, venueID, roster)
+	upcoming := seedArchiveUpcomingShows(db, venueID, roster)
+	total := past.add(upcoming)
 
-	if created > 0 {
-		fmt.Printf("  ✅ archive exemplar: %d shows created\n", created)
-	} else {
-		fmt.Printf("  ✅ archive exemplar: shows already present\n")
+	// "created == 0" alone is ambiguous — it means either "already fully
+	// seeded" or "every single show failed". Report the three outcomes
+	// separately so a failed seed can never print a checkmark.
+	fmt.Printf("  ✅ archive exemplar: %d created, %d already present\n", total.created, total.skipped)
+	if total.failed > 0 {
+		log.Printf("⚠️  archive exemplar: %d shows FAILED to create; the archive is incomplete (see warnings above)", total.failed)
 	}
+}
+
+// seedOutcome counts the three ways a show can end up after a seed pass.
+type seedOutcome struct {
+	created int
+	skipped int
+	failed  int
+}
+
+func (o seedOutcome) add(other seedOutcome) seedOutcome {
+	return seedOutcome{
+		created: o.created + other.created,
+		skipped: o.skipped + other.skipped,
+		failed:  o.failed + other.failed,
+	}
+}
+
+// archiveTotalShows is the number of past shows the fixture describes, used
+// in operator-facing messages.
+func archiveTotalShows() int {
+	var total int
+	for _, ay := range archiveYears {
+		for _, count := range ay.months {
+			total += count
+		}
+	}
+	return total
 }
 
 // findOrCreateArchiveBillActs resolves every fictional act, creating the
@@ -277,34 +397,28 @@ func findOrCreateArchiveBillActs(db *gorm.DB) []archiveAct {
 
 // seedArchivePastShows walks archiveYears and creates one show per
 // scheduled slot. Returns the number of shows actually created.
-func seedArchivePastShows(db *gorm.DB, venueID uint, roster []archiveAct) int {
-	var created int
-	// seq numbers every show across the whole archive so each gets a
-	// different variation. It advances even for shows that already exist,
-	// so resuming a partially-seeded archive continues the same sequence it
-	// started with rather than re-deriving a different one.
-	var seq int
+func seedArchivePastShows(db *gorm.DB, venueID uint, roster []archiveAct) seedOutcome {
+	var out seedOutcome
 
 	for _, ay := range archiveYears {
 		for monthIdx, count := range ay.months {
+			month := monthIdx + 1
 			for i := 0; i < count; i++ {
-				seq++
-				clock := archiveDoorTimes[archiveNoise(seq)%len(archiveDoorTimes)]
+				seq := archiveSeq(ay.year, month, i)
+				clock := archiveDoorTimes[archiveNoise(seq, saltDoorTime)%len(archiveDoorTimes)]
 				eventDate := time.Date(
-					ay.year, time.Month(monthIdx+1), archiveDayOfMonth(i, count),
+					ay.year, time.Month(month), archiveDayOfMonth(i, count),
 					clock.hour, clock.minute, 0, 0, archiveVenueZone,
 				).UTC()
 
 				headliner := archiveHeadliner(roster, seq)
 				slug := utils.GenerateShowSlug(eventDate, headliner.Name, exemplarArchiveVenueName, exemplarArchiveVenueState)
 
-				if createArchiveShow(db, venueID, roster, eventDate, seq, slug, nil) {
-					created++
-				}
+				out = out.add(createArchiveShow(db, venueID, roster, eventDate, seq, slug, nil))
 			}
 		}
 	}
-	return created
+	return out
 }
 
 // archiveDayOfMonth spreads `count` shows across the first 28 days of a
@@ -313,10 +427,14 @@ func seedArchivePastShows(db *gorm.DB, venueID uint, roster []archiveAct) int {
 // DISTINCT days for any count up to 28: the step 28/count is then >= 1, so
 // the truncating division never rounds two indexes onto the same day.
 //
-// Distinct days matter beyond looking tidy — show_artists carries a partial
-// unique index on (artist_id, venue_id, event_date), so two same-day shows
-// sharing an act at this venue would be a constraint violation, not just a
-// duplicate.
+// Distinct days are required by the SHOW SLUG, not by the show_artists
+// dedup index. utils.GenerateShowSlug formats the date as 2006-01-02 and
+// drops the time, so two shows on one calendar day with the same headliner
+// generate the same slug and collide on the shows unique index — while the
+// show_artists partial index, which is on the raw timestamp, would not
+// fire for two shows at different times. Anyone adding early/late sets on
+// one night (which this venue's own description advertises) has to make
+// the slug unique, not just the instant.
 func archiveDayOfMonth(i, count int) int {
 	if count <= 1 {
 		return 15
@@ -328,8 +446,6 @@ func archiveDayOfMonth(i, count int) int {
 // the caller's slug. Both the archived and upcoming paths use it, so the
 // show's shape is defined once; they differ only in how the slug is derived
 // (date-based vs fixed) and whether a ticket URL applies.
-//
-// Returns true if a row was created, false if it already existed or failed.
 func createArchiveShow(
 	db *gorm.DB,
 	venueID uint,
@@ -338,10 +454,17 @@ func createArchiveShow(
 	seq int,
 	slug string,
 	ticketURL *string,
-) bool {
+) seedOutcome {
+	// A probe error is NOT "not found": treating a dropped connection as
+	// absence would send us into a create that then trips the slug unique
+	// index, reporting a confusing conflict instead of the real fault.
 	var existing catalogm.Show
-	if db.Where("slug = ?", slug).First(&existing).Error == nil {
-		return false
+	switch err := db.Where("slug = ?", slug).First(&existing).Error; {
+	case err == nil:
+		return seedOutcome{skipped: 1}
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		log.Printf("Warning: failed to probe archive show %s: %v", slug, err)
+		return seedOutcome{failed: 1}
 	}
 
 	headliner := archiveHeadliner(roster, seq)
@@ -356,25 +479,34 @@ func createArchiveShow(
 		TicketURL: ticketURL,
 	}
 	decorateArchiveShow(show, seq)
+	// A cancelled show does not sell tickets; leaving a live ticket link on
+	// one would read as a UI bug rather than fixture variety.
+	if show.IsCancelled {
+		show.TicketURL = nil
+	}
 
 	if err := createArchiveShowWithBill(db, show, venueID, archiveBill(roster, seq)); err != nil {
 		log.Printf("Warning: failed to create archive show %s: %v", slug, err)
-		return false
+		return seedOutcome{failed: 1}
 	}
-	return true
+	return seedOutcome{created: 1}
 }
 
 // decorateArchiveShow applies the deterministic per-show variation: price
 // (absent for a minority), age requirement, flyer, and the badges.
+//
+// Applies to the UPCOMING shows as well as the archived ones — a sold-out
+// or cancelled show in the Upcoming section is realistic and worth being
+// able to see, so the badges are deliberately not scoped to the archive.
 func decorateArchiveShow(show *catalogm.Show, seq int) {
-	// ~1 in 7 archived shows has no price, so the archive row's
-	// price-absent branch stays exercised.
-	if archiveNoise(seq+saltPriceAbsent)%7 != 0 {
-		price := archivePrices[archiveNoise(seq+saltPrice)%len(archivePrices)]
+	// ~1 in 7 shows has no price, so the row's price-absent branch stays
+	// exercised.
+	if archiveNoise(seq, saltPriceAbsent)%7 != 0 {
+		price := archivePrices[archiveNoise(seq, saltPrice)%len(archivePrices)]
 		show.Price = &price
 	}
 
-	switch archiveNoise(seq+saltAge) % 3 {
+	switch archiveNoise(seq, saltAge) % 3 {
 	case 0:
 		show.AgeRequirement = strptr("21+")
 	case 1:
@@ -384,7 +516,7 @@ func decorateArchiveShow(show *catalogm.Show, seq int) {
 
 	// A flyer on roughly a third of rows, so the with-image and
 	// without-image rows appear side by side.
-	if archiveNoise(seq+saltFlyer)%3 == 0 {
+	if archiveNoise(seq, saltFlyer)%3 == 0 {
 		show.ImageURL = strptr("/seed-placeholders/show.svg")
 	}
 
@@ -392,9 +524,9 @@ func decorateArchiveShow(show *catalogm.Show, seq int) {
 	// not also "sold out". Only the true case is set — the columns default
 	// to false.
 	switch {
-	case archiveNoise(seq+saltCancelled)%31 == 0:
+	case archiveNoise(seq, saltCancelled)%31 == 0:
 		show.IsCancelled = true
-	case archiveNoise(seq+saltSoldOut)%13 == 0:
+	case archiveNoise(seq, saltSoldOut)%13 == 0:
 		show.IsSoldOut = true
 	}
 }
@@ -406,13 +538,48 @@ func archiveHeadliner(roster []archiveAct, seq int) archiveAct {
 	return roster[archiveBillIndex(seq, 0, len(roster))]
 }
 
-// archiveBillIndex picks the roster slot for position `pos` on show `seq`.
-// The stride is coprime with the 14-act roster, so the positions on any one
-// bill are always DISTINCT acts — an act billed twice on the same show
-// would violate the show_artists primary key.
+// archiveBillIndex picks the roster slot for position `pos` on show `seq`,
+// walking the roster by a stride.
+//
+// The stride must be COPRIME with the roster size or the walk revisits a
+// slot, billing the same act twice on one show — a show_artists
+// primary-key violation that rolls the whole show back. Rather than assert
+// that as a property of the 14-act roster (it is really a property of
+// whatever length is passed), archiveStride computes a coprime stride for
+// the size actually in play, so distinctness holds by construction.
 func archiveBillIndex(seq, pos, rosterSize int) int {
-	const stride = 3
-	return (archiveNoise(seq)%rosterSize + pos*stride) % rosterSize
+	return (archiveNoise(seq, saltHeadliner)%rosterSize + pos*archiveStride(rosterSize, seq)) % rosterSize
+}
+
+// archiveStride returns a step coprime with rosterSize, chosen per show.
+//
+// Coprimality is the correctness half: a stride sharing a factor with the
+// roster size revisits a slot, billing one act twice on a show — a
+// show_artists primary-key violation. Varying it per show is the realism
+// half: with a single fixed stride the whole bill is a function of the
+// headliner alone, so every night the same act headlined it drew the exact
+// same support, which reads as cloned rows on a page this fixture exists to
+// have looked at.
+//
+// 1 is coprime with everything, so a stride always exists.
+func archiveStride(rosterSize, seq int) int {
+	candidates := make([]int, 0, 5)
+	for _, stride := range []int{3, 5, 9, 11, 13} {
+		if gcd(stride, rosterSize) == 1 {
+			candidates = append(candidates, stride)
+		}
+	}
+	if len(candidates) == 0 {
+		return 1
+	}
+	return candidates[archiveNoise(seq, saltStride)%len(candidates)]
+}
+
+func gcd(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
 }
 
 // archiveBill builds the ordered bill for one show, the first act of which
@@ -424,10 +591,10 @@ func archiveBillIndex(seq, pos, rosterSize int) int {
 // about wrapping.
 func archiveBill(roster []archiveAct, seq int) []catalogm.ShowArtist {
 	var size int
-	if archiveNoise(seq+saltBillWide)%11 == 0 {
-		size = 6 + archiveNoise(seq+saltBillSize)%3
+	if archiveNoise(seq, saltBillWide)%11 == 0 {
+		size = 6 + archiveNoise(seq, saltBillSize)%3
 	} else {
-		size = 1 + archiveNoise(seq+saltBillSize)%3
+		size = 1 + archiveNoise(seq, saltBillSize)%3
 	}
 	if size > len(roster) {
 		size = len(roster)
@@ -490,18 +657,24 @@ func createArchiveShowWithBill(db *gorm.DB, show *catalogm.Show, venueID uint, b
 	})
 }
 
-// seedArchiveUpcomingShows adds a few future shows so the venue page's
-// Upcoming section is populated alongside the archive.
+// seedArchiveUpcomingShows keeps a few future shows on the venue so the
+// Upcoming/Past split has both halves.
 //
 // These are the one part of the fixture that cannot use fixed dates — a
 // hardcoded future date stops being future — so they are keyed by a fixed
-// NON-date slug and dated relative to now. The consequence, which
-// seedExemplarArtistShows already accepts, is that their dates are set on
-// first seed and not refreshed. Dispatch stacks are seeded fresh, so in
-// practice they are always future.
-func seedArchiveUpcomingShows(db *gorm.DB, venueID uint, roster []archiveAct) int {
+// NON-date slug and dated relative to now.
+//
+// They are REFRESHED rather than skipped when they already exist. Skipping
+// (what seedExemplarArtistShows does) freezes their dates at first seed, so
+// on any database that outlives the longest offset they drift into the
+// past: the Upcoming section empties out AND each drifted show joins the
+// past archive, adding a stray year to the year strip and shifting every
+// page boundary the README documents. Re-stamping the date on each seed
+// keeps the fixture at exactly len(dayOffsets) upcoming and archiveYears'
+// worth of past, indefinitely.
+func seedArchiveUpcomingShows(db *gorm.DB, venueID uint, roster []archiveAct) seedOutcome {
 	dayOffsets := []int{5, 12, 19, 33, 48}
-	var created int
+	var out seedOutcome
 
 	for i, offset := range dayOffsets {
 		slug := fmt.Sprintf("chronology-hall-exemplar-upcoming-%d", i+1)
@@ -514,9 +687,46 @@ func seedArchiveUpcomingShows(db *gorm.DB, venueID uint, roster []archiveAct) in
 			local.Year(), local.Month(), local.Day(), 20, 0, 0, 0, archiveVenueZone,
 		).UTC()
 
-		if createArchiveShow(db, venueID, roster, eventDate, upcomingSeqBase+i, slug, strptr("https://tickets.example.com/"+slug)) {
-			created++
+		var existing catalogm.Show
+		switch err := db.Where("slug = ?", slug).First(&existing).Error; {
+		case err == nil:
+			if err := refreshUpcomingShowDate(db, existing.ID, eventDate); err != nil {
+				log.Printf("Warning: failed to refresh upcoming show %s: %v", slug, err)
+				out = out.add(seedOutcome{failed: 1})
+				continue
+			}
+			out = out.add(seedOutcome{skipped: 1})
+			continue
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			log.Printf("Warning: failed to probe upcoming show %s: %v", slug, err)
+			out = out.add(seedOutcome{failed: 1})
+			continue
 		}
+
+		out = out.add(createArchiveShow(
+			db, venueID, roster, eventDate, upcomingSeq(i), slug,
+			strptr("https://tickets.example.com/"+slug),
+		))
 	}
-	return created
+	return out
+}
+
+// refreshUpcomingShowDate moves an existing upcoming show to a new date.
+//
+// show_artists carries a denormalized copy of event_date (the PSY-576
+// dedup columns), so both tables must move together or the show's bill
+// rows would keep pointing at the old instant — the same pairing
+// ShowService.UpdateShow maintains when a show is rescheduled.
+func refreshUpcomingShowDate(db *gorm.DB, showID uint, eventDate time.Time) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&catalogm.Show{}).Where("id = ?", showID).
+			Update("event_date", eventDate).Error; err != nil {
+			return fmt.Errorf("update show date: %w", err)
+		}
+		if err := tx.Model(&catalogm.ShowArtist{}).Where("show_id = ?", showID).
+			Update("event_date", eventDate).Error; err != nil {
+			return fmt.Errorf("update bill dedup date: %w", err)
+		}
+		return nil
+	})
 }
