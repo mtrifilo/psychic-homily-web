@@ -159,6 +159,124 @@ func TestSuggestEdit_VenueRejectsBadCapacityValue(t *testing.T) {
 	}
 }
 
+// PSY-1703: the label/release twin of the capacity test above. Same reasoning
+// applies verbatim: founded_year and release_year are ALLOWED fields, so the
+// name allowlist waves them through and the value gate is all that is left,
+// over integer columns whose bad values are written silently rather than
+// refused anywhere below.
+//
+// Asserted through the handlers rather than through ValidateFieldChangeValue
+// for the same reason as capacity: on the trusted-tier branch an approve failure
+// is logged and the response is still 200, so a validator that quietly stopped
+// running would look like success from the outside.
+func TestSuggestEdit_RejectsBadCatalogYearValues(t *testing.T) {
+	maxYear := contracts.MaxCatalogYear()
+
+	// Both entity types, because founded_year and release_year reach the gate
+	// through different handlers and only share the registry entry's bounds.
+	entities := map[string]struct {
+		field  string
+		invoke func(*PendingEditHandler, *SuggestEntityEditRequest) error
+	}{
+		"label": {
+			field: "founded_year",
+			invoke: func(h *PendingEditHandler, req *SuggestEntityEditRequest) error {
+				_, err := h.SuggestLabelEditHandler(pendingEditNewUserCtx(), req)
+				return err
+			},
+		},
+		"release": {
+			field: "release_year",
+			invoke: func(h *PendingEditHandler, req *SuggestEntityEditRequest) error {
+				_, err := h.SuggestReleaseEditHandler(pendingEditNewUserCtx(), req)
+				return err
+			},
+		},
+	}
+
+	cases := []struct {
+		name  string
+		value any
+	}{
+		{"zero", float64(0)},
+		{"negative", float64(-1985)},
+		{"below the floor", float64(contracts.MinCatalogYear - 1)},
+		{"past the ceiling", float64(maxYear + 1)},
+		{"trailing digit typo", float64(19850)},
+		{"fraction", 1985.7},
+		// The encoding this drawer field used to submit. Rejected so the queue
+		// stops accumulating rows in the old shape.
+		{"numeric string", "1985"},
+		{"boolean", true},
+		{"object", map[string]any{"year": 1985}},
+	}
+
+	for entity, e := range entities {
+		for _, c := range cases {
+			t.Run(entity+"/"+c.name, func(t *testing.T) {
+				h := NewPendingEditHandler(
+					&testhelpers.MockPendingEditService{
+						CreatePendingEditFn: func(*contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+							t.Error("a rejected year must never reach the pending queue")
+							return nil, nil
+						},
+					},
+					nil,
+				)
+				req := &SuggestEntityEditRequest{EntityID: "1"}
+				req.Body.Changes = []adminm.FieldChange{{Field: e.field, OldValue: nil, NewValue: c.value}}
+				req.Body.Summary = "correct the year"
+				testhelpers.AssertHumaError(t, e.invoke(h, req), 422)
+			})
+		}
+	}
+}
+
+// The guard must not overshoot: a real year still reaches the queue, and so does
+// the clear gesture. Without this, a validator that rejected everything would
+// pass the test above.
+func TestSuggestEdit_AcceptsValidCatalogYearValues(t *testing.T) {
+	maxYear := contracts.MaxCatalogYear()
+
+	for entity, field := range map[string]string{"label": "founded_year", "release": "release_year"} {
+		for _, value := range []any{
+			float64(contracts.MinCatalogYear), // the floor
+			float64(maxYear),                  // next year: an announced release
+			float64(1985),
+			nil, // clear the field; the column is nullable
+		} {
+			t.Run(fmt.Sprintf("%s/%v", entity, value), func(t *testing.T) {
+				reached := false
+				h := NewPendingEditHandler(
+					&testhelpers.MockPendingEditService{
+						CreatePendingEditFn: func(*contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+							reached = true
+							return &contracts.PendingEditResponse{ID: 1}, nil
+						},
+					},
+					nil,
+				)
+				req := &SuggestEntityEditRequest{EntityID: "1"}
+				req.Body.Changes = []adminm.FieldChange{{Field: field, OldValue: nil, NewValue: value}}
+				req.Body.Summary = "correct the year"
+
+				var err error
+				if entity == "label" {
+					_, err = h.SuggestLabelEditHandler(pendingEditNewUserCtx(), req)
+				} else {
+					_, err = h.SuggestReleaseEditHandler(pendingEditNewUserCtx(), req)
+				}
+				if err != nil {
+					t.Fatalf("%s %v is valid and must pass: %v", field, value, err)
+				}
+				if !reached {
+					t.Errorf("%s %v never reached the pending queue", field, value)
+				}
+			})
+		}
+	}
+}
+
 func TestSuggestEdit_FestivalDisallowedField(t *testing.T) {
 	h := testPendingEditHandler()
 	req := &SuggestEntityEditRequest{EntityID: "1"}

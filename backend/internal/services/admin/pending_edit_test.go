@@ -71,9 +71,67 @@ func TestNarrowNumericUpdates(t *testing.T) {
 	}
 
 	// A value with no faithful narrowing is an error rather than a silent write.
+	// "550" is in this list on purpose: capacity carries no LegacyTextEncoding
+	// flag, because its registry entry and its numeric drawer control shipped
+	// together, so a capacity string can only be a corrupt row.
 	for _, bad := range []any{550.7, "550", true, map[string]any{"x": 1}} {
 		updates = map[string]interface{}{"capacity": bad}
 		assert.Errorf(t, NarrowNumericUpdates(updates), "capacity %#v must be rejected", bad)
+	}
+}
+
+// PSY-1703: the year fields mirror capacity above, with one addition that is the
+// whole reason this test exists separately: they carry LegacyTextEncoding.
+//
+// Registering them made this function start inspecting values that were written
+// YEARS ago, when the drawer submitted a year as text. Without the flag, every
+// one of those stored rows would turn into an error: a pending edit nobody can
+// approve, and a revision nobody can roll back. Undo breaking on old history is
+// a worse failure than the corruption the registry was added to prevent, so the
+// assertions below are the ones that keep both working.
+func TestNarrowNumericUpdates_CatalogYears(t *testing.T) {
+	for _, field := range []string{"founded_year", "release_year"} {
+		t.Run(field, func(t *testing.T) {
+			// The current shape: JSONB hands a number back as float64.
+			updates := map[string]interface{}{field: float64(1985)}
+			assert.NoError(t, NarrowNumericUpdates(updates))
+			narrowed, ok := updates[field].(*int)
+			assert.True(t, ok, "%s must be narrowed to *int, got %T", field, updates[field])
+			assert.Equal(t, 1985, *narrowed)
+
+			// The LEGACY shape: what the old text drawer could only have
+			// written for a year edit, and what a rollback of one therefore has
+			// to be able to read.
+			for raw, want := range map[string]int{"1985": 1985, " 1985 ": 1985, "0999": 999} {
+				updates = map[string]interface{}{field: raw}
+				assert.NoErrorf(t, NarrowNumericUpdates(updates), "legacy %q must narrow", raw)
+				narrowed, ok = updates[field].(*int)
+				assert.Truef(t, ok, "legacy %q must become *int, got %T", raw, updates[field])
+				assert.Equalf(t, want, *narrowed, "legacy %q narrowed to the wrong year", raw)
+			}
+
+			// nil is the clear gesture and must reach the column as SQL NULL.
+			updates = map[string]interface{}{field: nil}
+			assert.NoError(t, NarrowNumericUpdates(updates))
+			typedNil, ok := updates[field].(*int)
+			assert.True(t, ok, "a cleared %s must stay a typed *int", field)
+			assert.Nil(t, typedNil)
+
+			// Type fix only, no range: rollback restores history, and history can
+			// hold a year that predates this bound.
+			for _, outOfRange := range []any{float64(0), float64(-1), float64(9999), "9999"} {
+				updates = map[string]interface{}{field: outOfRange}
+				assert.NoErrorf(t, NarrowNumericUpdates(updates), "%#v is out of range but narrowable", outOfRange)
+			}
+
+			// Leniency stops at values with one unambiguous integer meaning.
+			// A string that is not a plain integer has no faithful narrowing, so
+			// the flag must not turn into "parse whatever you find".
+			for _, bad := range []any{1985.7, "1985.0", "1e3", "1985 approx", "", "banana", true, map[string]any{"x": 1}} {
+				updates = map[string]interface{}{field: bad}
+				assert.Errorf(t, NarrowNumericUpdates(updates), "%s %#v must be rejected", field, bad)
+			}
+		})
 	}
 }
 
@@ -93,6 +151,32 @@ func TestCheckNumericUpdateBounds(t *testing.T) {
 	assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{"capacity": (*int)(nil)}))
 	// Neither is an absent field.
 	assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{"name": "Crescent"}))
+}
+
+// PSY-1703: the approve-path range check for the year fields. Its counterpart at
+// submit (shared.ValidateFieldChangeValue) already rejected these, so this is
+// the defence-in-depth half: the last point before an untyped Updates() that
+// can still tell a year from a typo.
+func TestCheckNumericUpdateBounds_CatalogYears(t *testing.T) {
+	// Resolved the same way the registry resolves it, so this test does not
+	// start failing on 1 January.
+	maxYear := contracts.MaxCatalogYear()
+
+	for _, field := range []string{"founded_year", "release_year"} {
+		t.Run(field, func(t *testing.T) {
+			at := func(v int) map[string]interface{} { return map[string]interface{}{field: &v} }
+
+			for _, ok := range []int{contracts.MinCatalogYear, maxYear, maxYear - 1, 1985} {
+				assert.NoErrorf(t, checkNumericUpdateBounds(at(ok)), "%s %d is legal", field, ok)
+			}
+			for _, bad := range []int{0, -1, contracts.MinCatalogYear - 1, maxYear + 1, 19850} {
+				assert.Errorf(t, checkNumericUpdateBounds(at(bad)), "%s %d must be rejected", field, bad)
+			}
+
+			// The clear gesture is not a range violation.
+			assert.NoError(t, checkNumericUpdateBounds(map[string]interface{}{field: (*int)(nil)}))
+		})
+	}
 }
 
 // =============================================================================

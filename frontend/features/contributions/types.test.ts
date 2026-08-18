@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
+  CATALOG_YEAR_BOUNDS,
   EDITABLE_FIELDS,
+  MIN_CATALOG_YEAR,
   VENUE_CAPACITY_BOUNDS,
   fieldChangeValue,
+  maxCatalogYear,
   validateFieldValue,
   validateNumberField,
   validateUrlField,
@@ -185,5 +188,83 @@ describe('validateFieldValue', () => {
     expect(validateFieldValue(instagram, 'not-a-real-url')).toMatch(/http/i)
     // Plain text carries no client-side constraint.
     expect(validateFieldValue(name, 'anything at all')).toBeNull()
+  })
+})
+
+// PSY-1703: `labels.founded_year` and `releases.release_year` are integer
+// columns whose drawer control submitted TEXT until this change, which the
+// backend then coerced silently: `1985.7` landed as 1985 with no error at any
+// layer. They are `type: 'number'` fields now, so the drawer sends a JSON
+// number and this validator mirrors the server's range.
+describe('catalog year fields', () => {
+  const foundedYear = EDITABLE_FIELDS.label.find(
+    (f) => f.key === 'founded_year'
+  ) as EditableField
+  const releaseYear = EDITABLE_FIELDS.release.find(
+    (f) => f.key === 'release_year'
+  ) as EditableField
+  const yearFields: ReadonlyArray<[string, EditableField]> = [
+    ['founded_year', foundedYear],
+    ['release_year', releaseYear],
+  ]
+
+  it('resolves the ceiling on every read rather than at module load', () => {
+    // The one direction a client-side pre-validator must never fail in is
+    // "stricter than the server". A ceiling frozen at module load would drift
+    // behind the server's the moment the year turned over.
+    expect(maxCatalogYear()).toBe(new Date().getUTCFullYear() + 1)
+    expect(CATALOG_YEAR_BOUNDS.max).toBe(maxCatalogYear())
+    expect(CATALOG_YEAR_BOUNDS.min).toBe(MIN_CATALOG_YEAR)
+  })
+
+  it.each(yearFields)('declares %s as a bounded numeric field', (_key, field) => {
+    expect(field).toBeDefined()
+    expect(field.type).toBe('number')
+    expect(field.min).toBe(MIN_CATALOG_YEAR)
+    // Read through the FIELD, not the constant: this is the assertion that
+    // would break if the bounds were spread into the definition and froze.
+    expect(field.max).toBe(maxCatalogYear())
+  })
+
+  it.each(yearFields)('accepts a real year for %s, on both bounds', (_key, field) => {
+    expect(validateFieldValue(field, '1985')).toBeNull()
+    expect(validateFieldValue(field, String(MIN_CATALOG_YEAR))).toBeNull()
+    // Next year: a release can be announced before it is pressed.
+    expect(validateFieldValue(field, String(maxCatalogYear()))).toBeNull()
+    // Clearing is intentional and reaches the column as NULL.
+    expect(validateFieldValue(field, '')).toBeNull()
+  })
+
+  it.each(yearFields)('rejects out-of-range values for %s', (_key, field) => {
+    expect(validateFieldValue(field, '0')).toMatch(/between/i)
+    expect(validateFieldValue(field, '-1985')).toMatch(/between/i)
+    expect(validateFieldValue(field, String(MIN_CATALOG_YEAR - 1))).toMatch(/between/i)
+    expect(validateFieldValue(field, String(maxCatalogYear() + 1))).toMatch(/between/i)
+    // The trailing-digit slip this ceiling mostly exists to catch.
+    expect(validateFieldValue(field, '19850')).toMatch(/between/i)
+  })
+
+  it.each(yearFields)('rejects values that are not whole numbers for %s', (_key, field) => {
+    expect(validateFieldValue(field, '1985.7')).toMatch(/whole number/i)
+    expect(validateFieldValue(field, '1985 approx')).toMatch(/whole number/i)
+    expect(validateFieldValue(field, '1e3')).toMatch(/whole number/i)
+  })
+
+  it.each(yearFields)('submits %s as a JSON number, or null when cleared', (_key, field) => {
+    // The column is an integer and the backend rejects a numeric string on
+    // purpose, so this coercion is the load-bearing half of the change.
+    expect(fieldChangeValue(field, '1985')).toBe(1985)
+    expect(fieldChangeValue(field, '  1985  ')).toBe(1985)
+    expect(fieldChangeValue(field, '')).toBeNull()
+    expect(fieldChangeValue(field, '   ')).toBeNull()
+  })
+
+  it('leaves release_date alone: it is free text, not a gated number', () => {
+    const releaseDate = EDITABLE_FIELDS.release.find(
+      (f) => f.key === 'release_date'
+    ) as EditableField
+    expect(releaseDate.type).toBe('text')
+    expect(validateFieldValue(releaseDate, '1991-09-24')).toBeNull()
+    expect(fieldChangeValue(releaseDate, '1991-09-24')).toBe('1991-09-24')
   })
 })

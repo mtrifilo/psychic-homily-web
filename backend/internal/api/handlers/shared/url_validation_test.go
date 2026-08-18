@@ -299,6 +299,75 @@ func TestValidateFieldChangeValue_CapacityTypeAndRange(t *testing.T) {
 	}
 }
 
+// PSY-1703: labels.founded_year and releases.release_year are integer columns
+// that rode through this queue as TEXT until now, so the corpus below mirrors
+// the capacity one case for case. Same exposure, same gate, same assertions;
+// the only thing that differs is the range.
+//
+// Table-driven over both fields deliberately: they share one floor and one
+// ceiling, and a test that only exercised founded_year would let release_year
+// silently fall out of the registry.
+func TestValidateFieldChangeValue_CatalogYearTypeAndRange(t *testing.T) {
+	// Resolved once here, the same way the validator resolves it per call. A
+	// literal would make this test start failing on 1 January.
+	maxYear := contracts.MaxCatalogYear()
+
+	for _, field := range []string{"founded_year", "release_year"} {
+		t.Run(field, func(t *testing.T) {
+			// The wire shape: encoding/json decodes every JSON number into an
+			// interface{} as float64, so that is what actually arrives here.
+			if err := ValidateFieldChangeValue(bg, field, float64(1985)); err != nil {
+				t.Errorf("a normal year should pass, got: %v", err)
+			}
+			// A plain int is reachable from internal callers and tests.
+			if err := ValidateFieldChangeValue(bg, field, 1985); err != nil {
+				t.Errorf("an int year should pass, got: %v", err)
+			}
+
+			// nil is the clear-the-field gesture and the column is nullable.
+			if err := ValidateFieldChangeValue(bg, field, nil); err != nil {
+				t.Errorf("nil should pass (clear gesture), got: %v", err)
+			}
+
+			// Both bounds are inclusive. The ceiling is next year, so a release
+			// announced ahead of its pressing is submittable.
+			for _, ok := range []any{
+				float64(contracts.MinCatalogYear),
+				float64(maxYear),
+				float64(maxYear - 1), // the current year
+			} {
+				if err := ValidateFieldChangeValue(bg, field, ok); err != nil {
+					t.Errorf("year %v is in range and should pass, got: %v", ok, err)
+				}
+			}
+			for _, bad := range []any{
+				float64(0),                            // zero: NULL already means "unknown"
+				float64(-1),                           // negative
+				float64(999),                          // one below the floor
+				float64(contracts.MinCatalogYear - 1), // same, spelled from the constant
+				float64(maxYear + 1),                  // one past the ceiling
+				float64(19850),                        // the trailing-digit typo this exists for
+				float64(1e18),                         // absurd but finite
+				math.Inf(1),                           // only reachable from a hand-built value
+				math.NaN(),                            // ditto
+			} {
+				testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, field, bad), 422)
+			}
+
+			// A fraction is rejected rather than silently coerced: unnarrowed,
+			// 1985.7 reaches the column as 1985 (measured; see utils.WholeNumber).
+			testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, field, 1985.7), 422)
+
+			// Wrong types, including the numeric STRING this drawer field used to
+			// submit. It is refused so nothing NEW is stored in the old encoding;
+			// admin.NarrowNumericUpdates still parses the rows that already are.
+			for _, bad := range []any{"1985", "", "1985 approx", true, map[string]any{"x": 1}, []any{1}} {
+				testhelpers.AssertHumaError(t, ValidateFieldChangeValue(bg, field, bad), 422)
+			}
+		})
+	}
+}
+
 // ============================================================================
 // ValidateFieldChangeValue (PSY-549)
 // ============================================================================
@@ -313,7 +382,11 @@ func TestValidateFieldChangeValue_UnknownFieldPasses(t *testing.T) {
 		{"name", "Some Artist"},
 		{"city", "Phoenix"},
 		{"description", "Long markdown text here"},
-		{"founded_year", 1985},
+		// founded_year used to sit here as an example of a field this helper
+		// has no opinion on. It has one since PSY-1703, so its own corpus
+		// covers it now; release_date is the year fields' unregistered
+		// neighbour and takes its place.
+		{"release_date", "1991-09-24"},
 		{"verified", true},
 	}
 	for _, c := range cases {

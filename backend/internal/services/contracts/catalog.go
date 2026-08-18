@@ -472,6 +472,57 @@ type NumericEditBounds struct {
 	DisplayName string
 	Min         int
 	Max         int
+	// LegacyTextEncoding marks a field that was editable through the
+	// pending-edit pipeline BEFORE it was registered here, back when the edit
+	// drawer submitted it as a string. Any such edit already stored in
+	// pending_entity_edits or revisions.field_changes therefore holds "1985"
+	// rather than 1985, and admin.NarrowNumericUpdates parses those rather than
+	// refusing them (its doc comment carries the argument).
+	//
+	// Submit-side behaviour is unaffected: a string is refused at the door for
+	// every field in this registry, flag or no flag. This only governs how the
+	// apply and rollback paths read what is ALREADY stored.
+	//
+	// False for a field registered on the same day its drawer control became
+	// numeric, because no string of it was ever written. Do not set it to buy
+	// leniency for new fields; it is a statement about history, not a policy.
+	LegacyTextEncoding bool
+}
+
+// MinCatalogYear is the floor for every year-valued catalog column a
+// contributor can edit: labels.founded_year and releases.release_year.
+//
+// Both fields share one floor on purpose. They answer the same kind of
+// question ("what year was this?"), a contributor typing into either makes the
+// same mistakes, and two constants would only invite them to drift apart.
+//
+// 1000 is a four-digit-year sanity rail, not a domain claim. A tighter floor is
+// available on paper (Berliner pressed the first commercial records in the
+// 1890s, so nothing in this catalog can honestly predate that) and is
+// deliberately not taken: the gate exists to catch a value NOBODY TYPED -- a
+// zero, a negative, a three-digit slip, a fraction, a scraped string -- and not
+// to adjudicate music history at the expense of some reissue, field recording
+// or archival edge case the catalog has not met yet. This mirrors the reasoning
+// behind MaxVenueCapacity's generous ceiling.
+const MinCatalogYear = 1000
+
+// MaxCatalogYear is the inclusive ceiling for those same columns: next year.
+//
+// Next year rather than this year because a release can be announced before it
+// exists -- a record dated 2027 is routine press-cycle material in 2026 -- while
+// anything further out is far likelier to be a typo than a real announcement.
+//
+// A FUNCTION, not a constant, and that is the load-bearing part. A package-level
+// var initialised from time.Now() freezes at process start, so a server that had
+// been up since November would spend the first days of January rejecting a
+// legitimate next-year value with a message quoting last year's ceiling, and
+// would heal only on the next deploy. Resolving per call costs nothing on these
+// paths (one submit, one approve) and cannot go stale.
+//
+// UTC so the ceiling does not depend on the server's local zone; the +1 year of
+// slack absorbs the few hours where UTC and a US zone disagree about the date.
+func MaxCatalogYear() int {
+	return time.Now().UTC().Year() + 1
 }
 
 // NumericEditFieldBounds is the registry both halves of the pending-edit
@@ -479,16 +530,26 @@ type NumericEditBounds struct {
 // submit, and the approve path narrows the surviving JSONB float64 to an int
 // before it reaches an untyped Updates().
 //
-// It exists as one map rather than two hand-written branches so those halves
+// It exists as one registry rather than hand-written branches so those halves
 // cannot drift. Adding a field here gives it BOTH gates; adding it to only one
 // of two hardcoded call sites would give it neither reliably.
 //
-// NOT here, and unguarded today: labels.founded_year and releases.release_year
-// are *int columns on contributor allowlists whose drawer fields submit TEXT.
-// Adding them means choosing sane year bounds, which is a product question, so
-// they want their own ticket rather than a guess here.
-var NumericEditFieldBounds = map[string]NumericEditBounds{
-	"capacity": {DisplayName: "Capacity", Min: MinVenueCapacity, Max: MaxVenueCapacity},
+// A function returning a fresh map rather than a package var, because
+// MaxCatalogYear has to be resolved when the value is checked (see its doc).
+// A fresh map per call also means no caller can mutate a shared registry. Every
+// call site is a single submit or a single approve, so the allocation is noise.
+func NumericEditFieldBounds() map[string]NumericEditBounds {
+	maxYear := MaxCatalogYear()
+	return map[string]NumericEditBounds{
+		// Registered in PSY-1694 in the same change that made its drawer control
+		// numeric, so no capacity was ever stored as text: LegacyTextEncoding
+		// stays false.
+		"capacity": {DisplayName: "Capacity", Min: MinVenueCapacity, Max: MaxVenueCapacity},
+		// Registered in PSY-1703, long after their drawer controls started
+		// submitting text.
+		"founded_year": {DisplayName: "Founded year", Min: MinCatalogYear, Max: maxYear, LegacyTextEncoding: true},
+		"release_year": {DisplayName: "Release year", Min: MinCatalogYear, Max: maxYear, LegacyTextEncoding: true},
+	}
 }
 
 // CreateVenueRequest represents the data needed to create a new venue

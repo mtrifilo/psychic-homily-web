@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -285,14 +286,52 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 //
 // A value that is not a whole number at all is returned as an error rather than
 // written, because there is no faithful narrowing of "banana" to an integer.
+//
+// LEGACY ENCODING: for a field whose registry entry sets LegacyTextEncoding, a
+// stored value that is a plain decimal-integer STRING is parsed rather than
+// refused. That asymmetry with the submit-side gate is deliberate.
+// founded_year and release_year joined the registry in PSY-1703, long after the
+// edit drawer began submitting them as text, so any year edit accepted before
+// then wrote a STRING into pending_entity_edits.changes and, once approved, into
+// revisions.field_changes. How many such rows exist was not measured; that the
+// old drawer could only produce that shape is a fact about the code. The submit
+// gate refuses that shape at the door so nothing NEW is written that way (one
+// encoding per edit, per PSY-1694). This function is on the other side of the
+// pipeline: it type-corrects what the system has already stored. Refusing those
+// rows would strand pending edits that are perfectly readable and, worse, break
+// Rollback for exactly the history most likely to need undoing. Rollback already
+// declines to re-litigate a stored value against a bound for that reason;
+// declining to re-litigate its encoding follows from it.
+//
+// "1985" has exactly one integer meaning, so parsing it invents nothing, and the
+// corruption class the registry exists for -- fractions, bools, objects,
+// out-of-int values -- is still refused. The approve path still range checks
+// afterwards.
+//
+// The flag rather than blanket string tolerance, because capacity has no such
+// history: its registry entry and its numeric drawer control shipped together,
+// so a capacity string can only be a corrupt row, and it stays an error here.
 func NarrowNumericUpdates(updates map[string]interface{}) error {
-	for field := range contracts.NumericEditFieldBounds {
+	for field, bounds := range contracts.NumericEditFieldBounds() {
 		raw, present := updates[field]
 		if !present {
 			continue
 		}
 		if raw == nil {
 			updates[field] = (*int)(nil)
+			continue
+		}
+		if legacy, isString := raw.(string); isString && bounds.LegacyTextEncoding {
+			// TrimSpace because Postgres accepts ' 1985'::int, so a padded string
+			// is a value this column really would have taken back when the field
+			// was unregistered. Atoi and nothing looser: it refuses "1985.0",
+			// "1e3" and "1985 approx" outright rather than reading a prefix.
+			n, err := strconv.Atoi(strings.TrimSpace(legacy))
+			if err != nil {
+				return apperrors.ErrPendingEditInvalidRequest(
+					fmt.Sprintf("%s must be a whole number", field))
+			}
+			updates[field] = &n
 			continue
 		}
 		n, ok := utils.WholeNumber(raw)
@@ -327,7 +366,7 @@ func NarrowNumericUpdates(updates map[string]interface{}) error {
 // Reads the same contracts.NumericEditFieldBounds registry the submit-side
 // validator does, so the two cannot drift into disagreeing.
 func checkNumericUpdateBounds(updates map[string]interface{}) error {
-	for field, bounds := range contracts.NumericEditFieldBounds {
+	for field, bounds := range contracts.NumericEditFieldBounds() {
 		raw, present := updates[field]
 		if !present {
 			continue
