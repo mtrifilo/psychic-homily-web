@@ -3,7 +3,9 @@ import {
   archiveDocumentTitle,
   groupByMonth,
   monthRangeLabel,
+  monthRangeLabelsByPage,
   parseArchiveYear,
+  type ArchiveMonthCount,
   type ShowZone,
 } from './showArchive'
 
@@ -154,5 +156,119 @@ describe('parseArchiveYear', () => {
     expect(parseArchiveYear(2025.5)).toBeNull()
     expect(parseArchiveYear(null)).toBeNull()
     expect(parseArchiveYear(2025)).toBe(2025)
+  })
+})
+
+/**
+ * The defect PSY-1769 closes: labels used to come from a page's own ROWS, so
+ * only pages already in the query cache could carry one and the rest of the
+ * strip rendered bare numerals. These derive from the histogram instead, which
+ * is what makes "every visible page link carries its label" reachable at all.
+ */
+describe('monthRangeLabelsByPage', () => {
+  // Six months, ten shows each: page boundaries land mid-month at a page size
+  // of 25, which is the case a naive month-per-page mapping gets wrong.
+  const SIXTY_SHOWS: ArchiveMonthCount[] = [
+    { year: 2025, month: 6, count: 10 },
+    { year: 2025, month: 5, count: 10 },
+    { year: 2025, month: 4, count: 10 },
+    { year: 2025, month: 3, count: 10 },
+    { year: 2025, month: 2, count: 10 },
+    { year: 2025, month: 1, count: 10 },
+  ]
+
+  it('labels every requested page, not only the ones already fetched', () => {
+    expect(
+      monthRangeLabelsByPage({
+        months: SIXTY_SHOWS,
+        pageSize: 25,
+        pages: [1, 2, 3],
+      })
+    ).toEqual({
+      1: 'Jun–Apr', // rows 0-24: Jun, May, and half of Apr
+      2: 'Apr–Feb', // rows 25-49: the rest of Apr through Feb
+      3: 'Jan', // rows 50-59: a short last page that never leaves Jan
+    })
+  })
+
+  it('names a single month when a page does not leave it', () => {
+    expect(
+      monthRangeLabelsByPage({
+        months: [{ year: 2025, month: 9, count: 40 }],
+        pageSize: 10,
+        pages: [2],
+      })
+    ).toEqual({ 2: 'Sep' })
+  })
+
+  it('keeps both years when a page straddles the turn of one', () => {
+    expect(
+      monthRangeLabelsByPage({
+        months: [
+          { year: 2025, month: 1, count: 5 },
+          { year: 2024, month: 12, count: 5 },
+        ],
+        pageSize: 10,
+        pages: [1],
+      })
+    ).toEqual({ 1: 'Jan 2025–Dec 2024' })
+  })
+
+  it('never uses an em dash for the range', () => {
+    const label = monthRangeLabelsByPage({
+      months: SIXTY_SHOWS,
+      pageSize: 25,
+      pages: [1],
+    })[1]
+    expect(label).toContain('–')
+    expect(label).not.toContain('—')
+  })
+
+  it('reads the histogram in the order it is given', () => {
+    // The same six months ascending, as an upcoming list would page them.
+    expect(
+      monthRangeLabelsByPage({
+        months: [...SIXTY_SHOWS].reverse(),
+        pageSize: 25,
+        pages: [1],
+      })
+    ).toEqual({ 1: 'Jan–Mar' })
+  })
+
+  it('omits a page that lies past the end of the histogram', () => {
+    // The graceful edge when the counts and the list total disagree: the pager
+    // falls back to a bare numeral rather than a clamped, wrong label.
+    expect(
+      monthRangeLabelsByPage({
+        months: [{ year: 2025, month: 9, count: 10 }],
+        pageSize: 25,
+        pages: [1, 2, 3],
+      })
+    ).toEqual({ 1: 'Sep' })
+  })
+
+  it('returns nothing at all for an empty or unusable histogram', () => {
+    expect(
+      monthRangeLabelsByPage({ months: [], pageSize: 25, pages: [1] })
+    ).toEqual({})
+    // A malformed bucket must be dropped rather than trusted: rolled over, a
+    // thirteenth month would print "Jan" of the wrong year, and a NaN count
+    // would slide every later page's label.
+    expect(
+      monthRangeLabelsByPage({
+        months: [
+          { year: 2025, month: 13, count: 5 },
+          { year: 2025, month: 9, count: Number.NaN },
+        ],
+        pageSize: 25,
+        pages: [1],
+      })
+    ).toEqual({})
+  })
+
+  it('refuses a page size that could not have produced the pages', () => {
+    expect(
+      monthRangeLabelsByPage({ months: SIXTY_SHOWS, pageSize: 0, pages: [1] })
+    ).toEqual({})
   })
 })

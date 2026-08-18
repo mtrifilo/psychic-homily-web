@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { VenueShow, VenueShowYearCount } from '../types'
+import type {
+  VenueShow,
+  VenueShowMonthCount,
+  VenueShowYearCount,
+} from '../types'
 import type { TimeFilter } from '../hooks/useVenues'
 
 // ── Query stubs ────────────────────────────────────────────────────────────
@@ -20,6 +24,15 @@ const upcomingResult = {
 const pastResult = { ...upcomingResult }
 const yearsResult = {
   data: undefined as { years: VenueShowYearCount[] } | undefined,
+  isSuccess: false,
+  isPending: false,
+  isError: false,
+}
+// The month histogram the pager labels its page links from (PSY-1769). Separate
+// from the year histogram because it answers a different question: years say
+// which pages exist, months say what is behind each one.
+const monthsResult = {
+  data: undefined as { months: VenueShowMonthCount[] } | undefined,
   isSuccess: false,
   isPending: false,
   isError: false,
@@ -54,6 +67,7 @@ vi.mock('../hooks/useVenues', () => ({
     return pastResult
   },
   useVenueShowYears: () => yearsResult,
+  useVenueShowMonths: () => monthsResult,
 }))
 
 // nuqs throws without a NuqsAdapter, and the adapter would need a real router.
@@ -187,6 +201,13 @@ function setYears(years: VenueShowYearCount[] | null) {
   yearsResult.isError = false
 }
 
+function setMonths(months: VenueShowMonthCount[] | null) {
+  monthsResult.data = months ? { months } : undefined
+  monthsResult.isSuccess = months !== null
+  monthsResult.isPending = months === null
+  monthsResult.isError = false
+}
+
 function renderList(overrides?: Partial<Parameters<typeof VenueShowsList>[0]>) {
   return renderWithProviders(
     <VenueShowsList
@@ -226,6 +247,40 @@ function renderArchive(
   )
 }
 
+/**
+ * A ResizeObserver stub that honours `disconnect()`, which the shared
+ * `installImmediateResizeObserver` deliberately does not — and disconnect is the
+ * entire mechanism the anchor window stops itself with, so a shim that ignores
+ * it would pass the abandon test no matter what the component did.
+ */
+function installDisconnectableResizeObserver() {
+  const live = new Set<ResizeObserverCallback>()
+  class Stub {
+    constructor(private readonly callback: ResizeObserverCallback) {}
+    observe() {
+      live.add(this.callback)
+    }
+    unobserve() {
+      live.delete(this.callback)
+    }
+    disconnect() {
+      live.delete(this.callback)
+    }
+  }
+  const original = globalThis.ResizeObserver
+  globalThis.ResizeObserver = Stub as unknown as typeof ResizeObserver
+  return {
+    fireResize: () => {
+      for (const callback of live) {
+        callback([], undefined as unknown as ResizeObserver)
+      }
+    },
+    restore: () => {
+      globalThis.ResizeObserver = original
+    },
+  }
+}
+
 /** The past section's `<section>`, scoped so upcoming rows never leak in. */
 const pastSection = () =>
   within(document.getElementById('venue-past-shows') as HTMLElement)
@@ -234,6 +289,7 @@ beforeEach(() => {
   setUpcoming(null, { isPending: true })
   setPast(null, { isPending: true })
   setYears(null)
+  setMonths(null)
   mockAuthIsAuthenticated.value = false
   pastRequests.length = 0
   queryPage = 1
@@ -639,6 +695,48 @@ describe('VenuePastShows — year and page state', () => {
     }
   })
 
+  // PSY-1769. The upcoming list above this section and (on mobile) the whole
+  // sidebar resolve after the archive does, pushing it down again — so landing
+  // on it once is landing on it before most of the page exists.
+  it('re-aligns the archive while the page above it is still settling', () => {
+    const scrollIntoView = vi.fn()
+    const originalScroll = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    const resizeObserver = installDisconnectableResizeObserver()
+    window.location.hash = '#venue-past-shows'
+    try {
+      renderList()
+      const afterLanding = scrollIntoView.mock.calls.length
+      act(() => resizeObserver.fireResize())
+      expect(scrollIntoView.mock.calls.length).toBeGreaterThan(afterLanding)
+    } finally {
+      resizeObserver.restore()
+      Element.prototype.scrollIntoView = originalScroll
+      window.location.hash = ''
+    }
+  })
+
+  // The restraint that makes the above safe: re-aligning a page the reader has
+  // started moving is the worse failure, and is why this used to be a one-shot.
+  it('stops re-aligning the moment the reader takes over the scroll', () => {
+    const scrollIntoView = vi.fn()
+    const originalScroll = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    const resizeObserver = installDisconnectableResizeObserver()
+    window.location.hash = '#venue-past-shows'
+    try {
+      renderList()
+      fireEvent.wheel(window)
+      const afterHandOver = scrollIntoView.mock.calls.length
+      act(() => resizeObserver.fireResize())
+      expect(scrollIntoView).toHaveBeenCalledTimes(afterHandOver)
+    } finally {
+      resizeObserver.restore()
+      Element.prototype.scrollIntoView = originalScroll
+      window.location.hash = ''
+    }
+  })
+
   it('leaves the scroll position alone without our fragment', () => {
     const scrollIntoView = vi.fn()
     const original = Element.prototype.scrollIntoView
@@ -651,6 +749,64 @@ describe('VenuePastShows — year and page state', () => {
       Element.prototype.scrollIntoView = original
       window.location.hash = ''
     }
+  })
+
+  // PSY-1769. Before the month histogram, a label could only be derived from a
+  // page's own rows, so pages the reader had not visited rendered bare numerals
+  // — which is most of the strip on first paint.
+  it('labels every page in the strip, including ones never fetched', () => {
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    setMonths([
+      // A month outside the active year, first in the list: an unfiltered walk
+      // would start page 1 here and shift every label in the strip.
+      { year: 2026, month: 3, count: 34 },
+      { year: 2025, month: 12, count: 30 },
+      { year: 2025, month: 11, count: 30 },
+      { year: 2025, month: 10, count: 30 },
+      { year: 2025, month: 9, count: 30 },
+      { year: 2025, month: 8, count: 30 },
+      { year: 2025, month: 7, count: 11 },
+    ])
+    renderArchive(2025)
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    for (const name of [
+      'Page 1, Dec–Nov',
+      'Page 2, Nov–Sep',
+      'Page 3, Sep–Aug',
+      'Page 4, Jul',
+    ]) {
+      expect(within(pager).getByRole('link', { name })).toBeInTheDocument()
+    }
+  })
+
+  it('keeps both years on an all-years page that straddles one', () => {
+    setYears([
+      { year: 2025, count: 60 },
+      { year: 2024, count: 40 },
+    ])
+    setPast({ shows: [makeShow({ id: 5 })], total: 100 })
+    setMonths([
+      { year: 2025, month: 1, count: 60 },
+      { year: 2024, month: 12, count: 40 },
+    ])
+    renderList()
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(
+      within(pager).getByRole('link', { name: 'Page 1, Jan' })
+    ).toBeInTheDocument()
+    expect(
+      within(pager).getByRole('link', { name: 'Page 2, Jan 2025–Dec 2024' })
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to bare numerals while the histogram is still loading', () => {
+    setPast({ shows: [makeShow({ id: 5 })], total: 161 })
+    setMonths(null)
+    renderArchive(2025)
+    const pager = screen.getAllByRole('navigation', { name: /pagination/i })[0]
+    expect(
+      within(pager).getByRole('link', { name: 'Page 3' })
+    ).toBeInTheDocument()
   })
 
   it('moves focus to the past-shows heading on a client-side page change', () => {

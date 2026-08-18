@@ -27,6 +27,10 @@ func setupVenueRoutes(rc RouteContext) {
 	// every year regardless of which one the list is filtered to, and the
 	// histogram does not change as the reader pages. See the handler's note.
 	huma.Get(rc.API, "/venues/{venue_id}/shows/years", venueHandler.GetVenueShowYearsHandler)
+	// The same histogram at month resolution, for the pager's range labels
+	// rather than the year picker (PSY-1769). A sibling static segment under the
+	// same parameterised parent, so it resolves exactly the way `years` does.
+	huma.Get(rc.API, "/venues/{venue_id}/shows/months", venueHandler.GetVenueShowMonthsHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/genres", venueHandler.GetVenueGenresHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/bill-network", venueHandler.GetVenueBillNetworkHandler)
 

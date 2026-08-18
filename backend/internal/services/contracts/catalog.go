@@ -841,6 +841,18 @@ type VenueShowYearCount struct {
 	Count int64 `json:"count" doc:"Shows at this venue in that year, within the requested time filter"`
 }
 
+// VenueShowMonthCount is one bar of a venue's show histogram at MONTH
+// resolution (PSY-1769).
+//
+// The year is part of the bucket, not context around it: the archive it feeds
+// spans a venue's whole history by default, where a bare month number would fold
+// every March together.
+type VenueShowMonthCount struct {
+	Year  int   `json:"year" doc:"Venue-local calendar year"`
+	Month int   `json:"month" doc:"Venue-local calendar month, 1-12"`
+	Count int64 `json:"count" doc:"Shows at this venue in that month, within the requested time filter"`
+}
+
 // VenueCityResponse represents a city with venue count for filtering
 type VenueCityResponse struct {
 	City       string `json:"city"`
@@ -2020,6 +2032,12 @@ type VenueServiceInterface interface {
 	// render every selectable year, including the ones the current page is
 	// filtered away from.
 	GetVenueShowYears(venueID uint, timeFilter string) ([]VenueShowYearCount, error)
+	// GetVenueShowMonths is the same histogram one resolution finer, and for a
+	// different consumer: the archive's PAGE LABELS, which need to name the
+	// months behind a page number before the reader has fetched that page. Like
+	// the year histogram it spans every year, so one read serves the all-years
+	// archive and every year-scoped view of it.
+	GetVenueShowMonths(venueID uint, timeFilter string) ([]VenueShowMonthCount, error)
 	GetVenueCities() ([]*VenueCityResponse, error)
 	GetVenueModel(venueID uint) (*catalogm.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)

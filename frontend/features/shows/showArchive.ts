@@ -15,7 +15,11 @@
  */
 
 import { toPageNumber } from '@/components/shared/paginationChrome'
-import { formatShowMonth, formatShowMonthParts } from '@/lib/utils/formatters'
+import {
+  formatCalendarMonthParts,
+  formatShowMonth,
+  formatShowMonthParts,
+} from '@/lib/utils/formatters'
 
 /** The minimum a row needs before this module can place it in time. */
 export interface ArchiveRow {
@@ -108,9 +112,25 @@ export function monthRangeLabel<T extends ArchiveRow>(
     const zone = zoneOf(row)
     return formatShowMonthParts(row.event_date, zone.state, zone.timezone)
   }
-  const first = partsOf(rows[0])
-  const last = partsOf(rows[rows.length - 1])
+  return monthSpanLabel(partsOf(rows[0]), partsOf(rows[rows.length - 1]))
+}
 
+/** A formatted calendar month, split so the halves can be compared. */
+interface MonthParts {
+  month: string
+  year: string
+}
+
+/**
+ * The label for a span running from `first` to `last`, in whichever direction
+ * the list runs.
+ *
+ * Extracted because two callers now derive the SAME label from different inputs
+ * — {@link monthRangeLabel} from a page's rows, {@link monthRangeLabelsByPage}
+ * from a histogram — and a pager mixing two spellings of one rule would be a
+ * defect nobody could see in either function alone.
+ */
+function monthSpanLabel(first: MonthParts, last: MonthParts): string {
   if (first.month === last.month && first.year === last.year) return first.month
   // Page labels sit inside a year-scoped pager, and the year is already in the
   // strip above and the month headings below, so repeating it in every label
@@ -119,6 +139,115 @@ export function monthRangeLabel<T extends ArchiveRow>(
   return first.year === last.year
     ? `${first.month}${EN_DASH}${last.month}`
     : `${first.month} ${first.year}${EN_DASH}${last.month} ${last.year}`
+}
+
+/**
+ * One bar of a show histogram at month resolution, as the backend serves it.
+ *
+ * Already placed on the right calendar: the counts are bucketed venue-side, so
+ * nothing downstream needs — or is allowed — a timezone to re-derive them with.
+ */
+export interface ArchiveMonthCount {
+  /** Calendar year. */
+  year: number
+  /** Calendar month, 1-12. */
+  month: number
+  count: number
+}
+
+/**
+ * A well-formed bucket carrying at least one row. Anything else is dropped
+ * rather than trusted: these arrive over the wire, and a NaN or a thirteenth
+ * month would silently slide every later page's label instead of failing.
+ */
+function isUsableMonthCount(bucket: ArchiveMonthCount): boolean {
+  return (
+    Number.isInteger(bucket.year) &&
+    Number.isInteger(bucket.month) &&
+    bucket.month >= 1 &&
+    bucket.month <= 12 &&
+    Number.isInteger(bucket.count) &&
+    bucket.count > 0
+  )
+}
+
+/**
+ * The month-span label for EVERY page of an archive, derived from its month
+ * histogram (PSY-1769).
+ *
+ * The point of taking counts rather than rows: a page's span is a function of
+ * the row ORDINALS it covers, and cumulative counts answer that for every page
+ * at once. Deriving it from rows — the shape this replaced — could only ever
+ * label the pages the reader had already fetched, so an eight-page archive
+ * showed one label and seven bare numerals on first paint. The rest of the
+ * chrome (which pages are rendered at all, how a missing label degrades) is
+ * unchanged: `Pagination` still renders a bare numeral for any page absent from
+ * the returned record.
+ *
+ * `months` must be in the SAME ORDER the list pages in — the walk below maps
+ * position in this array onto position in the list, and nothing else can tell it
+ * that a descending histogram belongs to a descending list. `pageSize` must be
+ * the limit the list actually requested.
+ *
+ * Labels are produced only for the pages ASKED for, because the pager renders at
+ * most seven, and only while the histogram covers them: a page whose first row
+ * lies past the last bucket gets no label rather than a clamped, wrong one. That
+ * is the graceful edge when the counts and the list's own total disagree — a
+ * show added between the two reads, a filter drifting apart — and it degrades to
+ * exactly the numeral the pager rendered before this existed.
+ */
+export function monthRangeLabelsByPage({
+  months,
+  pageSize,
+  pages,
+}: {
+  /** Histogram buckets in list order. */
+  months: ArchiveMonthCount[]
+  /** Rows per page, as requested. */
+  pageSize: number
+  /** 1-based page numbers to label. */
+  pages: number[]
+}): Record<number, string> {
+  const labels: Record<number, string> = {}
+  if (!Number.isInteger(pageSize) || pageSize < 1) return labels
+
+  const buckets = months.filter(isUsableMonthCount)
+  if (buckets.length === 0) return labels
+
+  // Exclusive upper row ordinal of each bucket, so a row index resolves to a
+  // bucket by one scan of a monotonically increasing array.
+  const bucketEnds: number[] = []
+  let running = 0
+  for (const bucket of buckets) {
+    running += bucket.count
+    bucketEnds.push(running)
+  }
+  const totalRows = running
+
+  const bucketAt = (rowIndex: number): ArchiveMonthCount | null => {
+    for (let i = 0; i < bucketEnds.length; i++) {
+      if (rowIndex < bucketEnds[i]) return buckets[i]
+    }
+    return null
+  }
+
+  for (const page of pages) {
+    if (!Number.isInteger(page) || page < 1) continue
+    const firstRow = (page - 1) * pageSize
+    if (firstRow >= totalRows) continue
+    const lastRow = Math.min(firstRow + pageSize - 1, totalRows - 1)
+
+    const first = bucketAt(firstRow)
+    const last = bucketAt(lastRow)
+    if (!first || !last) continue
+
+    labels[page] = monthSpanLabel(
+      formatCalendarMonthParts(first.year, first.month),
+      formatCalendarMonthParts(last.year, last.month)
+    )
+  }
+
+  return labels
 }
 
 /**

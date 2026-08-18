@@ -6668,6 +6668,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/venues/{venue_id}/shows/months": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get venues by venue ID shows months */
+        get: operations["get-venues-by-venue-id-shows-months"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/venues/{venue_id}/shows/years": {
         parameters: {
             query?: never;
@@ -12360,6 +12377,23 @@ export interface components {
             /** @description List of cities with venue counts */
             cities: components["schemas"]["VenueCityResponse"][] | null;
         };
+        GetVenueShowMonthsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetVenueShowMonthsResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Venue-local calendar months that have at least one show, newest first */
+            months: components["schemas"]["VenueShowMonthCount"][] | null;
+            /** @description Time filter the counts were taken under */
+            time_filter: string;
+            /**
+             * Format: int64
+             * @description Venue ID
+             */
+            venue_id: number;
+        };
         GetVenueShowYearsResponseBody: {
             /**
              * Format: uri
@@ -17348,6 +17382,23 @@ export interface components {
             state: string;
             timezone: string | null;
             verified: boolean;
+        };
+        VenueShowMonthCount: {
+            /**
+             * Format: int64
+             * @description Shows at this venue in that month, within the requested time filter
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar month, 1-12
+             */
+            month: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar year
+             */
+            year: number;
         };
         VenueShowResponse: {
             age_requirement: string | null;
@@ -34149,6 +34200,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetVenueShowsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-venues-by-venue-id-shows-months": {
+        parameters: {
+            query?: {
+                /**
+                 * @description Count shows by time: upcoming, past, or all
+                 * @example past
+                 */
+                time_filter?: "upcoming" | "past" | "all";
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Venue ID or slug
+                 * @example valley-bar-phoenix-az
+                 */
+                venue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetVenueShowMonthsResponseBody"];
                 };
             };
             /** @description Error */

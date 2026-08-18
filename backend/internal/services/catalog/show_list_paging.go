@@ -90,3 +90,41 @@ func scanVenueLocalYearBuckets(baseQuery func() *gorm.DB) ([]showYearBucket, err
 	}
 	return buckets, nil
 }
+
+// showMonthBucket is the scan target for the month histogram: one venue-local
+// calendar month and how many rows fell in it. Concrete for the same reason
+// showYearBucket is — see its note on what GORM does with a field mismatch.
+//
+// The YEAR is carried because a month number does not identify a period. A
+// consumer scoped to one year ignores it; the all-years archive cannot.
+type showMonthBucket struct {
+	Year  int
+	Month int
+	Count int64
+}
+
+// scanVenueLocalMonthBuckets counts baseQuery's rows per VENUE-LOCAL calendar
+// month, newest month first. Months with no rows are absent rather than zero, so
+// the result is naturally sparse across a venue's quiet stretches.
+//
+// NEWEST FIRST unconditionally, whatever time filter built baseQuery, exactly
+// like the year histogram beside it. Consumers that read the list in list order
+// (the past archive's page labels do, to walk cumulative counts across page
+// boundaries) must reverse it for an ascending list rather than expecting this
+// to follow the filter.
+//
+// Same preconditions as the year histogram: baseQuery must already have joined
+// shared.VenueTZJoin, and the aliases are quoted because `year`, `month` and
+// `count` are all keywords Postgres would otherwise be free to resolve against
+// something else.
+func scanVenueLocalMonthBuckets(baseQuery func() *gorm.DB) ([]showMonthBucket, error) {
+	var buckets []showMonthBucket
+	if err := baseQuery().
+		Select(shared.VenueLocalYearSQL + ` AS "year", ` + shared.VenueLocalMonthSQL + ` AS "month", COUNT(*) AS "count"`).
+		Group(shared.VenueLocalYearSQL + ", " + shared.VenueLocalMonthSQL).
+		Order(shared.VenueLocalYearSQL + " DESC, " + shared.VenueLocalMonthSQL + " DESC").
+		Scan(&buckets).Error; err != nil {
+		return nil, fmt.Errorf("failed to count shows by month: %w", err)
+	}
+	return buckets, nil
+}

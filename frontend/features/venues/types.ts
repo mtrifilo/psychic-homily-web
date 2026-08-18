@@ -226,6 +226,30 @@ export interface VenueShowYearsResponse {
 }
 
 /**
+ * One bar of the past-shows MONTH histogram (PSY-1769).
+ *
+ * Bucketed on the venue's own calendar, server-side — the year and month are
+ * already decided, and re-reading them through a timezone would be wrong.
+ */
+export interface VenueShowMonthCount {
+  /** Venue-local calendar year. */
+  year: number
+  /** Venue-local calendar month, 1-12. */
+  month: number
+  /** Shows at this venue in that month, within the requested time filter. */
+  count: number
+}
+
+/** Response for `GET /venues/{id}/shows/months`. */
+export interface VenueShowMonthsResponse {
+  venue_id: number
+  /** Time filter the counts were taken under. */
+  time_filter: string
+  /** Months with at least one show, newest first. Never contains a zero count. */
+  months: VenueShowMonthCount[]
+}
+
+/**
  * City with venue count for filtering
  */
 export interface VenueCity {

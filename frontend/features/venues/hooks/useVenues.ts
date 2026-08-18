@@ -19,6 +19,7 @@ import type {
   VenuesListResponse,
   VenueShowsResponse,
   VenueShowYearsResponse,
+  VenueShowMonthsResponse,
   VenueCitiesResponse,
   VenueGenreResponse,
   VenueBillNetworkResponse,
@@ -301,6 +302,47 @@ export const useVenueShowYears = (options: UseVenueShowYearsOptions) => {
       enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
     staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it navigates
     initialData,
+  })
+}
+
+interface UseVenueShowMonthsOptions {
+  venueId: string | number
+  /** Which side of "today" to count. Defaults to 'past'. */
+  timeFilter?: TimeFilter
+  enabled?: boolean
+}
+
+/**
+ * Venue-local calendar months that have at least one show, newest first, with
+ * per-month counts (PSY-1769).
+ *
+ * What the past-shows pager labels its page links from. Cumulative counts place
+ * every page's month span at once, so the label under page 6 is there on first
+ * paint rather than only after the reader has been to page 6.
+ *
+ * One request per venue, whatever year the reader is looking at: the histogram
+ * spans every year and the year-scoped views slice it. Twelve times the rows of
+ * the year histogram beside it, still one small row per month a venue has ever
+ * booked, and it does not change as the reader pages.
+ *
+ * No `initialData` counterpart yet. The year-archive route seeds the rows and the
+ * year histogram it renders server-side; the labels are pager chrome and can
+ * arrive with the first client fetch, which is when the reader can first click a
+ * page link anyway.
+ */
+export const useVenueShowMonths = (options: UseVenueShowMonthsOptions) => {
+  const { venueId, timeFilter = 'past', enabled = true } = options
+
+  const endpoint = `${venueEndpoints.SHOW_MONTHS(venueId)}?time_filter=${timeFilter}`
+
+  return useQuery({
+    queryKey: venueQueryKeys.showMonths(venueId, timeFilter),
+    queryFn: async (): Promise<VenueShowMonthsResponse> => {
+      return apiRequest<VenueShowMonthsResponse>(endpoint, { method: 'GET' })
+    },
+    enabled:
+      enabled && (typeof venueId === 'string' ? Boolean(venueId) : venueId > 0),
+    staleTime: 5 * 60 * 1000, // 5 minutes — matches the pages it labels
   })
 }
 

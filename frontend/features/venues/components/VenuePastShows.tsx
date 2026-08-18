@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
-import { useQueryClient } from '@tanstack/react-query'
 import { parseAsInteger, useQueryState } from 'nuqs'
 import {
   formatCount,
@@ -15,15 +14,23 @@ import {
   type YearStripEntry,
 } from '@/components/shared'
 import { cn } from '@/lib/utils'
-import { useVenueShowYears, useVenueShows } from '../hooks/useVenues'
-import { venueQueryKeys, venuePastShowsPageParams } from '../api'
-// `clampPage` is entity-agnostic and shared with the artist archive (PSY-1754);
-// the year is no longer read from the URL here, so `parseArchiveYear` moved to
-// the route that owns the `{year}` path segment (PSY-1756).
-import { clampPage } from '@/features/shows/showArchive'
+import {
+  useVenueShowMonths,
+  useVenueShowYears,
+  useVenueShows,
+} from '../hooks/useVenues'
+import { venuePastShowsPageParams } from '../api'
+// Both entity-agnostic and shared with the artist archive (PSY-1754); the year
+// is no longer read from the URL here, so `parseArchiveYear` moved to the route
+// that owns the `{year}` path segment (PSY-1756). `monthRangeLabelsByPage` needs
+// no venue zone, deliberately — the histogram it reads was bucketed on the
+// venue's own calendar server-side, so there is nothing left to resolve.
+import {
+  clampPage,
+  monthRangeLabelsByPage,
+} from '@/features/shows/showArchive'
 import {
   archiveDocumentTitle,
-  monthRangeLabel,
   venueArchiveHref,
   VENUE_PAST_SHOWS_FRAGMENT,
 } from '../showArchive'
@@ -120,6 +127,9 @@ export function VenuePastShows({
 
   const pageParams = venuePastShowsPageParams(page, activeYear)
   const offset = pageParams.offset ?? 0
+  // Named as a primitive so the label memo can depend on it: `pageParams` is a
+  // fresh object every render and would defeat the memo entirely.
+  const pageLimit = pageParams.limit
 
   const yearsQuery = useVenueShowYears({
     venueId,
@@ -172,9 +182,9 @@ export function VenuePastShows({
     [venueState, venueTimezone]
   )
 
-  // Memoized on the response rather than recomputed: this array is a dependency
-  // of the page-label memo below and of the table's month grouping, and a fresh
-  // `[]` on every render would make both recompute forever.
+  // Memoized on the response rather than recomputed: this array feeds the
+  // table's month grouping, and a fresh `[]` on every render would make it
+  // recompute forever.
   const pastData = pastQuery.data
   const rows: VenueShow[] = useMemo(() => pastData?.shows ?? [], [pastData])
 
@@ -182,14 +192,18 @@ export function VenuePastShows({
   //
   // `keepPreviousData` deliberately holds the PREVIOUS page (or year) on screen
   // while the next one loads, and `isPlaceholderData` is exactly "these rows
-  // belong to a different query". Anything derived from the rows — the caption
-  // range, this page's month-span label — must be suppressed until it clears,
-  // or the surface states a fact about a slice the reader is not looking at
+  // belong to a different query". Anything derived from the rows — which is now
+  // the caption range and nothing else — must be suppressed until it clears, or
+  // the surface states a fact about a slice the reader is not looking at
   // ("Showing 51-100 of 161" over rows 1-50). Dimming says stale; it does not
-  // make a wrong number right. It matters most for the label: the pager's live
-  // region latches its announcement on the first render at the new page, so a
-  // label taken from the outgoing rows is what a screen reader hears, and it is
-  // never corrected.
+  // make a wrong number right.
+  //
+  // The month-span labels used to need this too, and no longer do: they come
+  // from a histogram keyed on the venue alone (PSY-1769), so they are not a
+  // function of whichever page's rows happen to be on screen. That also removes
+  // a sharper edge than the caption's — the pager's live region latches its
+  // announcement on the first render at a new page, so a label taken from the
+  // outgoing rows was what a screen reader heard, and it was never corrected.
   const rowsAnswerCurrentRequest = !pastQuery.isPlaceholderData
 
   // The envelope's own count, already scoped to whatever year was requested —
@@ -210,48 +224,32 @@ export function VenuePastShows({
   // Month-range page labels: what is behind a page number, before the reader
   // spends a click on it (the Gazelle `451-500` label, on the time axis).
   //
-  // A span can only be computed from a page's own rows, so a page can only be
-  // labelled once it has been fetched: the current page from `rows`, its
-  // neighbours from whatever the query cache still holds. Pages the reader has
-  // visited keep their label; the rest render as bare numerals, which is what
-  // `Pagination` does with a missing entry. Labelling every page on first paint
-  // would mean either a per-month histogram the API does not serve, or
-  // prefetching six more 50-row pages on every venue load — too much for a
-  // label. Bounded at seven lookups, because that is all the pager can render.
+  // Derived from the MONTH HISTOGRAM, not from rows (PSY-1769). A page's span is
+  // a function of the row ordinals it covers, so cumulative counts place every
+  // page at once — which is what puts a label under page 6 on first paint. The
+  // shape this replaced could only label pages already in the query cache, so an
+  // eight-page archive showed one label and seven bare numerals until the reader
+  // had walked the whole thing.
   //
-  // A WRONG label is worse than a missing one (the pager announces it and never
-  // corrects), so the current page contributes nothing until its own rows land.
-  const queryClient = useQueryClient()
+  // The histogram is one request per venue and carries no year filter, so the
+  // slice below is the whole cost of switching years. Reading the pager's own
+  // window means at most seven labels are formatted, which is all it can render.
+  const monthsQuery = useVenueShowMonths({ venueId, timeFilter: 'past' })
+  const allMonthCounts = monthsQuery.data?.months
   const rangeLabels = useMemo(() => {
-    const labels: Record<number, string> = {}
-    for (const item of paginationWindow(page, totalPages)) {
-      if (item === 'ellipsis') continue
-      let pageRows: VenueShow[] = []
-      if (item === page) {
-        pageRows = rowsAnswerCurrentRequest ? rows : []
-      } else {
-        pageRows =
-          queryClient.getQueryData<VenueShowsResponse>(
-            venueQueryKeys.showsPage(
-              venueId,
-              venuePastShowsPageParams(item, activeYear)
-            )
-          )?.shows ?? []
-      }
-      const label = monthRangeLabel(pageRows, zone)
-      if (label) labels[item] = label
-    }
-    return labels
-  }, [
-    queryClient,
-    venueId,
-    page,
-    totalPages,
-    activeYear,
-    zone,
-    rows,
-    rowsAnswerCurrentRequest,
-  ])
+    const months = allMonthCounts ?? []
+    return monthRangeLabelsByPage({
+      // Newest first from the API, which is the order this archive pages in.
+      months:
+        activeYear === null
+          ? months
+          : months.filter(bucket => bucket.year === activeYear),
+      pageSize: pageLimit,
+      pages: paginationWindow(page, totalPages).filter(
+        (item): item is number => item !== 'ellipsis'
+      ),
+    })
+  }, [allMonthCounts, activeYear, pageLimit, page, totalPages])
 
   // A venue with no past shows carries no archive. Asked of the histogram, not
   // of the current page: a hand-typed year with nothing in it must still render
@@ -325,15 +323,26 @@ export function VenuePastShows({
   // needs none of this — it carries no fragment, because there the archive is
   // the page.)
   //
-  // Fires ONCE per mount, and only for OUR fragment, so it can never fight a
-  // reader who has already scrolled. The cost of that restraint is that it is
-  // best-effort: anything ABOVE this section that settles later (on mobile the
-  // sidebar renders first, map card included) shifts the archive down again
-  // afterwards. Re-honouring the fragment on every subsequent layout change
-  // would land it every time and hijack the scroll of anyone who moved in the
-  // meantime, which is the worse failure. Later page changes need none of
-  // this: the fragment is already on the page, and the pager moves focus to
-  // the heading.
+  // Honoured ONCE per mount and only for OUR fragment, so it can never fight a
+  // reader who arrived without one. Later page changes need none of this: the
+  // fragment is already on the page, and the pager moves focus to the heading.
+  //
+  // A single scrollIntoView is not enough, which is what PSY-1769 fixes. This
+  // section is near the bottom of a page whose height is still being decided
+  // when the archive first renders: the upcoming-shows list directly above it is
+  // a client fetch that expands from a spinner to as many as 200 rows, and on
+  // mobile the sidebar stacks ABOVE the main column, so its chart badge, genre
+  // profile and collections cards all push the archive further down as they
+  // arrive. Landing on it once and never again means landing on it before most
+  // of that has happened. Reserving space for those is not an option — their
+  // heights are genuinely unknown until they resolve, and a reserved gap would
+  // be the same guess with a hole in the page.
+  //
+  // So: re-align while the page above is still moving, and STOP the instant the
+  // reader takes over. The abandon signals are what makes that safe — a
+  // re-alignment after someone has started reading is the worse failure, and is
+  // why the original took the one-shot restraint. Programmatic scrolling fires
+  // none of these events, so nothing here can trip itself.
   const sectionRef = useRef<HTMLElement>(null)
   const hasHonoredAnchor = useRef(false)
   const archiveSettled = !pastQuery.isPending
@@ -346,9 +355,47 @@ export function VenuePastShows({
     const section = sectionRef.current
     if (hasHonoredAnchor.current || !archiveSettled || section === null) return
     hasHonoredAnchor.current = true
-    if (window.location.hash === `#${VENUE_PAST_SHOWS_ANCHOR}`) {
-      section.scrollIntoView()
+    if (window.location.hash !== `#${VENUE_PAST_SHOWS_ANCHOR}`) return
+
+    section.scrollIntoView()
+
+    // Every way a reader can start moving the page themselves. Deliberately NOT
+    // 'scroll', which our own scrollIntoView fires — listening for that would
+    // abandon on the first realignment and leave this a one-shot again.
+    const readerTookOver = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const
+
+    // A ResizeObserver on the document rather than subscriptions to the several
+    // queries that happen to settle late: this section can see none of them, and
+    // enumerating them here would mean editing this effect every time something
+    // new is added above it. What it actually needs to know is "did the page
+    // above me get taller", and that is one signal. `scrollIntoView` is
+    // idempotent, so a resize that did not move us costs nothing.
+    const observer = new ResizeObserver(() => section.scrollIntoView())
+    observer.observe(document.body)
+
+    let settleTimer = 0
+    const abandon = () => {
+      observer.disconnect()
+      window.clearTimeout(settleTimer)
+      for (const event of readerTookOver) {
+        window.removeEventListener(event, abandon)
+      }
     }
+
+    for (const event of readerTookOver) {
+      window.addEventListener(event, abandon, { passive: true, once: true })
+    }
+
+    // A hard ceiling, so a page that never stops resizing (an animation, a lazy
+    // image with no intrinsic size) cannot hold the reader's scroll hostage.
+    // Long enough to cover the fetches above settling on a slow connection,
+    // short enough that nobody is mid-sentence when it lapses.
+    settleTimer = window.setTimeout(abandon, 3000)
+
+    // Also the cleanup: a dep change or an unmount ends the window early, which
+    // degrades to exactly the one-shot behaviour this replaced rather than
+    // leaving a live observer behind.
+    return abandon
   }, [archiveSettled, hasPastShows])
 
   if (!hasPastShows) return null

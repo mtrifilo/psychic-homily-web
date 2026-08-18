@@ -362,6 +362,69 @@ func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVen
 	return resp, nil
 }
 
+// GetVenueShowMonthsRequest represents the request parameters for a venue's
+// show-month histogram.
+type GetVenueShowMonthsRequest struct {
+	VenueID    string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
+	TimeFilter string `query:"time_filter" doc:"Count shows by time: upcoming, past, or all" example:"past" enum:"upcoming,past,all"`
+}
+
+// GetVenueShowMonthsResponse represents the response for the venue show-months endpoint
+type GetVenueShowMonthsResponse struct {
+	Body struct {
+		Months     []contracts.VenueShowMonthCount `json:"months" doc:"Venue-local calendar months that have at least one show, newest first"`
+		VenueID    uint                            `json:"venue_id" doc:"Venue ID"`
+		TimeFilter string                          `json:"time_filter" doc:"Time filter the counts were taken under"`
+	}
+}
+
+// GetVenueShowMonthsHandler handles GET /venues/{venue_id}/shows/months -
+// returns the venue-local month histogram behind the archive's PAGE LABELS
+// (PSY-1769).
+//
+// The finer twin of the years endpoint, with a different job. Years enumerate
+// what the picker may offer; months answer "which months does page 4 cover?"
+// before page 4 has been fetched. Counts alone are enough for that — a page's
+// span is a function of the row ordinals it covers — which is what lets every
+// page in the strip carry a label on first paint instead of only the pages the
+// reader has already been to.
+//
+// It takes no `year`, deliberately, and unlike the list it cannot be narrowed to
+// one: the archive's default view is every year, so a per-year histogram could
+// not label the surface that needs labelling most. Callers scoped to a year
+// filter the response.
+//
+// Must be requested with the SAME time_filter as the list it labels, for the same
+// reason the years endpoint must be: the counts otherwise describe a different
+// set of rows than the pager is paging.
+func (h *VenueHandler) GetVenueShowMonthsHandler(ctx context.Context, req *GetVenueShowMonthsRequest) (*GetVenueShowMonthsResponse, error) {
+	timeFilter := req.TimeFilter
+	if timeFilter == "" {
+		timeFilter = defaultVenueShowsTimeFilter
+	}
+
+	venueID, err := h.resolveVenueID(req.VenueID)
+	if err != nil {
+		return nil, err
+	}
+
+	months, err := h.venueService.GetVenueShowMonths(venueID, timeFilter)
+	if err != nil {
+		var venueErr *apperrors.VenueError
+		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {
+			return nil, huma.Error404NotFound("Venue not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to count shows by month", err)
+	}
+
+	resp := &GetVenueShowMonthsResponse{}
+	resp.Body.Months = months
+	resp.Body.VenueID = venueID
+	resp.Body.TimeFilter = timeFilter
+
+	return resp, nil
+}
+
 // resolveVenueID turns the shared {venue_id} path parameter, a numeric id or a
 // slug, into an id, returning a ready-to-surface huma error. Shared by the
 // venue sub-resource reads so they cannot drift apart on what a bad venue

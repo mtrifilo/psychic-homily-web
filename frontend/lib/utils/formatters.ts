@@ -122,6 +122,45 @@ export function formatShowMonthParts(
 }
 
 /**
+ * Pinned for the same reason every other formatter here pins `en-US`: these
+ * strings render on the server and again on the client, and a runtime that
+ * abbreviated months differently would hydrate into a mismatch.
+ */
+const calendarMonthFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  timeZone: 'UTC',
+})
+
+/**
+ * The same `{ month: 'Sep', year: '2025' }` shape as {@link
+ * formatShowMonthParts}, from a calendar month someone has ALREADY placed —
+ * a `(year, month)` pair out of a server-side histogram rather than an instant
+ * that still has to be read on some calendar.
+ *
+ * There is deliberately no timezone parameter. A caller here is not asking
+ * "which month did this instant fall in", which is the question a zone answers;
+ * it is naming a month that is already decided. Accepting a zone would invite
+ * shifting an already-bucketed month by an offset and landing a whole page of
+ * September rows under "Aug".
+ *
+ * The instant it builds is a carrier for the pair, nothing more: mid-month, in
+ * UTC, read back in UTC, so no offset or DST rule has anything to move.
+ *
+ * `month` is 1-12, matching the wire format and `EXTRACT(MONTH …)`, NOT
+ * JavaScript's 0-based month. Out-of-range values roll over the way `Date` does;
+ * callers reading untrusted input should reject them first.
+ */
+export function formatCalendarMonthParts(
+  year: number,
+  month: number
+): { month: string; year: string } {
+  // setUTCFullYear rather than Date.UTC: the latter maps years 0-99 onto 1900-1999.
+  const instant = new Date(0)
+  instant.setUTCFullYear(year, month - 1, 15)
+  return { month: calendarMonthFormatter.format(instant), year: String(year) }
+}
+
+/**
  * Format the venue-local month and year of a show: "Sep 2025".
  *
  * Doubles as the grouping KEY for month-grouped show lists, which is why it is
