@@ -18,10 +18,10 @@ vi.mock('@/components/shared', () => ({ LoadingSpinner: () => null }))
 import ChartModuleOrArchiveRoute, { generateMetadata } from './page'
 
 /**
- * Canonicals are asserted, not assumed: the drilldown shipped with none at all
- * for a full release cycle, and nothing about a missing `alternates` key fails
- * loudly in a browser. See the pagination indexing policy on
- * `listRootCanonical` (PSY-1767).
+ * Canonicals are asserted, not assumed. The drilldown branch shipped without
+ * one until PSY-1767, and a missing `alternates` key fails silently: the page
+ * renders, the tests pass, and only a crawler notices. See the pagination
+ * indexing policy on `listRootCanonical`.
  */
 describe('charts/[module] canonical (pagination indexing policy)', () => {
   it('points a module drilldown at its own list root', async () => {

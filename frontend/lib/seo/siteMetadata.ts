@@ -29,7 +29,10 @@ export const SITE_URL = 'https://psychichomily.com'
 
 /**
  * The absolute canonical URL for a paginated list surface, given the path of
- * its list ROOT (page one, no filters applied).
+ * its list ROOT (page one, no filters applied). The parameter is typed
+ * `` `/${string}` `` so a caller that forgets the leading slash fails to
+ * compile rather than shipping `https://psychichomily.comreleases`, which
+ * nothing downstream would reject.
  *
  * SITE-WIDE PAGINATION INDEXING POLICY (PSY-1767).
  *
@@ -67,9 +70,11 @@ export const SITE_URL = 'https://psychichomily.com'
  *     which also feeds the breadcrumb, so it is a page-URL builder rather than
  *     a canonical builder. It is blind to `?page=` for the same structural
  *     reason as above.
- *   - `/artists`, `/venues`, `/shows` and `/labels` each inline a root-pinned
- *     literal. They already agree with the policy; sweeping them onto the
- *     helper is its own change, per the note on SITE_URL above.
+ *   - `/artists` is a paginated list that already pinned a root canonical as an
+ *     inlined literal. It is the evidence that this policy codifies what the
+ *     site mostly already did rather than inventing a rule: the charts
+ *     drilldown was the real outlier. Sweeping literals onto this helper is its
+ *     own change, per the note on SITE_URL above.
  *
  * OPEN FOLLOW-UP, and not a hole in the policy: under `cacheComponents`, Next
  * streams `<title>` and this `<link rel="canonical">` into the BODY rather than
@@ -89,6 +94,6 @@ export const SITE_URL = 'https://psychichomily.com'
  * revisit, and pre-emptively reshaping a shipped posture on no signal would
  * trade a measured unknown for an unmeasured one.
  */
-export function listRootCanonical(rootPath: string): string {
+export function listRootCanonical(rootPath: `/${string}`): string {
   return `${SITE_URL}${rootPath}`
 }
