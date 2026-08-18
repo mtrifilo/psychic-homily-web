@@ -217,9 +217,12 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   // limit to 20 and sends it — so they get two entries.) Same rule the venues
   // list hook above states for `metroRollup`: key on what was SENT.
   //
-  // The load-bearing case is `offset`, for the same reason as the artist twin:
-  // page 1's zero offset must key as "not sent" or the past archive's cache
-  // peek never finds it.
+  // The load-bearing case is `offset`: page 1's zero offset must key as "not
+  // sent", or the key the year-archive route's server-seeded `initialShows`
+  // lands on is not the key this hook registers, and the rows silently drop out
+  // of the served HTML. (The ARTIST twin has a second reason — its archive still
+  // peeks at neighbouring pages' cache entries to label them. The venue archive
+  // does not any more; its labels come from a month histogram, PSY-1769.)
   const sentTimeFilter = timeFilter || 'upcoming'
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined

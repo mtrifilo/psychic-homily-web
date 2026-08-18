@@ -320,10 +320,12 @@ describe('monthRangeLabelsByPage', () => {
       expect(labelPages({ pages: [1, 2, 3], listTotal: 35 })).toEqual({})
     })
 
-    it('trusts the histogram when the caller states no total', () => {
-      expect(
-        labelPages({ pages: [1], listTotal: Number.NaN })
-      ).toEqual({ 1: 'Jun–Apr' })
+    it('trusts the histogram when the caller has no count to offer', () => {
+      // A placeholder page, or a list that has not answered yet: the caller
+      // passes nothing rather than a count it does not stand behind.
+      expect(labelPages({ pages: [1], listTotal: undefined })).toEqual({
+        1: 'Jun–Apr',
+      })
     })
   })
 

@@ -301,12 +301,13 @@ export function VenuePastShows({
   // server seed failed — suppressing the request would leave the pager in bare
   // numerals for an extra round trip.
   //
-  // A CLIENT-SIDE saving only. Both routes fetch the histogram server-side
-  // unconditionally, because the count that would gate it is the sibling read in
-  // the same `Promise.all` and waiting for it would put a round trip on the
-  // critical path of every cold render. So a small venue still costs one
-  // aggregate per render there; the `Cache-Control` on the endpoint and the
-  // route's own Data Cache are what bound that, not this flag.
+  // On the VENUE page this gate is the only thing suppressing the request, and
+  // it is doing most of the work: no server read happens there, and most venues
+  // have a single-page archive that renders no pager at all. On the YEAR-ARCHIVE
+  // route the histogram is fetched server-side unconditionally — the count that
+  // would gate it is a sibling in the same `Promise.all`, and waiting on it would
+  // put a round trip on the critical path of every cold render — so there the
+  // seed has already arrived and this flag only decides whether to revalidate.
   const monthsQuery = useVenueShowMonths({
     venueId,
     timeFilter: 'past',
@@ -332,7 +333,14 @@ export function VenuePastShows({
       pages: paginationWindow(page, totalPages).filter(
         (item): item is number => item !== 'ellipsis'
       ),
-      listTotal: scopedTotal,
+      // The count that arrived WITH the rows, and only while those rows answer
+      // the current request. Deliberately not `scopedTotal`, which is the YEAR
+      // histogram's sum: two aggregates agreeing with each other says nothing
+      // about the rows on screen, and they age in separate caches, so comparing
+      // them would blank every label whenever one revalidated before the other.
+      // Omitted rather than guessed while a placeholder page is up.
+      listTotal:
+        rowsAnswerCurrentRequest && pastData ? pastData.total : undefined,
       scope: labelScope,
     })
 
@@ -361,7 +369,7 @@ export function VenuePastShows({
     pageLimit,
     page,
     totalPages,
-    scopedTotal,
+    pastData,
     labelScope,
     rows,
     rowsAnswerCurrentRequest,

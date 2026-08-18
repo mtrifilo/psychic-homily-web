@@ -234,24 +234,23 @@ function isUsableMonthCount(bucket: ArchiveMonthCount): boolean {
  * that a descending histogram belongs to a descending list. `pageSize` must be
  * the limit the list actually requested.
  *
- * TWO INDEPENDENT COUNTS, and if they disagree this returns NOTHING.
+ * THE HISTOGRAM AND THE ROWS MUST AGREE, and if they disagree this returns
+ * NOTHING.
  *
- * The histogram is one read and the list's own total is another, taken at
- * different moments and cached under different keys, so a show that graduated
- * from upcoming to past between them moves one and not the other. The whole
- * method rests on one premise — that row ordinal N in the histogram is row
- * ordinal N in the list — and any disagreement is proof that premise has
- * lapsed. It cannot be repaired by clamping: this list is ordered newest-first,
- * so a missing row is missing from the FRONT, and every span after it is shifted
- * by that much while still looking perfectly well-formed. A histogram one row
- * behind would confidently label page 1 "Jun" for a page that opens in July.
+ * The whole method rests on one premise — that row ordinal N in the histogram is
+ * row ordinal N in the list — and the histogram is a separate read from the rows,
+ * so a show that graduated from upcoming to past between them breaks it. It
+ * cannot be repaired by clamping: this list is ordered newest-first, so a missing
+ * row is missing from the FRONT, and every span after it is shifted by that much
+ * while still looking perfectly well-formed. A histogram one row behind would
+ * confidently label page 1 "Jun" for a page that opens in July.
  *
  * So a mismatch produces no labels at all, and the caller falls back to whatever
  * it can derive from rows it actually has. That is the pre-existing behaviour —
  * a bare numeral — and it is the right trade: the pager announces the current
  * page's label into a live region and never corrects it, so a wrong label costs
- * more than a missing one. The disagreement is transient by construction; the
- * next read of either count clears it.
+ * more than a missing one. The disagreement is transient; the next read clears
+ * it.
  */
 export function monthRangeLabelsByPage({
   months,
@@ -266,8 +265,18 @@ export function monthRangeLabelsByPage({
   pageSize: number
   /** 1-based page numbers to label. */
   pages: number[]
-  /** The list's own row count, which decides where the last page ends. */
-  listTotal: number
+  /**
+   * The count that came back WITH the rows, when the caller has one that
+   * describes the scope on screen. Omit when it does not — a placeholder page,
+   * or a list that has not answered yet — and the histogram is trusted alone.
+   *
+   * Deliberately the ROW ENVELOPE's total and not some other aggregate: the
+   * premise being checked is that the histogram's ordinals are the list's
+   * ordinals, and only the list can attest to that. Two aggregates agreeing
+   * with each other proves nothing about the rows, and two aggregates that
+   * merely age in separate caches would blank every label for no reason.
+   */
+  listTotal?: number
   /** Whether the pager is already scoped to one year. */
   scope: ArchiveLabelScope
 }): Record<number, string> {
@@ -282,10 +291,10 @@ export function monthRangeLabelsByPage({
   const buckets = months
 
   const totalRows = buckets.reduce((sum, bucket) => sum + bucket.count, 0)
-  // The premise check. A caller that cannot state its own total (`listTotal` not
-  // a usable number) is taken at its word and the histogram is trusted alone;
-  // one that CAN and disagrees has proved the ordinals no longer line up.
-  if (Number.isInteger(listTotal) && listTotal !== totalRows) return labels
+  // The premise check. A caller with no trustworthy count of its own passes
+  // none, and the histogram is trusted alone; one that HAS a count and disagrees
+  // with it has proved the ordinals no longer line up.
+  if (listTotal !== undefined && listTotal !== totalRows) return labels
 
   // The bucket a row ordinal falls in, by accumulating counts until the ordinal
   // is covered. Rescanned per lookup rather than precomputed: the pager asks at

@@ -842,10 +842,17 @@ describe('VenuePastShows — year and page state', () => {
     ).toBeInTheDocument()
   })
 
-  it('does not ask for the histogram when the archive fits on one page', () => {
-    // Labels are pager chrome, and a one-page archive renders no pager. The
-    // same gate covers a venue with no past shows at all, whose `totalPages`
-    // floors at 1.
+  it('does not ask for the histogram when there is no pager to label', () => {
+    // A venue with no past shows at all. The counts POSITIVELY say so, which is
+    // the distinction the gate turns on — "none" and "not counted yet" are the
+    // same `totalPages` and must not be the same decision.
+    setPast({ shows: [], total: 0 })
+    setYears([])
+    renderList()
+    expect(monthsRequests.every(request => request.enabled === false)).toBe(true)
+
+    // And a real archive that still fits on one page, so no pager renders.
+    monthsRequests.length = 0
     setPast({ shows: [makeShow({ id: 5 })], total: 3 })
     setYears([{ year: 2025, count: 3 }])
     renderList()
