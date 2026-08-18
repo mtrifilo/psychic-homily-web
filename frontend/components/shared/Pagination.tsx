@@ -99,6 +99,22 @@ export interface PaginationProps {
   previousLabel?: string
   /** Label for the toward-last-page control. Defaults to "Older". */
   nextLabel?: string
+  /**
+   * Whether this instance owns the page-change announcement. Defaults to `true`,
+   * so a surface with one pager gets it without asking.
+   *
+   * Set `false` on every pager but one when a surface renders the SAME list
+   * twice (above and below it, the venue archive's shape). Both instances would
+   * otherwise ship their own live region and update it in the same commit, and a
+   * screen reader speaks each one — "Page 2 of 4" twice per click. Which
+   * instance keeps it is the consumer's call; the one nearer the focus target
+   * is the natural owner.
+   *
+   * Only the region is dropped, never the caption or the mobile position text:
+   * the position stays readable in the pager itself, this just stops a second
+   * copy from being SPOKEN.
+   */
+  announce?: boolean
   /** Extra classes on the `<nav>`. */
   className?: string
 }
@@ -194,6 +210,15 @@ function BoundaryControl({
  * Renders `null` at one page or fewer, so consumers can drop it in
  * unconditionally above and below a list.
  *
+ * The page-change announcement is a LIVE REGION, so it only speaks for a
+ * consumer that keeps this component mounted across the change. A surface that
+ * swaps its results region for a loading state on every page click unmounts the
+ * region along with it, and a live region that appears already populated
+ * announces nothing — the reader gets no page-change feedback at all (PSY-1768).
+ * Hold the previous page on screen (`placeholderData: keepPreviousData`, dimmed)
+ * rather than tearing the list down. Consumers rendering this twice must also
+ * pass `announce={false}` on all but one instance.
+ *
  * Usage:
  *   <Pagination
  *     currentPage={page}
@@ -215,6 +240,7 @@ export function Pagination({
   onNavigate,
   previousLabel = 'Newer',
   nextLabel = 'Older',
+  announce = true,
   className,
 }: PaginationProps) {
   // A non-finite page count falls back to 1, which renders nothing at all. A
@@ -371,9 +397,11 @@ export function Pagination({
         />
       </div>
 
-      <div role="status" aria-live="polite" className="sr-only">
-        {announcement}
-      </div>
+      {announce ? (
+        <div role="status" aria-live="polite" className="sr-only">
+          {announcement}
+        </div>
+      ) : null}
     </nav>
   )
 }

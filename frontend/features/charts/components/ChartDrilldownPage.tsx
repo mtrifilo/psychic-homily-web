@@ -304,11 +304,17 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
   let total = 0
   let isLoading = !sceneResolved && !sceneValidationFailed
   let isError = false
+  // True while the rows on screen belong to the PREVIOUS page — `keepPreviousData`
+  // holding them in place until the next page lands. Anything derived from the
+  // outgoing rows has to be suppressed while it is set; dimming says stale, it
+  // does not make a wrong number right (VenuePastShows precedent).
+  let isStalePage = false
 
   switch (module) {
     case 'most-active-artists':
       total = active.data?.total ?? 0
       isLoading ||= active.isLoading
+      isStalePage = active.isPlaceholderData
       isError = active.isError && active.data === undefined
       rows = (active.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
@@ -361,6 +367,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'on-the-radio':
       total = radio.data?.total ?? 0
       isLoading ||= radio.isLoading
+      isStalePage = radio.isPlaceholderData
       isError = radio.isError && radio.data === undefined
       rows = (radio.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
@@ -401,6 +408,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'most-anticipated':
       total = anticipated.data?.total ?? 0
       isLoading ||= anticipated.isLoading
+      isStalePage = anticipated.isPlaceholderData
       isError = anticipated.isError && anticipated.data === undefined
       rows = (anticipated.data?.shows ?? []).map(show => ({
         key: String(show.show_id),
@@ -457,6 +465,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'busiest-venues':
       total = venues.data?.total ?? 0
       isLoading ||= venues.isLoading
+      isStalePage = venues.isPlaceholderData
       isError = venues.isError && venues.data === undefined
       rows = (venues.data?.venues ?? []).map(venue => ({
         key: String(venue.venue_id),
@@ -493,6 +502,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'new-releases':
       total = releases.data?.total ?? 0
       isLoading ||= releases.isLoading
+      isStalePage = releases.isPlaceholderData
       isError = releases.isError && releases.data === undefined
       rows = (releases.data?.releases ?? []).map(release => ({
         key: String(release.release_id),
@@ -538,6 +548,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'openers-to-watch':
       total = openers.data?.total ?? 0
       isLoading ||= openers.isLoading
+      isStalePage = openers.isPlaceholderData
       isError = openers.isError && openers.data === undefined
       rows = (openers.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
@@ -601,6 +612,11 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     total === 0 || rows.length === 0 ? 0 : Math.min(offset + rows.length, total)
   const showPagination =
     !sceneValidationFailed && !isLoading && !isError && !pageOutOfRange
+  // Fade the outgoing page while the next one is in flight, so the table reads
+  // as stale rather than current. `isStalePage` alone, not raw `isFetching`: a
+  // same-key background revalidation changes nothing on screen and must not
+  // blink a list that is not moving.
+  const isStale = isStalePage && !isLoading
   const chartsBackHref = isArchiveWindow ? archiveHref(window) : '/charts'
   const chartsBackLabel = isArchiveWindow
     ? `← ${formatWindowContext(window)} charts / ${config.title}`
@@ -678,7 +694,12 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
         </div>
       </header>
 
-      <div className="overflow-x-auto border-t-2 border-foreground">
+      <div
+        className={cn(
+          'overflow-x-auto border-t-2 border-foreground',
+          isStale && 'opacity-60'
+        )}
+      >
         <table className="w-full min-w-[760px] border-collapse text-left text-xs">
           <thead className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
             <tr className="border-b border-border">
@@ -718,6 +739,13 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                 </td>
               </tr>
             ) : isLoading || pageOutOfRange ? (
+              // Skeleton rows now cover the COLD load and the out-of-range
+              // correction only. A page change used to land here too, which
+              // unmounted the whole results region — pager included — on every
+              // click, and a live region that mounts already populated
+              // announces nothing, so screen-reader users got no page-change
+              // feedback at all (PSY-1768). The rows stay mounted and dimmed
+              // instead; see `keepPreviousChartPage`.
               Array.from({ length: 8 }, (_, index) => (
                 <tr key={index} className="border-b border-border">
                   <td colSpan={config.columns.length + 2} className="px-2 py-3">
@@ -793,7 +821,15 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             the MAX_PAGE cap note has no slot in that prop.
           */}
           <p className="font-mono text-xs text-muted-foreground">
-            Showing {showingStart}–{showingEnd} of {total.toLocaleString()}
+            {/*
+              The range is elided while the outgoing page is still on screen:
+              it is computed from the NEW offset over the OLD rows, so it would
+              read "Showing 51–100" above rows 1–50. Dimming says stale; it does
+              not make a wrong number right. The total is safe to keep — the
+              retained response differs from the incoming one by offset alone.
+            */}
+            Showing {isStale ? '…' : `${showingStart}–${showingEnd}`} of{' '}
+            {total.toLocaleString()}
             {total > reachableTotal
               ? ` · first ${reachableTotal.toLocaleString()} accessible`
               : ''}

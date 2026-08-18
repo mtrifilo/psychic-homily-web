@@ -59,6 +59,46 @@ describe('chart hooks', () => {
     )
   })
 
+  it('holds the previous page on screen across an offset change', async () => {
+    // What keeps the drilldown's results region — and with it the pager's live
+    // region — MOUNTED across a page change, which is the only way the page
+    // change gets announced at all (PSY-1768).
+    mockApiRequest.mockResolvedValueOnce({ artists: [{ artist_id: 1 }], total: 120 })
+    const wrapper = createWrapper()
+    const { result, rerender } = renderHook(
+      ({ offset }: { offset: number }) =>
+        useMostActiveArtists('quarter', 50, { offset }),
+      { wrapper, initialProps: { offset: 0 } }
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    mockApiRequest.mockImplementationOnce(() => new Promise(() => {}))
+    rerender({ offset: 50 })
+
+    expect(result.current.isPlaceholderData).toBe(true)
+    expect(result.current.data?.artists).toHaveLength(1)
+  })
+
+  it('drops the previous page across a window change, which asks a different question', async () => {
+    // Retaining here would paint the quarter chart under the "All Time"
+    // heading. Scoping the retention to `offset` is what makes every caller —
+    // including the homepage modules, which never page — right by construction.
+    mockApiRequest.mockResolvedValueOnce({ artists: [{ artist_id: 1 }], total: 120 })
+    const wrapper = createWrapper()
+    type WindowProps = { window: 'quarter' | 'all_time' }
+    const { result, rerender } = renderHook(
+      ({ window }: WindowProps) => useMostActiveArtists(window, 50, { offset: 0 }),
+      { wrapper, initialProps: { window: 'quarter' } as WindowProps }
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    mockApiRequest.mockImplementationOnce(() => new Promise(() => {}))
+    rerender({ window: 'all_time' })
+
+    expect(result.current.isPlaceholderData).toBe(false)
+    expect(result.current.data).toBeUndefined()
+  })
+
   it('requests most anticipated for the selected chart window', async () => {
     mockApiRequest.mockResolvedValueOnce({
       mode: 'soonest_upcoming',

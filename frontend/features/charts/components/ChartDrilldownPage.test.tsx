@@ -15,6 +15,8 @@ let queryPage = 1
 let sceneQueryError = false
 let sceneQueryDataAvailable = true
 let moduleQueryError = false
+/** The module query is serving the PREVIOUS page while the next one loads. */
+let modulePlaceholderData = false
 
 function query<T>(data: T, enabled = true) {
   return {
@@ -23,6 +25,7 @@ function query<T>(data: T, enabled = true) {
     isError: false,
     isSuccess: enabled,
     isFetching: false,
+    isPlaceholderData: false,
     refetch: vi.fn(),
   }
 }
@@ -203,6 +206,8 @@ function moduleQuery(slug: ChartModuleSlug, options: { enabled?: boolean }) {
   return {
     ...query(payloads[slug], options.enabled),
     isError: moduleQueryError,
+    isPlaceholderData: modulePlaceholderData,
+    isFetching: modulePlaceholderData,
   }
 }
 
@@ -351,6 +356,7 @@ describe('ChartDrilldownPage', () => {
     sceneQueryError = false
     sceneQueryDataAvailable = true
     moduleQueryError = false
+    modulePlaceholderData = false
     payloads['most-active-artists'].total = 120
     payloads['most-active-artists'].artists = [
       {
@@ -466,6 +472,53 @@ describe('ChartDrilldownPage', () => {
     expect(
       screen.getByText(/first 10,050 accessible/)
     ).toBeInTheDocument()
+  })
+
+  it('announces a page change to screen readers (PSY-1768)', () => {
+    // The whole point of holding the previous page on screen: the results
+    // region — pager included — stays MOUNTED, so the pager's live region is
+    // already in the accessibility tree when its text changes. It used to be
+    // torn down and rebuilt on every click, and a live region that mounts
+    // already populated announces nothing.
+    queryPage = 2
+    payloads['most-active-artists'].total = 300
+    const { rerender } = render(<ChartDrilldownPage module="most-active-artists" />)
+    const announcement = screen.getByRole('status')
+    expect(announcement).toBeEmptyDOMElement()
+
+    queryPage = 3
+    modulePlaceholderData = true
+    rerender(<ChartDrilldownPage module="most-active-artists" />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Page 3 of 6')
+  })
+
+  it('keeps the previous rows on screen, dimmed, while the next page loads', () => {
+    queryPage = 2
+    modulePlaceholderData = true
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    // Rows, not skeletons.
+    expect(
+      screen.getByRole('link', { name: 'Glass Harbor' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('table').parentElement?.className).toContain(
+      'opacity-60'
+    )
+    // The pager survives the change, which is what carries the announcement.
+    expect(screen.getByTestId('pagination')).toBeInTheDocument()
+  })
+
+  it('elides the row range rather than stating a wrong one over stale rows', () => {
+    // The range is computed from the NEW offset over the OLD rows, so it would
+    // read "Showing 51–51" above page one's row. Dimming says stale; it does
+    // not make a wrong number right.
+    queryPage = 2
+    modulePlaceholderData = true
+    render(<ChartDrilldownPage module="most-active-artists" />)
+
+    expect(screen.getByText('Showing … of 120')).toBeInTheDocument()
+    expect(screen.queryByText('Showing 51–51 of 120')).not.toBeInTheDocument()
   })
 
   it('holds the table in loading while clamping a beyond-end page', () => {

@@ -6,9 +6,10 @@ import type { ReleaseListItem } from '../types'
 
 // next/navigation: URL params drive every filter in this component.
 const mockPush = vi.fn()
+const mockReplace = vi.fn()
 const mockGet = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => ({ get: mockGet }),
 }))
 
@@ -365,5 +366,71 @@ describe('ReleaseList', () => {
     mockReleasesTotal(10)
     renderWithProviders(<ReleaseList />)
     expect(screen.queryByTestId('pagination')).not.toBeInTheDocument()
+  })
+
+  it('snaps a stale deep-page URL back onto the last real page (PSY-1768)', () => {
+    // The pager clamps for DISPLAY, so without this the strip reads "Page 3 of
+    // 3" while the URL still claims `?page=999` — and the URL is what gets
+    // shared, bookmarked, and reloaded.
+    mockGet.mockImplementation((key: string) => (key === 'page' ? '999' : null))
+    mockReleasesTotal(120)
+    renderWithProviders(<ReleaseList />)
+
+    // `replace`, not `push`: Back must not walk the reader into the page that
+    // was just rejected.
+    expect(mockReplace).toHaveBeenCalledWith('/releases?page=3', {
+      scroll: false,
+    })
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('carries the active filters through the snap-back', () => {
+    mockGet.mockImplementation((key: string) => {
+      if (key === 'page') return '999'
+      if (key === 'type') return 'lp'
+      return null
+    })
+    mockReleasesTotal(120)
+    renderWithProviders(<ReleaseList />)
+
+    expect(mockReplace).toHaveBeenCalledWith('/releases?type=lp&page=3', {
+      scroll: false,
+    })
+  })
+
+  it('holds the spinner rather than claiming no releases match while snapping back', () => {
+    // The offset is past the end, so the API legitimately returns nothing —
+    // but "No releases found matching your filters" answers a question the
+    // reader never asked.
+    mockGet.mockImplementation((key: string) => (key === 'page' ? '999' : null))
+    mockUseReleases.mockReturnValue({
+      data: { releases: [], total: 120, limit: 50, offset: 49_900 },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<ReleaseList />)
+
+    expect(screen.getByTestId('loading-spinner')).toBeInTheDocument()
+    expect(
+      screen.queryByText('No releases available at this time.')
+    ).not.toBeInTheDocument()
+  })
+
+  it('leaves an in-range page alone, including while the first count is loading', () => {
+    // `total` is 0 until the first response lands; treating that as
+    // out-of-range would bounce every deep link back to page 1 on cold load.
+    mockGet.mockImplementation((key: string) => (key === 'page' ? '2' : null))
+    mockUseReleases.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isFetching: true,
+      error: null,
+      refetch: vi.fn(),
+    })
+    renderWithProviders(<ReleaseList />)
+
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 })
