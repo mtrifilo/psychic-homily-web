@@ -304,17 +304,16 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
   let total = 0
   let isLoading = !sceneResolved && !sceneValidationFailed
   let isError = false
-  // True while the rows on screen belong to the PREVIOUS page — `keepPreviousData`
-  // holding them in place until the next page lands. Anything derived from the
-  // outgoing rows has to be suppressed while it is set; dimming says stale, it
-  // does not make a wrong number right (VenuePastShows precedent).
-  let isStalePage = false
+  // The active module's raw `isPlaceholderData`: the rows on screen belong to
+  // the PREVIOUS page, held there by `keepPreviousChartPage` until the next one
+  // lands. `isStale` below turns this into the render decision.
+  let isPlaceholderPage = false
 
   switch (module) {
     case 'most-active-artists':
       total = active.data?.total ?? 0
       isLoading ||= active.isLoading
-      isStalePage = active.isPlaceholderData
+      isPlaceholderPage = active.isPlaceholderData
       isError = active.isError && active.data === undefined
       rows = (active.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
@@ -367,7 +366,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'on-the-radio':
       total = radio.data?.total ?? 0
       isLoading ||= radio.isLoading
-      isStalePage = radio.isPlaceholderData
+      isPlaceholderPage = radio.isPlaceholderData
       isError = radio.isError && radio.data === undefined
       rows = (radio.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
@@ -408,7 +407,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'most-anticipated':
       total = anticipated.data?.total ?? 0
       isLoading ||= anticipated.isLoading
-      isStalePage = anticipated.isPlaceholderData
+      isPlaceholderPage = anticipated.isPlaceholderData
       isError = anticipated.isError && anticipated.data === undefined
       rows = (anticipated.data?.shows ?? []).map(show => ({
         key: String(show.show_id),
@@ -465,7 +464,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'busiest-venues':
       total = venues.data?.total ?? 0
       isLoading ||= venues.isLoading
-      isStalePage = venues.isPlaceholderData
+      isPlaceholderPage = venues.isPlaceholderData
       isError = venues.isError && venues.data === undefined
       rows = (venues.data?.venues ?? []).map(venue => ({
         key: String(venue.venue_id),
@@ -502,7 +501,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'new-releases':
       total = releases.data?.total ?? 0
       isLoading ||= releases.isLoading
-      isStalePage = releases.isPlaceholderData
+      isPlaceholderPage = releases.isPlaceholderData
       isError = releases.isError && releases.data === undefined
       rows = (releases.data?.releases ?? []).map(release => ({
         key: String(release.release_id),
@@ -548,7 +547,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
     case 'openers-to-watch':
       total = openers.data?.total ?? 0
       isLoading ||= openers.isLoading
-      isStalePage = openers.isPlaceholderData
+      isPlaceholderPage = openers.isPlaceholderData
       isError = openers.isError && openers.data === undefined
       rows = (openers.data?.artists ?? []).map(artist => ({
         key: String(artist.artist_id),
@@ -613,10 +612,21 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
   const showPagination =
     !sceneValidationFailed && !isLoading && !isError && !pageOutOfRange
   // Fade the outgoing page while the next one is in flight, so the table reads
-  // as stale rather than current. `isStalePage` alone, not raw `isFetching`: a
-  // same-key background revalidation changes nothing on screen and must not
-  // blink a list that is not moving.
-  const isStale = isStalePage && !isLoading
+  // as stale rather than current.
+  //
+  // Not raw `isFetching`: a same-key background revalidation changes nothing on
+  // screen and must not blink a list that is not moving. And not
+  // `isPlaceholderPage` alone: a query disabled while a scene resolves is
+  // `pending`, so it can serve placeholder data behind the skeleton branch, and
+  // dimming there would fade the SKELETONS.
+  const isStale = isPlaceholderPage && !isLoading
+
+  // The range is elided while the outgoing page is still on screen: it is
+  // computed from the NEW offset over the OLD rows, so it would read
+  // "Showing 51–100" above rows 1–50. Dimming says stale; it does not make a
+  // wrong number right (VenuePastShows precedent). The total is safe to keep —
+  // the retained response differs from the incoming one by offset alone.
+  const showingRange = isStale ? '…' : `${showingStart}–${showingEnd}`
   const chartsBackHref = isArchiveWindow ? archiveHref(window) : '/charts'
   const chartsBackLabel = isArchiveWindow
     ? `← ${formatWindowContext(window)} charts / ${config.title}`
@@ -821,15 +831,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             the MAX_PAGE cap note has no slot in that prop.
           */}
           <p className="font-mono text-xs text-muted-foreground">
-            {/*
-              The range is elided while the outgoing page is still on screen:
-              it is computed from the NEW offset over the OLD rows, so it would
-              read "Showing 51–100" above rows 1–50. Dimming says stale; it does
-              not make a wrong number right. The total is safe to keep — the
-              retained response differs from the incoming one by offset alone.
-            */}
-            Showing {isStale ? '…' : `${showingStart}–${showingEnd}`} of{' '}
-            {total.toLocaleString()}
+            Showing {showingRange} of {total.toLocaleString()}
             {total > reachableTotal
               ? ` · first ${reachableTotal.toLocaleString()} accessible`
               : ''}
