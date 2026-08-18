@@ -585,6 +585,12 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
    * reads it back off the URL, so `setPage` is left to the clamp and snap-back
    * corrections only. (`Pagination`'s `onNavigate` is not a URL writer — it is
    * the focus hook; see the deferred a11y note in the PR.)
+   *
+   * These URLs are crawled but not indexed. The route pins a canonical at
+   * `/charts/{module}` for every `?page=`, `?window=` and `?scene=` variant,
+   * per the site-wide policy on `listRootCanonical` in `lib/seo/siteMetadata`
+   * (PSY-1767). Keep the hrefs real anyway: following is what makes the rows
+   * past page one reachable at all.
    */
   const pageHref = (nextPage: number) =>
     drilldownHref(module, searchParams.toString(), window, scene ?? '', nextPage)
