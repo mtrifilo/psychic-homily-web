@@ -6,9 +6,13 @@ package catalog
 //
 // MUST stay in sync with frontend EDITABLE_FIELDS.label in
 // frontend/features/contributions/types.ts.
+//
+// founded_year is integer-backed and arrives as a JSON NUMBER; its type and
+// range are gated through contracts.NumericEditFieldBounds (PSY-1703). See the
+// numeric-field note on VenueAllowedEditFields.
 var LabelAllowedEditFields = map[string]bool{
 	"name":         true,
-	"founded_year": true,
+	"founded_year": true, // Integer column; see the numeric-field note above
 	"city":         true,
 	"state":        true,
 	"country":      true,

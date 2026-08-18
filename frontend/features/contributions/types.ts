@@ -174,6 +174,8 @@ export interface EditableField {
   /** Inclusive bounds for `type: 'number'` fields. Mirrors the server range. */
   min?: number
   max?: number
+  /** How those bounds read in a validation message. See `NumberFieldFormat`. */
+  numberFormat?: NumberFieldFormat
 }
 
 /**
@@ -226,6 +228,43 @@ export function validateUrlField(value: string): string | null {
 export const VENUE_CAPACITY_BOUNDS = { min: 1, max: 200000 } as const
 
 /**
+ * Floor for the year-valued catalog columns a contributor can edit
+ * (`labels.founded_year`, `releases.release_year`). Mirrors
+ * `contracts.MinCatalogYear` on the Go side, with the same MANUAL coupling as
+ * `VENUE_CAPACITY_BOUNDS`: nothing enforces it across the language boundary.
+ *
+ * A four-digit sanity rail, not a claim about when records began. The rationale
+ * lives with the Go constant.
+ */
+export const MIN_CATALOG_YEAR = 1000
+
+/**
+ * Inclusive ceiling for those same columns: next year, because a release can be
+ * announced before it exists.
+ *
+ * A function, mirroring `contracts.MaxCatalogYear()`. Freezing this at module
+ * load would let a tab left open across New Year's Eve reject a value the server
+ * accepts, which is the one direction a client-side pre-validator must never
+ * fail in: the server is the source of truth, so the client may only ever be
+ * the more permissive of the two. UTC on both sides so they agree.
+ */
+export function maxCatalogYear(): number {
+  return new Date().getUTCFullYear() + 1
+}
+
+/**
+ * Bounds object for a year field. `max` is a GETTER so `field.max` resolves at
+ * read time; spreading this into a field definition would freeze the ceiling and
+ * defeat the point, hence the explicit getter at each use site below.
+ */
+export const CATALOG_YEAR_BOUNDS: { readonly min: number; readonly max: number } = {
+  min: MIN_CATALOG_YEAR,
+  get max() {
+    return maxCatalogYear()
+  },
+}
+
+/**
  * Optional-sign-then-digits grammar for `type: 'number'` fields: nothing else.
  *
  * Deliberately stricter than `Number()`, which accepts forms nobody types into
@@ -236,6 +275,21 @@ export const VENUE_CAPACITY_BOUNDS = { min: 1, max: 200000 } as const
  * rather than as gibberish, which is the more useful message.
  */
 const WHOLE_NUMBER_PATTERN = /^[+-]?\d+$/
+
+/**
+ * How a `type: 'number'` field's bounds read inside a validation message.
+ *
+ * `'count'` groups thousands, because a capacity reads better as "200,000".
+ * `'year'` does not, because "between 1,000 and 2,027" is not how anyone writes
+ * a year, and the server's own message (`%d`, no separator) would disagree with
+ * it. Defaults to `'count'`: grouping is right for every quantity, and a year
+ * is the exception.
+ */
+export type NumberFieldFormat = 'count' | 'year'
+
+function formatBound(n: number, format: NumberFieldFormat | undefined): string {
+  return format === 'year' ? String(n) : n.toLocaleString()
+}
 
 /**
  * Parses a drawer input as a whole number, or null when it is not one.
@@ -268,19 +322,20 @@ function parseWholeNumber(value: string): number | null {
  */
 export function validateNumberField(
   value: string,
-  bounds: { min?: number; max?: number } = {}
+  bounds: { min?: number; max?: number; format?: NumberFieldFormat } = {}
 ): string | null {
   const trimmed = value.trim()
   if (trimmed.length === 0) return null
 
   const { min, max } = bounds
+  const show = (n: number) => formatBound(n, bounds.format)
   const outOfRange =
     min !== undefined && max !== undefined
-      ? `Enter a number between ${min.toLocaleString()} and ${max.toLocaleString()}.`
+      ? `Enter a number between ${show(min)} and ${show(max)}.`
       : min !== undefined
-        ? `Enter a number of at least ${min.toLocaleString()}.`
+        ? `Enter a number of at least ${show(min)}.`
         : max !== undefined
-          ? `Enter a number of at most ${max.toLocaleString()}.`
+          ? `Enter a number of at most ${show(max)}.`
           : null
 
   const parsed = parseWholeNumber(trimmed)
@@ -308,7 +363,11 @@ export function validateFieldValue(field: EditableField, value: string): string 
     case 'url':
       return validateUrlField(value)
     case 'number':
-      return validateNumberField(value, { min: field.min, max: field.max })
+      return validateNumberField(value, {
+        min: field.min,
+        max: field.max,
+        format: field.numberFormat,
+      })
     default:
       return null
   }
@@ -468,10 +527,9 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
     // requirement is the per-event override and is edited on the show, not
     // here. Free text so the room's real wording survives.
     { key: 'age_policy', label: 'Age Policy', type: 'text', placeholder: 'All Ages, 17+, 21+', group: 'details', maxLength: 100 },
-    // Room capacity. The only field in this map submitted as a JSON number
-    // instead of a string (release_year and founded_year are integer-backed
-    // too, but ride as text). The server is the real gate; these bounds only
-    // stop the round trip.
+    // Room capacity. Submitted as a JSON number, like the two year fields
+    // below; every other field in this map rides as a string. The server is the
+    // real gate; these bounds only stop the round trip.
     { key: 'capacity', label: 'Capacity', type: 'number', placeholder: 'e.g. 550', group: 'details', ...VENUE_CAPACITY_BOUNDS },
     { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
     { key: 'instagram', label: 'Instagram', type: 'url', placeholder: 'https://instagram.com/...', group: 'social' },
@@ -497,14 +555,20 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
   release: [
     { key: 'title', label: 'Title', type: 'text', group: 'info' },
     { key: 'release_type', label: 'Release Type', type: 'text', placeholder: 'lp, ep, single, compilation, live, remix, demo', group: 'info' },
-    { key: 'release_year', label: 'Release Year', type: 'text', placeholder: '1991', group: 'info' },
+    // PSY-1703: an integer column, so it must submit a JSON number. `max` is a
+    // getter (see CATALOG_YEAR_BOUNDS); spreading would freeze the ceiling.
+    { key: 'release_year', label: 'Release Year', type: 'number', placeholder: '1991', group: 'info', min: CATALOG_YEAR_BOUNDS.min, get max() { return CATALOG_YEAR_BOUNDS.max }, numberFormat: 'year' },
+    // release_date stays text: it is a separate, free-text column, not gated by
+    // the numeric registry.
     { key: 'release_date', label: 'Release Date', type: 'text', placeholder: 'YYYY-MM-DD', group: 'info' },
     { key: 'cover_art_url', label: 'Cover Art URL', type: 'url', placeholder: 'https://...', group: 'info' },
     { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
   ],
   label: [
     { key: 'name', label: 'Name', type: 'text', group: 'info' },
-    { key: 'founded_year', label: 'Founded Year', type: 'text', placeholder: '1985', group: 'info' },
+    // PSY-1703: an integer column, so it must submit a JSON number. `max` is a
+    // getter (see CATALOG_YEAR_BOUNDS); spreading would freeze the ceiling.
+    { key: 'founded_year', label: 'Founded Year', type: 'number', placeholder: '1985', group: 'info', min: CATALOG_YEAR_BOUNDS.min, get max() { return CATALOG_YEAR_BOUNDS.max }, numberFormat: 'year' },
     { key: 'city', label: 'City', type: 'text', group: 'info' },
     { key: 'state', label: 'State', type: 'text', group: 'info' },
     { key: 'country', label: 'Country', type: 'text', group: 'info' },

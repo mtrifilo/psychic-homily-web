@@ -7,13 +7,14 @@ package catalog
 // MUST stay in sync with frontend EDITABLE_FIELDS.venue in
 // frontend/features/contributions/types.ts.
 //
-// capacity is the only field here whose value arrives as a JSON NUMBER rather
+// capacity is the only field HERE whose value arrives as a JSON NUMBER rather
 // than a string, so the suggest-edit validator (validateBoundedInt) and the
-// approve path (normalizeCapacityUpdate) both handle it explicitly.
+// approve path (NarrowNumericUpdates) both handle it explicitly.
 //
-// It is not the only integer-backed contributor-editable column in the repo:
-// labels.founded_year and releases.release_year are too, and the drawer submits
-// those as text. They are unguarded and want their own ticket.
+// The other integer-backed contributor-editable columns are on sibling
+// allowlists: labels.founded_year and releases.release_year, gated the same way
+// since PSY-1703. All three read one registry,
+// contracts.NumericEditFieldBounds.
 var VenueAllowedEditFields = map[string]bool{
 	"name":        true,
 	"address":     true,

@@ -293,7 +293,7 @@ func ValidateFieldChangeValue(ctx context.Context, fieldName string, value any) 
 	if spec, ok := boundedTextFieldSpecs[fieldName]; ok {
 		return validateBoundedText(spec, value)
 	}
-	if bounds, ok := contracts.NumericEditFieldBounds[fieldName]; ok {
+	if bounds, ok := contracts.NumericEditFieldBounds()[fieldName]; ok {
 		return validateBoundedInt(bounds, value)
 	}
 	spec, ok := urlFieldSpecs[fieldName]
@@ -365,14 +365,19 @@ func validateBoundedText(spec urlFieldSpec, value any) error {
 // ApprovePendingEdit assigns it straight into an untyped Updates(). The layers
 // below do not object to any of that (see utils.WholeNumber for the measured
 // behavior), so this is the only place that can tell a bad value from a real
-// capacity while someone is still around to fix it.
+// capacity or year while someone is still around to fix it.
 //
 // nil passes: it is the clear-the-field gesture, and the column is nullable.
-// A numeric STRING ("3600") is rejected on purpose rather than parsed. The
-// column is an integer, so the wire type should be a number; accepting both
+// A numeric STRING ("3600", "1985") is rejected on purpose rather than parsed.
+// The column is an integer, so the wire type should be a number; accepting both
 // would leave two encodings of the same edit in pending_entity_edits and in
 // revisions.field_changes, and the difference would surface later as a
 // rendering or comparison bug rather than here as a 422.
+//
+// admin.NarrowNumericUpdates DOES parse such a string, and that is not a
+// contradiction: it reads rows the system stored before founded_year and
+// release_year were registered (PSY-1703), whereas this gate decides what is
+// allowed to be stored from now on. See its doc comment for the full argument.
 func validateBoundedInt(bounds contracts.NumericEditBounds, value any) error {
 	if value == nil {
 		return nil
