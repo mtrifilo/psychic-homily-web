@@ -1,10 +1,11 @@
 'use client'
 
-// Imported from the hook FILE, not `@/lib/hooks/common`: that barrel also
-// re-exports the react-query-backed follow / revisions / search hooks, and
-// pulling it in here would drag that whole graph into every route this plate
-// reaches. Same call as CollectionDetail's component-file import (PSY-951).
-import { useImageFailedBeforeAttach } from '@/lib/hooks/common/useImageFailedBeforeAttach'
+// The hook FILE, not `@/lib/hooks/common`: that barrel also re-exports the
+// react-query-backed follow / revisions / search hooks, so importing it here
+// would pull that graph into every route this plate reaches. Precautionary by
+// analogy with PSY-951, whose note lives in features/collections/components/
+// index.ts — not measured for this barrel, which carries no 'use client'.
+import { usePreAttachImageFailureRef } from '@/lib/hooks/common/usePreAttachImageFailureRef'
 
 /**
  * The show's flyer, at its own aspect ratio and uncropped.
@@ -51,10 +52,9 @@ export function ShowFlyerPlate({
   // rather than a corner: this page is server-rendered, so the browser starts
   // fetching the flyer while parsing the HTML and a dead hotlink can 404
   // before React hydrates and attaches the handler. See the hook for the
-  // mechanism and its accepted Firefox/SVG false positive. The caller passes
-  // `key={flyerSrc}` so a replacement flyer is never judged on this one's
-  // failure.
-  const reportFailedBeforeAttach = useImageFailedBeforeAttach(onError)
+  // mechanism and its caveats. `onError` is a prop here, so its stability is
+  // the caller's job; ShowHeader memoises it and passes `key={flyerSrc}`.
+  const preAttachFailureRef = usePreAttachImageFailureRef(onError)
 
   return (
     <figure data-testid="show-flyer-plate" className={className}>
@@ -62,7 +62,7 @@ export function ShowFlyerPlate({
           hotlinked venue/promoter hosts, outside next/image's remotePatterns
           allowlist (see next.config.ts). Same call as LibraryWallGrid. */}
       <img
-        ref={reportFailedBeforeAttach}
+        ref={preAttachFailureRef}
         src={src}
         /* Empty on purpose. The image restates the bill that is typeset
            immediately beside it, and its actual content (the poster art) is

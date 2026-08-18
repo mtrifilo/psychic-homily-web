@@ -27,9 +27,9 @@
 
 import { useCallback, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-// The hook FILE, not the `@/lib/hooks/common` barrel — see the note in
-// ShowFlyerPlate.tsx.
-import { useImageFailedBeforeAttach } from '@/lib/hooks/common/useImageFailedBeforeAttach'
+// The hook FILE, not the `@/lib/hooks/common` barrel — see the note on the
+// barrel's own index.ts.
+import { usePreAttachImageFailureRef } from '@/lib/hooks/common/usePreAttachImageFailureRef'
 
 interface CollectionCoverImageProps {
   /** Cover URL from `Collection.cover_image_url`. May be null/empty/undefined. */
@@ -74,30 +74,29 @@ export function CollectionCoverImage({
     [trimmed]
   )
 
-  // On this component the pre-attach gap is the common case rather than a
-  // corner: `/collections/[slug]` prefetches the collection on the server and
-  // hydrates it, so this `<img>` ships inside the initial HTML and the browser
-  // is already fetching the cover before React ever sees the element. A dead
-  // cover URL therefore 404s with no handler attached, and without the read
-  // below the slot stays blank instead of showing the caller's fallback. See
-  // the hook for the mechanism and its accepted Firefox/SVG false positive.
-  const reportFailedBeforeAttach = useImageFailedBeforeAttach(markFailed)
+  // One of this component's callers puts it in server-rendered HTML: the
+  // CollectionDetail header, because `/collections/[slug]` prefetches the
+  // collection on the server and hydrates it. There the browser is already
+  // fetching the cover before React sees the element, so a dead URL 404s with
+  // no handler attached and the slot would stay blank instead of showing the
+  // caller's fallback. The other callers (browse card, featured card and
+  // archive, the add-to-collection dialog) fetch in the browser, where
+  // `onError` alone would do; the read is harmless there. See the hook for
+  // the mechanism and its caveats.
+  const preAttachFailureRef = usePreAttachImageFailureRef(markFailed)
 
   return (
     <div className={cn('overflow-hidden', className)}>
       {showImage ? (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
-          // A new URL gets a NEW element rather than a reused one, the same
-          // call ShowHeader makes for the flyer plate (PSY-1685). The ref
-          // reads `complete` / `naturalWidth` off the node, and on a reused
-          // element those still describe the PREVIOUS image at that moment
-          // (the spec queues the image update as a microtask), so an edited
-          // cover could be judged on the old one's failure. That would defeat
-          // the URL-keyed state above, whose whole job is to give a
-          // replacement its own chance.
-          key={trimmed}
-          ref={reportFailedBeforeAttach}
+          // Deliberately NOT keyed on the URL. The ref is identity-stable, so
+          // it attaches once per element and cannot re-read a reused node
+          // whose state still describes the previous image; a key would buy
+          // nothing and cost the browser's seamless swap, which keeps painting
+          // the current cover until the replacement has fully loaded rather
+          // than blanking the tile for the length of a third-party fetch.
+          ref={preAttachFailureRef}
           src={trimmed}
           alt={alt}
           className="h-full w-full object-cover"

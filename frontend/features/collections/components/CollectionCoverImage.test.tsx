@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { CollectionCoverImage } from './CollectionCoverImage'
-import { stubImageLoadState } from '@/test/imageLoadState'
+import { stubAllImagesLoadState } from '@/test/stubAllImagesLoadState'
 
 function Fallback() {
   return <span data-testid="fallback">fallback content</span>
@@ -120,46 +120,36 @@ describe('CollectionCoverImage', () => {
   // is lost. Without the mount-time read the cover slot stays blank instead of
   // showing the fallback the caller supplied.
   it('falls back for a cover that already failed before the handler attached', () => {
-    const img = stubImageLoadState({ complete: true, naturalWidth: 0 })
+    stubAllImagesLoadState({ complete: true, naturalWidth: 0 })
 
-    try {
-      render(
-        <CollectionCoverImage
-          url="https://example.com/gone.jpg"
-          alt="cover"
-          fallback={<Fallback />}
-        />
-      )
+    render(
+      <CollectionCoverImage
+        url="https://example.com/gone.jpg"
+        alt="cover"
+        fallback={<Fallback />}
+      />
+    )
 
-      expect(screen.getByTestId('fallback')).toBeInTheDocument()
-      expect(screen.queryByAltText('cover')).not.toBeInTheDocument()
-    } finally {
-      img.restore()
-    }
+    expect(screen.getByTestId('fallback')).toBeInTheDocument()
+    expect(screen.queryByAltText('cover')).not.toBeInTheDocument()
   })
 
-  // The other half of the predicate, and the only test that pins it. Loosening
-  // the check to `complete` alone would blank every cover the browser HAS
-  // decoded; nothing else here catches that, because jsdom reports
-  // `complete: false` for an http src, so the tests above never reach that
-  // branch. (A loosening to a bare `naturalWidth === 0` is already caught —
-  // jsdom reports 0 for every image, so those same tests would fail.)
+  // The composition side of the other half of the predicate (the predicate
+  // itself is pinned in the hook's own test): a cover the browser HAS decoded
+  // must keep its image. Nothing else in this file reaches that branch,
+  // because jsdom reports `complete: false` for an http src.
   it('keeps a cover that already finished loading before mount', () => {
-    const img = stubImageLoadState({ complete: true, naturalWidth: 600 })
+    stubAllImagesLoadState({ complete: true, naturalWidth: 600 })
 
-    try {
-      render(
-        <CollectionCoverImage
-          url="https://example.com/cached.jpg"
-          alt="cover"
-          fallback={<Fallback />}
-        />
-      )
+    render(
+      <CollectionCoverImage
+        url="https://example.com/cached.jpg"
+        alt="cover"
+        fallback={<Fallback />}
+      />
+    )
 
-      expect(screen.getByAltText('cover')).toBeInTheDocument()
-      expect(screen.queryByTestId('fallback')).not.toBeInTheDocument()
-    } finally {
-      img.restore()
-    }
+    expect(screen.getByAltText('cover')).toBeInTheDocument()
+    expect(screen.queryByTestId('fallback')).not.toBeInTheDocument()
   })
 })

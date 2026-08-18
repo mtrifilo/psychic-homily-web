@@ -4,9 +4,9 @@ import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import type { SavedShowResponse } from '@/features/shows'
 import { formatShowMonthDay } from '@/lib/utils/showDateBadge'
-// The hook FILE, not the `@/lib/hooks/common` barrel — see the note in
-// ShowFlyerPlate.tsx.
-import { useImageFailedBeforeAttach } from '@/lib/hooks/common/useImageFailedBeforeAttach'
+// The hook FILE, not the `@/lib/hooks/common` barrel — see the note on the
+// barrel's own index.ts.
+import { usePreAttachImageFailureRef } from '@/lib/hooks/common/usePreAttachImageFailureRef'
 
 function displayName(show: SavedShowResponse): string {
   if (show.artists.length > 0) {
@@ -60,14 +60,14 @@ function WallTile({
   const showImage = Boolean(show.image_url) && !imageFailed
 
   // Belt and braces alongside `onError`, which cannot see a flyer that already
-  // 404'd before React attached it. That gap does not exist on `/library`
-  // today: the route is client-only behind an auth gate, so these tiles are
-  // never in the server HTML and React attaches the handler before it sets
-  // `src`. The check is what keeps the tile correct on any surface that DOES
-  // server-render it. See the hook for the mechanism and its caveats.
+  // 404'd before React attached it. These tiles are not in the server HTML
+  // today, so that gap is not currently reachable here — not because the page
+  // is `'use client'` (App Router server-renders client components too), but
+  // because the saved-shows data is fetched in the browser, so the server
+  // render has no tiles to emit. The check is what keeps the tile correct if
+  // that ever changes. See the hook for the mechanism and its caveats.
   const markFlyerFailed = useCallback(() => setImageFailed(true), [])
-  const reportFlyerFailedBeforeAttach =
-    useImageFailedBeforeAttach(markFlyerFailed)
+  const preAttachFailureRef = usePreAttachImageFailureRef(markFlyerFailed)
 
   return (
     <article
@@ -82,7 +82,7 @@ function WallTile({
         {showImage ? (
           /* eslint-disable-next-line @next/next/no-img-element -- flyer URLs are hotlinked hosts outside next/image remotePatterns */
           <img
-            ref={reportFlyerFailedBeforeAttach}
+            ref={preAttachFailureRef}
             src={show.image_url ?? ''}
             alt=""
             className="h-full w-full object-cover"
