@@ -397,6 +397,14 @@ type VenueYearArchiveExistsResponse struct{}
 // The two failure modes are deliberately NOT distinguished. A crawler walking
 // 8,100 in-range years per venue must not be able to tell "no such venue" from
 // "no shows that year", and the caller does the same thing with either.
+//
+// COST, stated accurately because the shape invites an assumption. This is two
+// statements for a slug, not one: resolveVenueID goes through GetVenueBySlug,
+// which selects the venue row and builds a full detail response purely to read
+// its id, and the probe below is a second query. Using the shared resolver is
+// deliberate — every venue sub-resource must agree on what a bad venue reference
+// returns — but an id-only fast path on that resolver is the obvious win if this
+// ever shows up in the latency profile, and it would benefit its siblings too.
 func (h *VenueHandler) VenueYearArchiveExistsHandler(ctx context.Context, req *VenueYearArchiveExistsRequest) (*VenueYearArchiveExistsResponse, error) {
 	venueID, err := h.resolveVenueID(req.VenueID)
 	if err != nil {

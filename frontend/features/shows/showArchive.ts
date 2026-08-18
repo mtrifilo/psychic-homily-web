@@ -14,6 +14,12 @@
  * instead of a single zone.
  */
 
+// `nuqs/server` rather than `nuqs`: the package root is a client module, and
+// this one is imported by the year-archive route's SERVER components. Both entry
+// points re-export the same parser implementation from the same chunk, so the
+// value the server derives and the value `useQueryState` derives in the browser
+// come from one definition rather than two that agree today.
+import { parseAsInteger } from 'nuqs/server'
 import { toPageNumber } from '@/components/shared/paginationChrome'
 import { formatShowMonth, formatShowMonthParts } from '@/lib/utils/formatters'
 
@@ -131,6 +137,48 @@ export function monthRangeLabel<T extends ArchiveRow>(
  */
 export function clampPage(page: number, maxPage: number): number {
   return Math.min(toPageNumber(page, 1), maxPage)
+}
+
+/**
+ * The parser the archives read `?page=` with, on the SERVER.
+ *
+ * It has a twin: `VenuePastShows` calls `parseAsInteger.withDefault(1)` from the
+ * `nuqs` client entry point, and the two must agree about what `?page=+2` or
+ * `?page=2abc` names or the canonical page renders unseeded. They cannot be one
+ * constant — `nuqs` and `nuqs/server` ship structurally separate type
+ * declarations of the same runtime, so a value from one does not satisfy the
+ * other's `useQueryState`, and a server module may not import the client entry
+ * point at all. The agreement is therefore pinned by the equivalence battery in
+ * this module's test rather than by construction. Change one side and that test
+ * is what tells you.
+ */
+export const archivePageParser = parseAsInteger.withDefault(1)
+
+/**
+ * Whether a URL is asking for the FIRST page of its archive.
+ *
+ * The one question a server render needs answered, and deliberately narrower
+ * than "which page is this": page 1 is the only page the server has rows to
+ * seed, so everything else is the same answer. Returning a boolean is what keeps
+ * the per-surface page BOUND out of here — a maximum can only ever pull a number
+ * down to itself, and every bound in use is far above 1, so it cannot change
+ * whether the page is 1. Taking one as a parameter would imply a relevance it
+ * does not have.
+ *
+ * BOTH steps of the client's derivation, not just the parser. `?page=0` and
+ * `?page=-3` parse to 0 and -3 — perfectly good integers — and it is
+ * {@link toPageNumber}, inside `clampPage`, that turns them into page 1 in the
+ * browser. Testing the parsed value alone called those URLs "not page 1" and
+ * withheld rows the client then asked page 1 for, which is the expensive
+ * direction to be wrong in: it silently gives back the server-rendered archive
+ * PSY-1756 bought. The equivalence battery in this module's test is what caught
+ * it and what keeps it caught.
+ */
+export function archiveIsFirstPage(
+  searchParams: Record<string, string | string[] | undefined>
+): boolean {
+  const parsed = archivePageParser.parseServerSide(searchParams.page)
+  return toPageNumber(parsed, 1) === 1
 }
 
 /**

@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
+// The CLIENT entry point, deliberately. This is the half `VenuePastShows` uses;
+// the module under test uses `nuqs/server`. Importing both is the only way to
+// compare them, and a test file is the only place that may.
+import { parseAsInteger } from 'nuqs'
 import {
   archiveDocumentTitle,
+  archiveIsFirstPage,
+  clampPage,
   groupByMonth,
   monthRangeLabel,
   parseArchiveYear,
@@ -154,5 +160,60 @@ describe('parseArchiveYear', () => {
     expect(parseArchiveYear(2025.5)).toBeNull()
     expect(parseArchiveYear(null)).toBeNull()
     expect(parseArchiveYear(2025)).toBe(2025)
+  })
+})
+
+/**
+ * PSY-1770. The year-archive route decides SERVER-side whether a URL is asking
+ * for page 1, because page 1 is the only page it has rows to seed; the browser
+ * decides again, with its own parser, which page to request. The two run in
+ * different module graphs — `nuqs/server` here, `nuqs` in `VenuePastShows` — so
+ * nothing structural forces them to agree.
+ *
+ * This is what does. A URL the server calls page 1 while the client calls it
+ * page 2 wastes a read (harmless — the client refuses rows keyed to another
+ * page); the reverse withholds rows from the canonical view, which silently
+ * gives back the server-rendered archive PSY-1756 bought. Both directions are
+ * caught here.
+ */
+describe('archiveIsFirstPage matches the client parser', () => {
+  /** How `VenuePastShows` resolves the same param. */
+  const clientPage = (raw: string | string[] | undefined) =>
+    clampPage(parseAsInteger.withDefault(1).parseServerSide(raw), 1_000)
+
+  it.each([
+    undefined,
+    '',
+    '1',
+    '2',
+    '4',
+    '1000',
+    '1001',
+    '0',
+    '-3',
+    'abc',
+    '2abc',
+    '+2',
+    ' 2 ',
+    '2.7',
+    '1e3',
+    ['2', '1'],
+    ['1', '2'],
+  ])('agrees on ?page=%p', raw => {
+    expect(archiveIsFirstPage({ page: raw })).toBe(clientPage(raw) === 1)
+  })
+
+  /**
+   * The bound is deliberately NOT a parameter of `archiveIsFirstPage`, and this
+   * is why that is safe: a maximum can only pull a number down to itself, and
+   * every bound in use is far above 1, so it can never change whether the page
+   * is 1. A future surface with a different bound needs no change here.
+   */
+  it.each([1_000, 201, 2])('is independent of a %i-page bound', maxPage => {
+    for (const raw of ['1', '2', '5000', 'abc', undefined]) {
+      expect(archiveIsFirstPage({ page: raw })).toBe(
+        clampPage(parseAsInteger.withDefault(1).parseServerSide(raw), maxPage) === 1
+      )
+    }
   })
 })

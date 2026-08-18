@@ -13,14 +13,7 @@
  * restating it.
  */
 
-// `nuqs/server` rather than `nuqs`: the package root is a client module, and
-// this one is imported by the year-archive route's SERVER components. Both
-// entry points re-export the same parser implementation, so the value the page
-// derives below and the value `useQueryState` derives in the browser come from
-// one definition rather than two that agree today.
-import { parseAsInteger } from 'nuqs/server'
 import {
-  clampPage,
   groupByMonth as groupRowsByMonth,
   monthRangeLabel as rowsMonthRangeLabel,
   archiveDocumentTitle as scopedDocumentTitle,
@@ -117,45 +110,6 @@ export function venueArchiveHref(
   return year === null
     ? `/venues/${venueSlug}${query}#${VENUE_PAST_SHOWS_FRAGMENT}`
     : `/venues/${venueSlug}/shows/${year}${query}`
-}
-
-/**
- * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes
- * a bounded empty page instead of an unbounded offset the backend has to
- * reject. At 50 rows a page this covers 50,000 shows at one venue, roughly two
- * orders of magnitude past the busiest venue observed.
- *
- * Here rather than in the component because this module owns the archive's URL
- * space, and since PSY-1770 the SERVER reads `?page=` too — to decide whether
- * seeding page 1's rows is worth a request. Two copies of the bound would let
- * the server call a URL page 1 that the client calls something else.
- */
-export const VENUE_ARCHIVE_MAX_PAGE = 1_000
-
-/**
- * The parser `VenuePastShows` reads `?page=` with. Declared once so the server's
- * reading of a URL and the browser's cannot disagree — the whole point of
- * deriving the page server-side is that the two land on the same number.
- */
-const archivePageParser = parseAsInteger.withDefault(1)
-
-/**
- * The page a request is asking for, resolved exactly as the client resolves it.
- *
- * `parseServerSide` is nuqs' own answer for the value `useQueryState` would
- * produce, and `clampPage` is the same bound the component applies, so this is
- * the client's derivation rather than a second implementation of it. Anything
- * unparseable is page 1, which is the safe direction: page 1 is the only page
- * the server has rows to seed, so an ambiguous URL gets the seeded render
- * rather than an unseeded one.
- */
-export function venueArchivePageParam(
-  searchParams: Record<string, string | string[] | undefined>
-): number {
-  return clampPage(
-    archivePageParser.parseServerSide(searchParams.page),
-    VENUE_ARCHIVE_MAX_PAGE
-  )
 }
 
 /** {@link scopedDocumentTitle}, named for the venue it scopes. */

@@ -1432,10 +1432,21 @@ func (s *VenueService) GetVenueShowYears(venueID uint, timeFilter string) ([]con
 // probe that could be asked a question its only caller never asks is surface
 // that has to be kept correct for nobody. Widening it later is additive.
 //
-// Cheap in the way the histogram is not: VenueLocalYearCondition contributes
-// sargable UTC bounds on idx_shows_event_date, so this is an index range with
-// LIMIT 1 rather than a full-history GROUP BY, and it reads no venue zone in its
-// SELECT (only the WHERE dereferences venue_tz).
+// Cheaper than the histogram, and the honest version of "cheaper" is narrower
+// than it looks. What is certain: no GROUP BY over the venue's whole history, no
+// venue zone in the SELECT (only the WHERE dereferences venue_tz), and LIMIT 1,
+// so a POPULATED year stops at the first matching row. What is NOT verified is
+// the plan: the query drives from show_venues on venue_id, and whether
+// VenueLocalYearCondition's UTC bounds become an index range on
+// idx_shows_event_date or a filter applied after the pk probe into shows has not
+// been EXPLAINed against production-shaped data. For an EMPTY year — the common
+// case when a crawler walks the year space — LIMIT 1 cannot stop early, so the
+// cost scales with the venue's history rather than the year's.
+//
+// Do not harden that comment without measuring. This file has been wrong about
+// its own plans before: see the loops=17228 note in
+// services/shared/show_venue_local_sql.go, where a shape that looked equivalent
+// re-scanned per row.
 //
 // It does NOT verify the venue exists, unlike its siblings, and the difference
 // is invisible to every caller: an unknown venue has no shows, so both roads end

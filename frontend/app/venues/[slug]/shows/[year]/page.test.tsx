@@ -211,31 +211,22 @@ describe('venues/[slug]/shows/[year] generateMetadata', () => {
 })
 
 /**
- * What the page BODY reads, which since PSY-1770 is a shorter list than it was.
+ * The page body reads NOTHING since PSY-1770.
  *
- * The rows moved under a Suspense boundary in `VenueYearArchiveContent` because
- * they depend on `?page=`, and reading search params in this body would make the
- * whole route dynamic and cost it the prerendered shell PSY-1753/1756 measured.
- * These assertions hold that line: two reads here, whatever the URL asks for,
- * and no dependence on the search params at all.
+ * Every fetch moved under the Suspense boundary into `VenueYearArchiveContent`,
+ * which is what lets the archive read `?page=` at all: awaiting `searchParams`
+ * out here would make the whole route dynamic and cost it the prerendered shell
+ * PSY-1753/1756 measured. What is left is the path-segment check, which needs no
+ * network and so must NOT sit behind a boundary.
  */
 describe('venues/[slug]/shows/[year] page body', () => {
-  const noSearchParams = Promise.resolve({})
-
-  it('reads the venue and the histogram, and nothing else', async () => {
-    mockVenueAndYears(buildVenue(), [{ year: 2025, count: 161 }])
-
+  it('renders the boundary without fetching anything', async () => {
     await VenueYearArchivePage({
       params: params('the-rebel-lounge', '2025'),
-      searchParams: noSearchParams,
+      searchParams: Promise.resolve({}),
     })
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    const urls = fetchMock.mock.calls.map(call => String(call[0]))
-    expect(urls.some(url => url.includes('/shows/years'))).toBe(true)
-    // The rows are the read that moved. A `limit=` on this list is the
-    // signature of the page-1 fetch.
-    expect(urls.some(url => url.includes('limit='))).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   /**
@@ -245,7 +236,6 @@ describe('venues/[slug]/shows/[year] page body', () => {
    * behavioural assertion can catch without a build.
    */
   it('does not await searchParams', async () => {
-    mockVenueAndYears(buildVenue(), [{ year: 2025, count: 161 }])
     const searchParams = {
       then: vi.fn(),
     } as unknown as Promise<Record<string, string | string[] | undefined>>
@@ -258,14 +248,22 @@ describe('venues/[slug]/shows/[year] page body', () => {
     expect(searchParams.then).not.toHaveBeenCalled()
   })
 
-  it('makes the same two reads on a deep page', async () => {
-    mockVenueAndYears(buildVenue(), [{ year: 2025, count: 161 }])
+  /**
+   * The dead-end year segments stay settled HERE, with no round trip and no
+   * boundary. Behind Suspense they would cost a render to reject.
+   */
+  it.each(['2025abc', ' 2025 ', '25', '0000'])(
+    'rejects the year segment %p in the body, without fetching',
+    async segment => {
+      const { notFound } = await import('next/navigation')
 
-    await VenueYearArchivePage({
-      params: params('the-rebel-lounge', '2025'),
-      searchParams: Promise.resolve({ page: '4' }),
-    })
+      await VenueYearArchivePage({
+        params: params('the-rebel-lounge', segment),
+        searchParams: Promise.resolve({}),
+      })
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
+      expect(notFound).toHaveBeenCalled()
+      expect(fetchMock).not.toHaveBeenCalled()
+    }
+  )
 })

@@ -16,52 +16,62 @@ import (
 // tell that from "this year has no shows", and every venue year archive on the
 // site would 404 rather than degrade.
 
-// The static sibling must keep winning. chi walks static children before
-// parameterised ones, so `/shows/years` is the histogram and not year "years" —
-// but that is a property of the built tree, not of the registration order these
-// two happen to have today.
-func TestVenueShowYearsStillResolvesToTheHistogram(t *testing.T) {
+// Which method/path pairs the built router answers.
+//
+// "Resolves" is asserted as "not 404 and not 405", because with a nil-DB test
+// container everything past the router errors out — the status below that point
+// says nothing, and only the router is under test here.
+func TestVenueYearArchiveRouteResolution(t *testing.T) {
 	router := newTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/venues/some-venue/shows/years", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	for _, tc := range []struct {
+		name     string
+		method   string
+		path     string
+		resolves bool
+		why      string
+	}{
+		{
+			name:     "the probe is registered",
+			method:   http.MethodHead,
+			path:     "/venues/some-venue/shows/2024/exists",
+			resolves: true,
+			why:      "an unregistered path would 404 every venue year archive through the proxy",
+		},
+		{
+			// The reverse mistake — registering GET and forgetting HEAD — is the
+			// one the scene branches hit. This pins which way round this is.
+			name:     "the probe is HEAD-only",
+			method:   http.MethodGet,
+			path:     "/venues/some-venue/shows/2024/exists",
+			resolves: false,
+			why:      "the status is the whole answer, so a GET would advertise a body that does not exist",
+		},
+		{
+			// chi walks static children before parameterised ones, so `/shows/years`
+			// stays the histogram rather than year "years" — but that is a property
+			// of the built tree, not of the registration order these two happen to
+			// have today.
+			name:     "the static years sibling is not shadowed by {year}",
+			method:   http.MethodGet,
+			path:     "/venues/some-venue/shows/years",
+			resolves: true,
+			why:      "the histogram must not be shadowed by the {year} sibling",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
 
-	if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
-		t.Errorf("GET /venues/some-venue/shows/years = %d — the histogram must not be "+
-			"shadowed by the {year} sibling", w.Code)
-	}
-}
-
-// The probe itself resolves. Anything other than a 404/405 proves the route
-// matched: with a nil-DB test container the service errors out below it.
-func TestVenueYearArchiveExistsPathResolves(t *testing.T) {
-	router := newTestRouter(t)
-
-	req := httptest.NewRequest(http.MethodHead, "/venues/some-venue/shows/2024/exists", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
-		t.Errorf("HEAD /venues/some-venue/shows/2024/exists = %d — the route is not registered, "+
-			"which would 404 every venue year archive through the proxy", w.Code)
-	}
-}
-
-// HEAD-only, deliberately: the status is the whole answer, so a GET would
-// advertise a body that does not exist. Asserted because the reverse mistake
-// (registering GET and forgetting HEAD) is the one the scene branches hit, and
-// this pins which way round this endpoint is.
-func TestVenueYearArchiveExistsIsHeadOnly(t *testing.T) {
-	router := newTestRouter(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/venues/some-venue/shows/2024/exists", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound && w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("GET /venues/some-venue/shows/2024/exists = %d, want 404/405 — the probe is "+
-			"HEAD-only", w.Code)
+			unrouted := w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed
+			if tc.resolves && unrouted {
+				t.Errorf("%s %s = %d, want it to resolve — %s", tc.method, tc.path, w.Code, tc.why)
+			}
+			if !tc.resolves && !unrouted {
+				t.Errorf("%s %s = %d, want 404/405 — %s", tc.method, tc.path, w.Code, tc.why)
+			}
+		})
 	}
 }
 

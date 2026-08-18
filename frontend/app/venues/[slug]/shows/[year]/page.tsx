@@ -1,15 +1,11 @@
+import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import {
   buildVenueYearArchiveMetadata,
   VenueYearArchiveContent,
+  type ArchiveSearchParams,
 } from '@/features/venues/yearArchivePage'
-import {
-  archiveData,
-  archiveYearExists,
-  getArchiveYears,
-  getVenue,
-} from '@/features/venues/archiveApi'
 // Entity-agnostic since PSY-1754 — the artist archive validates its `?year=`
 // with the same function, against the same bounds the backend enforces.
 import { parseArchiveYear } from '@/features/shows/showArchive'
@@ -17,13 +13,13 @@ import { parseArchiveYear } from '@/features/shows/showArchive'
 interface VenueYearArchiveProps {
   params: Promise<{ slug: string; year: string }>
   /**
-   * Passed straight through to `VenueYearArchiveShows` and awaited THERE, never
-   * here. Awaiting it in this body would make the whole route dynamic and cost
-   * it the prerendered shell PSY-1753/1756 measured; under the boundary, only
-   * the rows resume per request. `generateMetadata` does not take it at all —
-   * that is what keeps every `?page=` of a year on one canonical.
+   * Passed straight through to `VenueYearArchiveContent` and awaited THERE,
+   * never here. Awaiting it in this body would make the whole route dynamic and
+   * cost it the prerendered shell PSY-1753/1756 measured. `generateMetadata`
+   * does not take it at all — that is what keeps every `?page=` of a year on one
+   * canonical.
    */
-  searchParams: Promise<Record<string, string | string[] | undefined>>
+  searchParams: ArchiveSearchParams
 }
 
 /**
@@ -70,13 +66,13 @@ export async function generateMetadata({
  * the set announced, the set that 200s and the set that renders are derived
  * from one source rather than kept in step by hand.
  *
- * The `notFound()` calls below render the not-found BODY; they do not set the
- * status. Measured on this build: `notFound()` reached after the shell has
- * streamed commits a 404 body at HTTP 200 (the soft-404 the whole of proxy.ts
- * exists to prevent), so the real 404 comes from the venue-year branch there.
- * These stay because a page must never render an archive it does not have, and
- * because the proxy fails OPEN on a backend blip — on that path this is what
- * the reader sees.
+ * This body reads NOTHING (PSY-1770). Every fetch, and the `notFound()` rules
+ * that depend on one, moved into `VenueYearArchiveContent` under the boundary
+ * below — which is what lets the archive read `?page=` at all, since awaiting
+ * `searchParams` out here would make the whole route dynamic and cost it the
+ * prerendered shell PSY-1753/1756 measured. What is left is the path-segment
+ * check, which needs no network and so must not sit behind a boundary: a year
+ * segment that cannot be a year is a dead end whatever the database says.
  */
 export default async function VenueYearArchivePage({
   params,
@@ -88,51 +84,18 @@ export default async function VenueYearArchivePage({
     notFound()
   }
 
-  // Both take the slug from `params`, so neither waits on the other — the
-  // backend resolves an id or a slug identically, so the histogram does not
-  // need the venue row first. Serialising them would put a full round trip on
-  // the critical path of every cold render, and by the time this route renders
-  // the proxy's existence branch has already filtered the years that have no
-  // rows.
-  //
-  // The ROWS are no longer read here (PSY-1770). They depend on `?page=`, and
-  // reading that in this body would make the whole route dynamic, so they moved
-  // under the Suspense boundary in `VenueYearArchiveContent`. Nothing this
-  // function decides needs them: the 404 rules below are the venue's existence
-  // and the histogram's, both of which are still resolved before anything
-  // renders.
-  const [venueRead, yearsRead] = await Promise.all([
-    getVenue(slug, 'venue-year-archive'),
-    getArchiveYears(slug),
-  ])
-
-  // 404 only on a POSITIVE absence. A read that failed is not an answer, and
-  // treating it as one is what turns a backend blip into a not-found body for
-  // every archive on the site — which the proxy deliberately does not do
-  // either (it fails open on anything that is not a backend 404).
-  const venue = archiveData(venueRead)
-  if (venueRead.status === 'missing') {
-    notFound()
-  }
-  if (yearsRead.status === 'ok' && !archiveYearExists(yearsRead, parsedYear)) {
-    notFound()
-  }
-  // The venue is what every other piece hangs off. Without it there is nothing
-  // to render, so this falls through to the not-found body — but by way of the
-  // page rather than the head, and `generateMetadata` has already declined to
-  // stamp `noindex` on a URL it could not check.
-  if (!venue) {
-    notFound()
-  }
-
   return (
-    <VenueYearArchiveContent
-      slug={slug}
-      venue={venue}
-      venueSlug={venue.slug || slug}
-      year={parsedYear}
-      years={archiveData(yearsRead)}
-      searchParams={searchParams}
-    />
+    // `fallback={null}` rather than a skeleton. The boundary is here to keep
+    // `searchParams` out of this body, not to defer anything a reader waits on:
+    // the whole archive resolves on one round of parallel reads, exactly as it
+    // did before this ticket, and a crawler receives it either way because the
+    // response it gets is shell plus resume.
+    <Suspense fallback={null}>
+      <VenueYearArchiveContent
+        slug={slug}
+        year={parsedYear}
+        searchParams={searchParams}
+      />
+    </Suspense>
   )
 }

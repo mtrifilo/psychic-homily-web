@@ -525,11 +525,13 @@ async function existenceCheck(
  * read `total` out of the body because that endpoint answers 200 for any venue
  * that exists. That form was already scoped rather than aggregating the venue's
  * whole history — the shape the ticket describes was fixed during PSY-1756 — but
- * it still paid for a COUNT over the year plus a hydrated row, and shipped a
- * JSON body back over a link that exists to carry one bit. The backend's probe
- * is `venueShowsBaseQuery(venue, "past", year)` with LIMIT 1: the SAME predicate
+ * its handler still ran a COUNT, plucked a page of ids, and hydrated the row
+ * with its bills and artists, then shipped a JSON body back over a link that
+ * exists to carry one bit. The backend's probe is
+ * `venueShowsBaseQuery(venue, "past", year)` with LIMIT 1: the SAME predicate
  * the page renders from and the `venue_years` sitemap family is projected from,
- * so the three still cannot drift.
+ * so the three still cannot drift. It is cheaper, not free — see the cost note
+ * on the handler, which is honest about the slug resolution it still pays for.
  *
  * DEPLOY THE BACKEND FIRST. A frontend live ahead of its backend probes a path
  * chi does not know, gets a 404, and cannot tell that from "this year has no

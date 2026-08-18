@@ -27,12 +27,13 @@
  * other: whether seeding page 1's rows is worth a request. See
  * `VenueYearArchiveShows`.
  */
-import { Suspense } from 'react'
 import type { Metadata } from 'next'
+import { notFound } from 'next/navigation'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { Breadcrumb } from '@/components/shared'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { archiveIsFirstPage } from '@/features/shows/showArchive'
 import { VenuePastShows } from './components/VenuePastShows'
 import {
   archiveData,
@@ -41,8 +42,8 @@ import {
   getArchiveYears,
   getVenue,
 } from './archiveApi'
-import { venueArchiveHref, venueArchivePageParam } from './showArchive'
-import type { Venue, VenueShowYearsResponse } from './types'
+import { venueArchiveHref } from './showArchive'
+import type { VenueShowsResponse } from './types'
 
 /** The archive's own URL, absolute. Its canonical, and the crumb it links. */
 function archiveUrl(slug: string, year: number): string {
@@ -109,99 +110,114 @@ export async function buildVenueYearArchiveMetadata(
   }
 }
 
+/** The route's search params, un-awaited. Awaited in exactly one place below. */
+export type ArchiveSearchParams = Promise<
+  Record<string, string | string[] | undefined>
+>
+
 /**
- * The archive's rows, and the one place `?page=` is read on the server.
+ * Page 1's rows, or null when this URL is not asking for page 1 (PSY-1770).
+ *
+ * `VenuePastShows` refuses page 1's rows when the URL asks for another page —
+ * `initialData` attaches to whatever key is current, so seeding page 2 with page
+ * 1's slice would look like a cache hit and never correct itself — so before
+ * this the deep-page render fetched fifty rows, dehydrated them into the flight
+ * payload, and threw them away. The client then fetched the page it actually
+ * wanted. One wasted 50-row read per deep-page visit, on a URL space of one page
+ * per fifty shows.
+ *
+ * An async function rather than an inline branch so the caller can hand it
+ * straight to `Promise.all`: awaiting `searchParams` first and only then
+ * deciding would put the row read BEHIND the venue and histogram reads, turning
+ * one round trip into two on the cold canonical URL. Search params resolve
+ * without a network hop, so as a promise this starts effectively at once.
+ *
+ * `archiveIsFirstPage` is the shared derivation, built on the same nuqs parser
+ * `VenuePastShows` reads the URL with. A URL the two read differently is the one
+ * real hazard here: the server would seed rows the hook does not ask for
+ * (harmless — ignored) or withhold rows it does ask for (a canonical URL
+ * rendering unseeded, which is the thing PSY-1756 bought).
+ */
+async function readSeedablePage(
+  slug: string,
+  year: number,
+  searchParams: ArchiveSearchParams
+): Promise<VenueShowsResponse | null> {
+  if (!archiveIsFirstPage(await searchParams)) return null
+  return archiveData(await getArchiveFirstPage(slug, year))
+}
+
+/**
+ * The archive body, and the only component on this route that reads anything.
+ *
+ * ONE async component under ONE Suspense boundary, rather than the page body
+ * doing the reads. That is what lets `?page=` be read at all: `searchParams` in
+ * the page body would make the whole route dynamic and cost it its prerendered
+ * shell (`/artists` uses the same shape for the same reason, PSY-1774). The
+ * route file keeps only the path-segment validation, which needs no network.
+ *
+ * All three reads start TOGETHER. Two of them take the slug from `params` and
+ * the third takes it plus the year, so none waits on another — and serialising
+ * any of them would put a full round trip on the critical path of every cold
+ * render, which is the opposite of what PSY-1770 is for.
  *
  * `VenuePastShows` is the SAME component the venue page renders, scoped by
- * `activeYear` and handed the rows and histogram this route already fetched. It
- * is a client component, which is not in tension with any of this: client
- * components render on the server too, and with its data seeded it has nothing
- * to wait for, so the table, the year strip and the pager are all in the served
- * HTML rather than appearing after a client fetch.
+ * `activeYear` and handed the rows and histogram fetched here. It is a client
+ * component, which is not in tension with any of this: client components render
+ * on the server too, and with its data seeded it has nothing to wait for, so the
+ * table, the year strip and the pager are all in the served HTML rather than
+ * appearing after a client fetch.
  *
- * SEEDED ONLY ON PAGE 1, which is what this component exists for (PSY-1770).
- * `VenuePastShows` already refuses page 1's rows when the URL asks for another
- * page — `initialData` attaches to whatever key is current, so seeding page 2
- * with page 1's slice would look like a cache hit and never correct itself — so
- * before this the deep-page render fetched fifty rows, dehydrated them into the
- * flight payload, and threw them away. The client then fetched the page it
- * actually wanted. One wasted 50-row read per deep-page visit, on a URL space
- * of one page per fifty shows.
- *
- * ITS OWN ASYNC COMPONENT, under Suspense, because reading `searchParams` in
- * the page body would make the whole route dynamic and cost it its prerendered
- * shell — the same shape `/artists` uses for the same reason. Only this block
- * resumes per request; a crawler still receives it, because the response it
- * gets is shell plus resume.
- *
- * The page number is derived through `venueArchivePageParam`, which is the
- * client's own parser and bound. A URL the two read differently would be the
- * one real hazard here: the server would seed rows the hook does not ask for
- * (harmless — ignored) or withhold rows it does (a canonical URL rendering
- * unseeded, which is the thing PSY-1756 bought).
+ * A `notFound()` here renders the not-found BODY; it does not set the status.
+ * Measured on this build: `notFound()` reached after the shell has streamed
+ * commits a 404 body at HTTP 200 (the soft-404 the whole of proxy.ts exists to
+ * prevent), so the real 404 comes from the venue-year branch there. These stay
+ * because a page must never render an archive it does not have, and because the
+ * proxy fails OPEN on a backend blip — on that path this is what the reader
+ * sees.
  */
-export async function VenueYearArchiveShows({
+export async function VenueYearArchiveContent({
   slug,
-  venue,
-  venueSlug,
   year,
-  years,
   searchParams,
 }: {
   /** The slug as the request spelled it — what the archive reads are keyed on. */
   slug: string
-  venue: Venue
-  venueSlug: string
   year: number
-  years: VenueShowYearsResponse | null
-  searchParams: Promise<Record<string, string | string[] | undefined>>
+  searchParams: ArchiveSearchParams
 }) {
-  const page = venueArchivePageParam(await searchParams)
-  const firstPageRead = page === 1 ? await getArchiveFirstPage(slug, year) : null
+  const [venueRead, yearsRead, firstPage] = await Promise.all([
+    getVenue(slug, 'venue-year-archive'),
+    getArchiveYears(slug),
+    readSeedablePage(slug, year, searchParams),
+  ])
 
-  return (
-    <VenuePastShows
-      venueId={venue.id}
-      venueSlug={venueSlug}
-      venueName={venue.name}
-      venueState={venue.state}
-      venueTimezone={venue.timezone}
-      activeYear={year}
-      initialYears={years ?? undefined}
-      // Undefined on a failed read AND on every page but the first. The section
-      // then fetches for itself and owns its error state, which is strictly
-      // better than throwing away a page whose navigation is intact.
-      initialShows={
-        firstPageRead ? (archiveData(firstPageRead) ?? undefined) : undefined
-      }
-    />
-  )
-}
+  // 404 only on a POSITIVE absence. A read that failed is not an answer, and
+  // treating it as one is what turns a backend blip into a not-found body for
+  // every archive on the site — which the proxy deliberately does not do either
+  // (it fails open on anything that is not a backend 404).
+  const venue = archiveData(venueRead)
+  if (venueRead.status === 'missing') {
+    notFound()
+  }
+  if (yearsRead.status === 'ok' && !archiveYearExists(yearsRead, year)) {
+    notFound()
+  }
+  // The venue is what every other piece hangs off. Without it there is nothing
+  // to render, so this falls through to the not-found body — but by way of the
+  // page rather than the head, and `generateMetadata` has already declined to
+  // stamp `noindex` on a URL it could not check.
+  if (!venue) {
+    notFound()
+  }
 
-/**
- * The archive body.
- */
-export function VenueYearArchiveContent({
-  slug,
-  venue,
-  venueSlug,
-  year,
-  years,
-  searchParams,
-}: {
-  slug: string
-  venue: Venue
-  /** The venue's canonical slug, resolved once by the route. */
-  venueSlug: string
-  year: number
   /**
    * Null when the histogram read failed. The strip then appears after the
    * client's own fetch rather than in the HTML — degraded, not broken, and
    * strictly better than 404ing an archive over a transient blip.
    */
-  years: VenueShowYearsResponse | null
-  searchParams: Promise<Record<string, string | string[] | undefined>>
-}) {
+  const years = archiveData(yearsRead)
+  const venueSlug = venue.slug || slug
   const venueHref = `/venues/${venueSlug}`
 
   return (
@@ -226,23 +242,19 @@ export function VenueYearArchiveContent({
       <h1 className="mb-4 text-2xl font-semibold tracking-tight">
         {venue.name} shows in {year}
       </h1>
-      {/* `fallback={null}` rather than a skeleton: the boundary exists to keep
-          `searchParams` out of the page body, not to defer anything a reader
-          waits on. On page 1 it resolves on one already-budgeted fetch — the
-          same one the page used to block its entire HTML on — and on every
-          other page there is no fetch at all, so there is nothing for a
-          placeholder to stand in for. The block appends BELOW the heading, so
-          arriving late costs no layout shift. */}
-      <Suspense fallback={null}>
-        <VenueYearArchiveShows
-          slug={slug}
-          venue={venue}
-          venueSlug={venueSlug}
-          year={year}
-          years={years}
-          searchParams={searchParams}
-        />
-      </Suspense>
+      <VenuePastShows
+        venueId={venue.id}
+        venueSlug={venueSlug}
+        venueName={venue.name}
+        venueState={venue.state}
+        venueTimezone={venue.timezone}
+        activeYear={year}
+        initialYears={years ?? undefined}
+        // Undefined on a failed read AND on every page but the first. The
+        // section then fetches for itself and owns its error state, which is
+        // strictly better than throwing away a page whose navigation is intact.
+        initialShows={firstPage ?? undefined}
+      />
     </div>
   )
 }
