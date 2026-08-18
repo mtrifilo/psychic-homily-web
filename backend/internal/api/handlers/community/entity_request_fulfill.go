@@ -143,6 +143,7 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		return nil, huma.Error422UnprocessableEntity("show_venue field too long (name/city ≤255, state ≤10, address ≤500)")
 	}
 	out := &showAssociations{venue: v}
+	billIsCurated := false
 	for i, a := range artists {
 		name := strings.TrimSpace(a.Name)
 		// Name is required even when an ID is supplied: the show service's
@@ -159,6 +160,9 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		if serr != nil {
 			return nil, serr
 		}
+		if setType != nil {
+			billIsCurated = true
+		}
 		out.artists = append(out.artists, contracts.CreateShowArtist{
 			ID:          a.ID,
 			Name:        name,
@@ -166,36 +170,73 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 			SetType:     setType,
 		})
 	}
+	if billIsCurated {
+		suppressPositionInference(out.artists)
+	}
 	return out, nil
+}
+
+// suppressPositionInference pins is_headliner=false on the acts the admin left
+// uncurated, and is called only once SOME act on the bill states a role.
+//
+// resolveArtistRole reads position 0 as the headliner, but only as a last resort
+// for an act that carries no other signal. That fallback is right for a bill
+// nobody described and wrong the moment somebody does. Without this, an admin
+// who marks the SECOND act "headliner" and leaves the first alone gets TWO rows
+// with set_type='headliner', and every headliner reader in the codebase resolves
+// `set_type = 'headliner' ORDER BY position ASC LIMIT 1`, so the act nobody
+// designated wins and the curated one is discarded. That silently corrupts the
+// single fact PSY-1705 exists to record.
+//
+// The rule this encodes: a stated bill is a complete statement, so first-in-list
+// is not a second opinion. It is the same guard ConfirmShowImport applies for
+// the same reason, and the direct show-create handler gets it for free because
+// initializeArtist pins the flag false on every act before Resolve runs.
+//
+// Acts that state their own set_type or is_headliner are left untouched, and a
+// bill where NOBODY states anything is untouched as a whole, so this cannot
+// change the outcome for any caller that predates set_type on this endpoint.
+func suppressPositionInference(artists []contracts.CreateShowArtist) {
+	for i := range artists {
+		if artists[i].SetType != nil || artists[i].IsHeadliner != nil {
+			continue
+		}
+		noPositionInference := false
+		artists[i].IsHeadliner = &noPositionInference
+	}
 }
 
 // curatedShowArtistSetType validates one admin-supplied bill role (PSY-1705)
 // and returns the value to hand the show service, or nil when the admin did not
 // curate this act's slot.
 //
-// Absent, nil, and whitespace-only all mean "not curated" and resolve to nil,
-// which the show service turns into contracts.SetTypeDefault ('performer').
+// ONLY an absent key means "not curated". A present value must be exactly one
+// of the vocabulary's members, so "" and "   " are rejected rather than read as
+// absent. That is a deliberate choice to agree character-for-character with the
+// generated OpenAPI enum on the field, which rejects any PRESENT value outside
+// the list: were this laxer, a client sending "" for "slot unknown" would be
+// 422'd by the schema while an in-process caller sending the same thing got a
+// silent 'performer', and the tests, which call handlers directly and never see
+// the schema, would certify the behavior nobody over HTTP can actually get.
+// Callers that mean "slot unknown" omit the key, and the show service then
+// applies contracts.SetTypeDefault ('performer').
+//
 // Nothing here ever infers a role from bill position. That inference is the
-// exact defect the PSY-1673 vocabulary removed.
+// exact defect the PSY-1673 vocabulary removed; see suppressPositionInference
+// for the one place bill order still has any say.
 //
-// The value is judged EXACTLY as sent, without trimming, so this agrees
-// character-for-character with the OpenAPI enum on the field and with the show
-// service's own curatedSetType/validateShowArtistSetTypes pair. Trimming here
-// would make the handler quietly laxer than its published contract.
-//
-// Over HTTP the generated OpenAPI enum on ShowArtistInput.set_type rejects a
-// bad role first, so this check is the floor beneath it, for in-process callers
-// and tests that never see the schema. It is not redundant with the SHOW
-// SERVICE's validateShowArtistSetTypes, though: that one runs inside
+// Over HTTP the schema enum rejects a bad role before this runs, so this is the
+// floor beneath it for in-process callers. It is NOT redundant with the show
+// service's validateShowArtistSetTypes, though: that one runs inside
 // fulfillment, which on the decide path is after the row has been claimed, so
 // rejecting there would turn a typo into an approved-but-unfulfilled row that
 // Decide can no longer re-process (it only claims PENDING rows). Such a row is
 // recoverable, via the PSY-1088 rescue endpoint, but only by a second admin
 // action on a request that now reads as approved with nothing created. Both
-// callers run buildShowAssociations BEFORE the claim, which is where the
-// venue/name/image_url checks already live for the same reason.
+// callers run buildShowAssociations pre-claim, alongside the venue/name/
+// image_url checks that live there for the same reason.
 func curatedShowArtistSetType(index int, value *string) (*string, error) {
-	if value == nil || strings.TrimSpace(*value) == "" {
+	if value == nil {
 		return nil, nil
 	}
 	if !contracts.IsValidSetType(*value) {

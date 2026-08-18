@@ -56,39 +56,91 @@ func TestBuildShowAssociations_SetType(t *testing.T) {
 		}
 	})
 
-	t.Run("absent stays absent so the service applies its default", func(t *testing.T) {
-		blank := "   "
-		empty := ""
-		cases := map[string]*string{
-			"nil":             nil,
-			"empty string":    &empty,
-			"whitespace only": &blank,
+	t.Run("an absent key is the only way to say the slot is unknown", func(t *testing.T) {
+		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
+			{Name: "Boris", SetType: nil},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		for name, input := range cases {
-			assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
-				{Name: "Boris", SetType: input},
-			})
-			if err != nil {
-				t.Fatalf("%s: unexpected error: %v", name, err)
-			}
-			if assoc.artists[0].SetType != nil {
-				t.Errorf("%s: expected nil set_type, got %q", name, *assoc.artists[0].SetType)
-			}
+		if assoc.artists[0].SetType != nil {
+			t.Errorf("expected nil set_type, got %q", *assoc.artists[0].SetType)
 		}
 	})
 
 	t.Run("out-of-vocabulary values are rejected", func(t *testing.T) {
 		// "support" and "host" are real third-party terms the INGEST-side
 		// NormalizeSetType handles; the API contract is strict on purpose, so an
-		// admin sending them gets a named 422 instead of a coerced role. Casing
-		// and padding variants must fail for the same reason the OpenAPI enum
-		// fails them: the handler must not be laxer than its published schema.
-		for _, bad := range []string{"support", "host", "Headliner", " headliner ", "opener2", "PERFORMER"} {
+		// admin sending them gets a named 422 instead of a coerced role.
+		//
+		// "" and "   " are in this list on purpose. The generated OpenAPI enum
+		// rejects any PRESENT value outside the vocabulary, so treating a blank
+		// as "absent" here would make the handler accept what the schema refuses,
+		// and these tests, which bypass the schema, would certify a contract no
+		// HTTP client can actually get. Casing and padding variants fail for the
+		// same reason.
+		for _, bad := range []string{"", "   ", "support", "host", "Headliner", " headliner ", "opener2", "PERFORMER"} {
 			value := bad
 			_, err := buildShowAssociations(validVenue, []ShowArtistInput{
 				{Name: "Boris", SetType: &value},
 			})
 			testhelpers.AssertHumaError(t, err, 422)
+		}
+	})
+
+	t.Run("stating a role anywhere suppresses the position-0 headliner guess", func(t *testing.T) {
+		// The regression this guards: resolveArtistRole reads position 0 as the
+		// headliner for an act with no signal at all. An admin who marks the
+		// SECOND act headliner and leaves the first alone would otherwise get two
+		// set_type='headliner' rows, and every reader resolves the headliner as
+		// `set_type='headliner' ORDER BY position ASC LIMIT 1`, so the act nobody
+		// designated would win.
+		headliner := contracts.SetTypeHeadliner
+		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
+			{Name: "Earth"},
+			{Name: "Boris", SetType: &headliner},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if assoc.artists[0].IsHeadliner == nil || *assoc.artists[0].IsHeadliner {
+			t.Errorf("uncurated first act must be pinned non-headliner, got %v", assoc.artists[0].IsHeadliner)
+		}
+		if assoc.artists[1].SetType == nil || *assoc.artists[1].SetType != contracts.SetTypeHeadliner {
+			t.Errorf("curated headliner lost: %v", assoc.artists[1].SetType)
+		}
+	})
+
+	t.Run("an entirely undescribed bill is left alone", func(t *testing.T) {
+		// No entry states anything, so the position-0 fallback must still apply.
+		// This is what keeps the change additive for callers that predate
+		// set_type on this endpoint.
+		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
+			{Name: "Earth"},
+			{Name: "Boris"},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for i, a := range assoc.artists {
+			if a.IsHeadliner != nil {
+				t.Errorf("artists[%d].IsHeadliner must stay nil on an undescribed bill, got %v", i, *a.IsHeadliner)
+			}
+		}
+	})
+
+	t.Run("an explicit is_headliner is never overwritten", func(t *testing.T) {
+		dj := contracts.SetTypeDJ
+		explicitFalse := false
+		assoc, err := buildShowAssociations(validVenue, []ShowArtistInput{
+			{Name: "Earth", IsHeadliner: &explicitFalse},
+			{Name: "DJ Sleep", SetType: &dj},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if assoc.artists[0].IsHeadliner == nil || *assoc.artists[0].IsHeadliner {
+			t.Error("explicit false must survive")
 		}
 	})
 
@@ -424,9 +476,49 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_PersistsCuratedRo
 		"an act with no stated role must land on the neutral default")
 }
 
+// A headliner curated anywhere but position 0 must be the ONLY headliner row.
+// Without suppressPositionInference the uncurated first act also resolves to
+// 'headliner', and since every reader takes `set_type='headliner' ORDER BY
+// position ASC LIMIT 1`, the act nobody designated would win and the admin's
+// stated headliner would be discarded.
+func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_CuratedHeadlinerIsTheOnlyHeadliner() {
+	h := s.rescueHandler(s.showOrphan("Headliner Billed Second"))
+
+	headliner := contracts.SetTypeHeadliner
+
+	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Crescent Ballroom", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{
+		{Name: "Earth"},
+		{Name: "Boris", SetType: &headliner},
+	}
+
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.CreatedEntityID)
+
+	got := s.setTypesByPosition(*resp.Body.CreatedEntityID)
+	s.Equal(contracts.SetTypePerformer, got[0],
+		"the uncurated first act must not be inferred as a second headliner")
+	s.Equal(contracts.SetTypeHeadliner, got[1])
+
+	// And prove it end to end the way readers see it: exactly one headliner row,
+	// and it is the act the admin named.
+	var headlinerNames []string
+	s.Require().NoError(s.deps.DB.
+		Table("show_artists").
+		Select("artists.name").
+		Joins("JOIN artists ON artists.id = show_artists.artist_id").
+		Where("show_artists.show_id = ? AND show_artists.set_type = ?", *resp.Body.CreatedEntityID, contracts.SetTypeHeadliner).
+		Order("show_artists.position ASC").
+		Scan(&headlinerNames).Error)
+	s.Equal([]string{"Boris"}, headlinerNames)
+}
+
 // With no curated role anywhere, the bill keeps the legacy shape: position 0 is
 // the headliner (the one inference the vocabulary still sanctions) and every
-// other act is 'performer'.
+// other act is 'performer'. This is what keeps the change additive for callers
+// that predate set_type on this endpoint.
 func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_NoSetTypeDefaultsToPerformer() {
 	h := s.rescueHandler(s.showOrphan("Uncurated Bill"))
 
@@ -485,10 +577,12 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_InvalidSetTypeWri
 	_, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(s.T(), err, 422)
 
+	// Scoped to the names this test would have created, so the assertion stands
+	// on its own rather than on a sibling test having truncated first.
 	var shows, artists, venues int64
-	s.Require().NoError(s.deps.DB.Model(&catalogm.Show{}).Count(&shows).Error)
-	s.Require().NoError(s.deps.DB.Model(&catalogm.Artist{}).Count(&artists).Error)
-	s.Require().NoError(s.deps.DB.Model(&catalogm.Venue{}).Count(&venues).Error)
+	s.Require().NoError(s.deps.DB.Model(&catalogm.Show{}).Where("title = ?", "Rejected Bill").Count(&shows).Error)
+	s.Require().NoError(s.deps.DB.Model(&catalogm.Artist{}).Where("name = ?", "Boris").Count(&artists).Error)
+	s.Require().NoError(s.deps.DB.Model(&catalogm.Venue{}).Where("name = ?", "Nowhere").Count(&venues).Error)
 	s.Zero(shows, "no show may be created when a bill role is invalid")
 	s.Zero(artists, "no artist may be find-or-created when a bill role is invalid")
 	s.Zero(venues, "no venue may be find-or-created when a bill role is invalid")

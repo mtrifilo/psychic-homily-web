@@ -165,10 +165,14 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 				// show's catalog Create needs admin-supplied venue + artist
 				// associations, which only the admin decide endpoint collects
 				// (PSY-1037). Leave it approved-but-unfulfilled rather than fail
-				// the whole request. NOTE: the admin queue lists only PENDING
-				// rows and Decide only re-processes pending rows, so this row has
-				// no queue rescue path — the show must be created directly (the
-				// Warn below is the operational signal).
+				// the whole request. The admin queue lists only PENDING rows and
+				// Decide only re-processes pending rows, so the recovery path is
+				// the PSY-1088 rescue endpoint (POST
+				// /admin/entity-requests/{id}/fulfill), which names this exact row
+				// shape as one of its two by-design sources and is the only route
+				// that both creates the show and keeps the request linked to it.
+				// Creating the show directly instead orphans the request. The Warn
+				// below is the operational signal.
 				// (Festival fulfills inline, so it never reaches here.)
 				logger.FromContext(ctx).Warn("entity_request_autoapprove_fulfill_deferred",
 					"request_id", created.ID,
@@ -350,14 +354,20 @@ type ShowVenueInput struct {
 // PSY-1705: set_type carries the curated bill role, so a request whose source
 // states a support act or a DJ can be fulfilled without flattening that role.
 // It is authoritative over is_headliner when present (the show service derives
-// the headliner flag from it); omitting it leaves the act at the neutral
-// default, 'performer', which means "on the bill, slot unknown". A role is
-// never inferred from bill order; only the headliner has ever been inferable.
+// the headliner flag from it).
+//
+// The one place bill ORDER still has a say: on a bill where no entry states
+// either field, the first act is read as the headliner. As soon as any entry
+// states a role, buildShowAssociations suppresses that inference for the whole
+// bill (see suppressPositionInference), because a stated bill is a complete
+// statement and first-in-list is not a second opinion. So "omit set_type" means
+// 'performer' on a curated bill, and only an entirely undescribed bill falls
+// back to position.
 type ShowArtistInput struct {
 	ID          *uint   `json:"id,omitempty" required:"false" doc:"Existing artist ID (optional)"`
 	Name        string  `json:"name" doc:"Artist name (required)"`
-	IsHeadliner *bool   `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag. Ignored when set_type is present, which is authoritative. An entry that sets neither defaults to headliner if it is first on the bill, otherwise to performer."`
-	SetType     *string `json:"set_type,omitempty" required:"false" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role. Authoritative over is_headliner when present. Omit when the slot is not known; the show then stores 'performer', which means 'on the bill, slot unknown' and must not be rendered as a role."`
+	IsHeadliner *bool   `json:"is_headliner,omitempty" required:"false" doc:"Headliner flag. Ignored when set_type is present, which is authoritative. On a bill where no entry states either field, the first entry is read as the headliner."`
+	SetType     *string `json:"set_type,omitempty" required:"false" enum:"headliner,direct_support,opener,special_guest,dj,performer" doc:"Curated bill role, authoritative over is_headliner. Omit the key when the slot is not known: the act then stores 'performer', meaning 'on the bill, slot unknown', which must not be rendered as a role. Do NOT send an empty string; only an absent key means unknown. Stating a role on any entry settles the whole bill, so no other entry is then inferred from list position."`
 }
 
 // AdminDecideEntityRequestRequest is the Huma request for
