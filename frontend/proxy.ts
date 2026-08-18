@@ -454,6 +454,30 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
 
 /**
+ * The content type the API stamps on every error it MEANS.
+ *
+ * It is how a 404 that answers the question ("no such venue", "no shows that
+ * year") is told apart from a 404 that means the server never heard of the
+ * path — huma writes `application/problem+json` on its errors, while chi's
+ * default handler for an unregistered route writes `text/plain`. Measured on
+ * this build against the real router:
+ *
+ *   /venues/{slug}/shows/2020/exists      404 application/problem+json
+ *   /entities/venues/{slug}/exists        404 application/problem+json
+ *   /venues/{slug}/shows/2020/no-such     404 text/plain; charset=utf-8
+ *
+ * Load-bearing at DEPLOY time, which is the only time it fires. A frontend that
+ * goes live ahead of its backend probes paths the running API does not carry
+ * yet; without this the bare 404 reads as "missing" and the proxy hard-404s
+ * every URL behind that probe — for the venue year archives, a whole
+ * sitemap-announced family, for the length of the skew window. With it, an
+ * unrouted probe falls through to the same fail-OPEN path as a 5xx: the page
+ * renders, and the worst case is the soft-404 the scene branches already
+ * tolerate, which is transient and recoverable where a hard 404 is not.
+ */
+const API_ERROR_CONTENT_TYPE = 'application/problem+json'
+
+/**
  * Probe a backend URL and turn the result into a pass-through or a real 404.
  *
  * ONE fail-open policy, for every branch above. Extracted originally so the
@@ -472,10 +496,19 @@ const EXISTENCE_CHECK_TIMEOUT_MS = 2_500
  * "missing", and anything else (5xx, 403, 429, a network error) lets the page
  * render. Producing a 404 on a transient blip would mask a real outage as
  * "not found".
+ *
+ * `requireApiAuthoredNotFound` narrows what counts as that 404 — see
+ * API_ERROR_CONTENT_TYPE. Only the venue-year branch passes it, because only
+ * that branch is NEW: the other probes call routes that have shipped for many
+ * releases, and turning this on for them would change 404 semantics site-wide
+ * on the back of a performance ticket. It probably SHOULD be the default, and
+ * their mocked 404s carry no content type today, so flipping it is its own
+ * change with its own verification across every entity type.
  */
 async function existenceCheck(
   request: NextRequest,
-  url: string
+  url: string,
+  options: { requireApiAuthoredNotFound?: boolean } = {}
 ): Promise<NextResponse> {
   try {
     const res = await fetch(url, {
@@ -492,9 +525,21 @@ async function existenceCheck(
       signal: AbortSignal.timeout(EXISTENCE_CHECK_TIMEOUT_MS),
     })
 
-    // 404 from the backend = slug genuinely does not exist → real 404.
+    // 404 from the backend = the thing genuinely does not exist → real 404.
+    //
+    // Unless the caller asked for the stricter reading, in which case the
+    // content type has to agree that the API AUTHORED this 404 — "not found"
+    // and "I have never heard of this path" arrive as the same status and must
+    // not mean the same thing. See API_ERROR_CONTENT_TYPE.
     if (res.status === 404) {
-      return notFoundResponse(request)
+      if (!options.requireApiAuthoredNotFound) {
+        return notFoundResponse(request)
+      }
+      const contentType = res.headers.get('content-type') ?? ''
+      if (contentType.includes(API_ERROR_CONTENT_TYPE)) {
+        return notFoundResponse(request)
+      }
+      return NextResponse.next()
     }
 
     // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN — let the
@@ -533,11 +578,14 @@ async function existenceCheck(
  * so the three still cannot drift. It is cheaper, not free — see the cost note
  * on the handler, which is honest about the slug resolution it still pays for.
  *
- * DEPLOY THE BACKEND FIRST. A frontend live ahead of its backend probes a path
- * chi does not know, gets a 404, and cannot tell that from "this year has no
- * shows" — so every venue year archive would 404 for the length of the skew
- * window. That is fail-CLOSED, unlike the scene branches above, and it is the
- * one thing about this branch worth remembering at deploy time.
+ * DEPLOY THE BACKEND FIRST — still the rule, though no longer a cliff. A
+ * frontend live ahead of its backend probes a path chi does not know; that 404
+ * arrives as `text/plain` rather than the API's `application/problem+json`, so
+ * `existenceCheck` reads it as "could not tell" and fails OPEN. The skew window
+ * therefore costs soft-404s on empty years rather than hard 404s across a
+ * sitemap-announced family. Ordering the deploy is what keeps even that from
+ * happening; the content-type guard is what keeps getting it wrong from being
+ * an SEO incident.
  */
 function venueArchiveYearCheck(
   request: NextRequest,
@@ -546,7 +594,8 @@ function venueArchiveYearCheck(
 ): Promise<NextResponse> {
   return existenceCheck(
     request,
-    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/${year}/exists`
+    `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/${year}/exists`,
+    { requireApiAuthoredNotFound: true }
   )
 }
 

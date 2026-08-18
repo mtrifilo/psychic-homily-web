@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
 
+// Throws, like the real one — which is typed `never`. A non-throwing mock lets
+// the page body carry on past `notFound()` and return its Suspense element with
+// a null year, so a test could assert "rejected the segment" while the route in
+// fact rendered.
+const NOT_FOUND = 'NEXT_NOT_FOUND'
 vi.mock('next/navigation', () => ({
-  notFound: vi.fn(),
+  notFound: vi.fn(() => {
+    throw new Error(NOT_FOUND)
+  }),
 }))
 
 // The archive body renders the real client archive; these tests only exercise
@@ -249,21 +256,37 @@ describe('venues/[slug]/shows/[year] page body', () => {
   })
 
   /**
-   * The dead-end year segments stay settled HERE, with no round trip and no
-   * boundary. Behind Suspense they would cost a render to reject.
+   * The dead-end year segments stay settled HERE, in the body, with no round
+   * trip and no boundary. Behind Suspense they would cost a render to reject.
+   *
+   * Asserted as "the render STOPS", not merely "notFound was called": the page
+   * must not go on to mount the archive for a year it has just rejected. With a
+   * non-throwing mock that distinction is invisible.
    */
-  it.each(['2025abc', ' 2025 ', '25', '0000'])(
-    'rejects the year segment %p in the body, without fetching',
+  it.each(['2025abc', ' 2025 ', '25', '20255', '0000', '9999999'])(
+    'stops on the year segment %p without fetching',
     async segment => {
-      const { notFound } = await import('next/navigation')
+      await expect(
+        VenueYearArchivePage({
+          params: params('the-rebel-lounge', segment),
+          searchParams: Promise.resolve({}),
+        })
+      ).rejects.toThrow(NOT_FOUND)
 
-      await VenueYearArchivePage({
-        params: params('the-rebel-lounge', segment),
-        searchParams: Promise.resolve({}),
-      })
-
-      expect(notFound).toHaveBeenCalled()
       expect(fetchMock).not.toHaveBeenCalled()
+    }
+  )
+
+  /** The in-range years the body must NOT reject. */
+  it.each(['1900', '2025', '9999'])(
+    'lets the in-range year %p through to the boundary',
+    async segment => {
+      await expect(
+        VenueYearArchivePage({
+          params: params('the-rebel-lounge', segment),
+          searchParams: Promise.resolve({}),
+        })
+      ).resolves.toBeTruthy()
     }
   )
 })

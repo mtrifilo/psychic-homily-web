@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
 import {
   buildVenueYearArchiveMetadata,
   VenueYearArchiveContent,
@@ -35,6 +36,22 @@ interface VenueYearArchiveProps {
 function parseYearSegment(segment: string): number | null {
   if (!/^\d{4}$/.test(segment)) return null
   return parseArchiveYear(Number(segment))
+}
+
+/**
+ * The same spinner `app/venues/loading.tsx` shows, for the same wait.
+ *
+ * Declared here rather than imported from that file because a `loading.tsx`
+ * default export is a route convention, not a component library — Next owns when
+ * it renders, and importing it would tie this boundary to a file that exists to
+ * be found by name.
+ */
+function VenueYearArchiveLoading() {
+  return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  )
 }
 
 /**
@@ -85,12 +102,17 @@ export default async function VenueYearArchivePage({
   }
 
   return (
-    // `fallback={null}` rather than a skeleton. The boundary is here to keep
-    // `searchParams` out of this body, not to defer anything a reader waits on:
-    // the whole archive resolves on one round of parallel reads, exactly as it
-    // did before this ticket, and a crawler receives it either way because the
-    // response it gets is shell plus resume.
-    <Suspense fallback={null}>
+    // The fallback is a REAL affordance, not `null`, and that is a correction
+    // rather than a flourish. `app/venues/loading.tsx` used to cover this route:
+    // the body awaited its reads, so the segment stayed pending and that spinner
+    // showed. Now the body returns as soon as `params` resolves, so the outer
+    // boundary settles at once and this inner one owns the whole wait — a `null`
+    // here would leave the reader looking at an empty content region for the
+    // full duration of three backend reads, which is worse than what the route
+    // did before this ticket. Matching the venues spinner keeps the two
+    // consistent. A crawler is unaffected either way: it receives shell plus
+    // resume, not the fallback.
+    <Suspense fallback={<VenueYearArchiveLoading />}>
       <VenueYearArchiveContent
         slug={slug}
         year={parsedYear}

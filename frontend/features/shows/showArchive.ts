@@ -15,10 +15,11 @@
  */
 
 // `nuqs/server` rather than `nuqs`: the package root is a client module, and
-// this one is imported by the year-archive route's SERVER components. Both entry
-// points re-export the same parser implementation from the same chunk, so the
-// value the server derives and the value `useQueryState` derives in the browser
-// come from one definition rather than two that agree today.
+// this one is imported by the year-archive route's SERVER components. The two
+// entry points ship SEPARATE bundled copies of the parser — verified in
+// nuqs 2.9.0, `dist/index.js` and `dist/server.js` each carry their own
+// `createParser` — so this is a second implementation that happens to agree,
+// not one definition. See `archivePageParser` for what holds them together.
 import { parseAsInteger } from 'nuqs/server'
 import { toPageNumber } from '@/components/shared/paginationChrome'
 import { formatShowMonth, formatShowMonthParts } from '@/lib/utils/formatters'

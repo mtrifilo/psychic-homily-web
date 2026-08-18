@@ -580,3 +580,133 @@ func TestAdminCreateVenue_ServiceError(t *testing.T) {
 	_, err := h.AdminCreateVenueHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 422)
 }
+
+// ============================================================================
+// VenueYearArchiveExistsHandler (PSY-1770)
+// ============================================================================
+//
+// The whole design of the year-archive probe rests on WHICH status each outcome
+// produces, because the frontend proxy reads nothing else: a 404 becomes a real
+// HTTP 404 for the reader, while a 500 makes it fail OPEN and let the page
+// render. Collapsing the service-error path into a 404 would turn every
+// `/venues/{slug}/shows/{year}` on the site into a hard 404 during a database
+// blip — invisible to the service integration tests, which never run the
+// handler.
+
+func TestVenueYearArchiveExists_ByID(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		HasPastShowsInYearFn: func(venueID uint, year int) (bool, error) {
+			if venueID != 5 || year != 2019 {
+				t.Errorf("expected venueID=5 year=2019, got %d/%d", venueID, year)
+			}
+			return true, nil
+		},
+		// A numeric id resolves without touching the slug lookup. Failing here
+		// would mean the probe pays a needless query on the id path.
+		GetVenueBySlugFn: func(slug string) (*contracts.VenueDetailResponse, error) {
+			t.Errorf("numeric id must not go through the slug resolver, got %q", slug)
+			return nil, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+
+	resp, err := h.VenueYearArchiveExistsHandler(context.Background(), &VenueYearArchiveExistsRequest{
+		VenueID: "5", Year: 2019,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected response, got nil")
+	}
+}
+
+func TestVenueYearArchiveExists_BySlug(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		GetVenueBySlugFn: func(slug string) (*contracts.VenueDetailResponse, error) {
+			return &contracts.VenueDetailResponse{ID: 10}, nil
+		},
+		HasPastShowsInYearFn: func(venueID uint, year int) (bool, error) {
+			if venueID != 10 {
+				t.Errorf("expected resolved venueID=10, got %d", venueID)
+			}
+			return true, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+
+	_, err := h.VenueYearArchiveExistsHandler(context.Background(), &VenueYearArchiveExistsRequest{
+		VenueID: "valley-bar", Year: 2019,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// A year with no archived shows is the 404 the proxy turns into a real one.
+func TestVenueYearArchiveExists_EmptyYearIs404(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		HasPastShowsInYearFn: func(uint, int) (bool, error) { return false, nil },
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+
+	_, err := h.VenueYearArchiveExistsHandler(context.Background(), &VenueYearArchiveExistsRequest{
+		VenueID: "5", Year: 1999,
+	})
+	testhelpers.AssertHumaErrorWithDetail(t, err, 404, venueYearArchiveAbsent)
+}
+
+// An unknown venue answers with the SAME status AND the same detail as an empty
+// year. Not cosmetic: huma writes the error body even for a HEAD and Go derives
+// a Content-Length from it, so two different messages are two different response
+// sizes — enough for a crawler walking the year space to tell the cases apart
+// off a body it never receives. The detail assertion is what holds that line.
+func TestVenueYearArchiveExists_UnknownVenueIsIndistinguishableFromAnEmptyYear(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		GetVenueBySlugFn: func(string) (*contracts.VenueDetailResponse, error) {
+			return nil, apperrors.ErrVenueNotFound(0)
+		},
+		HasPastShowsInYearFn: func(uint, int) (bool, error) {
+			t.Error("an unresolved venue must not reach the probe")
+			return false, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+
+	_, err := h.VenueYearArchiveExistsHandler(context.Background(), &VenueYearArchiveExistsRequest{
+		VenueID: "no-such-venue", Year: 2019,
+	})
+	testhelpers.AssertHumaErrorWithDetail(t, err, 404, venueYearArchiveAbsent)
+}
+
+// A failed READ is not an answer. 500 is what makes the proxy fail OPEN; a 404
+// here would hard-404 a real archive over a transient fault.
+func TestVenueYearArchiveExists_ProbeErrorIs500(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		HasPastShowsInYearFn: func(uint, int) (bool, error) {
+			return false, fmt.Errorf("database down")
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+
+	_, err := h.VenueYearArchiveExistsHandler(context.Background(), &VenueYearArchiveExistsRequest{
+		VenueID: "5", Year: 2019,
+	})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// The same rule one layer up: a slug lookup that FAILED (rather than resolving
+// to nothing) must not be reported as absent.
+func TestVenueYearArchiveExists_SlugLookupErrorIs500(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		GetVenueBySlugFn: func(string) (*contracts.VenueDetailResponse, error) {
+			return nil, fmt.Errorf("database down")
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+
+	_, err := h.VenueYearArchiveExistsHandler(context.Background(), &VenueYearArchiveExistsRequest{
+		VenueID: "valley-bar", Year: 2019,
+	})
+	testhelpers.AssertHumaError(t, err, 500)
+}

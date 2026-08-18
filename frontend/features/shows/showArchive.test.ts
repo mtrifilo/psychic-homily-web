@@ -177,30 +177,56 @@ describe('parseArchiveYear', () => {
  * caught here.
  */
 describe('archiveIsFirstPage matches the client parser', () => {
-  /** How `VenuePastShows` resolves the same param. */
-  const clientPage = (raw: string | string[] | undefined) =>
-    clampPage(parseAsInteger.withDefault(1).parseServerSide(raw), 1_000)
+  /**
+   * How `VenuePastShows` resolves the same param, modelled through the path the
+   * BROWSER actually takes: `useQueryState` reads one string out of
+   * `URLSearchParams` and hands it to the parser's `parse`. Going through
+   * `parseServerSide` on both sides would compare the server helper with itself
+   * and prove nothing — least of all for a repeated `?page=`, where the whole
+   * question is whether nuqs' `value[0]` agrees with `URLSearchParams.get`'s
+   * first-occurrence rule.
+   */
+  const clientPage = (queryString: string) => {
+    const parser = parseAsInteger.withDefault(1)
+    const raw = new URLSearchParams(queryString).get('page')
+    const parsed = raw === null ? parser.defaultValue : (parser.parse(raw) ?? parser.defaultValue)
+    return clampPage(parsed, 1_000)
+  }
+
+  /** The same URL, as the server receives it: a params record. */
+  const serverParams = (queryString: string) => {
+    const params: Record<string, string | string[]> = {}
+    for (const [key, value] of new URLSearchParams(queryString)) {
+      const existing = params[key]
+      if (existing === undefined) params[key] = value
+      else params[key] = Array.isArray(existing) ? [...existing, value] : [existing, value]
+    }
+    return params
+  }
 
   it.each([
-    undefined,
     '',
-    '1',
-    '2',
-    '4',
-    '1000',
-    '1001',
-    '0',
-    '-3',
-    'abc',
-    '2abc',
-    '+2',
-    ' 2 ',
-    '2.7',
-    '1e3',
-    ['2', '1'],
-    ['1', '2'],
-  ])('agrees on ?page=%p', raw => {
-    expect(archiveIsFirstPage({ page: raw })).toBe(clientPage(raw) === 1)
+    'page=',
+    'page=1',
+    'page=2',
+    'page=4',
+    'page=1000',
+    'page=1001',
+    'page=0',
+    'page=-3',
+    'page=abc',
+    'page=2abc',
+    'page=%2B2',
+    'page=%202%20',
+    'page=2.7',
+    'page=1e3',
+    // Repeated: both sides must pick the FIRST occurrence.
+    'page=2&page=1',
+    'page=1&page=2',
+  ])('agrees on ?%s', queryString => {
+    expect(archiveIsFirstPage(serverParams(queryString))).toBe(
+      clientPage(queryString) === 1
+    )
   })
 
   /**
@@ -210,9 +236,10 @@ describe('archiveIsFirstPage matches the client parser', () => {
    * is 1. A future surface with a different bound needs no change here.
    */
   it.each([1_000, 201, 2])('is independent of a %i-page bound', maxPage => {
-    for (const raw of ['1', '2', '5000', 'abc', undefined]) {
+    const parser = parseAsInteger.withDefault(1)
+    for (const raw of ['1', '2', '5000', 'abc']) {
       expect(archiveIsFirstPage({ page: raw })).toBe(
-        clampPage(parseAsInteger.withDefault(1).parseServerSide(raw), maxPage) === 1
+        clampPage(parser.parse(raw) ?? parser.defaultValue, maxPage) === 1
       )
     }
   })

@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
 
+// The real `notFound()` is typed `never` and THROWS — control does not return to
+// the caller. A plain `vi.fn()` lets execution fall through, which quietly turns
+// every "…is a 404" assertion into "…called a function and then carried on", so
+// the mock throws a recognisable sentinel instead.
+const NOT_FOUND = 'NEXT_NOT_FOUND'
 vi.mock('next/navigation', () => ({
-  notFound: vi.fn(),
+  notFound: vi.fn(() => {
+    throw new Error(NOT_FOUND)
+  }),
 }))
 
 // The archive body renders the real client archive; these tests only exercise
@@ -71,14 +78,31 @@ function mockRows() {
   )
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // reset, not clear: several tests below deliberately queue a response the
   // component must NOT consume, and `clearAllMocks` leaves a `…Once` queue
   // behind — it would surface as the NEXT test's venue read returning a
   // histogram.
   fetchMock.mockReset()
+  // The notFound mock is module-scoped, so its call log outlives each test;
+  // without this every `not.toHaveBeenCalled()` below would see the previous
+  // test's 404.
+  vi.mocked((await import('next/navigation')).notFound).mockClear()
   vi.stubGlobal('fetch', fetchMock)
 })
+
+/** Renders the archive and reports whether it 404'd rather than rendering. */
+async function renderedNotFound(
+  searchParams: Record<string, string | string[] | undefined> = {}
+): Promise<boolean> {
+  try {
+    await renderArchive(searchParams)
+    return false
+  } catch (error) {
+    if (error instanceof Error && error.message === NOT_FOUND) return true
+    throw error
+  }
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -192,6 +216,75 @@ describe('VenueYearArchiveContent — the page-1 read', () => {
     mockVenueAndYears()
     fetchMock.mockResolvedValueOnce(errorResponse(500))
 
-    await expect(renderArchive({})).resolves.toBeTruthy()
+    expect(await renderedNotFound()).toBe(false)
+  })
+})
+
+/**
+ * The three not-found rules, which MOVED into this module in PSY-1770 — they
+ * used to live in the route body, and their tests did not come with them.
+ *
+ * The distinction they encode is the highest-consequence behaviour on this
+ * route: 404 only on a POSITIVE absence. "The backend said this is not there"
+ * and "the backend did not answer" are different facts, and collapsing them is
+ * what turns a transient blip into a not-found body for every archive on the
+ * site — while `generateMetadata` stamps `noindex` on it, at HTTP 200, with no
+ * retry signal. The proxy deliberately fails open on exactly those responses; a
+ * fail-closed page here would cancel that out.
+ */
+describe('VenueYearArchiveContent — what is and is not a 404', () => {
+  it('404s a venue the backend says is gone', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(404))
+    fetchMock.mockResolvedValueOnce(errorResponse(404))
+    mockRows()
+
+    expect(await renderedNotFound()).toBe(true)
+  })
+
+  it('404s a year the histogram does not carry', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+    fetchMock.mockResolvedValueOnce(okResponse(buildYears([{ year: 2019, count: 4 }])))
+    mockRows()
+
+    // The component is scoped to 2025; the histogram knows only 2019.
+    expect(await renderedNotFound()).toBe(true)
+  })
+
+  it('404s a year the histogram carries with a zero count', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+    fetchMock.mockResolvedValueOnce(okResponse(buildYears([{ year: 2025, count: 0 }])))
+    mockRows()
+
+    expect(await renderedNotFound()).toBe(true)
+  })
+
+  /**
+   * THE rule. A 5xx on the histogram is "could not tell", and an archive that
+   * exists must keep rendering through it.
+   */
+  it.each([500, 429, 503])(
+    'does NOT 404 when the histogram answered %d',
+    async status => {
+      fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+      fetchMock.mockResolvedValueOnce(errorResponse(status))
+      mockRows()
+
+      expect(await renderedNotFound()).toBe(false)
+    }
+  )
+
+  /**
+   * The venue read is the one exception, and deliberately so: without the venue
+   * there is nothing to hang the page on, so an unavailable venue read still
+   * falls through to the not-found body — by way of the page rather than the
+   * head. Pinned because it is the asymmetry a reader would otherwise call a
+   * bug.
+   */
+  it('404s when the venue read is merely unavailable, unlike the histogram', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(500))
+    fetchMock.mockResolvedValueOnce(okResponse(buildYears([{ year: 2025, count: 161 }])))
+    mockRows()
+
+    expect(await renderedNotFound()).toBe(true)
   })
 })
