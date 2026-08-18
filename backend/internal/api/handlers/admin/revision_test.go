@@ -642,23 +642,35 @@ type revisionViewerTierCase struct {
 	want bool
 }
 
-// revisionViewerTierCases enumerates every way a caller can arrive at these
-// routes. Exactly one of them is the admin tier; the rest are the public one,
-// and each is a distinct way of failing to prove admin that
-// OptionalHumaJWTMiddleware can produce.
+// revisionViewerTierCases covers the contexts these handlers must classify.
+// Exactly one is the admin tier; the rest are the public one.
+//
+// The first two and the last are the shapes OptionalHumaJWTMiddleware actually
+// produces today. The typed-nil row is NOT one of them and is not a live request
+// shape — see its own note.
 var revisionViewerTierCases = []revisionViewerTierCase{
 	// No credential at all: the middleware calls next(ctx) untouched, so
 	// nothing is stored under the user key. This is the common case — these
-	// routes are public and most reads of them are anonymous.
+	// routes are public and most reads of them are anonymous. It also stands in
+	// for every credential the middleware REJECTS (bad signature, expired,
+	// inactive user, bad API token), all of which fall through to this same
+	// no-user context; the end-to-end coverage for those is in
+	// routes/revision_viewer_tier_test.go, over real tokens.
 	{"anonymous", context.Background(), false},
 	// A valid session for an ordinary contributor. Authenticated is NOT admin,
 	// and this is the case a check written as a bare nil test would wrongly
 	// promote.
 	{"authenticated non-admin", testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: false}), false},
-	// A TYPED nil under the user key. GetUserFromContext's type assertion
-	// succeeds on it, so the nil check in revisionViewerIsAdmin is what stops
-	// this dereferencing — dropping that check turns this row into a panic on a
-	// request an attacker can shape.
+	// A TYPED nil under the user key: GetUserFromContext's type assertion
+	// succeeds on it and returns a nil pointer, so the `user != nil` half of
+	// revisionViewerIsAdmin is the only thing between it and a dereference.
+	//
+	// No production path produces this. Every writer of UserContextKey stores a
+	// user obtained from a validated credential, and neither validator can
+	// return (nil, nil). It is here as a guard on the CHECK, not a claim about
+	// the middleware: a later refactor that stores a *authm.User unconditionally
+	// would make it reachable, and this row is what fails at that moment instead
+	// of a nil dereference in a handler.
 	{"user key present but nil", testhelpers.CtxWithUser(nil), false},
 	{"authenticated admin", revisionAdminCtx(), true},
 }

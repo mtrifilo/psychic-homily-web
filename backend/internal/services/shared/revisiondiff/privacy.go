@@ -40,12 +40,13 @@ const RedactedValue = "(hidden)"
 // button restores the real stored value: masking there hid what the moderation
 // action used from the only person who could act on it.
 //
-// That asymmetry is a decision, not drift, and it is stated at all three points
-// it could be "corrected" from: here, on catalog.Venue.PublicAddress, and on
-// admin.RevisionService.applyPrivacyRedaction, which is where the tier is
-// actually applied. Do not propagate the tier to the accessors, and do not
-// delete it here to match them. This file is the canonical argument; the other
-// two carry a pointer back to it.
+// That asymmetry is a decision, not drift. THIS COMMENT IS THE ARGUMENT FOR IT;
+// the two other places it could be "corrected" from —
+// catalog.Venue.PublicAddress / PublicZipcode, and
+// admin.RevisionService.applyPrivacyRedaction where the tier is applied — carry
+// a pointer here and only the mechanics their own reader needs. Change the
+// policy here first. Do not propagate the tier to the accessors, and do not
+// delete it there to match them.
 //
 // Adding a field to this list therefore withholds it from anonymous and
 // non-admin readers only; it is not a way to hide a value from an admin.

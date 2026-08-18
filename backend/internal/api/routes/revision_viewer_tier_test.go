@@ -31,9 +31,14 @@ import (
 // them back to the bare rc.API would leave every handler and service test
 // passing while every admin silently dropped to the public tier.
 //
-// Assertions are on the SERVED RESPONSE BODY, decoded through the handler's own
-// exported response types, so the test moves with the wire contract rather than
-// with a local copy of it.
+// Assertions are on the SERVED RESPONSE BODY, decoded through each route's OWN
+// exported response type, so the test moves with the wire contract rather than
+// with a local copy of it — and so a route whose shape drifts from its siblings
+// stops compiling here rather than quietly losing coverage.
+//
+// Both credential carriers are exercised. The middleware parses the
+// Authorization header and the auth_token cookie in separate code, and the
+// cookie is the only one the product uses.
 
 // Moving the three reads onto a Huma group is the operation that has previously
 // dropped operations out of the published document (PSY-1554, though by way of a
@@ -82,6 +87,16 @@ func TestRevisionReadRoutesStayInTheSpecExactlyOnce(t *testing.T) {
 // The literals a DIY venue's history is not allowed to publish, and the prose
 // that repeats one of them. Single-sourced so a fixture and its assertion cannot
 // drift onto different strings and pass vacuously.
+// credentialCarrier names how a credential reaches the server.
+// OptionalHumaJWTMiddleware reads both, from separate code, and the product only
+// ever uses the cookie.
+type credentialCarrier int
+
+const (
+	viaHeader credentialCarrier = iota
+	viaCookie
+)
+
 const (
 	tierSecretAddress = "1234 Secret St"
 	tierOldAddress    = "1 Old St"
@@ -154,11 +169,22 @@ func TestRevisionHistoryViewerTiersEndToEnd(t *testing.T) {
 	adminToken := token(admin)
 	contributorToken := token(contributor)
 
-	get := func(t *testing.T, path, bearer string) []byte {
+	// send issues the request with the credential carried the way `carrier` says.
+	// Both carriers matter and they are NOT interchangeable: the middleware has
+	// its own copy of the cookie parse, and the cookie is the only credential the
+	// product actually uses (apiRequest sends credentials:'include' and never an
+	// Authorization header), so header-only coverage would leave the production
+	// path untested.
+	send := func(t *testing.T, path, credential string, carrier credentialCarrier) []byte {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
-		if bearer != "" {
-			req.Header.Set("Authorization", "Bearer "+bearer)
+		if credential != "" {
+			switch carrier {
+			case viaHeader:
+				req.Header.Set("Authorization", "Bearer "+credential)
+			case viaCookie:
+				req.AddCookie(&http.Cookie{Name: "auth_token", Value: credential})
+			}
 		}
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -168,12 +194,32 @@ func TestRevisionHistoryViewerTiersEndToEnd(t *testing.T) {
 		return w.Body.Bytes()
 	}
 
-	// readList decodes either paginated route through the handler's own response
-	// type and returns the single revision both fixtures produce.
+	get := func(t *testing.T, path, bearer string) []byte {
+		t.Helper()
+		return send(t, path, bearer, viaHeader)
+	}
+
+	// readList decodes an entity-history response. It is NOT used for
+	// /users/{id}/revisions: that route answers with its own response type, and
+	// decoding it through this one would silently stop covering it the moment
+	// the two shapes diverge. See readUserList.
 	readList := func(t *testing.T, path, bearer string) ([]byte, adminh.RevisionResponseItem) {
 		t.Helper()
 		body := get(t, path, bearer)
 		var parsed adminh.GetEntityHistoryResponse
+		if err := json.Unmarshal(body, &parsed.Body); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, body)
+		}
+		if len(parsed.Body.Revisions) != 1 {
+			t.Fatalf("got %d revisions, want 1; body: %s", len(parsed.Body.Revisions), body)
+		}
+		return body, parsed.Body.Revisions[0]
+	}
+
+	readUserList := func(t *testing.T, path, bearer string) ([]byte, adminh.RevisionResponseItem) {
+		t.Helper()
+		body := get(t, path, bearer)
+		var parsed adminh.GetUserRevisionsResponse
 		if err := json.Unmarshal(body, &parsed.Body); err != nil {
 			t.Fatalf("parse response: %v; body: %s", err, body)
 		}
@@ -264,6 +310,36 @@ func TestRevisionHistoryViewerTiersEndToEnd(t *testing.T) {
 		assertUnmasked(t, item)
 	})
 
+	// The carrier the PRODUCT uses. Browsers never send an Authorization header
+	// to these routes — apiRequest sets credentials:'include' and the session
+	// rides the HTTP-only auth_token cookie — and the middleware parses the
+	// cookie in its own code, separate from the header branch. Without this,
+	// every subtest above could pass while real admins sat on the masked tier.
+	t.Run("an admin authenticated by cookie sees the stored history", func(t *testing.T) {
+		body := send(t, historyPath, adminToken, viaCookie)
+		var parsed adminh.GetEntityHistoryResponse
+		if err := json.Unmarshal(body, &parsed.Body); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, body)
+		}
+		if len(parsed.Body.Revisions) != 1 {
+			t.Fatalf("got %d revisions, want 1; body: %s", len(parsed.Body.Revisions), body)
+		}
+		assertUnmasked(t, parsed.Body.Revisions[0])
+	})
+
+	// The negative half of the same carrier: a cookie must not be a free pass.
+	t.Run("a garbage cookie gets the public tier", func(t *testing.T) {
+		body := send(t, historyPath, "not.a.real.token", viaCookie)
+		var parsed adminh.GetEntityHistoryResponse
+		if err := json.Unmarshal(body, &parsed.Body); err != nil {
+			t.Fatalf("parse response: %v; body: %s", err, body)
+		}
+		if len(parsed.Body.Revisions) != 1 {
+			t.Fatalf("got %d revisions, want 1; body: %s", len(parsed.Body.Revisions), body)
+		}
+		assertMasked(t, body, parsed.Body.Revisions[0])
+	})
+
 	// A forged or unparseable credential must not buy the admin tier. The
 	// optional middleware swallows the failure and proceeds anonymously, which is
 	// the behaviour that makes "no credential" and "bad credential" identical
@@ -316,15 +392,15 @@ func TestRevisionHistoryViewerTiersEndToEnd(t *testing.T) {
 	t.Run("the user-revisions route carries the tier", func(t *testing.T) {
 		path := fmt.Sprintf("/users/%d/revisions", contributor.ID)
 
-		body, public := readList(t, path, "")
+		body, public := readUserList(t, path, "")
 		assertMasked(t, body, public)
 
 		// The author reading their own contributions page is still the public
 		// tier. Authorship is not a credential.
-		body, own := readList(t, path, contributorToken)
+		body, own := readUserList(t, path, contributorToken)
 		assertMasked(t, body, own)
 
-		_, asAdmin := readList(t, path, adminToken)
+		_, asAdmin := readUserList(t, path, adminToken)
 		assertUnmasked(t, asAdmin)
 	})
 

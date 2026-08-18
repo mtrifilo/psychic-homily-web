@@ -25,14 +25,29 @@ func setupRevisionRoutes(rc RouteContext) {
 	// admin.RevisionService.applyPrivacyRedaction for the policy and for why it
 	// diverges from the tier-less live venue payload.
 	//
-	// CACHING, for whoever adds it here next: these three responses now vary by
-	// CREDENTIAL, which they did not before. None of them sets Cache-Control
-	// today and nothing between the browser and this service caches them — the
-	// frontend calls the API host directly over TLS with credentials:'include',
-	// and there is no CDN on that path — so there is nothing to leak through
-	// right now. Anything that puts a shared cache in front of these routes has
-	// to carry `Vary: Authorization, Cookie` (or mark them private), or it will
-	// serve one admin's unmasked history to the next anonymous reader.
+	// CACHING: these three responses now vary by CREDENTIAL, which they did not
+	// before. Two caches matter, and only one of them is currently safe.
+	//
+	// The NETWORK path is clear. None of these sets Cache-Control, the frontend
+	// calls the API host directly over TLS with credentials:'include', and there
+	// is no CDN on that path. Anything that puts a SHARED cache in front of these
+	// routes has to carry `Vary: Authorization, Cookie` (or mark the responses
+	// private), or it will serve one admin's unmasked history to the next
+	// anonymous reader.
+	//
+	// The CLIENT cache is a known gap this change does NOT close. The frontend
+	// keys revision queries on entity identity alone — no viewer — with a
+	// 15-minute staleTime, and login neither clears nor invalidates it (only
+	// logout, a failed token refresh, and account deletion call
+	// queryClient.clear()). So a moderator who opens a gated venue's History
+	// while logged out and then signs in WITHOUT a full page load keeps being
+	// served the masked payload, beside a Rollback button that restores the real
+	// value — the state this tier exists to remove, surviving in the client.
+	// It is not revision-specific: follows, tags and comments are all
+	// optional-auth and cached the same way, so the fix is one deliberate
+	// "invalidate credential-varying queries on login" change (invalidateQueries
+	// .revisions() already exists and nothing calls it on login), not a patch
+	// here.
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/revisions/{entity_type}/{entity_id}", revisionHandler.GetEntityHistoryHandler)

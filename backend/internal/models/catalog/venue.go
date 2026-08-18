@@ -153,6 +153,11 @@ func (v *Venue) PublicAddress() *string {
 // Street-level coordinates carry the rule too but stay inline in
 // buildVenueResponse, their only producer, because they take an extra
 // freshness condition that reads better beside the fields it guards.
+//
+// It carries PublicAddress's caller-tier note as well, for the same reason it
+// carries the field rule: revision history serves an admin this venue's zipcode
+// HISTORY unmasked while this accessor returns nil to everybody. Do not add a
+// tier here. See revisiondiff.venuePrivateFields for the argument.
 func (v *Venue) PublicZipcode() *string {
 	if v == nil || !v.Verified {
 		return nil

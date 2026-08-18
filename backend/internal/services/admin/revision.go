@@ -264,22 +264,11 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 // the field list, and the gaps it does not cover are stated once on the
 // revisiondiff package doc; this is the mechanism.
 //
-// It takes a caller tier, and that is where this policy DIVERGES BY DESIGN from
-// the live venue payload. The live gate (catalog.Venue.PublicAddress) turns on
-// venues.verified alone and has NO tier: an admin loading an unverified venue's
-// detail page does not see its address either. Revision history adds one — an
-// authenticated ADMIN reads it unmasked — because this surface carries a
-// moderation ACTION beside the data. The History panel's Rollback button
-// restores the real stored value (getRevisionRaw), so a masked admin view meant
-// the moderation UI hid exactly what the moderation action used, leaving the
-// human pressing the button as the one person who could not see what they were
-// about to restore (PSY-1717).
-//
-// Do NOT harmonize the two policies by deleting this tier. The divergence is
-// stated at both policy sites — revisiondiff.venuePrivateFields and
-// catalog.Venue.PublicAddress — precisely so it reads as chosen rather than as
-// drift. It publishes nothing new: an admin already reaches these values through
-// the moderation queue and the data-sync export.
+// It takes a caller tier: an authenticated ADMIN reads revision history
+// unmasked, everyone else gets the masked view (PSY-1717). WHY that tier exists,
+// and why the live venue payload deliberately has none, is argued once on
+// revisiondiff.venuePrivateFields — read it before changing the policy. What
+// follows here is only what a reader of THIS function needs.
 //
 // Admin means admin, not merely authenticated. viewerIsAdmin is resolved in the
 // handler as `user != nil && user.IsAdmin` over the user the route's
@@ -291,15 +280,12 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 // rest of this function.
 //
 // It unmasks the WHOLE view for an admin, prose included, not just the address
-// family. The summary withholding below rides the same verdict, and a moderator
+// family: the summary withholding below rides the same verdict, and a moderator
 // reading a rollback candidate needs the contributor's stated reason as much as
-// the values.
-//
-// That is also the standing instruction for the NEXT privacy family added here.
-// The revisiondiff package doc asks new field-level gates to flow through this
-// function, and everything in it sits behind the admin return below — so a new
-// gate is admin-transparent unless its author decides otherwise. Decide it
-// rather than inherit it.
+// the values. That is also the standing instruction for the NEXT privacy family
+// added here — everything in this function sits behind the admin return below,
+// so a new gate is admin-transparent unless its author decides otherwise.
+// Decide it rather than inherit it.
 //
 // Fail closed. A lookup error, a nil db, or a missing venue row leaves the
 // venue out of the verified set, so its history is masked. Withholding an
