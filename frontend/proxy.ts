@@ -334,6 +334,22 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
         requireApiAuthoredNotFound: false,
       })
     }
+    // The multi-day rolling windows (PSY-1849). Same reasoning as `/tonight`:
+    // neither carries a key, so the ONLY thing that can 404 them is the scene
+    // itself, and the cheap existence endpoint answers that without rebuilding
+    // a window the page is about to fetch anyway. `/next-4-weeks` composes five
+    // week payloads, so probing its own data here would cost five extra backend
+    // queries per request and discard all of them.
+    //
+    // Caveat 2 on `/tonight` applies to these as well: DEPLOY THE BACKEND
+    // FIRST. Because the probe does not touch the window's own data, a frontend
+    // live ahead of its backend passes these through to a page whose fetch
+    // 404s, and that `notFound()` lands after the shell has streamed.
+    if (sub === 'this-weekend' || sub === 'next-4-weeks') {
+      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
+        requireApiAuthoredNotFound: false,
+      })
+    }
     // File-convention OG card on the rolling detail URL. Without this branch
     // `opengraph-image` is a junk period and 404s before Next sees the route
     // (PSY-1785). Probe scene existence, same as `/tonight`: the card's own

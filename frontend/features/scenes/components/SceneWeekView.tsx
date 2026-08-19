@@ -27,8 +27,15 @@ import {
  * right-aligned column, but at mobile widths (~358px of content) a right column
  * cannot survive real band names — `Slightly Stoopid, The Elovaters, Bumpin
  * Uglies` consumes the row on its own — so the venue stacks underneath instead.
+ *
+ * Exported for the multi-week window pages (`/this-weekend`, `/next-4-weeks`),
+ * which group by day and lead with the bill exactly as this page does. They
+ * share the ROW rather than growing a copy: a reader walking from one window to
+ * another must not see the same show change shape. Deliberately still NOT
+ * shared with the nightly page, whose row leads with the time because a single
+ * night is read as a schedule (see the note in `sceneChrome.tsx`).
  */
-function ShowRow({ show }: { show: SceneWeekShow }) {
+export function SceneWeekShowRow({ show }: { show: SceneWeekShow }) {
   return (
     <li className="border-b border-border/40 last:border-b-0">
       <Link
@@ -75,7 +82,7 @@ function DayGroup({ date, shows }: { date: string; shows: SceneWeekShow[] }) {
       {shows.length > 0 && (
         <ul>
           {shows.map(show => (
-            <ShowRow key={show.id} show={show} />
+            <SceneWeekShowRow key={show.id} show={show} />
           ))}
         </ul>
       )}
