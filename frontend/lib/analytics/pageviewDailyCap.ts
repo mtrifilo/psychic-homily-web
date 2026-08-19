@@ -12,9 +12,17 @@
  * Fail-open posture, same as the internal-traffic flag: when storage is
  * unavailable or holds garbage, keep counting. Under-counting real visitors
  * is a worse failure than over-counting.
+ *
+ * The cap NEVER affects site usage: past it, the only change is that further
+ * pageviews go unreported to Vercel Analytics. The value is sized for the
+ * most engaged real visitor, not the median: a deep-dive session mints a
+ * pageview per entity click, and losing the heavy tail would undercount
+ * exactly the users worth measuring. 150 is ~4x the highest genuine
+ * per-browser day observed to date while still suppressing a runaway
+ * client's volume by ~98%.
  */
 
-export const DAILY_PAGEVIEW_CAP = 50
+export const DAILY_PAGEVIEW_CAP = 150
 export const PAGEVIEW_COUNT_KEY = 'ph-pv-count'
 
 /**

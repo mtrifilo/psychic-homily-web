@@ -99,7 +99,7 @@ describe('InternalTrafficAnalytics beforeSend', () => {
       window.localStorage.getItem(PAGEVIEW_COUNT_KEY)!
     ) as { d: string; n: number }
     // Catches a regression in the date expression (e.g. a slice that produces
-    // a month key and turns the cap into 50 events per MONTH).
+    // a month key and turns the daily cap into a monthly one).
     expect(stored.d).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(stored.n).toBe(1)
   })
