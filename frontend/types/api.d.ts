@@ -12195,13 +12195,8 @@ export interface components {
              * @example https://example.com/schemas/GetSceneNewArtistsResponseBody.json
              */
             readonly $schema?: string;
-            /** @description Bands based in the scene first listed inside the window, most recently listed first */
+            /** @description Bands based in the scene, most recently listed first */
             artists: components["schemas"]["SceneNewArtistRow"][] | null;
-            /**
-             * Format: int64
-             * @description Total bands first listed in the window, before the limit is applied
-             */
-            total: number;
         };
         GetSceneShowsResponseBody: {
             /**
@@ -31628,9 +31623,7 @@ export interface operations {
     "get-scenes-by-slug-new-artists": {
         parameters: {
             query?: {
-                /** @description Window in days — bands first listed inside [now-days, now] */
-                days?: number;
-                /** @description Maximum number of bands to return, most recently listed first */
+                /** @description Maximum number of bands to return, most recently listed first. Omit for the server default (5). */
                 limit?: number;
             };
             header?: never;
