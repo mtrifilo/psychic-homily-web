@@ -94,10 +94,10 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
   // PSY-563: shows route through the EntityEditDrawer + show direct-save
   // path. The suggest-edit pipeline is intentionally NOT extended to
   // shows (PSY-461 / PSY-489); the drawer dispatches show saves to
-  // /shows/{id} PUT via useShowEdit. canEditDirectly mirrors the legacy
-  // inline-form gate (admin OR submitter) — non-owners see no Edit
-  // button, so the drawer never opens for them.
-  const canEditShow = isAdmin || isOwner
+  // /shows/{id} PUT via useShowEdit. An alias of canModerateShow, not a
+  // fresh derivation — the "one predicate" comment above only holds if
+  // every gate actually routes through the definition.
+  const canEditShow = canModerateShow
 
   const handleToggleSoldOut = () => {
     if (!show) return
@@ -186,6 +186,7 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
         header={
           <ShowHeader
             show={show}
+            lifecycle={lifecycle}
             actions={
               // Gated HERE and only here (ShowActions carries no internal
               // guard): the cluster is admin/owner-only, and handing

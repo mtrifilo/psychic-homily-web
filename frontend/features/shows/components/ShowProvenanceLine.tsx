@@ -61,7 +61,9 @@ interface ShowProvenanceLineProps {
  *   the mock's "added by mtrifilo" has no honest data to render from.
  * - "updated … by …" and the edit count come from the revisions read the
  *   old attribution line already made on this page; zero revisions renders
- *   neither.
+ *   neither. This is DELIBERATELY human edits only — `show.updated_at`
+ *   also moves on scrape refreshes and admin flag flips, and "updated" in
+ *   a byline that names an editor should mean a person edited the listing.
  * - `[Edit]` renders only when the drawer can actually open (the mock says
  *   "Suggest an edit", but shows have no suggest pipeline — user decision:
  *   honest label, no dead button).
@@ -112,19 +114,33 @@ export function ShowProvenanceLine({
         />
       </span>
     )
-    push(
-      'edits',
-      <span>
-        {attribution.total} {attribution.total === 1 ? 'edit' : 'edits'}
-      </span>
-    )
+    // Guarded on the VALUE, not just the object: the hook's response type is
+    // a hand-written mirror of the wire shape, so nothing at build time
+    // proves `total` exists — and this component promises every fragment
+    // degrades to omission, never to the literal string "undefined edits".
+    if (Number.isFinite(attribution.total) && attribution.total > 0) {
+      push(
+        'edits',
+        <span>
+          {attribution.total} {attribution.total === 1 ? 'edit' : 'edits'}
+        </span>
+      )
+    }
   }
   if (canEdit) {
     // text-xs: BracketLink defaults to the header-linkbox text-sm, which
-    // reads a size larger than the byline it sits in.
+    // reads a size larger than the byline it sits in. The aria label is NOT
+    // the bare "Edit": an admin's page also carries ShowActions' Edit
+    // button, and two controls announcing identically is a screen-reader
+    // ambiguity.
     push(
       'edit',
-      <BracketLink label="Edit" onClick={onEdit} className="text-xs" />
+      <BracketLink
+        label="Edit"
+        onClick={onEdit}
+        className="text-xs"
+        ariaLabel="Edit this show listing"
+      />
     )
   }
   push(

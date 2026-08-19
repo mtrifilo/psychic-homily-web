@@ -131,20 +131,42 @@ describe('ShowProvenanceLine', () => {
     expect(screen.queryByText(/edits?$/)).not.toBeInTheDocument()
   })
 
-  // Shows have no suggest pipeline (PSY-461/489): the affordance exists only
-  // for viewers whose drawer actually opens, honestly labelled.
+  // Shows have no suggest pipeline: the affordance exists only for viewers
+  // whose drawer actually opens, honestly labelled. The accessible name is
+  // distinguished from ShowActions' plain "Edit" button so an admin's page
+  // never announces two identical Edit controls.
   it('renders a working Edit bracket only for viewers who can edit', () => {
     const { onEdit } = renderLine(makeShow(), { canEdit: true })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Edit this show listing' })
+    )
     expect(onEdit).toHaveBeenCalledTimes(1)
   })
 
   it('omits the Edit bracket for viewers with no edit path', () => {
     renderLine(makeShow(), { canEdit: false })
     expect(
-      screen.queryByRole('button', { name: 'Edit' })
+      screen.queryByRole('button', { name: 'Edit this show listing' })
     ).not.toBeInTheDocument()
+  })
+
+  // The hook's response type is a hand-written mirror; if the count ever
+  // goes missing the fragment must vanish, never render "undefined edits".
+  it('omits the edit-count fragment when the total is not a number', () => {
+    mockUseEntityAttribution.mockReturnValue({
+      data: {
+        user_name: 'mtrifilo',
+        user_username: null,
+        created_at: '2026-07-31T12:00:00Z',
+        total: undefined as unknown as number,
+      },
+    })
+    renderLine(makeShow())
+    expect(screen.getByText(/updated Jul 31/)).toBeInTheDocument()
+    expect(
+      screen.getByTestId('show-provenance-line').textContent
+    ).not.toContain('undefined')
   })
 
   it('always offers Report issue, in the bracket register', () => {

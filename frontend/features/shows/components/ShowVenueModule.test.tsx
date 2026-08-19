@@ -237,6 +237,17 @@ describe('ShowVenueModule', () => {
     )
   })
 
+  // The venue page refuses to map an unverified venue (a name + city search
+  // narrows a house show to a door); the show page must apply the same rule.
+  it('offers no Directions for an unverified venue', () => {
+    render(
+      <ShowVenueModule show={showAt(makeVenue({ verified: false, address: null }))} />
+    )
+    expect(
+      screen.queryByRole('link', { name: /Directions/ })
+    ).not.toBeInTheDocument()
+  })
+
   // The follow ROUTE segment is plural; the notify VOCABULARY is singular.
   // Getting the follow one wrong 400s every click — the exact bug this pins.
   it('follows through the plural route segment and notifies through the singular vocabulary', () => {

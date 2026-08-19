@@ -114,7 +114,7 @@ describe('ShowHeader layout', () => {
   // The locked decision: no flyer means no reserved gutter. The earlier
   // always-on placeholder promised an image that was never coming.
   it('collapses to one full-width column when the show has no flyer', () => {
-    render(<ShowHeader show={makeShow({ image_url: null })} />)
+    render(<ShowHeader lifecycle="upcoming" show={makeShow({ image_url: null })} />)
 
     expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
     expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
@@ -123,6 +123,7 @@ describe('ShowHeader layout', () => {
   it('renders the flyer beside the bill when the show has one', () => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({ image_url: 'https://flyers.example/poster.jpg' })}
       />
     )
@@ -140,6 +141,7 @@ describe('ShowHeader layout', () => {
   it('reads after the bill in the document and renders left of it on desktop', () => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({ image_url: 'https://flyers.example/poster.jpg' })}
       />
     )
@@ -157,6 +159,7 @@ describe('ShowHeader layout', () => {
   it('normalises a padded flyer url instead of putting whitespace in the src', () => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({ image_url: '  https://flyers.example/poster.jpg  ' })}
       />
     )
@@ -175,7 +178,7 @@ describe('ShowHeader layout', () => {
     ['a non-http scheme', 'data:image/png;base64,AAAA'],
     ['an unparseable value', 'not a url at all'],
   ])('collapses the column for %s', (_label, imageUrl) => {
-    render(<ShowHeader show={makeShow({ image_url: imageUrl })} />)
+    render(<ShowHeader lifecycle="upcoming" show={makeShow({ image_url: imageUrl })} />)
 
     expect(screen.queryByTestId('show-flyer-plate')).not.toBeInTheDocument()
     expect(layoutGrid()).not.toHaveClass(TWO_COLUMN_CLASS)
@@ -186,6 +189,7 @@ describe('ShowHeader layout', () => {
   it('collapses the column when the flyer fails to load', () => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
       />
     )
@@ -206,6 +210,7 @@ describe('ShowHeader layout', () => {
 
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
       />
     )
@@ -219,6 +224,7 @@ describe('ShowHeader layout', () => {
   it('shows a replacement flyer after the previous one failed', () => {
     const { rerender } = render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({ image_url: 'https://flyers.example/gone.jpg' })}
       />
     )
@@ -226,6 +232,7 @@ describe('ShowHeader layout', () => {
 
     rerender(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({ image_url: 'https://flyers.example/fixed.jpg' })}
       />
     )
@@ -241,6 +248,7 @@ describe('ShowHeader layout', () => {
   it('credits the venue the listing was scraped from', () => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({
           image_url: 'https://flyers.example/poster.jpg',
           source_venue: 'the-venue',
@@ -259,6 +267,7 @@ describe('ShowHeader layout', () => {
   ])('credits nobody for %s', (_label, sourceVenue) => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({
           image_url: 'https://flyers.example/poster.jpg',
           source_venue: sourceVenue,
@@ -274,6 +283,7 @@ describe('ShowHeader layout', () => {
   it('credits nobody when the matched venue has a blank name', () => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({
           image_url: 'https://flyers.example/poster.jpg',
           source_venue: 'the-venue',
@@ -300,6 +310,7 @@ describe('ShowHeader layout', () => {
   it('renders a stateless venue location without a trailing comma', () => {
     render(
       <ShowHeader
+        lifecycle="upcoming"
         show={makeShow({
           venues: [
             {
@@ -343,7 +354,7 @@ describe('ShowHeader layout', () => {
       ],
     })
 
-    render(<ShowHeader show={show} />)
+    render(<ShowHeader lifecycle="upcoming" show={show} />)
 
     expect(screen.getByText(/Sat, Aug 15/)).toBeInTheDocument()
     expect(screen.queryByText(/Fri, Aug 14/)).not.toBeInTheDocument()
@@ -363,7 +374,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(supportLineText()).toMatch(
         /First Support.*Second Support.*Third Support/s
@@ -378,7 +389,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(screen.getByRole('heading', { level: 1 }).textContent ?? '').toMatch(
         /Main Headliner.*Co Headliner/s
@@ -393,7 +404,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Opening Slot Zero')
       expect(supportLineText()).toContain('Later Act')
@@ -410,7 +421,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(supportLineText()).toMatch(/Bravo.*Charlie/s)
     })
@@ -422,7 +433,7 @@ describe('ShowHeader bill rendering', () => {
       ]
       const show = makeShow({ artists })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(artists.map(a => a.name)).toEqual(['Second', 'First'])
     })
@@ -451,7 +462,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       // Exact, so the mock's locked SEQUENCE is pinned: name, then labels,
       // then hometown, with nothing interposed.
@@ -492,7 +503,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(supportLineText()).toContain(
         '[Jealous Butcher · Dead Oceans]'
@@ -532,7 +543,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       // textContent ignores aria-hidden, so the bullet is in this string; what
       // matters is that the SPACES around it are their own text nodes, outside
@@ -564,7 +575,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(headlineText()).toBe('No Label Band from Phoenix, AZ')
     })
@@ -577,7 +588,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(headlineText()).toBe('Unknown Signing')
     })
@@ -598,7 +609,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       // Also the labels-without-hometown case: pins the spacing when
       // BillLabels is the last thing on the line.
@@ -623,7 +634,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(headlineText()).toBe('Rolling Blackouts from Melbourne, Australia')
     })
@@ -646,7 +657,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(headlineText()).toBe('Placeless')
     })
@@ -669,7 +680,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(headlineText()).toBe('Edge Case from Location Unknown')
     })
@@ -700,7 +711,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(supportLineText()).toBe('w/ The Support')
     })
@@ -725,7 +736,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(screen.getByText('(special guest)')).toBeInTheDocument()
       expect(supportLineText()).toBe(
@@ -750,7 +761,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      expect(() => render(<ShowHeader show={show} />)).not.toThrow()
+      expect(() => render(<ShowHeader lifecycle="upcoming" show={show} />)).not.toThrow()
       expect(supportLineText()).toContain('Odd One')
       expect(supportLineText()).not.toMatch(/\(/)
     })
@@ -763,7 +774,7 @@ describe('ShowHeader bill rendering', () => {
         ],
       })
 
-      render(<ShowHeader show={show} />)
+      render(<ShowHeader lifecycle="upcoming" show={show} />)
 
       expect(supportLineText()).toContain('Just A Band')
       expect(supportLineText()).not.toMatch(/\(/)

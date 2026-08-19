@@ -11,6 +11,7 @@ import { ShowTicketRow } from './ShowTicketRow'
 import { ShowVenueModule } from './ShowVenueModule'
 import { flyerImageSrc, sourceVenueName } from './showFlyer'
 import { showTimingInput, splitBill } from '../utils'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type {
   ArtistResponse,
   SetType,
@@ -190,6 +191,12 @@ function BillHometown({
 interface ShowHeaderProps {
   show: ShowResponse
   /**
+   * Server-computed lifecycle, threaded to the ticket row so the sale-state
+   * claim can respect the archive (ON SALE is present tense). Same value the
+   * status stripe above this header renders from.
+   */
+  lifecycle: ShowLifecycleState
+  /**
    * The ADMIN/OWNER moderation cluster (edit, delete, status flags),
    * rendered at the foot of the ticket block at every width. The caller
    * gates it — pass `undefined` for public viewers so the slot reserves no
@@ -222,7 +229,7 @@ interface ShowHeaderProps {
  * fit into `EntityHeader`'s single-string `title` / subtitle-badge shape.
  * See `docs/research/entity-detail-layout-migration.md` for rationale.
  */
-export function ShowHeader({ show, actions }: ShowHeaderProps) {
+export function ShowHeader({ show, lifecycle, actions }: ShowHeaderProps) {
   // A flyer URL that 404s, or points at a host that blocks hotlinking, is the
   // same situation as no flyer at all, so it collapses the column the same
   // way rather than leaving a broken-image glyph in a reserved gutter.
@@ -404,7 +411,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
             admin/owner chrome (edit, delete, status flags) — the public verbs
             live inside ShowTicketRow's bracket row. */}
         <div className="mt-4 border-t border-border/60 pt-4">
-          <ShowTicketRow show={show} />
+          <ShowTicketRow show={show} lifecycle={lifecycle} />
 
           {actions && (
             <div className="mt-3 flex flex-col items-start gap-2">{actions}</div>

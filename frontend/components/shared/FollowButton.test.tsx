@@ -323,33 +323,15 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
     ).toBeInTheDocument()
   })
 
-  // The bracket shows no follower count and an anonymous viewer is
-  // not-following by definition, so the status request is pure waste on
-  // public pages — the component must not fire it, and must render the
-  // ENABLED control (whose click routes to /auth), not the loading
-  // placeholder a disabled query would otherwise suggest.
-  it('skips the status fetch for anonymous viewers and still routes to /auth on click', async () => {
-    const user = userEvent.setup()
+  // The status fetch runs for EVERY bracket viewer, anonymous included. An
+  // anonymous-skip was probed and rejected (see the comment in the
+  // component): `isAuthenticated` is false for a signed-in viewer until the
+  // profile round-trip lands, so any skip predicate misreads that window as
+  // "anonymous" and ships an enabled bracket whose replayed pre-hydration
+  // click bounces a signed-in user to /auth. This pin keeps the fetch gate
+  // from being "optimized" without a settled-auth signal.
+  it('keeps the status fetch enabled even for anonymous viewers', () => {
     mockIsAuthenticated = false
-    mockStatusLoading = true
-    mockFollowStatusData = undefined
-    render(
-      <FollowButton entityType="venues" entityId={1} variant="bracket" />,
-      { wrapper: createWrapper() }
-    )
-
-    expect(followStatusCall.last?.enabled).toBe(false)
-    const bracket = screen.getByRole('button', { name: 'Follow' })
-    expect(bracket).toBeEnabled()
-
-    await user.click(bracket)
-    expect(mockPush).toHaveBeenCalledWith(
-      expect.stringContaining('/auth?returnTo=')
-    )
-    expect(mockFollowMutate).not.toHaveBeenCalled()
-  })
-
-  it('still fetches status for authenticated bracket viewers', () => {
     render(
       <FollowButton entityType="venues" entityId={1} variant="bracket" />,
       { wrapper: createWrapper() }

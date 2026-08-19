@@ -15,8 +15,10 @@ interface MiddotSegmentsProps {
    */
   segments: React.ReactNode[]
   /**
-   * Stable key per segment, same order. Optional for all-string callers,
-   * where content identity is fine.
+   * Stable key per segment, same order. The fallback without it is
+   * POSITIONAL (index), which is only safe for fixed-order lists whose
+   * segments carry no state — pass keys for anything that can insert or
+   * reorder at runtime.
    */
   keys?: string[]
   className?: string

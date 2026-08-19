@@ -53,10 +53,13 @@ export function useEntityAttribution(
         user_name: revision.user_name || 'Anonymous',
         user_username: revision.user_username ?? null,
         created_at: revision.created_at,
-        // Trusted as-is: the generated contract declares `total` required,
-        // and a defensive floor here would only convert a loud backend
-        // regression ("0 edits" beside a rendered revision) into a quietly
-        // wrong small number nobody reports.
+        // Passed through untouched. The backend handler always sets it, but
+        // note the honest limit: `EntityHistoryResponse` above is a
+        // hand-written mirror and `apiRequest<T>` is an unchecked cast, so
+        // nothing HERE proves the field exists — value-level consumers guard
+        // before rendering. A defensive floor was rejected because it would
+        // convert a loud backend regression ("0 edits" beside a rendered
+        // revision) into a quietly wrong small number nobody reports.
         total: data.total,
       }
     },

@@ -91,6 +91,16 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       [ref]
     )
 
+    // The external branch only renders http(s): a shared primitive named
+    // `external` is exactly where a user-controlled URL will eventually
+    // arrive, and the scheme floor belongs in the primitive rather than in
+    // every caller's repair logic. An unsafe value renders the DISABLED
+    // button fallback (same as href+disabled) — never an enabled dead
+    // control, and never the raw href.
+    const unsafeExternalHref =
+      external && !!href && !/^https?:\/\//i.test(href)
+    const effectiveDisabled = disabled || unsafeExternalHref
+
     const classes = cn(
       'inline-flex items-baseline whitespace-nowrap text-sm tabular-nums',
       // Tailwind's preflight leaves <button> at `cursor: default`, so the
@@ -108,7 +118,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       // cannot receive a click at all — a styling change here would silently
       // turn that into a live gap. See FollowButton.tsx and
       // lib/hydration/clickReplay.ts.
-      disabled && 'opacity-50 cursor-not-allowed pointer-events-none',
+      effectiveDisabled && 'opacity-50 cursor-not-allowed pointer-events-none',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-sm',
       className
     )
@@ -121,11 +131,12 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       </>
     )
 
-    if (href && !disabled) {
+    if (href && !effectiveDisabled) {
       // ONE bag of anchor props for both anchor-shaped branches, so a shared
       // concern added to internal links (an aria fix, a data attribute)
       // cannot silently skip the external ones — both render as an <a> and
-      // the omission would be invisible in review.
+      // the omission would be invisible in review. Spread BEFORE the literal
+      // target/rel so the bag can never override the hygiene attributes.
       const anchorProps = {
         onClick: onClick as React.MouseEventHandler | undefined,
         className: classes,
@@ -134,13 +145,13 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       }
       if (external) {
         return (
-          <a href={href} target="_blank" rel="noopener noreferrer" {...anchorProps}>
+          <a {...anchorProps} href={href} target="_blank" rel="noopener noreferrer">
             {content}
           </a>
         )
       }
       return (
-        <Link href={href} {...anchorProps}>
+        <Link {...anchorProps} href={href}>
           {content}
         </Link>
       )
@@ -157,7 +168,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         ref={composedRef}
         type="button"
         onClick={onClick}
-        disabled={disabled}
+        disabled={effectiveDisabled}
         className={classes}
         title={title}
         aria-label={ariaLabel ?? label}

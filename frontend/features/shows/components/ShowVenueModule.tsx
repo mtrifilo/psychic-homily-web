@@ -47,15 +47,19 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
   const cityState =
     formattedCityState === LOCATION_UNKNOWN ? null : formattedCityState
   const factSegments = venueFactSegments(show, venue)
-  // Directions works from whatever location facts exist — the query is
-  // name-first, so a redacted street address degrades to a name + city
-  // search rather than disappearing the affordance.
-  const mapsUrl = googleMapsSearchUrl({
-    name: venue.name,
-    address: venueAddress,
-    city: venue.city,
-    state: venue.state,
-  })
+  // VERIFIED venues only. The venue's own page refuses to map an unverified
+  // venue at all (city/state text, no directions, no embed) because a
+  // name + city map search narrows a house show to a door — server-side
+  // address redaction is only half that policy, and this affordance is the
+  // other half. Two surfaces, one rule.
+  const mapsUrl = venue.verified
+    ? googleMapsSearchUrl({
+        name: venue.name,
+        address: venueAddress,
+        city: venue.city,
+        state: venue.state,
+      })
+    : null
 
   return (
     <div className="mt-4" data-testid="show-venue-module">
@@ -97,12 +101,14 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <BracketLink
-          label="Directions ↗"
-          href={mapsUrl}
-          external
-          ariaLabel={`Directions to ${venue.name} (opens Google Maps in a new tab)`}
-        />
+        {mapsUrl && (
+          <BracketLink
+            label="Directions ↗"
+            href={mapsUrl}
+            external
+            ariaLabel={`Directions to ${venue.name} (opens Google Maps in a new tab)`}
+          />
+        )}
         {/* Follow routes are PLURAL path segments ("venues"); the notify
             vocabulary is SINGULAR ("venue"). Adjacent on purpose so the next
             editor sees both spellings are deliberate. */}

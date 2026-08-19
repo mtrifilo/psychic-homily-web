@@ -9,26 +9,18 @@ import {
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
 import { MiddotSegments } from './MiddotSegments'
 import { ShowAddToCalendar } from './ShowAddToCalendar'
-import { ticketLineSegments } from './showTicketLine'
+import { ticketHref, ticketLineSegments } from './showTicketLine'
+import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import type { ShowResponse } from '../types'
-
-/**
- * The stored ticket URL repaired into something navigable, or null.
- *
- * Submitters type scheme-less hosts ("tix.example/1") and vendors print
- * uppercase schemes; the scheme test is therefore case-insensitive and
- * anchored (`https?://`), not a bare prefix check — `startsWith('http')`
- * passed "httpfoo.example" through as a RELATIVE href that navigated under
- * /shows/. Protocol-relative values keep their own scheme resolution.
- */
-function repairedTicketHref(ticketUrl: string): string {
-  if (/^https?:\/\//i.test(ticketUrl)) return ticketUrl
-  if (ticketUrl.startsWith('//')) return `https:${ticketUrl}`
-  return `https://${ticketUrl}`
-}
 
 interface ShowTicketRowProps {
   show: ShowResponse
+  /**
+   * Server-computed, threaded from the route (see ShowDetail's prop of the
+   * same name). The sale-state segment is a present-tense claim, and only
+   * the lifecycle can say whether the present tense applies.
+   */
+  lifecycle: ShowLifecycleState
 }
 
 /**
@@ -46,13 +38,17 @@ interface ShowTicketRowProps {
  * with a warning to check both when moving either; they now share this row,
  * which is the easier invariant to keep.
  */
-export function ShowTicketRow({ show }: ShowTicketRowProps) {
-  const segments = ticketLineSegments(show)
+export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
+  const segments = ticketLineSegments(show, lifecycle)
   const showTitle = showDisplayTitle(
     show.title,
     show.artists.map(artist => artist.name)
   )
-  const ticketHref = show.ticket_url ? repairedTicketHref(show.ticket_url) : null
+  // Shared derivation with the ON SALE segment (showTicketLine) — null for
+  // cancelled and sold-out shows so the bracket cannot argue with the line
+  // above it. A PAST show keeps its link for now: that was the pre-module
+  // behaviour, and the past register flip owns removing it.
+  const buyHref = ticketHref(show)
 
   return (
     <div data-testid="show-ticket-row">
@@ -63,10 +59,10 @@ export function ShowTicketRow({ show }: ShowTicketRowProps) {
       />
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        {ticketHref && (
+        {buyHref && (
           <BracketLink
             label="Buy Tickets ↗"
-            href={ticketHref}
+            href={buyHref}
             external
             ariaLabel="Buy tickets (opens in a new tab)"
           />

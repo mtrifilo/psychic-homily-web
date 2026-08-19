@@ -63,19 +63,23 @@ vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  // aria-label mirrors the real component (ariaLabel ?? label) so a
+  // name collision between two Edit affordances cannot hide behind the mock.
   BracketLink: ({
     label,
     onClick,
     href,
+    ariaLabel,
   }: {
     label: string
     onClick?: () => void
     href?: string
+    ariaLabel?: string
   }) =>
     href ? (
-      <a href={href}>[{label}]</a>
+      <a href={href} aria-label={ariaLabel ?? label}>[{label}]</a>
     ) : (
-      <button onClick={onClick}>[{label}]</button>
+      <button onClick={onClick} aria-label={ariaLabel ?? label}>[{label}]</button>
     ),
   UserAttribution: ({ name }: { name: string }) => <span>{name}</span>,
   // Surfaces `path` so the page-level test can assert WHICH url this show
@@ -423,7 +427,7 @@ describe('ShowDetail', () => {
 
     it('renders price', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText('$25.00')).toBeInTheDocument()
+      expect(screen.getByText('$25')).toBeInTheDocument()
     })
 
     it('renders age requirement', () => {

@@ -78,14 +78,13 @@ describe('ticketLineSegments', () => {
   // rendered in the STRIPE's register ("8PM"), so one page never spells the
   // same clock two ways.
   it('leads with the venue-local start time in the stripe register', () => {
-    expect(ticketLineSegments(makeShow())[0]).toBe('8PM')
+    expect(ticketLineSegments(makeShow(), 'upcoming')[0]).toBe('8PM')
   })
 
   // Same refusal rule as the stripe and the venue facts line: a venue whose
   // timezone is a guess gets no confidently-wrong hour.
   it('prints no clock when the venue timezone is a guess', () => {
-    const segments = ticketLineSegments(
-      makeShow({
+    const segments = ticketLineSegments(makeShow({
         venues: [
           {
             id: 1,
@@ -97,22 +96,19 @@ describe('ticketLineSegments', () => {
             verified: true,
           },
         ],
-      })
-    )
+      }), 'upcoming')
     expect(segments.some(segment => /\dPM|\dAM/.test(segment))).toBe(false)
   })
 
   it('claims ON SALE only when there is somewhere to buy', () => {
-    expect(ticketLineSegments(makeShow())).not.toContain('ON SALE')
+    expect(ticketLineSegments(makeShow(), 'upcoming')).not.toContain('ON SALE')
     expect(
-      ticketLineSegments(makeShow({ ticket_url: 'https://tix.example/1' }))
+      ticketLineSegments(makeShow({ ticket_url: 'https://tix.example/1' }), 'upcoming')
     ).toContain('ON SALE')
   })
 
   it('swaps the sale state for SOLD OUT', () => {
-    const segments = ticketLineSegments(
-      makeShow({ ticket_url: 'https://tix.example/1', is_sold_out: true })
-    )
+    const segments = ticketLineSegments(makeShow({ ticket_url: 'https://tix.example/1', is_sold_out: true }), 'upcoming')
     expect(segments).toContain('SOLD OUT')
     expect(segments).not.toContain('ON SALE')
   })
@@ -121,22 +117,54 @@ describe('ticketLineSegments', () => {
   // argue with it.
   it('never claims ON SALE for a cancelled show', () => {
     expect(
-      ticketLineSegments(
-        makeShow({ ticket_url: 'https://tix.example/1', is_cancelled: true })
-      )
+      ticketLineSegments(makeShow({ ticket_url: 'https://tix.example/1', is_cancelled: true }), 'upcoming')
     ).not.toContain('ON SALE')
   })
 
-  it('renders the single price and says nothing about a door split', () => {
-    expect(ticketLineSegments(makeShow({ price: 35 }))).toContain('$35.00')
+  // Cancellation outranks sold-out: "SOLD OUT" asserts the event is
+  // happening, and the stripe above says it is not.
+  it('makes no sale claim at all for a cancelled show that is also sold out', () => {
+    const segments = ticketLineSegments(
+      makeShow({
+        ticket_url: 'https://tix.example/1',
+        is_cancelled: true,
+        is_sold_out: true,
+      }),
+      'upcoming'
+    )
+    expect(segments).not.toContain('SOLD OUT')
+    expect(segments).not.toContain('ON SALE')
+  })
+
+  // ON SALE is present tense; the archive is most of the corpus and stale
+  // ticket urls survive the date.
+  it('never claims ON SALE for a past show', () => {
+    expect(
+      ticketLineSegments(makeShow({ ticket_url: 'https://tix.example/1' }), 'past')
+    ).not.toContain('ON SALE')
+  })
+
+  // The backend stores the field untrimmed and ingest skips the validator,
+  // so a whitespace-only url is storable — and is not somewhere to buy.
+  it('never claims ON SALE on a whitespace-only ticket url', () => {
+    expect(
+      ticketLineSegments(makeShow({ ticket_url: '   ' }), 'upcoming')
+    ).not.toContain('ON SALE')
+  })
+
+  it('renders the single price, whole dollars without cents', () => {
+    expect(ticketLineSegments(makeShow({ price: 35 }), 'upcoming')).toContain('$35')
+    expect(
+      ticketLineSegments(makeShow({ price: 12.5 }), 'upcoming')
+    ).toContain('$12.50')
   })
 
   it('renders a zero price as Free', () => {
-    expect(ticketLineSegments(makeShow({ price: 0 }))).toContain('Free')
+    expect(ticketLineSegments(makeShow({ price: 0 }), 'upcoming')).toContain('Free')
   })
 
   it('omits the price segment when no price is known', () => {
-    const segments = ticketLineSegments(makeShow({ price: null }))
+    const segments = ticketLineSegments(makeShow({ price: null }), 'upcoming')
     expect(segments.join(' ')).not.toContain('$')
   })
 
@@ -145,10 +173,10 @@ describe('ticketLineSegments', () => {
   // the page.
   it('carries the age requirement only for a venue-less show', () => {
     expect(
-      ticketLineSegments(makeShow({ venues: [], age_requirement: '21+' }))
+      ticketLineSegments(makeShow({ venues: [], age_requirement: '21+' }), 'upcoming')
     ).toContain('21+')
     expect(
-      ticketLineSegments(makeShow({ age_requirement: '21+' }))
+      ticketLineSegments(makeShow({ age_requirement: '21+' }), 'upcoming')
     ).not.toContain('21+')
   })
 })
@@ -156,7 +184,7 @@ describe('ticketLineSegments', () => {
 describe('ShowTicketRow', () => {
   it('renders Buy Tickets as an outbound bracket in a new tab', () => {
     render(
-      <ShowTicketRow show={makeShow({ ticket_url: 'https://tix.example/1' })} />
+      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'https://tix.example/1' })} />
     )
 
     const buy = screen.getByRole('link', { name: /Buy tickets/i })
@@ -168,7 +196,7 @@ describe('ShowTicketRow', () => {
   // The backend stores ticket urls as typed; the repair is scheme-anchored
   // and case-insensitive, not a bare prefix test.
   it('repairs a scheme-less ticket url to https', () => {
-    render(<ShowTicketRow show={makeShow({ ticket_url: 'tix.example/1' })} />)
+    render(<ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'tix.example/1' })} />)
 
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',
@@ -178,7 +206,7 @@ describe('ShowTicketRow', () => {
 
   it('leaves an uppercase scheme alone and repairs protocol-relative urls', () => {
     const { rerender } = render(
-      <ShowTicketRow show={makeShow({ ticket_url: 'HTTPS://tix.example/1' })} />
+      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'HTTPS://tix.example/1' })} />
     )
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',
@@ -186,7 +214,7 @@ describe('ShowTicketRow', () => {
     )
 
     rerender(
-      <ShowTicketRow show={makeShow({ ticket_url: '//tix.example/1' })} />
+      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: '//tix.example/1' })} />
     )
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',
@@ -198,7 +226,7 @@ describe('ShowTicketRow', () => {
   // resolving under /shows/.
   it('prefixes a value that merely starts with the letters http', () => {
     render(
-      <ShowTicketRow show={makeShow({ ticket_url: 'httpfoo.example/1' })} />
+      <ShowTicketRow lifecycle="upcoming" show={makeShow({ ticket_url: 'httpfoo.example/1' })} />
     )
     expect(screen.getByRole('link', { name: /Buy tickets/i })).toHaveAttribute(
       'href',
@@ -207,7 +235,25 @@ describe('ShowTicketRow', () => {
   })
 
   it('renders no Buy Tickets bracket without a ticket url', () => {
-    render(<ShowTicketRow show={makeShow()} />)
+    render(<ShowTicketRow lifecycle="upcoming" show={makeShow()} />)
+    expect(
+      screen.queryByRole('link', { name: /Buy tickets/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // Shared derivation with the sale-state segment: the bracket must not
+  // offer tickets the line above just said are gone or moot.
+  it.each([
+    ['a sold-out show', { is_sold_out: true }],
+    ['a cancelled show', { is_cancelled: true }],
+    ['a whitespace-only ticket url', { ticket_url: '   ' }],
+  ])('renders no Buy Tickets bracket for %s', (_label, overrides) => {
+    render(
+      <ShowTicketRow
+        lifecycle="upcoming"
+        show={makeShow({ ticket_url: 'https://tix.example/1', ...overrides })}
+      />
+    )
     expect(
       screen.queryByRole('link', { name: /Buy tickets/i })
     ).not.toBeInTheDocument()
@@ -216,7 +262,7 @@ describe('ShowTicketRow', () => {
   // PSY-1666 coupling: the calendar affordance (which saves as a side
   // effect) and the save bracket share this row and the same query key.
   it('renders the full mock action row: calendar, save, collection, share', () => {
-    render(<ShowTicketRow show={makeShow()} />)
+    render(<ShowTicketRow lifecycle="upcoming" show={makeShow()} />)
 
     expect(screen.getByText('Add to calendar')).toBeInTheDocument()
     expect(screen.getByText('Save')).toBeInTheDocument()
@@ -230,6 +276,7 @@ describe('ShowTicketRow', () => {
   it('names the collection entry from the bill when the show has no title', () => {
     render(
       <ShowTicketRow
+        lifecycle="upcoming"
         show={makeShow({
           title: '',
           artists: [

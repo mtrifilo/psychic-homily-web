@@ -207,6 +207,19 @@ describe('BracketLink', () => {
         screen.getByRole('button', { name: 'Directions ↗' })
       ).toBeDisabled()
     })
+
+    // The scheme floor lives in the primitive: `external` is exactly where a
+    // user-controlled URL eventually arrives, and a non-http value must
+    // never render as an anchor — disabled fallback, same as href+disabled.
+    it.each([
+      ['javascript:alert(1)'],
+      ['data:text/html,x'],
+      ['ftp://tix.example'],
+    ])('renders a disabled button, never an anchor, for %s', href => {
+      render(<BracketLink label="Buy ↗" href={href} external />)
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Buy ↗' })).toBeDisabled()
+    })
   })
 
   describe('pre-hydration click replay (PSY-1615)', () => {
