@@ -289,6 +289,115 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_SubmittingSom
 		"submitting some other show must not unlock this one, got %v", err)
 }
 
+// The policy is written TWICE — once as a Go predicate (revisionVisibleTo, which
+// the single-revision route uses) and once as a SQL WHERE clause
+// (visibleRevisionsOnly, which the two listings use). They have to agree, and a
+// doc comment saying so is not a mechanism.
+//
+// This is the mechanism. It builds every combination of the three facts the
+// policy reads — show status, whether the viewer submitted the show, whether the
+// row carries a merge stamp — and asserts that for every viewer tier the set of
+// revisions the SQL path returns is EXACTLY the set the Go path admits. An edit
+// that changes one spelling and not the other fails here rather than in
+// production, where the two routes would disagree about the same row.
+func (s *RevisionServiceIntegrationTestSuite) TestTheGoPredicateAndTheSQLFilterAgree() {
+	submitter := s.createTestUser()
+	author := s.createTestUser()
+	stranger := s.createTestUser()
+
+	type cell struct {
+		name    string
+		status  catalogm.ShowStatus
+		owned   bool
+		stamped bool
+	}
+	var cells []cell
+	for _, status := range []catalogm.ShowStatus{
+		catalogm.ShowStatusApproved,
+		catalogm.ShowStatusPending,
+		catalogm.ShowStatusRejected,
+		catalogm.ShowStatusPrivate,
+	} {
+		for _, owned := range []bool{true, false} {
+			for _, stamped := range []bool{true, false} {
+				cells = append(cells, cell{
+					name:    fmt.Sprintf("%s/owned=%t/stamped=%t", status, owned, stamped),
+					status:  status,
+					owned:   owned,
+					stamped: stamped,
+				})
+			}
+		}
+	}
+
+	revisionIDs := make([]uint, 0, len(cells))
+	for _, c := range cells {
+		var owner *uint
+		if c.owned {
+			owner = &submitter.ID
+		}
+		show := s.seedShow(c.name, c.status, owner)
+		rev := s.recordShowRevision(show.ID, author.ID)
+		if c.stamped {
+			s.Require().NoError(s.db.Model(&adminm.Revision{}).Where("id = ?", rev.ID).
+				Update("from_gated_show", true).Error)
+		}
+		revisionIDs = append(revisionIDs, rev.ID)
+	}
+
+	// admitted records how many rows each tier could read, so the agreement
+	// assertion below cannot pass by both paths returning nothing.
+	admitted := map[string]int{}
+
+	for name, viewer := range map[string]contracts.RevisionViewer{
+		"anonymous": viewerPublic,
+		"submitter": viewerFor(submitter.ID),
+		"stranger":  viewerFor(stranger.ID),
+		"admin":     viewerAdmin,
+	} {
+		s.Run(name, func() {
+			// The SQL path. limit is above the fixture count so one page holds
+			// every admitted row.
+			listed, total, err := s.svc.GetUserRevisions(author.ID, 100, 0, viewer)
+			s.Require().NoError(err)
+			viaSQL := make(map[uint]bool, len(listed))
+			for _, r := range listed {
+				viaSQL[r.ID] = true
+			}
+			s.Equal(int64(len(listed)), total, "the total must count the rows the page contains")
+
+			// The Go path, asked about the same rows one at a time.
+			viaGo := make(map[uint]bool, len(revisionIDs))
+			for _, id := range revisionIDs {
+				got, err := s.svc.GetRevision(id, viewer)
+				s.Require().NoError(err)
+				if got != nil {
+					viaGo[id] = true
+				}
+			}
+
+			s.Equal(viaGo, viaSQL,
+				"revisionVisibleTo and visibleRevisionsOnly disagree for a %s caller — "+
+					"the policy is spelled in Go and in SQL and both spellings must admit "+
+					"the same rows", name)
+			admitted[name] = len(viaSQL)
+		})
+	}
+
+	// The agreement above is satisfied by two paths that both return nothing, so
+	// the matrix has to be shown to discriminate. An admin reads the whole
+	// fixture; an anonymous caller reads strictly less than that and more than
+	// none; a stranger reads exactly what an anonymous caller does, because an
+	// id that owns nothing buys nothing.
+	s.Equal(len(revisionIDs), admitted["admin"], "an admin reads the whole matrix")
+	s.Less(admitted["anonymous"], len(revisionIDs), "the gate must withhold something")
+	s.Greater(admitted["anonymous"], 0, "the gate must not withhold everything")
+	s.Equal(admitted["anonymous"], admitted["stranger"],
+		"an authenticated caller who submitted none of these shows reads what anonymous reads")
+	s.Greater(admitted["submitter"], admitted["anonymous"],
+		"submitting the show must actually unlock rows, or the submitter tier is untested")
+}
+
 // Other entity types must be untouched by the show gate. Without this, a gate
 // written slightly too broadly would silently empty artist, venue, release,
 // label and festival history and no other test in this package would notice.
