@@ -118,10 +118,12 @@ export const NEXT_4_WEEKS_FETCH_WEEKS = 5
 /**
  * How many rows a window page renders.
  *
- * Mirrors the scene page's own cap (`SCENE_CALENDAR_ROW_CAP`): 28 days of a
- * dense scene is several hundred bills, and a reader asked to scroll that is
- * not being served. Kept as its own constant rather than imported so this
- * module stays free of the client calendar's module graph.
+ * 28 days of a dense scene is several hundred bills, and a reader asked to
+ * scroll that is not being served.
+ *
+ * This used to mirror a cap of the same size on the scene ROOT. That one is
+ * gone (PSY-1850): the root shows tonight and the next day and points here, so
+ * this is now the only row cap in the family rather than the second copy of one.
  */
 export const SCENE_WINDOW_ROW_CAP = 60
 

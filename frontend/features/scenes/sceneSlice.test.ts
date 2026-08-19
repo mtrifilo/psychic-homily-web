@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import {
-  buildSceneSlice,
-  sceneSliceIsQuiet,
-  sceneSliceShowCount,
-} from './sceneSlice'
+import { buildSceneSlice, sceneSliceIsQuiet } from './sceneSlice'
+import { countWindowShows } from './sceneWindow'
 import type { SceneDayResponse } from './sceneDay'
 import type { SceneShowSummary } from './types'
 
@@ -63,8 +60,8 @@ describe('buildSceneSlice', () => {
     )
 
     expect(slice?.days.map(d => d.date)).toEqual(['2026-08-17', '2026-08-18'])
-    expect(slice?.days.map(d => d.isTonight)).toEqual([true, false])
-    expect(sceneSliceShowCount(slice!)).toBe(3)
+    expect(slice?.days.map(d => d.is_tonight)).toEqual([true, false])
+    expect(countWindowShows(slice!.days)).toBe(3)
   })
 
   it('degrades to one day rather than fabricating a second', () => {
@@ -85,7 +82,7 @@ describe('buildSceneSlice', () => {
     const slice = buildSceneSlice(tonight, buildDay({ shows: [buildShow()] }))
 
     expect(slice?.days).toHaveLength(1)
-    expect(sceneSliceShowCount(slice!)).toBe(1)
+    expect(countWindowShows(slice!.days)).toBe(1)
   })
 
   it('takes tonight from the payload, never from a clock', () => {
@@ -97,8 +94,8 @@ describe('buildSceneSlice', () => {
       buildDay({ date: '2026-08-17', is_tonight: false })
     )
 
-    expect(slice?.days[0]).toMatchObject({ date: '2026-08-16', isTonight: true })
-    expect(slice?.days[1]).toMatchObject({ date: '2026-08-17', isTonight: false })
+    expect(slice?.days[0]).toMatchObject({ date: '2026-08-16', is_tonight: true })
+    expect(slice?.days[1]).toMatchObject({ date: '2026-08-17', is_tonight: false })
   })
 
   it('names the scene zone from the backend, even with nothing booked', () => {
@@ -117,7 +114,7 @@ describe('buildSceneSlice', () => {
     // `shows` is typed nullable by the generator even though the API always
     // emits an array.
     const slice = buildSceneSlice(buildDay({ shows: null }), null)
-    expect(slice?.days[0].shows).toEqual([])
+    expect(countWindowShows(slice!.days)).toBe(0)
   })
 })
 

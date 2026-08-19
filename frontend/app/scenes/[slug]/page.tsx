@@ -11,8 +11,7 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
-import { fetchSceneDay } from '@/features/scenes/sceneDayApi'
-import { buildSceneSlice } from '@/features/scenes/sceneSlice'
+import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
 import { buildSceneWeekJsonLd } from '@/features/scenes/sceneWeekJsonLd'
 import { sceneDetailOgImages } from '@/features/scenes/sceneDetailShare'
 // Deep-imported from the component FILE for the same reason SceneDetailView is:
@@ -104,28 +103,14 @@ const getSceneWeek = cache((slug: string) =>
  * HTML in the first response instead of after hydration, and the reader
  * downloads no calendar JSON at all.
  *
- * The two requests are SERIAL by necessity: `next_date` is the backend's own
- * answer for the calendar day after tonight, and tonight is only knowable once
- * the first payload has resolved the scene's 6am night boundary in its own
- * timezone. Deriving tomorrow from a clock here instead would re-introduce
- * exactly the mirrored-boundary drift that reading this endpoint removes.
- *
- * The empty-`next_date` guard is load-bearing, not defensive noise:
- * `fetchScenePeriod` resolves the CURRENT period when its key is falsy, and the
- * backend sends an empty `next_date` at the far edge of the servable window. A
- * bare `fetchSceneDay(slug, tonight.next_date)` there would fetch tonight a
- * second time and the slice would print the same night twice.
- *
- * Fetched through the leaf `sceneDayApi` rather than `sceneDayPage`'s
- * `getSceneDay`, which would drag SceneDayView, the JSON-LD builders and
- * `next/og`'s brand constants into this route's graph to reuse one function.
+ * The sequencing and the empty-`next_date` trap live in `sceneSliceApi` rather
+ * than here, so a second consumer cannot re-derive them; this wrapper only adds
+ * the per-request dedupe its two neighbours above already have. `cache()` is
+ * currently redundant — the page body is the only caller — and kept for the
+ * caller this page will plausibly grow: `generateMetadata` can now state a real
+ * tonight count, which the old forward window could not supply (PSY-1807).
  */
-const getSceneSlice = cache(async (slug: string) => {
-  const tonight = await fetchSceneDay(slug)
-  if (!tonight) return null
-  const next = tonight.next_date ? await fetchSceneDay(slug, tonight.next_date) : null
-  return buildSceneSlice(tonight, next)
-})
+const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 
 export async function generateMetadata({
   params,
@@ -223,21 +208,25 @@ export default async function ScenePage({ params }: ScenePageProps) {
     notFound()
   }
 
-  // `cache()` above guarantees the fetch already happened, so this is a no-op
-  // cache write that seeds the entry `useSceneDetail` will pick up.
-  const dehydratedState = await prefetchEntity(
-    queryKeys.scenes.detail(slug),
-    scene,
-  )
+  // CONCURRENT, because none of the three needs another's answer. Awaited in
+  // sequence they would stack the week fetch in front of the slice's own two
+  // requests, putting four serial round trips on the critical path of every
+  // render; this leaves the slice's unavoidable pair as the longest chain.
+  //
+  //  - `prefetchEntity`: `cache()` above guarantees the scene fetch already
+  //    happened, so this is a no-op cache write seeding the entry
+  //    `useSceneDetail` picks up.
+  //  - the WEEK feeds the structured data only. Reuses the week builder
+  //    (BreadcrumbList + ItemList + MusicEvent[]) rather than inventing a
+  //    fourth scene JSON-LD shape.
+  //  - the SLICE is what the page actually renders.
+  const [dehydratedState, week, slice] = await Promise.all([
+    prefetchEntity(queryKeys.scenes.detail(slug), scene),
+    getSceneWeek(slug),
+    getSceneSlice(slug),
+  ])
 
-  // Reuse the week builder (BreadcrumbList + ItemList + MusicEvent[]) rather
-  // than inventing a fourth scene JSON-LD shape. The detail page POINTS at
-  // `/week`; the structured data describes that same week so a crawler that
-  // landed here and one that landed on `/week` cannot disagree about a show.
-  const week = await getSceneWeek(slug)
   const jsonLd = week ? buildSceneWeekJsonLd(week) : null
-
-  const slice = await getSceneSlice(slug)
 
   return (
     <div className="flex min-h-screen items-start justify-center">

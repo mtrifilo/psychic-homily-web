@@ -34,22 +34,20 @@
  * less either way.
  */
 
-import type { SceneDayResponse, SceneDayShow } from './sceneDay'
+import type { SceneDayResponse } from './sceneDay'
+import { countWindowShows } from './sceneWindow'
 
-/** One whole calendar date of the slice, already bucketed by the backend. */
-export interface SceneSliceDay {
-  /** `YYYY-MM-DD`, resolved in the scene's own zone by the backend. */
-  date: string
-  /**
-   * Whether this date is the scene's CURRENT night, per the backend's 6am
-   * boundary. Never derived from a clock here — the viewer's clock is the one
-   * clock that is never the right one for a scene page.
-   */
-  isTonight: boolean
-  shows: SceneDayShow[]
-}
-
-/** Everything the root's calendar slice renders. */
+/**
+ * Everything the root's calendar slice renders.
+ *
+ * The days are the PAYLOADS, not a hand-written projection of them. A parallel
+ * view-model here would be a type that can claim a field the API never sends —
+ * the exact hazard `sceneDay.ts` derives its own types from the generated
+ * schema to avoid — and its only work would have been renaming `is_tonight`.
+ * Consumers read `day.is_tonight` and go through `dayShows()` for the
+ * generator-nullable `shows`, which is what every other day surface already
+ * does.
+ */
 export interface SceneSliceData {
   /**
    * The IANA zone the backend bucketed these dates in. Carried so the page can
@@ -67,7 +65,7 @@ export interface SceneSliceData {
    * verified, which is the exact defect the old root's missing TONIGHT bucket
    * existed to avoid.
    */
-  days: SceneSliceDay[]
+  days: SceneDayResponse[]
 }
 
 /**
@@ -88,40 +86,21 @@ export function buildSceneSlice(
 ): SceneSliceData | null {
   if (!tonight) return null
 
-  const days: SceneSliceDay[] = [
-    {
-      date: tonight.date,
-      isTonight: tonight.is_tonight,
-      shows: tonight.shows ?? [],
-    },
-  ]
-
   // Guarded on the DATE rather than on the payload alone. `fetchScenePeriod`
   // resolves the current period when its key is falsy, so a `next` fetched with
   // an empty `next_date` would come back as tonight AGAIN and the slice would
   // print the same night twice under two headings. The caller is responsible for
   // not making that request; this is the check that makes the mistake
   // unrenderable rather than merely unlikely.
-  if (next && next.date && next.date !== tonight.date) {
-    days.push({
-      date: next.date,
-      isTonight: next.is_tonight,
-      shows: next.shows ?? [],
-    })
-  }
+  const isDistinctDay = next !== null && Boolean(next.date) && next.date !== tonight.date
 
   return {
     // The backend's own answer for the scene, not a vote over the rows — so a
     // scene with nothing booked still names its clock, which the old row-derived
     // resolution could not do.
     timezone: tonight.timezone || undefined,
-    days,
+    days: isDistinctDay ? [tonight, next] : [tonight],
   }
-}
-
-/** Total shows across the slice. The rows are the truth; this counts them. */
-export function sceneSliceShowCount(slice: SceneSliceData): number {
-  return slice.days.reduce((n, day) => n + day.shows.length, 0)
 }
 
 /**
@@ -130,7 +109,12 @@ export function sceneSliceShowCount(slice: SceneSliceData): number {
  * A slice with no DAYS and one whose days are all empty are the same answer to
  * the reader, and both must reach the quiet copy rather than rendering a run of
  * bare date rules.
+ *
+ * Counts through `countWindowShows` rather than a second `reduce`: the window
+ * pages ask the identical question of an identical day list, and two spellings
+ * of "how many shows are in these days" is one that a later change reaches and
+ * one it does not.
  */
 export function sceneSliceIsQuiet(slice: SceneSliceData): boolean {
-  return sceneSliceShowCount(slice) === 0
+  return countWindowShows(slice.days) === 0
 }

@@ -4,7 +4,13 @@ import Link from 'next/link'
 // unrelated modules in the chunk every route loads (PSY-1772).
 import { BracketLink } from '@/components/shared/BracketLink'
 import { showDisplayTitle, showHref } from '../sceneWeek'
-import { formatDayCountLine, formatShowPrice, formatShowStartTime } from '../sceneDay'
+import {
+  dayShows,
+  formatDayCountLine,
+  formatShowPrice,
+  formatShowStartTime,
+  type SceneDayResponse,
+} from '../sceneDay'
 import { formatSliceDateHeading, rowTimeZone, venueSubLocality } from '../sceneCalendar'
 import {
   SCENE_WINDOW_LABEL,
@@ -12,7 +18,7 @@ import {
   allUpcomingHref,
   sceneWindowHref,
 } from '../sceneWindow'
-import { sceneSliceIsQuiet, type SceneSliceData, type SceneSliceDay } from '../sceneSlice'
+import { sceneSliceIsQuiet, type SceneSliceData } from '../sceneSlice'
 import { ShowStatusBadge } from './sceneChrome'
 import type { SceneDetail, SceneShowSummary } from '../types'
 
@@ -172,9 +178,11 @@ function SceneDateGroup({
   day,
   sceneTimeZone,
 }: {
-  day: SceneSliceDay
+  day: SceneDayResponse
   sceneTimeZone?: string
 }) {
+  const shows = dayShows(day)
+
   return (
     <section className="border-t border-border pt-4">
       <div className="flex items-baseline justify-between gap-4">
@@ -182,16 +190,16 @@ function SceneDateGroup({
           {/* TONIGHT LEADS, per the mock: it is the word the reader is scanning
               for, and it comes from the backend's `is_tonight` against the
               scene's own 6am boundary — never from a clock on this side. */}
-          {day.isTonight && <span className="text-primary">TONIGHT </span>}
+          {day.is_tonight && <span className="text-primary">TONIGHT </span>}
           {formatSliceDateHeading(day.date)}
         </h3>
         <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-          {formatDayCountLine(day.shows.length)}
+          {formatDayCountLine(shows.length)}
         </span>
       </div>
-      {day.shows.length > 0 && (
+      {shows.length > 0 && (
         <ul className="mt-1">
-          {day.shows.map(show => (
+          {shows.map(show => (
             <SceneShowRow key={show.id} show={show} sceneTimeZone={sceneTimeZone} />
           ))}
         </ul>
@@ -214,9 +222,9 @@ function SceneDateGroup({
  * render give a reader using the links list two identical entries to choose
  * between.
  */
-function SliceFooter({ scene }: { scene: SceneDetail }) {
+function SliceWaysOut({ scene }: { scene: SceneDetail }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center gap-4 border-t border-border pt-3">
+    <>
       <BracketLink
         label={`Full week in ${scene.city} →`}
         href={sceneWindowHref(scene.slug, 'this-week')}
@@ -225,6 +233,14 @@ function SliceFooter({ scene }: { scene: SceneDetail }) {
         label="Next 4 weeks →"
         href={sceneWindowHref(scene.slug, 'next-4-weeks')}
       />
+    </>
+  )
+}
+
+function SliceFooter({ scene }: { scene: SceneDetail }) {
+  return (
+    <div className="mt-6 flex flex-wrap items-center gap-4 border-t border-border pt-3">
+      <SliceWaysOut scene={scene} />
     </div>
   )
 }
@@ -269,15 +285,11 @@ function QuietSlice({ scene, dayCount }: { scene: SceneDetail; dayCount: number 
       <p className="max-w-2xl text-sm text-muted-foreground">
         {quietSliceCopy(scene.city, scene.stats.venue_count, dayCount)}
       </p>
+      {/* The populated footer's two links FIRST, from the same component, so a
+          reader who finds nothing here is offered the identical way out under
+          the identical label — then the two extra doors a quiet slice needs. */}
       <div className="mt-3 flex flex-wrap items-center gap-4">
-        <BracketLink
-          label={`Full week in ${scene.city} →`}
-          href={sceneWindowHref(scene.slug, 'this-week')}
-        />
-        <BracketLink
-          label="Next 4 weeks →"
-          href={sceneWindowHref(scene.slug, 'next-4-weeks')}
-        />
+        <SliceWaysOut scene={scene} />
         <BracketLink
           label={`All upcoming in ${scene.city} →`}
           href={allUpcomingHref(scene.city, scene.state)}

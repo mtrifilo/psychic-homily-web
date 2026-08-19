@@ -153,10 +153,13 @@ export function rowTimeZone(show: SceneShowSummary): string | undefined {
  * about January 2020.
  */
 export function formatSliceDateHeading(iso: string): string {
-  const date = parseCalendarDate(iso)
-  const weekday = date.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
-  const month = date.toLocaleDateString('en-US', { month: 'long' }).toUpperCase()
-  return `${weekday}, ${month} ${date.getDate()}`
+  // ONE formatter, and the locale supplies the comma. `formatDayChip` composes
+  // its parts from three calls to AVOID the punctuation a single call adds;
+  // here that punctuation is exactly what the mock draws, so the reason
+  // inverts and the assembled separator would only be a copy that can drift.
+  return parseCalendarDate(iso)
+    .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    .toUpperCase()
 }
 
 /**

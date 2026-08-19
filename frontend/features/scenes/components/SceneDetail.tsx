@@ -204,7 +204,9 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
             is absent rather than an empty header over blank space. */}
       </header>
 
-      <div className="mt-6">{calendarSlot}</div>
+      {/* Conditional so an absent slot leaves no stray margin between the
+          header and the sections below it. */}
+      {calendarSlot && <div className="mt-6">{calendarSlot}</div>}
 
       {/* The identity around the calendar, in the mock's order: the rooms this
           page speaks for, the bands that just appeared, the bands that live

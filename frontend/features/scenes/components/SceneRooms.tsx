@@ -136,7 +136,7 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
   // actually ranks first — flipping to alphabetical re-picks them rather than
   // re-sorting whichever eight the ranked order happened to surface.
   const visible = showAll ? ordered : ordered.slice(0, ROOMS_FRONT_PAGE_LIMIT)
-  const withheld = ordered.length - visible.length
+  const hasMore = visible.length < ordered.length
 
   return (
     <section className="border-t border-border pt-4">
@@ -177,7 +177,7 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
           really answering. One-way on purpose — there is no "show fewer". A
           reader who expanded a 32-room list wanted the list, and the collapse
           control would be one more thing to draw for the reader who did not. */}
-      {withheld > 0 && (
+      {hasMore && (
         <p className="mt-3">
           <BracketLink
             label={`Show all ${rooms.length} rooms →`}
