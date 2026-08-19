@@ -142,6 +142,180 @@ func TestParseEventDate_DSTAwareState(t *testing.T) {
 }
 
 // =============================================================================
+// UNIT TESTS — parseClockTime
+// =============================================================================
+
+func TestParseClockTime_SourceShapes(t *testing.T) {
+	// Each case names the discovery provider whose formatter emits that shape,
+	// so the corpus this parser has to cover stays visible from the test.
+	cases := []struct {
+		name   string
+		raw    string
+		hour   int
+		minute int
+		ok     bool
+	}{
+		// ticketweb.parseTime returns the site's own casing verbatim.
+		{"ticketweb lowercase pm", "6:30 pm", 18, 30, true},
+		{"ticketweb uppercase pm", "7:00 PM", 19, 0, true},
+		// seetickets/emptybottle formatTime normalize to "H:MM AM/PM".
+		{"seetickets doors", "8:00 PM", 20, 0, true},
+		{"emptybottle start", "9:30 PM", 21, 30, true},
+		// jsonld/wix extractTime derive the same shape from an ISO datetime.
+		{"jsonld noon", "12:00 PM", 12, 0, true},
+		{"jsonld midnight", "12:00 AM", 0, 0, true},
+		{"jsonld early am", "1:15 AM", 1, 15, true},
+		// Spacing and punctuation a raw passthrough can leak.
+		{"no space before meridiem", "6:30PM", 18, 30, true},
+		{"surrounding whitespace", "  7:00 pm  ", 19, 0, true},
+		{"dotted meridiem", "7:00 p.m.", 19, 0, true},
+		// A feed handing a 24-hour clock straight through.
+		{"24 hour evening", "19:00", 19, 0, true},
+		{"24 hour midnight", "00:30", 0, 30, true},
+
+		// Not a time: the formatTime fallbacks return the raw text unchanged
+		// when their regex misses, so unreadable strings reach this parser.
+		{"prose", "doors at 7", 0, 0, false},
+		{"bare hour", "8PM", 0, 0, false},
+		{"empty", "", 0, 0, false},
+		{"tbd", "TBD", 0, 0, false},
+		{"range", "9pm - 1am", 0, 0, false},
+		// A 24-hour clock wearing a meridiem is self-contradictory. The old
+		// Sscanf parser turned this into hour 31 and rolled it into the next
+		// day; refusing it keeps a fabricated instant out of the column.
+		{"24 hour with meridiem", "19:00 pm", 0, 0, false},
+		{"hour zero with meridiem", "0:30 am", 0, 0, false},
+		{"minute out of range", "7:75 pm", 0, 0, false},
+		{"hour out of range", "25:00", 0, 0, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hour, minute, ok := parseClockTime(tc.raw)
+			assert.Equal(t, tc.ok, ok)
+			if tc.ok {
+				assert.Equal(t, tc.hour, hour)
+				assert.Equal(t, tc.minute, minute)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// UNIT TESTS — resolveShowTimes
+// =============================================================================
+
+func strPtr(s string) *string { return &s }
+
+func TestResolveShowTimes_BothStated_AZ(t *testing.T) {
+	doorsAt, musicAt := resolveShowTimes("2026-01-25", strPtr("6:30 pm"), strPtr("7:00 pm"), "AZ")
+	// Phoenix is UTC-7 year round.
+	assert.Equal(t, time.Date(2026, 1, 26, 1, 30, 0, 0, time.UTC), *doorsAt)
+	assert.Equal(t, time.Date(2026, 1, 26, 2, 0, 0, 0, time.UTC), *musicAt)
+}
+
+func TestResolveShowTimes_MusicAtAgreesWithEventDate(t *testing.T) {
+	// event_date and music_at both come off the stated show time, so they must
+	// name the same instant. Anchoring them separately is the drift risk this
+	// asserts against.
+	showTime := "8:00 pm"
+	eventDate, err := parseEventDate("2026-01-25", &showTime, "NY")
+	assert.NoError(t, err)
+
+	_, musicAt := resolveShowTimes("2026-01-25", nil, &showTime, "NY")
+	assert.Equal(t, eventDate, *musicAt)
+}
+
+func TestResolveShowTimes_DoorsOnly(t *testing.T) {
+	// Empty Bottle's widget states a start time only; the inverse shape (a
+	// listing with doors and no show time) has to survive the same way.
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), nil, "IL")
+	// Chicago in June is CDT, UTC-5.
+	assert.Equal(t, time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC), *doorsAt)
+	assert.Nil(t, musicAt)
+}
+
+func TestResolveShowTimes_MusicOnly(t *testing.T) {
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", nil, strPtr("8:00 PM"), "IL")
+	assert.Nil(t, doorsAt)
+	assert.Equal(t, time.Date(2026, 6, 16, 1, 0, 0, 0, time.UTC), *musicAt)
+}
+
+func TestResolveShowTimes_NeitherStated(t *testing.T) {
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", nil, nil, "AZ")
+	assert.Nil(t, doorsAt)
+	assert.Nil(t, musicAt)
+}
+
+func TestResolveShowTimes_UnreadableTimesAreAbsent(t *testing.T) {
+	// The site would rather show a date alone than a time it guessed at.
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("doors at 7"), strPtr("TBD"), "AZ")
+	assert.Nil(t, doorsAt)
+	assert.Nil(t, musicAt)
+}
+
+func TestResolveShowTimes_EmptyStringsAreAbsent(t *testing.T) {
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr(""), strPtr(""), "AZ")
+	assert.Nil(t, doorsAt)
+	assert.Nil(t, musicAt)
+}
+
+func TestResolveShowTimes_OneUnreadableStillWritesTheOther(t *testing.T) {
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("doors at 7"), strPtr("8:00 PM"), "AZ")
+	assert.Nil(t, doorsAt)
+	assert.Equal(t, time.Date(2026, 6, 16, 3, 0, 0, 0, time.UTC), *musicAt)
+}
+
+func TestResolveShowTimes_ContradictoryPairWritesNeither(t *testing.T) {
+	// "Doors 11:00 PM / Show 12:00 AM" is a listing that crossed midnight and
+	// dropped the day. Anchoring both to the stated date puts the music 23
+	// hours before the doors, so neither is written rather than inferring the
+	// rollover the source never stated.
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("11:00 PM"), strPtr("12:00 AM"), "AZ")
+	assert.Nil(t, doorsAt)
+	assert.Nil(t, musicAt)
+}
+
+func TestResolveShowTimes_SimultaneousPairIsKept(t *testing.T) {
+	// Equal times are odd but not contradictory; only music strictly before
+	// doors is refused.
+	doorsAt, musicAt := resolveShowTimes("2026-06-15", strPtr("8:00 PM"), strPtr("8:00 PM"), "AZ")
+	assert.NotNil(t, doorsAt)
+	assert.Equal(t, *doorsAt, *musicAt)
+}
+
+func TestResolveShowTimes_DSTAwareState(t *testing.T) {
+	showTime := strPtr("8:00 pm")
+
+	// January in California is PST, UTC-8.
+	_, winter := resolveShowTimes("2026-01-25", nil, showTime, "CA")
+	assert.Equal(t, time.Date(2026, 1, 26, 4, 0, 0, 0, time.UTC), *winter)
+
+	// July is PDT, UTC-7.
+	_, summer := resolveShowTimes("2026-07-15", nil, showTime, "CA")
+	assert.Equal(t, time.Date(2026, 7, 16, 3, 0, 0, 0, time.UTC), *summer)
+}
+
+func TestResolveShowTimes_UnparseableDateWritesNeither(t *testing.T) {
+	doorsAt, musicAt := resolveShowTimes("not-a-date", strPtr("7:00 PM"), strPtr("8:00 PM"), "AZ")
+	assert.Nil(t, doorsAt)
+	assert.Nil(t, musicAt)
+}
+
+func TestResolveShowTimes_AnchorsToTheStatedCalendarDate(t *testing.T) {
+	// The date string is the anchor, NOT the computed event_date: with no show
+	// time, event_date is midnight UTC, which is the previous day in every US
+	// venue timezone. Reading the day off it would shift every door time back
+	// by one.
+	doorsAt, _ := resolveShowTimes("2026-06-15", strPtr("7:00 PM"), nil, "AZ")
+	local := doorsAt.In(time.FixedZone("MST", -7*3600))
+	assert.Equal(t, 2026, local.Year())
+	assert.Equal(t, time.June, local.Month())
+	assert.Equal(t, 15, local.Day())
+	assert.Equal(t, 19, local.Hour())
+}
+
+// =============================================================================
 // UNIT TESTS — getTimezoneForState
 // =============================================================================
 
@@ -390,6 +564,117 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_Success() {
 	suite.Equal(catalogm.ShowStatusApproved, show.Status)
 	suite.Equal(catalogm.ShowSourceDiscovery, show.Source)
 	suite.NotNil(show.Slug)
+}
+
+// =============================================================================
+// ImportEvents — doors / music times (PSY-1699)
+// =============================================================================
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WritesStatedDoorAndMusicTimes() {
+	event := suite.makeEvent("evt-times-001", "Sunny Day Real Estate", "valley-bar", "2026-06-15", []string{"Sunny Day Real Estate"})
+	event.DoorsTime = strPtr("6:30 pm")
+	event.ShowTime = strPtr("7:00 pm")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-times-001").First(&show).Error)
+
+	// Valley Bar is Phoenix, UTC-7 year round.
+	suite.Require().NotNil(show.DoorsAt)
+	suite.Require().NotNil(show.MusicAt)
+	suite.Equal(time.Date(2026, 6, 16, 1, 30, 0, 0, time.UTC), show.DoorsAt.UTC())
+	suite.Equal(time.Date(2026, 6, 16, 2, 0, 0, 0, time.UTC), show.MusicAt.UTC())
+
+	// music_at and event_date both derive from the stated show time.
+	suite.Equal(show.EventDate.UTC(), show.MusicAt.UTC())
+
+	// The times reached their columns, so the description must not repeat them.
+	if show.Description != nil {
+		suite.NotContains(*show.Description, "Doors:")
+		suite.NotContains(*show.Description, "Show:")
+	}
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_LeavesTimesAbsentWhenSourceIsSilent() {
+	event := suite.makeEvent("evt-times-002", "Duster", "valley-bar", "2026-06-16", []string{"Duster"})
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-times-002").First(&show).Error)
+	suite.Nil(show.DoorsAt)
+	suite.Nil(show.MusicAt)
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UnreadableTimeStaysInTheDescription() {
+	event := suite.makeEvent("evt-times-003", "Hovvdy", "valley-bar", "2026-06-17", []string{"Hovvdy"})
+	event.DoorsTime = strPtr("doors when we open")
+	event.ShowTime = strPtr("8:00 pm")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-times-003").First(&show).Error)
+
+	// The unreadable doors text is the only surviving record of it, so it keeps
+	// its place in the description; the readable show time does not.
+	suite.Nil(show.DoorsAt)
+	suite.Require().NotNil(show.MusicAt)
+	suite.Require().NotNil(show.Description)
+	suite.Contains(*show.Description, "Doors: doors when we open")
+	suite.NotContains(*show.Description, "Show:")
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateFillsNewlyStatedTimes() {
+	event := suite.makeEvent("evt-times-004", "Wednesday", "valley-bar", "2026-06-18", []string{"Wednesday"})
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	// A later scrape of the same listing now states the times.
+	event.DoorsTime = strPtr("7:00 PM")
+	event.ShowTime = strPtr("8:00 PM")
+	result, err = suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Updated)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-times-004").First(&show).Error)
+	suite.Require().NotNil(show.DoorsAt)
+	suite.Require().NotNil(show.MusicAt)
+	suite.Equal(time.Date(2026, 6, 19, 2, 0, 0, 0, time.UTC), show.DoorsAt.UTC())
+	suite.Equal(time.Date(2026, 6, 19, 3, 0, 0, 0, time.UTC), show.MusicAt.UTC())
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateKeepsStoredTimesWhenSourceGoesSilent() {
+	event := suite.makeEvent("evt-times-005", "Ratboys", "valley-bar", "2026-06-19", []string{"Ratboys"})
+	event.DoorsTime = strPtr("7:00 PM")
+	event.ShowTime = strPtr("8:00 PM")
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	// A re-scrape that no longer states the times is not evidence they changed.
+	event.DoorsTime = nil
+	event.ShowTime = nil
+	_, err = suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-times-005").First(&show).Error)
+	suite.Require().NotNil(show.DoorsAt)
+	suite.Require().NotNil(show.MusicAt)
+	suite.Equal(time.Date(2026, 6, 20, 2, 0, 0, 0, time.UTC), show.DoorsAt.UTC())
+	suite.Equal(time.Date(2026, 6, 20, 3, 0, 0, 0, time.UTC), show.MusicAt.UTC())
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {
