@@ -1,16 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  SCENE_CALENDAR_FETCH_LIMIT,
-  SCENE_CALENDAR_ROW_CAP,
-  SCENE_CALENDAR_WINDOW_DAYS,
   calendarDateInZone,
-  formatCalendarDateHeading,
+  formatSliceDateHeading,
   formatTimeZoneLabel,
-  groupShowsByDate,
-  resolveSceneTimeZone,
   sceneStatParts,
   sceneTonightDate,
-  showCalendarDate,
   venueSubLocality,
 } from './sceneCalendar'
 import type { SceneShowSummary } from './types'
@@ -33,24 +27,6 @@ function buildShow(overrides: Partial<SceneShowSummary> = {}): SceneShowSummary 
     ...overrides,
   }
 }
-
-describe('window constants', () => {
-  // The endpoint caps `days` at 30 and `limit` at 200 (GetSceneShowsRequest);
-  // a frontend that asked for more would get a 422, not a longer window. What
-  // is SENT is the fetch limit, not the row cap, so that is the value that has
-  // to fit.
-  it('stay inside what the endpoint will serve', () => {
-    expect(SCENE_CALENDAR_WINDOW_DAYS).toBeLessThanOrEqual(30)
-    expect(SCENE_CALENDAR_FETCH_LIMIT).toBeLessThanOrEqual(200)
-  })
-
-  // One row over the cap is the truncation sentinel. Without it, truncation is
-  // inferred from `length === cap`, which cannot tell a cut list from a scene
-  // that happens to hold exactly that many.
-  it('asks for exactly one row more than the page draws', () => {
-    expect(SCENE_CALENDAR_FETCH_LIMIT).toBe(SCENE_CALENDAR_ROW_CAP + 1)
-  })
-})
 
 describe('calendarDateInZone', () => {
   it('files an evening show under the date its patrons experienced', () => {
@@ -113,110 +89,25 @@ describe('sceneTonightDate', () => {
   })
 })
 
-describe('resolveSceneTimeZone', () => {
-  it('returns undefined when nothing can name a zone', () => {
-    expect(resolveSceneTimeZone([])).toBeUndefined()
-    expect(
-      resolveSceneTimeZone([
-        buildShow({ venue_timezone: undefined, venue_state: undefined }),
-      ])
-    ).toBeUndefined()
+describe('formatSliceDateHeading', () => {
+  it('spells the date out, the way the locked mock draws it', () => {
+    expect(formatSliceDateHeading('2026-08-17')).toBe('MONDAY, AUGUST 17')
   })
 
-  // `venues.timezone` is nullable and a geocode miss leaves it NULL, so the
-  // state map is the second source. It is gated on `isShowTimezoneResolved`
-  // because `resolveShowTimezone` silently answers America/Phoenix for any
-  // state it does not recognise.
-  it('falls back to the state map when the venue has no zone', () => {
-    expect(
-      resolveSceneTimeZone([
-        buildShow({ venue_timezone: undefined, venue_state: 'IL' }),
-      ])
-    ).toBe('America/Chicago')
+  // The root only ever shows dates within a day of now, so a year would be
+  // noise on the one surface where it can never disambiguate anything. The
+  // DATED permalinks keep formatDayFull, which does carry it.
+  it('omits the year', () => {
+    expect(formatSliceDateHeading('2026-08-17')).not.toContain('2026')
   })
 
-  it('ignores a zone name the platform does not know', () => {
-    expect(
-      resolveSceneTimeZone([
-        buildShow({ venue_timezone: 'Mars/Olympus', venue_state: undefined }),
-      ])
-    ).toBeUndefined()
-  })
-
-  it('picks the majority zone, not the first row', () => {
-    const shows = [
-      buildShow({ id: 1, venue_timezone: 'America/Los_Angeles', venue_state: 'CA' }),
-      buildShow({ id: 2, venue_timezone: 'America/Phoenix' }),
-      buildShow({ id: 3, venue_timezone: 'America/Phoenix' }),
-    ]
-    expect(resolveSceneTimeZone(shows)).toBe('America/Phoenix')
-  })
-})
-
-describe('showCalendarDate', () => {
-  it('prefers the row instant in the venue zone over the UTC event_date', () => {
-    expect(showCalendarDate(buildShow())).toBe('2026-08-08')
-  })
-
-  it('falls back to the scene zone when the row has none', () => {
-    const show = buildShow({ venue_timezone: undefined, venue_state: undefined })
-    expect(showCalendarDate(show, 'America/Phoenix')).toBe('2026-08-08')
-  })
-
-  it('falls back to event_date when there is no usable instant at all', () => {
-    const show = buildShow({ starts_at: 'not-a-date' })
-    expect(showCalendarDate(show)).toBe('2026-08-09')
-  })
-
-  it('falls back to event_date when no zone is known', () => {
-    const show = buildShow({ venue_timezone: undefined, venue_state: undefined })
-    expect(showCalendarDate(show)).toBe('2026-08-09')
-  })
-})
-
-describe('groupShowsByDate', () => {
-  it('buckets by scene-local date, earliest first, preserving row order', () => {
-    const shows = [
-      buildShow({ id: 1, starts_at: '2026-08-09T02:00:00Z' }), // Aug 8, 19:00
-      buildShow({ id: 2, starts_at: '2026-08-09T03:00:00Z' }), // Aug 8, 20:00
-      buildShow({ id: 3, starts_at: '2026-08-10T03:00:00Z' }), // Aug 9, 20:00
-    ]
-    const groups = groupShowsByDate(shows)
-    expect(groups.map(g => g.date)).toEqual(['2026-08-08', '2026-08-09'])
-    expect(groups[0].shows.map(s => s.id)).toEqual([1, 2])
-    expect(groups[1].shows.map(s => s.id)).toEqual([3])
-  })
-
-  it('returns nothing for an empty window', () => {
-    expect(groupShowsByDate([])).toEqual([])
-  })
-
-  it('keeps a member city across a zone line on its own local date', () => {
-    const shows = [
-      // 23:00 Aug 8 in Los Angeles is 01:00 Aug 9 in Phoenix. The LA room's
-      // patrons were out on the 8th, so that is the date it files under.
-      buildShow({
-        id: 1,
-        starts_at: '2026-08-09T06:00:00Z',
-        venue_timezone: 'America/Los_Angeles',
-        venue_state: 'CA',
-      }),
-    ]
-    expect(groupShowsByDate(shows, 'America/Phoenix')[0].date).toBe('2026-08-08')
-  })
-})
-
-describe('formatCalendarDateHeading', () => {
-  it('renders the middot register the mock draws', () => {
-    expect(formatCalendarDateHeading('2026-08-08')).toBe('SAT · AUG 8')
-  })
-
+  // The bug this guards: `new Date('2026-08-08')` is UTC midnight, which
+  // renders as Aug 7 anywhere west of Greenwich.
   it('does not shift the date across a negative UTC offset', () => {
-    // The bug this guards: `new Date('2026-08-08')` is UTC midnight, which
-    // renders as Aug 7 anywhere west of Greenwich.
-    expect(formatCalendarDateHeading('2026-08-08')).toContain('AUG 8')
+    expect(formatSliceDateHeading('2026-08-08')).toBe('SATURDAY, AUGUST 8')
   })
 })
+
 
 // No date-group count helper is tested here: the calendar renders
 // `formatDayCountLine` from sceneDay.ts, so the nightly page and this one say

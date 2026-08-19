@@ -310,6 +310,103 @@ describe('SceneRooms — empty', () => {
   })
 })
 
+/**
+ * PSY-1850: the root is an index into the scene, not a directory of it, so the
+ * rooms module lists the top eight and offers the rest.
+ */
+describe('SceneRooms — front-page cap', () => {
+  // 12 rooms, descending counts, so the ranked order is unambiguous.
+  const manyRooms = Array.from({ length: 12 }, (_, i) =>
+    venue({
+      id: i + 1,
+      name: `Room ${String(i + 1).padStart(2, '0')}`,
+      slug: `room-${i + 1}`,
+      upcoming_show_count: 100 - i,
+    })
+  )
+
+  it('lists only the top eight rooms', () => {
+    renderWithProviders(<SceneRooms scene={buildScene(manyRooms)} />)
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(8)
+    expect(roomNames()).toEqual([
+      'Room 01',
+      'Room 02',
+      'Room 03',
+      'Room 04',
+      'Room 05',
+      'Room 06',
+      'Room 07',
+      'Room 08',
+    ])
+  })
+
+  // The heading names the scene's real coverage, not the eight drawn. A page
+  // that said "8 tracked" would understate what it speaks for.
+  it('still names the full tracked count in the heading', () => {
+    renderWithProviders(<SceneRooms scene={buildScene(manyRooms)} />)
+    expect(
+      screen.getByRole('heading', { name: /Rooms \/ 12 tracked/i })
+    ).toBeInTheDocument()
+  })
+
+  it('offers the rest, labelled with the total', () => {
+    renderWithProviders(<SceneRooms scene={buildScene(manyRooms)} />)
+    expect(
+      screen.getByRole('button', { name: 'Show all 12 rooms →' })
+    ).toBeInTheDocument()
+  })
+
+  it('reveals every room on click, without a fetch', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<SceneRooms scene={buildScene(manyRooms)} />)
+
+    await user.click(screen.getByRole('button', { name: 'Show all 12 rooms →' }))
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(12)
+    expect(
+      screen.queryByRole('button', { name: /show all/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // Sliced AFTER ordering, so the escape hatch re-picks which eight are shown
+  // rather than re-sorting whichever eight the ranked order surfaced.
+  it('re-picks the eight when the reader flips to alphabetical', async () => {
+    const user = userEvent.setup()
+    // Reverse-alphabetical names against descending counts, so the two orders
+    // cannot agree on which eight belong on the page.
+    const rooms = Array.from({ length: 12 }, (_, i) =>
+      venue({
+        id: i + 1,
+        name: `Room ${String(12 - i).padStart(2, '0')}`,
+        slug: `room-${i + 1}`,
+        upcoming_show_count: 100 - i,
+      })
+    )
+    renderWithProviders(<SceneRooms scene={buildScene(rooms)} />)
+
+    expect(roomNames()[0]).toBe('Room 12')
+
+    await user.click(screen.getByRole('button', { name: /alphabetical/i }))
+
+    expect(roomNames()).toEqual([
+      'Room 01',
+      'Room 02',
+      'Room 03',
+      'Room 04',
+      'Room 05',
+      'Room 06',
+      'Room 07',
+      'Room 08',
+    ])
+  })
+
+  it('offers no control when every room already fits', () => {
+    renderWithProviders(<SceneRooms scene={buildScene(denseRooms)} />)
+    expect(screen.queryByRole('button', { name: /show all/i })).not.toBeInTheDocument()
+  })
+})
+
 describe('SceneRooms — copy conventions', () => {
   it('uses no em dashes anywhere', () => {
     const { container } = renderWithProviders(<SceneRooms scene={buildScene(denseRooms)} />)

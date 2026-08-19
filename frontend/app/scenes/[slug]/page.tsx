@@ -11,8 +11,16 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
+import { fetchSceneDay } from '@/features/scenes/sceneDayApi'
+import { buildSceneSlice } from '@/features/scenes/sceneSlice'
 import { buildSceneWeekJsonLd } from '@/features/scenes/sceneWeekJsonLd'
 import { sceneDetailOgImages } from '@/features/scenes/sceneDetailShare'
+// Deep-imported from the component FILE for the same reason SceneDetailView is:
+// the `@/features/scenes/components` barrel is a `'use client'` barrel, and
+// Turbopack does not tree-shake those per-export (PSY-1772). This one is a
+// SERVER component, so it is rendered here and handed down as a slot rather
+// than imported by SceneDetail.
+import { SceneCalendar } from '@/features/scenes/components/SceneCalendar'
 
 // Imported from the component FILE, never a `@/features/scenes` barrel — see
 // the note in features/scenes/components/index.ts for why the barrel would undo
@@ -88,6 +96,36 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
 const getSceneWeek = cache((slug: string) =>
   fetchSceneWeek(slug, undefined, 'scene-week')
 )
+
+/**
+ * The root's calendar slice: tonight and the next full day (PSY-1850).
+ *
+ * Replaces a 28-day / 61-row CLIENT fetch. Server-side, so the rows arrive as
+ * HTML in the first response instead of after hydration, and the reader
+ * downloads no calendar JSON at all.
+ *
+ * The two requests are SERIAL by necessity: `next_date` is the backend's own
+ * answer for the calendar day after tonight, and tonight is only knowable once
+ * the first payload has resolved the scene's 6am night boundary in its own
+ * timezone. Deriving tomorrow from a clock here instead would re-introduce
+ * exactly the mirrored-boundary drift that reading this endpoint removes.
+ *
+ * The empty-`next_date` guard is load-bearing, not defensive noise:
+ * `fetchScenePeriod` resolves the CURRENT period when its key is falsy, and the
+ * backend sends an empty `next_date` at the far edge of the servable window. A
+ * bare `fetchSceneDay(slug, tonight.next_date)` there would fetch tonight a
+ * second time and the slice would print the same night twice.
+ *
+ * Fetched through the leaf `sceneDayApi` rather than `sceneDayPage`'s
+ * `getSceneDay`, which would drag SceneDayView, the JSON-LD builders and
+ * `next/og`'s brand constants into this route's graph to reuse one function.
+ */
+const getSceneSlice = cache(async (slug: string) => {
+  const tonight = await fetchSceneDay(slug)
+  if (!tonight) return null
+  const next = tonight.next_date ? await fetchSceneDay(slug, tonight.next_date) : null
+  return buildSceneSlice(tonight, next)
+})
 
 export async function generateMetadata({
   params,
@@ -199,6 +237,8 @@ export default async function ScenePage({ params }: ScenePageProps) {
   const week = await getSceneWeek(slug)
   const jsonLd = week ? buildSceneWeekJsonLd(week) : null
 
+  const slice = await getSceneSlice(slug)
+
   return (
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
@@ -211,7 +251,11 @@ export default async function ScenePage({ params }: ScenePageProps) {
         )}
         <HydrationBoundary state={dehydratedState}>
           <Suspense fallback={<SceneLoadingFallback />}>
-            <SceneDetailView slug={slug} />
+            <SceneDetailView
+              slug={slug}
+              timeZone={slice?.timezone}
+              calendarSlot={<SceneCalendar scene={scene} slice={slice} />}
+            />
           </Suspense>
         </HydrationBoundary>
       </main>
