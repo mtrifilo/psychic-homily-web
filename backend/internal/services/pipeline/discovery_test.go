@@ -169,6 +169,10 @@ func TestParseClockTime_SourceShapes(t *testing.T) {
 		{"no space before meridiem", "6:30PM", 18, 30, true},
 		{"surrounding whitespace", "  7:00 pm  ", 19, 0, true},
 		{"dotted meridiem", "7:00 p.m.", 19, 0, true},
+		// Scraped HTML carries &nbsp;. ticketweb.parseTime captures the whole
+		// clock including the separator, so the U+00A0 arrives verbatim.
+		{"non-breaking space", "7:00\u00a0PM", 19, 0, true},
+		{"tab separator", "7:00\tPM", 19, 0, true},
 		// A feed handing a 24-hour clock straight through.
 		{"24 hour evening", "19:00", 19, 0, true},
 		{"24 hour midnight", "00:30", 0, 30, true},

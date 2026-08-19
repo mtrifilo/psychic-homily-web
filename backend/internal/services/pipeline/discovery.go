@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"gorm.io/gorm"
 
@@ -656,8 +657,17 @@ var clockTime24Hour = regexp.MustCompile(`^(\d{1,2}):(\d{2})$`)
 // them leaves the caller with "the source did not state a time", which is a
 // truthful answer; accepting them would publish a fabricated one.
 func parseClockTime(raw string) (hour, minute int, ok bool) {
-	// Fold case and drop internal spacing so "7:00 PM" and "7:00pm" are one shape.
-	normalized := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(raw)), " ", "")
+	// Fold case and drop ALL whitespace so "7:00 PM" and "7:00pm" are one
+	// shape. Unicode-aware on purpose: venue calendars are scraped HTML, and a
+	// "7:00&nbsp;PM" reaches ticketweb.parseTime, whose capture group hands the
+	// U+00A0 through verbatim. Stripping only the ASCII space would drop that
+	// listing's times on the floor.
+	normalized := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return unicode.ToLower(r)
+	}, raw)
 
 	if m := clockTimeWithMeridiem.FindStringSubmatch(normalized); m != nil {
 		hour, _ = strconv.Atoi(m[1])
