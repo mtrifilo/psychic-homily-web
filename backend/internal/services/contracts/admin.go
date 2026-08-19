@@ -441,9 +441,11 @@ type AdminStatsServiceInterface interface {
 // anonymous caller is RevisionViewer{}, which is neither an admin nor anybody's
 // submitter.
 //
-// UserID is 0 for an anonymous caller. Entity ids are serial and start at 1, so
-// 0 matches no submitter row; the submitter comparison is still written to
-// require a non-null submitted_by rather than leaning on that.
+// UserID is 0 for an anonymous caller, and the gates do not compare that
+// against anything: they OMIT the submitter branch entirely when it is 0 rather
+// than relying on "no row has id 0" or on NULL = 0 evaluating non-true. A
+// refactor that folds the branch back in unconditionally reintroduces both
+// assumptions at once.
 //
 // It is a struct rather than two parameters because the two facts are read
 // together by every call site and a bare (uint, bool) pair is the shape a later

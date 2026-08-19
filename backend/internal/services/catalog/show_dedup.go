@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/utils"
@@ -339,8 +340,12 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 //
 // The status is read here rather than taken as a parameter because the caller
 // has only ids — unlike the venue merge, which already holds the locked row.
-// One read of one column inside the merge transaction, so it cannot observe a
-// status that changes before the delete.
+// The read takes FOR UPDATE for that reason: at READ COMMITTED an unlocked read
+// could see 'approved', have a concurrent transaction unpublish the show and
+// commit, and then delete it — leaving a gated show's history unstamped on an
+// approved winner, which is exactly the leak the stamp exists to prevent. The
+// lock holds until the merge transaction ends, and the loser is deleted inside
+// it, so no writer can move the status out from under the decision.
 //
 // FAILS CLOSED: a loser row this cannot read is treated as gated. A missing row
 // means the merge is operating on a show that no longer exists, and any
@@ -360,7 +365,11 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 // rather than another gate.
 func reassignShowRevisions(tx *gorm.DB, winnerID, loserID uint) (int64, error) {
 	var loser struct{ Status catalogm.ShowStatus }
-	err := tx.Model(&catalogm.Show{}).Select("status").Where("id = ?", loserID).Scan(&loser).Error
+	err := tx.Model(&catalogm.Show{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("status").
+		Where("id = ?", loserID).
+		Scan(&loser).Error
 	if err != nil {
 		return 0, fmt.Errorf("read loser show %d status: %w", loserID, err)
 	}
