@@ -143,7 +143,8 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		return nil, huma.Error422UnprocessableEntity("show_venue field too long (name/city ≤255, state ≤10, address ≤500)")
 	}
 	out := &showAssociations{venue: v}
-	for _, a := range artists {
+	billIsCurated := false
+	for i, a := range artists {
 		name := strings.TrimSpace(a.Name)
 		// Name is required even when an ID is supplied: the show service's
 		// duplicate-headliner pre-check matches on artist NAME, so an ID-only
@@ -155,13 +156,111 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 		if len(name) > 255 {
 			return nil, huma.Error422UnprocessableEntity("show_artists name must be 255 characters or fewer")
 		}
+		setType, serr := curatedShowArtistSetType(i, a.SetType)
+		if serr != nil {
+			return nil, serr
+		}
+		if setType != nil {
+			billIsCurated = true
+		}
 		out.artists = append(out.artists, contracts.CreateShowArtist{
 			ID:          a.ID,
 			Name:        name,
 			IsHeadliner: a.IsHeadliner,
+			SetType:     setType,
 		})
 	}
+	if billIsCurated {
+		suppressPositionInference(out.artists)
+	}
 	return out, nil
+}
+
+// suppressPositionInference pins is_headliner=false on the acts the admin left
+// uncurated, and is called only once SOME act on the bill states a role.
+//
+// resolveArtistRole reads position 0 as the headliner, but only as a last resort
+// for an act that carries no other signal. That fallback is right for a bill
+// nobody described and wrong the moment somebody does. Without this, an admin
+// who marks the SECOND act "headliner" and leaves the first alone gets TWO rows
+// with set_type='headliner'. Headliner resolution picks
+// `set_type='headliner' ORDER BY position ASC LIMIT 1` (see SearchShows), so the
+// act nobody designated wins on the tie and the curated one is discarded,
+// silently corrupting the single fact PSY-1705 exists to record.
+//
+// The rule this encodes: a stated bill is a complete statement, so first-in-list
+// is not a second opinion. ConfirmShowImport encodes the same rule for markdown
+// imports ("first-in-file is not a second opinion"), and the direct show-CREATE
+// handler is immune for a different reason: initializeArtist pins the flag false
+// on every act before Resolve runs, unconditionally. The show UPDATE handler
+// does NOT (it forwards a nil IsHeadliner through replaceShowArtists ->
+// associateArtists -> resolveArtistRole), so it still has this exposure; that is
+// a sibling defect, filed separately rather than fixed here, since it is a
+// different endpoint with its own callers. The product's own show form is
+// unaffected either way because it derives an explicit is_headliner per act.
+//
+// Scoped deliberately narrower than initializeArtist: acts that state their own
+// set_type or is_headliner are left untouched, and a bill where NOBODY states
+// anything is left untouched as a whole, so no caller that predates set_type on
+// this endpoint can see a different outcome. Pinning unconditionally would
+// instead turn an undescribed bill into a bill with no headliner at all.
+//
+// A bill that ends up with no headliner row is still safe, and is sometimes the
+// honest answer (an admin who states only "performer" and "dj" has not named a
+// headliner). Readers COALESCE the headliner lookup down to plain
+// `ORDER BY position ASC LIMIT 1`, and checkDuplicateHeadlinerConflicts falls
+// back to artists[0] for the dedup key, so such a show still renders and still
+// dedups. It just stops ASSERTING a headliner nobody chose.
+func suppressPositionInference(artists []contracts.CreateShowArtist) {
+	for i := range artists {
+		if artists[i].SetType != nil || artists[i].IsHeadliner != nil {
+			continue
+		}
+		noPositionInference := false
+		artists[i].IsHeadliner = &noPositionInference
+	}
+}
+
+// curatedShowArtistSetType validates one admin-supplied bill role (PSY-1705)
+// and returns the value to hand the show service, or nil when the admin did not
+// curate this act's slot.
+//
+// ONLY an absent key means "not curated". A present value must be exactly one
+// of the vocabulary's members, so "" and "   " are rejected rather than read as
+// absent. That is a deliberate choice to agree character-for-character with the
+// generated OpenAPI enum on the field, which rejects any PRESENT value outside
+// the list: were this laxer, a client sending "" for "slot unknown" would be
+// 422'd by the schema while an in-process caller sending the same thing got a
+// silent 'performer', and the tests, which call handlers directly and never see
+// the schema, would certify the behavior nobody over HTTP can actually get.
+// Callers that mean "slot unknown" omit the key, and the show service then
+// applies contracts.SetTypeDefault ('performer').
+//
+// Nothing here ever infers a role from bill position. That inference is the
+// exact defect the PSY-1673 vocabulary removed; see suppressPositionInference
+// for the one place bill order still has any say.
+//
+// Over HTTP the schema enum rejects a bad role before this runs, so this is the
+// floor beneath it for in-process callers. It is NOT redundant with the show
+// service's validateShowArtistSetTypes, though: that one runs inside
+// fulfillment, which on the decide path is after the row has been claimed, so
+// rejecting there would turn a typo into an approved-but-unfulfilled row that
+// Decide can no longer re-process (it only claims PENDING rows). Such a row is
+// recoverable, via the PSY-1088 rescue endpoint, but only by a second admin
+// action on a request that now reads as approved with nothing created. Both
+// callers run buildShowAssociations pre-claim, alongside the venue/name/
+// image_url checks that live there for the same reason.
+func curatedShowArtistSetType(index int, value *string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if !contracts.IsValidSetType(*value) {
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
+			"show_artists[%d].set_type %q is not a valid set type (allowed: %s)",
+			index, *value, contracts.SetTypeVocabularyCSV(),
+		))
+	}
+	return value, nil
 }
 
 // parseShowEventDate parses a show payload's event_date. An RFC3339 value is
