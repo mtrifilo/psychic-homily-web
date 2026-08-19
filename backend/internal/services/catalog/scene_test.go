@@ -121,6 +121,11 @@ func (suite *SceneServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	// Collections reference users (creator_id / added_by_user_id), so they go
+	// before the users delete below or that delete fails silently and leaks
+	// every seeded account into the next test (PSY-1847).
+	_, _ = sqlDB.Exec("DELETE FROM collection_items")
+	_, _ = sqlDB.Exec("DELETE FROM collections")
 	// Label + relationship rows reference artists, so they MUST be cleared
 	// first: this teardown ignores errors, so an FK-blocked "DELETE FROM
 	// artists" fails silently and leaks the whole roster into the next test

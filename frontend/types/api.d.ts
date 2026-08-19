@@ -5580,6 +5580,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenes/{slug}/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug collections */
+        get: operations["get-scenes-by-slug-collections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scenes/{slug}/day": {
         parameters: {
             query?: never;
@@ -12161,6 +12178,16 @@ export interface components {
              */
             total: number;
         };
+        GetSceneCollectionsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetSceneCollectionsResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Public collections relevant to this scene, most scene-local members first */
+            collections: components["schemas"]["SceneCollectionSummary"][] | null;
+        };
         GetSceneNewArtistsResponseBody: {
             /**
              * Format: uri
@@ -15063,6 +15090,21 @@ export interface components {
             show_count: number;
             slug: string;
             state: string | null;
+        };
+        SceneCollectionSummary: {
+            /** Format: int64 */
+            contributor_count: number;
+            cover_image_url: string | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            item_count: number;
+            /** Format: int64 */
+            scene_local_item_count: number;
+            slug: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         SceneDayResponse: {
             /**
@@ -31191,6 +31233,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetSceneActiveArtistsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-scenes-by-slug-collections": {
+        parameters: {
+            query?: {
+                /**
+                 * @description Max collections to return
+                 * @example 5
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetSceneCollectionsResponseBody"];
                 };
             };
             /** @description Error */
