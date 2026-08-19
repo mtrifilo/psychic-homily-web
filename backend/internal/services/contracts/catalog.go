@@ -1314,6 +1314,13 @@ type SceneListResponse struct {
 	DominantGenre string `json:"dominant_genre,omitempty"`
 }
 
+// SceneShowArtist is one band on a scene show's bill, reduced to the two fields
+// a link needs. See SceneShowSummary.Artists for the empty-slug contract.
+type SceneShowArtist struct {
+	Name string `json:"name" doc:"Artist display name"`
+	Slug string `json:"slug" doc:"URL slug for the artist; \"\" when the artist has no slug — render unlinked"`
+}
+
 // SceneShowSummary is one upcoming show in a scene's "Next 7 days" preview row
 // (PSY-1309) — deliberately thin (the Atlas preview panel needs a line, not the
 // full ShowResponse payload). VenueName is the first venue on the bill.
@@ -1329,7 +1336,31 @@ type SceneShowSummary struct {
 	// Bill artists in position order (PSY-1325). Most shows have an empty
 	// Title — display names are composed from artists everywhere else in the
 	// app — so without these the preview row carries no band info at all.
+	//
+	// Names only, so a bill rendered from this field cannot link. Superseded by
+	// Artists below and kept for the surfaces that still read it (JSON-LD
+	// performers, the digest email's plain-text bill, chart-style meta lines):
+	// those want a name list and would gain nothing from the pairs. Both fields
+	// are built from the SAME resolved bill in the same order, so they cannot
+	// disagree.
 	ArtistNames []string `json:"artist_names,omitempty"`
+	// Artists is the same bill as ArtistNames, in the same order, carrying the
+	// slug each band needs to link to its own page — the linked-bill row grammar
+	// every scene surface renders (PSY-1846).
+	//
+	// A band with no slug is present here with Slug "" and MUST be rendered as
+	// plain text: `/artists/` + "" resolves to the artists INDEX, not a 404
+	// (PSY-1754). Omitting it instead would silently shorten a titleless show's
+	// display name, which is composed from this bill.
+	//
+	// Deliberately scene-local. ArtistListingEntry is the closest field match
+	// but the WRONG contract — its endpoint gates OUT empty-slug rows, which
+	// this field must carry. ArtistShowArtist is the closest semantic match
+	// ("an artist on a show bill") and would also work, but it carries an ID
+	// this deliberately-thin summary has no use for. ChartEntityReference's own
+	// doc warns against sharing a struct merely because the wire fields overlap
+	// today, and that reasoning applies here too.
+	Artists []SceneShowArtist `json:"artists,omitempty"`
 	// Status flags, needed by any surface that LISTS shows rather than linking
 	// to one. A weekly city page that renders a cancelled show identically to a
 	// live one is worse than omitting it, and the sold-out badge is part of the
