@@ -304,3 +304,41 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGaps_MatchesDirectSQL
 	suite.Equal(0, sparseGaps.ArtistsMissingListenLink)
 	suite.Equal(0, sparseGaps.ArtistsOnBillsMissingLocation)
 }
+
+// The no-CBSA fallback branch, which every other test in this file misses:
+// Phoenix and Tucson both resolve to metros, so they all exercise the ONE-arg
+// venue predicate. The fallback branch binds TWO args, and the bills query
+// splices them ahead of its own status placeholder — a positional-binding slip
+// would land here and nowhere else, either erroring outright or counting one
+// city's gaps against another. Same reasoning as
+// TestGetSceneDetail_VenuesOnNoCBSAFallbackScene, applied to both gap counts.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGaps_NoCBSAFallbackScene() {
+	user := suite.createUser()
+	v1 := suite.createVerifiedVenue("Club One", "Faketown", "ZZ")
+	suite.createVerifiedVenue("Club Two", "Faketown", "ZZ")
+	suite.Require().Nil(v1.Metro, "a no-CBSA place has a NULL metro")
+
+	// Based in Faketown, no listen link: gap 1.
+	suite.createArtistIn("Faketown Linkless", "Faketown", "ZZ")
+	// Based in Faketown WITH a link: not a gap.
+	linked := suite.createArtistIn("Faketown Linked", "Faketown", "ZZ")
+	suite.setLink(linked, "bandcamp", "https://faketown.bandcamp.com")
+	// Based in another no-CBSA city — must NOT leak across the (city, state) key.
+	suite.createArtistIn("Othertown Linkless", "Othertown", "ZZ")
+
+	// Locationless band on a Faketown bill: gap 2.
+	ghost := suite.createArtistIn("Faketown Ghost", "", "")
+	suite.createApprovedShow("faketown gig", v1.ID, ghost.ID, user.ID, time.Now().UTC().AddDate(0, 0, -3))
+
+	// Locationless band on ANOTHER fallback city's bill: must not leak in.
+	elsewhere := suite.createVerifiedVenue("Club One", "Othertown", "ZZ")
+	otherGhost := suite.createArtistIn("Othertown Ghost", "", "")
+	suite.createApprovedShow("othertown gig", elsewhere.ID, otherGhost.ID, user.ID, time.Now().UTC().AddDate(0, 0, -4))
+
+	gaps, err := suite.sceneService.GetSceneGaps("Faketown", "ZZ")
+	suite.Require().NoError(err)
+
+	suite.Equal(1, gaps.ArtistsMissingListenLink, "Othertown's linkless band is a different scene")
+	suite.Equal(1, gaps.ArtistsOnBillsMissingLocation, "Othertown's bill is a different scene")
+	suite.Equal("faketown-zz", gaps.Slug)
+}
