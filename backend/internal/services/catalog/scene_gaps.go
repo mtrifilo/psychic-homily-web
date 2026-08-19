@@ -23,36 +23,34 @@ import (
 // drift, and a gap line that disagrees with the roster count directly above it
 // is worse than no gap line.
 
-// listenLinkColumns are the artist columns that constitute a "listen link".
+// noListenLinkSQL builds the "has no listen link" predicate for the artists
+// alias: every listen-link column blank. Column names are internal literals,
+// never caller input, so the concatenation carries no injection surface.
 //
-// This four-column set is NOT invented here — it is the project's existing
+// The four columns are NOT chosen here — they are the project's existing
 // definition of a music-platform link, shared with the streaming-discovery
 // worklist (models/catalog.StreamingDiscoveryStatus) and with the migration
 // that backfilled it (20260524213942). The other Social columns
 // (instagram/facebook/twitter/website) are deliberately excluded: a band's
 // Instagram is not somewhere you can listen to them, and counting it as one
-// would report the gap as closed while the reader still has nothing to play.
+// would report the gap closed while the reader still has nothing to play.
+// Keep in lockstep with that worklist — if the set changes, both move together
+// or the admin queue and the public gap line start describing different bands.
 //
-// Keep in lockstep with that worklist. If the set ever changes, both move
-// together or the admin queue and the public gap line start describing
-// different bands.
-var listenLinkColumns = []string{"spotify", "bandcamp", "youtube", "soundcloud"}
-
-// noListenLinkSQL builds the "has no listen link" predicate for the artists
-// alias: every listen-link column blank.
-//
-// The predicate is NULLIF(TRIM(col), empty-string) IS NULL rather than a bare
-// IS NULL, because a link column can hold an empty string as well as NULL — the
+// The test is NULLIF(TRIM(col), empty-string) IS NULL rather than a bare IS
+// NULL, because a link column can hold an empty string as well as NULL — the
 // update paths route through utils.NilIfEmpty, but rows predating that (and any
 // direct write) can carry a blank. A bare IS NULL reads a blank as "has a link"
 // and would silently UNDERSTATE the gap, which is the one direction this number
 // must not be wrong in: it would hide work from the very readers being asked to
 // do it.
 //
-// (Written in prose rather than as SQL because gofmt's doc-comment reformatter
-// rewrites a pair of straight single quotes into a typographic quote — see
-// pattern_gofmt_doc_comment_quotes.)
+// (Spelled in prose rather than as literal SQL because gofmt's doc-comment
+// reformatter rewrites a pair of straight single quotes into a typographic
+// quote — see pattern_gofmt_doc_comment_quotes.)
 func noListenLinkSQL(alias string) string {
+	listenLinkColumns := []string{"spotify", "bandcamp", "youtube", "soundcloud"}
+
 	pred := ""
 	for i, col := range listenLinkColumns {
 		if i > 0 {
@@ -117,6 +115,12 @@ func (s *SceneService) GetSceneGaps(city, state string) (*contracts.SceneGapsRes
 	// pulse. An old bill is exactly as fixable as tonight's, and windowing it
 	// would make the number shrink on its own without anyone doing the work.
 	// DISTINCT because a band that played the scene ten times is ONE gap.
+	//
+	// Venue scope is venuePredicate (every room in the scene's scope), NOT
+	// trackedVenuePredicate (verified rooms only). That matches the show-side
+	// figures in GetSceneDetail rather than the venue leaderboard: a band that
+	// played an unverified room in the metro still played this scene, and its
+	// missing location is still this scene's to fix.
 	countArgs := append(append([]any{}, vargs...), catalogm.ShowStatusApproved)
 	var missingLocation int64
 	if err := s.db.Raw(`
