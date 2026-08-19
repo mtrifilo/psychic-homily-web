@@ -2,6 +2,7 @@
 
 import { Analytics } from '@vercel/analytics/react'
 import { useEffect } from 'react'
+import { pageviewWithinDailyCap } from '@/lib/analytics/pageviewDailyCap'
 
 /**
  * Vercel Web Analytics with an opt-in "internal traffic" suppressor (PSY-1546).
@@ -20,6 +21,11 @@ import { useEffect } from 'react'
  * Fails OPEN: if the flag can't be read (private mode, storage disabled, a
  * throwing localStorage), events are sent. Under-reporting real visitors is a
  * worse failure than counting a few of the maintainer's own.
+ *
+ * Pageviews are additionally subject to a per-browser daily budget; see
+ * lib/analytics/pageviewDailyCap.ts for why. Non-pageview event types pass
+ * through uncapped so a future custom event cannot be silently swallowed
+ * here.
  */
 
 const INTERNAL_FLAG_KEY = 'ph-internal-traffic'
@@ -52,7 +58,16 @@ export default function InternalTrafficAnalytics() {
 
   return (
     <Analytics
-      beforeSend={event => (isInternalTraffic() ? null : event)}
+      beforeSend={event => {
+        if (isInternalTraffic()) return null
+        if (
+          event.type === 'pageview' &&
+          !pageviewWithinDailyCap(new Date().toISOString().slice(0, 10))
+        ) {
+          return null
+        }
+        return event
+      }}
     />
   )
 }
