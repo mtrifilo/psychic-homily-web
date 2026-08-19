@@ -43,7 +43,7 @@ import (
 // states a role for every act (artist 1 seeds as Headliner), but an API client
 // can send `set_type` on one act and nothing on another, and
 // handlers/catalog.initializeArtist then defaults the silent act's
-// is_headliner to a non-nil FALSE — which means resolveArtistRole's
+// is_headliner to a non-nil FALSE, which means resolveArtistRole's
 // position-0 fallback never fires on POST /shows, and the top act is stored
 // 'performer'. On such a bill the genuine headliner is counted as a support
 // slot and becomes eligible for Openers to Watch.

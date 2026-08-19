@@ -920,7 +920,7 @@ func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, s
 }
 
 // GetOpenersToWatch returns artists ranked by support slots played within the
-// window — slots that are NOT headline slots (headlineSlotSQL: on a
+// window, meaning slots that are NOT headline slots (headlineSlotSQL: on a
 // curated bill, exactly the rows set_type='headliner'; on a bill nobody has
 // curated, position 0). Artists with ANY headline slot in the window are
 // excluded entirely: this chart surfaces artists who are always on the bill

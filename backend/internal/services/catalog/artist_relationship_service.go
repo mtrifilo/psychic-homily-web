@@ -774,7 +774,7 @@ type billCoBillRow struct {
 // type. Headline vs support is classified by the shared headlineSlotSQL predicate
 // (see headline_slot.go), the same rule the charts use: curated set_type decides,
 // and position 0 stands in only on a bill nobody has curated. `a_role`/`co_role`
-// are therefore "headline slot" vs "everything else", not curated role labels —
+// are therefore "headline slot" vs "everything else", not curated role labels:
 // a direct support act and a DJ both bucket as 'opener' here.
 func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, months int) (*contracts.ArtistBillComposition, error) {
 	if s.db == nil {
@@ -815,7 +815,7 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 		result.Graph.Center.HasPlayableAudio = playable
 	}
 
-	// 2. Stats query — counts headline vs support slots over the time window.
+	// 2. Stats query: counts headline vs support slots over the time window.
 	// Both arms read the SAME shared predicate, so every slot lands in exactly
 	// one bucket and the two counts always sum to the slot total.
 	statsSQL := `

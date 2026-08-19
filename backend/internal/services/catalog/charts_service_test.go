@@ -658,7 +658,7 @@ func (suite *ChartsServiceIntegrationTestSuite) addArtistToShow(showID, artistID
 // setSlotSetType overwrites the curated bill role of an existing show_artists
 // row. createApprovedShow seeds position 0 with the uncurated default, so this
 // is how a test states that the FIRST-BILLED act was curated as something else
-// — the case headlineSlotSQL exists to get right.
+// This is the case headlineSlotSQL exists to get right.
 func (suite *ChartsServiceIntegrationTestSuite) setSlotSetType(showID, artistID uint, setType string) {
 	suite.Require().NoError(suite.db.Exec(
 		"UPDATE show_artists SET set_type = ? WHERE show_id = ? AND artist_id = ?",
@@ -666,14 +666,14 @@ func (suite *ChartsServiceIntegrationTestSuite) setSlotSetType(showID, artistID 
 }
 
 // createCuratedHeadlineShow is createApprovedShow with the first-billed act
-// explicitly curated as the headliner — what the show form stores, since it
+// explicitly curated as the headliner, which is what the show form stores: it
 // sends a role for every act and seeds artist 1 as Headliner.
 //
 // Tests that mean "a curated bill" must say so, because headlineSlotSQL judges
 // curation per BILL: leaving the top act on the neutral default makes the bill
 // HALF-described and gives it no headline slot at all, which is a different
 // fixture than the one those tests intend. That half-described shape is real
-// and reachable, not just a fixture slip — see
+// and reachable, not just a fixture slip. See
 // TestGetOpenersToWatch_PartiallyCuratedBillHasNoHeadlineSlot, which asserts
 // it deliberately.
 func (suite *ChartsServiceIntegrationTestSuite) createCuratedHeadlineShow(title string, venueID, artistID, userID uint, eventDate time.Time) *catalogm.Show {
@@ -810,11 +810,11 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Headlin
 	// -> the position fallback applies, so support holds a headline slot.
 	suite.createApprovedShow("Own Show", venue.ID, support.ID, user.ID, now.AddDate(0, 0, -40))
 	// Show 2: CURATED (support is a stated opener). Nobody is set_type
-	// 'headliner', so this bill has NO headline slot at all — including for
+	// 'headliner', so this bill has NO headline slot at all, including for
 	// the first-billed act, whose slot nobody stated.
 	s2 := suite.createApprovedShow("Opener Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -30))
 	suite.addArtistToShow(s2.ID, support.ID, 1, "opener")
-	// Show 3: CURATED — set_type says headliner even at position 2, so the
+	// Show 3: CURATED. set_type says headliner even at position 2, so the
 	// headline slot is support's and NOT the first-billed act's.
 	s3 := suite.createApprovedShow("Co-headline Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
 	suite.addArtistToShow(s3.ID, support.ID, 2, "headliner")
@@ -858,7 +858,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Uncurat
 	second := suite.createArtist("Uncurated Support")
 
 	now := time.Now().UTC()
-	// Every row 'performer' — the GORM default, and what the PSY-1673 backfill
+	// Every row 'performer': the GORM default, and what the PSY-1673 backfill
 	// left on rows that predate curation.
 	s1 := suite.createApprovedShow("Silent Bill A", venue.ID, first.ID, user.ID, now.AddDate(0, 0, -10))
 	suite.addArtistToShow(s1.ID, second.ID, 1, "performer")
@@ -893,7 +893,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CuratedFir
 	for i, daysAgo := range []int{-10, -20} {
 		s := suite.createApprovedShow(
 			fmt.Sprintf("Curated Bill %d", i), venue.ID, firstBilled.ID, user.ID, now.AddDate(0, 0, daysAgo))
-		// Listed first, curated as the opener — the exact shape the old
+		// Listed first, curated as the opener: the exact shape the old
 		// position-0 predicate misread as a headline slot.
 		suite.setSlotSetType(s.ID, firstBilled.ID, "opener")
 		suite.addArtistToShow(s.ID, top.ID, 1, "headliner")
