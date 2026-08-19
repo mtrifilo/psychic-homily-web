@@ -112,37 +112,37 @@ export function useSceneArtists(options: UseSceneArtistsOptions) {
 
 interface UseSceneNewArtistsOptions {
   slug: string
-  /** Window in days, `[now-days, now]`. Backend default 30, maximum 365. */
-  days?: number
-  /** Rows to return, most recently listed first. Backend default 10, max 50. */
+  /** Rows to return, most recently listed first. Backend default 5, max 50. */
   limit?: number
 }
 
 /**
- * Hook to fetch a scene's NEW bands — the named list that replaced Scene Pulse.
+ * Hook to fetch a scene's most recently listed bands — the named list that
+ * replaced Scene Pulse.
  *
- * "New" is FIRST LISTED: the band's catalog row was created inside the window,
- * which is the weekly digest's definition, not the retired pulse's
- * first-approved-show-in-30-days. That matters to the caller because it is the
- * fact the rendered date states, so the two can never disagree.
+ * The order is FIRST LISTED, newest first: the band's catalog row creation
+ * date, which is also the date the row renders. That matters to the caller
+ * because the fact shown and the fact sorted on are one column, so the two can
+ * never disagree — and it is why this is not the retired pulse's
+ * first-approved-show-in-30-days.
  *
- * Both parameters are OMITTED when the caller does not pass them, so the
- * backend's own defaults own the window — the same rule `useSceneArtists`'
- * `period` and `useSceneShows`' `days` already follow.
+ * There is no window. PSY-1844 removed the trailing 30 days after measuring it
+ * empty on 5 of 6 major scenes: rosters grow in seeding batches, so a window
+ * reported on ingest scheduling rather than on the scene.
+ *
+ * `limit` is OMITTED when the caller does not pass it, so the backend's own
+ * default owns the cap — the same rule `useSceneArtists`' `period` and
+ * `useSceneShows`' `days` already follow.
  */
 export function useSceneNewArtists(options: UseSceneNewArtistsOptions) {
-  const { slug, days, limit } = options
+  const { slug, limit } = options
 
-  const params = new URLSearchParams()
-  if (days) params.set('days', days.toString())
-  if (limit) params.set('limit', limit.toString())
-  const queryString = params.toString()
-  const endpoint = queryString
-    ? `${API_ENDPOINTS.SCENES.NEW_ARTISTS(slug)}?${queryString}`
+  const endpoint = limit
+    ? `${API_ENDPOINTS.SCENES.NEW_ARTISTS(slug)}?limit=${limit}`
     : API_ENDPOINTS.SCENES.NEW_ARTISTS(slug)
 
   return useQuery({
-    queryKey: queryKeys.scenes.newArtists(slug, days, limit),
+    queryKey: queryKeys.scenes.newArtists(slug, limit),
     queryFn: async (): Promise<SceneNewArtistsResponse> => {
       return apiRequest<SceneNewArtistsResponse>(endpoint, { method: 'GET' })
     },

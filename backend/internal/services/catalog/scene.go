@@ -831,6 +831,16 @@ func (s *SceneService) GetSceneNewArtistsSince(city, state string, since, now ti
 		Name      string    `gorm:"column:name"`
 		CreatedAt time.Time `gorm:"column:created_at"`
 	}
+	// TWIN QUERY: GetSceneLatestArtists (scene_new_artists.go) is this same
+	// shape without the created_at bounds — the scene page's module, which
+	// PSY-1844 deliberately un-windowed while this one KEPT its window because
+	// the digest advances a per-follow cursor after each send. Only the window
+	// may differ: the projection, the nullable-slug COALESCE, the ordering and
+	// the created_at -> FirstListedAt mapping must move together in both.
+	//
+	// id DESC is a load-bearing tiebreak, not tidiness — a seeding batch writes
+	// many rows inside the same second, so created_at alone would let the cap
+	// return a different subset of one batch on every call.
 	args := append(append([]any{}, aargs...), since, now, limit)
 	var rows []row
 	if err := s.db.Raw(`

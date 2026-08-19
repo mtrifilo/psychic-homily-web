@@ -8,18 +8,18 @@ import type { SceneDetail, SceneNewArtistRow } from '../types'
 /**
  * Named new bands — Scene Pulse's replacement, not its restyling.
  *
- * The pulse's `new_artists_30d` was the one number on it that mapped to a
- * question a participant actually asks, and it was a bare integer with no
- * names. This is that number with its names attached, and nothing else: no
- * tile, no sparkline, no trend arrow, and no `0`.
+ * The pulse's `new_artists_30d` was a bare integer with no names, answering a
+ * question participants do ask. This is names instead of a number, and nothing
+ * else: no tile, no sparkline, no trend arrow, and no `0`.
  *
- * The module HIDES COMPLETELY when the window holds nothing. A scene with no
- * new bands is a normal scene, not a scene with a zero to report, and the
- * weekly digest — which computes exactly this list — has never printed one.
+ * The module HIDES COMPLETELY when there is nothing to name. A scene with no
+ * bands based in it is a normal scene, not a scene with a zero to report.
+ *
+ * The rows are the roster's most recently listed bands — PSY-1844 removed the
+ * endpoint's trailing window, so nothing here may describe the list as covering
+ * a period. The section's wording is PSY-1851's to write; this component only
+ * stopped saying what had become untrue.
  */
-
-/** How many bands the section names before deferring to `+N more`. */
-const NEW_BANDS_LIMIT = 5
 
 function NewBandRow({ band }: { band: SceneNewArtistRow }) {
   const firstListed = formatFirstListed(band.first_listed_at)
@@ -39,41 +39,29 @@ function NewBandRow({ band }: { band: SceneNewArtistRow }) {
 }
 
 export function SceneNewBands({ scene }: { scene: SceneDetail }) {
-  const { data } = useSceneNewArtists({ slug: scene.slug, limit: NEW_BANDS_LIMIT })
+  // No `limit`: the endpoint's own default owns the cap, the rule this hook
+  // documents and `useSceneShows` already follows. Passing one here would be a
+  // third copy of a number the backend already decides.
+  const { data } = useSceneNewArtists({ slug: scene.slug })
 
   const bands = data?.artists ?? []
-  // One `return null` covers loading, error and a genuinely empty window, and
+  // One `return null` covers loading, error and a scene with no roster, and
   // that is deliberate rather than lazy: all three mean "we have nothing to
   // name here", and the two that are temporary must not flash a heading over
   // empty space on the way past.
   if (bands.length === 0) return null
 
-  const total = data?.total ?? bands.length
-  const withheld = Math.max(total - bands.length, 0)
-
   return (
     <section className="border-t border-border pt-4">
-      <SceneSectionHeading
-        title={`New / first listed in ${scene.city}`}
-        note="last 30 days"
-      />
+      {/* No period qualifier. This read "last 30 days" until PSY-1844 removed
+          the window; the payload can no longer support any such claim. */}
+      <SceneSectionHeading title={`New / first listed in ${scene.city}`} />
 
       <ul className="mt-2">
         {bands.map(band => (
           <NewBandRow key={band.id} band={band} />
         ))}
       </ul>
-
-      {/* `+N more` and no link, deliberately. The mock draws
-          `[All new bands in {city} →]` beside it, and no route serves that
-          list — the endpoint is a window, not a page. A control pointing at a
-          URL this site 404s is a worse answer than no control, the same call
-          Wave 1A made about the mock's dated-archive chip. */}
-      {withheld > 0 && (
-        <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-          +{withheld} more
-        </p>
-      )}
     </section>
   )
 }

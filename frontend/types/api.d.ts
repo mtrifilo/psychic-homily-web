@@ -5668,6 +5668,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scenes/{slug}/gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get scenes by slug gaps */
+        get: operations["get-scenes-by-slug-gaps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scenes/{slug}/genres": {
         parameters: {
             query?: never;
@@ -12195,13 +12212,8 @@ export interface components {
              * @example https://example.com/schemas/GetSceneNewArtistsResponseBody.json
              */
             readonly $schema?: string;
-            /** @description Bands based in the scene first listed inside the window, most recently listed first */
+            /** @description Bands based in the scene, most recently listed first */
             artists: components["schemas"]["SceneNewArtistRow"][] | null;
-            /**
-             * Format: int64
-             * @description Total bands first listed in the window, before the limit is applied
-             */
-            total: number;
         };
         GetSceneShowsResponseBody: {
             /**
@@ -15170,6 +15182,21 @@ export interface components {
             is_following: boolean;
             notify_mode?: string;
             slug: string;
+        };
+        SceneGapsResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SceneGapsResponse.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            artists_missing_listen_link: number;
+            /** Format: int64 */
+            artists_on_bills_missing_location: number;
+            city: string;
+            slug: string;
+            state: string;
         };
         SceneGenreResponse: {
             /**
@@ -31549,6 +31576,41 @@ export interface operations {
             };
         };
     };
+    "get-scenes-by-slug-gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SceneGapsResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-scenes-by-slug-genres": {
         parameters: {
             query?: never;
@@ -31633,9 +31695,7 @@ export interface operations {
     "get-scenes-by-slug-new-artists": {
         parameters: {
             query?: {
-                /** @description Window in days — bands first listed inside [now-days, now] */
-                days?: number;
-                /** @description Maximum number of bands to return, most recently listed first */
+                /** @description Maximum number of bands to return, most recently listed first. Omit for the server default (5). */
                 limit?: number;
             };
             header?: never;
