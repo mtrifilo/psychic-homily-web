@@ -50,6 +50,18 @@ describe('proxy — scene period routes', () => {
     ],
     ['/scenes/phoenix-az/2026-W31', 'http://localhost:8080/scenes/phoenix-az/week/2026-W31'],
     ['/scenes/phoenix-az/2026-07-31', 'http://localhost:8080/entities/scenes/phoenix-az/exists'],
+    // The multi-day rolling windows (PSY-1849). Keyless like `/tonight`, so the
+    // scene itself is the only thing that can 404 them — and `/next-4-weeks`
+    // composes five week payloads, which is exactly what must NOT be rebuilt
+    // here only to be thrown away.
+    [
+      '/scenes/phoenix-az/this-weekend',
+      'http://localhost:8080/entities/scenes/phoenix-az/exists',
+    ],
+    [
+      '/scenes/phoenix-az/next-4-weeks',
+      'http://localhost:8080/entities/scenes/phoenix-az/exists',
+    ],
   ])('existence-checks %s against %s', async (path, expected) => {
     const fetchMock = mockBackend(200)
 
