@@ -320,6 +320,36 @@ func TestResolveShowTimes_AnchorsToTheStatedCalendarDate(t *testing.T) {
 }
 
 // =============================================================================
+// UNIT TESTS — scrapeDescribesStoredDate
+// =============================================================================
+
+func TestScrapeDescribesStoredDate_BareDateImport(t *testing.T) {
+	// A listing that stated no show time leaves event_date at midnight UTC.
+	stored := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	assert.True(t, scrapeDescribesStoredDate(stored, "2026-06-15", "AZ"))
+	assert.False(t, scrapeDescribesStoredDate(stored, "2026-06-16", "AZ"))
+}
+
+func TestScrapeDescribesStoredDate_ImportWithShowTime(t *testing.T) {
+	// A 7 PM Phoenix show on 2026-06-15 is stored as 2026-06-16T02:00Z.
+	stored := time.Date(2026, 6, 16, 2, 0, 0, 0, time.UTC)
+	assert.True(t, scrapeDescribesStoredDate(stored, "2026-06-15", "AZ"))
+	assert.False(t, scrapeDescribesStoredDate(stored, "2026-06-16", "AZ"))
+}
+
+func TestScrapeDescribesStoredDate_PostponedListing(t *testing.T) {
+	// Same source event ID, new date. This path does not move event_date, so
+	// the scrape's times must not be written against it.
+	stored := time.Date(2026, 6, 16, 2, 0, 0, 0, time.UTC)
+	assert.False(t, scrapeDescribesStoredDate(stored, "2026-08-20", "AZ"))
+}
+
+func TestScrapeDescribesStoredDate_UnparseableDate(t *testing.T) {
+	stored := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	assert.False(t, scrapeDescribesStoredDate(stored, "not-a-date", "AZ"))
+}
+
+// =============================================================================
 // UNIT TESTS — getTimezoneForState
 // =============================================================================
 
@@ -679,6 +709,28 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateKeepsStoredTi
 	suite.Require().NotNil(show.MusicAt)
 	suite.Equal(time.Date(2026, 6, 20, 2, 0, 0, 0, time.UTC), show.DoorsAt.UTC())
 	suite.Equal(time.Date(2026, 6, 20, 3, 0, 0, 0, time.UTC), show.MusicAt.UTC())
+}
+
+func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UpdateSkipsTimesWhenTheListingMoved() {
+	event := suite.makeEvent("evt-times-006", "Slowdive", "valley-bar", "2026-06-20", []string{"Slowdive"})
+
+	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Imported)
+
+	// The listing is postponed: same source event ID, new date, now with times.
+	// This path does not move event_date, so writing the times would stamp them
+	// onto a day the stored show is not on.
+	event.Date = "2026-08-22"
+	event.DoorsTime = strPtr("7:00 PM")
+	event.ShowTime = strPtr("8:00 PM")
+	_, err = suite.svc.ImportEvents([]contracts.DiscoveredEvent{event}, false, true, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	var show catalogm.Show
+	suite.Require().NoError(suite.db.Where("source_event_id = ?", "evt-times-006").First(&show).Error)
+	suite.Nil(show.DoorsAt)
+	suite.Nil(show.MusicAt)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {

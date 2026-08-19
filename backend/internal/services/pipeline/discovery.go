@@ -584,7 +584,13 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 	// Compare doors / music times. A re-scrape that no longer states a time is
 	// not evidence the time changed, so a nil never clears a stored value --
 	// only a newly stated, readable time writes.
-	if venueConfig, ok := VenueConfig[event.VenueSlug]; ok {
+	//
+	// Guarded on the scrape still describing the stored show's date. This path
+	// never moves event_date, so a postponed listing (same source event ID, new
+	// date) would otherwise stamp doors_at onto a day event_date does not
+	// share. A rescheduled show needs its date reconciled first, which is not
+	// this change's job, so leave its times alone until then.
+	if venueConfig, ok := VenueConfig[event.VenueSlug]; ok && scrapeDescribesStoredDate(existing.EventDate, event.Date, venueConfig.State) {
 		doorsAt, musicAt := resolveShowTimes(event.Date, event.DoorsTime, event.ShowTime, venueConfig.State)
 		if doorsAt != nil && (existing.DoorsAt == nil || !existing.DoorsAt.Equal(*doorsAt)) {
 			updates["doors_at"] = *doorsAt
@@ -611,6 +617,36 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 	}
 
 	return fmt.Sprintf("UPDATED: %s (show #%d) -- %s", event.Title, existing.ID, changeStr), "updated"
+}
+
+// scrapeDescribesStoredDate reports whether a re-scrape is still talking about
+// the day a stored show is on. It accepts the two shapes importEvent can leave
+// behind:
+//
+//   - the listing stated no show time, so event_date is the bare calendar date
+//     at midnight UTC
+//   - the listing stated one, so event_date is an instant inside that calendar
+//     day read in the venue's zone
+//
+// Anything else means the listing moved, and its times must not be written
+// against a date the stored row does not share.
+func scrapeDescribesStoredDate(storedEventDate time.Time, dateStr, state string) bool {
+	date, err := parseCalendarDate(dateStr)
+	if err != nil {
+		return false
+	}
+
+	bareDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	if storedEventDate.UTC().Equal(bareDate) {
+		return true
+	}
+
+	loc, err := time.LoadLocation(getTimezoneForState(state))
+	if err != nil {
+		loc = time.UTC
+	}
+	local := storedEventDate.In(loc)
+	return local.Year() == date.Year() && local.Month() == date.Month() && local.Day() == date.Day()
 }
 
 // formatOptionalInstant renders an optional timestamp for a change log line.
