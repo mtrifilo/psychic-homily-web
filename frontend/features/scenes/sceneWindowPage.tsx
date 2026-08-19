@@ -2,7 +2,7 @@ import { cache } from 'react'
 import type { Metadata } from 'next'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
-import { SceneWindowView, type SceneWindowData } from './components/SceneWindowView'
+import { SceneWindowView } from './components/SceneWindowView'
 import { sceneTonightDate } from './sceneCalendar'
 import { fetchSceneWeekChain } from './sceneWindowApi'
 import { buildSceneWindowJsonLd } from './sceneWindowJsonLd'
@@ -17,6 +17,7 @@ import {
   rollingDays,
   sceneWindowHref,
   weekendDays,
+  type SceneWindowData,
   type SceneWindowKey,
 } from './sceneWindow'
 
@@ -90,6 +91,13 @@ export const getSceneWindow = cache(
           // window drops them: a weekend viewed on Sunday has two nights behind
           // it, and listing them under a header promising "this weekend" would
           // describe a backward stretch of time with a forward label.
+          //
+          // Between midnight and 6am on Monday the two authorities disagree by
+          // design and the result is the one a reader wants: the backend has
+          // already rolled to the new week, while `tonight` still names Sunday
+          // under the night boundary. Every day of the NEW weekend is later than
+          // that Sunday, so all three survive and the page shows the weekend
+          // ahead rather than a weekend that has entirely finished.
           rollingDays(weekendDays(all), tonight ?? all[0]?.date ?? '', 3)
         : rollingDays(all, tonight ?? all[0]?.date ?? '', NEXT_4_WEEKS_DAYS)
 

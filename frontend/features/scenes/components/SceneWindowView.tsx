@@ -7,8 +7,10 @@ import { formatDayHeading, type SceneWeekDay } from '../sceneWeek'
 import {
   SCENE_WINDOW_LABEL,
   SCENE_WINDOW_ORDER,
+  allUpcomingHref,
   formatWindowRange,
   sceneWindowHref,
+  type SceneWindowData,
   type SceneWindowKey,
 } from '../sceneWindow'
 import { SceneWeekShowRow } from './SceneWeekView'
@@ -17,7 +19,6 @@ import {
   SceneBreadcrumb,
   SceneCityHeading,
   TrackedRoomsFooter,
-  type TrackedRoom,
 } from './sceneChrome'
 
 /**
@@ -29,29 +30,6 @@ import {
  * The two differ only in which stretch of time they bound, so anything a reader
  * could notice moving between them is a bug.
  */
-
-/** Everything a window page renders, resolved before it gets here. */
-export interface SceneWindowData {
-  window: SceneWindowKey
-  slug: string
-  sceneName: string
-  city: string
-  state: string
-  /** IANA zone the window's dates were resolved in, for structured data. */
-  timezone: string
-  /** Day rows, already sliced to the window and capped. */
-  days: SceneWeekDay[]
-  /** Shows actually rendered — may be under the window's true total. */
-  rendered: number
-  /** Whether the row cap cut the list. */
-  truncated: boolean
-  trackedVenues: TrackedRoom[]
-  /**
-   * The window one step wider than this one, for the quiet state. Null when
-   * nothing in the family is wider.
-   */
-  widerWindow: SceneWindowKey | null
-}
 
 /**
  * The other windows in the family, as chips.
@@ -139,16 +117,27 @@ function QuietWindow({ data }: { data: SceneWindowData }) {
         have a show we haven&apos;t listed.
       </p>
 
-      {data.widerWindow && (
-        <p className="mt-5">
+      {/* Exactly one step onward. The widest window has nothing wider to offer,
+          so it falls back to the city's whole upcoming listing rather than
+          leaving a dead end — the state most likely to be reached by a scene we
+          are simply missing rooms for. */}
+      <p className="mt-5">
+        {data.widerWindow ? (
           <Link
             href={sceneWindowHref(data.slug, data.widerWindow)}
             className="text-primary underline underline-offset-4"
           >
             Try {SCENE_WINDOW_LABEL[data.widerWindow].toLowerCase()} in {data.city} →
           </Link>
-        </p>
-      )}
+        ) : (
+          <Link
+            href={allUpcomingHref(data.city, data.state)}
+            className="text-primary underline underline-offset-4"
+          >
+            All upcoming in {data.city} →
+          </Link>
+        )}
+      </p>
 
       <p className="mt-3">
         <Link
@@ -230,6 +219,23 @@ export function SceneWindowView({ data }: { data: SceneWindowData }) {
             countIsPartial={truncated && i === days.length - 1}
           />
         ))
+      )}
+
+      {/* A capped window would otherwise be a dead end: it is the widest thing
+          the family offers, so none of the chips above lead anywhere that holds
+          the rows it dropped. Stated as what the page DID show — "60 shows"
+          alone would read as the window's total, which is the one number this
+          page cannot verify. */}
+      {truncated && (
+        <p className="mt-6 border-t border-border pt-3 font-mono text-[11px] text-muted-foreground">
+          Showing the first {rendered}.{' '}
+          <Link
+            href={allUpcomingHref(data.city, data.state)}
+            className="underline underline-offset-4"
+          >
+            All upcoming in {data.city} →
+          </Link>
+        </p>
       )}
 
       {!isQuiet && <TrackedRoomsFooter city={data.city} rooms={data.trackedVenues} />}

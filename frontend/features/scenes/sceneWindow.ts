@@ -20,6 +20,11 @@
  */
 
 import { parseCalendarDate, type SceneWeekDay, type SceneWeekResponse } from './sceneWeek'
+// Type-only, so this module stays a runtime leaf: nothing here pulls the view's
+// graph. The data type lives HERE rather than beside the component because the
+// page module and the JSON-LD builder both consume it, and a data shape defined
+// inside a view makes every non-view consumer depend on the view to describe it.
+import type { TrackedRoom } from './components/sceneChrome'
 
 /** The four windows the family locks, keyed by the concept rather than the path. */
 export type SceneWindowKey = 'tonight' | 'this-weekend' | 'this-week' | 'next-4-weeks'
@@ -55,6 +60,46 @@ export const SCENE_WINDOW_ORDER: SceneWindowKey[] = [
 /** `/scenes/phoenix-az/this-weekend`. Slug encoded — it reaches here from a route param. */
 export function sceneWindowHref(slug: string, key: SceneWindowKey): string {
   return `/scenes/${encodeURIComponent(slug)}/${WINDOW_SEGMENT[key]}`
+}
+
+/**
+ * Everything a window page renders, resolved before it reaches the view.
+ *
+ * Lives in this module rather than beside the component so the page module and
+ * the JSON-LD builder can describe their input without importing a view.
+ */
+export interface SceneWindowData {
+  window: SceneWindowKey
+  slug: string
+  sceneName: string
+  city: string
+  state: string
+  /** IANA zone the window's dates were resolved in, for structured data. */
+  timezone: string
+  /** Day rows, already sliced to the window and capped. */
+  days: SceneWeekDay[]
+  /** Shows actually rendered — may be under the window's true total. */
+  rendered: number
+  /** Whether the row cap cut the list. */
+  truncated: boolean
+  trackedVenues: TrackedRoom[]
+  /**
+   * The window one step wider than this one, for the quiet state. Null when
+   * nothing in the family is wider.
+   */
+  widerWindow: SceneWindowKey | null
+}
+
+/**
+ * The city's whole upcoming listing — the way out of a window that could not
+ * hold everything, and of the widest window when it is empty.
+ *
+ * The `?cities=` value is built here rather than through
+ * `components/filters/cityParams`, whose module pulls `nuqs` in for a parser
+ * these server-rendered pages never use. The format is one pair, `City,ST`.
+ */
+export function allUpcomingHref(city: string, state: string): string {
+  return `/shows?cities=${encodeURIComponent(`${city},${state}`)}`
 }
 
 /** The rolling window `/next-4-weeks` serves: 28 days from tonight. */

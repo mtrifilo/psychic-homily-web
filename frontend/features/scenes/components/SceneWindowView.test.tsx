@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
-import { SceneWindowView, type SceneWindowData } from './SceneWindowView'
+import { SceneWindowView } from './SceneWindowView'
+import type { SceneWindowData } from '../sceneWindow'
 import type { SceneWeekDay, SceneWeekShow } from '../sceneWeek'
 
 const show = (over: Partial<SceneWeekShow> = {}): SceneWeekShow =>
@@ -83,6 +84,21 @@ describe('SceneWindowView — header', () => {
     render(<SceneWindowView data={data({ rendered: 60, truncated: true })} />)
     expect(screen.getByText(/first 60 shows/)).toBeInTheDocument()
   })
+
+  // The widest window is where the cap bites, and none of the chips lead
+  // anywhere holding the rows it dropped — so a capped page owes one way out.
+  it('offers the city listing when the cap cut the window', () => {
+    render(<SceneWindowView data={data({ rendered: 60, truncated: true })} />)
+    expect(screen.getByRole('link', { name: /All upcoming in Phoenix/ })).toHaveAttribute(
+      'href',
+      '/shows?cities=Phoenix%2CAZ'
+    )
+  })
+
+  it('does not offer that way out when the window fit', () => {
+    render(<SceneWindowView data={data()} />)
+    expect(screen.queryByRole('link', { name: /All upcoming in Phoenix/ })).toBeNull()
+  })
 })
 
 describe('SceneWindowView — day rows', () => {
@@ -145,9 +161,15 @@ describe('SceneWindowView — quiet window', () => {
     )
   })
 
-  it('offers no wider window when nothing in the family is wider', () => {
+  // The widest window has nothing wider to point at, and a dead end is the one
+  // thing an empty answer must not be.
+  it('falls back to the city listing when nothing in the family is wider', () => {
     render(<SceneWindowView data={data({ ...quiet, window: 'next-4-weeks', widerWindow: null })} />)
     expect(screen.queryByRole('link', { name: /^Try / })).toBeNull()
+    expect(screen.getByRole('link', { name: /All upcoming in Phoenix/ })).toHaveAttribute(
+      'href',
+      '/shows?cities=Phoenix%2CAZ'
+    )
   })
 
   // The rooms footer is the coverage disclosure for a POPULATED list; the quiet

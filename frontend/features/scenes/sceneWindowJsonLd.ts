@@ -8,8 +8,12 @@ import {
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { showDisplayTitle, showHref } from './sceneWeek'
 import { sceneShowEvents } from './sceneShowJsonLd'
-import { SCENE_WINDOW_LABEL, formatWindowRange, sceneWindowHref } from './sceneWindow'
-import type { SceneWindowData } from './components/SceneWindowView'
+import {
+  SCENE_WINDOW_LABEL,
+  formatWindowRange,
+  sceneWindowHref,
+  type SceneWindowData,
+} from './sceneWindow'
 
 export interface SceneWindowJsonLd {
   breadcrumb: BreadcrumbListSchema
