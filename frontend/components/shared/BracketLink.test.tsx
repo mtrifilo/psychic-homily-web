@@ -173,6 +173,55 @@ describe('BracketLink', () => {
     })
   })
 
+  describe('external links', () => {
+    it('opens an external href in a new tab with rel hygiene', () => {
+      render(
+        <BracketLink
+          label="Directions ↗"
+          href="https://www.google.com/maps/search/?api=1&query=x"
+          external
+        />
+      )
+      const link = screen.getByRole('link', { name: 'Directions ↗' })
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(link).toHaveAttribute(
+        'href',
+        'https://www.google.com/maps/search/?api=1&query=x'
+      )
+    })
+
+    it('leaves internal links in the same tab', () => {
+      render(<BracketLink label="History" href="/history" />)
+      expect(
+        screen.getByRole('link', { name: 'History' })
+      ).not.toHaveAttribute('target')
+    })
+
+    it('still falls back to a disabled button when disabled', () => {
+      render(
+        <BracketLink label="Directions ↗" href="https://maps.example" external disabled />
+      )
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Directions ↗' })
+      ).toBeDisabled()
+    })
+
+    // The scheme floor lives in the primitive: `external` is exactly where a
+    // user-controlled URL eventually arrives, and a non-http value must
+    // never render as an anchor — disabled fallback, same as href+disabled.
+    it.each([
+      ['javascript:alert(1)'],
+      ['data:text/html,x'],
+      ['ftp://tix.example'],
+    ])('renders a disabled button, never an anchor, for %s', href => {
+      render(<BracketLink label="Buy ↗" href={href} external />)
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Buy ↗' })).toBeDisabled()
+    })
+  })
+
   describe('pre-hydration click replay (PSY-1615)', () => {
     // BracketLink owns replay for ~71 bracket controls, so none of them declare
     // it themselves. Without these assertions, deleting the `{...replayOnHydrate}`

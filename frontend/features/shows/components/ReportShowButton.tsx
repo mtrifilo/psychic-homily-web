@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { Flag, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BracketLink } from '@/components/shared/BracketLink'
 import { useMyShowReport } from '../hooks/useShowReports'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ReportShowDialog } from './ReportShowDialog'
@@ -12,8 +13,15 @@ import { LoginPromptDialog } from '@/features/auth'
 interface ReportShowButtonProps {
   showId: number
   showTitle: string
-  variant?: 'default' | 'ghost' | 'outline'
+  /**
+   * `bracket` renders a `<BracketLink>` for the provenance footer's dense
+   * `[Report issue]` affordance; the Button variants are the pre-existing
+   * action-cluster rendering.
+   */
+  variant?: 'default' | 'ghost' | 'outline' | 'bracket'
   size?: 'sm' | 'default' | 'lg'
+  /** Forwarded to the bracket variant only (sizing inside dense lines). */
+  className?: string
 }
 
 export function ReportShowButton({
@@ -21,6 +29,7 @@ export function ReportShowButton({
   showTitle,
   variant = 'outline',
   size = 'sm',
+  className,
 }: ReportShowButtonProps) {
   const pathname = usePathname()
   const { isAuthenticated } = useAuthContext()
@@ -37,9 +46,24 @@ export function ReportShowButton({
   // mean "no existing report".
   const hasReported = !isLoading && myReport?.report != null
 
-  // If user has already reported, show a disabled "Reported" button
+  const handleClick = () => {
+    if (isAuthenticated) {
+      setIsReportDialogOpen(true)
+    } else {
+      setIsLoginPromptOpen(true)
+    }
+  }
+
+  // If user has already reported, show a disabled "Reported" affordance
   if (isAuthenticated && hasReported) {
-    return (
+    return variant === 'bracket' ? (
+      <BracketLink
+        label="Reported"
+        disabled
+        title="You have already reported this show"
+        className={className}
+      />
+    ) : (
       <Button
         variant="outline"
         size={size}
@@ -53,26 +77,28 @@ export function ReportShowButton({
     )
   }
 
-  const handleClick = () => {
-    if (isAuthenticated) {
-      setIsReportDialogOpen(true)
-    } else {
-      setIsLoginPromptOpen(true)
-    }
-  }
-
   return (
     <>
-      <Button
-        variant={variant}
-        size={size}
-        onClick={handleClick}
-        disabled={isLoading}
-        title="Report an issue with this show"
-      >
-        <Flag className="h-4 w-4 mr-2" />
-        Report Issue
-      </Button>
+      {variant === 'bracket' ? (
+        <BracketLink
+          label="Report issue"
+          onClick={handleClick}
+          disabled={isLoading}
+          title="Report an issue with this show"
+          className={className}
+        />
+      ) : (
+        <Button
+          variant={variant}
+          size={size}
+          onClick={handleClick}
+          disabled={isLoading}
+          title="Report an issue with this show"
+        >
+          <Flag className="h-4 w-4 mr-2" />
+          Report Issue
+        </Button>
+      )}
 
       {isAuthenticated && (
         <ReportShowDialog

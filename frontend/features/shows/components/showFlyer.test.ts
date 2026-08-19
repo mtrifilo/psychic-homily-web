@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { flyerCredit, flyerImageSrc } from './showFlyer'
+import { flyerImageSrc, sourceVenueName } from './showFlyer'
 import type { ShowResponse, VenueResponse } from '../types'
 
 function venue(overrides: Partial<VenueResponse> = {}): VenueResponse {
@@ -67,16 +67,16 @@ describe('flyerImageSrc', () => {
   })
 })
 
-describe('flyerCredit', () => {
+describe('sourceVenueName', () => {
   it('names the venue whose slug the listing was scraped from', () => {
     expect(
-      flyerCredit({ source_venue: 'the-venue', venues: [venue()] })
+      sourceVenueName({ source_venue: 'the-venue', venues: [venue()] })
     ).toBe('The Venue')
   })
 
   it('picks the matching venue out of several', () => {
     expect(
-      flyerCredit({
+      sourceVenueName({
         source_venue: 'second-venue',
         venues: [
           venue(),
@@ -102,7 +102,7 @@ describe('flyerCredit', () => {
     'credits nobody for %s',
     (_label, sourceVenue: string | undefined, venues: VenueResponse[]) => {
       expect(
-        flyerCredit({
+        sourceVenueName({
           source_venue: sourceVenue,
           venues: venues as ShowResponse['venues'],
         })

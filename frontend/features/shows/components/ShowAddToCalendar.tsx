@@ -103,8 +103,9 @@ interface ShowAddToCalendarProps {
 
 /**
  * "[Add to calendar]" popover for one show: a Google Calendar template link
- * and a one-shot .ics download, designed for the show meta row (with the
- * when-info, per event-page convention — not the social action cluster).
+ * and a one-shot .ics download. Lives in the ticket module's verb row (the
+ * locked show mock's placement — see ShowTicketRow's docstring for the
+ * supersession of the earlier meta-row convention).
  *
  * Signed-in viewers get an "Also save this show" checkbox, CHECKED by
  * default: the calendar action then also saves the show. The save is

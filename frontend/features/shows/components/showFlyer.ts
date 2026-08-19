@@ -74,7 +74,8 @@ export function flyerImageSrc(
 }
 
 /**
- * Who to credit the flyer to, or null when we cannot say honestly.
+ * The display NAME of the venue a discovery run scraped this listing from, or
+ * null when we cannot say honestly.
  *
  * The only provenance the show row carries is `source_venue`, the venue SLUG a
  * discovery run scraped the listing from. That is a slug, not a display name,
@@ -84,11 +85,14 @@ export function flyerImageSrc(
  * valley-bar". A user-submitted show has no source at all, so it gets no
  * credit line.
  *
- * Deliberately conservative: a credit is a factual claim about where an image
- * came from, and there is no per-image provenance column to make a stronger
- * one from.
+ * Deliberately conservative: a credit is a factual claim about where the
+ * listing came from, and there is no stronger provenance column to make one
+ * from. Two consumers, one rule and ONE name: the flyer plate's "flyer via
+ * X" caption and the provenance footer's "Listing from X calendar" line must
+ * never resolve the same slug to two different names, so they call the same
+ * function rather than aliases of it.
  */
-export function flyerCredit(
+export function sourceVenueName(
   show: Pick<ShowFlyerFields, 'source_venue' | 'venues'>
 ): string | null {
   const sourceSlug = show.source_venue?.trim()

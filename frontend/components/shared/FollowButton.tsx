@@ -29,6 +29,14 @@ interface FollowButtonProps {
    * linkboxes (PSY-641) — `[Follow]` toggling to `[Following]`.
    */
   variant?: 'button' | 'bracket'
+  /**
+   * Bracket-variant label for the NOT-following state, when the surrounding
+   * context does not already say what would be followed (the show page's
+   * venue module renders `[Follow venue]` so it cannot be read as following
+   * the show). The followed state stays `[Following]` — by then the toggle
+   * itself is the antecedent. Ignored by the button variant.
+   */
+  bracketLabel?: string
   className?: string
   disabled?: boolean
 }
@@ -39,6 +47,7 @@ export function FollowButton({
   compact = false,
   followData,
   variant = 'button',
+  bracketLabel = 'Follow',
   className,
   disabled = false,
 }: FollowButtonProps) {
@@ -47,7 +56,18 @@ export function FollowButton({
   const { isAuthenticated } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
-  // Fetch follow status only if not provided via props
+  // Fetch follow status only if not provided via props.
+  //
+  // A tempting optimization was probed here and REJECTED: skipping this
+  // fetch for anonymous bracket viewers (the bracket shows no count, and an
+  // anonymous viewer's is_following is false by definition). It cannot be
+  // gated safely with what this context exposes — `isAuthenticated` is
+  // false for a LOGGED-IN viewer until the profile round-trip lands, and
+  // `isLoading` is false before that fetch even starts, so every available
+  // predicate misreads "signed in, profile pending" as "anonymous". Acting
+  // on that misreading renders an enabled bracket whose replayed
+  // pre-hydration click bounces a signed-in user to /auth. Revisit only
+  // with a settled-auth signal (tracked separately).
   const { data: fetchedData, isLoading: statusLoading } = useFollowStatus(
     entityType,
     entityId,
@@ -81,7 +101,9 @@ export function FollowButton({
   // Making the bracket render enabled at first paint would move it under replay
   // too — `handleClick` already guards on `isDisabled` — but that changes what
   // the control shows before its status is known, so it is deliberately left
-  // out of PSY-1615's scope.
+  // out of PSY-1615's scope. (See also the rejected anonymous-skip above: an
+  // enabled first-paint bracket is exactly the render that turns the
+  // profile-pending window into a wrong /auth redirect.)
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -106,11 +128,11 @@ export function FollowButton({
   // ignores `compact` (brackets are already maximally compact).
   if (variant === 'bracket') {
     if (!followData && statusLoading) {
-      return <BracketLink label="Follow" disabled />
+      return <BracketLink label={bracketLabel} disabled className={className} />
     }
     return (
       <BracketLink
-        label={isFollowing ? 'Following' : 'Follow'}
+        label={isFollowing ? 'Following' : bracketLabel}
         active={isFollowing}
         onClick={handleClick}
         disabled={isDisabled}

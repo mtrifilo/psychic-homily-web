@@ -108,7 +108,13 @@ export function SaveButton({
           onClick={handleClick}
           disabled={isDisabled}
           className={cn('font-mono text-[11px]', className)}
-          ariaLabel={label}
+          // Same accessible name the Button variant composes, count suffix
+          // included: the bracket shows no visual count, but the PUBLIC save
+          // count stays in the announced name (and the save E2E round-trip
+          // asserts the exact "(N saved)" form).
+          ariaLabel={
+            saveCount > 0 ? `${label} (${saveCount} saved)` : label
+          }
         />
         {showError && error ? (
           <div className="absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-destructive px-3 py-1.5 text-xs text-destructive-foreground shadow-sm">

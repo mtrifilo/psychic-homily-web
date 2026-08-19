@@ -63,6 +63,25 @@ vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  // aria-label mirrors the real component (ariaLabel ?? label) so a
+  // name collision between two Edit affordances cannot hide behind the mock.
+  BracketLink: ({
+    label,
+    onClick,
+    href,
+    ariaLabel,
+  }: {
+    label: string
+    onClick?: () => void
+    href?: string
+    ariaLabel?: string
+  }) =>
+    href ? (
+      <a href={href} aria-label={ariaLabel ?? label}>[{label}]</a>
+    ) : (
+      <button onClick={onClick} aria-label={ariaLabel ?? label}>[{label}]</button>
+    ),
+  UserAttribution: ({ name }: { name: string }) => <span>{name}</span>,
   // Surfaces `path` so the page-level test can assert WHICH url this show
   // hands out — the primitive's own behaviour is covered in ShareButton.test.
   ShareButton: ({ path }: { path: string }) => (
@@ -113,9 +132,10 @@ vi.mock('@/features/contributions', () => ({
     isVisible: mockSaveBannerVisible,
     handleSaveSuccess: mockSaveBannerHandleSaveSuccess,
   }),
-  AttributionLine: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
-    <div data-testid="attribution-line">Attribution {entityType} {entityId}</div>
-  ),
+  // ShowProvenanceLine reads the last-editor + revision count through this
+  // hook; null = "no revisions yet", which is the default these page-level
+  // tests want (the line's own permutations live in its own test file).
+  useEntityAttribution: () => ({ data: null }),
   EntityEditDrawer: ({
     open,
     entityType,
@@ -146,6 +166,22 @@ vi.mock('./ReportShowButton', () => ({
 
 vi.mock('@/features/collections', () => ({
   EntityCollections: () => <div data-testid="entity-collections" />,
+}))
+
+// Venue-module affordances whose hooks would otherwise fetch; behaviour is
+// covered in their own test files (same convention as VenueDetail.test).
+vi.mock('@/components/shared/FollowButton', () => ({
+  FollowButton: ({ bracketLabel }: { bracketLabel?: string }) => (
+    <button data-testid="follow-venue">[{bracketLabel ?? 'Follow'}]</button>
+  ),
+}))
+
+vi.mock('@/features/notifications', () => ({
+  NotifyMeButton: ({ entityName }: { entityName: string }) => (
+    <button data-testid="notify-me" data-entity-name={entityName}>
+      [Notify me]
+    </button>
+  ),
 }))
 
 vi.mock('@/features/charts', () => ({
@@ -391,7 +427,7 @@ describe('ShowDetail', () => {
 
     it('renders price', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText('$25.00')).toBeInTheDocument()
+      expect(screen.getByText('$25')).toBeInTheDocument()
     })
 
     it('renders age requirement', () => {
@@ -503,14 +539,34 @@ describe('ShowDetail', () => {
   })
 
   describe('sold out show', () => {
-    it('shows sold out badge', () => {
+    it('shows sold out in the badge and the ticket line', () => {
       mockUseShow.mockReturnValue({
         data: makeShow({ is_sold_out: true }),
         isLoading: false,
         error: null,
       })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
+      // Twice by design (PSY-1686): the header badge and the ticket line's
+      // swapped sale state both carry it.
+      expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
+    })
+  })
+
+  describe('announced door times', () => {
+    // Twice by design, like SOLD OUT above: the locked mock renders doors in
+    // BOTH the status stripe (as status) and the venue facts line (as a fact
+    // sheet), through one shared formatter so the registers cannot split.
+    it('prints doors in the stripe and the venue facts line', () => {
+      mockUseShow.mockReturnValue({
+        data: makeShow({ doors_at: '2026-04-16T02:00:00Z' }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      expect(screen.getByTestId('show-status-stripe')).toHaveTextContent(
+        /DOORS 7PM/
+      )
+      expect(screen.getByTestId('venue-facts')).toHaveTextContent(/DOORS 7PM/)
     })
   })
 
@@ -531,7 +587,7 @@ describe('ShowDetail', () => {
 
     it('shows edit button for admin', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
     })
 
     it('shows delete button for admin', () => {
@@ -548,7 +604,7 @@ describe('ShowDetail', () => {
 
       expect(screen.queryByTestId('entity-edit-drawer')).not.toBeInTheDocument()
 
-      await user.click(screen.getByRole('button', { name: /Edit/ }))
+      await user.click(screen.getByRole('button', { name: 'Edit' }))
       expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
     })
 
@@ -559,7 +615,7 @@ describe('ShowDetail', () => {
       const user = userEvent.setup()
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
 
-      await user.click(screen.getByRole('button', { name: /Edit/ }))
+      await user.click(screen.getByRole('button', { name: 'Edit' }))
       expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
 
       await user.click(screen.getByTestId('drawer-save'))
@@ -574,13 +630,13 @@ describe('ShowDetail', () => {
       expect(screen.getByTestId('revision-history')).toBeInTheDocument()
     })
 
-    // PSY-563 put AttributionLine in the header slot; the show page moves it
-    // to the provenance footer with the tags. The other five detail pages are
-    // unchanged.
-    it('renders AttributionLine in the provenance footer', () => {
+    // PSY-563 put AttributionLine in the header slot; PSY-1686 replaces it on
+    // the show page with the mock's provenance byline, in the footer with the
+    // tags. The other five detail pages are unchanged.
+    it('renders the provenance line in the provenance footer', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('show-provenance-footer')).toContainElement(
-        screen.getByTestId('attribution-line')
+        screen.getByTestId('show-provenance-line')
       )
     })
 
@@ -709,6 +765,33 @@ describe('ShowDetail', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: 'Mark Sold Out' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Mark Cancelled' })).toBeInTheDocument()
+    })
+
+    // A non-admin OWNER's edit path is the provenance line's [Edit] (user
+    // decision, Wave 1C): ShowActions' Edit button stays admin-only
+    // moderation chrome, and the bracket opens the same direct-save drawer.
+    it('gives a non-admin owner the provenance Edit bracket, not the admin button, and it opens the drawer', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '42', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseShow.mockReturnValue({
+        data: makeShow({ submitted_by: 42 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+
+      expect(
+        screen.queryByRole('button', { name: 'Edit' })
+      ).not.toBeInTheDocument()
+      await user.click(
+        screen.getByRole('button', { name: 'Edit this show listing' })
+      )
+      expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
     })
   })
 

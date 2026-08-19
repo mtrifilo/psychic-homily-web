@@ -165,4 +165,55 @@ describe('ReportShowButton', () => {
     expect(screen.queryByRole('button', { name: /^Reported$/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Report Issue/ })).toBeDisabled()
   })
+
+  // The bracket variant is the provenance footer's dense [Report issue]
+  // affordance; its behaviour must match the Button variant's, only the
+  // rendering differs.
+  describe('bracket variant', () => {
+    it('renders [Report issue] and opens the dialog for an authenticated reporter', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '1', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      render(
+        <ReportShowButton showId={1} showTitle="Test Show" variant="bracket" />
+      )
+
+      const bracket = screen.getByRole('button', { name: 'Report issue' })
+      expect(bracket).toHaveTextContent('[Report issue]')
+      await user.click(bracket)
+      expect(screen.getByTestId('report-dialog')).toBeInTheDocument()
+    })
+
+    it('opens the login prompt for an anonymous reporter', async () => {
+      const user = userEvent.setup()
+      render(
+        <ReportShowButton showId={1} showTitle="Test Show" variant="bracket" />
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Report issue' }))
+      expect(screen.getByTestId('login-prompt')).toBeInTheDocument()
+    })
+
+    it('renders a disabled [Reported] bracket after reporting', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '1', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockMyShowReport.mockReturnValue({
+        data: { report: { id: 9, report_type: 'wrong_info' } },
+        isLoading: false,
+      })
+      render(
+        <ReportShowButton showId={1} showTitle="Test Show" variant="bracket" />
+      )
+
+      expect(screen.getByRole('button', { name: 'Reported' })).toBeDisabled()
+    })
+  })
 })

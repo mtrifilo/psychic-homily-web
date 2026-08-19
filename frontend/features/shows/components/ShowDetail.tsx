@@ -20,11 +20,11 @@ import {
   EntityEditDrawer,
   EntitySaveSuccessBanner,
   useEntitySaveSuccessBanner,
-  AttributionLine,
 } from '@/features/contributions'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowHeader } from './ShowHeader'
 import { ShowActions } from './ShowActions'
+import { ShowProvenanceLine } from './ShowProvenanceLine'
 import { ShowStatusStripe } from './ShowStatusStripe'
 import type { ShowLifecycleState } from '@/lib/utils/showTiming'
 import { showDisplayTitle } from '@/lib/utils/showDisplayTitle'
@@ -78,19 +78,28 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
   // Check if user is the show owner (submitter)
   const isOwner = !!(user?.id && show?.submitted_by && String(show.submitted_by) === user.id)
 
+  // ONE moderation predicate, owned here. Delete, status flags, direct edit,
+  // and the whole ShowActions cluster all gate on admin-or-owner today; the
+  // named aliases below exist so the day one of them narrows (say, delete
+  // goes admin-only) the change is a one-line edit at the definition, not a
+  // hunt through the render tree. The one deliberate exception: ShowActions'
+  // own Edit BUTTON is admin-only (moderation chrome) — an owner's edit path
+  // is the provenance line's [Edit], through the same drawer.
+  const canModerateShow = isAdmin || isOwner
+
   // Check if user can delete: admin or show owner
-  const canDelete = isAdmin || isOwner
+  const canDelete = canModerateShow
 
   // Check if user can manage status flags: admin or show owner
-  const canManageStatus = isAdmin || isOwner
+  const canManageStatus = canModerateShow
 
   // PSY-563: shows route through the EntityEditDrawer + show direct-save
   // path. The suggest-edit pipeline is intentionally NOT extended to
   // shows (PSY-461 / PSY-489); the drawer dispatches show saves to
-  // /shows/{id} PUT via useShowEdit. canEditDirectly mirrors the legacy
-  // inline-form gate (admin OR submitter) — non-owners see no Edit
-  // button, so the drawer never opens for them.
-  const canEditShow = isAdmin || isOwner
+  // /shows/{id} PUT via useShowEdit. An alias of canModerateShow, not a
+  // fresh derivation — the "one predicate" comment above only holds if
+  // every gate actually routes through the definition.
+  const canEditShow = canModerateShow
 
   const handleToggleSoldOut = () => {
     if (!show) return
@@ -179,21 +188,28 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
         header={
           <ShowHeader
             show={show}
+            lifecycle={lifecycle}
             actions={
-              <ShowActions
-                show={show}
-                showTitle={showTitle}
-                isAdmin={isAdmin}
-                canDelete={canDelete}
-                canManageStatus={canManageStatus}
-                isEditing={isEditing}
-                onToggleEdit={() => setIsEditing(!isEditing)}
-                onOpenDelete={() => setIsDeleteDialogOpen(true)}
-                onToggleSoldOut={handleToggleSoldOut}
-                onToggleCancelled={handleToggleCancelled}
-                isSoldOutPending={setSoldOutMutation.isPending}
-                isCancelledPending={setCancelledMutation.isPending}
-              />
+              // Gated HERE and only here (ShowActions carries no internal
+              // guard): the cluster is admin/owner-only, and handing
+              // ShowHeader an element that renders null would still reserve
+              // the slot's margin under the ticket row for every public
+              // viewer.
+              canModerateShow ? (
+                <ShowActions
+                  show={show}
+                  isAdmin={isAdmin}
+                  canDelete={canDelete}
+                  canManageStatus={canManageStatus}
+                  isEditing={isEditing}
+                  onToggleEdit={() => setIsEditing(!isEditing)}
+                  onOpenDelete={() => setIsDeleteDialogOpen(true)}
+                  onToggleSoldOut={handleToggleSoldOut}
+                  onToggleCancelled={handleToggleCancelled}
+                  isSoldOutPending={setSoldOutMutation.isPending}
+                  isCancelledPending={setCancelledMutation.isPending}
+                />
+              ) : undefined
             }
           />
         }
@@ -288,10 +304,17 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
             entityId={show.id}
             isAuthenticated={isAuthenticated}
           />
-          {/* PSY-563: "Last edited by …" attribution row, mirroring
-              artist/venue/release/label/festival detail pages. Renders nothing
-              until at least one revision exists. */}
-          <AttributionLine entityType="show" entityId={show.id} />
+          {/* The mock's byline (PSY-1686): listing credit, timestamps, edit
+              count, and the working [Edit] / [Report issue] verbs. Supersedes
+              the generic AttributionLine on this page only — the other five
+              detail pages keep theirs (same deliberate asymmetry as the
+              footer position, documented above). */}
+          <ShowProvenanceLine
+            show={show}
+            showTitle={showTitle}
+            canEdit={canEditShow}
+            onEdit={() => setIsEditing(true)}
+          />
         </div>
       </EntityDetailLayout>
 

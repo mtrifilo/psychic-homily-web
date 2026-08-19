@@ -102,6 +102,34 @@ describe('SaveButton', () => {
     ).toBeInTheDocument()
   })
 
+  // The bracket displays no visual count, but its ACCESSIBLE name must carry
+  // the same count suffix as the Button variant: the public save count stays
+  // announced, and the save round-trip E2E asserts the exact "(N saved)"
+  // form on the show page, which now renders this variant.
+  it('keeps the count suffix in the bracket accessible name', () => {
+    render(
+      <SaveButton
+        showId={1}
+        variant="bracket"
+        saveData={{ save_count: 1, is_saved: true }}
+      />
+    )
+    expect(
+      screen.getByLabelText('Remove from My List (1 saved)')
+    ).toBeInTheDocument()
+  })
+
+  it('leaves the bracket accessible name bare at zero saves', () => {
+    render(
+      <SaveButton
+        showId={1}
+        variant="bracket"
+        saveData={{ save_count: 0, is_saved: false }}
+      />
+    )
+    expect(screen.getByLabelText('Add to My List')).toBeInTheDocument()
+  })
+
   it('redirects anonymous visitors to sign-in instead of toggling', async () => {
     const user = userEvent.setup()
     anonymous()

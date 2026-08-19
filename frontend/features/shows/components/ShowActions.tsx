@@ -2,18 +2,10 @@
 
 import { Loader2, Pencil, X, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  SaveButton,
-  AddToCollectionButton,
-  ShareButton,
-} from '@/components/shared'
 import type { ShowResponse } from '../types'
-import { ReportShowButton } from './ReportShowButton'
 
 interface ShowActionsProps {
   show: ShowResponse
-  /** Display name for the show, used by collection/report flows. */
-  showTitle: string
   /** Whether the current viewer is an admin. */
   isAdmin: boolean
   /** Whether the current viewer can delete the show (admin OR owner). */
@@ -37,9 +29,13 @@ interface ShowActionsProps {
 }
 
 /**
- * ShowDetail-specific action cluster. Owns the row of
- * save/collect/report/edit/delete and the admin-only status toggle row
- * (Mark Sold Out / Mark Cancelled).
+ * ShowDetail-specific ADMIN/OWNER action cluster: edit, delete, and the
+ * status toggle row (Mark Sold Out / Mark Cancelled).
+ *
+ * The public verbs that used to live here — save, collect, share, report —
+ * moved with the mock (PSY-1686): save/collect/share into ShowTicketRow's
+ * bracket row, report into ShowProvenanceLine. What remains is moderation
+ * chrome the mock does not draw, kept in the slot under the ticket module.
  *
  * This is not `EntityHeader.actions` because the admin status toggles form a
  * sub-row that would not fit into `EntityHeader`'s single flex-row slot
@@ -47,7 +43,6 @@ interface ShowActionsProps {
  */
 export function ShowActions({
   show,
-  showTitle,
   isAdmin,
   canDelete,
   canManageStatus,
@@ -59,21 +54,17 @@ export function ShowActions({
   isSoldOutPending,
   isCancelledPending,
 }: ShowActionsProps) {
+  // ShowDetail's canModerateShow gate decides whether this cluster mounts
+  // at all; the per-control props below select WHICH controls render inside
+  // it. Two of them (canDelete, canManageStatus) currently equal the mount
+  // gate, so their guards are belt-and-braces for the day they diverge. The
+  // Edit button's isAdmin gate is DELIBERATELY narrower than the drawer's
+  // admin-or-owner rule: this button is moderation chrome, and a non-admin
+  // owner reaches the same drawer through the provenance line's [Edit]
+  // (user decision on the Wave 1C byline).
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <SaveButton showId={show.id} variant="outline" size="sm" />
-        <AddToCollectionButton
-          entityType="show"
-          entityId={show.id}
-          entityName={showTitle}
-        />
-        {/* Built from the show's own slug rather than the current location, so
-            the link stays canonical from any deploy and carries no inbound
-            campaign tags. */}
-        <ShareButton path={`/shows/${show.slug}`} ariaLabel="Share this show" />
-        <ReportShowButton showId={show.id} showTitle={showTitle} />
-
         {isAdmin && (
           <Button
             variant={isEditing ? 'secondary' : 'outline'}
