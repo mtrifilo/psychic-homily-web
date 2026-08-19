@@ -50,6 +50,7 @@ realistic per the ticket.
 | Festival   | `marfa-myths-exemplar-2026`                            | `/festivals/marfa-myths-exemplar-2026`                  |
 | Show       | `the-path-tour-exemplar-at-the-rhythm-room-exemplar`   | `/shows/the-path-tour-exemplar-at-the-rhythm-room-exemplar` |
 | Collection | `psychic-homily-staff-picks-exemplar`                  | `/collections/psychic-homily-staff-picks-exemplar`      |
+| Venue (archive) | `chronology-hall-exemplar-phoenix-az`             | `/venues/chronology-hall-exemplar-phoenix-az`           |
 
 ### What each exemplar exercises
 
@@ -77,6 +78,85 @@ realistic per the ticket.
 - **Collection** — description, cover image, 6 tags, 6 items spanning
   every entity type (artist / release / festival / show / venue / label)
   with per-item notes, ranked display mode.
+- **Venue (archive)** — see below. The one exemplar whose point is its
+  history rather than its field coverage.
+
+## The archive exemplar (PSY-1843)
+
+The PSY-665 exemplars above cover *rich fields*. They do not cover *depth
+of history*: the richest of them has 3 past shows, so the venue page's
+past-shows archive — year strip with per-year counts, month-range page
+labels, 50-per-page pagination — renders in its degenerate one-page form
+and cannot be visually reviewed on a fresh stack. Before this existed, a
+throwaway venue had to be hand-written into a stack with raw SQL to review
+that UI (during PR #1904).
+
+`chronology-hall-exemplar-phoenix-az` closes that gap. It is implemented in
+`backend/cmd/seed/exemplars_archive.go` and seeded by the same
+`seedRichExemplars` entry point.
+
+> **A fresh dispatch stack does NOT have this venue.** `stack-up.sh` seeds
+> via `frontend/e2e/setup-db.sh`, which never runs `cmd/seed`. Apply it
+> first, or every URL below 404s:
+>
+> ```bash
+> source dispatch-stack/.env
+> cd backend && DATABASE_URL="$STACK_POSTGRES_URL" ENVIRONMENT=development go run ./cmd/seed
+> ```
+
+> **Not created on stage or production.** `cmd/seed` is not dev-only —
+> `backend/scripts/deploy-stage.sh` runs it on every stage deploy, and
+> `psy-deploy-prod --with-db-restore` copies stage's catalog into prod. A
+> verified venue with hundreds of approved shows would outrank real venues
+> in the graph, scene rollups, and sitemap, so `archiveExemplarEnabled`
+> skips this fixture unless all three of these agree it is local:
+>
+> | Signal | Skips when | Why it alone is not enough |
+> | --- | --- | --- |
+> | `ENVIRONMENT` | `stage` / `production` | On stage it arrives only via the gitignored `.env.stage`; regenerate that from `.env.example` (no `ENVIRONMENT` key) and the signal vanishes |
+> | `NODE_ENV` | `stage` / `production` | Set directly by the deploy command, so it survives a dotenv mishap, but it is not what the rest of the config reads |
+> | `DATABASE_URL` | host is not `localhost`/`127.0.0.1` | Ground truth about which database is about to be written; catches an ad-hoc run against a deployed DSN with no env name set |
+>
+> The env-name checks fail open (unset or unfamiliar values still seed) so
+> local workflows are unaffected; the `DATABASE_URL` check is what makes a
+> deployed DSN fail closed.
+
+| Property | Value |
+| --- | --- |
+| Past shows | 360 across 3 calendar years (2023: 62, 2024: 108, 2025: 190) |
+| Pages at 50/page | 8 all-years; 2 / 3 / 4 per year — every year paginates |
+| Upcoming shows | 5, re-dated on every seed so they never drift into the past |
+| Bills | 1-3 acts typically, ~1 in 11 is 6-8 acts, from 14 fictional `-exemplar` artists |
+| Timezone | `America/Phoenix`, venue-local evening start times |
+
+What it exercises that nothing else does: the year strip's per-year counts,
+the month-range page labels (page 1 is `Oct–Dec 2025`, page 2 `Aug–Oct
+2025`, page 8 `Jan–Mar 2023`; the distribution also puts a page across a
+year boundary, so the crossing-years label form renders too), the pager's
+ellipsis branch (only reachable above 7 pages), empty months the labels
+must skip, `SOLD OUT` and `CANCELLED` badges, all three price states
+(`Free` / `$12.50` / absent), and bill wrapping via deliberately uneven
+artist-name lengths (`Vane (Exemplar)` through `Ada Vaughn-Reyes and the
+Long Goodbye (Exemplar)`).
+
+Useful URLs for a screenshot pass — note the year is a **path segment**,
+not a `?year=` param:
+
+```
+/venues/chronology-hall-exemplar-phoenix-az            # page 1 + Upcoming
+/venues/chronology-hall-exemplar-phoenix-az?page=4     # mid-archive, ellipsis pager
+/venues/chronology-hall-exemplar-phoenix-az/shows/2025 # single-year archive
+/venues/chronology-hall-exemplar-phoenix-az/shows/2025?page=2
+```
+
+Before editing it, read the header comment in `exemplars_archive.go`.
+Everything there follows from one fact — the idempotency key is each show's
+generated slug, which embeds its date and headliner — and the ways to break
+it by accident are not obvious. The counts above are load-bearing (they are
+what makes each UI branch render) and are pinned by
+`TestArchiveFixtureMeetsItsReviewThresholds` and
+`TestArchiveDocumentedCountsAreAccurate`; the page labels below are derived
+from them by hand, so re-verify those if you change `archiveYears`.
 
 ## Empty-state canaries — DO NOT backfill
 

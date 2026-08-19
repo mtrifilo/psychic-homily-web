@@ -41,8 +41,10 @@ import (
 //
 // Slugs are documented in backend/db/seeds/README.md for the screenshot pass.
 
-// exemplar slug constants — the single source of truth for the README table
-// and the idempotency guards below.
+// exemplar slug constants — the source of truth for the README table and
+// the idempotency guards below. The archive exemplar's slug (PSY-1843) is
+// the one exception: it lives beside its implementation in
+// exemplars_archive.go, so the README table draws from both files.
 const (
 	exemplarArtistSlug     = "marissa-nadler-exemplar"
 	exemplarVenueSlug      = "the-rhythm-room-exemplar-phoenix-az"
@@ -109,6 +111,14 @@ func seedRichExemplars(db *gorm.DB) {
 	seedExemplarArtistShows(db, artistID, venueID)
 	seedExemplarSimilarArtists(db, artistID)
 	seedExemplarCollection(db, admin.ID, artistID, venueID, labelID, showID)
+
+	// Archive exemplar (PSY-1843) — a SECOND venue whose point is its
+	// backlog rather than its field coverage. The venue above has 3 past
+	// shows, which is enough to prove the past-shows list renders and not
+	// nearly enough to review the archive's year strip, month-range page
+	// labels, or pagination. Lives in exemplars_archive.go.
+	archiveVenueID := seedExemplarArchiveVenue(db, admin.ID)
+	seedExemplarArchiveShows(db, archiveVenueID)
 
 	fmt.Println("✅ Rich exemplars seeded (or already present)")
 }
