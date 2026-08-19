@@ -133,7 +133,7 @@ export default function PrivacyPolicyPage() {
               Many of the images you see on the site are linked rather than copied. Show flyers, artist photos, release and label artwork, and profile pictures usually live on some other site, and an entry here stores only the web address. Your browser loads each of those images directly from the site that hosts it. Those hosts are picked by whoever added the image, and are not operated by me.
             </p>
             <p className="text-foreground/90 leading-relaxed mb-3">
-              Because the request goes straight from your browser to that host, the host can see your IP address and standard browser headers such as your user agent, and it may set or receive its own cookies. The referrer policy set on every page means those hosts are told only that the request came from this site, not which page you were viewing. No account identifier is included, and these requests happen whether or not you are signed in.
+              Because the request goes straight from your browser to that host, the host can see your IP address and standard browser headers such as your user agent, and it may set or receive its own cookies. The referrer policy set on every page means those hosts are told only that the request came from this site, not which page you were viewing. No identifier for your account is included, and these requests happen whether or not you are signed in.
             </p>
             <p className="text-foreground/90 leading-relaxed">
               I cannot control what those hosts log or how long they keep it, and their own privacy policies apply to anything they collect. If you would rather not load them, most browsers and content blockers can block third-party images.
