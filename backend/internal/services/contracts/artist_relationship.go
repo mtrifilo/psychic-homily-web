@@ -60,8 +60,10 @@ type ArtistGraphLink struct {
 }
 
 // ArtistBillComposition aggregates an artist's bill-slot history and top co-bill artists.
-// Sourced from show_artists.position + set_type; is_headliner is derived
-// (position = 0 OR set_type = 'headliner') — never queried as a column.
+// Sourced from show_artists.set_type + position; headline-vs-support is derived,
+// never queried as a column. On a bill where anyone states a real slot, only
+// set_type = 'headliner' is a headline slot; on a bill where nobody has stated
+// one, position 0 stands in. See catalog/headline_slot.go for the rule.
 type ArtistBillComposition struct {
 	Artist           ArtistGraphNode `json:"artist"` // center
 	Stats            BillStats       `json:"stats"`

@@ -566,15 +566,6 @@ func chartWindowBounds(window contracts.ChartWindow, now time.Time) chartBounds 
 	return chartBounds{start: &t, end: now}
 }
 
-// headlineSlotPredicate is the SQL condition for "this show_artists row
-// (aliased sa) is a headline slot". There is no schema-level definition of
-// "headliner" — this predicate IS it, and it must stay in sync with the
-// discovery pipeline's headliner detection (services/pipeline/discovery.go).
-// Sensitivity differs by consumer: in GetMostActiveArtists a spurious
-// position-0 row only skews headline_pct; in GetOpenersToWatch it EXCLUDES
-// the artist from the chart entirely.
-const headlineSlotPredicate = `sa.set_type = 'headliner' OR sa.position = 0`
-
 // appendChartShowWindow appends the shared chart-eligibility fragment for
 // shows aliased `s` — non-cancelled, played on/before now (event dates are
 // midnight timestamps, so a show later today already counts as played), and
@@ -692,7 +683,10 @@ func appendReleaseSceneScope(query string, args []any, scene string) (string, []
 // GetMostActiveArtists returns artists ranked by approved, non-cancelled
 // shows played within the window (see appendChartShowWindow for the exact
 // eligibility semantics), paginated with offset-stable ranks and the window
-// total. Headline share uses headlineSlotPredicate. Artists with zero shows
+// total. Headline share uses headlineSlotSQL (curated set_type, falling back
+// to position 0 only on a bill nobody has curated). A misread row here only
+// skews headline_pct; in GetOpenersToWatch the same rule EXCLUDES the artist
+// from the chart entirely. Artists with zero shows
 // in the window are never returned. scene scopes to artists BASED in the
 // metro (home metro), counting all their in-window shows wherever played.
 func (s *ChartsService) GetMostActiveArtists(window contracts.ChartWindow, scene string, limit, offset int) ([]contracts.MostActiveArtist, int, error) {
@@ -731,7 +725,7 @@ func (s *ChartsService) getMostActiveArtistsUncached(window contracts.ChartWindo
 			COALESCE(a.city, '') AS city,
 			COALESCE(a.state, '') AS state,
 			COUNT(*) AS show_count,
-			COALESCE(SUM(CASE WHEN ` + headlineSlotPredicate + ` THEN 1 ELSE 0 END), 0) AS headline_count,
+			COALESCE(SUM(CASE WHEN ` + headlineSlotSQL("sa") + ` THEN 1 ELSE 0 END), 0) AS headline_count,
 			COUNT(*) OVER() AS total
 		FROM show_artists sa
 		JOIN artists a ON a.id = sa.artist_id
@@ -926,10 +920,13 @@ func (s *ChartsService) getBusiestVenuesUncached(window contracts.ChartWindow, s
 }
 
 // GetOpenersToWatch returns artists ranked by support slots played within the
-// window — slots that are NOT headline slots (headline = set_type 'headliner'
-// OR position 0, the shared predicate). Artists with ANY headline slot in the
-// window are excluded entirely: this chart surfaces artists who are always on
-// the bill but never top it. Cancelled and future shows never count.
+// window — slots that are NOT headline slots (headlineSlotSQL: on a
+// curated bill, exactly the rows set_type='headliner'; on a bill nobody has
+// curated, position 0). Artists with ANY headline slot in the window are
+// excluded entirely: this chart surfaces artists who are always on the bill
+// but never top it. A first-billed act a curator marked as an opener now
+// counts as support here rather than being excluded from the chart.
+// Cancelled and future shows never count.
 // Paginated with offset-stable ranks and the window total. scene scopes to
 // artists BASED in the metro (home metro); the never-headlines judgment still
 // spans ALL their in-window slots wherever played.
@@ -963,8 +960,8 @@ func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, 
 	// One pass: group every in-window slot per artist, keep only groups with
 	// ZERO headline slots (HAVING) — so COUNT(*) is exactly the support-slot
 	// count, and "never headlines" is judged over the same window being
-	// ranked. The CASE form also counts NULL set_type rows as support,
-	// matching GetMostActiveArtists' NULL semantics. COUNT(*) OVER() runs
+	// ranked. The predicate is NULL-safe, so NULL set_type rows count as
+	// support here exactly as they do in GetMostActiveArtists. COUNT(*) OVER() runs
 	// after the HAVING filter, so total counts qualifying openers only.
 	coreSQL := `
 		SELECT
@@ -987,7 +984,7 @@ func (s *ChartsService) getOpenersToWatchUncached(window contracts.ChartWindow, 
 	coreSQL, coreArgs = appendEntityMetroScope(coreSQL, coreArgs, "a", scene)
 	coreSQL += `
 		GROUP BY a.id, a.name, a.slug, a.city, a.state
-		HAVING SUM(CASE WHEN ` + headlineSlotPredicate + ` THEN 1 ELSE 0 END) = 0`
+		HAVING SUM(CASE WHEN ` + headlineSlotSQL("sa") + ` THEN 1 ELSE 0 END) = 0`
 
 	query := coreSQL + `
 		ORDER BY support_slot_count DESC, a.name ASC, a.id ASC
