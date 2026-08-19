@@ -334,8 +334,24 @@ describe('SceneCalendar', () => {
       renderWithProviders(
         <SceneCalendar scene={buildScene()} slice={buildSlice([], [])} />
       )
-      expect(screen.getByText(/tonight or tomorrow/i)).toBeInTheDocument()
+      expect(screen.getByText(/tonight or Sunday/i)).toBeInTheDocument()
       expect(screen.queryByText(/next four weeks/i)).toBeNull()
+    })
+
+    // The case the "tomorrow" spelling got wrong. Between midnight and 06:00 the
+    // scene's night boundary puts tonight on YESTERDAY's date, so the second day
+    // the slice checked is TODAY — and calling it "tomorrow" would be false in
+    // exactly the window this ticket moved to the day endpoint to render right.
+    it('names the second night rather than calling it tomorrow', () => {
+      const slice = buildSceneSlice(
+        buildDay({ date: '2026-08-08', is_tonight: true, next_date: '2026-08-09', shows: [] }),
+        buildDay({ date: '2026-08-09', is_tonight: false, shows: [] })
+      )!
+      renderWithProviders(<SceneCalendar scene={buildScene()} slice={slice} />)
+
+      const copy = screen.getByText(/nothing on our calendar/i)
+      expect(copy).toHaveTextContent(/tonight or Sunday/i)
+      expect(copy).not.toHaveTextContent(/tomorrow/i)
     })
 
     it('says only tonight when only tonight was checked', () => {

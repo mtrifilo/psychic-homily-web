@@ -209,16 +209,29 @@ export default async function ScenePage({ params }: ScenePageProps) {
   }
 
   // CONCURRENT, because none of the three needs another's answer. Awaited in
-  // sequence they would stack the week fetch in front of the slice's own two
-  // requests, putting four serial round trips on the critical path of every
-  // render; this leaves the slice's unavoidable pair as the longest chain.
+  // sequence they would stack the week fetch in front of the slice's own chain;
+  // this leaves that chain as the only thing on the critical path.
+  //
+  // That chain is THREE calls, not two, and the extra one is not ours: the
+  // next-day leg is fetched with a KEY, so `fetchScenePeriod` runs its
+  // two-phase freshness probe, and a future date is never `is_past_day`, so the
+  // fall-through fires every time. See the follow-up noted on the PR — the fix
+  // belongs in that shared caching layer, which `/next-4-weeks` already pays
+  // five times over.
   //
   //  - `prefetchEntity`: `cache()` above guarantees the scene fetch already
   //    happened, so this is a no-op cache write seeding the entry
   //    `useSceneDetail` picks up.
-  //  - the WEEK feeds the structured data only. Reuses the week builder
-  //    (BreadcrumbList + ItemList + MusicEvent[]) rather than inventing a
-  //    fourth scene JSON-LD shape.
+  //  - the WEEK feeds the structured data only, and that is now a KNOWN
+  //    MISMATCH left deliberately in place. `buildSceneWeekJsonLd` emits an
+  //    ItemList plus MusicEvent[] for seven days while the page visibly renders
+  //    two, and because the week is Monday-anchored the slice's second day is
+  //    outside it every Sunday — so the markup can both over- and under-state
+  //    what a reader sees. Structured data is supposed to describe visible
+  //    content, so this wants re-scoping to the slice; doing it here would mean
+  //    reopening the scene-SEO decisions documented in `sceneDayPage.tsx`
+  //    (canonical-to-week, the sitemap families), which this ticket has no
+  //    mandate to change on a guess. Raised on the PR for its own ticket.
   //  - the SLICE is what the page actually renders.
   const [dehydratedState, week, slice] = await Promise.all([
     prefetchEntity(queryKeys.scenes.detail(slug), scene),

@@ -24,10 +24,12 @@ export { SceneList } from './SceneList'
 // Station adapters — see the note in components/graph/lazyForceGraphView.tsx.
 // De-barreling achieves the eviction without reversing that decision.
 //
-// SceneCalendar (PSY-1783) is deep-imported by SceneDetail.tsx for the same
-// reason and stays off this barrel deliberately: it is the scene page's
-// heaviest client module after the graph, and listing it here would put four
-// weeks of calendar rendering into the chunk every route loads.
+// SceneCalendar (PSY-1783) stays off this barrel deliberately, and since
+// PSY-1850 the reason is STRONGER, not weaker. It is no longer a heavy client
+// module deep-imported by SceneDetail.tsx; it is a SERVER component
+// deep-imported by app/scenes/[slug]/page.tsx. Listing it on a `'use client'`
+// barrel would therefore not merely add bytes — it would pull a server-only
+// module across the client boundary, which is a different class of breakage.
 //
 // SceneRooms / SceneNewBands / SceneRoster (PSY-1784) are off it for the same
 // reason: listing any of them would put that module's markup, and everything it

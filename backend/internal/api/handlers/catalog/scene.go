@@ -204,12 +204,15 @@ type GetSceneShowsRequest struct {
 	Slug  string `path:"slug" doc:"Scene slug (e.g. phoenix-az)" example:"phoenix-az"`
 	Days  int    `query:"days" default:"7" minimum:"1" maximum:"30" doc:"Window in days — shows with event_date inside [now, now+days)"`
 	// The 20-row ceiling this replaces was sized for the Atlas preview's
-	// three-row peek. The scene page asks the same endpoint for a four-week
-	// calendar, and on a scene like Phoenix (300+ upcoming) 20 rows is under
-	// three days, so a page headed "next 4 weeks" could never render four
-	// weeks. 200 is calendar-scale and still bounded; the nightly page's own
-	// cap is 100 for a SINGLE night. The default is unchanged, so every
-	// existing caller behaves exactly as before.
+	// three-row peek, and was raised to 200 for a four-week scene-page
+	// calendar that NO LONGER EXISTS: the scene root now reads the day
+	// endpoint for two nights, and the window pages compose week payloads
+	// (PSY-1850). The only surviving caller is that same three-row preview.
+	//
+	// 200 is kept rather than walked back because this is a public ceiling on
+	// a stable endpoint and lowering it is a breaking change for a caller we
+	// cannot see; it stays calendar-scale and bounded, and the nightly page's
+	// own cap is 100 for a SINGLE night. The default is unchanged.
 	Limit int `query:"limit" default:"3" minimum:"1" maximum:"200" doc:"Maximum number of shows to return, soonest first"`
 }
 

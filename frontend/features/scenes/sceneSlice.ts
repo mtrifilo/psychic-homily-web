@@ -28,13 +28,15 @@
  * same authority — rather than true by a mirrored constant that drifts the first
  * time `nightStartHour` moves on one side only.
  *
- * The cost is one extra serial round trip: `next_date` is only knowable once the
- * first payload has answered which date tonight is. Both are server-side and
- * data-cached, and they replace a 28-day/61-row CLIENT fetch, so the reader pays
- * less either way.
+ * The cost is a serial chain: `next_date` is only knowable once the first
+ * payload has answered which date tonight is. Three calls deep in practice, not
+ * two — the keyed next-day leg runs `fetchScenePeriod`'s two-phase probe, whose
+ * fall-through always fires for a date that has not happened yet. All of them
+ * are server-side and data-cached, and together they replace a 28-day/61-row
+ * CLIENT fetch, so the reader pays less either way.
  */
 
-import type { SceneDayResponse } from './sceneDay'
+import { looksLikeCalendarDate, type SceneDayResponse } from './sceneDay'
 import { countWindowShows } from './sceneWindow'
 
 /**
@@ -86,13 +88,24 @@ export function buildSceneSlice(
 ): SceneSliceData | null {
   if (!tonight) return null
 
+  // SHAPE-checked as well as present. `asPayload` in `scenePeriodApi` only
+  // asserts that `date` is a STRING, and `sceneDayApi`'s own docstring notes
+  // that empty strings demonstrably get through it — while `parseCalendarDate`
+  // turns `""` into a perfectly valid Date in the year 1900 rather than failing.
+  // Without this the heading would read `MONDAY, JANUARY 1` in our own voice: a
+  // confident wrong date, which is the worst of the three outcomes. A slice
+  // whose own night cannot be named is not a quiet slice, so the caller gets
+  // null and renders "we could not load this" instead of an honest zero.
+  if (!looksLikeCalendarDate(tonight.date)) return null
+
   // Guarded on the DATE rather than on the payload alone. `fetchScenePeriod`
   // resolves the current period when its key is falsy, so a `next` fetched with
   // an empty `next_date` would come back as tonight AGAIN and the slice would
   // print the same night twice under two headings. The caller is responsible for
   // not making that request; this is the check that makes the mistake
   // unrenderable rather than merely unlikely.
-  const isDistinctDay = next !== null && Boolean(next.date) && next.date !== tonight.date
+  const isDistinctDay =
+    next !== null && looksLikeCalendarDate(next.date) && next.date !== tonight.date
 
   return {
     // The backend's own answer for the scene, not a vote over the rows — so a

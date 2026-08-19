@@ -1,11 +1,16 @@
 /**
- * The scene page's calendar spine: the pure half.
+ * The scene surfaces' shared date and labelling helpers: the pure half.
  *
- * The detail page is a calendar with identity wrapped around it, so the day
- * bucketing, the "which night is tonight" question and the header's counts all
- * have to be decidable without a DOM. They live here so they can be tested
- * against a pinned clock and a pinned zone, which is the only way to catch the
- * off-by-one-day faults this module exists to avoid.
+ * This module was named for a calendar the detail page no longer has. PSY-1850
+ * made the root the front page of the scene — two whole dates from the day
+ * endpoint, already bucketed by the backend — so the day BUCKETING that used to
+ * live here is gone with it (see the note above `formatSliceDateHeading`).
+ *
+ * What remains is everything still decidable without a DOM: the
+ * "which night is tonight" question the window pages ask, the zone resolution a
+ * row needs to print an honest time, and the header's counts. They live here so
+ * they can be tested against a pinned clock and a pinned zone, which is the only
+ * way to catch the off-by-one-day faults this module exists to avoid.
  */
 
 import {
@@ -16,21 +21,22 @@ import {
 import { parseCalendarDate } from './sceneWeek'
 import type { SceneShowSummary } from './types'
 
-/**
- * The root's 28-day window and its 60-row cap are GONE (PSY-1850).
- *
- * The root is the front page of the scene now, not a calendar window: it renders
- * tonight and the next full day from the day endpoint (`sceneSlice.ts`) and
- * points at `/week` and `/next-4-weeks` for anything longer. The four-week
- * window lives on `/next-4-weeks`, which carries its own `NEXT_4_WEEKS_DAYS` and
- * `SCENE_WINDOW_ROW_CAP` in `sceneWindow.ts`.
- *
- * The client-side date BUCKETING that window needed went with it, for the same
- * reason: the day endpoint returns rows already bucketed into whole scene-local
- * dates, so nothing on the root re-derives a date from an instant any more.
- * `calendarDateInZone` and `sceneTonightDate` survive because the window pages
- * still need them (`sceneWindowPage.tsx`).
- */
+// A TOMBSTONE, deliberately written with `//` rather than `/** */`: it belongs
+// to no declaration, and as a JSDoc block it would be silently adopted as the
+// docstring of whatever a later edit adds beneath it.
+//
+// The root's 28-day window and its 60-row cap are GONE (PSY-1850). The root is
+// the front page of the scene now, not a calendar window: it renders tonight
+// and the next full day from the day endpoint (`sceneSlice.ts`) and points at
+// `/week` and `/next-4-weeks` for anything longer. The four-week window lives
+// on `/next-4-weeks`, which carries its own `NEXT_4_WEEKS_DAYS` and
+// `SCENE_WINDOW_ROW_CAP` in `sceneWindow.ts`.
+//
+// The client-side date BUCKETING that window needed went with it, for the same
+// reason: the day endpoint returns rows already bucketed into whole scene-local
+// dates, so nothing on the root re-derives a date from an instant any more.
+// `calendarDateInZone` and `sceneTonightDate` survive because the window pages
+// still need them (`sceneWindowPage.tsx`).
 
 /**
  * The scene-local hour at which a new night begins.
@@ -152,6 +158,20 @@ export function rowTimeZone(show: SceneShowSummary): string | undefined {
  * spelling for the DATED permalinks, where a reader really can arrive at a page
  * about January 2020.
  */
+/**
+ * `Wednesday` — one slice date said the way a person would say it.
+ *
+ * For prose, where the heading's shouted form would not fit. Deliberately a
+ * WEEKDAY and never "tomorrow": between midnight and 06:00 the scene's night
+ * boundary puts tonight on yesterday's calendar date, so the day after it is
+ * TODAY, and any relative word for it is wrong in exactly the window this
+ * surface exists to get right. Both dates the root can render are inside a week,
+ * so a bare weekday is never ambiguous.
+ */
+export function formatSliceWeekday(iso: string): string {
+  return parseCalendarDate(iso).toLocaleDateString('en-US', { weekday: 'long' })
+}
+
 export function formatSliceDateHeading(iso: string): string {
   // ONE formatter, and the locale supplies the comma. `formatDayChip` composes
   // its parts from three calls to AVOID the punctuation a single call adds;

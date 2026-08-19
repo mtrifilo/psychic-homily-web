@@ -110,6 +110,23 @@ describe('buildSceneSlice', () => {
     expect(slice?.timezone).toBeUndefined()
   })
 
+  // `asPayload` only asserts `date` is a STRING, and empty strings demonstrably
+  // get through it — while `parseCalendarDate('')` yields a valid Date in 1900.
+  // An unnameable night must reach the error path, never a 1900 heading.
+  it('refuses a night whose date is not a calendar date', () => {
+    expect(buildSceneSlice(buildDay({ date: '' }), null)).toBeNull()
+    expect(buildSceneSlice(buildDay({ date: 'tonight' }), null)).toBeNull()
+  })
+
+  it('drops a malformed next day rather than heading it 1900', () => {
+    const slice = buildSceneSlice(
+      buildDay(),
+      buildDay({ date: '', is_tonight: false })
+    )
+    expect(slice?.days).toHaveLength(1)
+    expect(slice?.days[0].date).toBe('2026-08-17')
+  })
+
   it('treats a null shows array as no shows', () => {
     // `shows` is typed nullable by the generator even though the API always
     // emits an array.

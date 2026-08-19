@@ -154,13 +154,15 @@ export function useSceneNewArtists(options: UseSceneNewArtistsOptions) {
 interface UseSceneShowsOptions {
   /** Window in days, `[now, now+days)`. Backend maximum is 30. */
   days?: number
-  /** Rows to return, soonest first. Backend maximum is 20. */
+  /** Rows to return, soonest first. Backend maximum is 200. */
   limit?: number
 }
 
 /**
  * Hook to fetch a scene's next upcoming shows: the preview panel's "Next 7 days"
- * row (PSY-1309) and the scene page's four-week calendar (PSY-1783).
+ * row (PSY-1309), which since PSY-1850 is the ONLY caller — the scene page's
+ * four-week calendar that used to share it is gone, and the root now reads the
+ * day endpoint instead.
  * Metro-scoped so member-city shows count (a Tempe show shows under Phoenix).
  *
  * Both parameters are OMITTED from the request when the caller does not pass

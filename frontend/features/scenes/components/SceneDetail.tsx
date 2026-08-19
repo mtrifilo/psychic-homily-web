@@ -24,8 +24,12 @@ interface SceneDetailProps {
    * passing its rows through this client boundary would serialize every one of
    * them into the flight payload on top of the HTML they already produce. As a
    * slot they cost HTML only. See `app/scenes/[slug]/page.tsx`.
+   *
+   * REQUIRED. The calendar is the first thing under the header and the reason
+   * the page exists; an optional slot would let a caller drop it silently, and
+   * the render below would leave no trace that anything was missing.
    */
-  calendarSlot?: React.ReactNode
+  calendarSlot: React.ReactNode
   /**
    * IANA zone the slice's times are printed in, from the day payload.
    *
@@ -63,7 +67,7 @@ interface SceneDetailProps {
  *    `GET /scenes` does (`shows_calendar_week`). Labelling `upcoming_show_count`
  *    "this week" would put 328 against a week page that says 22, the exact
  *    defect PSY-1623 removed from two other surfaces. Counting the fetched rows
- *    would be wrong the other way, because the window is capped.
+ *    would have been wrong the other way, because that window was capped.
  *  - `TONIGHT n SHOWS` / `NOTHING TONIGHT`. The calendar window opened at NOW,
  *    so a show whose doors had opened was already out of the payload, and
  *    between midnight and 6am the night named by the boundary is yesterday,
@@ -204,9 +208,7 @@ export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailPro
             is absent rather than an empty header over blank space. */}
       </header>
 
-      {/* Conditional so an absent slot leaves no stray margin between the
-          header and the sections below it. */}
-      {calendarSlot && <div className="mt-6">{calendarSlot}</div>}
+      <div className="mt-6">{calendarSlot}</div>
 
       {/* The identity around the calendar, in the mock's order: the rooms this
           page speaks for, the bands that just appeared, the bands that live

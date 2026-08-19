@@ -1,4 +1,3 @@
-import { cloneElement } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
@@ -137,19 +136,19 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
  * Render the view with the two things the ROUTE supplies in production: the
  * server-rendered calendar slot, and the scene's zone off the day payload.
  *
- * Cloned onto the element rather than passed as arguments so each test can
- * still override either one inline (`<SceneDetailView slug="x" timeZone={...}
- * />`) and have that win.
+ * Takes PROPS, not an element: `calendarSlot` is required on the component, so
+ * a case that spelled its own JSX would have to restate the slot every time
+ * just to typecheck. Each case states only what it is about; the helper
+ * supplies the two things the route always provides, and either can be
+ * overridden inline.
  */
-function renderScene(
-  element: React.ReactElement<React.ComponentProps<typeof SceneDetailView>>
-) {
+type SceneDetailTestProps = Partial<React.ComponentProps<typeof SceneDetailView>> & {
+  slug: string
+}
+
+function renderScene(props: SceneDetailTestProps) {
   return renderWithProviders(
-    cloneElement(element, {
-      calendarSlot: CALENDAR_SLOT,
-      timeZone: 'America/Phoenix',
-      ...element.props,
-    })
+    <SceneDetailView calendarSlot={CALENDAR_SLOT} timeZone="America/Phoenix" {...props} />
   )
 }
 
@@ -160,7 +159,7 @@ describe('SceneDetailView', () => {
 
   it('renders a loading spinner while the scene detail is loading', () => {
     mockUseSceneDetail.mockReturnValue({ data: undefined, isLoading: true, error: null })
-    const { container } = renderScene(<SceneDetailView slug="phoenix-az" />)
+    const { container } = renderScene({ slug: 'phoenix-az' })
     expect(container.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
@@ -170,14 +169,14 @@ describe('SceneDetailView', () => {
       isLoading: false,
       error: new Error('nope'),
     })
-    renderScene(<SceneDetailView slug="missing" />)
+    renderScene({ slug: 'missing' })
     expect(screen.getByText('Scene not found')).toBeInTheDocument()
     expect(screen.getByText('Browse all scenes')).toBeInTheDocument()
   })
 
   it('renders the not-found state when there is no data and no error', () => {
     mockUseSceneDetail.mockReturnValue({ data: undefined, isLoading: false, error: null })
-    renderScene(<SceneDetailView slug="missing" />)
+    renderScene({ slug: 'missing' })
     expect(screen.getByText('Scene not found')).toBeInTheDocument()
   })
 
@@ -191,7 +190,7 @@ describe('SceneDetailView', () => {
     })
 
     it('names the volume, the coverage and the clock', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(
         screen.getByText(
           '45 upcoming shows · 12 rooms tracked · all times MST'
@@ -200,7 +199,7 @@ describe('SceneDetailView', () => {
     })
 
     it('recedes as a hairline, not an invert, and does not name the city', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       const band = screen.getByTestId('scene-status-band')
       expect(band).toHaveClass('border-b', 'text-muted-foreground')
       expect(band).not.toHaveClass('bg-foreground', 'text-background')
@@ -220,7 +219,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(
         screen.getByText('1 upcoming show · 1 room tracked · all times MST')
       ).toBeInTheDocument()
@@ -230,7 +229,7 @@ describe('SceneDetailView', () => {
     // reader's own, which is a confidently wrong answer about a city they are
     // not in.
     it('drops the clock when the zone is unknown', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" timeZone={undefined} />)
+      renderScene({ slug: 'phoenix-az', timeZone: undefined })
       expect(
         screen.getByText('45 upcoming shows · 12 rooms tracked')
       ).toBeInTheDocument()
@@ -240,7 +239,7 @@ describe('SceneDetailView', () => {
     // carries spans every future show. Labelling that "this week" is the exact
     // defect PSY-1623 removed from two other surfaces.
     it('carries no this-week count', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText(/this week/i)).not.toBeInTheDocument()
     })
 
@@ -248,7 +247,7 @@ describe('SceneDetailView', () => {
     // once doors open, and names YESTERDAY between midnight and 6am. Both
     // spellings contradicted /scenes/{slug}/tonight one click away.
     it('carries no tonight count', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText(/tonight/i)).not.toBeInTheDocument()
     })
   })
@@ -263,14 +262,14 @@ describe('SceneDetailView', () => {
     })
 
     it('renders the city/state heading', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(
         screen.getByRole('heading', { level: 1, name: 'Phoenix, AZ' })
       ).toBeInTheDocument()
     })
 
     it('renders the stat line with every category named', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(
         screen.getByText('12 venues · 85 artists based here · 45 upcoming shows')
       ).toBeInTheDocument()
@@ -294,14 +293,14 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="london-england" />)
+      renderScene({ slug: 'london-england' })
       expect(
         screen.getByText('2 venues · 0 artists based here · 197 upcoming shows')
       ).toBeInTheDocument()
     })
 
     it('mounts the calendar as the page primary object', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.getByTestId('scene-calendar')).toBeInTheDocument()
     })
 
@@ -311,7 +310,7 @@ describe('SceneDetailView', () => {
     // (its coverage disclosure), then who is new, then who lives here, with the
     // graph demoted below all three.
     it('renders the calendar first, then the identity sections in the mock order', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       const order = [
         'scene-calendar',
         'scene-rooms',
@@ -332,7 +331,7 @@ describe('SceneDetailView', () => {
     // The h1 is followed directly by the stat line. Anything between them would
     // be the tagline or crews slot rendering scaffolding it has no data for.
     it('puts nothing between the heading and the stat line', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       const heading = screen.getByRole('heading', { level: 1, name: 'Phoenix, AZ' })
       expect(heading.nextElementSibling?.textContent).toBe(
         '12 venues · 85 artists based here · 45 upcoming shows'
@@ -346,7 +345,7 @@ describe('SceneDetailView', () => {
     // render. Nothing here should be writing to console.error.
     it('renders without a React key or validation warning', () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(consoleError).not.toHaveBeenCalled()
       consoleError.mockRestore()
     })
@@ -356,26 +355,26 @@ describe('SceneDetailView', () => {
     // present, so moving it onto some other section fails here rather than
     // silently landing the teaser somewhere else on the page.
     it('hangs the #scene-artists anchor off the roster (PSY-1472)', () => {
-      const { container } = renderScene(<SceneDetailView slug="phoenix-az" />)
+      const { container } = renderScene({ slug: 'phoenix-az' })
       expect(container.querySelector(`#${SCENE_ARTISTS_ANCHOR}`)).toBe(
         screen.getByTestId('scene-roster')
       )
     })
 
     it('puts share and the scene .ics feed in the header action row', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.getByTestId('share-button')).toHaveTextContent('/scenes/phoenix-az')
       expect(screen.getByTestId('scene-add-to-calendar')).toHaveTextContent('phoenix-az')
     })
 
     it('does not render editorial scaffolding in the reserved slot', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText(/scene report/i)).not.toBeInTheDocument()
       expect(screen.queryByText(/newsfeed/i)).not.toBeInTheDocument()
     })
 
     it('mounts the SceneGraph below the calendar substance', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.getByTestId('scene-graph')).toBeInTheDocument()
     })
 
@@ -383,7 +382,7 @@ describe('SceneDetailView', () => {
     // `12 venues in Phoenix` and one link, and named no room — the module the
     // brief called an integer where a list belonged.
     it('no longer renders the count-only venues card', () => {
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(
         screen.queryByRole('link', { name: /View all venues/i })
       ).not.toBeInTheDocument()
@@ -402,7 +401,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText(/scene pulse/i)).not.toBeInTheDocument()
       expect(screen.queryByText(/this month/i)).not.toBeInTheDocument()
     })
@@ -413,7 +412,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText(/genre distribution/i)).not.toBeInTheDocument()
     })
 
@@ -423,7 +422,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText('A desert DIY scene.')).not.toBeInTheDocument()
     })
   })
@@ -438,7 +437,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.getByText('Where the desert learns to scream')).toBeInTheDocument()
     })
 
@@ -448,7 +447,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      const { container } = renderScene(<SceneDetailView slug="phoenix-az" />)
+      const { container } = renderScene({ slug: 'phoenix-az' })
       const header = container.querySelector('header')
       // The header's only paragraph is the stat line. A tagline element — even
       // an empty one — would reserve height the absent state must not take.
@@ -463,7 +462,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      const { container } = renderScene(<SceneDetailView slug="phoenix-az" />)
+      const { container } = renderScene({ slug: 'phoenix-az' })
       expect(container.querySelector('header')?.querySelectorAll('p')).toHaveLength(1)
     })
 
@@ -475,7 +474,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText('A desert DIY scene.')).not.toBeInTheDocument()
     })
   })
@@ -487,7 +486,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.queryByText('Festivals')).not.toBeInTheDocument()
     })
 
@@ -504,7 +503,7 @@ describe('SceneDetailView', () => {
         isLoading: false,
         error: null,
       })
-      renderScene(<SceneDetailView slug="phoenix-az" />)
+      renderScene({ slug: 'phoenix-az' })
       expect(screen.getByText('Festivals')).toBeInTheDocument()
       expect(screen.getByText(/3 festivals in Phoenix/)).toBeInTheDocument()
     })

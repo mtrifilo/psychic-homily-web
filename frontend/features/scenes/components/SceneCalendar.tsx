@@ -11,7 +11,12 @@ import {
   formatShowStartTime,
   type SceneDayResponse,
 } from '../sceneDay'
-import { formatSliceDateHeading, rowTimeZone, venueSubLocality } from '../sceneCalendar'
+import {
+  formatSliceDateHeading,
+  formatSliceWeekday,
+  rowTimeZone,
+  venueSubLocality,
+} from '../sceneCalendar'
 import {
   SCENE_WINDOW_LABEL,
   SCENE_WINDOW_ORDER,
@@ -73,7 +78,11 @@ function SceneWindowNav({ sceneSlug }: { sceneSlug: string }) {
         <Link
           key={key}
           href={sceneWindowHref(sceneSlug, key)}
-          className="rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+          // Hover UNDERLINES rather than recolouring. The old strip was
+          // `text-muted-foreground hover:text-foreground`, where hover was a
+          // step up in contrast; against this primary base that same class is a
+          // step DOWN, so hovering a link made it recede.
+          className="rounded-sm font-mono text-[11px] uppercase tracking-widest text-primary underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
         >
           {SCENE_WINDOW_LABEL[key]}
         </Link>
@@ -104,8 +113,7 @@ function SceneShowRow({
   // The zone this row's HEADING was bucketed in, or nothing. Printing a time
   // without it would fall through to `resolveShowTimezone`'s America/Phoenix
   // default and put an Arizona clock under a UTC-derived date. An absent time is
-  // a smaller loss than a confident wrong one, and the column below is
-  // width-reserved either way.
+  // a smaller loss than a confident wrong one.
   const zone = rowTimeZone(show) ?? sceneTimeZone
   const time = zone ? formatShowStartTime(show, zone) : null
   const price = formatShowPrice(show)
@@ -124,9 +132,14 @@ function SceneShowRow({
         href={showHref(show)}
         className="group grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-0.5 py-2.5 transition-colors hover:bg-muted/40 sm:flex sm:items-baseline sm:gap-4"
       >
-        {/* Width-reserved even when the instant is unusable, so the bills stay in
-            one column rather than one row jumping left. */}
-        <span className="col-start-1 row-start-1 shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:w-20">
+        {/* Width is RESERVED, not left to `auto`, and that is load-bearing: the
+            grid lives on each row's own `<Link>`, so there is no column shared
+            across rows for `auto` to size. A row whose instant is unusable would
+            collapse its own first track to nothing (or to the width of the price
+            beneath it) and start its bill ~55px left of every neighbour. `w-16`
+            fits `10:00 PM` at this size; `sm:w-20` takes over once the row is a
+            flex line. */}
+        <span className="col-start-1 row-start-1 w-16 shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:w-20">
           {time ?? ''}
         </span>
         <span className="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-2">
@@ -164,15 +177,23 @@ function SceneShowRow({
  * One whole date: heading, count and rows.
  *
  * The count is UNQUALIFIED here, unlike the old windowed calendar's, and that is
- * the payoff of reading the day endpoint: the backend answered for this entire
- * scene-local date, so `n shows` is that date's real total rather than however
- * many rows survived a window's row cap. Nothing on this surface has to suppress
- * a count it cannot stand behind any more.
+ * the payoff of reading the day endpoint: the backend answered for this ENTIRE
+ * scene-local date, so `n shows` counts a whole night rather than however many
+ * rows survived a 28-day window's row cap landing mid-date. Nothing on this
+ * surface has to suppress a count it cannot stand behind any more.
  *
- * A date with nothing on it still renders its heading and its `0 shows listed`.
- * Showing the date is what tells a reader we checked it — and unlike the old
- * root's synthesized empty bucket, this one is drawn only for a date a payload
- * actually answered for.
+ * (The day endpoint does carry a bound of its own — `sceneDayShowCap = 100` in
+ * scene_day.go — so this is "the night, up to 100 rows", not a mathematical
+ * total. No real night approaches it: Chicago, the densest scene, runs well
+ * under. If one ever does, this heading needs the same partial-count treatment
+ * the windowed calendar used to have.)
+ *
+ * A date with nothing on it still renders its heading and its `0 shows listed`,
+ * so a reader can see we checked it — though only when the OTHER date has rows,
+ * since a slice that is empty on both sides is a quiet slice and renders the
+ * honest-zero copy instead of two bare rules. Unlike the old root's synthesized
+ * empty bucket, a heading here is only ever drawn for a date a payload actually
+ * answered for.
  */
 function SceneDateGroup({
   day,
@@ -261,9 +282,14 @@ function SliceFooter({ scene }: { scene: SceneDetail }) {
  * four weeks" (which the old root's copy claimed, and which this page no longer
  * looks at). A quiet slice says nothing whatever about the month.
  */
-function quietSliceCopy(city: string, roomCount: number, dayCount: number): string {
+function quietSliceCopy(city: string, roomCount: number, nextDate?: string): string {
   const rooms = roomCount > 0 ? `the ${roomCount} ${city} rooms we track` : `the ${city} rooms we track`
-  const when = dayCount > 1 ? 'tonight or tomorrow' : 'tonight'
+  // The second night is NAMED, never called "tomorrow". Between midnight and
+  // 06:00 the scene's night boundary makes tonight YESTERDAY's calendar date, so
+  // the day after it is TODAY — and "tonight or tomorrow" would then be wrong
+  // about the one window this whole ticket exists to render correctly. A
+  // weekday is right at every hour and reads the way anyone would say it.
+  const when = nextDate ? `tonight or ${formatSliceWeekday(nextDate)}` : 'tonight'
   return `Nothing on our calendar for ${rooms} ${when}. A room may have shows we have not listed.`
 }
 
@@ -279,11 +305,11 @@ function quietSliceCopy(city: string, roomCount: number, dayCount: number): stri
  * quiet — offering only the week would risk handing that reader a second empty
  * page and no third door.
  */
-function QuietSlice({ scene, dayCount }: { scene: SceneDetail; dayCount: number }) {
+function QuietSlice({ scene, nextDate }: { scene: SceneDetail; nextDate?: string }) {
   return (
     <div className="border-t border-border py-4">
       <p className="max-w-2xl text-sm text-muted-foreground">
-        {quietSliceCopy(scene.city, scene.stats.venue_count, dayCount)}
+        {quietSliceCopy(scene.city, scene.stats.venue_count, nextDate)}
       </p>
       {/* The populated footer's two links FIRST, from the same component, so a
           reader who finds nothing here is offered the identical way out under
@@ -330,7 +356,7 @@ export function SceneCalendar({ scene, slice }: SceneCalendarProps) {
             .
           </p>
         ) : sceneSliceIsQuiet(slice) ? (
-          <QuietSlice scene={scene} dayCount={slice.days.length} />
+          <QuietSlice scene={scene} nextDate={slice.days[1]?.date} />
         ) : (
           <>
             {slice.days.map(day => (
