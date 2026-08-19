@@ -112,7 +112,14 @@ export async function generateMetadata({
   // description is both the `<meta name="description">` and the `og:description`,
   // so a stale one advertises a module the page no longer has to a crawler and
   // to anyone who shares the link.
-  const description = `Upcoming shows, venues and local artists in the ${scene.city}, ${scene.state} music scene.`
+  const generatedDescription = `Upcoming shows, venues and local artists in the ${scene.city}, ${scene.state} music scene.`
+
+  // An authored tagline (PSY-1848) is the scene's own words, so it outranks
+  // the generated sentence for `<meta name="description">` / `og:description`
+  // — the tagline was specified to double as exactly this. Trimmed-empty
+  // counts as absent, matching the page body, so a blank value falls back
+  // rather than unfurling as an empty description.
+  const description = scene.tagline?.trim() || generatedDescription
 
   // Both this rolling URL and `/week` advertise the ARCHIVED card. Next would
   // otherwise inject this route's own file-convention image, and that URL is a
@@ -127,10 +134,14 @@ export async function generateMetadata({
   // `twitter.images` is deliberately absent: Next copies the openGraph
   // descriptor across when Twitter has none, so omitting it inherits the alt
   // and dimensions. Setting a bare URL string there would silently drop them.
+  //
+  // The alt stays the GENERATED sentence even when a tagline exists: alt text
+  // describes the card image (this scene's week of shows) for someone who
+  // cannot see it, and a four-word authored headline does not do that job.
   const week = await getSceneWeek(slug)
   const ogImages =
     week?.slug && week.iso_week
-      ? sceneDetailOgImages(week.slug, week.iso_week, description)
+      ? sceneDetailOgImages(week.slug, week.iso_week, generatedDescription)
       : undefined
 
   return {

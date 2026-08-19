@@ -116,17 +116,43 @@ func (s *SceneService) canonicalScope(slug string) (sceneScope, string, error) {
 	return scope, buildSceneSlug(scope.city, scope.state), nil
 }
 
-// sceneDescription returns the curated description for a scene slug, or nil
-// when no registry row (or no description) exists — the common case, since
-// rows materialize lazily. Fills the GetSceneDetail field that was stubbed
-// "nil until scenes table exists".
-func (s *SceneService) sceneDescription(slug string) *string {
+// sceneCurated returns the authored fields for a scene slug — description and
+// tagline (PSY-1848) — each nil when no registry row exists (the common case,
+// since rows materialize lazily) or when that field is unset. Read as ONE row
+// rather than a query per field: GetSceneDetail wants both, and the registry
+// lookup is pure overhead repeated.
+func (s *SceneService) sceneCurated(slug string) (description, tagline *string) {
 	var row catalogm.Scene
-	res := s.db.Select("description").Where("slug = ?", slug).Limit(1).Find(&row)
+	res := s.db.Select("description", "tagline").Where("slug = ?", slug).Limit(1).Find(&row)
 	if res.Error != nil || res.RowsAffected == 0 {
-		return nil
+		return nil, nil
 	}
-	return row.Description
+	return row.Description, row.Tagline
+}
+
+// UpdateSceneTagline sets the scene's authored tagline, or clears it when
+// tagline is nil, returning the registry row id written.
+//
+// GetOrCreateSceneID (not a bare lookup) because the row is lazy: authoring a
+// tagline for a scene nobody has followed yet must still persist, and it is
+// precisely the "curated reference" case the registry materializes for. It
+// also canonicalizes member-city slugs, so authoring on `mesa-az` writes the
+// Phoenix row that `mesa-az` reads back from.
+//
+// Written through a map so a nil tagline reaches the database as SQL NULL —
+// a struct update would treat the nil pointer as "no change" and silently
+// make clearing a no-op.
+func (s *SceneService) UpdateSceneTagline(slug string, tagline *string) (uint, error) {
+	id, err := s.GetOrCreateSceneID(slug)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.db.Model(&catalogm.Scene{}).
+		Where("id = ?", id).
+		Updates(map[string]any{"tagline": tagline}).Error; err != nil {
+		return 0, fmt.Errorf("failed to update scene tagline: %w", err)
+	}
+	return id, nil
 }
 
 // lookupByScope finds the row anchored on the scene's identity: the CBSA code

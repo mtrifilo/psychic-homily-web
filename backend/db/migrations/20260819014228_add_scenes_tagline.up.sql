@@ -1,0 +1,12 @@
+-- PSY-1848: authored scene tagline.
+--
+-- The locked scene front page renders a short authored line under the H1 (four
+-- to eight words), which doubles as the route's og:description. `description`
+-- is NOT that field: it asked for a paragraph, no production scene populates
+-- it, and rendering it in the tagline slot was part of the PSY-1783 kill set.
+--
+-- VARCHAR(80) is the storage half of the length guard the write path enforces;
+-- the tagline is a headline, not prose, and a longer one wraps past the two
+-- lines the mock allows. Nullable with no default: absent is the common state,
+-- and the page renders NOTHING for it (no placeholder, no fallback).
+ALTER TABLE scenes ADD COLUMN tagline VARCHAR(80);

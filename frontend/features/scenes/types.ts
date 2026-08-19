@@ -86,6 +86,10 @@ export interface SceneDetail {
   state: string
   slug: string
   description: string | null
+  // The authored line under the H1, and the route's og:description when set
+  // (PSY-1848). null for most scenes, and the absent state renders nothing —
+  // `description` is NOT a fallback for it.
+  tagline: string | null
   stats: SceneStats
   pulse: ScenePulse
   // The scene's tracked rooms, busiest first. Always an array on the wire; the

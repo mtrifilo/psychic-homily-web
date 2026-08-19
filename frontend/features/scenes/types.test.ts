@@ -60,6 +60,7 @@ describe('scene types contract', () => {
       state: 'AZ',
       slug: 'phoenix-az',
       description: null,
+      tagline: null,
       stats,
       pulse,
       venues: [

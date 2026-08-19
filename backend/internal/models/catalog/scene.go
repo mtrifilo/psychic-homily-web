@@ -15,7 +15,13 @@ type Scene struct {
 	State       string    `gorm:"not null;column:state"`
 	Slug        string    `gorm:"not null;column:slug"`
 	Description *string   `gorm:"column:description"`
-	CreatedAt   time.Time `gorm:"not null;column:created_at"`
+	// Tagline is the authored line the scene page renders under its H1
+	// (PSY-1848) — a headline of roughly four to eight words, capped at 80
+	// characters by the column and by the admin write path. Distinct from
+	// Description, which is prose and which the page deliberately does not
+	// render. nil is the ordinary state and renders nothing.
+	Tagline   *string   `gorm:"column:tagline"`
+	CreatedAt time.Time `gorm:"not null;column:created_at"`
 }
 
 // TableName specifies the table name for Scene.
