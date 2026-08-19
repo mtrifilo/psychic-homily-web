@@ -6,12 +6,12 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
-// Named new-bands module (PSY-1781) — run as part of the
-// SceneServiceIntegrationTestSuite (real Postgres, all migrations).
+// Latest-additions module (PSY-1781, redefined by PSY-1844) — run as part of
+// the SceneServiceIntegrationTestSuite (real Postgres, all migrations).
 
 // createArtistListedAt seeds a Phoenix band with an explicit catalog created_at,
-// which is the fact the digest definition selects on. GORM sets CreatedAt itself
-// unless the field is non-zero, so this cannot go through createArtist.
+// which is the fact the module orders on. GORM sets CreatedAt itself unless the
+// field is non-zero, so this cannot go through createArtist.
 func (suite *SceneServiceIntegrationTestSuite) createArtistListedAt(name string, listedAt time.Time) *catalogm.Artist {
 	slug := name
 	artist := &catalogm.Artist{
@@ -60,68 +60,130 @@ func (suite *SceneServiceIntegrationTestSuite) createVenuelessApprovedShow(title
 	return show
 }
 
-// The definition pin. Two definitions of "new to the scene" exist and they
-// disagree; PSY-1781 chose the DIGEST one (catalog row created in the window)
-// over the PULSE one (MIN(event_date) of the band's approved shows in the
-// window, see GetSceneDetail's new_artists_30d). The two fixtures below are
-// each returned by exactly ONE definition, so swapping the implementation back
-// to the pulse query fails this test in both directions rather than silently
-// changing what the module means.
-func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_PinsDigestDefinitionNotPulse() {
+// THE DEFINITION PIN.
+//
+// Three definitions of "new to the scene" have been in play and they disagree.
+// The module serves LATEST: the roster ordered by catalog created_at, newest
+// first, with NO window. The two fixtures below are chosen so that each of the
+// rejected definitions fails this test rather than silently changing what the
+// module means:
+//
+//   - PULSE (MIN(event_date) of the band's approved shows inside a window, see
+//     GetSceneDetail's new_artists_30d) would return ONLY "Long Established
+//     Band" and would make the first_listed_at printed on the row a lie.
+//   - DIGEST/WINDOWED (created_at inside a trailing 30 days, what PSY-1781
+//     served and GetSceneNewArtistsSince still serves the weekly email) would
+//     return ONLY "Saguaro Teeth" — and returned NOTHING at all on 5 of 6 major
+//     scenes in production, which is why PSY-1844 removed the window.
+//
+// LATEST returns BOTH, most recently listed first.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_PinsLatestListedNotPulseNotWindow() {
 	venue := suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
 	user := suite.createUser()
 	now := time.Now().UTC()
-	since := now.AddDate(0, 0, -30)
 
-	// Listed inside the window, first played LONG before it: digest yes, pulse no.
+	// Listed recently, first played LONG ago: windowed yes, pulse no.
 	freshListing := suite.createArtistListedAt("Saguaro Teeth", now.AddDate(0, 0, -5))
 	suite.createApprovedShow("old show", venue.ID, freshListing.ID, user.ID, now.AddDate(0, 0, -200))
 
-	// Listed long ago, first played inside the window: pulse yes, digest no.
+	// Listed LONG ago, first played recently: pulse yes, windowed no.
 	oldListing := suite.createArtistListedAt("Long Established Band", now.AddDate(0, 0, -200))
 	suite.createApprovedShow("debut show", venue.ID, oldListing.ID, user.ID, now.AddDate(0, 0, -3))
 
-	rows, total, err := suite.sceneService.GetSceneNewArtists("Phoenix", "AZ", since, now, 10)
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", now, 10)
 	suite.Require().NoError(err)
-	suite.Require().Len(rows, 1, "only the band LISTED in the window belongs in the module")
-	suite.Equal("Saguaro Teeth", rows[0].Name)
-	suite.Equal(1, total)
+	suite.Require().Len(rows, 2, "the module is the roster's latest arrivals, not a window and not a debut list")
+	suite.Equal("Saguaro Teeth", rows[0].Name, "most recently LISTED first — created_at, not first show")
+	suite.Equal("Long Established Band", rows[1].Name)
 	suite.WithinDuration(now.AddDate(0, 0, -5), rows[0].FirstListedAt, time.Minute,
-		"first_listed_at must be the catalog created_at the window selected on")
+		"first_listed_at must be the catalog created_at the ordering selected on")
 }
 
-// The rows carry the same membership and cap as the digest's own method, which
-// is the structural guarantee that the two surfaces cannot disagree.
-func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AgreesWithDigestMethod() {
+// The regression PSY-1844 fixes, stated directly.
+//
+// Scene rosters grow in human-run seeding batches, not continuously, so a
+// trailing window emptied out between batches: production read 0 new bands on
+// 5 of 6 major scenes on 2026-08-18, six days after the last batch aged past
+// 30 days. A roster whose every band was listed months ago still has most
+// recently listed bands, and this module must name them.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_RosterListedLongAgoStillReports() {
 	now := time.Now().UTC()
-	since := now.AddDate(0, 0, -30)
+	suite.createArtistListedAt("Batch Two", now.AddDate(0, 0, -200))
+	suite.createArtistListedAt("Batch One", now.AddDate(0, 0, -400))
+	suite.createArtistListedAt("Batch Three", now.AddDate(0, 0, -100))
+
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", now, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(rows, 3, "a roster listed entirely outside any trailing window is still a roster")
+	suite.Equal([]string{"Batch Three", "Batch Two", "Batch One"},
+		[]string{rows[0].Name, rows[1].Name, rows[2].Name}, "newest listing first")
+}
+
+// The weekly digest KEEPS its window, and the two surfaces now differ on
+// purpose. The digest advances a per-follow cursor to `now` after each send, so
+// a band outside its window has already been reported; the page module has no
+// cursor and no send. Anyone "fixing" the inconsistency by routing the digest
+// through the module's query would start re-sending the whole roster every week.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_DigestStaysWindowedAndDiffers() {
+	now := time.Now().UTC()
+	suite.createArtistListedAt("Listed This Week", now.AddDate(0, 0, -2))
+	suite.createArtistListedAt("Listed Last Year", now.AddDate(0, 0, -300))
+
+	digest, digestTotal, err := suite.sceneService.GetSceneNewArtistsSince("Phoenix", "AZ", now.AddDate(0, 0, -30), now, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(digest, 1, "the digest must still see ONLY the window")
+	suite.Equal("Listed This Week", digest[0].Name)
+	suite.Equal(1, digestTotal)
+
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", now, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(rows, 2, "the module must see the whole roster's latest arrivals")
+}
+
+// The cap trims the tail, never the head, and roster scope still bounds
+// membership: a band based elsewhere is not this scene's latest addition.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_CapsToNewestAndKeepsRosterScope() {
+	now := time.Now().UTC()
 	suite.createArtistListedAt("Band One", now.AddDate(0, 0, -1))
 	suite.createArtistListedAt("Band Two", now.AddDate(0, 0, -2))
 	suite.createArtistListedAt("Band Three", now.AddDate(0, 0, -3))
-	// Based elsewhere — outside the roster scope for both methods.
+	// Based elsewhere — outside the roster scope, however recently listed.
 	suite.createArtistIn("Tour Van", "Denver", "CO")
 
-	digest, digestTotal, err := suite.sceneService.GetSceneNewArtistsSince("Phoenix", "AZ", since, now, 2)
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", now, 2)
 	suite.Require().NoError(err)
-	rows, total, err := suite.sceneService.GetSceneNewArtists("Phoenix", "AZ", since, now, 2)
-	suite.Require().NoError(err)
+	suite.Require().Len(rows, 2, "the cap applies to the newest end of the roster")
+	suite.Equal([]string{"Band One", "Band Two"}, []string{rows[0].Name, rows[1].Name}, "most recently listed first")
+}
 
-	suite.Equal(digestTotal, total, "the uncapped total must be the digest's")
-	suite.Equal(3, total)
-	suite.Require().Len(rows, 2, "the cap applies to the rows, not the total")
-	names := []string{rows[0].Name, rows[1].Name}
-	suite.Equal([]string{digest[0].Name, digest[1].Name}, names)
-	suite.Equal([]string{"Band One", "Band Two"}, names, "most recently listed first")
+// A caller that names no limit gets the module's own default rather than the
+// whole roster — the section is an index into the roster, not a second copy of
+// it. The service owns that number outright (the request struct carries no
+// `default:` tag precisely so it cannot be stated twice), so the assertion is
+// the LITERAL 5 against a roster deliberately larger than it. Asserting
+// sceneLatestArtistsDefaultLimit here instead would compare the constant to
+// itself and pass for any value.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_ZeroLimitUsesDefault() {
+	now := time.Now().UTC()
+	for i := 0; i < 7; i++ {
+		suite.createArtistListedAt(
+			"Band "+string(rune('A'+i)),
+			now.AddDate(0, 0, -(i+1)),
+		)
+	}
+
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", now, 0)
+	suite.Require().NoError(err)
+	suite.Len(rows, 5, "an absent limit lands on the service's own default of 5, not the whole roster")
 }
 
 // The show attached to a row: next upcoming when there is one, most recent past
 // otherwise, and nil when the band has no approved show at all.
-func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNextThenMostRecentShow() {
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_AttachesNextThenMostRecentShow() {
 	rebel := suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
 	nile := suite.createVerifiedVenue("Nile Theater", "Mesa", "AZ")
 	user := suite.createUser()
 	now := time.Now().UTC()
-	since := now.AddDate(0, 0, -30)
 
 	upcoming := suite.createArtistListedAt("Has Upcoming", now.AddDate(0, 0, -1))
 	suite.createApprovedShow("past", nile.ID, upcoming.ID, user.ID, now.AddDate(0, 0, -4))
@@ -145,7 +207,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNe
 	venueless := suite.createArtistListedAt("Venue TBA", now.AddDate(0, 0, -4))
 	tba := suite.createVenuelessApprovedShow("tba", venueless.ID, user.ID, now.AddDate(0, 0, 12))
 
-	rows, _, err := suite.sceneService.GetSceneNewArtists("Phoenix", "AZ", since, now, 10)
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", now, 10)
 	suite.Require().NoError(err)
 	suite.Require().Len(rows, 4)
 
@@ -180,7 +242,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_AttachesNe
 // A cancelled show is not an answer to "where can I see this band", in either
 // direction: the row carries no status badge, so citing one would read as a
 // date to turn up to (upcoming) or a gig that happened (past).
-func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_SkipsCancelledShows() {
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_SkipsCancelledShows() {
 	rebel := suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
 	nile := suite.createVerifiedVenue("Nile Theater", "Mesa", "AZ")
 	user := suite.createUser()
@@ -195,7 +257,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_SkipsCance
 	onlyShow := suite.createApprovedShow("also called off", rebel.ID, onlyCancelled.ID, user.ID, now.AddDate(0, 0, 8))
 	suite.Require().NoError(suite.db.Model(onlyShow).Update("is_cancelled", true).Error)
 
-	rows, _, err := suite.sceneService.GetSceneNewArtists("Phoenix", "AZ", now.AddDate(0, 0, -30), now, 10)
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", now, 10)
 	suite.Require().NoError(err)
 	suite.Require().Len(rows, 2)
 
@@ -212,16 +274,17 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_SkipsCance
 	suite.Nil(rows[byName["Nothing Left"]].Show, "a band whose only show is cancelled carries no show")
 }
 
-// A quiet scene is an empty module, never an error and never a nil slice.
-func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtists_QuietSceneIsEmptyNotError() {
+// A scene with no bands based in it is an empty module, never an error and
+// never a nil slice. With the window gone this is the ONLY way the module comes
+// back empty, which is the point: it is now a fact about the scene rather than
+// about when the last seeding batch ran.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneLatestArtists_SceneWithNoRosterIsEmptyNotError() {
 	suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
-	// Based here, but listed well before the window opens.
-	now := time.Now().UTC()
-	suite.createArtistListedAt("Old Timer", now.AddDate(0, 0, -400))
+	// A real band, based somewhere else — it must not stand in for a roster.
+	suite.createArtistIn("Tour Van", "Denver", "CO")
 
-	rows, total, err := suite.sceneService.GetSceneNewArtists("Phoenix", "AZ", now.AddDate(0, 0, -30), now, 10)
+	rows, err := suite.sceneService.GetSceneLatestArtists("Phoenix", "AZ", time.Now().UTC(), 10)
 	suite.Require().NoError(err)
-	suite.NotNil(rows)
+	suite.NotNil(rows, "an empty module must marshal as [], not null")
 	suite.Len(rows, 0)
-	suite.Equal(0, total)
 }

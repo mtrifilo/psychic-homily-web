@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -32,78 +31,6 @@ const AuditActionMergeVenues = "merge_venues"
 // most here (which shows collide on shows_artist_venue_eventdate_uniq) is
 // exactly the one whose definition must not drift from the mutation it guards.
 var errPreviewRollback = errors.New("venue merge preview rollback")
-
-// entityRef describes one polymorphic (entity_type, entity_id) reference table.
-//
-// The venue merge re-points every row where entity_type='venue' and
-// entity_id=<loser>. These tables carry NO foreign key to venues, so a row left
-// behind does not fail loudly — it silently points at a venue id that no longer
-// exists. This list is therefore the difference between a clean merge and a
-// slow leak of dangling references.
-type entityRef struct {
-	// table is the SQL table name. Interpolated into SQL, so it MUST stay a
-	// hardcoded literal in venueEntityRefs — never caller input.
-	table string
-	// idCol holds the entity id. Almost always "entity_id"; `requests` and
-	// `entity_requests` name theirs differently.
-	idCol string
-	// dedupe is true when a unique index could reject the re-point, so the
-	// losing rows that would collide are deleted first. False means the table
-	// is append-only / has no relevant unique key and can take a bare UPDATE.
-	dedupe bool
-	// key lists the OTHER columns in that unique index besides entity_type and
-	// idCol. Empty with dedupe=true means the index is on (entity_type, idCol)
-	// alone.
-	key []string
-}
-
-// venueEntityRefs is every table in the schema whose polymorphic entity
-// reference can point at a venue, with the unique key that constrains it.
-//
-// Verified against the live schema rather than copied forward: the equivalent
-// list in the PSY-1581 one-off migration is missing `requests` and
-// `entity_requests` (both of which name their id column something other than
-// entity_id) and marks `notification_log` as having no unique key when it in
-// fact has one on (user_id, filter_id, entity_type, entity_id, channel).
-//
-// TestVenueEntityRefsCoverSchema fails if a migration adds an entity_type
-// table that is not listed here, so this cannot silently fall behind.
-var venueEntityRefs = []entityRef{
-	// Unique on (entity_type, entity_id) plus the listed columns.
-	{table: "collection_items", idCol: "entity_id", dedupe: true, key: []string{"collection_id"}},
-	{table: "comment_last_read", idCol: "entity_id", dedupe: true, key: []string{"user_id"}},
-	{table: "comment_subscriptions", idCol: "entity_id", dedupe: true, key: []string{"user_id"}},
-	{table: "entity_tags", idCol: "entity_id", dedupe: true, key: []string{"tag_id"}},
-	{table: "notification_log", idCol: "entity_id", dedupe: true, key: []string{"user_id", "filter_id", "channel"}},
-	{table: "tag_votes", idCol: "entity_id", dedupe: true, key: []string{"tag_id", "user_id"}},
-	{table: "user_bookmarks", idCol: "entity_id", dedupe: true, key: []string{"user_id", "action"}},
-
-	// Unique on (entity_type, entity_id) alone. image_enrich_queue's index is
-	// partial (status-scoped); deleting the losing row whenever ANY winning row
-	// exists is stricter than the index needs, which is the safe direction.
-	{table: "image_enrich_queue", idCol: "entity_id", dedupe: true},
-	{table: "source_configs", idCol: "entity_id", dedupe: true},
-
-	// No unique key on the entity reference: re-point in place.
-	{table: "audit_logs", idCol: "entity_id"},
-	{table: "comments", idCol: "entity_id"},
-	{table: "entity_reports", idCol: "entity_id"},
-	{table: "requests", idCol: "requested_entity_id"},
-	{table: "entity_requests", idCol: "created_entity_id"},
-}
-
-// venueRefsRepointedElsewhere names entity_type tables the merge DOES handle
-// but not through the loop above, so the schema-coverage guard counts them as
-// covered without reassignEntityRefs trying to re-point them a second time.
-//
-// Every table here is one whose move is inseparable from a provenance decision
-// — see repointRevisions and repointEditHistory, and reassignVenueRevisions /
-// reassignVenueEditHistory for this merge's answers.
-var venueRefsRepointedElsewhere = []string{
-	"revisions",
-	"pending_entity_edits",
-	"entity_edit_audit_logs",
-}
 
 // venueFKTables is every table holding a real foreign key to venues.id. Each
 // one is re-pointed explicitly by the steps below.
@@ -555,7 +482,7 @@ func reassignVenueRevisions(tx *gorm.DB, canonicalID uint, mergeFrom *catalogm.V
 //
 // Split out of reassignEntityRefs rather than left in the loop so the decision
 // is made once, in the open, instead of being implied by a table's presence in
-// a list. Both stay named in venueRefsRepointedElsewhere so the schema-coverage
+// a list. Both stay named in refsRepointedElsewhere so the schema-coverage
 // guard still counts them as handled.
 //
 // The counts join EntityRefsMoved, which is what they counted toward inside the
@@ -573,44 +500,24 @@ func reassignVenueEditHistory(tx *gorm.DB, canonicalID, mergeFromID uint, result
 	return nil
 }
 
-// reassignEntityRefs walks venueEntityRefs, dropping rows that would collide on
-// a unique key before re-pointing the rest at the canonical venue.
+// reassignEntityRefs walks the shared polymorphic inventory, dropping rows that
+// would collide on a unique key before moving the rest onto the canonical venue,
+// and folds the per-table counts into the merge summary.
+//
+// Rows dropped as duplicates are logged rather than summed: EntityRefsMoved has
+// always counted only the UPDATE, and a merge that deletes a user's bookmark or
+// crate item should leave a trace even though the admin-facing summary has no
+// field for it.
 func reassignEntityRefs(tx *gorm.DB, canonicalID, mergeFromID uint, result *contracts.MergeVenueResult) error {
-	for _, ref := range venueEntityRefs {
-		if ref.dedupe {
-			joinPred := ""
-			for _, col := range ref.key {
-				joinPred += fmt.Sprintf(" AND w.%s = l.%s", col, col)
-			}
-			// #nosec G201 -- table/column names come from the hardcoded
-			// venueEntityRefs list, never from caller input; the venue ids are
-			// bound parameters.
-			del := fmt.Sprintf(`
-				DELETE FROM %[1]s l
-				WHERE l.entity_type = 'venue'
-				  AND l.%[2]s = ?
-				  AND EXISTS (
-				        SELECT 1 FROM %[1]s w
-				        WHERE w.entity_type = 'venue'
-				          AND w.%[2]s = ?%[3]s
-				      )
-			`, ref.table, ref.idCol, joinPred)
-			if err := tx.Exec(del, mergeFromID, canonicalID).Error; err != nil {
-				return fmt.Errorf("failed to drop conflicting %s rows: %w", ref.table, err)
-			}
-		}
-
-		// #nosec G201 -- see above.
-		upd := fmt.Sprintf(
-			"UPDATE %[1]s SET %[2]s = ? WHERE entity_type = 'venue' AND %[2]s = ?",
-			ref.table, ref.idCol,
-		)
-		r := tx.Exec(upd, canonicalID, mergeFromID)
-		if r.Error != nil {
-			return fmt.Errorf("failed to move %s rows: %w", ref.table, r.Error)
-		}
-		result.EntityRefsMoved += r.RowsAffected
+	moved, dropped, err := repointEntityRefs(
+		tx, polymorphicEntityRefs, mergeEntityVenue, canonicalID, mergeFromID)
+	if err != nil {
+		return err
 	}
+	for _, count := range moved {
+		result.EntityRefsMoved += count
+	}
+	logDroppedEntityRefs(mergeEntityVenue, canonicalID, mergeFromID, dropped)
 	return nil
 }
 
@@ -659,18 +566,4 @@ func (s *VenueService) writeMergeAuditLog(actorID uint, result *contracts.MergeV
 	if err := s.db.Create(&auditLog).Error; err != nil {
 		slog.Default().Error("failed to write venue merge audit log", "error", err)
 	}
-}
-
-// venueEntityRefTables is every entity_type table this merge handles, for the
-// schema-drift test: the ones re-pointed by the loop, plus the ones re-pointed
-// by a dedicated step.
-func venueEntityRefTables() map[string]bool {
-	out := make(map[string]bool, len(venueEntityRefs)+len(venueRefsRepointedElsewhere))
-	for _, ref := range venueEntityRefs {
-		out[strings.ToLower(ref.table)] = true
-	}
-	for _, table := range venueRefsRepointedElsewhere {
-		out[strings.ToLower(table)] = true
-	}
-	return out
 }

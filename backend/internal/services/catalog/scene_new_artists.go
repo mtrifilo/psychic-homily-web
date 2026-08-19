@@ -8,46 +8,108 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// The scene page's named new-bands module (PSY-1781).
+// The scene page's latest-additions module (PSY-1781, redefined by PSY-1844).
 //
-// TWO definitions of "new to the scene" exist in the product and they do not
-// agree. The DIGEST definition — a catalog row created inside the window — is
-// the one this serves, because it is the one the blessed mock's copy states
-// ("first listed Aug 10"): the row's own listing date is the fact being
-// reported. The scene PULSE's new_artists_30d counts bands whose FIRST approved
-// show falls in the window, which answers a different question (who started
-// playing here) and would make the module's date field a lie.
+// THREE definitions of "new to the scene" have now been in play, and the module
+// serves the third:
 //
-// The choice is enforced structurally, not by convention: this method does not
-// re-implement the window at all. It calls GetSceneNewArtistsSince — the
-// digest's own query, cap, total and roster scope — and only enriches the rows
-// it returns. A future edit cannot silently swap in the pulse definition
-// without deleting that call.
+//  1. PULSE — bands whose FIRST approved show falls in a trailing window
+//     (GetSceneDetail's new_artists_30d). Answers "who started playing here",
+//     which makes a "first listed" date on the row a lie. Still rejected.
+//  2. DIGEST — bands whose catalog row was CREATED inside a trailing window
+//     (GetSceneNewArtistsSince). PSY-1781 chose this and pinned it by test.
+//  3. LATEST — the N most recently listed bands on the scene's roster, with no
+//     window at all. What this file now serves.
+//
+// (2) was measured empty on 5 of 6 major scenes and abandoned for a reason that
+// constrains any future edit here: scene rosters do not grow continuously.
+// Locally-based artists arrive in human-run seeding batches, so ANY trailing
+// window on created_at reports on when someone last ran a seeding CLI rather
+// than on the scene, and reads zero for whatever stretch separates two batches.
+// Do not reintroduce one.
+//
+// Without the window the module is empty only when the scene genuinely has no
+// bands based in it. The date the row prints is still the fact the ordering
+// selected on — first_listed_at is what the sort key reads — which is the
+// property PSY-1781 was protecting and the reason definition (1) is still
+// refused.
+//
+// This DELIBERATELY no longer delegates to GetSceneNewArtistsSince. PSY-1781
+// routed through it so the module and the weekly digest could not disagree; the
+// two now differ by design, because the digest must stay windowed (it advances
+// a per-follow cursor to `now` after each send, so a band outside the window has
+// already been reported or will be) while a page module has no cursor and no
+// send. Sharing one query would force one of the two surfaces to be wrong.
 
-// GetSceneNewArtists returns the scene's named new-bands rows for the window
-// (`since`, `now`], newest first, capped at `limit`, plus the uncapped TOTAL in
-// the window so the caller can render "+N more" exactly as the digest does.
+// sceneLatestArtistsDefaultLimit is how many bands the module names when the
+// caller asks for no particular number. The section is an index into the
+// roster, not the roster itself — the full list is the scene page's own
+// bands-based-here module — so this stays small enough to read at a glance.
+const sceneLatestArtistsDefaultLimit = 5
+
+// GetSceneLatestArtists returns the scene's most recently listed bands, newest
+// first, capped at `limit` — the scene page's latest-additions module.
 //
-// Membership is GetSceneNewArtistsSince's, verbatim. The enrichment is one
-// batched query for the bands' shows, so the cost is two queries per request
-// regardless of how many bands the window holds.
+// Membership is the roster scope (artistPredicate), the same set
+// GetActiveArtists paginates, so the module can only ever name a band the
+// scene page also lists. Ordering is the catalog row's own created_at, which
+// the caller publishes as first_listed_at: the row states the fact it was
+// selected on. Created-at rather than updated-at, unchanged from PSY-1342 —
+// updated-at would re-surface a long-established band on any edit.
 //
-// Like the method it wraps, this does NOT gate on the scene's venue count: a
-// scene that temporarily dips below the threshold still has a real roster, and
-// a module that can be empty must render empty rather than 404 (the empty list
-// is a state of a page that exists, not a missing page).
-func (s *SceneService) GetSceneNewArtists(city, state string, since, now time.Time, limit int) ([]contracts.SceneNewArtistRow, int, error) {
-	base, total, err := s.GetSceneNewArtistsSince(city, state, since, now, limit)
-	if err != nil {
-		return nil, 0, err
+// Like the windowed method it replaces, this does NOT gate on the scene's venue
+// count: a scene that dips below the threshold still has a real roster, and a
+// module that can be empty must render empty rather than 404 (the empty list is
+// a state of a page that exists, not a missing page).
+//
+// The cost is two queries regardless of roster size: the bands, then one
+// batched lookup for their shows.
+func (s *SceneService) GetSceneLatestArtists(city, state string, now time.Time, limit int) ([]contracts.SceneNewArtistRow, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
 	}
-	if len(base) == 0 {
-		return []contracts.SceneNewArtistRow{}, total, nil
+	if limit <= 0 {
+		limit = sceneLatestArtistsDefaultLimit
 	}
 
-	ids := make([]uint, len(base))
-	for i, a := range base {
-		ids[i] = a.ID
+	scope := s.scopeFor(city, state)
+	ap, aargs := s.artistPredicate(scope, "a")
+
+	type row struct {
+		ID        uint      `gorm:"column:id"`
+		Slug      string    `gorm:"column:slug"`
+		Name      string    `gorm:"column:name"`
+		CreatedAt time.Time `gorm:"column:created_at"`
+	}
+	// TWIN QUERY: GetSceneNewArtistsSince (scene.go) selects the same columns in
+	// the same order from the same roster predicate, differing only by its
+	// created_at window. The projection, the COALESCE on the nullable slug, the
+	// ordering and the created_at -> FirstListedAt mapping must move together in
+	// both places; only the window is allowed to differ. They are deliberately
+	// not one query — see the file header — but they are one shape.
+	//
+	// id DESC is the deterministic tiebreak, and it is load-bearing rather than
+	// tidy: a seeding batch writes many rows inside the same second, so
+	// created_at alone leaves the cap free to return a different subset of one
+	// batch on every request.
+	args := append(append([]any{}, aargs...), limit)
+	var rows []row
+	if err := s.db.Raw(`
+		SELECT a.id, COALESCE(a.slug, '') AS slug, a.name, a.created_at
+		FROM artists a
+		WHERE `+ap+`
+		ORDER BY a.created_at DESC, a.id DESC
+		LIMIT ?
+	`, args...).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to get scene latest artists: %w", err)
+	}
+	if len(rows) == 0 {
+		return []contracts.SceneNewArtistRow{}, nil
+	}
+
+	ids := make([]uint, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ID
 	}
 	// The show lookup's failure is NOT swallowed the way the venue rail's
 	// cosmetic aggregations are: a nil Show is a claim ("this band has no
@@ -56,24 +118,31 @@ func (s *SceneService) GetSceneNewArtists(city, state string, since, now time.Ti
 	// here is not a partial-data case worth rendering.
 	showByArtist, err := s.newArtistShows(ids, now)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	rows := make([]contracts.SceneNewArtistRow, len(base))
-	for i, a := range base {
-		rows[i] = contracts.SceneNewArtistRow{SceneNewArtist: a}
-		if show, ok := showByArtist[a.ID]; ok {
-			rows[i].Show = &show
+	out := make([]contracts.SceneNewArtistRow, len(rows))
+	for i, r := range rows {
+		out[i] = contracts.SceneNewArtistRow{
+			SceneNewArtist: contracts.SceneNewArtist{
+				ID:            r.ID,
+				Slug:          r.Slug,
+				Name:          r.Name,
+				FirstListedAt: r.CreatedAt,
+			},
+		}
+		if show, ok := showByArtist[r.ID]; ok {
+			out[i].Show = &show
 		}
 	}
-	return rows, total, nil
+	return out, nil
 }
 
 // newArtistShows returns, per artist ID, the ONE show that best answers "where
 // can I see this band": its soonest upcoming approved show, or — when it has
 // none — its most recent past one, flagged IsUpcoming=false.
 //
-// The past fallback is deliberate. A band listed this month whose only show has
+// The past fallback is deliberate. A recently listed band whose only show has
 // already happened is the common case in a sparse scene, and dropping the show
 // entirely would leave the row a bare name; naming the room it played is still
 // the local fact the module exists to carry. IsUpcoming lets the client choose

@@ -25,6 +25,10 @@ func setupSceneRoutes(rc RouteContext) {
 	// attached. On the scene existence gate it follows /shows and /graph (404)
 	// rather than /new-artists (200 + []); see the handler's doc comment.
 	huma.Get(rc.API, "/scenes/{slug}/collections", sceneHandler.GetSceneCollectionsHandler)
+	// Completeness gap counts (PSY-1845). Like /genres and /new-artists this is
+	// a data sub-resource of the scene page, not a reader-facing path — no HEAD
+	// sibling, because frontend/proxy.ts never existence-checks it.
+	huma.Get(rc.API, "/scenes/{slug}/gaps", sceneHandler.GetSceneGapsHandler)
 	// Named new bands (PSY-1781). A data sub-resource of the scene page, not a
 	// reader-facing path — no HEAD sibling, unlike the week/day families below,
 	// because frontend/proxy.ts never existence-checks it.
