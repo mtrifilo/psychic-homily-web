@@ -1664,6 +1664,46 @@ type SceneNewArtistRow struct {
 	Show *SceneNewArtistShow `json:"show,omitempty"`
 }
 
+// SceneCollectionSummary is one public collection on a scene's "Collections ·
+// {city}" rail. Collections carry no scene column, so a collection's relevance
+// to a scene is DERIVED from how many of its members are scene-local — artists
+// based in the scene's metro, venues in the scene, shows at scene venues (see
+// SceneServiceInterface.GetSceneCollections for the qualifying rule).
+//
+// SceneLocalItemCount ships alongside ItemCount deliberately. The rail's claim
+// is "this collection is about your city", and that claim is only checkable
+// against the whole: "12 of 14" earns the slot, "5 of 200" would not have.
+// Publishing the numerator without the denominator would make the rule
+// unauditable from the payload it produced.
+type SceneCollectionSummary struct {
+	ID    uint   `json:"id"`
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+	// CoverImageURL is copied straight off collections.cover_image_url — the
+	// same, and only, cover field every other collection payload carries. Nil
+	// when the curator never set one; the rail supplies its own fallback. No
+	// new cover derivation is introduced here on purpose: a second definition
+	// of "a collection's cover" would drift from the collection cards the
+	// reader sees everywhere else.
+	CoverImageURL *string `json:"cover_image_url"`
+	// SceneLocalItemCount is the rule's numerator and the primary sort key.
+	SceneLocalItemCount int `json:"scene_local_item_count"`
+	// ItemCount is EVERY member, including entity types that can never be
+	// scene-local (releases, labels, festivals) — the rule's denominator.
+	ItemCount int `json:"item_count"`
+	// ContributorCount is the rail's "Built by N": DISTINCT
+	// collection_items.added_by_user_id, the same live derivation
+	// CollectionService.batchCountContributors publishes. There is no builders
+	// table and no counter column to read instead.
+	ContributorCount int `json:"contributor_count"`
+	// UpdatedAt is collections.updated_at, which moves on collection-ROW edits
+	// only — CollectionService.AddItem does NOT touch it. It is therefore a
+	// metadata-edit timestamp, not a curation-activity signal, which is why it
+	// is published for display but is NOT the ranking tiebreak (see
+	// GetSceneCollections).
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // SceneDetailResponse represents the full computed scene for a metro (or a
 // no-CBSA fallback city); City/State are the principal city/state.
 type SceneDetailResponse struct {
@@ -2259,6 +2299,27 @@ type SceneServiceInterface interface {
 	// means zero follows). Both 404 unknown slugs via ParseSceneSlug.
 	GetOrCreateSceneID(slug string) (uint, error)
 	LookupSceneID(slug string) (uint, bool, error)
+	// GetSceneCollections returns the public collections relevant to a scene,
+	// most scene-local first — the scene page's "Collections · {city}" rail.
+	//
+	// Collections have no scene field, so relevance is derived per-member: an
+	// artist member counts as scene-local when it is BASED in the scene
+	// (artistPredicate — the same roster rule as GetActiveArtists), a venue
+	// member when it sits in the scene's scope, a show member when it is
+	// booked at a scene venue. Release, label and festival members can never
+	// be scene-local; they still count toward the total, so a collection is
+	// never credited for members the rule cannot vouch for.
+	//
+	// A collection qualifies when at least half its members are scene-local OR
+	// at least sceneCollectionAbsoluteThreshold of them are — the absolute arm
+	// exists so a large, genuinely city-heavy collection is not shut out by a
+	// long tail of releases, and the ratio arm exists so a small focused
+	// collection is not shut out by having few members at all.
+	//
+	// Private collections are excluded. Returns an empty slice (never an
+	// error) when nothing qualifies, so the rail can simply hide itself; 404s
+	// only when the slug is not a scene at all, like its sibling rails.
+	GetSceneCollections(city, state string, limit int) ([]SceneCollectionSummary, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
 	// clusterBy selects the cluster signal: "venue" (default) or "community"

@@ -121,6 +121,15 @@ func (suite *SceneServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	// Collections are cleared explicitly rather than left to the users delete
+	// below. Both collections.creator_id and collection_items.added_by_user_id
+	// are ON DELETE CASCADE, so the cascade would in fact reach them — but a
+	// teardown that only works by cascade breaks the moment a collection is
+	// seeded with no user, and this list is read as the inventory of what a
+	// test may leave behind. Items go first so the pair reads in FK order like
+	// every other block here (PSY-1847).
+	_, _ = sqlDB.Exec("DELETE FROM collection_items")
+	_, _ = sqlDB.Exec("DELETE FROM collections")
 	// Label + relationship rows reference artists, so they MUST be cleared
 	// first: this teardown ignores errors, so an FK-blocked "DELETE FROM
 	// artists" fails silently and leaks the whole roster into the next test
