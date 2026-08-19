@@ -666,17 +666,16 @@ func (suite *ChartsServiceIntegrationTestSuite) setSlotSetType(showID, artistID 
 }
 
 // createCuratedHeadlineShow is createApprovedShow with the first-billed act
-// explicitly curated as the headliner.
+// explicitly curated as the headliner — what the show form stores, since it
+// sends a role for every act and seeds artist 1 as Headliner.
 //
-// That is what every production write path stores: resolveArtistRole stamps
-// set_type='headliner' on position 0 whenever the caller states no role at
-// all, so a real bill is never described only from the middle down. Tests that
-// mean "a curated bill" must say so, because headlineSlotSQL judges curation
-// per BILL — leaving the top act on the neutral default makes the bill
-// half-described and gives it no headline slot, which is a different fixture
-// than the one those tests intend (see
+// Tests that mean "a curated bill" must say so, because headlineSlotSQL judges
+// curation per BILL: leaving the top act on the neutral default makes the bill
+// HALF-described and gives it no headline slot at all, which is a different
+// fixture than the one those tests intend. That half-described shape is real
+// and reachable, not just a fixture slip — see
 // TestGetOpenersToWatch_PartiallyCuratedBillHasNoHeadlineSlot, which asserts
-// that case deliberately).
+// it deliberately.
 func (suite *ChartsServiceIntegrationTestSuite) createCuratedHeadlineShow(title string, venueID, artistID, userID uint, eventDate time.Time) *catalogm.Show {
 	show := suite.createApprovedShow(title, venueID, artistID, userID, eventDate)
 	suite.setSlotSetType(show.ID, artistID, contracts.SetTypeHeadliner)
@@ -934,6 +933,13 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_UncuratedF
 // per BILL, not per row. Once anybody states a role, list order stops speaking
 // for the rows nobody described, so a bill with a stated opener and no stated
 // headliner has NO headline slot and both acts count as support.
+//
+// This shape is reachable through POST /shows: initializeArtist defaults a
+// silent act's is_headliner to a non-nil false, so resolveArtistRole's
+// position-0 fallback never fires and the top act is stored 'performer'. The
+// genuine headliner then lands in this chart. Pinned here so the behavior is
+// asserted rather than discovered; see headline_slot.go for why the fix
+// belongs in the write path.
 func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_PartiallyCuratedBillHasNoHeadlineSlot() {
 	user := suite.createUser("otw-partial@test.com")
 	venue := suite.createVenue("Partial Venue", "Phoenix", "AZ")

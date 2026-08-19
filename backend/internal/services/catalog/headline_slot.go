@@ -38,18 +38,43 @@ import (
 // bill is read, and a bill gets the position heuristic only for as long as
 // nobody has said anything better about it.
 //
-// Note that the write path already keeps partial curation rare: resolveArtistRole
-// stamps set_type='headliner' on position 0 whenever the caller states no role
-// at all, so a curated bill missing a headliner means a curator actively
-// chose some other role for the top of the bill.
+// KNOWN CONSEQUENCE, disclosed on PSY-1704 rather than papered over: a
+// PARTIALLY curated bill has no headline slot at all. The show form always
+// states a role for every act (artist 1 seeds as Headliner), but an API client
+// can send `set_type` on one act and nothing on another, and
+// handlers/catalog.initializeArtist then defaults the silent act's
+// is_headliner to a non-nil FALSE — which means resolveArtistRole's
+// position-0 fallback never fires on POST /shows, and the top act is stored
+// 'performer'. On such a bill the genuine headliner is counted as a support
+// slot and becomes eligible for Openers to Watch.
 //
-// NOT covered here, deliberately: reads that RESOLVE THE ONE headliner row of
-// a single show for display or dedup (tag_service.enrichShows,
-// explore.go, show_dedup.go, show.go's duplicate-headliner guard,
-// pipeline/discovery.go's dedup lookup). Those order by
-// `set_type = 'headliner'` first and fall back to lowest position, so they
-// already prefer curation and, unlike a classification predicate, must always
-// return a row. Their semantics are their own.
+// That is a write-path defect (initializeArtist destroys the "caller stated
+// nothing" signal that resolveArtistRole is built to detect); reading it as a
+// headline slot here would only hide it. Narrowing the fallback to "no row
+// states 'headliner'" would also mask it, and would re-introduce the position
+// heuristic on bills whose curator described an opener and no headliner.
+//
+// NOT covered here, deliberately, in two groups:
+//
+//  1. Reads that RESOLVE THE ONE headliner row of a show for display
+//     (tag_service.enrichShows, explore.go, show_dedup.go). They ORDER BY a
+//     `set_type = 'headliner'` test and fall back to lowest position, so they
+//     already prefer curation and, unlike a classification predicate, must
+//     always return a row. (tag_service and explore order `DESC` on a bare
+//     boolean, which is NULLS FIRST in Postgres, so a NULL-set_type row can
+//     outrank the real headliner. Pre-existing, and a display bug rather than
+//     a chart one; show_dedup.go's CASE form is the NULL-safe shape to copy.)
+//
+//  2. The duplicate-headliner GUARDS at show.go's checkDuplicateHeadlinerConflicts
+//     and pipeline/discovery.go's checkHeadlinerDuplicate. These do still use
+//     the retired `(set_type = 'headliner' OR position = 0)` disjunction, and
+//     it is NOT equivalent to this rule. They are deliberately left: they are
+//     write-time collision checks where the two error directions are not
+//     symmetric with a chart's, and PSY-1673 added their position arm on
+//     purpose so a position-inferred headliner is still duplicate-checked.
+//     They inherit the same misread this ticket fixes for charts (a curated
+//     first-billed opener still matches as "the headliner" there), which needs
+//     its own ticket and its own test surface.
 
 // headlineSlotUnknownValues is the SQL literal list of set_type values that
 // mean "slot unknown". A row holding one of these states nothing, so a bill

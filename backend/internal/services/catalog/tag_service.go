@@ -1549,10 +1549,15 @@ func (s *TagService) enrichReleases(ids []uint) map[uint]contracts.TaggedEntityI
 }
 
 // enrichShows adds event_date, the primary venue, and the headliner artist.
-// This RESOLVES the one act to name for a show, so it always returns a row:
-// set_type = 'headliner' wins, then lowest position. That is deliberately not
-// catalog/headline_slot.go's classification rule, which may find no headline
-// slot at all on a curated bill.
+// This RESOLVES the one act to name for a show, so it always returns a row and
+// is deliberately not catalog/headline_slot.go's classification rule, which
+// may find no headline slot at all on a curated bill.
+//
+// The ordering prefers a set_type='headliner' row, then lowest position. Note
+// it is NOT NULL-safe: `ORDER BY (sa.set_type = 'headliner') DESC` is NULLS
+// FIRST in Postgres, so a row with a NULL set_type sorts ahead of the real
+// headliner. Pre-existing (explore.go has the same shape);
+// show_dedup.go's `CASE WHEN ... THEN 0 ELSE 1 END` is the NULL-safe form.
 func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem {
 	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
 	type row struct {
