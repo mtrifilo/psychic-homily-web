@@ -1774,6 +1774,42 @@ type ScenePulse struct {
 	ShowsByMonth          []int  `json:"shows_by_month"` // last 6 months
 }
 
+// SceneGapsResponse holds a scene's completeness gaps — the counts behind the
+// scene page's one-line "help finish this scene" prompt (PSY-1845). Gaps are
+// published as CONTENT, with live numbers, so a reader sees exactly how much
+// work is left rather than a generic call to contribute.
+//
+// Counts only, deliberately: the entity lists behind them are separate,
+// pageable surfaces. Nothing here is per-request personal, so the payload is
+// cacheable and the numbers may be minutes stale.
+//
+// The gap SET is locked at these two. Do not widen it without a product call —
+// the value of the prompt is that it names one concrete, finishable task, and
+// each extra number dilutes that. New gap types get their own field and their
+// own decision, never a silent redefinition of these.
+type SceneGapsResponse struct {
+	City  string `json:"city"`
+	State string `json:"state"`
+	Slug  string `json:"slug"`
+	// ArtistsMissingListenLink counts bands BASED in the scene (the same roster
+	// scope as SceneStats.ArtistCount) with no music-platform link at all —
+	// none of spotify / bandcamp / youtube / soundcloud. That four-column set
+	// is the project's existing definition of a music-platform link, shared
+	// with the streaming-discovery worklist; instagram / facebook / twitter /
+	// website are NOT listen links and do not clear this gap.
+	ArtistsMissingListenLink int `json:"artists_missing_listen_link"`
+	// ArtistsOnBillsMissingLocation counts bands that have played the scene's
+	// rooms (any approved show, any date) but carry no home city AND no home
+	// state — so the roster predicate can never claim them as based here, no
+	// matter how many local shows they play. Filling a location is what moves a
+	// band from this number into ArtistCount.
+	//
+	// Note the two counts are over DIFFERENT populations (based-here vs
+	// played-here) and can overlap or not at all; they are not parts of a whole
+	// and must never be summed into a single "gaps" figure.
+	ArtistsOnBillsMissingLocation int `json:"artists_on_bills_missing_location"`
+}
+
 // SceneArtistResponse represents an artist in a scene's roster. Under the
 // metro-keyed model (PSY-1255 step C) the roster is every band BASED in the
 // metro; IsActive flags the ones with an upcoming show or one in the active
@@ -2351,6 +2387,11 @@ type SceneServiceInterface interface {
 	// error) when nothing qualifies, so the rail can simply hide itself; 404s
 	// only when the slug is not a scene at all, like its sibling rails.
 	GetSceneCollections(city, state string, limit int) ([]SceneCollectionSummary, error)
+	// GetSceneGaps returns the scene's completeness gap counts (PSY-1845) — the
+	// numbers behind the scene page's "help finish this scene" line. Gated on
+	// the SAME scene-existence threshold as GetSceneDetail, so a place that is
+	// not yet a scene 404s here too rather than publishing a row of zeros.
+	GetSceneGaps(city, state string) (*SceneGapsResponse, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
 	// clusterBy selects the cluster signal: "venue" (default) or "community"
