@@ -18,11 +18,12 @@ func setupSceneRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/scenes/{slug}/shows", sceneHandler.GetSceneShowsHandler)
 	huma.Get(rc.API, "/scenes/{slug}/genres", sceneHandler.GetSceneGenresHandler)
 	huma.Get(rc.API, "/scenes/{slug}/graph", sceneHandler.GetSceneGraphHandler)
-	// Public collections relevant to the scene (PSY-1847). Like /new-artists
-	// below, a data sub-resource of the scene page rather than a reader-facing
-	// path — no HEAD sibling, because frontend/proxy.ts never existence-checks
-	// it. Public read: the query only ever emits is_public collections, so no
-	// auth group is attached.
+	// Public collections relevant to the scene (PSY-1847). A data sub-resource
+	// of the scene page rather than a reader-facing path — no HEAD sibling,
+	// because frontend/proxy.ts never existence-checks it. Public read: the
+	// query only ever emits is_public collections, so no auth group is
+	// attached. On the scene existence gate it follows /shows and /graph (404)
+	// rather than /new-artists (200 + []); see the handler's doc comment.
 	huma.Get(rc.API, "/scenes/{slug}/collections", sceneHandler.GetSceneCollectionsHandler)
 	// Named new bands (PSY-1781). A data sub-resource of the scene page, not a
 	// reader-facing path — no HEAD sibling, unlike the week/day families below,

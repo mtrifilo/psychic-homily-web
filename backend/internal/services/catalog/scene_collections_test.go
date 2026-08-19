@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"testing"
 	"time"
 
 	communitym "psychic-homily-backend/internal/models/community"
@@ -246,6 +247,37 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_OnlyAppro
 	suite.Equal(4, got[0].ItemCount)
 }
 
+// The tripwire for a seventh collection entity type. The rule splits every
+// member type into "can be scene-local" and "counts only toward the total",
+// and a new type that nobody classifies would silently join the DENOMINATOR:
+// every collection holding one loses ratio, the rail quietly reshuffles, and
+// nothing fails. Iterating the single enumeration in models/community is what
+// turns that into a failing test at the moment the type is added.
+func TestSceneCollections_EveryEntityTypeIsClassified(t *testing.T) {
+	canBeSceneLocal := map[string]bool{
+		communitym.CollectionEntityArtist: true,
+		communitym.CollectionEntityVenue:  true,
+		communitym.CollectionEntityShow:   true,
+	}
+	// Deliberately not locatable: a release, label or festival has no home
+	// scene the rule is willing to assert (a label's roster spans cities, a
+	// release belongs to its artist, a festival is its own venue-less thing).
+	countsOnlyTowardTotal := map[string]bool{
+		communitym.CollectionEntityRelease:  true,
+		communitym.CollectionEntityLabel:    true,
+		communitym.CollectionEntityFestival: true,
+	}
+
+	for _, entityType := range communitym.AllCollectionEntityTypes {
+		if !canBeSceneLocal[entityType] && !countsOnlyTowardTotal[entityType] {
+			t.Errorf("collection entity type %q is neither scene-local nor explicitly excluded. "+
+				"Decide which it is in GetSceneCollections (and add it to the CTE if it can be "+
+				"located) before shipping it, or it silently dilutes every collection's ratio.",
+				entityType)
+		}
+	}
+}
+
 // =============================================================================
 // PRIVACY
 // =============================================================================
@@ -282,6 +314,94 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_NeverSurf
 		"visibility was the only thing excluding it, so the first assertion tested privacy")
 }
 
+// The roster rule's most fragile arm (PSY-1237): a band with a NULL metro whose
+// home city is a CBSA MEMBER place (Mesa, Scottsdale -> Phoenix) is still based
+// in the scene. Every other fixture in this file seeds a non-null metro, so
+// without this test a regression that dropped the member-place OR-branch would
+// leave the whole file green while the rail under-counted every metro scene
+// that has suburb-based bands — which is most of them.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_CountsNullMetroMemberPlaceBands() {
+	suite.seedPhoenixRooms()
+	curator := suite.createUser()
+
+	mesa := suite.createArtistInNullMetro("Mesa Band", "Mesa", "AZ").ID
+	scottsdale := suite.createArtistInNullMetro("Scottsdale Band", "Scottsdale", "AZ").ID
+	// A NULL-metro band in a city that is NOT a Phoenix member place.
+	austin := suite.createArtistInNullMetro("Austin Band", "Austin", "TX").ID
+
+	suburbs := suite.createCollection("Valley Suburbs", curator.ID, true)
+	suite.addItems(suburbs, curator.ID, communitym.CollectionEntityArtist, mesa, scottsdale, austin)
+
+	got, err := suite.sceneService.GetSceneCollections("Phoenix", "AZ", 5)
+	suite.Require().NoError(err)
+
+	suite.Require().Len(got, 1, "suburb bands are based in the metro scene")
+	suite.Equal(2, got[0].SceneLocalItemCount,
+		"Mesa and Scottsdale are Phoenix CBSA member places; Austin is not")
+	suite.Equal(3, got[0].ItemCount)
+}
+
+// A member pointing at an entity that no longer exists (collection_items has no
+// FK on entity_id) must not match, but must still count toward the total. The
+// filler-release fixtures cannot prove this: a release is never scene-local
+// whether or not its row exists. This uses an ARTIST id that could have
+// matched, which is the only version of the claim worth testing.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_DanglingMemberCountsOnlyInTheTotal() {
+	suite.seedPhoenixRooms()
+	curator := suite.createUser()
+
+	present := suite.createArtist("Phoenix Band").ID
+	deleted := suite.createArtist("Doomed Band")
+	deletedID := deleted.ID
+	suite.Require().NoError(suite.db.Delete(deleted).Error)
+
+	// 1 of 2 local == exactly half, so it still qualifies — but only because
+	// the dangling member is counted honestly in the denominator rather than
+	// quietly dropped from it.
+	c := suite.createCollection("Half Ghosts", curator.ID, true)
+	suite.addItems(c, curator.ID, communitym.CollectionEntityArtist, present, deletedID)
+
+	got, err := suite.sceneService.GetSceneCollections("Phoenix", "AZ", 5)
+	suite.Require().NoError(err)
+
+	suite.Require().Len(got, 1)
+	suite.Equal(1, got[0].SceneLocalItemCount, "the deleted artist cannot be scene-local")
+	suite.Equal(2, got[0].ItemCount, "but it is still a member of the collection")
+}
+
+// The ORDER BY must be TOTAL. Under a LIMIT, a non-total order does not merely
+// reshuffle the rail — it changes which collections are in it between requests.
+// This is the only fixture that ties all the way through scene-local count,
+// contributor count AND updated_at, leaving id as the sole discriminator.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_OrderIsTotalWhenEverythingTies() {
+	suite.seedPhoenixRooms()
+	curator := suite.createUser()
+	band := suite.createArtist("Phoenix Band").ID
+
+	first := suite.createCollection("Tie A", curator.ID, true)
+	suite.addItems(first, curator.ID, communitym.CollectionEntityArtist, band)
+	second := suite.createCollection("Tie B", curator.ID, true)
+	suite.addItems(second, curator.ID, communitym.CollectionEntityArtist, band)
+	third := suite.createCollection("Tie C", curator.ID, true)
+	suite.addItems(third, curator.ID, communitym.CollectionEntityArtist, band)
+
+	// Force updated_at identical: GORM stamps each row at its own Create, so
+	// without this the timestamps would break the tie before id ever ran.
+	sameInstant := time.Date(2026, 8, 12, 9, 0, 0, 0, time.UTC)
+	for _, c := range []*communitym.Collection{first, second, third} {
+		suite.Require().NoError(suite.db.Model(c).Update("updated_at", sameInstant).Error)
+	}
+
+	// Ascending id is the last key, so the creation order is the rail order.
+	want := []string{"Tie A", "Tie B", "Tie C"}
+	for i := 0; i < 3; i++ {
+		got, err := suite.sceneService.GetSceneCollections("Phoenix", "AZ", 2)
+		suite.Require().NoError(err)
+		suite.Equal(want[:2], collectionTitles(got),
+			"a fully-tied set must return the SAME two collections on every request")
+	}
+}
+
 // =============================================================================
 // SPARSE SCENE / BOUNDS
 // =============================================================================
@@ -312,6 +432,45 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_SparseSce
 	tucson, err := suite.sceneService.GetSceneCollections("Tucson", "AZ", 5)
 	suite.Require().NoError(err)
 	suite.Empty(tucson, "a scene with no qualifying collection returns an empty list, not an error")
+}
+
+// The no-CBSA fallback branch, which every other test in this file misses:
+// Phoenix and Tucson both resolve to metros, so they all exercise the ONE-arg
+// artist and venue predicates. The fallback branch binds TWO args each, and
+// this query splices both predicates ahead of its own status, entity-type,
+// threshold and limit placeholders. A positional-binding slip would land here
+// and nowhere else, either erroring outright or counting one city's members
+// against another.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneCollections_NoCBSAFallbackScene() {
+	roomA := suite.createVerifiedVenue("Club One", "Faketown", "ZZ")
+	suite.createVerifiedVenue("Club Two", "Faketown", "ZZ")
+	suite.Require().Nil(roomA.Metro, "a no-CBSA place has a NULL metro, so the fallback branch is live")
+	curator := suite.createUser()
+
+	local := suite.createArtistIn("Faketown Band", "Faketown", "ZZ").ID
+	// A band in ANOTHER no-CBSA city must not leak across the (city, state) key.
+	elsewhere := suite.createArtistIn("Othertown Band", "Othertown", "ZZ").ID
+	show := suite.createApprovedShow("faketown gig", roomA.ID, local, curator.ID,
+		time.Now().UTC().AddDate(0, 0, 5))
+
+	// 3 of 4 local: the band, the room, and the show at that room.
+	qualifies := suite.createCollection("Faketown Picks", curator.ID, true)
+	suite.addItems(qualifies, curator.ID, communitym.CollectionEntityArtist, local, elsewhere)
+	suite.addItems(qualifies, curator.ID, communitym.CollectionEntityVenue, roomA.ID)
+	suite.addItems(qualifies, curator.ID, communitym.CollectionEntityShow, show.ID)
+
+	// Nothing local to Faketown.
+	otherTown := suite.createCollection("Othertown Picks", curator.ID, true)
+	suite.addItems(otherTown, curator.ID, communitym.CollectionEntityArtist, elsewhere)
+
+	got, err := suite.sceneService.GetSceneCollections("Faketown", "ZZ", 5)
+	suite.Require().NoError(err)
+
+	suite.Equal([]string{"Faketown Picks"}, collectionTitles(got),
+		"the fallback branch binds city AND state; a slipped arg would return the wrong set")
+	suite.Require().Len(got, 1)
+	suite.Equal(3, got[0].SceneLocalItemCount, "band, room, and the show at that room")
+	suite.Equal(4, got[0].ItemCount)
 }
 
 // A slug that resolves to a place but not to a scene 404s here exactly as it

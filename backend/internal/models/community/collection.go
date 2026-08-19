@@ -30,19 +30,31 @@ func IsValidCollectionDisplayMode(mode string) bool {
 	return mode == CollectionDisplayModeRanked || mode == CollectionDisplayModeUnranked
 }
 
-// IsValidCollectionEntityType returns true if entityType is one of the six
-// indexed KG entity types accepted as a collection item. Used by the bulk-add
+// AllCollectionEntityTypes is the single enumeration of the KG entity types
+// accepted as a collection item. Anything that has to REASON about the set
+// (rather than validate one value) must iterate this rather than re-listing the
+// constants, so adding a seventh type forces every such site to be revisited
+// instead of silently falling into that site's default branch. See
+// TestSceneCollections_EveryEntityTypeIsClassified, which is exactly that
+// tripwire for the scene-relevance rule.
+var AllCollectionEntityTypes = []string{
+	CollectionEntityArtist,
+	CollectionEntityRelease,
+	CollectionEntityLabel,
+	CollectionEntityShow,
+	CollectionEntityVenue,
+	CollectionEntityFestival,
+}
+
+// IsValidCollectionEntityType returns true if entityType is one of the indexed
+// KG entity types accepted as a collection item. Used by the bulk-add
 // + URL-resolve paths (PSY-823) to reject typos before they reach the DB
 // (collection_items.entity_type has no FK constraint — polymorphic).
 func IsValidCollectionEntityType(entityType string) bool {
-	switch entityType {
-	case CollectionEntityArtist,
-		CollectionEntityRelease,
-		CollectionEntityLabel,
-		CollectionEntityShow,
-		CollectionEntityVenue,
-		CollectionEntityFestival:
-		return true
+	for _, valid := range AllCollectionEntityTypes {
+		if entityType == valid {
+			return true
+		}
 	}
 	return false
 }

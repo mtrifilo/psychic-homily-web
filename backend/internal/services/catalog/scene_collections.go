@@ -95,6 +95,17 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 
 	// Notes on the query below:
 	//
+	//   - scene_venues uses the BARE venuePredicate, not trackedVenuePredicate:
+	//     a venue member counts as scene-local on GEOGRAPHY, not on whether the
+	//     room has been verified. `verified` is a PUBLICATION gate (it is what
+	//     decides whether a DIY/house venue's street address may be served),
+	//     and nothing about a room's address is published here — only whether
+	//     it is in town. The scene's upcoming_show_count draws the same line
+	//     for the same reason. The consequence is deliberate: a collection of
+	//     Phoenix DIY spaces qualifies for the Phoenix rail even though the
+	//     scene page's rooms leaderboard, which IS a publication surface, lists
+	//     none of them. That collection is precisely the community knowledge
+	//     this rail exists to surface.
 	//   - scene_shows derives from scene_venues rather than re-spelling the
 	//     venue predicate, so a show's scene membership can never disagree
 	//     with its venue's. It counts APPROVED shows only, matching how every
@@ -110,10 +121,19 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 	//     never matches, and still counts toward item_count — the honest
 	//     denominator for "how much of this collection is about here".
 	//   - is_public is asserted in exactly ONE place: the outer SELECT, the
-	//     only clause that emits a row. The aggregate CTE deliberately does
-	//     not repeat it. Two spellings of the privacy gate is two places to
-	//     forget one; the cost is aggregating over private collections whose
-	//     counts are then discarded, which no caller can observe.
+	//     only clause that emits a row. The CTEs deliberately do not repeat
+	//     it. Two spellings of the privacy gate is two places to forget one.
+	//   - local_counts leads, and `totals` reads only the collections it
+	//     found. That ordering is the difference between work proportional to
+	//     the SCENE and work proportional to the whole site: aggregating
+	//     collection_items unfiltered would seq-scan and hash-aggregate every
+	//     collection item in the catalog on every request to an anonymous
+	//     endpoint. Every other collections aggregate here is scoped by
+	//     collection_id first (batchCountItems and friends) and so is this.
+	//   - a collection reaches local_counts only by having at least one
+	//     scene-local member, since COUNT(*) over a group is never 0. That is
+	//     why the outer WHERE carries no `> 0` guard, and why an empty
+	//     collection can never qualify.
 	//   - the ratio arm is spelled `scene_local * 2 >= item_count` rather than
 	//     a division, so the 50% boundary is exact integer arithmetic with no
 	//     float rounding: a 7-of-14 collection qualifies, a 6-of-13 does not.
@@ -135,36 +155,40 @@ func (s *SceneService) GetSceneCollections(city, state string, limit int) ([]con
 			WHERE sv.venue_id IN (SELECT id FROM scene_venues)
 			  AND s.status = ?
 		),
-		item_counts AS (
+		local_counts AS (
+			SELECT ci.collection_id, COUNT(*) AS scene_local_item_count
+			FROM collection_items ci
+			WHERE (ci.entity_type = ? AND ci.entity_id IN (SELECT id FROM scene_artists))
+			   OR (ci.entity_type = ? AND ci.entity_id IN (SELECT id FROM scene_venues))
+			   OR (ci.entity_type = ? AND ci.entity_id IN (SELECT id FROM scene_shows))
+			GROUP BY ci.collection_id
+		),
+		totals AS (
 			SELECT ci.collection_id,
 			       COUNT(*) AS item_count,
-			       COUNT(DISTINCT ci.added_by_user_id) AS contributor_count,
-			       COUNT(*) FILTER (
-			           WHERE (ci.entity_type = ? AND ci.entity_id IN (SELECT id FROM scene_artists))
-			              OR (ci.entity_type = ? AND ci.entity_id IN (SELECT id FROM scene_venues))
-			              OR (ci.entity_type = ? AND ci.entity_id IN (SELECT id FROM scene_shows))
-			       ) AS scene_local_item_count
+			       COUNT(DISTINCT ci.added_by_user_id) AS contributor_count
 			FROM collection_items ci
+			WHERE ci.collection_id IN (SELECT collection_id FROM local_counts)
 			GROUP BY ci.collection_id
 		)
 		SELECT c.id,
 		       c.slug,
 		       c.title,
 		       c.cover_image_url,
-		       ic.scene_local_item_count,
-		       ic.item_count,
-		       ic.contributor_count,
+		       lc.scene_local_item_count,
+		       t.item_count,
+		       t.contributor_count,
 		       c.updated_at
 		FROM collections c
-		JOIN item_counts ic ON ic.collection_id = c.id
+		JOIN local_counts lc ON lc.collection_id = c.id
+		JOIN totals t ON t.collection_id = c.id
 		WHERE c.is_public = true
-		  AND ic.scene_local_item_count > 0
 		  AND (
-		        ic.scene_local_item_count >= ?
-		     OR ic.scene_local_item_count * 2 >= ic.item_count
+		        lc.scene_local_item_count >= ?
+		     OR lc.scene_local_item_count * 2 >= t.item_count
 		      )
-		ORDER BY ic.scene_local_item_count DESC,
-		         ic.contributor_count DESC,
+		ORDER BY lc.scene_local_item_count DESC,
+		         t.contributor_count DESC,
 		         c.updated_at DESC,
 		         c.id ASC
 		LIMIT ?
