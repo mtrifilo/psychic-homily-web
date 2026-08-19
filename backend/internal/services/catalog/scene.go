@@ -599,11 +599,15 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		showsByMonth[5-i] = int(count)
 	}
 
+	slug := buildSceneSlug(city, state)
+	description, tagline := s.sceneCurated(slug)
+
 	return &contracts.SceneDetailResponse{
 		City:        city,
 		State:       state,
-		Slug:        buildSceneSlug(city, state),
-		Description: s.sceneDescription(buildSceneSlug(city, state)),
+		Slug:        slug,
+		Description: description,
+		Tagline:     tagline,
 		Stats: contracts.SceneStats{
 			VenueCount:        int(venueCount),
 			ArtistCount:       int(artistCount),

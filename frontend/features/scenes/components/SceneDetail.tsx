@@ -135,14 +135,20 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
           {scene.city}, {scene.state}
         </h1>
 
-        {/* The tagline slot sits HERE, and renders nothing.
-            Authored scene taglines are a Wave 3 decision with no field behind
-            them yet, and the locked sparse frame draws the absent state as
-            simply nothing: no placeholder, no "add a tagline" prompt, and no
-            line derived from the data. `scene.description` is NOT that field.
-            0 of 28 production scenes populate it, it asked for a paragraph
-            rather than four to eight words, and rendering it here was part of
-            the kill set. */}
+        {/* The authored tagline (PSY-1848). Four to eight words, written by an
+            admin, and the absent state is simply NOTHING — no placeholder, no
+            "add a tagline" prompt, and no line derived from the data, which is
+            how the locked sparse frame draws it. Most scenes have none.
+
+            `scene.description` is deliberately NOT a fallback here: it asked
+            for a paragraph rather than a headline, and rendering it in this
+            slot was part of the PSY-1783 kill set. An empty tagline must read
+            as absent, so the guard is on trimmed content, not on definedness —
+            a whitespace-only value would otherwise reserve a line of height
+            for nothing. */}
+        {scene.tagline?.trim() ? (
+          <p className="mt-1 text-lg text-muted-foreground">{scene.tagline}</p>
+        ) : null}
 
         {/* Every part kept, including the zeroes. Dropping a zero-valued part
             made London read `2 venues · 197 upcoming shows`, as if artists were

@@ -206,3 +206,85 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneNewArtistsSince() {
 }
 
 func ptr(s string) *string { return &s }
+
+// PSY-1848: the authored tagline round-trips, and CLEARING it actually writes
+// SQL NULL. The clear is the half worth a real database: a struct-based GORM
+// update treats a nil pointer as "no change", so a clear would silently leave
+// the old tagline in place and only a live column read catches it.
+func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTagline() {
+	// The FULL seed, not a lone venue: GetSceneDetail gates on the scene
+	// qualifying, so a one-venue Phoenix would 404 the read half of this test.
+	suite.seedSceneData()
+
+	tagline := "Where the desert learns to scream"
+	id, canonical, err := suite.sceneService.UpdateSceneTagline("phoenix-az", &tagline)
+	suite.Require().NoError(err)
+	suite.Require().NotZero(id)
+	suite.Equal("phoenix-az", canonical)
+
+	var row catalogm.Scene
+	suite.Require().NoError(suite.db.First(&row, id).Error)
+	suite.Require().NotNil(row.Tagline)
+	suite.Equal(tagline, *row.Tagline)
+
+	// The detail payload carries it.
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail.Tagline)
+	suite.Equal(tagline, *detail.Tagline)
+
+	// Clearing writes NULL, not the previous value and not an empty string.
+	clearedID, _, err := suite.sceneService.UpdateSceneTagline("phoenix-az", nil)
+	suite.Require().NoError(err)
+	suite.Equal(id, clearedID)
+
+	var cleared catalogm.Scene
+	suite.Require().NoError(suite.db.First(&cleared, id).Error)
+	suite.Nil(cleared.Tagline)
+
+	detail, err = suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Nil(detail.Tagline)
+}
+
+// Authoring materializes the registry row on first need (no follow required)
+// and canonicalizes a member-city slug onto the metro row, so a tagline
+// written via `mesa-az` is the one `phoenix-az` reads back.
+func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTaglineCanonicalizesAndMaterializes() {
+	suite.seedSceneData()
+
+	var before int64
+	suite.db.Model(&catalogm.Scene{}).Count(&before)
+	suite.Require().Zero(before)
+
+	tagline := "Desert noise"
+	id, canonical, err := suite.sceneService.UpdateSceneTagline("mesa-az", &tagline)
+	suite.Require().NoError(err)
+
+	canonicalID, err := suite.sceneService.GetOrCreateSceneID("phoenix-az")
+	suite.Require().NoError(err)
+	suite.Equal(canonicalID, id)
+	// Addressed as mesa-az, reported as the metro it actually landed on.
+	suite.Equal("phoenix-az", canonical)
+
+	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(detail.Tagline)
+	suite.Equal(tagline, *detail.Tagline)
+
+	var after int64
+	suite.db.Model(&catalogm.Scene{}).Count(&after)
+	suite.Equal(int64(1), after)
+}
+
+// A slug that is not a scene cannot be authored — 404 territory, surfaced as
+// ParseSceneSlug's not-found error rather than a row created out of thin air.
+func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTaglineUnknownSlug() {
+	tagline := "Nothing here"
+	_, _, err := suite.sceneService.UpdateSceneTagline("nowhere-zz", &tagline)
+	suite.Require().Error(err)
+
+	var count int64
+	suite.db.Model(&catalogm.Scene{}).Count(&count)
+	suite.Zero(count)
+}
