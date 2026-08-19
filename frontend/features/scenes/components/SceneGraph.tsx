@@ -75,6 +75,24 @@ const MIN_GRAPH_EDGES = 8
  */
 const WHOLE_MAP_HREF = '/graph'
 
+/**
+ * The whole-map link, as both widths render it: same target, same treatment,
+ * only the wording and the surrounding spacing differ. Sharing the element
+ * rather than just the href is deliberate — two hand-written copies of the
+ * same link are two things to keep in step, and this section has exactly one
+ * cross-link to offer either way.
+ */
+function WholeMapLink({ children }: { children: string }) {
+  return (
+    <Link
+      href={WHOLE_MAP_HREF}
+      className="underline underline-offset-4 hover:text-foreground"
+    >
+      {children}
+    </Link>
+  )
+}
+
 const CLUSTER_MODES: { value: SceneGraphClusterBy; label: string }[] = [
   { value: 'venue', label: 'Venue' },
   { value: 'community', label: 'Community' },
@@ -347,12 +365,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
              cross-link into the knowledge graph, so that is all this renders,
              and it renders as a line of text rather than a module. */
           <p className="text-xs text-muted-foreground">
-            <Link
-              href={WHOLE_MAP_HREF}
-              className="underline underline-offset-4 hover:text-foreground"
-            >
-              See how {city} artists connect on the music map →
-            </Link>
+            <WholeMapLink>{`See how ${city} artists connect on the music map →`}</WholeMapLink>
           </p>
         ) : (
           <>
@@ -364,8 +377,10 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             {/* Pre-measurement: hold the box height so the settle can't shift
                 the sections below (HomeSceneGraph precedent). Viewport-gated
                 for the same reason the loading branch is: below 640px the
-                settled tree is one line, so there is no box to reserve. */}
-            {containerWidth === null && hasEnoughForGraph && (
+                settled tree is one line, so there is no box to reserve.
+                `hasEnoughForGraph` is not re-checked — the edge gate above
+                already returned null for everything that fails it. */}
+            {containerWidth === null && (
               <GraphSkeleton className={`hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`} />
             )}
 
@@ -404,12 +419,7 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
             )}
 
             <p className="mt-3 text-xs text-muted-foreground">
-              <Link
-                href={WHOLE_MAP_HREF}
-                className="underline underline-offset-4 hover:text-foreground"
-              >
-                View this scene on the whole map →
-              </Link>
+              <WholeMapLink>View this scene on the whole map →</WholeMapLink>
             </p>
           </>
         )}
