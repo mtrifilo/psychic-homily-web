@@ -43,20 +43,35 @@ type editHistoryTable struct {
 	// winning row are deleted before the re-point. Empty means the table has no
 	// unique key on its entity reference and can take a bare UPDATE.
 	dedupeOn []string
+	// dedupeWhen is the WHERE clause that makes the index PARTIAL, with %s
+	// standing in for the row alias; empty when the index covers every row.
+	//
+	// Like dedupeOn it is a property of the table's index, not of the call site,
+	// and it exists so the dedupe deletes exactly what the index would have
+	// rejected and not one row more.
+	dedupeWhen string
 }
 
 var (
 	// pendingEditsHistory carries idx_pending_entity_edits_unique, which is
 	// UNIQUE (entity_type, entity_id, submitted_by) WHERE status = 'pending'.
 	//
-	// The dedupe deletes a losing row whenever the winner has ANY row from the
-	// same contributor, which is stricter than the partial index needs. That is
-	// the behavior MergeVenues has always had, and it is the safe direction:
-	// the alternative failure is a constraint violation that aborts the whole
-	// merge transaction.
+	// dedupeWhen scopes the dedupe to that same partial predicate, so only a
+	// pending row that would actually collide with a pending row is dropped.
+	//
+	// PSY-1788 shipped this without the scope, deleting a losing row whenever
+	// the winner had ANY row from the same contributor and calling that "the
+	// safe direction". It is not: an approved or rejected edit can never violate
+	// a partial index over status='pending', so the unscoped dedupe destroyed
+	// reviewed contributor history the database was willing to keep — history
+	// the trusted-tier auto-promotion and demotion checks count
+	// (services/admin/auto_promotion.go), so a merge could quietly cost a
+	// contributor their tier. Matching the index exactly deletes strictly fewer
+	// rows and still cannot violate it.
 	pendingEditsHistory = editHistoryTable{
-		name:     "pending_entity_edits",
-		dedupeOn: []string{"submitted_by"},
+		name:       "pending_entity_edits",
+		dedupeOn:   []string{"submitted_by"},
+		dedupeWhen: "%s.status = 'pending'",
 	}
 
 	// entityEditAuditHistory has no unique key on its entity reference — it is an
@@ -171,18 +186,26 @@ func repointEditHistory(
 		for _, col := range table.dedupeOn {
 			joinPred += fmt.Sprintf(" AND w.%s = l.%s", col, col)
 		}
+		loserScope, winnerScope := "", ""
+		if table.dedupeWhen != "" {
+			// #nosec G201 -- dedupeWhen is a hardcoded predicate from the
+			// package-level literals above; only the row alias is substituted.
+			loserScope = " AND " + fmt.Sprintf(table.dedupeWhen, "l")
+			// #nosec G201 -- see above.
+			winnerScope = " AND " + fmt.Sprintf(table.dedupeWhen, "w")
+		}
 		// #nosec G201 -- the table and dedupe columns come from the package-level
 		// literals above, never from caller input; ids and entity type are bound.
 		del := fmt.Sprintf(`
 			DELETE FROM %[1]s l
 			WHERE l.entity_type = ?
-			  AND l.entity_id = ?
+			  AND l.entity_id = ?%[3]s
 			  AND EXISTS (
 			        SELECT 1 FROM %[1]s w
 			        WHERE w.entity_type = ?
-			          AND w.entity_id = ?%[2]s
+			          AND w.entity_id = ?%[2]s%[4]s
 			      )
-		`, table.name, joinPred)
+		`, table.name, joinPred, loserScope, winnerScope)
 		r := tx.Exec(del, string(entity), mergeFromID, string(entity), canonicalID)
 		if r.Error != nil {
 			return 0, 0, fmt.Errorf("failed to drop conflicting %s rows: %w", table.name, r.Error)

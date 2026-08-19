@@ -138,13 +138,17 @@ export interface SceneArtistsResponse {
  */
 export type SceneNewArtistShow = components['schemas']['SceneNewArtistShow']
 
-/** One band first listed in the scene inside the window (PSY-1781). */
+/** One of the scene roster's most recently listed bands (PSY-1781/PSY-1844). */
 export type SceneNewArtistRow = components['schemas']['SceneNewArtistRow']
 
+/**
+ * There is no `total`. PSY-1781 published one to drive a "+N more" line while
+ * the endpoint was a trailing window; PSY-1844 removed the window, so what sits
+ * beyond the cap is just the rest of the roster — already on the page, with its
+ * own count in `stats.artist_count`.
+ */
 export interface SceneNewArtistsResponse {
   artists: SceneNewArtistRow[]
-  /** Bands in the window BEFORE the limit — the "+N more" denominator. */
-  total: number
 }
 
 /**

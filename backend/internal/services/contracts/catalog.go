@@ -1680,10 +1680,16 @@ type SceneNewArtistShow struct {
 	IsUpcoming bool `json:"is_upcoming"`
 }
 
-// SceneNewArtistRow is one row of the scene page's named new-bands module
-// (PSY-1781): the digest's SceneNewArtist plus the show that makes the name
-// actionable. Same definition of "new" as the digest, by construction — the
-// rows come from GetSceneNewArtistsSince and are only enriched here.
+// SceneNewArtistRow is one row of the scene page's latest-additions module
+// (PSY-1781, redefined by PSY-1844): a SceneNewArtist plus the show that makes
+// the name actionable.
+//
+// The row TYPE is still shared with the weekly digest; the SELECTION no longer
+// is. The module takes the roster's most recently listed bands with no window,
+// the digest takes the bands listed inside its cursor window, and PSY-1844
+// separated the two queries on purpose. FirstListedAt therefore still states
+// the fact the module ordered on, which is the property that keeps the pulse's
+// first-approved-show definition out of this payload.
 type SceneNewArtistRow struct {
 	SceneNewArtist
 	// Show is absent when the band has no approved show at all — a real state
@@ -1772,6 +1778,42 @@ type ScenePulse struct {
 	NewArtists30d         int    `json:"new_artists_30d"`
 	ActiveVenuesThisMonth int    `json:"active_venues_this_month"`
 	ShowsByMonth          []int  `json:"shows_by_month"` // last 6 months
+}
+
+// SceneGapsResponse holds a scene's completeness gaps — the counts behind the
+// scene page's one-line "help finish this scene" prompt (PSY-1845). Gaps are
+// published as CONTENT, with live numbers, so a reader sees exactly how much
+// work is left rather than a generic call to contribute.
+//
+// Counts only, deliberately: the entity lists behind them are separate,
+// pageable surfaces. Nothing here is per-request personal, so the payload is
+// cacheable and the numbers may be minutes stale.
+//
+// The gap SET is locked at these two. Do not widen it without a product call —
+// the value of the prompt is that it names one concrete, finishable task, and
+// each extra number dilutes that. New gap types get their own field and their
+// own decision, never a silent redefinition of these.
+type SceneGapsResponse struct {
+	City  string `json:"city"`
+	State string `json:"state"`
+	Slug  string `json:"slug"`
+	// ArtistsMissingListenLink counts bands BASED in the scene (the same roster
+	// scope as SceneStats.ArtistCount) with no music-platform link at all —
+	// none of spotify / bandcamp / youtube / soundcloud. That four-column set
+	// is the project's existing definition of a music-platform link, shared
+	// with the streaming-discovery worklist; instagram / facebook / twitter /
+	// website are NOT listen links and do not clear this gap.
+	ArtistsMissingListenLink int `json:"artists_missing_listen_link"`
+	// ArtistsOnBillsMissingLocation counts bands that have played the scene's
+	// rooms (any approved show, any date) but carry no home city AND no home
+	// state — so the roster predicate can never claim them as based here, no
+	// matter how many local shows they play. Filling a location is what moves a
+	// band from this number into ArtistCount.
+	//
+	// Note the two counts are over DIFFERENT populations (based-here vs
+	// played-here) and can overlap or not at all; they are not parts of a whole
+	// and must never be summed into a single "gaps" figure.
+	ArtistsOnBillsMissingLocation int `json:"artists_on_bills_missing_location"`
 }
 
 // SceneArtistResponse represents an artist in a scene's roster. Under the
@@ -2236,7 +2278,7 @@ type MergeVenueResult struct {
 	ConfirmationsMoved   int64 `json:"confirmations_moved"`
 	FiltersUpdated       int64 `json:"filters_updated"`
 	// EntityRefsMoved totals the polymorphic (entity_type='venue', entity_id)
-	// rows re-pointed across every table in venueEntityRefs.
+	// rows re-pointed across every table in polymorphicEntityRefs.
 	EntityRefsMoved int64 `json:"entity_refs_moved"`
 }
 
@@ -2351,6 +2393,11 @@ type SceneServiceInterface interface {
 	// error) when nothing qualifies, so the rail can simply hide itself; 404s
 	// only when the slug is not a scene at all, like its sibling rails.
 	GetSceneCollections(city, state string, limit int) ([]SceneCollectionSummary, error)
+	// GetSceneGaps returns the scene's completeness gap counts (PSY-1845) — the
+	// numbers behind the scene page's "help finish this scene" line. Gated on
+	// the SAME scene-existence threshold as GetSceneDetail, so a place that is
+	// not yet a scene 404s here too rather than publishing a row of zeros.
+	GetSceneGaps(city, state string) (*SceneGapsResponse, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
 	// clusterBy selects the cluster signal: "venue" (default) or "community"
@@ -2368,12 +2415,24 @@ type SceneServiceInterface interface {
 	// drop bands the cursor then advances past). The weekly digest's "new
 	// bands based here" stream (PSY-1342). Same roster scope as GetActiveArtists.
 	GetSceneNewArtistsSince(city, state string, since, now time.Time, limit int) ([]SceneNewArtist, int, error)
-	// GetSceneNewArtists is the scene page's named new-bands module (PSY-1781):
-	// the SAME rows GetSceneNewArtistsSince returns for the window — it calls
-	// it rather than re-deriving "new" — each enriched with the band's next
-	// (or, failing that, most recent) approved show. Returns the uncapped
-	// total alongside, for the digest's "+N more" affordance.
-	GetSceneNewArtists(city, state string, since, now time.Time, limit int) ([]SceneNewArtistRow, int, error)
+	// GetSceneLatestArtists is the scene page's latest-additions module
+	// (PSY-1781, redefined by PSY-1844): the scene roster's `limit` most
+	// recently listed bands, newest first, each enriched with the band's next
+	// (or, failing that, most recent) approved show.
+	//
+	// UNWINDOWED, and deliberately not GetSceneNewArtistsSince. A trailing
+	// window made the module's content a function of when seeding batches ran
+	// rather than of the scene — measured empty on 5 of 6 major scenes — while
+	// the digest must keep its window because it advances a per-follow cursor.
+	// The two surfaces answer different questions and no longer share a query.
+	//
+	// The rename stops HERE, on purpose. It exists because a method called
+	// GetSceneNewArtists sitting beside GetSceneNewArtistsSince implied it
+	// wrapped the windowed one, which stopped being true. The route
+	// (/scenes/{slug}/new-artists), the wire types (GetSceneNewArtists*) and
+	// SceneNewArtistRow keep the old spelling because changing them is a
+	// BREAKING API change, not tidy-up. This is not a half-finished rename.
+	GetSceneLatestArtists(city, state string, now time.Time, limit int) ([]SceneNewArtistRow, error)
 	// GetSceneShowsInRange returns the scene's approved shows in the half-open
 	// window [from, to), rendering dates in loc. Shared by the digest email and
 	// the weekly city page so the two can never disagree about a scene's shows.
