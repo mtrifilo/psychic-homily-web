@@ -464,14 +464,17 @@ jobs:
   e2e-smoke:
     name: E2E Smoke (PR)
     # PSY-446: fast PR feedback. Runs only `@smoke`-tagged Playwright tests
-    # in a single unsharded run (~17 tests) with a <3 min wall-clock budget.
-    # Reuses the same global-setup as `e2e-tests` (Docker Postgres, migrations,
-    # seed, backend). Branch-protection / required-check config is handled
-    # outside this workflow.
+    # in a single unsharded run (~17 tests); the test phase itself runs ~1-2
+    # min. Reuses the same global-setup as `e2e-tests` (Docker Postgres,
+    # migrations, seed, backend). Branch-protection / required-check config is
+    # handled outside this workflow.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Safety net against runaway flake; smoke is expected to finish in ~1–2 min.
-    timeout-minutes: 5
+    # Outer safety net only; the step-level timeouts below name the phase that
+    # dies. At 5 the whole job died inside setup on four concurrent PRs before
+    # running a single test (PSY-1862) — setup under runner contention can eat
+    # the old budget on its own.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -486,15 +489,51 @@ jobs:
         working-directory: ./frontend
         run: bun install --frozen-lockfile
 
-      - name: Install Playwright browsers
+      # The browser download is a fixed per-run network cost this eliminates on
+      # a hit. The authoritative cache entry is written by `e2e-tests` on push
+      # to main (a `pull_request` run's writes are scoped to its own merge ref,
+      # invisible to other PRs). No restore-keys: an exact-version hit or a
+      # clean miss — a prefix fallback would accumulate stale browser builds in
+      # the saved tarball for little gain once main has populated the key.
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
+
+      # System libraries for chromium. Runs every time — the runner is
+      # ephemeral, so apt state is never cached — and this is also the only
+      # `apt-get update` in the job, which the postgresql-client install below
+      # depends on.
+      - name: Install Playwright system deps
         working-directory: ./frontend
-        run: bunx playwright install --with-deps chromium
+        timeout-minutes: 4
+        run: bunx playwright install-deps chromium
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: ./frontend
+        timeout-minutes: 4
+        run: bunx playwright install chromium
+
+      # Save immediately after install, not as a post step: actions/cache's
+      # post save is gated on job success, which would leave a red PR
+      # re-downloading on every iteration — the exact loop this cache exists
+      # to break. The browsers are valid artifacts regardless of test outcome.
+      - name: Save Playwright browser cache
+        if: steps.playwright-cache.outputs.cache-hit != 'true' && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
 
       - name: Install PostgreSQL client
         run: sudo apt-get install -y postgresql-client
 
       - name: Run E2E smoke suite (@smoke)
         working-directory: ./frontend
+        timeout-minutes: 5
         # `list` reporter gives concise CI output; `html` (written to disk,
         # never opened) gives a downloadable artifact on failure. 3 workers
         # matches CI default.
@@ -539,9 +578,33 @@ jobs:
         working-directory: ./frontend
         run: bun install --frozen-lockfile
 
-      - name: Install Playwright browsers
+      # Push-to-main writer for the browser cache the PR-scoped `e2e-smoke`
+      # job restores from (PSY-1862): a pull_request run's cache writes are
+      # visible only to its own merge ref, so without this step every fresh PR
+      # is a guaranteed miss. The 4 shards race on one key — the losers log a
+      # benign "Unable to reserve cache ... already exists" on save.
+      - name: Restore Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
+
+      - name: Install Playwright system deps
         working-directory: ./frontend
-        run: bunx playwright install --with-deps chromium
+        run: bunx playwright install-deps chromium
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: ./frontend
+        run: bunx playwright install chromium
+
+      - name: Save Playwright browser cache
+        if: steps.playwright-cache.outputs.cache-hit != 'true' && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
 
       - name: Install PostgreSQL client
         run: sudo apt-get install -y postgresql-client
