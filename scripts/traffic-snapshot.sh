@@ -78,7 +78,22 @@ Usage:
 Requires VERCEL_API_KEY in the environment (source ~/.zshrc), plus curl, jq,
 and python3.
 USAGE
+}
+
+# The final stdout line is this script's machine-readable contract (the path it
+# wrote), so usage text on the error path must go to stderr or a caller doing
+# `path="$(traffic-snapshot.sh --typo)"` captures the whole help block as a path.
+usage_and_exit() {
+  if [ "${1:-0}" -eq 0 ]; then usage; else usage >&2; fi
   exit "${1:-0}"
+}
+
+# Reject a missing value that would otherwise swallow the next flag, so
+# `--out --days 7` reports the real mistake instead of dying on a stray `7`.
+require_value() {
+  case "${2:-}" in
+    ''|--*) die "$1 requires a value" ;;
+  esac
 }
 
 # Shift an ISO date by N days. python3 rather than `date -d` / `date -v`, which
@@ -92,6 +107,15 @@ print(base + datetime.timedelta(days=int(sys.argv[2])))
 }
 
 require_iso_date() {
+  # The glob is not redundant with the Python parse below. `date.fromisoformat`
+  # widened in Python 3.11 to accept `20260813` and `2026-W33-1`, which would
+  # pass validation and then flow verbatim into the query string and the doc's
+  # window header. Pinning the shape here keeps behavior identical across
+  # interpreter versions.
+  case "$1" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    *) die "invalid date '$1' for $2 (expected YYYY-MM-DD)" ;;
+  esac
   python3 -c '
 import datetime, sys
 try:
@@ -105,13 +129,13 @@ except ValueError:
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --out)   [ $# -ge 2 ] || die "--out requires a directory";   OUT_DIR="$2"; shift 2 ;;
-    --days)  [ $# -ge 2 ] || die "--days requires a number";     WINDOW_DAYS="$2"; shift 2 ;;
-    --since) [ $# -ge 2 ] || die "--since requires a date";      SINCE="$2"; shift 2 ;;
-    --until) [ $# -ge 2 ] || die "--until requires a date";      UNTIL="$2"; shift 2 ;;
+    --out)   require_value --out "${2:-}";   OUT_DIR="$2"; shift 2 ;;
+    --days)  require_value --days "${2:-}";  WINDOW_DAYS="$2"; shift 2 ;;
+    --since) require_value --since "${2:-}"; SINCE="$2"; shift 2 ;;
+    --until) require_value --until "${2:-}"; UNTIL="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
-    -h|--help) usage 0 ;;
-    *) printf 'traffic-snapshot: unknown argument %s\n\n' "$1" >&2; usage 1 ;;
+    -h|--help) usage_and_exit 0 ;;
+    *) printf 'traffic-snapshot: unknown argument %s\n\n' "$1" >&2; usage_and_exit 1 ;;
   esac
 done
 
@@ -173,6 +197,13 @@ DIM_UNTIL="$(shift_date "$UNTIL" 1)"
 CAPTURED_ON="$(date -u +%Y-%m-%d)"
 DOC_NAME="traffic-snapshot-${CAPTURED_ON}.md"
 
+# Checked twice on purpose. Here so a mistaken re-run fails immediately instead
+# of after nine API calls, and again just before the move, which is the only
+# check that actually closes the race.
+if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
+  die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
+fi
+
 # --- API access -------------------------------------------------------------
 
 # Everything is staged in a scratch directory and moved into place only after
@@ -225,10 +256,23 @@ api_get() {
   fi
 }
 
-# Report the window the API actually used, which is not always the one asked
-# for. Surfacing it per section makes any clamping visible in the record.
+# Report the window the API resolved the request to, which is not always the one
+# asked for: this echo is what exposed the per-dimension `until` quirk handled
+# above. It is the resolved REQUEST, not proof of what was served, so it cannot
+# confirm the data is complete.
+#
+# The explicit null check is load-bearing. String interpolation happily renders a
+# missing `.query` as the literal "null → null" and exits 0, so without it every
+# caller's `|| die` guard would be unreachable and a schema change on Vercel's
+# side would durably record "null → null" in all six sections of a snapshot the
+# script reported as successful.
 effective_window() {
-  jq -r '"\(.query.since) → \(.query.until)"' "$1"
+  jq -re '
+    if (.query.since == null) or (.query.until == null)
+    then error("response is missing query.since/query.until")
+    else "\(.query.since) → \(.query.until)"
+    end
+  ' "$1"
 }
 
 TIME_QUERY="since=${SINCE}&until=${UNTIL}"
@@ -267,7 +311,8 @@ api_get "$WORK_DIR/countries.json" "visits/aggregate" "${DIM_QUERY}&by=country&l
 render_dimension_table() {
   jq -r --arg dim "$2" '
     def pretty($v):
-      if $v == "" then "*(direct)*"
+      if $v == null then "*(unknown)*"
+      elif $v == "" then "*(direct)*"
       elif $v == "Others" then "*(others, aggregated by Vercel)*"
       else "`" + $v + "`" end;
     if (.data | length) == 0 then "| _no data in this window_ | | |"
@@ -384,6 +429,12 @@ ${TBL_REFERRERS}
 
 ## Top pages
 
+**This table is the least complete thing in this document.** Vercel caps
+\`limit\` at 100 and folds everything else into one "Others" row, and the
+crawler above sweeps thousands of distinct long-tail paths, so the named rows
+routinely account for under 1% of window pageviews. Read this as "which pages
+rank", never as a distribution of traffic, and do not compute shares from it.
+
 Effective window: \`${WIN_PAGES}\`
 
 | Path | Visitors | Pageviews |
@@ -400,7 +451,11 @@ ${TBL_DAILY}
 
 ## Google organic
 
-**${GOOGLE_VISITORS} google.com-referred visitors** across the window.
+**${GOOGLE_VISITORS} google.com-referred visitors**, summed from the daily
+series below. The \`google.com\` row in the referrer table above is queried over
+the slightly wider breakdown window, so the two can differ by any referral
+landing in that one-hour overhang. Cite this figure with the daily series, not
+against the referrer table.
 
 Filter: \`${GOOGLE_FILTER}\`
 
