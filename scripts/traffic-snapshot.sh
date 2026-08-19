@@ -27,6 +27,7 @@
 #   --days N       Length of the trailing window in days. Default: 28.
 #   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
 #   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
+#   --force        Overwrite an existing snapshot for today (refused by default).
 #
 # Requires: bash, curl, jq, python3, and VERCEL_API_KEY in the environment
 # (`source ~/.zshrc`).
@@ -48,6 +49,7 @@ WINDOW_DAYS=28
 SINCE=""
 UNTIL=""
 OUT_DIR=""
+FORCE=0
 
 # --- Helpers ----------------------------------------------------------------
 
@@ -70,6 +72,8 @@ Usage:
   --days N       Length of the trailing window in days. Default: 28.
   --since DATE   Explicit window start (YYYY-MM-DD). Overrides --days.
   --until DATE   Explicit window end (YYYY-MM-DD), inclusive. Default: today.
+  --force        Overwrite an existing snapshot for today. Refused by default,
+                 because the generated doc carries hand-written analysis.
 
 Requires VERCEL_API_KEY in the environment (source ~/.zshrc), plus curl, jq,
 and python3.
@@ -105,6 +109,7 @@ while [ $# -gt 0 ]; do
     --days)  [ $# -ge 2 ] || die "--days requires a number";     WINDOW_DAYS="$2"; shift 2 ;;
     --since) [ $# -ge 2 ] || die "--since requires a date";      SINCE="$2"; shift 2 ;;
     --until) [ $# -ge 2 ] || die "--until requires a date";      UNTIL="$2"; shift 2 ;;
+    --force) FORCE=1; shift ;;
     -h|--help) usage 0 ;;
     *) printf 'traffic-snapshot: unknown argument %s\n\n' "$1" >&2; usage 1 ;;
   esac
@@ -191,13 +196,16 @@ api_get() {
 
   url="${API_BASE}/${endpoint}?teamId=${TEAM_ID}&projectId=${PROJECT_ID}&${query}"
 
-  set -- -sS --max-time 60 -o "$out_file" -w '%{http_code}' \
-    -H "Authorization: Bearer ${VERCEL_API_KEY}"
+  set -- -sS --max-time 60 -o "$out_file" -w '%{http_code}' -K -
   if [ -n "$filter" ]; then
     set -- "$@" -G --data-urlencode "filter=${filter}"
   fi
 
-  if ! status="$(curl "$@" "$url")"; then
+  # The credential goes in over stdin as a curl config rather than as a -H
+  # argument, which would expose it in `ps` output to every process on the box
+  # for the life of the request.
+  if ! status="$(printf 'header = "Authorization: Bearer %s"\n' "$VERCEL_API_KEY" \
+      | curl "$@" "$url")"; then
     die "request to ${endpoint} failed (curl transport error)"
   fi
 
@@ -343,12 +351,13 @@ month you want to keep.
    false and no referrer, sweeping long-tail entity pages around the clock, so
    Vercel's bot suppression does not catch it. Expect it to dominate raw
    pageviews. Subtract it before quoting growth.
-5. **A client-side pageview cap is pending in PSY-1863** (PR #1917, still OPEN
-   and NOT merged as of 2026-08-18). Once it deploys, no browser can contribute
-   more than 150 pageviews per UTC day, so per-visit fingerprints above that
-   ceiling stop appearing and heavy-crawler pageview totals become floored
-   rather than measured. Confirm whether it had shipped before comparing this
-   window against one on the other side of that deploy.
+5. **A client-side pageview cap (PSY-1863, PR #1917) suppresses events past
+   150 per browser per UTC day.** Where it is live, no browser can contribute
+   more than 150 pageviews in a day, so per-visit fingerprints above that
+   ceiling cannot appear and heavy-crawler pageview totals are floored rather
+   than measured. It had NOT shipped to production when this script was written
+   (2026-08-18), so check whether it deployed during this window before
+   comparing against a snapshot from the other side of that change.
 6. **Sections do not all cover an identical window.** Vercel reads \`until\`
    as end-of-day for totals and daily series, but as 01:00 on the \`until\` day
    for breakdowns by page, referrer, browser, OS, and country. This script
@@ -456,6 +465,14 @@ EOF
 } >"$DOC_PATH"
 
 mkdir -p "$OUT_DIR" || die "could not create output directory: $OUT_DIR"
+
+# The generated doc carries a hand-written Interpretation section. Silently
+# overwriting it would destroy analysis that cannot be regenerated, which is the
+# opposite of what a script whose whole purpose is durability should do.
+if [ -e "$OUT_DIR/$DOC_NAME" ] && [ "$FORCE" -ne 1 ]; then
+  die "$OUT_DIR/$DOC_NAME already exists; move it or pass --force to overwrite"
+fi
+
 mv "$DOC_PATH" "$OUT_DIR/$DOC_NAME" || die "could not write snapshot to $OUT_DIR"
 
 echo "traffic-snapshot: wrote ${OUT_DIR}/${DOC_NAME}" >&2
