@@ -116,9 +116,11 @@ export function ShowProvenanceLine({
     )
     // Guarded on the VALUE, not just the object: the hook's response type is
     // a hand-written mirror of the wire shape, so nothing at build time
-    // proves `total` exists — and this component promises every fragment
-    // degrades to omission, never to the literal string "undefined edits".
-    if (Number.isFinite(attribution.total) && attribution.total > 0) {
+    // proves `total` exists — a non-number degrades to omission, never to
+    // "undefined edits". A ZERO renders ("0 edits" beside a revision we just
+    // named) on purpose: that contradiction is the loud signal of a backend
+    // regression, and the hook's own comment rejects quietly masking it.
+    if (Number.isFinite(attribution.total)) {
       push(
         'edits',
         <span>

@@ -136,12 +136,15 @@ describe('ticketLineSegments', () => {
     expect(segments).not.toContain('ON SALE')
   })
 
-  // ON SALE is present tense; the archive is most of the corpus and stale
-  // ticket urls survive the date.
-  it('never claims ON SALE for a past show', () => {
+  // Both sale-state claims are present tense; the archive is most of the
+  // corpus and stale flags/urls survive the date.
+  it('makes no sale claim on a past show, sold out included', () => {
     expect(
       ticketLineSegments(makeShow({ ticket_url: 'https://tix.example/1' }), 'past')
     ).not.toContain('ON SALE')
+    expect(
+      ticketLineSegments(makeShow({ is_sold_out: true }), 'past')
+    ).not.toContain('SOLD OUT')
   })
 
   // The backend stores the field untrimmed and ingest skips the validator,
@@ -252,6 +255,19 @@ describe('ShowTicketRow', () => {
       <ShowTicketRow
         lifecycle="upcoming"
         show={makeShow({ ticket_url: 'https://tix.example/1', ...overrides })}
+      />
+    )
+    expect(
+      screen.queryByRole('link', { name: /Buy tickets/i })
+    ).not.toBeInTheDocument()
+  })
+
+  // The affordance is the half a stale claim costs a reader money on.
+  it('renders no Buy Tickets bracket on a past show', () => {
+    render(
+      <ShowTicketRow
+        lifecycle="past"
+        show={makeShow({ ticket_url: 'https://tix.example/1' })}
       />
     )
     expect(

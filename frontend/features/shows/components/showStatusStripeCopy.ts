@@ -117,6 +117,11 @@ function formatStripeTime(instant: number, timeZone: string): string {
  * The separator is a slash, not the middot: in the venue facts line the
  * middot separates FACTS (capacity · age · times), and doors/music are two
  * halves of one fact.
+ *
+ * Yes, this means DOORS can print twice on one page — the stripe states it
+ * as status, the venue module as a fact sheet. That repetition is the
+ * locked mock's, which renders both, and it is why the two MUST share this
+ * module: twice is the design, twice-in-two-registers would be the bug.
  */
 export function doorsMusicFactSegment(
   input: Pick<ShowStatusStripeInput, 'doorsAt' | 'musicAt' | 'state' | 'timezone'>

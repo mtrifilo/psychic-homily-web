@@ -16,9 +16,11 @@ interface MiddotSegmentsProps {
   segments: React.ReactNode[]
   /**
    * Stable key per segment, same order. The fallback without it is
-   * POSITIONAL (index), which is only safe for fixed-order lists whose
-   * segments carry no state — pass keys for anything that can insert or
-   * reorder at runtime.
+   * POSITIONAL (index): safe for lines of stateless strings (the fact and
+   * ticket lines — their segments come and go, but a remounted string
+   * repaints identically), required for any segment that carries STATE (the
+   * provenance line's report button holds an open dialog a positional
+   * remount would close).
    */
   keys?: string[]
   className?: string

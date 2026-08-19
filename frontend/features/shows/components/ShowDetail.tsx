@@ -82,7 +82,9 @@ export function ShowDetail({ showId, lifecycle }: ShowDetailProps) {
   // and the whole ShowActions cluster all gate on admin-or-owner today; the
   // named aliases below exist so the day one of them narrows (say, delete
   // goes admin-only) the change is a one-line edit at the definition, not a
-  // hunt through the render tree.
+  // hunt through the render tree. The one deliberate exception: ShowActions'
+  // own Edit BUTTON is admin-only (moderation chrome) — an owner's edit path
+  // is the provenance line's [Edit], through the same drawer.
   const canModerateShow = isAdmin || isOwner
 
   // Check if user can delete: admin or show owner

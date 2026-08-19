@@ -552,6 +552,24 @@ describe('ShowDetail', () => {
     })
   })
 
+  describe('announced door times', () => {
+    // Twice by design, like SOLD OUT above: the locked mock renders doors in
+    // BOTH the status stripe (as status) and the venue facts line (as a fact
+    // sheet), through one shared formatter so the registers cannot split.
+    it('prints doors in the stripe and the venue facts line', () => {
+      mockUseShow.mockReturnValue({
+        data: makeShow({ doors_at: '2026-04-16T02:00:00Z' }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+      expect(screen.getByTestId('show-status-stripe')).toHaveTextContent(
+        /DOORS 7PM/
+      )
+      expect(screen.getByTestId('venue-facts')).toHaveTextContent(/DOORS 7PM/)
+    })
+  })
+
   describe('admin controls', () => {
     beforeEach(() => {
       mockAuthContext.mockReturnValue({
@@ -747,6 +765,33 @@ describe('ShowDetail', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByRole('button', { name: 'Mark Sold Out' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Mark Cancelled' })).toBeInTheDocument()
+    })
+
+    // A non-admin OWNER's edit path is the provenance line's [Edit] (user
+    // decision, Wave 1C): ShowActions' Edit button stays admin-only
+    // moderation chrome, and the bracket opens the same direct-save drawer.
+    it('gives a non-admin owner the provenance Edit bracket, not the admin button, and it opens the drawer', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '42', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseShow.mockReturnValue({
+        data: makeShow({ submitted_by: 42 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<ShowDetail showId="1" lifecycle="upcoming" />)
+
+      expect(
+        screen.queryByRole('button', { name: 'Edit' })
+      ).not.toBeInTheDocument()
+      await user.click(
+        screen.getByRole('button', { name: 'Edit this show listing' })
+      )
+      expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
     })
   })
 

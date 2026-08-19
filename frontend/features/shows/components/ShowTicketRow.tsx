@@ -44,11 +44,10 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
     show.title,
     show.artists.map(artist => artist.name)
   )
-  // Shared derivation with the ON SALE segment (showTicketLine) — null for
-  // cancelled and sold-out shows so the bracket cannot argue with the line
-  // above it. A PAST show keeps its link for now: that was the pre-module
-  // behaviour, and the past register flip owns removing it.
-  const buyHref = ticketHref(show)
+  // The one derivation of "is there somewhere to buy" (showTicketLine):
+  // null for cancelled, sold-out, and past shows, so neither the sale-state
+  // words nor this bracket can argue with the stripe.
+  const buyHref = ticketHref(show, lifecycle)
 
   return (
     <div data-testid="show-ticket-row">

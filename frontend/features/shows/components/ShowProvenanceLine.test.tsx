@@ -152,8 +152,11 @@ describe('ShowProvenanceLine', () => {
   })
 
   // The hook's response type is a hand-written mirror; if the count ever
-  // goes missing the fragment must vanish, never render "undefined edits".
-  it('omits the edit-count fragment when the total is not a number', () => {
+  // goes missing the whole fragment must vanish — not render "undefined
+  // edits", and not a dangling word "edits" either (asserted on the word,
+  // because React renders {undefined} as nothing and a substring check on
+  // "undefined" passes vacuously).
+  it('omits the edit-count fragment entirely when the total is not a number', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         user_name: 'mtrifilo',
@@ -166,7 +169,23 @@ describe('ShowProvenanceLine', () => {
     expect(screen.getByText(/updated Jul 31/)).toBeInTheDocument()
     expect(
       screen.getByTestId('show-provenance-line').textContent
-    ).not.toContain('undefined')
+    ).not.toMatch(/\bedits?\b/)
+  })
+
+  // A reported ZERO renders — "0 edits" beside a revision we just named is
+  // the loud contradiction that gets a backend regression reported, and the
+  // hook's comment explicitly rejects quietly masking it.
+  it('renders a reported zero loudly rather than hiding it', () => {
+    mockUseEntityAttribution.mockReturnValue({
+      data: {
+        user_name: 'mtrifilo',
+        user_username: null,
+        created_at: '2026-07-31T12:00:00Z',
+        total: 0,
+      },
+    })
+    renderLine(makeShow())
+    expect(screen.getByText('0 edits')).toBeInTheDocument()
   })
 
   it('always offers Report issue, in the bracket register', () => {

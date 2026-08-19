@@ -54,9 +54,14 @@ export function ShowActions({
   isSoldOutPending,
   isCancelledPending,
 }: ShowActionsProps) {
-  // No internal visibility guard on purpose: ShowDetail's canModerateShow
-  // gate decides whether this cluster mounts at all, and a second copy of
-  // that predicate here is the one that drifts when the first changes.
+  // ShowDetail's canModerateShow gate decides whether this cluster mounts
+  // at all; the per-control props below select WHICH controls render inside
+  // it. Two of them (canDelete, canManageStatus) currently equal the mount
+  // gate, so their guards are belt-and-braces for the day they diverge. The
+  // Edit button's isAdmin gate is DELIBERATELY narrower than the drawer's
+  // admin-or-owner rule: this button is moderation chrome, and a non-admin
+  // owner reaches the same drawer through the provenance line's [Edit]
+  // (user decision on the Wave 1C byline).
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">

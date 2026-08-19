@@ -8,11 +8,13 @@ import type { ShowResponse } from '../types'
  * there is nothing to buy or no honest way to offer it.
  *
  * Null for a blank/whitespace value (storable: the backend persists the
- * field untrimmed and ingest paths skip the handler validator), and for a
- * cancelled or sold-out show — the line above this bracket says SOLD OUT or
- * the stripe says CANCELLED, and an enabled buy link under either is the
- * page arguing with itself. ONE derivation for "is there somewhere to buy",
- * shared by the segment logic and the component, so the two cannot drift.
+ * field untrimmed and ingest paths skip the handler validator), for a
+ * cancelled or sold-out show, and for a PAST show — offering a purchase
+ * under a stripe that says CANCELLED or PAST SHOW is the page arguing with
+ * itself, and the click is the half that costs a reader money. This is THE
+ * derivation of "is there somewhere to buy": {@link ticketLineSegments}
+ * branches on it and the Buy Tickets bracket consumes it, so a refusal
+ * added here reaches both.
  *
  * Submitters type scheme-less hosts ("tix.example/1") and vendors print
  * uppercase schemes; the scheme test is therefore case-insensitive and
@@ -20,9 +22,14 @@ import type { ShowResponse } from '../types'
  * passed "httpfoo.example" through as a RELATIVE href that navigated under
  * /shows/. Protocol-relative values keep their own scheme resolution.
  */
-export function ticketHref(show: ShowResponse): string | null {
+export function ticketHref(
+  show: ShowResponse,
+  lifecycle: ShowLifecycleState
+): string | null {
   const raw = show.ticket_url?.trim()
-  if (!raw || show.is_cancelled || show.is_sold_out) return null
+  if (!raw || show.is_cancelled || show.is_sold_out || lifecycle === 'past') {
+    return null
+  }
   if (/^https?:\/\//i.test(raw)) return raw
   if (raw.startsWith('//')) return `https:${raw}`
   return `https://${raw}`
@@ -32,7 +39,10 @@ export function ticketHref(show: ShowResponse): string | null {
  * The ticket line's price register: `$35`, `$12.50`, `Free`. Whole dollars
  * drop the cents — the locked mock's line reads `$35 ADV`, and `.00` on a
  * tabular mono line is noise. Local to this line on purpose; the app-wide
- * `formatPrice` keeps its two-decimal form for the surfaces built on it.
+ * `formatPrice` keeps its two-decimal form for the surfaces built on it,
+ * which means a /shows card ($25.00) and the page it opens ($25) currently
+ * spell one price two ways — a known register split, named here so the
+ * card-side conversion is a deliberate follow-up rather than a drift.
  */
 function ticketPrice(price: number): string {
   if (price === 0) return 'Free'
@@ -52,15 +62,15 @@ function ticketPrice(price: number): string {
  * confidently-wrong hour here either.
  *
  * The sale state must never argue with the stripe, so its guards mirror the
- * stripe's own precedence: a CANCELLED show makes no sale claim at all
- * (cancellation outranks sold-out — "sold out" asserts the event is
- * happening); a PAST show makes none either (`ON SALE` is present tense,
- * and the archive is most of the corpus — the fuller past register, `NO
- * LONGER AVAILABLE`, belongs to the past-register ticket); `SOLD OUT` swaps
- * `ON SALE` per the mock; and `ON SALE` requires somewhere to actually buy
- * ({@link ticketHref}'s trimmed presence). The door-price split
- * (`DOOR $40 CASH`) has no schema — one `price` column — so the single
- * price is the whole statement.
+ * stripe's own precedence. Both claims are PRESENT TENSE, so a cancelled or
+ * past show makes neither: `SOLD OUT` asserts the event is happening and
+ * tickets are gone, `ON SALE` that they can be bought — the fuller past
+ * register (`NO LONGER AVAILABLE`) belongs to the past-register ticket.
+ * `SOLD OUT` swaps `ON SALE` per the mock; `ON SALE` requires somewhere to
+ * actually buy — it branches on {@link ticketHref}, the same derivation the
+ * Buy Tickets bracket renders from, so the words and the affordance cannot
+ * drift. The door-price split (`DOOR $40 CASH`) has no schema — one `price`
+ * column — so the single price is the whole statement.
  *
  * The age segment is a venue-less fallback: the venue module's facts line
  * owns the age fact, but a show with no venue row never mounts that module,
@@ -81,10 +91,10 @@ export function ticketLineSegments(
   if (startTime) {
     segments.push(startTime)
   }
-  if (!show.is_cancelled) {
+  if (!show.is_cancelled && lifecycle !== 'past') {
     if (show.is_sold_out) {
       segments.push('SOLD OUT')
-    } else if (show.ticket_url?.trim() && lifecycle !== 'past') {
+    } else if (ticketHref(show, lifecycle)) {
       segments.push('ON SALE')
     }
   }
