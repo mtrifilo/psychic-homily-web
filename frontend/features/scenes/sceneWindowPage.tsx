@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { SceneWindowView } from './components/SceneWindowView'
-import { sceneTonightDate } from './sceneCalendar'
+import { calendarDateInZone, sceneTonightDate } from './sceneCalendar'
 import { fetchSceneWeekChain } from './sceneWindowApi'
 import { buildSceneWindowJsonLd } from './sceneWindowJsonLd'
 import {
@@ -79,10 +79,15 @@ export const getSceneWindow = cache(
     // in Berlin and one in Chicago must be shown the same Chicago weekend.
     const timezone = first.timezone
     // The 6am night boundary, mirrored from the backend so this page and
-    // `/tonight` cannot disagree about which date "tonight" names. Falls back to
-    // the window's own first day when the zone is unusable, which keeps the page
-    // whole rather than dropping every row on a guess.
-    const tonight = sceneTonightDate(now, timezone)
+    // `/tonight` cannot disagree about which date "tonight" names.
+    //
+    // The fallback is UTC's date, NOT the week's first day. `Timezone` is set
+    // from a `*time.Location` and is always populated in practice, so this path
+    // is defence rather than expectation — but anchoring on the week's Monday
+    // would put up to six already-finished nights at the top of a window whose
+    // label promises the ones ahead, which is the exact dishonesty the rolling
+    // bound exists to prevent. UTC's date is within a day of any scene's.
+    const tonight = sceneTonightDate(now, timezone) ?? calendarDateInZone(now, 'UTC')
 
     const all = flattenWeekDays(weeks)
     const scoped =
@@ -98,8 +103,8 @@ export const getSceneWindow = cache(
           // under the night boundary. Every day of the NEW weekend is later than
           // that Sunday, so all three survive and the page shows the weekend
           // ahead rather than a weekend that has entirely finished.
-          rollingDays(weekendDays(all), tonight ?? all[0]?.date ?? '', 3)
-        : rollingDays(all, tonight ?? all[0]?.date ?? '', NEXT_4_WEEKS_DAYS)
+          rollingDays(weekendDays(all), tonight, 3)
+        : rollingDays(all, tonight, NEXT_4_WEEKS_DAYS)
 
     // A weekend shows all three of its nights, empty ones included — three bare
     // rules is what tells a reader we checked, and it is the convention `/week`

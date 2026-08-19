@@ -42,9 +42,17 @@ export async function fetchSceneWeekChain(
   if (!first) return null
 
   const weeks: SceneWeekResponse[] = [first]
+  // Keys already walked. `next_week` is an untrusted wire value, and a payload
+  // that points at itself — or back at a week already in the chain — would
+  // otherwise repeat those days N times: duplicate dates flow into the window,
+  // render under duplicate React keys, and print the same night twice. Stopping
+  // at the first repeat degrades to a shorter, still-correct window, which the
+  // header then names honestly.
+  const seen = new Set<string>([first.iso_week])
   for (let i = 1; i < count; i++) {
     const nextKey = weeks[weeks.length - 1].next_week
-    if (!nextKey) break
+    if (!nextKey || seen.has(nextKey)) break
+    seen.add(nextKey)
     const next = await fetchSceneWeek(slug, nextKey, 'scene-week')
     if (!next) break
     weeks.push(next)

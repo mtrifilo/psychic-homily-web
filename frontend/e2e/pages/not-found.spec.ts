@@ -288,6 +288,41 @@ test.describe('Not-found pages — HTTP 404 status', () => {
   })
 
   /**
+   * Scene WINDOW routes (PSY-1849) — the same third-segment branch, for the two
+   * multi-day rolling windows.
+   *
+   * These are the reason the branch needed extending at all: `proxy.ts` 404s any
+   * segment under `/scenes/<slug>/` that it does not recognise, so both routes
+   * were hard-404ed before Next ever saw them. Nothing short of reading the HTTP
+   * status can tell that from a page choosing not to exist, which is why it is
+   * pinned here rather than in the unit suite.
+   */
+  test.describe('Scene window routes (PSY-1849)', () => {
+    for (const segment of ['this-weekend', 'next-4-weeks']) {
+      test(`rolling /scenes/<slug>/${segment} returns HTTP 200 (proxy does not over-404)`, async ({
+        page,
+      }) => {
+        const response = await page.goto(`/scenes/phoenix-az/${segment}`)
+        expect(
+          response?.status(),
+          `/scenes/phoenix-az/${segment} must return 200 — proxy.ts must not over-404 the rolling window route`
+        ).toBe(200)
+        await expect(
+          page.getByRole('main').getByRole('heading', { level: 1 })
+        ).toBeVisible({ timeout: 10_000 })
+      })
+
+      test(`/${segment} under an unresolvable scene returns HTTP 404`, async ({ page }) => {
+        const response = await page.goto(`/scenes/nowhere-zz/${segment}`)
+        expect(
+          response?.status(),
+          `/scenes/nowhere-zz/${segment} must return 404 — the scene itself does not resolve`
+        ).toBe(404)
+      })
+    }
+  })
+
+  /**
    * Scene-day routes (PSY-1627) — the same third-segment branch, for the
    * nightly pages.
    *
