@@ -300,6 +300,7 @@ type MockArtistService struct {
 	SearchArtistsFn            func(string) ([]*contracts.ArtistDetailResponse, error)
 	GetShowsForArtistFn        func(uint, string, contracts.ArtistShowsQuery) ([]*contracts.ArtistShowResponse, int64, error)
 	GetArtistShowYearsFn       func(uint, string) ([]contracts.ArtistShowYearCount, error)
+	GetArtistShowMonthsFn      func(uint, string) ([]contracts.ArtistShowMonthCount, error)
 	GetNextShowForArtistFn     func(uint, string) (*contracts.ArtistShowResponse, error)
 	GetArtistCitiesFn          func() ([]*contracts.ArtistCityResponse, error)
 	GetLabelsForArtistFn       func(uint) ([]*contracts.ArtistLabelResponse, error)
@@ -390,6 +391,12 @@ func (m *MockArtistService) GetShowsForArtist(artistID uint, timezone string, qu
 func (m *MockArtistService) GetArtistShowYears(artistID uint, timeFilter string) ([]contracts.ArtistShowYearCount, error) {
 	if m.GetArtistShowYearsFn != nil {
 		return m.GetArtistShowYearsFn(artistID, timeFilter)
+	}
+	return nil, nil
+}
+func (m *MockArtistService) GetArtistShowMonths(artistID uint, timeFilter string) ([]contracts.ArtistShowMonthCount, error) {
+	if m.GetArtistShowMonthsFn != nil {
+		return m.GetArtistShowMonthsFn(artistID, timeFilter)
 	}
 	return nil, nil
 }

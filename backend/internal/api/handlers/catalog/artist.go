@@ -418,19 +418,92 @@ func (h *ArtistHandler) GetArtistShowYearsHandler(ctx context.Context, req *GetA
 	return resp, nil
 }
 
+// GetArtistShowMonthsRequest represents the request parameters for an artist's
+// show-month histogram.
+type GetArtistShowMonthsRequest struct {
+	ArtistID   string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`
+	TimeFilter string `query:"time_filter" doc:"Count shows by time: upcoming, past, or all" example:"past" enum:"upcoming,past,all"`
+}
+
+// GetArtistShowMonthsResponse represents the response for the artist show-months endpoint
+type GetArtistShowMonthsResponse struct {
+	// CacheControl: showMonthHistogramCacheControl, the SAME constant the venue
+	// month histogram sends — the two label one shared pager, so they may not
+	// differ in how stale a page label is allowed to be.
+	//
+	// A per-client freshness window, not a capacity control; see the constant for
+	// why, and for what actually bounds repeat hits on this aggregate. It matters
+	// more here than on the venue twin: the artist archive has no server-side
+	// seed, so every qualifying artist page view issues this read fresh.
+	CacheControl string `header:"Cache-Control"`
+	Body         struct {
+		Months     []contracts.ArtistShowMonthCount `json:"months" doc:"Venue-local calendar months in which the artist played at least one show, newest first"`
+		ArtistID   uint                             `json:"artist_id" doc:"Artist ID (resolved from slug if provided)"`
+		TimeFilter string                           `json:"time_filter" doc:"Time filter the counts were taken under"`
+	}
+}
+
+// GetArtistShowMonthsHandler handles GET /artists/{artist_id}/shows/months -
+// returns the venue-local month histogram behind the archive's PAGE LABELS
+// (PSY-1842).
+//
+// The finer twin of the years endpoint, with a different job. Years enumerate
+// what the picker may offer; months answer "which months does page 4 cover?"
+// before page 4 has been fetched. Counts alone are enough for that — a page's
+// span is a function of the row ordinals it covers — which is what lets every
+// page in the strip carry a label on first paint instead of only the pages the
+// reader has already been to.
+//
+// It takes no `year`, deliberately, and unlike the list it cannot be narrowed to
+// one: the archive's default view is every year, so a per-year histogram could
+// not label the surface that needs labelling most. Callers scoped to a year
+// filter the response.
+//
+// Must be requested with the SAME time_filter as the list it labels, for the same
+// reason the years endpoint must be: the counts otherwise describe a different
+// set of rows than the pager is paging.
+func (h *ArtistHandler) GetArtistShowMonthsHandler(ctx context.Context, req *GetArtistShowMonthsRequest) (*GetArtistShowMonthsResponse, error) {
+	timeFilter := req.TimeFilter
+	if timeFilter == "" {
+		timeFilter = defaultArtistShowsTimeFilter
+	}
+
+	artistID, err := h.resolveArtistID(req.ArtistID)
+	if err != nil {
+		return nil, err
+	}
+
+	months, err := h.artistService.GetArtistShowMonths(artistID, timeFilter)
+	if err != nil {
+		var artistErr *apperrors.ArtistError
+		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
+			return nil, huma.Error404NotFound("Artist not found")
+		}
+		return nil, huma.Error500InternalServerError("Failed to count shows by month", err)
+	}
+
+	resp := &GetArtistShowMonthsResponse{CacheControl: showMonthHistogramCacheControl}
+	resp.Body.Months = months
+	resp.Body.ArtistID = artistID
+	resp.Body.TimeFilter = timeFilter
+
+	return resp, nil
+}
+
 // resolveArtistID turns the shared {artist_id} path parameter, a numeric id or a
 // slug, into an id, returning a ready-to-surface huma error.
 //
-// Used by exactly three reads: the show list, its year histogram, and the label
-// list. It is NOT a family-wide invariant, and do not read it as one:
-// GetArtistAliasesHandler still parses the parameter itself and answers a slug
-// with 400 rather than resolving it, so /artists/{slug}/aliases fails where its
-// three path-siblings succeed. Widening that is an API decision, not a cleanup.
+// Used by exactly four reads: the show list, its year histogram, its month
+// histogram, and the label list. It is NOT a family-wide invariant, and do not
+// read it as one: GetArtistAliasesHandler still parses the parameter itself and
+// answers a slug with 400 rather than resolving it, so /artists/{slug}/aliases
+// fails where its path-siblings succeed. Widening that is an API decision, not a
+// cleanup.
 //
 // The slug path goes through GetArtistSummaryBySlug, not GetArtistBySlug: the
 // two differ only in the stats block, which is five scalar subqueries this
-// caller discards. An artist page fetches both the show list and its year
-// histogram by slug, so the difference is ten wasted aggregates per load.
+// caller discards. An artist page fetches the show list and both histograms by
+// slug, so the difference is fifteen wasted aggregates per load.
 func (h *ArtistHandler) resolveArtistID(idOrSlug string) (uint, error) {
 	if id, parseErr := strconv.ParseUint(idOrSlug, 10, 32); parseErr == nil {
 		return uint(id), nil

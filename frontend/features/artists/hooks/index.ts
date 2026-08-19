@@ -4,6 +4,7 @@ export {
   useArtist,
   useArtistShows,
   useArtistShowYears,
+  useArtistShowMonths,
 } from './useArtists'
 
 export { useArtistSearch, artistSearchQueryOptions } from './useArtistSearch'

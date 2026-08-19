@@ -31,6 +31,11 @@ func TestArtistShowsSubRoutesShareOneParameterName(t *testing.T) {
 		"/artists/{}",
 		"/artists/{}/shows",
 		"/artists/{}/shows/years",
+		// PSY-1842: the month histogram behind the archive's page labels. A
+		// sibling static segment under the same parameterised parent, exactly like
+		// `years` — and registered under the same {artist_id} spelling for the
+		// reason above.
+		"/artists/{}/shows/months",
 		"/artists/{}/labels",
 		"/artists/{}/aliases",
 	} {

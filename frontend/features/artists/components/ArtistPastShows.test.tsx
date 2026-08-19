@@ -1,7 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import { ARCHIVE_MONTHS, ARCHIVE_PAGE_LABELS } from '@/test/archiveFixtures'
 import type { ArtistShow, ArtistShowsResponse } from '../types'
+
+/**
+ * The artist archive's WIRING, not its behaviour.
+ *
+ * Since PSY-1842 the archive itself is one shared component
+ * (`features/shows/components/PastShowsArchive`), and its behaviour — pager
+ * placement, live-region ownership, label derivation, every degraded branch — is
+ * locked once in that component's own suite. What only this file can see is
+ * whether the ARTIST wrapper hands it the right things: the artist's three
+ * endpoints, hrefs that carry the graph's `?center=` through, and a zone
+ * resolver that reads each row on its OWN venue's calendar.
+ *
+ * The label assertion is the one this ticket exists for. Before PSY-1842 this
+ * archive derived labels from fetched ROWS, so every page the reader had not
+ * visited rendered a bare numeral while the venue twin labelled all of them.
+ */
 
 let queryPage = 1
 const mockSetter = vi.fn()
@@ -14,43 +31,24 @@ vi.mock('nuqs', () => ({
 
 const mockUseArtistShows = vi.fn()
 const mockUseArtistShowYears = vi.fn()
+const mockUseArtistShowMonths = vi.fn()
 vi.mock('../hooks/useArtists', () => ({
   useArtistShows: (options: unknown) => mockUseArtistShows(options),
   useArtistShowYears: (options: unknown) => mockUseArtistShowYears(options),
+  useArtistShowMonths: (options: unknown) => mockUseArtistShowMonths(options),
 }))
 
 // The table has its own suite; stub it to a row-count marker so this one is
-// only about the two pagers.
+// only about what the wrapper passes down.
 vi.mock('./ArtistShowsTable', () => ({
   ArtistShowsTable: ({ shows }: { shows: ArtistShow[] }) => (
     <div data-testid="artist-shows-table">{shows.length} rows</div>
   ),
 }))
 
-// The barrel is stubbed to keep unrelated shared components out of this suite,
-// but the pager IS the thing under test, so the real one (live region and
-// all) is spliced back in from its own module.
 vi.mock('@/components/shared', async () => {
-  const actual = await vi.importActual<
-    typeof import('@/components/shared/Pagination')
-  >('@/components/shared/Pagination')
-  const chrome = await vi.importActual<
-    typeof import('@/components/shared/paginationChrome')
-  >('@/components/shared/paginationChrome')
-  return {
-    Pagination: actual.Pagination,
-    paginationWindow: actual.paginationWindow,
-    usePaginationFocusTarget: actual.usePaginationFocusTarget,
-    formatCount: chrome.formatCount,
-    SectionHeader: ({
-      title,
-      headingProps,
-    }: {
-      title: string
-      headingProps?: Record<string, unknown>
-    }) => <h2 {...headingProps}>{title}</h2>,
-    YearStrip: () => <div data-testid="year-strip" />,
-  }
+  const kit = await import('@/test/archiveFixtures')
+  return kit.archiveSharedBarrelMock()
 })
 
 import { ArtistPastShows } from './ArtistPastShows'
@@ -87,7 +85,7 @@ function archive() {
   )
 }
 
-describe('ArtistPastShows pagers', () => {
+describe('ArtistPastShows', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     queryPage = 1
@@ -98,16 +96,28 @@ describe('ArtistPastShows pagers', () => {
       isFetching: false,
       isPending: false,
     })
+    mockUseArtistShowMonths.mockReturnValue({
+      data: { artist_id: 3, time_filter: 'past', months: [...ARCHIVE_MONTHS] },
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      isPending: false,
+    })
     mockUseArtistShows.mockImplementation((options: { offset?: number }) => ({
       data: showsResponse(options.offset ?? 0),
       isError: false,
       isFetching: false,
       isPending: false,
+      isSuccess: true,
       isPlaceholderData: false,
       refetch: vi.fn(),
     }))
   })
 
+  // The mount smoke test: everything below asserts something SPECIFIC, and each
+  // of them would also fail if the wrapper rendered nothing at all — this one
+  // says which failure it was. The pager's own contract is locked in the shared
+  // component's suite, not re-asserted here.
   it('renders the archive with a pager above and below the table', () => {
     renderWithProviders(archive())
     expect(
@@ -123,8 +133,9 @@ describe('ArtistPastShows pagers', () => {
   })
 
   it('announces a page change exactly once, not once per pager (PSY-1768)', () => {
-    // The venue twin carries the identical assertion. Fixing one archive and
-    // not the other is exactly the asymmetry that lets this regress.
+    // The venue twin carries the identical assertion, at its own mount point.
+    // Fixing one archive and not the other is exactly the asymmetry that let this
+    // regress before there was one component.
     const { rerender } = renderWithProviders(archive())
 
     queryPage = 2
@@ -137,8 +148,24 @@ describe('ArtistPastShows pagers', () => {
     expect(spoken[0]).toHaveTextContent('Page 2 of 4')
   })
 
-  it('leaves exactly one live region in the tree at all', () => {
+  it('labels every page link from the artist month histogram (PSY-1842)', () => {
+    // THE parity this ticket buys. Before it, only page 1 carried a label here —
+    // it was the only page whose rows had been fetched — while the venue archive
+    // labelled all four on first paint.
     renderWithProviders(archive())
-    expect(screen.getAllByRole('status')).toHaveLength(1)
+    for (const [page, label] of ARCHIVE_PAGE_LABELS) {
+      expect(
+        screen.getAllByRole('link', { name: `Page ${page}, ${label}` }).length
+      ).toBeGreaterThan(0)
+    }
+  })
+
+  it('requests the month histogram under the same past filter as the rows', () => {
+    // Counts taken under a different filter would describe a different set of
+    // rows than the pager is paging, and the label walk would silently shift.
+    renderWithProviders(archive())
+    expect(mockUseArtistShowMonths).toHaveBeenCalledWith(
+      expect.objectContaining({ artistId: 3, timeFilter: 'past', enabled: true })
+    )
   })
 })

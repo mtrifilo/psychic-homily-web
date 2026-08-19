@@ -10,6 +10,11 @@ describe('artists hooks barrel', () => {
     expect(typeof hooks.useArtistCities).toBe('function')
     expect(typeof hooks.useArtist).toBe('function')
     expect(typeof hooks.useArtistShows).toBe('function')
+    // The archive's two histograms. Both are re-exported because the venue
+    // barrel re-exports both of its twins, and an asymmetry between the two
+    // barrels is the drift class PSY-1842 exists to close.
+    expect(typeof hooks.useArtistShowYears).toBe('function')
+    expect(typeof hooks.useArtistShowMonths).toBe('function')
   })
 
   it('re-exports the artist search hook', () => {

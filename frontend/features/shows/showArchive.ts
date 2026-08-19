@@ -101,8 +101,15 @@ export function groupByMonth<T extends ArchiveRow>(
  * The ROW-DERIVED half of the page-label family, and the weaker one: rows can
  * only label a page that has been fetched. {@link monthRangeLabelsByPage} does
  * the same job from a month histogram and can therefore label every page at
- * once, which is what the venue archive uses (PSY-1769). This form survives for
- * the ARTIST archive, which has no month histogram endpoint yet.
+ * once, which is what BOTH archives use now (PSY-1769 for venues, PSY-1842 for
+ * artists).
+ *
+ * This form survives as the FALLBACK for the current page, on both. A failed
+ * histogram fetch would otherwise strip the label from every page link at once,
+ * and below `sm` the pager renders no page links at all — so the current page's
+ * label is the only one there is. Its rows are always in hand, so it costs
+ * nothing and keeps the mobile pager's label a guarantee rather than a second
+ * request's good fortune.
  *
  * Returns null for an empty page, so callers can omit the label rather than
  * render an empty separator.
@@ -262,6 +269,29 @@ function isUsableMonthCount(bucket: ArchiveMonthCount): boolean {
  * page's label into a live region and never corrects it, so a wrong label costs
  * more than a missing one. The disagreement is transient; the next read clears
  * it.
+ *
+ * THE PREMISE IS EXACT ONLY WITHIN ONE TIMEZONE, and the check above cannot see
+ * the case where it is not (PSY-1842). Both show lists order on the ABSOLUTE
+ * instant (`shows.event_date DESC`) while both histograms bucket on the
+ * VENUE-LOCAL calendar. For a VENUE archive those are the same ordering — every
+ * row shares one zone — so the mapping is exact. For an ARTIST archive they are
+ * not: two shows a few hours apart in Honolulu and New York can fall in
+ * different venue-local months while sorting the other way round by instant, so
+ * inside the ~1-day band around a month boundary the two orderings permute.
+ *
+ * The counts still SUM correctly, so `listTotal` agrees and no label is
+ * withheld. What can be wrong is bounded and worth stating exactly: the
+ * permutation is confined to that band, so a page whose first or last ordinal
+ * lands inside one can have that end of its span named as the ADJACENT month.
+ * Every page boundary outside such a band is unaffected.
+ *
+ * That is the same skew `ArtistShowsTable` already documents for its month
+ * HEADINGS, where it is accepted as the honest rendering of rows sorted on one
+ * axis and labelled on another — see its `groupByMonthHeadings` doc. Making it
+ * exact would mean reordering a shipped list on the venue-local date, which is a
+ * behaviour change to the rows themselves and is deliberately not what this
+ * function's contract asks for. The divergence is pinned from the backend side
+ * by TestGetArtistShowMonths_HistogramOrderCanDivergeFromTheListOrder.
  */
 export function monthRangeLabelsByPage({
   months,
@@ -358,6 +388,178 @@ export function monthRangeLabelsByPage({
  */
 export function clampPage(page: number, maxPage: number): number {
   return Math.min(toPageNumber(page, 1), maxPage)
+}
+
+/**
+ * Upper bound on the page a URL may ask for, so a hand-edited `?page=` becomes a
+ * bounded empty page instead of an unbounded offset the backend has to reject.
+ * At 50 rows a page this covers 50,000 shows for one entity, roughly two orders
+ * of magnitude past the busiest venue and the most-played artist observed.
+ *
+ * ONE constant for both archives (PSY-1842). They had two identical copies, and
+ * a bound that differed between them would be a difference in which hand-typed
+ * URLs are answered rather than rejected — invisible until someone hit it.
+ *
+ * The SERVER-side `?page=` read deliberately does not take one: it only asks
+ * whether the page is 1, and a maximum can only pull a number DOWN to itself, so
+ * it cannot change that answer. See `showArchive.server.ts`.
+ */
+export const MAX_ARCHIVE_PAGE = 1_000
+
+/** One bucket of an entity's show-YEAR histogram, as the backend serves it. */
+export interface ArchiveYearCount {
+  year: number
+  count: number
+}
+
+/**
+ * What the YEAR histogram alone can settle about the archive's current scope.
+ *
+ * Split from {@link ArchiveScope} because of an ordering constraint rather than
+ * a conceptual one: `pageIsBeyondKnownEnd` GATES the row request, so it has to be
+ * resolved before that request is made, while everything else needs the count
+ * that comes back WITH the rows. Two functions in sequence is what keeps the
+ * archive's counting rules in one place despite that.
+ */
+export interface ArchiveYearScope {
+  /** The histogram has answered with at least one year. */
+  haveHistogram: boolean
+  /** Rows across every year, from the histogram. Zero until it lands. */
+  allTimeTotal: number
+  /**
+   * Rows in the CURRENT scope according to the histogram, or null while the
+   * histogram cannot say. Null is "not counted yet", never "counted zero".
+   */
+  histogramTotal: number | null
+  /**
+   * The URL asks for a page the histogram already knows is past the end.
+   *
+   * Answered without a round trip, instead of spending a 50,000-row offset scan
+   * to be told there is nothing there. False while the histogram is still
+   * loading, when the page request is the only thing that knows.
+   */
+  pageIsBeyondKnownEnd: boolean
+}
+
+/** {@link ArchiveYearScope}, completed by the count that arrived with the rows. */
+export interface ArchiveScope extends ArchiveYearScope {
+  /** Rows in the current scope: the histogram's count, else the envelope's. */
+  scopedTotal: number
+  /** Pages in the current scope. At least 1, so an empty archive is "page 1 of 1". */
+  totalPages: number
+  /**
+   * This entity has an archive worth rendering.
+   *
+   * Asked of the histogram, not of the current page: a hand-typed year with
+   * nothing in it must still render the section that says so, with the strip
+   * that leads back out of it.
+   */
+  hasPastShows: boolean
+  /**
+   * Whether the MONTH histogram is worth fetching — see
+   * {@link archiveScope} for why this is a decision and not a formula.
+   */
+  monthsAreWorthFetching: boolean
+}
+
+/**
+ * Everything the year histogram can settle on its own, for a given page.
+ *
+ * `activeYear` selects the scope: null counts every year, a year counts that one
+ * (and counts ZERO for a year the entity has nothing in, which is a real view
+ * reachable by hand-editing the URL).
+ */
+export function archiveYearScope({
+  years,
+  activeYear,
+  page,
+  pageSize,
+}: {
+  /** The histogram, or undefined while it is loading or has failed. */
+  years: ArchiveYearCount[] | undefined
+  activeYear: number | null
+  page: number
+  pageSize: number
+}): ArchiveYearScope {
+  const counts = years ?? []
+  const haveHistogram = counts.length > 0
+  const allTimeTotal = counts.reduce((sum, entry) => sum + entry.count, 0)
+  const histogramTotal = !haveHistogram
+    ? null
+    : activeYear === null
+      ? allTimeTotal
+      : (counts.find(entry => entry.year === activeYear)?.count ?? 0)
+
+  return {
+    haveHistogram,
+    allTimeTotal,
+    histogramTotal,
+    pageIsBeyondKnownEnd:
+      histogramTotal !== null && page > pageCount(histogramTotal, pageSize),
+  }
+}
+
+/**
+ * The archive's full scope, once the row envelope has arrived (or positively
+ * has not).
+ *
+ * `listTotal` is the count that came back WITH the rows — the only count there
+ * is until the histogram resolves, and the one that decides `hasPastShows` on a
+ * surface whose histogram failed.
+ */
+export function archiveScope(
+  yearScope: ArchiveYearScope,
+  {
+    yearsSettled,
+    listSettled,
+    listTotal,
+    pageSize,
+  }: {
+    /** The year histogram request has succeeded (with any number of years). */
+    yearsSettled: boolean
+    /** The row request has succeeded. */
+    listSettled: boolean
+    /** Rows in the current scope per the row envelope. Zero when there is none. */
+    listTotal: number
+    pageSize: number
+  }
+): ArchiveScope {
+  const scopedTotal = yearScope.histogramTotal ?? listTotal
+  const totalPages = pageCount(scopedTotal, pageSize)
+
+  return {
+    ...yearScope,
+    scopedTotal,
+    totalPages,
+    hasPastShows: yearsSettled ? yearScope.haveHistogram : listTotal > 0,
+    // Skipped once the year histogram POSITIVELY says the archive fits on one
+    // page — which includes an entity with no past shows at all. That is exactly
+    // when `Pagination` renders nothing, so the request would buy labels for a
+    // control that is not there.
+    //
+    // Keyed on whether the histogram has SETTLED rather than on `totalPages`
+    // alone, because "one page" and "not counted yet" are the same value of
+    // `totalPages` and must not be the same decision: before the counts land — or
+    // on a route whose server seed failed — suppressing the request would leave
+    // the pager in bare numerals for an extra round trip.
+    //
+    // And it waits for a count rather than defaulting to "fetch". `!yearsSettled`
+    // alone would mean that during a backend incident — exactly when the year
+    // histogram times out and any server seed goes missing — every visitor to
+    // every venue and artist page immediately issues this unindexed
+    // full-history aggregate, including the majority of entities that render no
+    // pager at all. Answering a degraded backend with more expensive work for it
+    // is the wrong reflex.
+    monthsAreWorthFetching: yearsSettled
+      ? totalPages > 1
+      : listSettled && listTotal > pageSize,
+  }
+}
+
+/** Pages needed for `total` rows, floored at 1 so an empty scope is "1 of 1". */
+function pageCount(total: number, pageSize: number): number {
+  if (!Number.isInteger(pageSize) || pageSize < 1) return 1
+  return Math.max(1, Math.ceil(total / pageSize))
 }
 
 /**

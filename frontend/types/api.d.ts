@@ -2152,6 +2152,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/artists/{artist_id}/shows/months": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get artists by artist ID shows months */
+        get: operations["get-artists-by-artist-id-shows-months"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/artists/{artist_id}/shows/years": {
         parameters: {
             query?: never;
@@ -8148,6 +8165,23 @@ export interface components {
             name: string;
             slug: string;
         };
+        ArtistShowMonthCount: {
+            /**
+             * Format: int64
+             * @description Shows the artist played in that month, within the requested time filter
+             */
+            count: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar month, 1-12
+             */
+            month: number;
+            /**
+             * Format: int64
+             * @description Venue-local calendar year
+             */
+            year: number;
+        };
         ArtistShowResponse: {
             age_requirement: string | null;
             artists: components["schemas"]["ArtistShowArtist"][] | null;
@@ -11270,6 +11304,23 @@ export interface components {
             count: number;
             /** @description List of releases with artist roles */
             releases: components["schemas"]["ArtistReleaseListResponse"][] | null;
+        };
+        GetArtistShowMonthsResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/GetArtistShowMonthsResponseBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Artist ID (resolved from slug if provided)
+             */
+            artist_id: number;
+            /** @description Venue-local calendar months in which the artist played at least one show, newest first */
+            months: components["schemas"]["ArtistShowMonthCount"][] | null;
+            /** @description Time filter the counts were taken under */
+            time_filter: string;
         };
         GetArtistShowYearsResponseBody: {
             /**
@@ -22494,6 +22545,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetArtistShowsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-artists-by-artist-id-shows-months": {
+        parameters: {
+            query?: {
+                /**
+                 * @description Count shows by time: upcoming, past, or all
+                 * @example past
+                 */
+                time_filter?: "upcoming" | "past" | "all";
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description Artist ID or slug
+                 * @example the-national
+                 */
+                artist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetArtistShowMonthsResponseBody"];
                 };
             };
             /** @description Error */

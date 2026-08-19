@@ -172,6 +172,59 @@ describe('archiveDocumentTitle', () => {
       })
     ).toBe('Godspeed You | Black Emperor shows in 2025 (page 2 of 3) | Psychic Homily')
   })
+
+  // The four below came from `features/venues/showArchive.test.ts` when PSY-1842
+  // deleted the venue-shaped wrapper this function had grown. They were never
+  // venue-specific — both archives write their title through this one function —
+  // and leaving them behind a venue-only entry point is how the artist archive
+  // ends up untested for behaviour it also has.
+  it('omits the page clause for a single-page scope', () => {
+    expect(
+      archiveDocumentTitle({
+        baseTitle: 'The Van Buren | Psychic Homily',
+        entityName: 'The Van Buren',
+        year: 2025,
+        page: 1,
+        totalPages: 1,
+      })
+    ).toBe('The Van Buren shows in 2025 | Psychic Homily')
+  })
+
+  it('names the page on a deep all-years link', () => {
+    expect(
+      archiveDocumentTitle({
+        baseTitle: 'The Van Buren | Psychic Homily',
+        entityName: 'The Van Buren',
+        year: null,
+        page: 3,
+        totalPages: 9,
+      })
+    ).toBe('The Van Buren shows (page 3 of 9) | Psychic Homily')
+  })
+
+  it('survives a route title with no brand suffix', () => {
+    expect(
+      archiveDocumentTitle({
+        baseTitle: 'The Van Buren',
+        entityName: 'The Van Buren',
+        year: 2025,
+        page: 2,
+        totalPages: 2,
+      })
+    ).toBe('The Van Buren shows in 2025 (page 2 of 2)')
+  })
+
+  it('leaves page 1 of a multi-page scope unnumbered, matching its bare URL', () => {
+    expect(
+      archiveDocumentTitle({
+        baseTitle: 'The Van Buren | Psychic Homily',
+        entityName: 'The Van Buren',
+        year: 2025,
+        page: 1,
+        totalPages: 4,
+      })
+    ).toBe('The Van Buren shows in 2025 | Psychic Homily')
+  })
 })
 
 describe('parseArchiveYear', () => {

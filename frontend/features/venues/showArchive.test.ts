@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { clampPage, parseArchiveYear } from '@/features/shows/showArchive'
-import {
-  archiveDocumentTitle,
-  groupByMonth,
-  venueArchiveHref,
-} from './showArchive'
+import { groupByMonth, venueArchiveHref } from './showArchive'
 
 /**
  * Phoenix does not observe DST, so every fixture below means exactly what it
@@ -109,96 +105,6 @@ describe('parseArchiveYear', () => {
 
   it('rejects a fractional year', () => {
     expect(parseArchiveYear(2025.5)).toBeNull()
-  })
-})
-
-describe('archiveDocumentTitle', () => {
-  const baseTitle = 'The Van Buren | Psychic Homily'
-
-  it('leaves the route title alone on the default view', () => {
-    expect(
-      archiveDocumentTitle({
-        baseTitle,
-        venueName: 'The Van Buren',
-        year: null,
-        page: 1,
-        totalPages: 9,
-      })
-    ).toBe(baseTitle)
-  })
-
-  it('names the active year and page, keeping the brand suffix', () => {
-    expect(
-      archiveDocumentTitle({
-        baseTitle,
-        venueName: 'The Van Buren',
-        year: 2025,
-        page: 2,
-        totalPages: 4,
-      })
-    ).toBe('The Van Buren shows in 2025 (page 2 of 4) | Psychic Homily')
-  })
-
-  it('omits the page clause for a single-page year', () => {
-    expect(
-      archiveDocumentTitle({
-        baseTitle,
-        venueName: 'The Van Buren',
-        year: 2025,
-        page: 1,
-        totalPages: 1,
-      })
-    ).toBe('The Van Buren shows in 2025 | Psychic Homily')
-  })
-
-  it('names the page on a deep all-years link', () => {
-    expect(
-      archiveDocumentTitle({
-        baseTitle,
-        venueName: 'The Van Buren',
-        year: null,
-        page: 3,
-        totalPages: 9,
-      })
-    ).toBe('The Van Buren shows (page 3 of 9) | Psychic Homily')
-  })
-
-  it('splits on the LAST separator, so a piped venue name survives', () => {
-    // Venue names are contributor-supplied free text; splitting on the first
-    // ' | ' would fold half the name into the brand suffix.
-    expect(
-      archiveDocumentTitle({
-        baseTitle: 'Sunshine | Studios | Psychic Homily',
-        venueName: 'Sunshine | Studios',
-        year: 2025,
-        page: 2,
-        totalPages: 3,
-      })
-    ).toBe('Sunshine | Studios shows in 2025 (page 2 of 3) | Psychic Homily')
-  })
-
-  it('survives a route title with no brand suffix', () => {
-    expect(
-      archiveDocumentTitle({
-        baseTitle: 'The Van Buren',
-        venueName: 'The Van Buren',
-        year: 2025,
-        page: 2,
-        totalPages: 2,
-      })
-    ).toBe('The Van Buren shows in 2025 (page 2 of 2)')
-  })
-
-  it('leaves page 1 of a multi-page year unnumbered, matching its bare URL', () => {
-    expect(
-      archiveDocumentTitle({
-        baseTitle,
-        venueName: 'The Van Buren',
-        year: 2025,
-        page: 1,
-        totalPages: 4,
-      })
-    ).toBe('The Van Buren shows in 2025 | Psychic Homily')
   })
 })
 

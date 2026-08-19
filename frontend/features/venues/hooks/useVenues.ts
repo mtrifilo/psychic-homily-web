@@ -220,9 +220,9 @@ export const useVenueShows = (options: UseVenueShowsOptions) => {
   // The load-bearing case is `offset`: page 1's zero offset must key as "not
   // sent", or the key the year-archive route's server-seeded `initialShows`
   // lands on is not the key this hook registers, and the rows silently drop out
-  // of the served HTML. (The ARTIST twin has a second reason — its archive still
-  // peeks at neighbouring pages' cache entries to label them. The venue archive
-  // does not any more; its labels come from a month histogram, PSY-1769.)
+  // of the served HTML. That is now the ONLY reason it is load-bearing: both
+  // archives label their pages from a month histogram (PSY-1769, PSY-1842), so
+  // neither reads a neighbouring page's cache entry any more.
   const sentTimeFilter = timeFilter || 'upcoming'
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined

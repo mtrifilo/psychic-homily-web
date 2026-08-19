@@ -267,16 +267,19 @@ describe('artist-shows cache key isolates differently-parameterized callers', ()
     expect(mockApiRequest.mock.calls[0][0]).not.toContain('year=')
   })
 
-  it('lands the past archive on the key its own neighbour peek constructs', async () => {
+  it('lands the past archive on the key artistPastShowsPageParams constructs', async () => {
     const queryClient = createTestQueryClient()
     mockApiRequest.mockResolvedValue(fiftyShows())
 
-    // `ArtistPastShows` labels each page button with the months it covers by
-    // reading sibling pages straight out of the cache, keyed from
-    // `artistPastShowsPageParams`. If the key the hook registers and the key the
-    // peek builds ever drift, nothing throws: the labels just silently stop
-    // appearing. Both paths are pinned here, on page 1 (where offset is 0 and
-    // must be keyed as "not sent") and on a later page.
+    // The hook builds its key from what it SENDS, and `artistPastShowsPageParams`
+    // has to describe the same request — page 1's offset is 0, which the request
+    // omits and the key must therefore record as "not sent". A drift throws
+    // nothing; it just means anything seeding or reading that entry misses it.
+    //
+    // This used to guard a second reader: the archive PEEKED at neighbouring
+    // pages' cache entries to label them. PSY-1842 replaced that with a month
+    // histogram, so the normalization has one call site again — it is no less
+    // load-bearing for it. Pinned on page 1 and on a later page.
     for (const [page, year] of [[1, null], [3, 2025]] as const) {
       const params = artistPastShowsPageParams(page, year)
       const { result } = renderHook(

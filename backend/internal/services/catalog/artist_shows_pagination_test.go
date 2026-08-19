@@ -511,3 +511,231 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowYears_ScopedToO
 	suite.Require().NoError(err)
 	suite.Equal([]contracts.ArtistShowYearCount{{Year: 2015, Count: 1}}, years)
 }
+
+// =============================================================================
+// Month histogram (PSY-1842)
+// =============================================================================
+//
+// The artist half of the venue month histogram PSY-1769 shipped. Both label the
+// SAME shared pager now, so these tests deliberately mirror
+// TestGetVenueShowMonths_* next door — a divergence between them is a divergence
+// in what a page label means depending on which archive you opened.
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_BucketsNewestFirstSkippingEmptyMonths() {
+	artist := suite.createTestArtist("Month Histogram Artist")
+	venue := suite.createTestVenue("Month Histogram Room", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	// February and April populated in 2018, March deliberately empty, plus a
+	// same-month pair in an earlier year so the ordering has to sort on both
+	// components rather than on the month number alone.
+	suite.seedShowsForArtist(artist.ID, venue.ID, user.ID,
+		fixedUTC(2016, time.November, 1, 20),
+		fixedUTC(2016, time.November, 8, 20),
+		fixedUTC(2018, time.February, 1, 20),
+		fixedUTC(2018, time.April, 1, 20),
+		fixedUTC(2018, time.April, 20, 20),
+		fixedUTC(2018, time.April, 25, 20),
+	)
+
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowMonthCount{
+		{Year: 2018, Month: 4, Count: 3},
+		{Year: 2018, Month: 2, Count: 1},
+		{Year: 2016, Month: 11, Count: 2},
+	}, months, "newest first, and no zero-count March bucket")
+}
+
+// The month histogram exists to label pages of the list, so it has to agree with
+// the list about how many rows there are and where they sit. A sum that drifted
+// from the list's total would slide every page label by the difference — and the
+// shared label derivation FAILS CLOSED on exactly that disagreement, so a drift
+// here does not surface as a wrong label, it surfaces as no labels at all.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_SumsToTheListTotal() {
+	artist := suite.createTestArtist("Month Total Artist")
+	venue := suite.createTestVenue("Month Total Room", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	suite.seedShowsForArtist(artist.ID, venue.ID, user.ID,
+		fixedUTC(2019, time.January, 5, 20),
+		fixedUTC(2019, time.January, 6, 20),
+		fixedUTC(2019, time.June, 5, 20),
+		fixedUTC(2020, time.June, 5, 20),
+	)
+
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "past")
+	suite.Require().NoError(err)
+
+	var summed int64
+	for _, bucket := range months {
+		summed += bucket.Count
+	}
+
+	_, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{
+		TimeFilter: "past", Limit: 50,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(total, summed)
+}
+
+// THE ARTIST-SPECIFIC CASE, and the reason this is not the venue test with the
+// nouns swapped: an artist's rows span venues, so there is no single zone to read
+// them in. Each show must be bucketed on ITS OWN venue's calendar. The two shows
+// here sit at the SAME INSTANT and land in different MONTHS, which can only
+// happen if the bucketing is per row.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_BucketsEachShowInItsOwnVenueZone() {
+	artist := suite.createTestArtist("Touring Month Artist")
+	honolulu := newVenueInZone(suite.T(), suite.db, "Month Honolulu Room", "HI", "Pacific/Honolulu", false)
+	newYork := newVenueInZone(suite.T(), suite.db, "Month New York Room", "NY", "America/New_York", false)
+	user := suite.createTestUser()
+
+	// 2020-01-01 06:00 UTC. In Honolulu that is 2019-12-31 20:00 (December); in
+	// New York it is 2020-01-01 01:00 (January).
+	instant := time.Date(2020, time.January, 1, 6, 0, 0, 0, time.UTC)
+	suite.seedShowsForArtist(artist.ID, honolulu.ID, user.ID, instant)
+	suite.seedShowsForArtist(artist.ID, newYork.ID, user.ID, instant)
+
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowMonthCount{
+		{Year: 2020, Month: 1, Count: 1},
+		{Year: 2019, Month: 12, Count: 1},
+	}, months, "one instant, two venues, two calendar months")
+}
+
+// THE HISTOGRAM'S ORDER AND THE LIST'S ORDER ARE DIFFERENT AXES, and this pins
+// the case where they disagree so a later edit to EITHER is a deliberate one.
+//
+// The month histogram orders by venue-local (year, month) DESC. GetShowsForArtist
+// orders by `shows.event_date DESC` — the absolute instant. For a VENUE those
+// coincide, because every row shares one zone. For an ARTIST they do not, and
+// this fixture is the smallest case that proves it: the New York show is EARLIER
+// in absolute time but LATER on its own venue's calendar than the Honolulu one.
+//
+// The frontend's page-label walk maps histogram ordinals onto list ordinals, and
+// its fail-closed guard compares TOTALS — which agree here — so it cannot see
+// this. What it costs is bounded and documented at
+// frontend/features/shows/showArchive.ts (monthRangeLabelsByPage): a page
+// boundary landing inside the ~1-day cross-zone band can have that end of its
+// span named as the adjacent month.
+//
+// This test asserts the divergence rather than the absence of it, deliberately.
+// Closing it would mean ordering a shipped list on the venue-local date, which
+// changes which rows land on which page — a behaviour change, not a cleanup, and
+// the same skew ArtistShowsTable already accepts for its month headings.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_HistogramOrderCanDivergeFromTheListOrder() {
+	artist := suite.createTestArtist("Divergent Order Artist")
+	honolulu := newVenueInZone(suite.T(), suite.db, "Divergent Honolulu Room", "HI", "Pacific/Honolulu", false)
+	newYork := newVenueInZone(suite.T(), suite.db, "Divergent New York Room", "NY", "America/New_York", false)
+	user := suite.createTestUser()
+
+	// 2020-01-01 05:30 UTC is 2020-01-01 00:30 in New York: venue-local JANUARY.
+	newYorkShow := suite.seedShowsForArtist(artist.ID, newYork.ID, user.ID,
+		time.Date(2020, time.January, 1, 5, 30, 0, 0, time.UTC))[0]
+	// 2020-01-01 09:00 UTC is 2019-12-31 23:00 in Honolulu: venue-local DECEMBER,
+	// and LATER in absolute time than the January show above.
+	honoluluShow := suite.seedShowsForArtist(artist.ID, honolulu.ID, user.ID,
+		time.Date(2020, time.January, 1, 9, 0, 0, 0, time.UTC))[0]
+
+	// `past` throughout, because that is the only filter the archive uses and the
+	// only one whose list runs newest-first — GetShowsForArtist orders ASCENDING
+	// for every other filter, where no pager consumes it.
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "past")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowMonthCount{
+		{Year: 2020, Month: 1, Count: 1},
+		{Year: 2019, Month: 12, Count: 1},
+	}, months, "histogram is newest-first on the VENUE-LOCAL calendar")
+
+	shows, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", contracts.ArtistShowsQuery{
+		TimeFilter: "past", Limit: 10,
+	})
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total, "the totals agree, which is why no downstream check can catch this")
+	suite.Equal([]uint{honoluluShow, newYorkShow}, artistShowIDsOf(shows),
+		"list is newest-first on the ABSOLUTE INSTANT, which puts the December row first")
+
+	// The inversion itself, stated as the assertion rather than left as a side
+	// effect: histogram ordinal 0 is January, list ordinal 0 is the December show.
+	suite.Equal(1, months[0].Month)
+	suite.Equal(honoluluShow, artistShowIDsOf(shows)[0])
+}
+
+// The venue histogram structurally cannot have this case: a show with no
+// show_venues row at all. GetShowsForArtist returns those, and VenueTZJoin is a
+// LEFT JOIN LATERAL, so they must be counted exactly once and land in the month
+// the state-map fallback dates them to rather than being dropped or doubled. A
+// dropped row is the expensive direction — the histogram would sum short of the
+// list's total, and the shared label derivation would then blank every label.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_VenuelessShowIsBucketedNotDropped() {
+	artist := suite.createTestArtist("Venueless Month Artist")
+	user := suite.createTestUser()
+
+	// Midday UTC, mid-month: no venue zone could move this off June 2017.
+	show := &catalogm.Show{
+		Title:       "Venueless Month Gig",
+		EventDate:   fixedUTC(2017, time.June, 15, 12),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &user.ID,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0}).Error)
+
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowMonthCount{{Year: 2017, Month: 6, Count: 1}}, months)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_RespectsTimeFilter() {
+	artist := suite.createTestArtist("Filtered Month Artist")
+	venue := suite.createTestVenue("Filtered Month Room", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	suite.seedShowsForArtist(artist.ID, venue.ID, user.ID,
+		fixedUTC(2019, time.February, 1, 20),
+		time.Now().UTC().AddDate(0, 0, 45),
+	)
+
+	past, err := suite.artistService.GetArtistShowMonths(artist.ID, "past")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowMonthCount{{Year: 2019, Month: 2, Count: 1}}, past)
+
+	upcoming, err := suite.artistService.GetArtistShowMonths(artist.ID, "upcoming")
+	suite.Require().NoError(err)
+	suite.Require().Len(upcoming, 1)
+	suite.Equal(int64(1), upcoming[0].Count)
+
+	all, err := suite.artistService.GetArtistShowMonths(artist.ID, "all")
+	suite.Require().NoError(err)
+	suite.Len(all, 2)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_NoShowsReturnsEmptySlice() {
+	artist := suite.createTestArtist("Silent Month Artist")
+
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "all")
+	suite.Require().NoError(err)
+	suite.NotNil(months, "an empty histogram must serialize as [] rather than null")
+	suite.Empty(months)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_ArtistNotFound() {
+	_, err := suite.artistService.GetArtistShowMonths(99999, "all")
+	suite.Require().Error(err)
+	var artistErr *apperrors.ArtistError
+	suite.ErrorAs(err, &artistErr)
+	suite.Equal(apperrors.CodeArtistNotFound, artistErr.Code)
+}
+
+// Scoped to ONE artist, like the year histogram. Counts that leaked a bandmate's
+// other project would push every page label out by the leak.
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistShowMonths_ScopedToOneArtist() {
+	artist := suite.createTestArtist("Scoped Month Artist")
+	other := suite.createTestArtist("Neighbour Month Artist")
+	venue := suite.createTestVenue("Scoped Month Room", "Phoenix", "AZ")
+	user := suite.createTestUser()
+	suite.seedShowsForArtist(artist.ID, venue.ID, user.ID, fixedUTC(2015, time.May, 1, 20))
+	suite.seedShowsForArtist(other.ID, venue.ID, user.ID, fixedUTC(2015, time.May, 2, 20))
+
+	months, err := suite.artistService.GetArtistShowMonths(artist.ID, "all")
+	suite.Require().NoError(err)
+	suite.Equal([]contracts.ArtistShowMonthCount{{Year: 2015, Month: 5, Count: 1}}, months)
+}

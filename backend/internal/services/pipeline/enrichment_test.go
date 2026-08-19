@@ -498,6 +498,9 @@ func (m *mockArtistServiceForEnrichment) GetShowsForArtist(artistID uint, timezo
 func (m *mockArtistServiceForEnrichment) GetArtistShowYears(artistID uint, timeFilter string) ([]contracts.ArtistShowYearCount, error) {
 	return nil, nil
 }
+func (m *mockArtistServiceForEnrichment) GetArtistShowMonths(artistID uint, timeFilter string) ([]contracts.ArtistShowMonthCount, error) {
+	return nil, nil
+}
 func (m *mockArtistServiceForEnrichment) GetNextShowForArtist(artistID uint, timezone string) (*contracts.ArtistShowResponse, error) {
 	return nil, nil
 }

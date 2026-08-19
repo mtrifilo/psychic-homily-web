@@ -38,6 +38,7 @@ export {
   useArtist,
   useArtistShows,
   useArtistShowYears,
+  useArtistShowMonths,
 } from './hooks'
 
 export { useArtistSearch, artistSearchQueryOptions } from './hooks'

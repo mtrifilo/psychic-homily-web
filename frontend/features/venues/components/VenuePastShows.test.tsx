@@ -1,7 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import { ARCHIVE_MONTHS, ARCHIVE_PAGE_LABELS } from '@/test/archiveFixtures'
 import type { VenueShow, VenueShowsResponse } from '../types'
+
+/**
+ * The venue archive's WIRING, not its behaviour.
+ *
+ * Since PSY-1842 the archive itself is one shared component
+ * (`features/shows/components/PastShowsArchive`), and its behaviour — pager
+ * placement, live-region ownership, label derivation, every degraded branch — is
+ * locked once in that component's own suite. What only this file can see is
+ * whether the VENUE wrapper hands it the right things: the venue's three
+ * endpoints, the venue's URL space, and a zone resolver that reads every row on
+ * the venue's calendar.
+ *
+ * The announce-once assertion below is deliberately duplicated with the artist
+ * twin and the shared suite. It is the regression PSY-1768 fixed twice, and
+ * asserting it at the mount point is what proves the extraction did not quietly
+ * drop `announce={false}` on the way through.
+ */
 
 let queryPage = 1
 const mockSetPage = vi.fn()
@@ -13,52 +31,24 @@ vi.mock('nuqs', () => ({
 
 const mockUseVenueShows = vi.fn()
 const mockUseVenueShowYears = vi.fn()
-// The month histogram behind the pager's range labels (PSY-1769). A bare
-// no-data result: these tests are about the two pagers, not the labels.
-const mockUseVenueShowMonths = vi.fn(() => ({
-  data: undefined,
-  isSuccess: false,
-  isPending: false,
-  isError: false,
-}))
+const mockUseVenueShowMonths = vi.fn()
 vi.mock('../hooks/useVenues', () => ({
   useVenueShows: (options: unknown) => mockUseVenueShows(options),
   useVenueShowYears: (options: unknown) => mockUseVenueShowYears(options),
-  useVenueShowMonths: () => mockUseVenueShowMonths(),
+  useVenueShowMonths: (options: unknown) => mockUseVenueShowMonths(options),
 }))
 
 // The table has its own suite; stub it to a row-count marker so this one is
-// only about the two pagers.
+// only about what the wrapper passes down.
 vi.mock('./VenueShowsTable', () => ({
   VenueShowsTable: ({ shows }: { shows: VenueShow[] }) => (
     <div data-testid="venue-shows-table">{shows.length} rows</div>
   ),
 }))
 
-// The barrel is stubbed to keep unrelated shared components out of this suite,
-// but the pager IS the thing under test, so the real one (live region and
-// all) is spliced back in from its own module.
 vi.mock('@/components/shared', async () => {
-  const actual = await vi.importActual<
-    typeof import('@/components/shared/Pagination')
-  >('@/components/shared/Pagination')
-  const chrome = await vi.importActual<
-    typeof import('@/components/shared/paginationChrome')
-  >('@/components/shared/paginationChrome')
-  return {
-    Pagination: actual.Pagination,
-    paginationWindow: actual.paginationWindow,
-    usePaginationFocusTarget: actual.usePaginationFocusTarget,
-    formatCount: chrome.formatCount,
-    SectionHeader: ({
-      title,
-      headingProps,
-    }: {
-      title: string
-      headingProps?: Record<string, unknown>
-    }) => <h2 {...headingProps}>{title}</h2>,
-    YearStrip: () => <div data-testid="year-strip" />,
-  }
+  const kit = await import('@/test/archiveFixtures')
+  return kit.archiveSharedBarrelMock()
 })
 
 import { VenuePastShows } from './VenuePastShows'
@@ -90,8 +80,8 @@ function showsResponse(offset: number): VenueShowsResponse {
   }
 }
 
-function renderArchive() {
-  return renderWithProviders(
+function archive() {
+  return (
     <VenuePastShows
       venueId={7}
       venueSlug="the-rebel-lounge"
@@ -101,7 +91,7 @@ function renderArchive() {
   )
 }
 
-describe('VenuePastShows pagers', () => {
+describe('VenuePastShows', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     queryPage = 1
@@ -112,18 +102,31 @@ describe('VenuePastShows pagers', () => {
       isFetching: false,
       isPending: false,
     })
+    mockUseVenueShowMonths.mockReturnValue({
+      data: { venue_id: 7, time_filter: 'past', months: [...ARCHIVE_MONTHS] },
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      isPending: false,
+    })
     mockUseVenueShows.mockImplementation((options: { offset?: number }) => ({
       data: showsResponse(options.offset ?? 0),
       isError: false,
       isFetching: false,
       isPending: false,
+      isSuccess: true,
       isPlaceholderData: false,
       refetch: vi.fn(),
     }))
   })
 
+  // The mount smoke test: everything below asserts something SPECIFIC, and each
+  // of them would also fail if the wrapper rendered nothing at all — this one
+  // says which failure it was. The pager's own contract (one live region, both
+  // instances showing the position) is locked in the shared component's suite,
+  // not re-asserted here.
   it('renders the archive with a pager above and below the table', () => {
-    renderArchive()
+    renderWithProviders(archive())
     expect(
       screen.getByRole('navigation', {
         name: 'Past shows pagination, top of list',
@@ -137,20 +140,13 @@ describe('VenuePastShows pagers', () => {
   })
 
   it('announces a page change exactly once, not once per pager (PSY-1768)', () => {
-    // Two pagers each shipping their own live region meant a screen reader
-    // spoke "Page 2 of 4" twice on every click. Exactly one instance owns the
-    // announcement now.
-    const { rerender } = renderArchive()
+    // The artist twin carries the identical assertion, at its own mount point.
+    // Fixing one archive and not the other is exactly the asymmetry that let this
+    // regress before there was one component.
+    const { rerender } = renderWithProviders(archive())
 
     queryPage = 2
-    rerender(
-      <VenuePastShows
-        venueId={7}
-        venueSlug="the-rebel-lounge"
-        venueName="The Rebel Lounge"
-        venueState="AZ"
-      />
-    )
+    rerender(archive())
 
     const spoken = screen
       .getAllByRole('status')
@@ -159,19 +155,24 @@ describe('VenuePastShows pagers', () => {
     expect(spoken[0]).toHaveTextContent('Page 2 of 4')
   })
 
-  it('leaves exactly one live region in the tree at all', () => {
-    // The opted-out pager drops its region entirely rather than shipping a
-    // permanently empty one.
-    renderArchive()
-    expect(screen.getAllByRole('status')).toHaveLength(1)
+  it('labels every page link from the venue month histogram (PSY-1769)', () => {
+    // The wrapper has to request the histogram, hand it down, and hand down the
+    // page size the LIST asked for — a mismatch in any of the three shows up as
+    // missing or shifted labels rather than as an error.
+    renderWithProviders(archive())
+    for (const [page, label] of ARCHIVE_PAGE_LABELS) {
+      expect(
+        screen.getAllByRole('link', { name: `Page ${page}, ${label}` }).length
+      ).toBeGreaterThan(0)
+    }
   })
 
-  it('keeps the page position visible in both pagers', () => {
-    // Opting out silences the SPOKEN duplicate; the bottom pager must still
-    // show the reader where they are.
-    renderArchive()
-    const positions = screen.getAllByText(/Page 1 of 4/)
-    // Two pagers, each rendering a desktop caption and a mobile position line.
-    expect(positions.length).toBeGreaterThanOrEqual(4)
+  it('requests the month histogram under the same past filter as the rows', () => {
+    // Counts taken under a different filter would describe a different set of
+    // rows than the pager is paging, and the label walk would silently shift.
+    renderWithProviders(archive())
+    expect(mockUseVenueShowMonths).toHaveBeenCalledWith(
+      expect.objectContaining({ venueId: 7, timeFilter: 'past', enabled: true })
+    )
   })
 })

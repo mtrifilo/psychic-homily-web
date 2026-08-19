@@ -364,16 +364,31 @@ func (h *VenueHandler) GetVenueShowYearsHandler(ctx context.Context, req *GetVen
 	return resp, nil
 }
 
-// venueShowMonthsCacheControl matches chartsModuleCacheControl. Sixty seconds is
-// the repo's existing floor for a public, viewer-independent read, and this
+// showMonthHistogramCacheControl matches chartsModuleCacheControl. Sixty seconds
+// is the repo's existing floor for a public, viewer-independent read, and this
 // payload qualifies on every filter it serves: it is an aggregate with no
 // per-viewer input, and it can only change when a show is approved, edited, or
 // graduates from upcoming to past.
 //
-// Deliberately NOT applied to the sibling years endpoint in this change. That is
-// a shipped read with its own consumers (the year strip, the SSR seed), and
-// giving it a cache policy is a behaviour change it should get on its own.
-const venueShowMonthsCacheControl = "public, max-age=60"
+// ONE constant for the venue and artist month histograms, not one each
+// (PSY-1842). They label the SAME shared pager component, so a difference in how
+// stale each may be would be a difference in how fresh a page label is depending
+// on which archive the reader opened — an invariant worth making unbreakable
+// rather than restating in prose beside two literals.
+//
+// IT IS NOT THE ABUSE CONTROL, and an earlier revision of this comment implied it
+// was. The browser reaches this API's origin directly (frontend/lib/api-base.ts),
+// with no CDN or reverse-proxy cache in that path, so `public` here buys a
+// PER-CLIENT freshness window and nothing shared: a crawler with curl, or a
+// distributed caller, gets no collapse at all. What actually bounds repeat hits
+// on this unindexed full-history aggregate is the global PublicReadRateLimiter
+// these routes inherit. Do not weigh a heavier aggregate onto this path on the
+// strength of this header.
+//
+// Deliberately NOT applied to the sibling years endpoints. Those are shipped
+// reads with their own consumers (the year strip, the SSR seed), and giving them
+// a cache policy is a behaviour change they should get on their own.
+const showMonthHistogramCacheControl = "public, max-age=60"
 
 // GetVenueShowMonthsRequest represents the request parameters for a venue's
 // show-month histogram.
@@ -440,7 +455,7 @@ func (h *VenueHandler) GetVenueShowMonthsHandler(ctx context.Context, req *GetVe
 		return nil, huma.Error500InternalServerError("Failed to count shows by month", err)
 	}
 
-	resp := &GetVenueShowMonthsResponse{CacheControl: venueShowMonthsCacheControl}
+	resp := &GetVenueShowMonthsResponse{CacheControl: showMonthHistogramCacheControl}
 	resp.Body.Months = months
 	resp.Body.VenueID = venueID
 	resp.Body.TimeFilter = timeFilter
