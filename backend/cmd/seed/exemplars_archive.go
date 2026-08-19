@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"psychic-homily-backend/internal/config"
@@ -227,27 +228,62 @@ func upcomingSeq(i int) int { return 1000 + i }
 
 // archiveExemplarEnabled reports whether this fixture should be seeded.
 //
-// cmd/seed is NOT dev-only: backend/scripts/deploy-stage.sh runs it on
-// every stage deploy to install reference data, and psy-deploy-prod's
-// --with-db-restore copies stage's catalog into production. The other
-// exemplars predate that discovery and add ~10 rows; this one adds a
-// verified venue with hundreds of approved shows and its own artists,
-// which on stage would outrank every real venue in the graph, the scene
-// rollups, and the sitemap — and could reach the public site through a
-// restore.
+// cmd/seed is not automatically run by a deploy today — Railway's
+// docker-entrypoint.sh runs `migrate up` and nothing else. The exposure is
+// human, and it is documented rather than hypothetical:
 //
-// So it opts OUT of deployed environments rather than opting in to
-// development: an unset or unrecognised ENVIRONMENT still seeds, which
-// keeps every existing local workflow working (including the documented
-// dispatch-stack command), while the two environments that are definitely
-// not somebody's laptop are excluded.
+//   - docs/runbooks/migrations.md tells authors that seed data belongs in
+//     cmd/seed instead of data-only migrations, and states that "prod
+//     deploys run cmd/seed after migrate up". Whether or not that is wired
+//     up today, it is the instruction a future maintainer will follow.
+//   - psy-deploy-prod --with-db-restore pg_dumps STAGE and restores it into
+//     production, excluding only auth tables — so anything seeded into
+//     stage's catalog reaches the public site.
+//
+// The other exemplars add ~10 rows. This one adds a verified venue with
+// hundreds of approved shows and its own artists, which would outrank every
+// real venue in the graph, the scene rollups, and the sitemap.
+//
+// (backend/scripts/deploy-stage.sh does contain a seed step, but that
+// script is VPS-era and dead — backend/DEPLOYMENT.md says following it
+// "would be actively wrong". It is not the reason for this guard.)
+//
+// Three signals have to agree this is a local database:
+//
+//   - DATABASE_URL is the PRIMARY check, because the realistic mistake is
+//     someone running the seed with a deployed DSN in their shell. It is
+//     also ground truth: it names the database about to be written,
+//     regardless of what any env-name says. The "looks local" test mirrors
+//     config.Validate's own convention for the same question.
+//   - ENVIRONMENT is the canonical env-name, but it arrives via gitignored
+//     dotenv files that no test or CI job covers, so it can silently go
+//     missing.
+//   - NODE_ENV is what cmd/seed itself uses to pick its dotenv file, so it
+//     is often the one actually set when ENVIRONMENT is not.
+//
+// The env-name checks fail OPEN (an unset or unfamiliar value still seeds)
+// so no existing local workflow breaks; the DATABASE_URL check is what
+// makes a deployed DSN fail CLOSED even with no env-name set at all.
 func archiveExemplarEnabled() bool {
-	switch os.Getenv(config.EnvEnvironment) {
-	case config.EnvProduction, config.EnvStage:
-		return false
-	default:
-		return true
+	for _, key := range []string{config.EnvEnvironment, "NODE_ENV"} {
+		switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+		case config.EnvProduction, config.EnvStage:
+			return false
+		}
 	}
+	return databaseLooksLocal()
+}
+
+// databaseLooksLocal reports whether DATABASE_URL points at a local
+// database. Mirrors the test config.Validate uses to decide the same thing
+// ("a non-localhost DATABASE_URL means we are in a deployed context"), so
+// the seed and the config agree on what "local" means. An empty URL is
+// local: config defaults it to a localhost DSN.
+func databaseLooksLocal() bool {
+	url := os.Getenv(config.EnvDatabaseURL)
+	return url == "" ||
+		strings.Contains(url, "localhost") ||
+		strings.Contains(url, "127.0.0.1")
 }
 
 // seedExemplarArchiveVenue creates the archive exemplar venue itself.
@@ -338,12 +374,42 @@ func seedExemplarArchiveShows(db *gorm.DB, venueID uint) {
 	total := past.add(upcoming)
 
 	// "created == 0" alone is ambiguous — it means either "already fully
-	// seeded" or "every single show failed". Report the three outcomes
-	// separately so a failed seed can never print a checkmark.
-	fmt.Printf("  ✅ archive exemplar: %d created, %d already present\n", total.created, total.skipped)
+	// seeded" or "every single show failed" — so report the three outcomes
+	// separately, and never show a checkmark when any of them failed.
 	if total.failed > 0 {
-		log.Printf("⚠️  archive exemplar: %d shows FAILED to create; the archive is incomplete (see warnings above)", total.failed)
+		fmt.Printf("  ❌ archive exemplar: %d created, %d already present, %d FAILED — archive is INCOMPLETE (see warnings above)\n",
+			total.created, total.skipped, total.failed)
+		return
 	}
+	fmt.Printf("  ✅ archive exemplar: %d created, %d already present\n", total.created, total.skipped)
+
+	warnIfArchivePartial(db, venueID, total.created+total.skipped)
+}
+
+// warnIfArchivePartial reports an archive whose shows exist but are no
+// longer attached to the venue.
+//
+// venues deletions cascade to show_venues and show_artists but NOT to
+// shows, so deleting or merging away this venue on a dev database leaves
+// 360 orphaned approved shows behind. The seed cannot self-heal from that:
+// its idempotency probe is by slug, every slug still exists, so every show
+// is reported "already present" forever while the recreated venue's
+// archive stays empty. Detecting it is cheap; silently printing a
+// checkmark over it is not, so say plainly what to do.
+func warnIfArchivePartial(db *gorm.DB, venueID uint, accountedFor int) {
+	var linked int64
+	if err := db.Model(&catalogm.ShowVenue{}).Where("venue_id = ?", venueID).Count(&linked).Error; err != nil {
+		log.Printf("Warning: could not verify archive exemplar completeness: %v", err)
+		return
+	}
+	if int(linked) == accountedFor {
+		return
+	}
+	log.Printf("⚠️  archive exemplar: %d shows are linked to the venue but %d were accounted for. "+
+		"The venue was probably deleted or merged, which cascades away show_venues/show_artists but leaves the shows. "+
+		"Re-seeding cannot repair this (the slug guard still matches). To reset: "+
+		"DELETE FROM shows WHERE slug LIKE '%%-at-chronology-hall-exemplar' OR slug LIKE 'chronology-hall-exemplar-upcoming-%%'; then re-run the seed.",
+		linked, accountedFor)
 }
 
 // seedOutcome counts the three ways a show can end up after a seed pass.
@@ -676,7 +742,16 @@ func seedArchiveUpcomingShows(db *gorm.DB, venueID uint, roster []archiveAct) se
 	dayOffsets := []int{5, 12, 19, 33, 48}
 	var out seedOutcome
 
-	for i, offset := range dayOffsets {
+	// Refresh from the LARGEST offset down, which matters when re-seeding an
+	// existing archive. A re-seed D days after the last one moves show i to
+	// now+off_i, and that date is show j's CURRENT date whenever
+	// D == off_j - off_i. Since a collision always needs off_j > off_i,
+	// moving the later show out of the way first means the date is always
+	// vacant. Ascending order would collide — e.g. offsets 12 and 19 share a
+	// billed act, so a re-seed exactly 7 days later would trip the PSY-576
+	// unique index on (artist_id, venue_id, event_date) and roll back.
+	for idx := len(dayOffsets) - 1; idx >= 0; idx-- {
+		i, offset := idx, dayOffsets[idx]
 		slug := fmt.Sprintf("chronology-hall-exemplar-upcoming-%d", i+1)
 
 		// Anchored to a venue-local 20:00 on the offset day rather than

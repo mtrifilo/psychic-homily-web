@@ -24,6 +24,17 @@ import (
 //     under Upcoming instead
 //   - thresholds not met       -> the fixture still seeds, but no longer
 //     shows the UI it exists to make reviewable
+//
+// COVERAGE BOUNDARY — read before trusting a green run. These cover the
+// GENERATOR (pure functions: identity, dates, bills, decoration, the
+// environment gate). They do NOT cover the code that touches a database:
+// seedExemplarArchiveVenue, seedExemplarArchiveShows, createArchiveShow,
+// createArchiveShowWithBill, seedArchiveUpcomingShows, and
+// refreshUpcomingShowDate are all 0% here, because cmd/seed has no
+// integration harness. The constraint interactions those paths have with
+// Postgres — the slug unique index, the PSY-576 partial unique index, and
+// the venue-delete cascade — are verified by running the seed against a
+// real stack, not by this file.
 
 // testArchiveRoster builds a stand-in roster of the given size.
 func testArchiveRoster(size int) []archiveAct {
@@ -146,11 +157,8 @@ func TestArchiveSeqIsPositionalNotSequential(t *testing.T) {
 	// re-slug — every later show, and the next seed would insert a second
 	// copy of all of them instead of skipping.
 	//
-	// Assert seq depends ONLY on the show's own calendar position.
-	if a, b := archiveSeq(2025, 3, 0), archiveSeq(2025, 3, 0); a != b {
-		t.Fatalf("archiveSeq is not deterministic: %d vs %d", a, b)
-	}
-
+	// The collision walk is the whole test: it fails if seq is ever derived
+	// from anything but the show's own calendar position.
 	seen := map[int]string{}
 	for _, ay := range archiveYears {
 		for monthIdx, count := range ay.months {
@@ -260,6 +268,12 @@ func TestArchiveSameHeadlinerGetsVariedSupport(t *testing.T) {
 		}
 	}
 
+	// Without this, narrowing every bill to a single act would make the loop
+	// below examine nothing and the test pass vacuously.
+	if len(supportByHeadliner) == 0 {
+		t.Fatal("no multi-act bills were examined; the fixture has no support acts to vary")
+	}
+
 	for head, supports := range supportByHeadliner {
 		if len(supports) < 2 {
 			t.Errorf("headliner %d always draws the same support act; bills would look cloned", head)
@@ -351,20 +365,44 @@ func TestArchiveExemplarIsDisabledOnDeployedEnvironments(t *testing.T) {
 	// The polarity matters as much as the exclusion: an unset or unfamiliar
 	// ENVIRONMENT must still seed, or every local workflow that does not
 	// export ENVIRONMENT would silently lose the fixture.
+	const localDSN = "postgres://u:p@localhost:5432/db?sslmode=disable"
+	const remoteDSN = "postgres://u:p@db.stage.example.com:5432/db"
+
 	for _, tc := range []struct {
-		env  string
-		want bool
+		name    string
+		env     string
+		nodeEnv string
+		dsn     string
+		want    bool
 	}{
-		{config.EnvProduction, false},
-		{config.EnvStage, false},
-		{config.EnvDevelopment, true},
-		{"", true},
-		{"test", true},
+		{"production", config.EnvProduction, "", localDSN, false},
+		{"stage", config.EnvStage, "", localDSN, false},
+		// The deploy sets NODE_ENV directly in the process env, so it must
+		// gate even when the dotenv file that carries ENVIRONMENT is missing.
+		{"NODE_ENV stage only", "", config.EnvStage, localDSN, false},
+		{"NODE_ENV production only", "", config.EnvProduction, localDSN, false},
+		// Values arrive from dotenv files, which may be quoted or cased.
+		{"mixed case", "Stage", "", localDSN, false},
+		{"padded", "  stage  ", "", localDSN, false},
+		// A deployed DSN with no environment name set at all must still fail
+		// closed — this is the ad-hoc `DATABASE_URL=<prod> go run ./cmd/seed`
+		// case that no env-name check can catch.
+		{"remote dsn, no env", "", "", remoteDSN, false},
+		// And the workflows that must keep working.
+		{"development", config.EnvDevelopment, "", localDSN, true},
+		{"unset", "", "", localDSN, true},
+		{"unfamiliar", "test", "", localDSN, true},
+		{"empty dsn defaults local", "", "", "", true},
+		{"loopback ip", "", "", "postgres://u:p@127.0.0.1:5432/db", true},
 	} {
-		t.Setenv(config.EnvEnvironment, tc.env)
-		if got := archiveExemplarEnabled(); got != tc.want {
-			t.Errorf("ENVIRONMENT=%q: archiveExemplarEnabled() = %v, want %v", tc.env, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.EnvEnvironment, tc.env)
+			t.Setenv("NODE_ENV", tc.nodeEnv)
+			t.Setenv(config.EnvDatabaseURL, tc.dsn)
+			if got := archiveExemplarEnabled(); got != tc.want {
+				t.Errorf("archiveExemplarEnabled() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -454,30 +492,52 @@ func TestArchiveVenueZoneMatchesTheSlugResolver(t *testing.T) {
 	}
 }
 
-func TestArchiveGeneratedDatesStayInTheirCalendarBucket(t *testing.T) {
+func TestArchiveGeneratedInstantsCarryTheVenueOffset(t *testing.T) {
 	// Shows are authored as venue-local evening times and stored in UTC,
-	// while the year/month histograms bucket by venue-local date. A 21:00
-	// Phoenix show is 04:00 UTC the NEXT day, so a zone error would move it
-	// into the following month — and, in December, the following YEAR,
-	// inventing a year in the strip.
+	// while the year/month histograms bucket by venue-local date. Getting
+	// the zone wrong shifts every evening show by a day — and in December,
+	// by a YEAR, inventing a bar in the year strip.
 	//
-	// This walks the real generator output rather than round-tripping a
-	// constant, so it fails if the zone, the door times, or the day spread
-	// ever conspire to cross a boundary.
+	// The assertion is against an INDEPENDENTLY derived expectation (the
+	// known fixed offset), not a round-trip of the same time.Date call.
+	// A round-trip — building an instant in a zone and reading it back in
+	// that zone — returns the same wall clock for every zone on earth, so
+	// it cannot detect a wrong zone at all. This version fails immediately
+	// if archiveVenueZone becomes UTC or any other offset.
+	const phoenixOffsetHours = 7 // America/Phoenix is UTC-7 year round, no DST
+
 	for _, ay := range archiveYears {
 		for monthIdx, count := range ay.months {
 			month := time.Month(monthIdx + 1)
 			for i := 0; i < count; i++ {
 				seq := archiveSeq(ay.year, monthIdx+1, i)
 				clock := archiveDoorTimes[archiveNoise(seq, saltDoorTime)%len(archiveDoorTimes)]
-				stored := time.Date(ay.year, month, archiveDayOfMonth(i, count),
+				day := archiveDayOfMonth(i, count)
+				stored := time.Date(ay.year, month, day,
 					clock.hour, clock.minute, 0, 0, archiveVenueZone).UTC()
 
-				local := stored.In(archiveVenueZone)
-				if local.Year() != ay.year || local.Month() != month {
-					t.Fatalf("show %d/%02d #%d stored as %s buckets to %d-%02d in venue-local time",
-						ay.year, month, i, stored, local.Year(), local.Month())
+				if got, want := stored.Hour(), (clock.hour+phoenixOffsetHours)%24; got != want {
+					t.Fatalf("%d-%02d-%02d %02d:%02d local stored as %s (UTC hour %d); want UTC hour %d for a UTC-%d venue",
+						ay.year, month, day, clock.hour, clock.minute, stored, got, want, phoenixOffsetHours)
 				}
+
+				// Every door time is in the evening, so adding 7h always
+				// crosses midnight: the UTC calendar day must be the day
+				// AFTER the authored one.
+				wantDate := time.Date(ay.year, month, day, 0, 0, 0, 0, time.UTC).AddDate(0, 0, 1)
+				if stored.Year() != wantDate.Year() || stored.Month() != wantDate.Month() || stored.Day() != wantDate.Day() {
+					t.Fatalf("%d-%02d-%02d %02d:%02d local stored on UTC date %s; want %s",
+						ay.year, month, day, clock.hour, clock.minute,
+						stored.Format("2006-01-02"), wantDate.Format("2006-01-02"))
+				}
+
+				// And the venue-local bucket the histograms group by must
+				// still be the month this show was authored into.
+				if local := stored.In(archiveVenueZone); local.Year() != ay.year || local.Month() != month {
+					t.Fatalf("show %d/%02d #%d buckets to %d-%02d in venue-local time",
+						ay.year, month, i, local.Year(), local.Month())
+				}
+
 				if clock.hour < 12 {
 					t.Errorf("%02d:%02d is not an evening time", clock.hour, clock.minute)
 				}

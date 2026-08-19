@@ -109,9 +109,17 @@ that UI (during PR #1904).
 > `psy-deploy-prod --with-db-restore` copies stage's catalog into prod. A
 > verified venue with hundreds of approved shows would outrank real venues
 > in the graph, scene rollups, and sitemap, so `archiveExemplarEnabled`
-> skips this fixture when `ENVIRONMENT` is `stage` or `production`. An
-> unset or unrecognised `ENVIRONMENT` still seeds, so local workflows are
-> unaffected.
+> skips this fixture unless all three of these agree it is local:
+>
+> | Signal | Skips when | Why it alone is not enough |
+> | --- | --- | --- |
+> | `ENVIRONMENT` | `stage` / `production` | On stage it arrives only via the gitignored `.env.stage`; regenerate that from `.env.example` (no `ENVIRONMENT` key) and the signal vanishes |
+> | `NODE_ENV` | `stage` / `production` | Set directly by the deploy command, so it survives a dotenv mishap, but it is not what the rest of the config reads |
+> | `DATABASE_URL` | host is not `localhost`/`127.0.0.1` | Ground truth about which database is about to be written; catches an ad-hoc run against a deployed DSN with no env name set |
+>
+> The env-name checks fail open (unset or unfamiliar values still seed) so
+> local workflows are unaffected; the `DATABASE_URL` check is what makes a
+> deployed DSN fail closed.
 
 | Property | Value |
 | --- | --- |
