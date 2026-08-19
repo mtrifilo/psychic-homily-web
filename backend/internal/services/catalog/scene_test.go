@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -607,13 +608,8 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows_Artists
 		{Name: "Unslugged Opener", Slug: ""},
 	}, row.Artists)
 
-	// The legacy names field keeps working, and the two agree — they are built
-	// from one resolved bill, so they cannot drift apart.
+	// The legacy names field keeps working, and agrees with the pairs above.
 	suite.Equal([]string{"Slugged Headliner", "Unslugged Opener"}, row.ArtistNames)
-	suite.Require().Len(row.Artists, len(row.ArtistNames))
-	for i, name := range row.ArtistNames {
-		suite.Equal(name, row.Artists[i].Name)
-	}
 }
 
 // TestSceneSurfaces_AllCarryArtistPairs (PSY-1846): the day, week and upcoming
@@ -621,7 +617,17 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows_Artists
 // names-only. They share one builder today; this is the assertion that fails if
 // a surface is ever given its own mapping that forgets the pairs.
 func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistPairs() {
-	suite.seedSceneData()
+	venues, artists := suite.seedSceneData()
+	user := suite.createUser()
+
+	// Anchor every surface on ONE seeded show at a known instant, so the day and
+	// week keys are computed rather than guessed. seedSceneData's own shows sit
+	// 7–11 days out, which lands them in an ISO week that depends on the weekday
+	// the suite happens to run — not something this test should be sensitive to.
+	anchor := time.Now().UTC().AddDate(0, 0, 3)
+	suite.createApprovedShow("Anchor Show", venues[0].ID, artists[0].ID, user.ID, anchor)
+	anchorYear, anchorWeek := anchor.ISOWeek()
+	anchorWeekKey := fmt.Sprintf("%d-W%02d", anchorYear, anchorWeek)
 
 	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {
 		// Guard against a vacuous pass: a surface that returns nothing, or bills
@@ -645,27 +651,28 @@ func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistP
 	suite.Require().NoError(err)
 	assertPaired("upcoming", upcoming)
 
-	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "")
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", anchorWeekKey)
 	suite.Require().NoError(err)
 	weekShows := []contracts.SceneShowSummary{}
 	for _, d := range week.Days {
 		weekShows = append(weekShows, d.Shows...)
 	}
-	// seedSceneData's shows sit 7–11 days out, so the CURRENT week can be empty.
-	// Assert on the week that actually holds them instead of skipping the surface.
-	if len(weekShows) == 0 {
-		wy, wn := time.Now().UTC().AddDate(0, 0, 8).ISOWeek()
-		week, err = suite.sceneService.GetSceneWeek("Phoenix", "AZ", fmt.Sprintf("%d-W%02d", wy, wn))
-		suite.Require().NoError(err)
-		weekShows = weekShows[:0]
-		for _, d := range week.Days {
-			weekShows = append(weekShows, d.Shows...)
-		}
-	}
 	assertPaired("week", weekShows)
 
-	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ",
-		time.Now().UTC().AddDate(0, 0, 8).Format("2006-01-02"))
+	// Take the day key from the week's own buckets rather than formatting the
+	// anchor here: those keys are scene-LOCAL, and a UTC-formatted date lands on
+	// the wrong day for any evening show west of Greenwich.
+	anchorDay := ""
+	for _, d := range week.Days {
+		for _, s := range d.Shows {
+			if s.Title == "Anchor Show" {
+				anchorDay = d.Date
+			}
+		}
+	}
+	suite.Require().NotEmpty(anchorDay, "anchor show missing from its own week")
+
+	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ", anchorDay)
 	suite.Require().NoError(err)
 	assertPaired("day", day.Shows)
 }
@@ -686,8 +693,10 @@ func (suite *SceneServiceIntegrationTestSuite) findSceneShow(
 }
 
 // TestGetSceneUpcomingShows_NoBillOmitsBothArtistFields (PSY-1846): a show with
-// no artists leaves BOTH artist fields nil, so `omitempty` keeps them off the
-// wire exactly as artist_names alone did before the pairs were added.
+// no artists leaves BOTH artist fields empty, so `omitempty` keeps them off the
+// wire exactly as artist_names alone did before the pairs were added. Asserted
+// on the marshalled JSON, since that absence — not Go-side nil-ness — is the
+// contract clients see (encoding/json drops a nil and an empty slice alike).
 func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows_NoBillOmitsBothArtistFields() {
 	venues, _ := suite.seedSceneData()
 	user := suite.createUser()
@@ -701,8 +710,13 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows_NoBillO
 	shows, err := suite.sceneService.GetSceneUpcomingShows("Phoenix", "AZ", 7, 10)
 	suite.Require().NoError(err)
 	row := suite.findSceneShow(shows, "Open Decks")
-	suite.Nil(row.ArtistNames)
-	suite.Nil(row.Artists)
+	suite.Empty(row.ArtistNames)
+	suite.Empty(row.Artists)
+
+	encoded, err := json.Marshal(row)
+	suite.Require().NoError(err)
+	suite.NotContains(string(encoded), `"artist_names"`)
+	suite.NotContains(string(encoded), `"artists"`)
 }
 
 // The weekly city page publishes each show as schema.org MusicEvent, which

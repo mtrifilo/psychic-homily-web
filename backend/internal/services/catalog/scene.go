@@ -737,10 +737,18 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 	// when the title is empty (see SceneShowSummary.ArtistNames, PSY-1325), and
 	// the link targets behind the linked-bill row (PSY-1846).
 	//
-	// ONE batch read for the whole page, and the ONLY artist read on this path:
-	// this is the Atlas preview row, the weekly page and the digest's query, so
-	// a per-row lookup here is a per-show query on three hot surfaces. Both DTO
-	// artist fields are projected from this one result below.
+	// ONE batch read for the whole page, and the ONLY artist read on this path,
+	// which every scene surface funnels through — a per-row lookup here would be
+	// a per-show query on all of them. Both DTO artist fields are projected from
+	// this one result below.
+	//
+	// One builder serves surfaces with very different needs, and the slug half
+	// is not free for all of them: the ICS feed (sceneFeedShowLimit = 1000, the
+	// largest cap here) and the digest email render the bill as plain text and
+	// read ArtistNames only, so they now carry a slug column and a pairs slice
+	// they never look at. That is bounded transient garbage behind a 5-minute
+	// cache, and it buys one builder instead of two — but it is a real cost, not
+	// a free ride, so weigh it before raising any cap on this path.
 	ids := make([]uint, len(rows))
 	for i, r := range rows {
 		ids[i] = r.ID
@@ -753,17 +761,11 @@ func (s *SceneService) GetSceneShowsInRange(city, state string, from, to time.Ti
 	results := make([]contracts.SceneShowSummary, len(rows))
 	for i, r := range rows {
 		bill := artistsByShow[r.ID]
-		// nil (not empty) for a show with no bill, so both fields stay
-		// `omitempty`-absent on the wire exactly as they did before.
-		var artistNames []string
-		var artists []contracts.SceneShowArtist
-		if len(bill) > 0 {
-			artistNames = make([]string, len(bill))
-			artists = make([]contracts.SceneShowArtist, len(bill))
-			for j, a := range bill {
-				artistNames[j] = a.Name
-				artists[j] = contracts.SceneShowArtist{Name: a.Name, Slug: a.Slug}
-			}
+		artistNames := make([]string, len(bill))
+		artists := make([]contracts.SceneShowArtist, len(bill))
+		for j, a := range bill {
+			artistNames[j] = a.Name
+			artists[j] = contracts.SceneShowArtist{Name: a.Name, Slug: a.Slug}
 		}
 
 		results[i] = contracts.SceneShowSummary{

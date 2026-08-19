@@ -146,12 +146,11 @@ func BatchResolveUserUsernames(db *gorm.DB, userIDs []uint) (map[uint]*string, e
 // ShowArtistRef is one band on a bill, reduced to what a linked row needs: the
 // name that labels it and the slug that builds its href.
 //
-// Slug is "" — never nil — when the artist has no slug: `artists.slug` is
-// NULLABLE and GenerateSlug can return an empty string, so an unslugged band is
-// a real row, not a bug. Callers MUST render it unlinked rather than building
-// `/artists/` + "", which resolves to the artists INDEX instead of 404ing
-// (PSY-1754). Dropping such artists instead is not an option: on a titleless
-// show the bill IS the display name, so a silent drop mislabels the show.
+// Slug is "" — never nil — for an unslugged artist: `artists.slug` is NULLABLE
+// (hence the COALESCE below) and GenerateSlug can return an empty string, so
+// such a band is a real row and is carried, not filtered. What a CONSUMER must
+// do with it is the wire contract's business — see
+// contracts.SceneShowSummary.Artists.
 type ShowArtistRef struct {
 	Name string
 	Slug string
@@ -195,10 +194,17 @@ func BatchResolveShowArtists(db *gorm.DB, showIDs []uint) (map[uint][]ShowArtist
 // BatchResolveShowArtists, for callers that render a bill as plain text and have
 // no link to build.
 //
-// It delegates rather than issuing its own query so the billing order — and
-// especially the artists.id tie-break above — is defined exactly once. The cost
-// is one extra text column on the read, which is far cheaper than two copies of
-// an ordering rule that must not drift.
+// It delegates rather than issuing its own query so that these two helpers
+// cannot drift apart on billing order — especially the artists.id tie-break
+// above. The cost is one extra text column on the read, far cheaper than a
+// second copy of an ordering rule.
+//
+// This is NOT the only bill-ordering query in the backend, and the others do
+// not agree: catalog/venue_rail.go tie-breaks on artists.name, and
+// catalog/charts_service.go has no tie-break at all — the planner-order
+// nondeterminism PSY-1325 fixed here, still live there. Pointing both at this
+// helper is a worthwhile follow-up; until then, do not read "one definition"
+// into this package.
 func BatchResolveShowArtistNames(db *gorm.DB, showIDs []uint) (map[uint][]string, error) {
 	artistsByShow, err := BatchResolveShowArtists(db, showIDs)
 	if err != nil {

@@ -1353,11 +1353,13 @@ type SceneShowSummary struct {
 	// (PSY-1754). Omitting it instead would silently shorten a titleless show's
 	// display name, which is composed from this bill.
 	//
-	// Deliberately scene-local rather than a reuse of ArtistListingEntry or
-	// ChartEntityReference: those are projections of their own endpoints with
-	// their own membership gates, and sharing a struct merely because the wire
-	// fields overlap today is the coupling ChartEntityReference's own doc warns
-	// against.
+	// Deliberately scene-local. ArtistListingEntry is the closest field match
+	// but the WRONG contract — its endpoint gates OUT empty-slug rows, which
+	// this field must carry. ArtistShowArtist is the closest semantic match
+	// ("an artist on a show bill") and would also work, but it carries an ID
+	// this deliberately-thin summary has no use for. ChartEntityReference's own
+	// doc warns against sharing a struct merely because the wire fields overlap
+	// today, and that reasoning applies here too.
 	Artists []SceneShowArtist `json:"artists,omitempty"`
 	// Status flags, needed by any surface that LISTS shows rather than linking
 	// to one. A weekly city page that renders a cancelled show identically to a
