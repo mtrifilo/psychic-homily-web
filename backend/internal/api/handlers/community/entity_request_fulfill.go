@@ -183,19 +183,34 @@ func buildShowAssociations(venue *ShowVenueInput, artists []ShowArtistInput) (*s
 // for an act that carries no other signal. That fallback is right for a bill
 // nobody described and wrong the moment somebody does. Without this, an admin
 // who marks the SECOND act "headliner" and leaves the first alone gets TWO rows
-// with set_type='headliner', and every headliner reader in the codebase resolves
-// `set_type = 'headliner' ORDER BY position ASC LIMIT 1`, so the act nobody
-// designated wins and the curated one is discarded. That silently corrupts the
-// single fact PSY-1705 exists to record.
+// with set_type='headliner'. Headliner resolution picks
+// `set_type='headliner' ORDER BY position ASC LIMIT 1` (see SearchShows), so the
+// act nobody designated wins on the tie and the curated one is discarded,
+// silently corrupting the single fact PSY-1705 exists to record.
 //
 // The rule this encodes: a stated bill is a complete statement, so first-in-list
-// is not a second opinion. It is the same guard ConfirmShowImport applies for
-// the same reason, and the direct show-create handler gets it for free because
-// initializeArtist pins the flag false on every act before Resolve runs.
+// is not a second opinion. ConfirmShowImport encodes the same rule for markdown
+// imports ("first-in-file is not a second opinion"), and the direct show-CREATE
+// handler is immune for a different reason: initializeArtist pins the flag false
+// on every act before Resolve runs, unconditionally. The show UPDATE handler
+// does NOT (it forwards a nil IsHeadliner through replaceShowArtists ->
+// associateArtists -> resolveArtistRole), so it still has this exposure; that is
+// a sibling defect, filed separately rather than fixed here, since it is a
+// different endpoint with its own callers. The product's own show form is
+// unaffected either way because it derives an explicit is_headliner per act.
 //
-// Acts that state their own set_type or is_headliner are left untouched, and a
-// bill where NOBODY states anything is untouched as a whole, so this cannot
-// change the outcome for any caller that predates set_type on this endpoint.
+// Scoped deliberately narrower than initializeArtist: acts that state their own
+// set_type or is_headliner are left untouched, and a bill where NOBODY states
+// anything is left untouched as a whole, so no caller that predates set_type on
+// this endpoint can see a different outcome. Pinning unconditionally would
+// instead turn an undescribed bill into a bill with no headliner at all.
+//
+// A bill that ends up with no headliner row is still safe, and is sometimes the
+// honest answer (an admin who states only "performer" and "dj" has not named a
+// headliner). Readers COALESCE the headliner lookup down to plain
+// `ORDER BY position ASC LIMIT 1`, and checkDuplicateHeadlinerConflicts falls
+// back to artists[0] for the dedup key, so such a show still renders and still
+// dedups. It just stops ASSERTING a headliner nobody chose.
 func suppressPositionInference(artists []contracts.CreateShowArtist) {
 	for i := range artists {
 		if artists[i].SetType != nil || artists[i].IsHeadliner != nil {

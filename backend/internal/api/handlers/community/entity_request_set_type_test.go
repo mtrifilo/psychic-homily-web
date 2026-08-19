@@ -515,6 +515,42 @@ func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_CuratedHeadlinerI
 	s.Equal([]string{"Boris"}, headlinerNames)
 }
 
+// An admin who states only non-headliner roles has not named a headliner, and
+// the fulfillment must not invent one. The show still has to be usable: readers
+// COALESCE the headliner lookup down to plain position order, and the dedup
+// pre-check falls back to the first act, so this asserts the show is created and
+// no row claims the headliner slot.
+func (s *EntityRequestSetTypeIntegrationSuite) TestFulfillShow_NoHeadlinerIsNotInvented() {
+	h := s.rescueHandler(s.showOrphan("Headliner Unknown"))
+
+	performer := contracts.SetTypePerformer
+	dj := contracts.SetTypeDJ
+
+	req := &AdminFulfillEntityRequestRequest{ID: "1"}
+	req.Body.ShowVenue = &ShowVenueInput{Name: "Lunchbox", City: "Phoenix", State: "AZ"}
+	req.Body.ShowArtists = []ShowArtistInput{
+		{Name: "Act One", SetType: &performer},
+		{Name: "Act Two", SetType: &dj},
+		{Name: "Act Three"},
+	}
+
+	resp, err := h.AdminFulfillEntityRequestHandler(erAdminCtx(), req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp.Body.CreatedEntityID)
+
+	got := s.setTypesByPosition(*resp.Body.CreatedEntityID)
+	s.Equal(contracts.SetTypePerformer, got[0])
+	s.Equal(contracts.SetTypeDJ, got[1])
+	s.Equal(contracts.SetTypePerformer, got[2])
+
+	var headliners int64
+	s.Require().NoError(s.deps.DB.
+		Table("show_artists").
+		Where("show_id = ? AND set_type = ?", *resp.Body.CreatedEntityID, contracts.SetTypeHeadliner).
+		Count(&headliners).Error)
+	s.Zero(headliners, "no act stated the headliner slot, so none may claim it")
+}
+
 // With no curated role anywhere, the bill keeps the legacy shape: position 0 is
 // the headliner (the one inference the vocabulary still sanctions) and every
 // other act is 'performer'. This is what keeps the change additive for callers
