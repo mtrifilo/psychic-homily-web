@@ -112,6 +112,191 @@ const sceneVenueEligibilitySQL = `AND v.verified = true
 		  AND v.city IS NOT NULL AND v.city != ''
 		  AND v.state IS NOT NULL AND v.state != ''`
 
+// sceneVenueGroup is one row of the sceneGroupKeySQL grouping: the group's CBSA
+// (empty for a fallback group), its literal city/state, and the counts
+// ListScenes publishes. Package-level (rather than local to ListScenes) so the
+// slug collapse below is a plain function over it.
+type sceneVenueGroup struct {
+	Metro         string `gorm:"column:metro"`
+	City          string `gorm:"column:city"`
+	State         string `gorm:"column:state"`
+	VenueCount    int    `gorm:"column:venue_count"`
+	ShowCount     int    `gorm:"column:show_count"`
+	UpcomingCount int    `gorm:"column:upcoming_count"`
+	ThisWeekCount int    `gorm:"column:this_week_count"`
+}
+
+// collapseSceneGroupsToCanonicalSlug returns at most one group per DISPLAY SLUG.
+//
+// sceneGroupKeySQL is FINER than a scene's published identity, in two ways.
+// It separates a CBSA group from a no-metro fallback group, so the two carry
+// one slug whenever the fallback group's literal city is that metro's principal
+// city — Phoenix, AZ does exactly that as soon as any verified Phoenix room's
+// denormalized `venues.metro` is missing or stale, the drift
+// ReconcileVenueMetros exists to repair and the BACKGROUND location writers
+// named there still introduce. It also only lower/trims, while buildSceneSlug
+// maps spaces to dashes, so "Saint Jerome, QC" and "Saint-Jerome, QC" are two
+// groups under one slug with no drift involved at all.
+//
+// Either way `GET /scenes` publishes two rows a reader cannot tell apart,
+// ordered against each other arbitrarily, both pointing at the same page;
+// /shows renders that list keyed by slug and React reconciles the pair
+// undefined (PSY-1831).
+//
+// The survivor is the group ParseSceneSlug resolves the slug to, so the row's
+// counts are the counts its destination page will print. sceneGroupOutranks
+// holds that correspondence and carries a branch per collision shape.
+//
+// The losers are DROPPED, not summed into the survivor. venuePredicate selects
+// a scene's rooms by the survivor's key alone — `venues.metro = <CBSA>` for a
+// metro scene, the literal city/state for a fallback one — so a loser's rooms
+// and shows are already absent from every number that page prints and from its
+// venue list; folding them in here would make the directory contradict the page
+// it links to, which is the one thing the list and the detail page must never
+// do. Nothing reachable is lost — only a row whose destination never showed it.
+//
+// It does NOT fix the asymmetric case, where the group a slug resolves to falls
+// below the HAVING thresholds and a colliding group clears them: the survivor is
+// then the only row, and its page still 404s. That is a pre-existing hole in the
+// list/detail correspondence, not one this collapse opens, and closing it means
+// dropping a scene from the directory outright — a listing decision, not a
+// dedupe.
+//
+// A collapse is logged rather than performed silently: it always means
+// venues.metro no longer equals geo.ResolveMetro(city, state), which
+// cmd/backfill-entity-metro repairs. Deduping quietly would leave a fixed
+// symptom sitting on top of a live data fault.
+func collapseSceneGroupsToCanonicalSlug(groups []sceneVenueGroup, g geo.Geocoder) []sceneVenueGroup {
+	indexesBySlug := make(map[string][]int, len(groups))
+	slugOrder := make([]string, 0, len(groups))
+	for i := range groups {
+		slug := sceneGroupSlug(groups[i])
+		if _, seen := indexesBySlug[slug]; !seen {
+			slugOrder = append(slugOrder, slug)
+		}
+		indexesBySlug[slug] = append(indexesBySlug[slug], i)
+	}
+	if len(indexesBySlug) == len(groups) {
+		return groups // no drift: every group already owns its slug outright
+	}
+
+	collapsed := make([]sceneVenueGroup, 0, len(indexesBySlug))
+	contested := make([]string, 0, len(groups)-len(indexesBySlug))
+	for _, slug := range slugOrder {
+		candidates := indexesBySlug[slug]
+		winner := candidates[0]
+		for _, i := range candidates[1:] {
+			if sceneGroupOutranks(groups[i], groups[winner], g) {
+				winner = i
+			}
+		}
+		if len(candidates) > 1 {
+			for _, i := range candidates {
+				if i == winner {
+					continue
+				}
+				contested = append(contested, slug+" dropped "+sceneKeyForGroup(groups[i].Metro, groups[i].City, groups[i].State))
+			}
+		}
+		collapsed = append(collapsed, groups[winner])
+	}
+
+	// The message names both causes rather than asserting one: a collision is
+	// either venues.metro drift (cmd/backfill-entity-metro repairs it) or two
+	// spellings of one city name (only an edit to the venue rows repairs that),
+	// and sending an operator to the reconciler for the second would be a no-op
+	// that leaves the real cause invisible. The contested keys tell them which.
+	//
+	// One line per call, not per collision. ListScenes is uncached and /scenes
+	// also feeds the Atlas globe and the home scene graph, so this repeats until
+	// the data is fixed; that is deliberate, because a once-per-process log goes
+	// quiet after a deploy while the fault is still live.
+	slog.Default().Warn(
+		"scene slug collision collapsed; two venue groups publish one scene identity — check venues.metro drift and city spelling variants",
+		"collisions", contested,
+	)
+	return collapsed
+}
+
+// sceneGroupSlug is the PUBLISHED identity of a venue group: the slug built from
+// the display city/state metroDisplayIdentity resolves for it. Its twin
+// sceneKeyForGroup is the group's INTERNAL identity (the SQL group key); the two
+// are deliberately different, and the gap between them is what this file's
+// collapse exists to close.
+func sceneGroupSlug(grp sceneVenueGroup) string {
+	city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
+	return buildSceneSlug(city, state)
+}
+
+// sceneGroupOutranks reports whether group a has a better claim to a contested
+// slug than group b — "better" meaning ParseSceneSlug will resolve the slug to
+// a, so a's counts are the ones its page prints.
+//
+// That resolution has TWO branches, and so does this, because the two shapes of
+// collision are decided by different rules:
+//
+//  1. CBSA vs no-CBSA. ParseSceneSlug resolves a slug through ResolveMetro
+//     first, so whichever group holds the CBSA wins. This is the venues.metro
+//     drift case (a Phoenix room missing its metro).
+//
+//  2. Two no-CBSA groups. sceneGroupKeySQL only lower/trims while buildSceneSlug
+//     also maps spaces to dashes, so "Saint Jerome, QC" and "Saint-Jerome, QC"
+//     are two groups under one slug with no drift involved. ParseSceneSlug falls
+//     through to `ORDER BY city, state LIMIT 1` over verified venues, so the
+//     LOWEST literal pair wins — and it must be compared here the same way, or
+//     the directory advertises one group's counts for the other group's page.
+//     MIN(city)/MIN(state) are the group's own minima under the same collation
+//     that ORDER BY uses, so comparing them picks the same row LIMIT 1 does.
+//     City always decides: two groups sharing a slug share a lowercased state,
+//     and a differing SQL key means a differing MIN(city).
+//
+// Case 2 compares those minima BYTE-WISE while Postgres orders them under the
+// database's collation, so a collation that sorts punctuation differently would
+// pick the other spelling. TestListScenes_SpellingVariantsDoNotSplitTheScene
+// asserts the two agree rather than assuming it, and the cost of a mismatch is a
+// row naming the wrong spelling — not a duplicate one, which is what this
+// function is here to prevent.
+//
+// The count and key comparisons below only make the order TOTAL for a shape
+// neither branch separates, so a collapse stays stable across calls rather than
+// reintroducing the reshuffling this function exists to remove.
+func sceneGroupOutranks(a, b sceneVenueGroup, g geo.Geocoder) bool {
+	if am, bm := sceneGroupMatchesItsSlugScope(a, g), sceneGroupMatchesItsSlugScope(b, g); am != bm {
+		return am
+	}
+	if am, bm := a.Metro != "", b.Metro != ""; am != bm {
+		return am
+	}
+	if a.Metro == "" && b.Metro == "" {
+		if a.City != b.City {
+			return a.City < b.City
+		}
+		if a.State != b.State {
+			return a.State < b.State
+		}
+	}
+	if a.VenueCount != b.VenueCount {
+		return a.VenueCount > b.VenueCount
+	}
+	if a.ShowCount != b.ShowCount {
+		return a.ShowCount > b.ShowCount
+	}
+	return sceneKeyForGroup(a.Metro, a.City, a.State) < sceneKeyForGroup(b.Metro, b.City, b.State)
+}
+
+// sceneGroupMatchesItsSlugScope reports whether a group is the one its own slug
+// resolves back to. A CBSA group round-trips (its display city is the metro's
+// principal, which pins that metro again); a fallback group in a city that DOES
+// pin a CBSA does not, and is the drifted half of a collision.
+//
+// It separates case 1 above and NOT case 2: two no-CBSA groups both answer true,
+// which is why sceneGroupOutranks carries a second branch rather than treating
+// this as the whole test.
+func sceneGroupMatchesItsSlugScope(grp sceneVenueGroup, g geo.Geocoder) bool {
+	city, state := metroDisplayIdentity(grp.Metro, grp.City, grp.State)
+	return metroScopeFor(g, city, state).metro == grp.Metro
+}
+
 // sceneScope captures how a scene is keyed for querying (PSY-1255 step C). A US
 // place that resolves to a Census CBSA is keyed by that metro code, so the
 // scene's roster = bands BASED in the whole metro (boroughs/suburbs rolled up),
@@ -264,16 +449,6 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 
 	now := time.Now().UTC()
 
-	type groupRow struct {
-		Metro         string `gorm:"column:metro"`
-		City          string `gorm:"column:city"`
-		State         string `gorm:"column:state"`
-		VenueCount    int    `gorm:"column:venue_count"`
-		ShowCount     int    `gorm:"column:show_count"`
-		UpcomingCount int    `gorm:"column:upcoming_count"`
-		ThisWeekCount int    `gorm:"column:this_week_count"`
-	}
-
 	// Group verified venues by CBSA metro (or by (city,state) when the venue has
 	// no metro), counting distinct venues + approved shows + the upcoming subset
 	// in ONE pass — the FILTER aggregate replaces the former per-scene N+1 query.
@@ -286,7 +461,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	// must share the scene scoping of the other counts — one more FILTER
 	// aggregate in the same pass, not a new query.
 	weekAhead := now.AddDate(0, 0, sceneThisWeekDays)
-	var groups []groupRow
+	var groups []sceneVenueGroup
 	err := s.db.Raw(`
 		SELECT COALESCE(MAX(v.metro), '') AS metro,
 		       MIN(v.city)  AS city,
@@ -307,6 +482,12 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
+
+	// One row per PUBLISHED scene, not per SQL group key — the two are not the
+	// same thing when venues.metro has drifted. Collapsing HERE (rather than
+	// after hydration) also keeps the per-scene calendar-week query below to one
+	// per canonical scene, which is why the sitemap collapses at the same point.
+	groups = collapseSceneGroupsToCanonicalSlug(groups, s.geocoder)
 
 	results := make([]*contracts.SceneListResponse, 0, len(groups))
 	if len(groups) == 0 {
@@ -1157,6 +1338,10 @@ func (s *SceneService) rememberSlugMiss(slug string) {
 // their results by that SQL expression, so anything matching a Go-side group to
 // one of those maps has to build the key identically. One function, so a change
 // to the SQL identity has one Go counterpart to change with it.
+//
+// NOT the scene's published identity — that is sceneGroupSlug, and it is COARSER
+// than this key (see collapseSceneGroupsToCanonicalSlug). Reach for this one to
+// look a group up in a batched aggregation, for that one to name a scene.
 func sceneKeyForGroup(metro, city, state string) string {
 	if metro != "" {
 		return metro
