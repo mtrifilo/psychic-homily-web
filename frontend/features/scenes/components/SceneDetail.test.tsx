@@ -103,6 +103,9 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
     state: 'AZ',
     slug: 'phoenix-az',
     description: null,
+    // Absent by default: most scenes have no authored tagline, so every test
+    // that does not opt in is exercised against the no-tagline page.
+    tagline: null,
     stats: {
       venue_count: 12,
       artist_count: 85,
@@ -416,6 +419,58 @@ describe('SceneDetailView', () => {
     it('never renders the scene description, even when the payload carries one', () => {
       mockUseSceneDetail.mockReturnValue({
         data: buildScene({ description: 'A desert DIY scene.' }),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.queryByText('A desert DIY scene.')).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-1848. The authored tagline is the ONE line allowed in this slot, and
+  // its absent state is nothing at all — the locked sparse frame draws no
+  // placeholder and no derived line.
+  describe('authored tagline', () => {
+    it('renders the tagline under the heading when the payload carries one', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({ tagline: 'Where the desert learns to scream' }),
+        isLoading: false,
+        error: null,
+      })
+      renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(screen.getByText('Where the desert learns to scream')).toBeInTheDocument()
+    })
+
+    it('renders nothing in the tagline slot when the tagline is null', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({ tagline: null }),
+        isLoading: false,
+        error: null,
+      })
+      const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      const header = container.querySelector('header')
+      // The header's only paragraph is the stat line. A tagline element — even
+      // an empty one — would reserve height the absent state must not take.
+      expect(header?.querySelectorAll('p')).toHaveLength(1)
+    })
+
+    // A whitespace-only tagline is a data accident, not content. It must read
+    // as absent rather than as a blank line the reader cannot see or explain.
+    it('treats a whitespace-only tagline as absent', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({ tagline: '   ' }),
+        isLoading: false,
+        error: null,
+      })
+      const { container } = renderWithProviders(<SceneDetailView slug="phoenix-az" />)
+      expect(container.querySelector('header')?.querySelectorAll('p')).toHaveLength(1)
+    })
+
+    // The kill-set rule survives the tagline landing: description is still not
+    // rendered, and it is explicitly NOT a fallback when the tagline is absent.
+    it('does not fall back to description when the tagline is absent', () => {
+      mockUseSceneDetail.mockReturnValue({
+        data: buildScene({ tagline: null, description: 'A desert DIY scene.' }),
         isLoading: false,
         error: null,
       })

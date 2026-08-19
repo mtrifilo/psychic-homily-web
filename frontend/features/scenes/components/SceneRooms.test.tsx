@@ -40,6 +40,7 @@ function buildScene(venues: SceneVenue[], overrides: Partial<SceneDetail> = {}):
     state: 'AZ',
     slug: 'phoenix-az',
     description: null,
+    tagline: null,
     stats: {
       venue_count: venues.length,
       artist_count: 17,

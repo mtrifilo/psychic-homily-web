@@ -1748,7 +1748,12 @@ type SceneDetailResponse struct {
 	State       string     `json:"state"`
 	Slug        string     `json:"slug"`
 	Description *string    `json:"description"` // nil until scenes table exists
-	Stats       SceneStats `json:"stats"`
+	// Tagline is the authored line the scene page renders under its H1, and the
+	// route's og:description when set (PSY-1848). nil is the ordinary state —
+	// the page renders NOTHING for it rather than falling back to Description,
+	// which is prose the page does not show.
+	Tagline *string    `json:"tagline"`
+	Stats   SceneStats `json:"stats"`
 	Pulse       ScenePulse `json:"pulse"`
 	// Venues is the scene's tracked rooms, busiest first — the page's rooms
 	// leaderboard. The SAME set the day payload names (verified rooms in the
@@ -2398,6 +2403,15 @@ type SceneServiceInterface interface {
 	// the SAME scene-existence threshold as GetSceneDetail, so a place that is
 	// not yet a scene 404s here too rather than publishing a row of zeros.
 	GetSceneGaps(city, state string) (*SceneGapsResponse, error)
+	// UpdateSceneTagline sets the authored tagline for a scene, or clears it
+	// when tagline is nil. Returns the registry row id it wrote (for the
+	// caller's audit entry) and the CANONICAL slug of the scene it landed on,
+	// which differs from the argument when a metro member city was addressed —
+	// callers echo the canonical one, the same slug every scene read returns.
+	// Materializes the row on first need: an authored tagline is exactly the
+	// kind of curated reference that gives a computed scene a row. Callers own
+	// the length guard; the column caps at 80.
+	UpdateSceneTagline(slug string, tagline *string) (uint, string, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
 	// clusterBy selects the cluster signal: "venue" (default) or "community"

@@ -31,6 +31,7 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
     state: 'AZ',
     slug: 'phoenix-az',
     description: null,
+    tagline: null,
     stats: {
       venue_count: 12,
       artist_count: 17,

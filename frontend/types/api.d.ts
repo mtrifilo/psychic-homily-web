@@ -1213,6 +1213,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/scenes/{slug}/tagline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch admin scenes by slug tagline */
+        patch: operations["patch-admin-scenes-by-slug-tagline"];
+        trace?: never;
+    };
     "/admin/shows": {
         parameters: {
             query?: never;
@@ -15155,6 +15172,7 @@ export interface components {
             slug: string;
             state: string;
             stats: components["schemas"]["SceneStats"];
+            tagline: string | null;
             venues: components["schemas"]["SceneVenueSummary"][] | null;
         };
         SceneFollowBody: {
@@ -16940,6 +16958,26 @@ export interface components {
             description?: string;
             /** @description Request title */
             title?: string;
+        };
+        UpdateSceneTaglineRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/UpdateSceneTaglineRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Authored tagline shown under the scene heading, max 80 characters. Send null or an empty string to clear it. */
+            tagline: string | null;
+        };
+        UpdateSceneTaglineResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/UpdateSceneTaglineResponseBody.json
+             */
+            readonly $schema?: string;
+            slug: string;
+            tagline: string | null;
         };
         UpdateSectionRequestBody: {
             /**
@@ -20337,6 +20375,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RollbackRevisionResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "patch-admin-scenes-by-slug-tagline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Scene slug (e.g. phoenix-az)
+                 * @example phoenix-az
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSceneTaglineRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateSceneTaglineResponseBody"];
                 };
             };
             /** @description Error */

@@ -20,6 +20,7 @@ func setupAdminRoutes(rc RouteContext) {
 		rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.Discord, rc.SC.AuditLog, rc.SC.NotificationFilter,
 	)
 	venueHandler := adminh.NewAdminVenueHandler(rc.SC.Venue, rc.SC.Venue, rc.SC.AuditLog)
+	sceneHandler := adminh.NewAdminSceneHandler(rc.SC.Scene, rc.SC.AuditLog)
 	userHandler := adminh.NewAdminUserHandler(rc.SC.User)
 	tokenHandler := adminh.NewAdminTokenHandler(rc.SC.APIToken)
 	dataHandler := adminh.NewAdminDataHandler(rc.SC.DataSync)
@@ -67,6 +68,11 @@ func setupAdminRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/admin/venues/merge/preview", venueHandler.PreviewMergeVenuesHandler)
 	huma.Post(rc.Admin, "/admin/venues/merge", venueHandler.MergeVenuesHandler)
 	huma.Post(rc.Admin, "/admin/venues/{venue_id}/verify", venueHandler.VerifyVenueHandler)
+
+	// Admin scene curation (PSY-1848). Slug-addressed like every other scene
+	// route: scenes are computed aggregations whose registry row materializes
+	// lazily, so the frontend never holds a scene id to key this on.
+	huma.Patch(rc.Admin, "/admin/scenes/{slug}/tagline", sceneHandler.UpdateSceneTaglineHandler)
 
 	// Admin artist management endpoints — UpdateArtistBandcamp/Spotify accept
 	// either an admin caller OR an internal-secret bypass for backfill bots,
