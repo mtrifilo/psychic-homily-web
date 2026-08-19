@@ -88,7 +88,7 @@ func (h *AdminSceneHandler) UpdateSceneTaglineHandler(ctx context.Context, req *
 		"clearing", tagline == nil,
 	)
 
-	sceneID, err := h.sceneService.UpdateSceneTagline(req.Slug, tagline)
+	sceneID, canonicalSlug, err := h.sceneService.UpdateSceneTagline(req.Slug, tagline)
 	if err != nil {
 		// An unresolvable slug is a 404, not a 500 — you cannot author a
 		// tagline for a city that is not a scene.
@@ -118,14 +118,16 @@ func (h *AdminSceneHandler) UpdateSceneTaglineHandler(ctx context.Context, req *
 	// writer for. The tagline text itself is not recorded — the audit answers
 	// who changed what and when, and the current value is one read away.
 	h.auditLogService.LogEntityEdit(user.ID, "scene", sceneID, map[string]interface{}{
-		"field":    "tagline",
-		"slug":     req.Slug,
-		"cleared":  tagline == nil,
-		"scene_id": sceneID,
+		"field":   "tagline",
+		"slug":    canonicalSlug,
+		"cleared": tagline == nil,
 	})
 
+	// The CANONICAL slug, not the one the caller addressed: authoring on a
+	// metro member city writes the metro's row, and every scene read answers
+	// with the canonical slug too.
 	resp := &UpdateSceneTaglineResponse{}
-	resp.Body.Slug = req.Slug
+	resp.Body.Slug = canonicalSlug
 	resp.Body.Tagline = tagline
 	return resp, nil
 }

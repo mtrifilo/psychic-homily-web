@@ -2404,11 +2404,14 @@ type SceneServiceInterface interface {
 	// not yet a scene 404s here too rather than publishing a row of zeros.
 	GetSceneGaps(city, state string) (*SceneGapsResponse, error)
 	// UpdateSceneTagline sets the authored tagline for a scene, or clears it
-	// when tagline is nil, and returns the registry row id it wrote (for the
-	// caller's audit entry). Materializes the row on first need — an authored
-	// tagline is exactly the kind of curated reference that gives a computed
-	// scene a row. Callers own the length guard; the column caps at 80.
-	UpdateSceneTagline(slug string, tagline *string) (uint, error)
+	// when tagline is nil. Returns the registry row id it wrote (for the
+	// caller's audit entry) and the CANONICAL slug of the scene it landed on,
+	// which differs from the argument when a metro member city was addressed —
+	// callers echo the canonical one, the same slug every scene read returns.
+	// Materializes the row on first need: an authored tagline is exactly the
+	// kind of curated reference that gives a computed scene a row. Callers own
+	// the length guard; the column caps at 80.
+	UpdateSceneTagline(slug string, tagline *string) (uint, string, error)
 	GetSceneGenreDistribution(city, state string) ([]GenreCount, error)
 	GetGenreDiversityIndex(city, state string) (float64, error)
 	// clusterBy selects the cluster signal: "venue" (default) or "community"

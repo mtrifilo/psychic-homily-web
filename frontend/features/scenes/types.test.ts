@@ -83,6 +83,13 @@ describe('scene types contract', () => {
     expect(detail.description).toBeNull()
     const described: SceneDetail = { ...detail, description: 'A desert scene.' }
     expect(described.description).toBe('A desert scene.')
+
+    // tagline is nullable the same way, and null is the ordinary state
+    // (PSY-1848). It is a separate field from description, never a view of it.
+    expect(detail.tagline).toBeNull()
+    const tagged: SceneDetail = { ...detail, tagline: 'Where the desert learns to scream' }
+    expect(tagged.tagline).toBe('Where the desert learns to scream')
+    expect(tagged.description).toBeNull()
     expect(detail.pulse.shows_by_month).toHaveLength(6)
 
     // Busiest first, and a zero-count room is still on the list.

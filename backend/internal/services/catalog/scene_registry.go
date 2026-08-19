@@ -131,7 +131,8 @@ func (s *SceneService) sceneCurated(slug string) (description, tagline *string) 
 }
 
 // UpdateSceneTagline sets the scene's authored tagline, or clears it when
-// tagline is nil, returning the registry row id written.
+// tagline is nil, returning the registry row id written and the canonical
+// slug it landed on.
 //
 // GetOrCreateSceneID (not a bare lookup) because the row is lazy: authoring a
 // tagline for a scene nobody has followed yet must still persist, and it is
@@ -139,20 +140,29 @@ func (s *SceneService) sceneCurated(slug string) (description, tagline *string) 
 // also canonicalizes member-city slugs, so authoring on `mesa-az` writes the
 // Phoenix row that `mesa-az` reads back from.
 //
+// The canonical slug is returned rather than echoing the caller's, because
+// every scene READ already answers with the canonical one. Handing back
+// `mesa-az` would be the only place in the scene API that names a member city
+// as the thing that was edited.
+//
 // Written through a map so a nil tagline reaches the database as SQL NULL —
 // a struct update would treat the nil pointer as "no change" and silently
 // make clearing a no-op.
-func (s *SceneService) UpdateSceneTagline(slug string, tagline *string) (uint, error) {
+func (s *SceneService) UpdateSceneTagline(slug string, tagline *string) (uint, string, error) {
+	_, canonicalSlug, err := s.canonicalScope(slug)
+	if err != nil {
+		return 0, "", err
+	}
 	id, err := s.GetOrCreateSceneID(slug)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if err := s.db.Model(&catalogm.Scene{}).
 		Where("id = ?", id).
 		Updates(map[string]any{"tagline": tagline}).Error; err != nil {
-		return 0, fmt.Errorf("failed to update scene tagline: %w", err)
+		return 0, "", fmt.Errorf("failed to update scene tagline: %w", err)
 	}
-	return id, nil
+	return id, canonicalSlug, nil
 }
 
 // lookupByScope finds the row anchored on the scene's identity: the CBSA code

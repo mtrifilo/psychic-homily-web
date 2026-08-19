@@ -217,9 +217,10 @@ func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTagline() {
 	suite.seedSceneData()
 
 	tagline := "Where the desert learns to scream"
-	id, err := suite.sceneService.UpdateSceneTagline("phoenix-az", &tagline)
+	id, canonical, err := suite.sceneService.UpdateSceneTagline("phoenix-az", &tagline)
 	suite.Require().NoError(err)
 	suite.Require().NotZero(id)
+	suite.Equal("phoenix-az", canonical)
 
 	var row catalogm.Scene
 	suite.Require().NoError(suite.db.First(&row, id).Error)
@@ -233,7 +234,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTagline() {
 	suite.Equal(tagline, *detail.Tagline)
 
 	// Clearing writes NULL, not the previous value and not an empty string.
-	clearedID, err := suite.sceneService.UpdateSceneTagline("phoenix-az", nil)
+	clearedID, _, err := suite.sceneService.UpdateSceneTagline("phoenix-az", nil)
 	suite.Require().NoError(err)
 	suite.Equal(id, clearedID)
 
@@ -257,12 +258,14 @@ func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTaglineCanonicaliz
 	suite.Require().Zero(before)
 
 	tagline := "Desert noise"
-	id, err := suite.sceneService.UpdateSceneTagline("mesa-az", &tagline)
+	id, canonical, err := suite.sceneService.UpdateSceneTagline("mesa-az", &tagline)
 	suite.Require().NoError(err)
 
 	canonicalID, err := suite.sceneService.GetOrCreateSceneID("phoenix-az")
 	suite.Require().NoError(err)
 	suite.Equal(canonicalID, id)
+	// Addressed as mesa-az, reported as the metro it actually landed on.
+	suite.Equal("phoenix-az", canonical)
 
 	detail, err := suite.sceneService.GetSceneDetail("Phoenix", "AZ")
 	suite.Require().NoError(err)
@@ -278,7 +281,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTaglineCanonicaliz
 // ParseSceneSlug's not-found error rather than a row created out of thin air.
 func (suite *SceneServiceIntegrationTestSuite) TestUpdateSceneTaglineUnknownSlug() {
 	tagline := "Nothing here"
-	_, err := suite.sceneService.UpdateSceneTagline("nowhere-zz", &tagline)
+	_, _, err := suite.sceneService.UpdateSceneTagline("nowhere-zz", &tagline)
 	suite.Require().Error(err)
 
 	var count int64
