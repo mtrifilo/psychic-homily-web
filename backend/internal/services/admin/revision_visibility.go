@@ -26,15 +26,32 @@ import (
 // One entity uses the second kind today: shows. GET /shows/{id} answers 404 for
 // a show whose status is not approved unless the caller is an admin or the
 // show's own submitter (handlers/catalog.GetShowHandler). Revision history
-// mirrors that rule exactly, because it publishes the show's title, event date,
-// city, state, price, ticket url and description — the payload the 404 exists to
+// mirrors that rule, because it publishes the show's title, event date, city,
+// state, price, ticket url and description — the payload the 404 exists to
 // withhold. Unpublishing a show has to hide its history too, or the gate on the
 // live payload only costs the reader one extra request.
 //
-// Mirroring, not approximating, is the point. The rule is spelled once here and
-// keyed on the same two facts the detail route reads (shows.status and
-// shows.submitted_by), so a change to what "visible" means has one obvious
-// second site rather than a rule that silently drifts out of agreement.
+// ONE documented departure: a row a show merge stamped is admin-only, even for
+// the surviving show's submitter, because the submitted_by that would have
+// answered was deleted by that merge. See FromGatedShow below; do not read the
+// paragraphs above as promising submitter parity for those rows.
+//
+// Mirroring, not approximating, is the point. The rule is keyed on the same two
+// facts the detail route reads (shows.status and shows.submitted_by), so a
+// change to what "visible" means has one obvious second site rather than a rule
+// that silently drifts out of agreement.
+//
+// It is spelled in THREE functions in this file, and a change to the policy has
+// to touch all three or the routes will disagree with each other:
+// requireEntityVisible (the entity-history route's 404), revisionVisibleTo (the
+// single-revision route), and visibleRevisionsOnly (the SQL both listings
+// filter with). TestTheGoPredicateAndTheSQLFilterAgree pins the last two
+// against each other; nothing but this sentence pins the first.
+//
+// The mirror also stops at revision history. Other public routes that serve a
+// show's content by id — field notes, comments, tags, collections, followers —
+// do NOT consult shows.status today. This file closes the revision half of that
+// gap, not the whole of it.
 //
 // It fails closed at every step. A missing show row, a nil db and a failed
 // lookup all resolve to "not visible" for a non-admin, which withholds history
@@ -47,9 +64,17 @@ import (
 // behind with nothing left to gate on, and the audit trail is exactly what an
 // admin needs at that point.
 //
-// Nothing is scrubbed and nothing is one-way. Re-approving a show restores its
-// history to everyone, the same way verifying a venue restores its addresses,
-// because the gate is evaluated at read time against the show's current status.
+// Nothing is scrubbed: the stored rows keep their real values either way, which
+// is what rollback reads. Re-approving a show restores its history to everyone,
+// the same way verifying a venue restores its addresses, because the gate is
+// evaluated at read time against the show's current status.
+//
+// The ONE exception is a merge-stamped row. FromGatedShow only ever goes TRUE,
+// nothing clears it, and the gate below honors it whatever the current show's
+// status says — so re-approving the surviving show does NOT bring a stamped row
+// back, and no product action will. That is the price of a marker that cannot be
+// laundered by a chain of merges; recovering such a row means a deliberate
+// database update, not a status change.
 //
 // Merges are the case a status lookup cannot answer on its own, and they are
 // handled by a provenance stamp rather than by this lookup. See
@@ -108,7 +133,16 @@ func (s *RevisionService) revisionVisibleTo(r *adminm.Revision, viewer contracts
 // It exists as a query filter rather than a post-load drop so that the TOTAL a
 // paginated listing reports counts the same rows the page contains. Filtering
 // after the fact would return a short page beside a total that announces how
-// many rows were withheld, which is the leak this closes stated as a number.
+// many rows were withheld, which is this leak stated as a number.
+//
+// KNOWN GAP, and the reason that sentence says "this leak" and not "the leak":
+// the same number is still derivable elsewhere. user.ContributorProfileService
+// counts revisions_made as an unfiltered COUNT(*) over revisions.user_id and
+// serves it on the public profile, so differencing it against this total yields
+// how many of an author's edits sit on shows the caller cannot see. Closing that
+// means threading a viewer through the profile stats, which is a change to a
+// different service's contract and is deliberately not made here. The
+// counterpart note lives at that count.
 //
 // The condition is the SQL spelling of revisionVisibleTo, and the two have to
 // stay in agreement. It is one correlated EXISTS on the shows primary key, so
@@ -129,12 +163,12 @@ func visibleRevisionsOnly(q *gorm.DB, viewer contracts.RevisionViewer) *gorm.DB 
 	// part is whether one fixed fragment is present.
 	//
 	// The OUTER parentheses are written here rather than left to the query
-	// builder. This condition is ANDed with the caller's own (entity, or
-	// author) filter, and an unwrapped top-level OR would bind as
-	// `author = x AND type <> 'show' OR <visible show>`, which serves every
-	// visible show revision by every author. GORM does wrap raw conditions
-	// containing OR today; a guarantee this load-bearing should not be one the
-	// framework could change.
+	// builder, and showVisibleTo does the same. GORM does wrap raw conditions
+	// containing OR today, so neither is a workaround: they are a refusal to let
+	// a security boundary rest on framework behaviour that could change. Written
+	// out, the binding this pins is `author = x AND (type <> 'show' OR <visible
+	// show>)` — never `author = x AND type <> 'show' OR <visible show>`, which
+	// would serve every visible show revision by every author.
 	cond := "(revisions.entity_type <> ? OR (" +
 		"revisions.from_gated_show = FALSE AND EXISTS (" +
 		"SELECT 1 FROM shows s WHERE s.id = revisions.entity_id AND (s.status = ?"
@@ -159,10 +193,14 @@ func (s *RevisionService) showVisibleTo(showID uint, viewer contracts.RevisionVi
 		return false
 	}
 
-	// One condition with its own parentheses, not two chained Wheres. Split
-	// across calls, an unwrapped `status = ? OR submitted_by = ?` would bind as
-	// `id = X AND status = 'approved' OR submitted_by = Y`, which answers yes
-	// for a gated show whenever the caller submitted ANY show at all.
+	// One condition carrying its own parentheses, for the same reason
+	// visibleRevisionsOnly writes its own: GORM does parenthesize a raw
+	// condition containing OR today, so this is a deliberate refusal to let a
+	// security boundary rest on framework behaviour, not a workaround for a bug.
+	// Written out, the binding this pins is `id = X AND (status = 'approved' OR
+	// submitted_by = Y)` — never `id = X AND status = 'approved' OR
+	// submitted_by = Y`, which would answer yes for a gated show whenever the
+	// caller submitted ANY show at all.
 	q := s.db.Model(&catalogm.Show{})
 	if viewer.UserID != 0 {
 		q = q.Where("id = ? AND (status = ? OR submitted_by = ?)",

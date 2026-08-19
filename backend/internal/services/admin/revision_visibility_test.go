@@ -110,25 +110,33 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesApprove
 		"an approved show's history is untouched by the entity gate")
 }
 
-// The two tiers the detail route grants. Both are asserted against the same
-// gated show, so the test states the divergence rather than leaving it to a
-// comment.
+// The two tiers the detail route grants, over EVERY gated status rather than
+// just private. The deny table above already sweeps the statuses; sweeping them
+// on the grant side too is what stops a gate that special-cased one status in
+// the granting direction from passing.
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_ServesGatedShowToSubmitterAndAdmin() {
 	submitter := s.createTestUser()
 	author := s.createTestUser()
-	show := s.seedShow("Unpublished", catalogm.ShowStatusPrivate, &submitter.ID)
-	s.recordShowRevision(show.ID, author.ID)
 
-	for name, viewer := range map[string]contracts.RevisionViewer{
-		"submitter": viewerFor(submitter.ID),
-		"admin":     viewerAdmin,
+	for _, status := range []catalogm.ShowStatus{
+		catalogm.ShowStatusPending,
+		catalogm.ShowStatusRejected,
+		catalogm.ShowStatusPrivate,
 	} {
-		s.Run(name, func() {
-			revisions, total, err := s.svc.GetEntityHistory("show", show.ID, 20, 0, viewer)
-			s.Require().NoError(err)
-			s.Len(revisions, 1)
-			s.Equal(int64(1), total)
-		})
+		show := s.seedShow("Unpublished "+string(status), status, &submitter.ID)
+		s.recordShowRevision(show.ID, author.ID)
+
+		for name, viewer := range map[string]contracts.RevisionViewer{
+			"submitter": viewerFor(submitter.ID),
+			"admin":     viewerAdmin,
+		} {
+			s.Run(string(status)+"/"+name, func() {
+				revisions, total, err := s.svc.GetEntityHistory("show", show.ID, 20, 0, viewer)
+				s.Require().NoError(err)
+				s.Len(revisions, 1)
+				s.Equal(int64(1), total)
+			})
+		}
 	}
 }
 
@@ -170,50 +178,66 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MissingShowIs
 // though the show it now points at is approved and readable — which is the whole
 // reason the stamp exists, since the show the gate would have consulted was
 // deleted by that merge.
+//
+// The winner is seeded WITH a submitter on purpose. The stamped row's denial to
+// that submitter is the diff's one permanent departure from "submitter and admin
+// behavior matches the detail route", and a fixture with no submitter cannot
+// pin it: viewerFor(someone) against an unowned show is just a stranger, and
+// asserts nothing the anonymous case did not already assert.
 func (s *RevisionServiceIntegrationTestSuite) TestStampedRowsAreSuppressedOnAnApprovedShow() {
+	submitter := s.createTestUser()
 	author := s.createTestUser()
-	show := s.seedShow("Merge Winner", catalogm.ShowStatusApproved, nil)
+	show := s.seedShow("Merge Winner", catalogm.ShowStatusApproved, &submitter.ID)
 
 	kept := s.recordShowRevision(show.ID, author.ID)
 	carried := s.recordShowRevision(show.ID, author.ID)
 	s.Require().NoError(s.db.Model(&adminm.Revision{}).Where("id = ?", carried.ID).
 		Update("from_gated_show", true).Error)
 
-	s.Run("entity history", func() {
-		revisions, total, err := s.svc.GetEntityHistory("show", show.ID, 20, 0, viewerPublic)
-		s.Require().NoError(err)
-		s.Require().Len(revisions, 1, "the stamped row must not be served")
-		s.Equal(kept.ID, revisions[0].ID)
-		s.Equal(int64(1), total, "the total must count the rows the page contains")
-	})
+	// Every tier that is not an admin must be denied the stamped row, on every
+	// route. The submitter row is the one that would pass vacuously if the
+	// fixture were unowned, so it is asserted alongside the others rather than
+	// on its own.
+	for name, viewer := range map[string]contracts.RevisionViewer{
+		"anonymous": viewerPublic,
+		"submitter": viewerFor(submitter.ID),
+		"author":    viewerFor(author.ID),
+	} {
+		s.Run(name+" is denied the stamped row", func() {
+			revisions, total, err := s.svc.GetEntityHistory("show", show.ID, 20, 0, viewer)
+			s.Require().NoError(err, "the show itself is approved, so its history must still open")
+			s.Require().Len(revisions, 1, "the stamped row must not be served")
+			s.Equal(kept.ID, revisions[0].ID)
+			s.Equal(int64(1), total, "the total must count the rows the page contains")
 
-	s.Run("user revisions", func() {
-		revisions, total, err := s.svc.GetUserRevisions(author.ID, 20, 0, viewerPublic)
-		s.Require().NoError(err)
-		s.Require().Len(revisions, 1)
-		s.Equal(kept.ID, revisions[0].ID)
-		s.Equal(int64(1), total)
-	})
+			listed, listedTotal, err := s.svc.GetUserRevisions(author.ID, 20, 0, viewer)
+			s.Require().NoError(err)
+			s.Require().Len(listed, 1)
+			s.Equal(kept.ID, listed[0].ID)
+			s.Equal(int64(1), listedTotal)
 
-	s.Run("single revision", func() {
-		got, err := s.svc.GetRevision(carried.ID, viewerPublic)
-		s.Require().NoError(err)
-		s.Nil(got, "a stamped row must answer like a row that does not exist")
-	})
+			got, err := s.svc.GetRevision(carried.ID, viewer)
+			s.Require().NoError(err)
+			s.Nil(got, "a stamped row must answer like a row that does not exist")
 
-	s.Run("admin reads it", func() {
+			// The unstamped row on the same show stays readable, so the denial
+			// above is the stamp and not a broken fixture.
+			open, err := s.svc.GetRevision(kept.ID, viewer)
+			s.Require().NoError(err)
+			s.NotNil(open)
+		})
+	}
+
+	s.Run("an admin reads the stamped row", func() {
 		got, err := s.svc.GetRevision(carried.ID, viewerAdmin)
 		s.Require().NoError(err)
 		s.Require().NotNil(got)
 		s.Equal(gatedShowSummary, *got.Summary)
-	})
 
-	// The submitter tier deliberately does NOT reach a stamped row: the
-	// submitted_by that would have answered was deleted with the losing show.
-	s.Run("a submitter cannot reach a stamped row", func() {
-		got, err := s.svc.GetRevision(carried.ID, viewerFor(author.ID))
+		revisions, total, err := s.svc.GetEntityHistory("show", show.ID, 20, 0, viewerAdmin)
 		s.Require().NoError(err)
-		s.Nil(got)
+		s.Len(revisions, 2)
+		s.Equal(int64(2), total)
 	})
 }
 

@@ -360,6 +360,52 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_GatedLoserRevisionsAreStampe
 		"the stored diff must survive the stamp — rollback reads it")
 }
 
+// The case that makes the stamp depend on the WINNER too. FindShowDedupClusters
+// selects candidates from status IN ('approved','private'), so both members of a
+// cluster can be private, and POST /shows/{id}/publish is a first-class user
+// action on the survivor.
+//
+// Stamping here would be permanent: the mark only ever goes TRUE and nothing
+// clears it, so publishing the winner would leave a fully public show whose
+// carried edit history stayed invisible to everyone but admins, forever. The
+// rows must move UNSTAMPED instead, so they keep tracking the winner's status
+// the way they would have if the two shows had always been one row.
+func (s *ShowDedupTestSuite) TestMergeDuplicateShow_GatedWinnerDoesNotStampPermanently() {
+	a := s.seedArtist("Both Private")
+	v := s.seedVenue("Private Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC)
+	winner := s.seedShow("PW", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("PL", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	u := s.seedUser("both-private@test.com")
+
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id IN ?", []uint{winner, loser}).
+		Update("status", catalogm.ShowStatusPrivate).Error)
+
+	revisionID := seedRevision(s.T(), s.db, "show", loser, u.ID, "fixed the set times")
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var moved adminm.Revision
+	s.Require().NoError(s.db.First(&moved, revisionID).Error)
+	s.Equal(winner, moved.EntityID)
+	s.False(moved.FromGatedShow,
+		"a gated winner already suppresses these rows by status; stamping them would "+
+			"outlive the reason for it and survive the show being published")
+
+	// The property that makes it matter: publish the winner, and the carried
+	// history comes back. With a stamp it never would.
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", winner).
+		Update("status", catalogm.ShowStatusApproved).Error)
+
+	var afterPublish adminm.Revision
+	s.Require().NoError(s.db.First(&afterPublish, revisionID).Error)
+	s.False(afterPublish.FromGatedShow,
+		"publishing the surviving show must restore the merged history, not leave it suppressed")
+}
+
 // seedShowPendingEdit records one proposed edit against a show. Written through
 // the model so a column rename breaks the build rather than the test run.
 func (s *ShowDedupTestSuite) seedShowPendingEdit(showID, userID uint) uint {

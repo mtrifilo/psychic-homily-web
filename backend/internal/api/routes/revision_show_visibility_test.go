@@ -42,9 +42,12 @@ import (
 const (
 	// The values the private show's history must not publish. Single-sourced so
 	// a fixture and its assertion cannot drift onto different strings and pass
-	// vacuously.
+	// vacuously, and INDEPENDENT of each other. A summary built as
+	// "moved it to " + hiddenShowTitle would contain the title, so the prose
+	// assertion could never fail on its own and a response that echoed only the
+	// summary would slip through as "the title check already covers it".
 	hiddenShowTitle   = "House Show At My Actual Address"
-	hiddenShowSummary = "moved it to " + hiddenShowTitle
+	hiddenShowSummary = "rescheduled the doors and fixed the cover charge"
 	openShowTitle     = "Public Show At The Rebel Lounge"
 )
 
@@ -90,9 +93,9 @@ func TestShowRevisionVisibilityMirrorsTheDetailRoute(t *testing.T) {
 		}
 	}
 	record(hidden, hiddenShowTitle, hiddenShowSummary)
-	// The control's prose must not repeat the hidden show's, or the raw-body
-	// assertion below would fire on the row that is supposed to survive.
-	record(open, openShowTitle, "renamed and moved it to "+openShowTitle)
+	// The control's prose must share no substring with the hidden show's, or the
+	// raw-body assertion below would fire on the row that is supposed to survive.
+	record(open, openShowTitle, "renamed it and corrected the venue")
 
 	var hiddenRevision adminm.Revision
 	if err := td.DB.Where("entity_type = ? AND entity_id = ?", "show", hidden.ID).

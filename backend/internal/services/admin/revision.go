@@ -92,10 +92,18 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 
 	// Row filtering runs even though the entity gate above already passed: a
 	// visible show can still hold rows a merge carried off a gated one.
+	//
+	// The count error is returned rather than dropped. Since PSY-1715 the total
+	// is a claim about the page beside it, and the page's own query carries a
+	// LIMIT this one does not — so a statement timeout can fail the count while
+	// the page succeeds, answering 200 with rows beside total 0. That inverts the
+	// exact invariant the filter exists to hold.
 	var total int64
-	visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).
+	if err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).
 		Where("entity_type = ? AND entity_id = ?", entityType, entityID), viewer).
-		Count(&total)
+		Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count entity history: %w", err)
+	}
 
 	var revisions []adminm.Revision
 	err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).
@@ -186,9 +194,12 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 		limit = 100
 	}
 
+	// Returned, not dropped — see the note on GetEntityHistory's count.
 	var total int64
-	visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID), viewer).
-		Count(&total)
+	if err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID), viewer).
+		Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count user revisions: %w", err)
+	}
 
 	var revisions []adminm.Revision
 	err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID), viewer).
