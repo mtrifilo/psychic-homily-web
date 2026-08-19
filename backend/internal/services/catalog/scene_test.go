@@ -573,6 +573,138 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows() {
 	suite.Contains(err.Error(), "scene not found")
 }
 
+// TestGetSceneUpcomingShows_ArtistsCarrySlugs (PSY-1846): the summary carries
+// slug+name pairs so a bill can render as linked entities, in the SAME order as
+// the legacy names, and an unslugged band survives with Slug "" rather than
+// being dropped.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows_ArtistsCarrySlugs() {
+	venues, _ := suite.seedSceneData()
+	user := suite.createUser()
+	now := time.Now().UTC()
+
+	// createArtist leaves slug NULL, which is the unslugged case verbatim:
+	// artists.slug is nullable and GenerateSlug can return "" (PSY-1754).
+	headliner := suite.createArtist("Slugged Headliner")
+	suite.Require().NoError(suite.db.Model(headliner).Update("slug", "slugged-headliner").Error)
+	unslugged := suite.createArtist("Unslugged Opener")
+	suite.Require().Nil(unslugged.Slug)
+
+	show := suite.createApprovedShow("Bill Link Show", venues[0].ID, headliner.ID, user.ID, now.AddDate(0, 0, 2))
+	suite.Require().NoError(suite.db.Create(&catalogm.ShowArtist{
+		ShowID: show.ID, ArtistID: unslugged.ID, Position: 1,
+	}).Error)
+
+	shows, err := suite.sceneService.GetSceneUpcomingShows("Phoenix", "AZ", 7, 10)
+	suite.Require().NoError(err)
+	// By title, not by index: seedSceneData's own shows sit on the window edge,
+	// so which of them also come back is a timing detail this test doesn't own.
+	row := suite.findSceneShow(shows, "Bill Link Show")
+
+	suite.Equal([]contracts.SceneShowArtist{
+		{Name: "Slugged Headliner", Slug: "slugged-headliner"},
+		// Present, with an EMPTY slug — the frontend renders this one unlinked.
+		// A NULL slug must never arrive as the string "<nil>" or drop the band.
+		{Name: "Unslugged Opener", Slug: ""},
+	}, row.Artists)
+
+	// The legacy names field keeps working, and the two agree — they are built
+	// from one resolved bill, so they cannot drift apart.
+	suite.Equal([]string{"Slugged Headliner", "Unslugged Opener"}, row.ArtistNames)
+	suite.Require().Len(row.Artists, len(row.ArtistNames))
+	for i, name := range row.ArtistNames {
+		suite.Equal(name, row.Artists[i].Name)
+	}
+}
+
+// TestSceneSurfaces_AllCarryArtistPairs (PSY-1846): the day, week and upcoming
+// surfaces all render the linked-bill row, so none of them may serve a bill as
+// names-only. They share one builder today; this is the assertion that fails if
+// a surface is ever given its own mapping that forgets the pairs.
+func (suite *SceneServiceIntegrationTestSuite) TestSceneSurfaces_AllCarryArtistPairs() {
+	suite.seedSceneData()
+
+	assertPaired := func(surface string, shows []contracts.SceneShowSummary) {
+		// Guard against a vacuous pass: a surface that returns nothing, or bills
+		// that are all empty, would satisfy the loop below trivially.
+		billed := 0
+		for _, s := range shows {
+			if len(s.ArtistNames) == 0 {
+				continue
+			}
+			billed++
+			suite.Require().Len(s.Artists, len(s.ArtistNames),
+				"%s: show %d serves a bill with no slug pairs", surface, s.ID)
+			for i, name := range s.ArtistNames {
+				suite.Equal(name, s.Artists[i].Name, "%s: show %d bill order diverges", surface, s.ID)
+			}
+		}
+		suite.Require().Positive(billed, "%s returned no billed shows — assertion would be vacuous", surface)
+	}
+
+	upcoming, err := suite.sceneService.GetSceneUpcomingShows("Phoenix", "AZ", 30, 50)
+	suite.Require().NoError(err)
+	assertPaired("upcoming", upcoming)
+
+	week, err := suite.sceneService.GetSceneWeek("Phoenix", "AZ", "")
+	suite.Require().NoError(err)
+	weekShows := []contracts.SceneShowSummary{}
+	for _, d := range week.Days {
+		weekShows = append(weekShows, d.Shows...)
+	}
+	// seedSceneData's shows sit 7–11 days out, so the CURRENT week can be empty.
+	// Assert on the week that actually holds them instead of skipping the surface.
+	if len(weekShows) == 0 {
+		wy, wn := time.Now().UTC().AddDate(0, 0, 8).ISOWeek()
+		week, err = suite.sceneService.GetSceneWeek("Phoenix", "AZ", fmt.Sprintf("%d-W%02d", wy, wn))
+		suite.Require().NoError(err)
+		weekShows = weekShows[:0]
+		for _, d := range week.Days {
+			weekShows = append(weekShows, d.Shows...)
+		}
+	}
+	assertPaired("week", weekShows)
+
+	day, err := suite.sceneService.GetSceneDay("Phoenix", "AZ",
+		time.Now().UTC().AddDate(0, 0, 8).Format("2006-01-02"))
+	suite.Require().NoError(err)
+	assertPaired("day", day.Shows)
+}
+
+// findSceneShow returns the summary with the given title, failing the test when
+// it is absent.
+func (suite *SceneServiceIntegrationTestSuite) findSceneShow(
+	shows []contracts.SceneShowSummary, title string,
+) contracts.SceneShowSummary {
+	suite.T().Helper()
+	for _, s := range shows {
+		if s.Title == title {
+			return s
+		}
+	}
+	suite.Require().FailNowf("show not found", "no show titled %q in %+v", title, shows)
+	return contracts.SceneShowSummary{}
+}
+
+// TestGetSceneUpcomingShows_NoBillOmitsBothArtistFields (PSY-1846): a show with
+// no artists leaves BOTH artist fields nil, so `omitempty` keeps them off the
+// wire exactly as artist_names alone did before the pairs were added.
+func (suite *SceneServiceIntegrationTestSuite) TestGetSceneUpcomingShows_NoBillOmitsBothArtistFields() {
+	venues, _ := suite.seedSceneData()
+	user := suite.createUser()
+	now := time.Now().UTC()
+
+	// createApprovedShow always bills one artist, so strip it back off to get
+	// the genuinely empty bill (a venue-only listing).
+	show := suite.createApprovedShow("Open Decks", venues[0].ID, suite.createArtist("Removed").ID, user.ID, now.AddDate(0, 0, 2))
+	suite.Require().NoError(suite.db.Where("show_id = ?", show.ID).Delete(&catalogm.ShowArtist{}).Error)
+
+	shows, err := suite.sceneService.GetSceneUpcomingShows("Phoenix", "AZ", 7, 10)
+	suite.Require().NoError(err)
+	row := suite.findSceneShow(shows, "Open Decks")
+	suite.Nil(row.ArtistNames)
+	suite.Nil(row.Artists)
+}
+
 // The weekly city page publishes each show as schema.org MusicEvent, which
 // needs a real instant, a postal address and a price — none of which can be
 // recovered from the scene-local EventDate string.

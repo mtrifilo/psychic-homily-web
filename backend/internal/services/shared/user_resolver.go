@@ -143,14 +143,28 @@ func BatchResolveUserUsernames(db *gorm.DB, userIDs []uint) (map[uint]*string, e
 	return result, nil
 }
 
-// BatchResolveShowArtistNames returns the billing-ordered artist names for
-// multiple shows in a single query, grouped by show ID. Avoids the per-show
-// artist query that an N+1 caller would otherwise issue on a hot path.
+// ShowArtistRef is one band on a bill, reduced to what a linked row needs: the
+// name that labels it and the slug that builds its href.
+//
+// Slug is "" — never nil — when the artist has no slug: `artists.slug` is
+// NULLABLE and GenerateSlug can return an empty string, so an unslugged band is
+// a real row, not a bug. Callers MUST render it unlinked rather than building
+// `/artists/` + "", which resolves to the artists INDEX instead of 404ing
+// (PSY-1754). Dropping such artists instead is not an option: on a titleless
+// show the bill IS the display name, so a silent drop mislabels the show.
+type ShowArtistRef struct {
+	Name string
+	Slug string
+}
+
+// BatchResolveShowArtists returns the billing-ordered bill for multiple shows in
+// a single query, grouped by show ID. Avoids the per-show artist query that an
+// N+1 caller would otherwise issue on a hot path.
 //
 // Returns an empty map (not nil) when showIDs is empty so callers can index
 // without nil-check guards. Shows with no artists are absent from the map.
-func BatchResolveShowArtistNames(db *gorm.DB, showIDs []uint) (map[uint][]string, error) {
-	byShowID := make(map[uint][]string, len(showIDs))
+func BatchResolveShowArtists(db *gorm.DB, showIDs []uint) (map[uint][]ShowArtistRef, error) {
+	byShowID := make(map[uint][]ShowArtistRef, len(showIDs))
 	if len(showIDs) == 0 {
 		return byShowID, nil
 	}
@@ -158,10 +172,13 @@ func BatchResolveShowArtistNames(db *gorm.DB, showIDs []uint) (map[uint][]string
 	var rows []struct {
 		ShowID uint
 		Name   string
+		Slug   string
 	}
 	// artists.id tie-break: same-position bill entries otherwise come back in
 	// planner order, which can flip between runs (PSY-1325).
-	if err := db.Raw(`SELECT show_artists.show_id, artists.name FROM show_artists
+	//
+	// COALESCE on slug because the column is NULLABLE — see ShowArtistRef.Slug.
+	if err := db.Raw(`SELECT show_artists.show_id, artists.name, COALESCE(artists.slug, '') AS slug FROM show_artists
 		JOIN artists ON show_artists.artist_id = artists.id
 		WHERE show_artists.show_id IN (?)
 		ORDER BY show_artists.show_id, show_artists.position, artists.id`, showIDs).Scan(&rows).Error; err != nil {
@@ -169,7 +186,32 @@ func BatchResolveShowArtistNames(db *gorm.DB, showIDs []uint) (map[uint][]string
 	}
 
 	for _, row := range rows {
-		byShowID[row.ShowID] = append(byShowID[row.ShowID], row.Name)
+		byShowID[row.ShowID] = append(byShowID[row.ShowID], ShowArtistRef{Name: row.Name, Slug: row.Slug})
+	}
+	return byShowID, nil
+}
+
+// BatchResolveShowArtistNames is the names-only projection of
+// BatchResolveShowArtists, for callers that render a bill as plain text and have
+// no link to build.
+//
+// It delegates rather than issuing its own query so the billing order — and
+// especially the artists.id tie-break above — is defined exactly once. The cost
+// is one extra text column on the read, which is far cheaper than two copies of
+// an ordering rule that must not drift.
+func BatchResolveShowArtistNames(db *gorm.DB, showIDs []uint) (map[uint][]string, error) {
+	artistsByShow, err := BatchResolveShowArtists(db, showIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	byShowID := make(map[uint][]string, len(artistsByShow))
+	for showID, artists := range artistsByShow {
+		names := make([]string, len(artists))
+		for i, a := range artists {
+			names[i] = a.Name
+		}
+		byShowID[showID] = names
 	}
 	return byShowID, nil
 }

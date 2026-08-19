@@ -15259,8 +15259,15 @@ export interface components {
             artist_slug: string;
             embed_url: string;
         };
+        SceneShowArtist: {
+            /** @description Artist display name */
+            name: string;
+            /** @description URL slug for the artist; "" when the artist has no slug — render unlinked */
+            slug: string;
+        };
         SceneShowSummary: {
             artist_names?: string[] | null;
+            artists?: components["schemas"]["SceneShowArtist"][] | null;
             event_date: string;
             /** Format: int64 */
             id: number;
