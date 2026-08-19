@@ -63,6 +63,21 @@ vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  BracketLink: ({
+    label,
+    onClick,
+    href,
+  }: {
+    label: string
+    onClick?: () => void
+    href?: string
+  }) =>
+    href ? (
+      <a href={href}>[{label}]</a>
+    ) : (
+      <button onClick={onClick}>[{label}]</button>
+    ),
+  UserAttribution: ({ name }: { name: string }) => <span>{name}</span>,
   // Surfaces `path` so the page-level test can assert WHICH url this show
   // hands out — the primitive's own behaviour is covered in ShareButton.test.
   ShareButton: ({ path }: { path: string }) => (
@@ -113,9 +128,10 @@ vi.mock('@/features/contributions', () => ({
     isVisible: mockSaveBannerVisible,
     handleSaveSuccess: mockSaveBannerHandleSaveSuccess,
   }),
-  AttributionLine: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
-    <div data-testid="attribution-line">Attribution {entityType} {entityId}</div>
-  ),
+  // ShowProvenanceLine reads the last-editor + revision count through this
+  // hook; null = "no revisions yet", which is the default these page-level
+  // tests want (the line's own permutations live in its own test file).
+  useEntityAttribution: () => ({ data: null }),
   EntityEditDrawer: ({
     open,
     entityType,
@@ -146,6 +162,22 @@ vi.mock('./ReportShowButton', () => ({
 
 vi.mock('@/features/collections', () => ({
   EntityCollections: () => <div data-testid="entity-collections" />,
+}))
+
+// Venue-module affordances whose hooks would otherwise fetch; behaviour is
+// covered in their own test files (same convention as VenueDetail.test).
+vi.mock('@/components/shared/FollowButton', () => ({
+  FollowButton: ({ bracketLabel }: { bracketLabel?: string }) => (
+    <button data-testid="follow-venue">[{bracketLabel ?? 'Follow'}]</button>
+  ),
+}))
+
+vi.mock('@/features/notifications', () => ({
+  NotifyMeButton: ({ entityName }: { entityName: string }) => (
+    <button data-testid="notify-me" data-entity-name={entityName}>
+      [Notify me]
+    </button>
+  ),
 }))
 
 vi.mock('@/features/charts', () => ({
@@ -503,14 +535,16 @@ describe('ShowDetail', () => {
   })
 
   describe('sold out show', () => {
-    it('shows sold out badge', () => {
+    it('shows sold out in the badge and the ticket line', () => {
       mockUseShow.mockReturnValue({
         data: makeShow({ is_sold_out: true }),
         isLoading: false,
         error: null,
       })
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
+      // Twice by design (PSY-1686): the header badge and the ticket line's
+      // swapped sale state both carry it.
+      expect(screen.getAllByText('SOLD OUT')).toHaveLength(2)
     })
   })
 
@@ -531,7 +565,7 @@ describe('ShowDetail', () => {
 
     it('shows edit button for admin', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
-      expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
     })
 
     it('shows delete button for admin', () => {
@@ -548,7 +582,7 @@ describe('ShowDetail', () => {
 
       expect(screen.queryByTestId('entity-edit-drawer')).not.toBeInTheDocument()
 
-      await user.click(screen.getByRole('button', { name: /Edit/ }))
+      await user.click(screen.getByRole('button', { name: 'Edit' }))
       expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
     })
 
@@ -559,7 +593,7 @@ describe('ShowDetail', () => {
       const user = userEvent.setup()
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
 
-      await user.click(screen.getByRole('button', { name: /Edit/ }))
+      await user.click(screen.getByRole('button', { name: 'Edit' }))
       expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
 
       await user.click(screen.getByTestId('drawer-save'))
@@ -574,13 +608,13 @@ describe('ShowDetail', () => {
       expect(screen.getByTestId('revision-history')).toBeInTheDocument()
     })
 
-    // PSY-563 put AttributionLine in the header slot; the show page moves it
-    // to the provenance footer with the tags. The other five detail pages are
-    // unchanged.
-    it('renders AttributionLine in the provenance footer', () => {
+    // PSY-563 put AttributionLine in the header slot; PSY-1686 replaces it on
+    // the show page with the mock's provenance byline, in the footer with the
+    // tags. The other five detail pages are unchanged.
+    it('renders the provenance line in the provenance footer', () => {
       render(<ShowDetail showId="1" lifecycle="upcoming" />)
       expect(screen.getByTestId('show-provenance-footer')).toContainElement(
-        screen.getByTestId('attribution-line')
+        screen.getByTestId('show-provenance-line')
       )
     })
 

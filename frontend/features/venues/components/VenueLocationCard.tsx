@@ -14,6 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { googleMapsSearchUrl, googleMapsEmbedUrl } from '@/lib/maps'
 
 interface VenueLocationCardProps {
   name: string
@@ -23,43 +24,6 @@ interface VenueLocationCardProps {
   zipcode?: string | null
   verified?: boolean
   className?: string
-}
-
-/**
- * Build a Google Maps search query string for the venue.
- */
-function getMapQuery(venue: VenueLocationCardProps): string {
-  const parts: string[] = [venue.name]
-
-  if (venue.address) {
-    parts.push(venue.address)
-  }
-
-  parts.push(venue.city, venue.state)
-
-  if (venue.zipcode) {
-    parts.push(venue.zipcode)
-  }
-
-  return parts.join(', ')
-}
-
-/**
- * Build a Google Maps search URL for the venue.
- * Uses the venue name and address/city/state to search.
- */
-function getGoogleMapsUrl(venue: VenueLocationCardProps): string {
-  const query = encodeURIComponent(getMapQuery(venue))
-  return `https://www.google.com/maps/search/?api=1&query=${query}`
-}
-
-/**
- * Build a Google Maps embed URL for the venue.
- * Uses the legacy embed format that works without an API key.
- */
-function getGoogleMapsEmbedUrl(venue: VenueLocationCardProps): string {
-  const query = encodeURIComponent(getMapQuery(venue))
-  return `https://maps.google.com/maps?q=${query}&t=&z=15&ie=UTF8&iwloc=&output=embed`
 }
 
 /**
@@ -85,8 +49,8 @@ function formatAddress(venue: VenueLocationCardProps): string[] {
 export function VenueLocationCard(props: VenueLocationCardProps) {
   const { className, verified = true } = props
   const addressLines = formatAddress(props)
-  const mapsUrl = getGoogleMapsUrl(props)
-  const embedUrl = getGoogleMapsEmbedUrl(props)
+  const mapsUrl = googleMapsSearchUrl(props)
+  const embedUrl = googleMapsEmbedUrl(props)
 
   // For unverified venues, only show city/state
   const showFullAddress = verified

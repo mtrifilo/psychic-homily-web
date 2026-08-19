@@ -21,6 +21,12 @@ export interface EntityAttribution {
   /** URL-safe username slug; null when the user has no username set. */
   user_username: string | null
   created_at: string
+  /**
+   * Total revision count for the entity, from the same `?limit=1` read (the
+   * endpoint reports the full count regardless of page size), passed through
+   * untouched.
+   */
+  total: number
 }
 
 /**
@@ -47,6 +53,11 @@ export function useEntityAttribution(
         user_name: revision.user_name || 'Anonymous',
         user_username: revision.user_username ?? null,
         created_at: revision.created_at,
+        // Trusted as-is: the generated contract declares `total` required,
+        // and a defensive floor here would only convert a loud backend
+        // regression ("0 edits" beside a rendered revision) into a quietly
+        // wrong small number nobody reports.
+        total: data.total,
       }
     },
     enabled: options?.enabled !== false,

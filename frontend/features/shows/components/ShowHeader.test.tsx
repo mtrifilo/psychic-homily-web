@@ -10,6 +10,44 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('../hooks/useSavedShows', () => ({
   useSaveShow: () => ({ mutate: vi.fn(), isPending: false }),
   useShowSaveCount: () => ({ data: undefined }),
+  useSaveShowToggle: () => ({
+    isLoading: false,
+    toggle: vi.fn(),
+    error: null,
+  }),
+}))
+
+// The ticket row's save bracket reads the router for its login redirect;
+// there is no app router mounted in a render-only test.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/shows/test-show',
+}))
+
+// The venue module and ticket row pull in follow / notify / collection
+// affordances whose hooks need a QueryClientProvider these render-only tests
+// don't mount. Mocked at the component boundary, same convention as
+// VenueDetail.test / ArtistDetail.test; each primitive's own behaviour is
+// covered in its own test file.
+vi.mock('@/components/shared/FollowButton', () => ({
+  FollowButton: ({ bracketLabel }: { bracketLabel?: string }) => (
+    <button data-testid="follow-venue">[{bracketLabel ?? 'Follow'}]</button>
+  ),
+}))
+
+vi.mock('@/features/notifications', () => ({
+  NotifyMeButton: ({ entityName }: { entityName: string }) => (
+    <button data-testid="notify-me" data-entity-name={entityName}>
+      [Notify me]
+    </button>
+  ),
+}))
+
+vi.mock('@/components/shared', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/components/shared')>()),
+  AddToCollectionButton: () => (
+    <button data-testid="add-to-collection">[Add to collection]</button>
+  ),
 }))
 
 import { ShowHeader } from './ShowHeader'

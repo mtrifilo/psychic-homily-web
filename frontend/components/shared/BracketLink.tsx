@@ -21,6 +21,13 @@ export interface BracketLinkProps
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void
   /** Active / toggled-on state. Emphasizes the link (e.g. [Following] after a successful follow). */
   active?: boolean
+  /**
+   * `href` points OUTSIDE the app: renders a plain anchor with
+   * `target="_blank" rel="noopener noreferrer"` instead of a Next `<Link>`.
+   * Callers put the outbound marker in the label themselves ("Directions ↗")
+   * so the glyph stays part of the announced name. Ignored without `href`.
+   */
+  external?: boolean
   /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
   variant?: 'default' | 'danger'
   /** ARIA label override (defaults to the visible label). */
@@ -33,8 +40,10 @@ export interface BracketLinkProps
  * provided, otherwise as <button type="button">.
  *
  * The button branch forwards a ref and spreads remaining props, so it composes as a
- * Radix `asChild` trigger (e.g. inside `<PopoverTrigger asChild>`). The <Link> branch
- * receives `onClick` (fired alongside navigation) but not the ref or spread props.
+ * Radix `asChild` trigger (e.g. inside `<PopoverTrigger asChild>`). BOTH anchor
+ * branches — the internal <Link> and the `external` plain anchor — receive `onClick`
+ * (fired alongside navigation) but NOT the ref or spread props; an external bracket
+ * cannot be a Radix trigger and silently drops extra DOM props, same as <Link>.
  *
  * Note: when `href` AND `disabled` are both set, renders as a `<button disabled>` rather
  * than an `<a>` — anchors have no native disabled state, and the alternatives leak
@@ -54,6 +63,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       onClick,
       active = false,
       variant = 'default',
+      external = false,
       disabled = false,
       title,
       ariaLabel,
@@ -112,14 +122,25 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     )
 
     if (href && !disabled) {
+      // ONE bag of anchor props for both anchor-shaped branches, so a shared
+      // concern added to internal links (an aria fix, a data attribute)
+      // cannot silently skip the external ones — both render as an <a> and
+      // the omission would be invisible in review.
+      const anchorProps = {
+        onClick: onClick as React.MouseEventHandler | undefined,
+        className: classes,
+        title,
+        'aria-label': ariaLabel ?? label,
+      }
+      if (external) {
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" {...anchorProps}>
+            {content}
+          </a>
+        )
+      }
       return (
-        <Link
-          href={href}
-          onClick={onClick as React.MouseEventHandler | undefined}
-          className={classes}
-          title={title}
-          aria-label={ariaLabel ?? label}
-        >
+        <Link href={href} {...anchorProps}>
           {content}
         </Link>
       )

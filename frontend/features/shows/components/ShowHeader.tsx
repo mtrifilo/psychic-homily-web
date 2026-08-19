@@ -2,14 +2,14 @@
 
 import { Fragment, useCallback, useState } from 'react'
 import Link from 'next/link'
-import { ExternalLink, MapPin } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { formatLocation } from '@/lib/formatLocation'
-import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
-import { ShowAddToCalendar } from './ShowAddToCalendar'
+import { formatShowDate } from '@/lib/utils/formatters'
 import { ShowFlyerPlate } from './ShowFlyerPlate'
-import { flyerCredit, flyerImageSrc } from './showFlyer'
+import { ShowTicketRow } from './ShowTicketRow'
+import { ShowVenueModule } from './ShowVenueModule'
+import { flyerImageSrc, sourceVenueName } from './showFlyer'
 import { showTimingInput, splitBill } from '../utils'
 import type {
   ArtistResponse,
@@ -190,18 +190,22 @@ function BillHometown({
 interface ShowHeaderProps {
   show: ShowResponse
   /**
-   * Action cluster rendered at the foot of the ticket block, under the price
-   * and ticket link, at every width. Typically a `<ShowActions />`.
+   * The ADMIN/OWNER moderation cluster (edit, delete, status flags),
+   * rendered at the foot of the ticket block at every width. The caller
+   * gates it — pass `undefined` for public viewers so the slot reserves no
+   * margin. The public verbs (buy, calendar, save, collect, share) live
+   * inside {@link ShowTicketRow}, not here.
    */
   actions?: React.ReactNode
 }
 
 /**
  * ShowDetail-specific header block. Owns the bill-position artist rendering
- * (headliners as h1, support as "w/ ..." row), venue prominence block
- * (name link + MapPin + "see more shows at {venue}" link), date + sold-out
- * badge row, show meta row (time / price / age), ticket URL CTA, and
- * description paragraph.
+ * (headliners as h1, support as "w/ ..." row) and the date + sold-out badge
+ * row directly; composes the venue block from {@link ShowVenueModule}
+ * (name + address, facts line, venue verbs) and the how-much line + public
+ * action row from {@link ShowTicketRow}; ends with the description
+ * paragraph.
  *
  * Laid out as the mock's two columns WHEN THERE IS A FLYER: the plate on the
  * left, and on the right the module slots in reading order (header block,
@@ -246,7 +250,6 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
     [candidateFlyerSrc]
   )
 
-  const venue = show.venues[0]
   // The same zone the status stripe above this block is judged on. They render
   // a few hundred pixels apart, so a page that resolved the venue's calendar
   // two ways could print two different dates in one screenshot.
@@ -254,10 +257,6 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
   // Sort the whole bill first so every downstream slice — including the
   // `artists[0]` / `artists.slice(1)` fallback below — is position-ordered.
   const artists = [...show.artists].sort(byBillPosition)
-
-  // Trimmed once here: the API can hand back a whitespace-only address, which
-  // would otherwise pass the truthiness check and render a blank indented line.
-  const venueAddress = venue?.address?.trim()
 
   const { headliners: effectiveHeadliners, support: effectiveSupport } =
     splitBill(artists)
@@ -393,97 +392,19 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           </div>
         )}
 
-        {/* SLOT: venue module. Refined by the venue-module wave; today it is
-            the name link, city/state, street address and the "more shows at"
-            link that already lived here. */}
-        {venue && (
-          <div className="mt-4">
-            {venue.slug ? (
-              <Link
-                href={`/venues/${venue.slug}`}
-                className="text-lg text-primary/80 hover:text-primary font-medium transition-colors"
-              >
-                {venue.name}
-              </Link>
-            ) : (
-              <span className="text-lg text-primary/80 font-medium">
-                {venue.name}
-              </span>
-            )}
-            {/* Testid rather than a text query: the bill above now prints each
-                act's hometown, so "Phoenix, AZ" is no longer a unique string on
-                this page. */}
-            <div
-              data-testid="venue-location"
-              className="flex items-center gap-1 text-muted-foreground mt-1"
-            >
-              <MapPin className="h-4 w-4" />
-              {/* Same locked rule as the bill above, through the same helper.
-                  The hand-written template this replaced printed a trailing
-                  comma for a venue with no state. */}
-              <span>
-                {formatLocation({ city: venue.city, state: venue.state })}
-              </span>
-            </div>
-            {/* Street address — plain text, no maps link. `pl-5` (icon w-4 +
-                gap-1) hangs it under the city/state text so the two read as one
-                location group. */}
-            {venueAddress && (
-              <div
-                data-testid="venue-address"
-                className="pl-5 text-sm text-muted-foreground"
-              >
-                {venueAddress}
-              </div>
-            )}
-            {venue.slug && (
-              <Link
-                href={`/venues/${venue.slug}`}
-                className="inline-block text-sm text-muted-foreground hover:text-primary transition-colors mt-1"
-              >
-                See more shows at {venue.name} &rarr;
-              </Link>
-            )}
-          </div>
-        )}
+        {/* SLOT: venue module. The co-primary entity's block, ABOVE the
+            ticket module (locked scan order: who → where/when → how much →
+            social). Name + address, facts line, venue verbs — see
+            ShowVenueModule. Self-hides for a venue-less show. */}
+        <ShowVenueModule show={show} />
 
-        {/* SLOT: ticket and action block. The when/what-it-costs line and
-            every verb a reader can act on, together in one band under the
-            venue, as the mock has them. The action cluster used to float in a
-            right-hand column of the header and was moved, not rewired.
-
-            Two components in here share state: `ShowAddToCalendar` in the meta
-            row below saves the show as a side effect and dedupes against the
-            `SaveButton` inside `actions` through the shared query key. They now
-            render three rows apart. Move either one and check the other. */}
+        {/* SLOT: ticket and action block. The what-it-costs line and every
+            verb a reader can act on, together in one band under the venue, as
+            the mock has them (PSY-1686). The remaining `actions` cluster is
+            admin/owner chrome (edit, delete, status flags) — the public verbs
+            live inside ShowTicketRow's bracket row. */}
         <div className="mt-4 border-t border-border/60 pt-4">
-          {/* The calendar affordance sits here with the when-info (event-page
-              convention), not in the social action cluster. */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span>{formatShowTime(show.event_date, timing.state, timing.timezone)}</span>
-            {show.price != null && <span>{formatPrice(show.price)}</span>}
-            {show.age_requirement && <span>{show.age_requirement}</span>}
-            <ShowAddToCalendar show={show} />
-          </div>
-
-          {/* Ticket URL */}
-          {show.ticket_url && (
-            <div className="mt-3">
-              <a
-                href={
-                  show.ticket_url.startsWith('http')
-                    ? show.ticket_url
-                    : `https://${show.ticket_url}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-              >
-                Buy Tickets
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            </div>
-          )}
+          <ShowTicketRow show={show} />
 
           {actions && (
             <div className="mt-3 flex flex-col items-start gap-2">{actions}</div>
@@ -524,7 +445,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
           // has fully loaded, instead of blanking the column for the length of
           // a third-party fetch every time an admin fixes an `image_url`.
           src={flyerSrc}
-          credit={flyerCredit(show)}
+          credit={sourceVenueName(show)}
           onError={handleFlyerError}
           className="md:order-first"
         />

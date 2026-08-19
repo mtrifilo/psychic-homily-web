@@ -48,6 +48,12 @@ vi.mock('@/lib/api', async () => {
 //    the optimistic-then-rollback behavior actually flows through the
 //    component, so it's the only level where the assertion is meaningful.
 const useMockedFollowHooks = vi.hoisted(() => ({ value: true }))
+// Records the last useFollowStatus invocation so tests can assert the
+// component's fetch-gating (the bracket variant must pass enabled=false for
+// anonymous viewers).
+const followStatusCall = vi.hoisted(() => ({
+  last: undefined as undefined | { entityType: string; enabled: boolean },
+}))
 
 vi.mock('@/lib/hooks/common/useFollow', async () => {
   const actual = await vi.importActual<
@@ -55,10 +61,15 @@ vi.mock('@/lib/hooks/common/useFollow', async () => {
   >('@/lib/hooks/common/useFollow')
   return {
     ...actual,
-    useFollowStatus: (entityType: string, entityId: number, enabled = true) =>
-      useMockedFollowHooks.value
-        ? { data: mockFollowStatusData, isLoading: mockStatusLoading }
-        : actual.useFollowStatus(entityType, entityId, enabled),
+    useFollowStatus: (entityType: string, entityId: number, enabled = true) => {
+      followStatusCall.last = { entityType, enabled }
+      return useMockedFollowHooks.value
+        ? {
+            data: enabled ? mockFollowStatusData : undefined,
+            isLoading: enabled ? mockStatusLoading : false,
+          }
+        : actual.useFollowStatus(entityType, entityId, enabled)
+    },
     useFollow: () =>
       useMockedFollowHooks.value
         ? { mutate: mockFollowMutate, isPending: false }
@@ -279,6 +290,71 @@ describe('FollowButton — bracket variant (PSY-641)', () => {
       { wrapper: createWrapper() }
     )
     expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
+  })
+
+  // The show page's venue module renders [Follow venue] so the bracket
+  // cannot be read as following the show; the followed state stays
+  // [Following] — by then the toggle itself is the antecedent.
+  it('renders the caller-supplied bracket label for the not-following state only', () => {
+    const { rerender } = render(
+      <FollowButton
+        entityType="venues"
+        entityId={1}
+        variant="bracket"
+        bracketLabel="Follow venue"
+      />,
+      { wrapper: createWrapper() }
+    )
+    expect(
+      screen.getByRole('button', { name: 'Follow venue' })
+    ).toBeInTheDocument()
+
+    mockFollowStatusData = { follower_count: 10, is_following: true }
+    rerender(
+      <FollowButton
+        entityType="venues"
+        entityId={1}
+        variant="bracket"
+        bracketLabel="Follow venue"
+      />
+    )
+    expect(
+      screen.getByRole('button', { name: 'Following' })
+    ).toBeInTheDocument()
+  })
+
+  // The bracket shows no follower count and an anonymous viewer is
+  // not-following by definition, so the status request is pure waste on
+  // public pages — the component must not fire it, and must render the
+  // ENABLED control (whose click routes to /auth), not the loading
+  // placeholder a disabled query would otherwise suggest.
+  it('skips the status fetch for anonymous viewers and still routes to /auth on click', async () => {
+    const user = userEvent.setup()
+    mockIsAuthenticated = false
+    mockStatusLoading = true
+    mockFollowStatusData = undefined
+    render(
+      <FollowButton entityType="venues" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+
+    expect(followStatusCall.last?.enabled).toBe(false)
+    const bracket = screen.getByRole('button', { name: 'Follow' })
+    expect(bracket).toBeEnabled()
+
+    await user.click(bracket)
+    expect(mockPush).toHaveBeenCalledWith(
+      expect.stringContaining('/auth?returnTo=')
+    )
+    expect(mockFollowMutate).not.toHaveBeenCalled()
+  })
+
+  it('still fetches status for authenticated bracket viewers', () => {
+    render(
+      <FollowButton entityType="venues" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+    expect(followStatusCall.last?.enabled).toBe(true)
   })
 })
 

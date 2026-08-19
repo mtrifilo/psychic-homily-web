@@ -53,6 +53,7 @@ describe('useEntityAttribution', () => {
       user_name: 'Alice',
       user_username: 'alice',
       created_at: '2026-05-10T12:00:00Z',
+      total: 1,
     })
   })
 
@@ -91,7 +92,34 @@ describe('useEntityAttribution', () => {
       user_name: 'Anonymous',
       user_username: null,
       created_at: '2026-05-01T00:00:00Z',
+      total: 1,
     })
+  })
+
+  // The count is passed through untouched: the contract declares it
+  // required, and masking a backend regression with a floor would trade a
+  // loud "0 edits beside a revision" for a quiet wrong number.
+  it('passes the reported total through as-is', async () => {
+    mockApiRequest.mockResolvedValueOnce({
+      revisions: [
+        {
+          id: 2,
+          user_id: 5,
+          user_name: 'Alice',
+          user_username: 'alice',
+          created_at: '2026-05-01T00:00:00Z',
+        },
+      ],
+      total: 40,
+    })
+
+    const { result } = renderHook(
+      () => useEntityAttribution('show', 12),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data?.total).toBe(40)
   })
 
   it('is disabled (does not fetch) when options.enabled is false', () => {

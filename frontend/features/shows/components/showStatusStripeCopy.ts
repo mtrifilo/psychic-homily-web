@@ -102,6 +102,57 @@ function formatStripeTime(instant: number, timeZone: string): string {
   ).toUpperCase()}`
 }
 
+/**
+ * The venue module's announced-times fragment: "DOORS 7PM / MUSIC 8PM",
+ * "DOORS 7PM", or null when nothing is printable.
+ *
+ * Lives here, beside the stripe's copy, because it is the SAME statement the
+ * stripe makes a few hundred pixels up and must obey the same two rules for
+ * the same reasons: it hangs off `doors_at` (a lone music time is half a
+ * schedule — see the stripe's comment), and it prints nothing when the venue
+ * timezone is a guess (a fallback-zone clock can be hours out; the one thing
+ * worse than no time is a confident wrong one). Same clock register too, so
+ * the page cannot print "7PM" in the stripe and "7:00" here for one fact.
+ *
+ * The separator is a slash, not the middot: in the venue facts line the
+ * middot separates FACTS (capacity · age · times), and doors/music are two
+ * halves of one fact.
+ */
+export function doorsMusicFactSegment(
+  input: Pick<ShowStatusStripeInput, 'doorsAt' | 'musicAt' | 'state' | 'timezone'>
+): string | null {
+  if (!isShowTimezoneResolved(input.state, input.timezone)) return null
+  const timeZone = resolveShowTimezone(input.state, input.timezone)
+  const doorsAt = instantMs(input.doorsAt)
+  if (doorsAt === null) return null
+  const doors = `DOORS ${formatStripeTime(doorsAt, timeZone)}`
+  const musicAt = instantMs(input.musicAt)
+  return musicAt === null
+    ? doors
+    : `${doors} / MUSIC ${formatStripeTime(musicAt, timeZone)}`
+}
+
+/**
+ * The show's start time in the stripe's clock register ("8PM", "8:30PM"),
+ * venue-local, or null when it cannot be said honestly.
+ *
+ * Null in two cases, both deliberate: an unreadable `event_date`, and an
+ * unresolved venue timezone. The old header meta row printed this clock
+ * through the Arizona fallback; a page that refuses to print DOORS on a
+ * guessed zone (see {@link doorsMusicFactSegment}) cannot print the start
+ * time on the same guess two lines down. One register, one refusal rule,
+ * for every clock on the page.
+ */
+export function startTimeFactSegment(
+  input: Pick<ShowStatusStripeInput, 'eventDate' | 'state' | 'timezone'>
+): string | null {
+  if (!isShowTimezoneResolved(input.state, input.timezone)) return null
+  const timeZone = resolveShowTimezone(input.state, input.timezone)
+  const startedAt = instantMs(input.eventDate)
+  if (startedAt === null) return null
+  return formatStripeTime(startedAt, timeZone)
+}
+
 /** "WED, AUG 12 2026" */
 function formatStripeFullDate(instant: number, timeZone: string): string {
   const part = partsOf(instant, timeZone, {

@@ -29,6 +29,14 @@ interface FollowButtonProps {
    * linkboxes (PSY-641) — `[Follow]` toggling to `[Following]`.
    */
   variant?: 'button' | 'bracket'
+  /**
+   * Bracket-variant label for the NOT-following state, when the surrounding
+   * context does not already say what would be followed (the show page's
+   * venue module renders `[Follow venue]` so it cannot be read as following
+   * the show). The followed state stays `[Following]` — by then the toggle
+   * itself is the antecedent. Ignored by the button variant.
+   */
+  bracketLabel?: string
   className?: string
   disabled?: boolean
 }
@@ -39,6 +47,7 @@ export function FollowButton({
   compact = false,
   followData,
   variant = 'button',
+  bracketLabel = 'Follow',
   className,
   disabled = false,
 }: FollowButtonProps) {
@@ -47,11 +56,17 @@ export function FollowButton({
   const { isAuthenticated } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
 
-  // Fetch follow status only if not provided via props
+  // Fetch follow status only if not provided via props. The bracket variant
+  // additionally skips the fetch for anonymous viewers: it renders no
+  // follower count, and an anonymous viewer's is_following is false by
+  // definition, so the whole response would be discarded — on public pages
+  // (the show page renders this for every reader) that is a wasted request
+  // per view. The Button variants keep fetching while anonymous because they
+  // display the public follower count.
   const { data: fetchedData, isLoading: statusLoading } = useFollowStatus(
     entityType,
     entityId,
-    !followData
+    !followData && (variant !== 'bracket' || isAuthenticated)
   )
 
   const follow = useFollow()
@@ -66,22 +81,20 @@ export function FollowButton({
 
   // Replay coverage here is narrower than it looks, so state it precisely.
   //
-  // PSY-1610 inferred this control's exposure from SaveButton's rather than
-  // clicking it. Checking the actual server HTML of an authenticated artist
-  // page (production build) showed the BRACKET variant ships from the
-  // `statusLoading` branch below — rendered `disabled`, hence
-  // `pointer-events-none`. No click can land on it during the pre-hydration
-  // window, so nothing is buffered and replay never applies: on entity pages
-  // that variant is protected by its own loading state, not by this primitive.
+  // The earlier claim-check (server HTML of a production build) showed the
+  // BRACKET variant ships from the `statusLoading` branch below — rendered
+  // `disabled`, hence `pointer-events-none` — so no pre-hydration click can
+  // land on it and replay never applies. That is still true for the render
+  // an AUTHENTICATED viewer settles into, but since the anonymous-skip
+  // above, server HTML (which is always unauthenticated) ships the ENABLED
+  // bracket, which BracketLink's replay marker covers: a pre-hydration click
+  // is buffered and replays into `handleClick`, whose unauthenticated branch
+  // routes to /auth. The status is not a guess in that state — an anonymous
+  // viewer is not-following by definition.
   //
   // The Button variants below do opt in, and are genuinely covered wherever a
   // caller passes `followData` (the charts pages), because that skips the
   // loading branch and renders an enabled control at first paint.
-  //
-  // Making the bracket render enabled at first paint would move it under replay
-  // too — `handleClick` already guards on `isDisabled` — but that changes what
-  // the control shows before its status is known, so it is deliberately left
-  // out of PSY-1615's scope.
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -105,12 +118,16 @@ export function FollowButton({
   // Bracket variant — dense header linkbox. Toggles [Follow] ↔ [Following];
   // ignores `compact` (brackets are already maximally compact).
   if (variant === 'bracket') {
+    // A disabled query (anonymous viewer, fetch skipped above) reports
+    // isLoading false, so anonymous brackets fall straight through to the
+    // enabled control — whose click already routes to /auth. Only an
+    // authenticated viewer's in-flight status read renders the placeholder.
     if (!followData && statusLoading) {
-      return <BracketLink label="Follow" disabled />
+      return <BracketLink label={bracketLabel} disabled className={className} />
     }
     return (
       <BracketLink
-        label={isFollowing ? 'Following' : 'Follow'}
+        label={isFollowing ? 'Following' : bracketLabel}
         active={isFollowing}
         onClick={handleClick}
         disabled={isDisabled}
