@@ -3303,6 +3303,7 @@ type MockSceneService struct {
 	LookupSceneIDFn             func(string) (uint, bool, error)
 	GetSceneCollectionsFn       func(string, string, int) ([]contracts.SceneCollectionSummary, error)
 	GetSceneGapsFn              func(string, string) (*contracts.SceneGapsResponse, error)
+	UpdateSceneTaglineFn        func(string, *string) (uint, string, error)
 	GetSceneGenreDistributionFn func(string, string) ([]contracts.GenreCount, error)
 	GetGenreDiversityIndexFn    func(string, string) (float64, error)
 	GetSceneGraphFn             func(string, string, []string, string) (*contracts.SceneGraphResponse, error)
@@ -3368,6 +3369,12 @@ func (m *MockSceneService) GetSceneGaps(city string, state string) (*contracts.S
 		return m.GetSceneGapsFn(city, state)
 	}
 	return nil, nil
+}
+func (m *MockSceneService) UpdateSceneTagline(slug string, tagline *string) (uint, string, error) {
+	if m.UpdateSceneTaglineFn != nil {
+		return m.UpdateSceneTaglineFn(slug, tagline)
+	}
+	return 0, "", nil
 }
 func (m *MockSceneService) GetSceneGenreDistribution(city string, state string) ([]contracts.GenreCount, error) {
 	if m.GetSceneGenreDistributionFn != nil {
