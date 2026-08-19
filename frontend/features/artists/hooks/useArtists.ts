@@ -166,10 +166,13 @@ export function useArtistShows(options: UseArtistShowsOptions) {
   // what was SENT rather than the argument the caller passed.
   //
   // The load-bearing case is `offset`. Page 1's offset is 0, which is not sent,
-  // and `artistPastShowsPageParams` says so with `undefined` — so the archive's
-  // cache PEEK at its neighbour pages only ever finds page 1 while this
-  // normalization and that helper agree. Nothing throws when they drift; the
-  // page labels just silently stop appearing.
+  // and `artistPastShowsPageParams` has to say so with `undefined` or the key it
+  // describes is not the key this hook registers. Nothing throws when they
+  // drift; anything seeding or reading that entry just misses it.
+  //
+  // The archive used to have a second stake in this — it read neighbouring
+  // pages' cache entries to label them — and no longer does: labels come from a
+  // month histogram since PSY-1842, like the venue twin's.
   const sentLimit = limit || undefined
   const sentOffset = offset > 0 ? offset : undefined
   // Last line of defence, not the URL guard. Callers own year validation —
