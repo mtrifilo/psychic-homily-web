@@ -2,24 +2,32 @@ package catalog
 
 import (
 	"fmt"
-	"strings"
+	"log/slog"
 
 	"gorm.io/gorm"
 )
 
-// This file holds the mechanism every entity merge uses to move the polymorphic
-// (entity_type, entity_id) rows off the losing entity, so that the venue merge
-// and the artist merge share one implementation instead of two that drift.
+// This file holds the inventory of polymorphic (entity_type, entity_id) tables
+// and the mechanism that moves them, shared by the venue merge and the artist
+// merge so there are not two copies to drift apart.
 //
-// The tables it walks carry NO foreign key to the entity, so a row left behind
-// does not fail loudly — it silently points at an id that no longer exists.
-// Which tables exist is per-merge data (venueEntityRefs, artistEntityRefs); how
-// a row moves is not, and lives here.
+// The tables carry NO foreign key to the entity, so a row left behind does not
+// fail loudly — it silently points at an id that no longer exists.
+//
+// NOT every merge in this package goes through here yet: MergeDuplicateShow
+// (show_dedup.go) still walks its own shorter, unguarded list. That is the next
+// instance of the drift this file exists to end, tracked separately rather than
+// folded into the artist ticket that created the file.
 
 // entityRef describes one polymorphic (entity_type, entity_id) reference table.
+//
+// Every field describes the TABLE, not the merge using it. That is the whole
+// reason one inventory serves every entity type: a unique index does not change
+// depending on which kind of entity a row points at, so letting each merge
+// carry its own copy could only ever produce a wrong copy.
 type entityRef struct {
 	// table is the SQL table name. Interpolated into SQL, so it MUST stay a
-	// hardcoded literal in the per-merge inventories — never caller input.
+	// hardcoded literal in the inventory below — never caller input.
 	table string
 	// idCol holds the entity id. Almost always "entity_id"; `requests` and
 	// `entity_requests` name theirs differently.
@@ -32,6 +40,74 @@ type entityRef struct {
 	// idCol. Empty with dedupe=true means the index is on (entity_type, idCol)
 	// alone.
 	key []string
+	// dedupeWhen is the WHERE clause that makes the index PARTIAL, with %s
+	// standing in for the row alias; empty when the index covers every row.
+	//
+	// It exists so the dedupe deletes exactly what the index would have
+	// rejected and not one row more. Without it the dedupe is "stricter than
+	// the index needs", which sounds safe and is not: over-deleting silently
+	// destroys rows the database was perfectly willing to keep.
+	dedupeWhen string
+}
+
+// polymorphicEntityRefs is every table in the schema with a polymorphic
+// (entity_type, entity_id) reference, minus the three in refsRepointedElsewhere,
+// with the unique key that constrains each re-point.
+//
+// Verified against the live schema rather than copied forward: the equivalent
+// list in the PSY-1581 one-off migration is missing `requests` and
+// `entity_requests` (both of which name their id column something other than
+// entity_id) and marks `notification_log` as having no unique key when it in
+// fact has one on (user_id, filter_id, entity_type, entity_id, channel).
+//
+// Tables whose CHECK constraint forbids a given entity_type are listed anyway —
+// source_configs is venue/label only, image_enrich_queue is artist/release only.
+// Their UPDATE matches zero rows for the merges that cannot appear in them, and
+// one exhaustive list is cheaper to keep correct than a list plus a set of
+// per-entity exceptions that has to be re-verified every time a CHECK changes.
+//
+// TestVenueEntityRefsCoverSchema and TestArtistEntityRefsCoverSchema fail if a
+// migration adds an entity_type table that is not listed here, so this cannot
+// silently fall behind.
+var polymorphicEntityRefs = []entityRef{
+	// Unique on (entity_type, entity_id) plus the listed columns.
+	{table: "collection_items", idCol: "entity_id", dedupe: true, key: []string{"collection_id"}},
+	{table: "comment_last_read", idCol: "entity_id", dedupe: true, key: []string{"user_id"}},
+	{table: "comment_subscriptions", idCol: "entity_id", dedupe: true, key: []string{"user_id"}},
+	{table: "entity_tags", idCol: "entity_id", dedupe: true, key: []string{"tag_id"}},
+	{table: "notification_log", idCol: "entity_id", dedupe: true, key: []string{"user_id", "filter_id", "channel"}},
+	{table: "tag_votes", idCol: "entity_id", dedupe: true, key: []string{"tag_id", "user_id"}},
+	{table: "user_bookmarks", idCol: "entity_id", dedupe: true, key: []string{"user_id", "action"}},
+
+	// Unique on (entity_type, entity_id) alone. image_enrich_queue's index is
+	// PARTIAL over the active statuses, so the dedupe is scoped to match: a
+	// canonical entity whose job already finished must not cause the losing
+	// entity's still-queued job to be thrown away.
+	{
+		table: "image_enrich_queue", idCol: "entity_id", dedupe: true,
+		dedupeWhen: "%s.status IN ('pending', 'processing')",
+	},
+	{table: "source_configs", idCol: "entity_id", dedupe: true},
+
+	// No unique key on the entity reference: re-point in place.
+	{table: "audit_logs", idCol: "entity_id"},
+	{table: "comments", idCol: "entity_id"},
+	{table: "entity_reports", idCol: "entity_id"},
+	{table: "requests", idCol: "requested_entity_id"},
+	{table: "entity_requests", idCol: "created_entity_id"},
+}
+
+// refsRepointedElsewhere names entity_type tables the merges DO handle but not
+// through the loop above, so the schema-coverage guards count them as covered
+// without repointEntityRefs trying to re-point them a second time.
+//
+// Every table here is one whose move is inseparable from a provenance decision —
+// see repointRevisions and repointEditHistory, and the per-merge steps that give
+// each merge's answer.
+var refsRepointedElsewhere = []string{
+	"revisions",
+	"pending_entity_edits",
+	"entity_edit_audit_logs",
 }
 
 // repointEntityRefs walks refs, dropping rows that would collide on a unique key
@@ -40,36 +116,48 @@ type entityRef struct {
 // Must run inside the merge's transaction, which is where the rest of the
 // merge's atomicity comes from.
 //
-// Returns moved-row counts keyed by table rather than one total, because callers
-// report different slices of it: the venue merge sums them into a single
-// summary, the artist merge surfaces two tables individually in its API
-// response. A total would force the second caller to re-query what the UPDATE
-// already returned.
+// Returns moved and dropped row counts keyed by table rather than one total,
+// because callers report different slices of it and because a merge that
+// DELETES a user's bookmark, crate item or tag vote should be able to say how
+// many — same reasoning as repointEditHistory's separate dropped count.
 //
 // A self-merge is rejected: the dedupe's EXISTS correlation would match every
 // row against itself and delete the surviving entity's rows before the no-op
 // move ran.
+//
+// The three tables in refsRepointedElsewhere are rejected outright. They are not
+// merely absent from the inventory — routing one through here would assemble its
+// UPDATE with fmt.Sprintf, which is invisible to the source-scanning guards
+// (TestNoRevisionRepointOutsideTheHelper, TestNoEditHistoryRepointOutsideTheHelper)
+// that force a provenance decision. This check is the part of that fence a list
+// edit cannot step around.
 func repointEntityRefs(
 	tx *gorm.DB,
 	refs []entityRef,
 	entity mergeEntityType,
 	canonicalID, mergeFromID uint,
-) (map[string]int64, error) {
+) (moved, dropped map[string]int64, err error) {
 	if !entity.valid() {
-		return nil, fmt.Errorf("repoint entity refs: unknown entity type %q", string(entity))
+		return nil, nil, fmt.Errorf("repoint entity refs: unknown entity type %q", string(entity))
 	}
 	if canonicalID == 0 || mergeFromID == 0 {
-		return nil, fmt.Errorf("repoint entity refs: canonical and merge-from ids are required")
+		return nil, nil, fmt.Errorf("repoint entity refs: canonical and merge-from ids are required")
 	}
 	if canonicalID == mergeFromID {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"repoint entity refs: cannot re-point %s %d onto itself", entity, canonicalID)
 	}
 
-	moved := make(map[string]int64, len(refs))
+	moved = make(map[string]int64, len(refs))
+	dropped = make(map[string]int64, len(refs))
 	for _, ref := range refs {
 		if ref.table == "" || ref.idCol == "" {
-			return nil, fmt.Errorf("repoint entity refs: table and id column are required")
+			return nil, nil, fmt.Errorf("repoint entity refs: table and id column are required")
+		}
+		if provenanceGatedTable(ref.table) {
+			return nil, nil, fmt.Errorf(
+				"repoint entity refs: %s must move through repointRevisions or "+
+					"repointEditHistory, which require a provenance decision", ref.table)
 		}
 
 		if ref.dedupe {
@@ -77,22 +165,32 @@ func repointEntityRefs(
 			for _, col := range ref.key {
 				joinPred += fmt.Sprintf(" AND w.%s = l.%s", col, col)
 			}
-			// #nosec G201 -- table/column names come from the hardcoded per-merge
-			// inventories, never from caller input; the ids and the entity type
+			loserScope, winnerScope := "", ""
+			if ref.dedupeWhen != "" {
+				// #nosec G201 -- dedupeWhen is a hardcoded predicate from the
+				// inventory above; only the row alias is substituted.
+				loserScope = " AND " + fmt.Sprintf(ref.dedupeWhen, "l")
+				// #nosec G201 -- see above.
+				winnerScope = " AND " + fmt.Sprintf(ref.dedupeWhen, "w")
+			}
+			// #nosec G201 -- table/column names come from the hardcoded
+			// inventory, never from caller input; the ids and the entity type
 			// are bound parameters.
 			del := fmt.Sprintf(`
 				DELETE FROM %[1]s l
 				WHERE l.entity_type = ?
-				  AND l.%[2]s = ?
+				  AND l.%[2]s = ?%[4]s
 				  AND EXISTS (
 				        SELECT 1 FROM %[1]s w
 				        WHERE w.entity_type = ?
-				          AND w.%[2]s = ?%[3]s
+				          AND w.%[2]s = ?%[3]s%[5]s
 				      )
-			`, ref.table, ref.idCol, joinPred)
-			if err := tx.Exec(del, string(entity), mergeFromID, string(entity), canonicalID).Error; err != nil {
-				return nil, fmt.Errorf("failed to drop conflicting %s rows: %w", ref.table, err)
+			`, ref.table, ref.idCol, joinPred, loserScope, winnerScope)
+			r := tx.Exec(del, string(entity), mergeFromID, string(entity), canonicalID)
+			if r.Error != nil {
+				return nil, nil, fmt.Errorf("failed to drop conflicting %s rows: %w", ref.table, r.Error)
 			}
+			dropped[ref.table] = r.RowsAffected
 		}
 
 		// #nosec G201 -- see above.
@@ -102,22 +200,71 @@ func repointEntityRefs(
 		)
 		r := tx.Exec(upd, canonicalID, string(entity), mergeFromID)
 		if r.Error != nil {
-			return nil, fmt.Errorf("failed to move %s rows: %w", ref.table, r.Error)
+			return nil, nil, fmt.Errorf("failed to move %s rows: %w", ref.table, r.Error)
 		}
 		moved[ref.table] = r.RowsAffected
 	}
-	return moved, nil
+	return moved, dropped, nil
 }
 
-// entityRefTableSet flattens an inventory plus the tables a merge handles
-// through a dedicated step into the lookup the schema-coverage guards use.
-func entityRefTableSet(refs []entityRef, repointedElsewhere []string) map[string]bool {
-	out := make(map[string]bool, len(refs)+len(repointedElsewhere))
-	for _, ref := range refs {
-		out[strings.ToLower(ref.table)] = true
+// logDroppedEntityRefs records the rows a merge DELETED rather than moved.
+//
+// These are hard deletes of user-authored rows — a crate item, a bookmark, a tag
+// vote, a comment-thread subscription — in tables with no soft-delete column, so
+// without this line nobody can answer "what did that merge destroy?" afterwards.
+// The merge summary types have no field for it, and adding one is an API-contract
+// change; a log entry is the part that can land with the fix itself.
+func logDroppedEntityRefs(entity mergeEntityType, canonicalID, mergeFromID uint, dropped map[string]int64) {
+	for table, count := range dropped {
+		if count == 0 {
+			continue
+		}
+		slog.Default().Info("merge dropped duplicate entity references",
+			"entity_type", string(entity),
+			"canonical_id", canonicalID,
+			"merged_id", mergeFromID,
+			"table", table,
+			"rows_deleted", count,
+		)
 	}
-	for _, table := range repointedElsewhere {
-		out[strings.ToLower(table)] = true
+}
+
+// provenanceGatedTable reports whether a table may only be re-pointed through
+// the helpers that demand a provenance decision.
+func provenanceGatedTable(table string) bool {
+	for _, gated := range refsRepointedElsewhere {
+		if table == gated {
+			return true
+		}
+	}
+	return false
+}
+
+// movedCount reads one table's moved-row count, failing loudly when the table is
+// absent from the inventory.
+//
+// A bare map lookup would return zero, which is indistinguishable from "the
+// table had no rows" — so a merge whose summary field silently reported 0
+// forever after a table rename would pass every test in this package.
+func movedCount(moved map[string]int64, table string) (int64, error) {
+	count, ok := moved[table]
+	if !ok {
+		return 0, fmt.Errorf(
+			"merge summary wants %s, which is not in the entity-ref inventory", table)
+	}
+	return count, nil
+}
+
+// entityRefTables is every entity_type table the merges handle, for the
+// schema-drift tests: the ones re-pointed by the loop, plus the ones re-pointed
+// by a dedicated step.
+func entityRefTables() map[string]bool {
+	out := make(map[string]bool, len(polymorphicEntityRefs)+len(refsRepointedElsewhere))
+	for _, ref := range polymorphicEntityRefs {
+		out[ref.table] = true
+	}
+	for _, table := range refsRepointedElsewhere {
+		out[table] = true
 	}
 	return out
 }

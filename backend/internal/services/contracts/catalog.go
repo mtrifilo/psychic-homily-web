@@ -2236,7 +2236,7 @@ type MergeVenueResult struct {
 	ConfirmationsMoved   int64 `json:"confirmations_moved"`
 	FiltersUpdated       int64 `json:"filters_updated"`
 	// EntityRefsMoved totals the polymorphic (entity_type='venue', entity_id)
-	// rows re-pointed across every table in venueEntityRefs.
+	// rows re-pointed across every table in polymorphicEntityRefs.
 	EntityRefsMoved int64 `json:"entity_refs_moved"`
 }
 

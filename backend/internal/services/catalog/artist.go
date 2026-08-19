@@ -1492,11 +1492,12 @@ func (s *ArtistService) GetArtistAliases(artistID uint) ([]*contracts.ArtistAlia
 // to the canonical artist. Conflicts (duplicate rows) are deleted before transfer.
 // The merged artist's name is added as an alias, then the merged artist is deleted.
 //
-// Which tables that covers is not decided here: artistEntityRefs and
-// artistFKTables are the inventory, and two schema-drift tests fail when a
-// migration adds a table neither list mentions. Adding a step below without
-// adding it there is the failure this merge already had once — the polymorphic
-// tables it silently missed left rows pointing at a deleted artist id.
+// Which tables that covers is NOT decided here. The three inventories in
+// artist_merge.go (plus polymorphicEntityRefs, shared with the venue merge) are
+// the record, and three schema-drift tests fail when a migration adds an artist
+// reference none of them mentions. Adding a step below without adding it there
+// is the failure this merge already had once — the polymorphic tables it
+// silently missed left rows pointing at a deleted artist id.
 func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -1506,7 +1507,9 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		return nil, apperrors.ErrArtistMergeSelf()
 	}
 
-	// Verify both artists exist
+	// Verify both artists exist. This is the fast 404; the authoritative read is
+	// the locking one inside the transaction, which is also what serializes two
+	// concurrent merges of the same pair.
 	var canonical catalogm.Artist
 	if err := s.db.First(&canonical, canonicalID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1515,8 +1518,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		return nil, fmt.Errorf("failed to get canonical artist: %w", err)
 	}
 
-	var mergeFrom catalogm.Artist
-	if err := s.db.First(&mergeFrom, mergeFromID).Error; err != nil {
+	if err := s.db.First(&catalogm.Artist{}, mergeFromID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(mergeFromID)
 		}
@@ -1526,15 +1528,29 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 	result := &contracts.MergeArtistResult{
 		CanonicalArtistID: canonicalID,
 		MergedArtistID:    mergeFromID,
-		MergedArtistName:  mergeFrom.Name,
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		// 1. show_artists: delete conflicts, then update remaining
-		tx.Where("artist_id = ? AND show_id IN (?)", mergeFromID,
-			tx.Table("show_artists").Select("show_id").Where("artist_id = ?", canonicalID),
-		).Delete(&catalogm.ShowArtist{})
+		// 0. Lock both artist rows in ascending id order. Without this, two
+		// admins merging the same pair in opposite directions can each delete
+		// the other's canonical artist and both commit, leaving zero artists.
+		_, locked, err := lockMergeArtists(tx, canonicalID, mergeFromID)
+		if err != nil {
+			return err
+		}
+		mergeFrom := *locked
+		result.MergedArtistName = mergeFrom.Name
+
+		// 1. show_artists: drop the bill entries that cannot be re-pointed (see
+		// dropCollidingShowArtists for the two indexes at stake), then move the
+		// rest.
+		if err := dropCollidingShowArtists(tx, canonicalID, mergeFromID); err != nil {
+			return err
+		}
 		r := tx.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", mergeFromID).Update("artist_id", canonicalID)
+		if r.Error != nil {
+			return fmt.Errorf("failed to move show_artists rows: %w", r.Error)
+		}
 		result.ShowsMoved = r.RowsAffected
 
 		// 2. artist_releases: delete conflicts, then update remaining
@@ -1585,15 +1601,22 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		}
 
 		// 9. Every polymorphic (entity_type, entity_id) table — see
-		// artistEntityRefs for the inventory and the guard that keeps it from
-		// falling behind the schema. Two of them are reported individually.
-		refsMoved, err := repointEntityRefs(
-			tx, artistEntityRefs, mergeEntityArtist, canonicalID, mergeFromID)
+		// polymorphicEntityRefs for the inventory and the guard that keeps it
+		// from falling behind the schema. Two of them are reported individually,
+		// through a lookup that errors rather than silently reporting 0 if the
+		// inventory ever stops carrying them.
+		refsMoved, refsDropped, err := repointEntityRefs(
+			tx, polymorphicEntityRefs, mergeEntityArtist, canonicalID, mergeFromID)
 		if err != nil {
 			return err
 		}
-		result.BookmarksMoved = refsMoved["user_bookmarks"]
-		result.CollectionItemsMoved = refsMoved["collection_items"]
+		if result.BookmarksMoved, err = movedCount(refsMoved, "user_bookmarks"); err != nil {
+			return err
+		}
+		if result.CollectionItemsMoved, err = movedCount(refsMoved, "collection_items"); err != nil {
+			return err
+		}
+		logDroppedEntityRefs(mergeEntityArtist, canonicalID, mergeFromID, refsDropped)
 
 		// 10. The foreign-key tables whose ON DELETE clause would otherwise
 		// destroy or blank the losing artist's rows. See reassignArtistFKRefs.

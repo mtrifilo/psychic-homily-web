@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,7 @@ func (s *ArtistMergeIntegrationSuite) SetupTest() {
 		"DELETE FROM entity_edit_audit_logs",
 		"DELETE FROM revisions",
 		"DELETE FROM artist_link_suggestions",
+		"DELETE FROM image_enrich_queue",
 		"DELETE FROM radio_plays",
 		"DELETE FROM radio_episodes",
 		"DELETE FROM radio_shows",
@@ -64,10 +66,15 @@ func (s *ArtistMergeIntegrationSuite) SetupTest() {
 		"DELETE FROM notification_log",
 		"DELETE FROM notification_filters",
 		"DELETE FROM artist_aliases",
+		"DELETE FROM artist_communities",
 		"DELETE FROM entity_tags",
 		"DELETE FROM tag_votes",
 		"DELETE FROM tags",
+		"DELETE FROM show_artists",
+		"DELETE FROM show_venues",
+		"DELETE FROM shows",
 		"DELETE FROM artists",
+		"DELETE FROM venues",
 		"DELETE FROM users",
 	} {
 		_, err := sqlDB.Exec(stmt)
@@ -198,18 +205,49 @@ func (s *ArtistMergeIntegrationSuite) seedMatchedPlay(artistID uint, trackTitle 
 	return play.ID
 }
 
-func (s *ArtistMergeIntegrationSuite) seedLinkSuggestion(artistID uint, url string) uint {
+func (s *ArtistMergeIntegrationSuite) seedLinkSuggestion(artistID uint, url, status string) uint {
 	suggestion := &catalogm.ArtistLinkSuggestion{
 		ArtistID:   artistID,
 		Platform:   "bandcamp",
 		URL:        url,
 		Source:     "musicbrainz",
 		Confidence: "high",
-		Status:     catalogm.LinkSuggestionStatusPending,
+		Status:     status,
 		CreatedAt:  time.Now().UTC(),
 	}
 	s.Require().NoError(s.db.Create(suggestion).Error)
 	return suggestion.ID
+}
+
+// seedShowAt books artist at venue on date, wiring both show_venues and the
+// denormalized show_artists.venue_id/event_date that
+// shows_artist_venue_eventdate_uniq actually indexes.
+func (s *ArtistMergeIntegrationSuite) seedShowAt(
+	artistID, venueID uint, date time.Time,
+) *catalogm.Show {
+	slug := fmt.Sprintf("show-%d", time.Now().UnixNano())
+	show := &catalogm.Show{Title: "Gig", Slug: &slug, EventDate: date}
+	s.Require().NoError(s.db.Create(show).Error)
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error)
+
+	d := date
+	v := venueID
+	s.Require().NoError(s.db.Create(&catalogm.ShowArtist{
+		ShowID:    show.ID,
+		ArtistID:  artistID,
+		Position:  0,
+		SetType:   "performer",
+		EventDate: &d,
+		VenueID:   &v,
+	}).Error)
+	return show
+}
+
+func (s *ArtistMergeIntegrationSuite) createVenue(name string) *catalogm.Venue {
+	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
+	v := &catalogm.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
+	s.Require().NoError(s.db.Create(v).Error)
+	return v
 }
 
 // ──────────────────────────────────────────────
@@ -217,10 +255,10 @@ func (s *ArtistMergeIntegrationSuite) seedLinkSuggestion(artistID uint, url stri
 // ──────────────────────────────────────────────
 
 // TestArtistEntityRefsCoverSchema is the guard this ticket exists to add.
-// artistEntityRefs is a hand-maintained list, and the failure mode of falling
-// behind is silent: a new entity_type table simply keeps rows pointing at a
-// deleted artist. That is exactly what happened to pending_entity_edits, which
-// gained a suggest-edit route for artists and never gained a merge step.
+// polymorphicEntityRefs is a hand-maintained list, and the failure mode of
+// falling behind is silent: a new entity_type table simply keeps rows pointing
+// at a deleted artist. That is exactly what happened to pending_entity_edits,
+// which gained a suggest-edit route for artists and never gained a merge step.
 //
 // This fails in CI the moment a migration adds one, which is the only cheap
 // moment to notice.
@@ -233,12 +271,12 @@ func (s *ArtistMergeIntegrationSuite) TestArtistEntityRefsCoverSchema() {
 	`).Scan(&tables).Error)
 	s.Require().NotEmpty(tables)
 
-	covered := artistEntityRefTables()
+	covered := entityRefTables()
 	for _, table := range tables {
 		s.Truef(covered[table],
-			"table %q has an entity_type column but is not in artistEntityRefs — an artist merge "+
+			"table %q has an entity_type column but is not in polymorphicEntityRefs — an artist merge "+
 				"would leave its rows pointing at a deleted artist. Add it (with its unique key), "+
-				"or handle it in a dedicated step and name it in artistRefsRepointedElsewhere.", table)
+				"or handle it in a dedicated step and name it in refsRepointedElsewhere.", table)
 	}
 
 	// And the reverse: nothing in either list may have been dropped by a
@@ -247,61 +285,145 @@ func (s *ArtistMergeIntegrationSuite) TestArtistEntityRefsCoverSchema() {
 	for _, t := range tables {
 		present[t] = true
 	}
-	for _, ref := range artistEntityRefs {
+	for _, ref := range polymorphicEntityRefs {
 		s.Truef(present[ref.table],
-			"artistEntityRefs lists %q, which no longer has an entity_type column", ref.table)
+			"polymorphicEntityRefs lists %q, which no longer has an entity_type column", ref.table)
 	}
-	for _, table := range artistRefsRepointedElsewhere {
+	for _, table := range refsRepointedElsewhere {
 		s.Truef(present[table],
-			"artistRefsRepointedElsewhere lists %q, which no longer has an entity_type column", table)
+			"refsRepointedElsewhere lists %q, which no longer has an entity_type column", table)
 	}
 }
 
-// TestArtistEntityRefColumnsExist closes the gap the coverage guard leaves: a
-// ref may name the right table and still name the wrong id or dedupe column.
-// A wrong idCol aborts every merge loudly, but a wrong dedupe key only surfaces
-// as a unique-violation on the one merge where two rows actually collide —
-// rare enough to reach production.
-func (s *ArtistMergeIntegrationSuite) TestArtistEntityRefColumnsExist() {
-	for _, ref := range artistEntityRefs {
-		for _, col := range append([]string{ref.idCol}, ref.key...) {
-			var count int64
-			s.Require().NoError(s.db.Raw(`
-				SELECT COUNT(*) FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
-			`, ref.table, col).Scan(&count).Error)
-			s.Equalf(int64(1), count,
-				"artistEntityRefs names column %q on table %q, which does not exist", col, ref.table)
+// TestArtistEntityRefDedupeKeysMatchTheSchema closes the gap the coverage guard
+// leaves: a ref may name the right table and still describe the wrong index.
+//
+// A wrong idCol aborts every merge loudly. A wrong dedupe key does not — it
+// surfaces only on the one merge where two rows actually collide, which is rare
+// enough to reach production. So this reads the REAL unique indexes out of
+// pg_index and asserts that each ref's declared key matches one of them, rather
+// than merely asserting the named columns exist.
+//
+// A ref with dedupe=false must have no unique index over its entity reference at
+// all; that direction matters just as much, since it is the one that produces
+// the constraint violation.
+func (s *ArtistMergeIntegrationSuite) TestArtistEntityRefDedupeKeysMatchTheSchema() {
+	for _, ref := range polymorphicEntityRefs {
+		indexes := s.uniqueIndexColumnSets(ref.table)
+
+		declared := map[string]bool{"entity_type": true, ref.idCol: true}
+		for _, col := range ref.key {
+			declared[col] = true
+		}
+
+		var covering []map[string]bool
+		for _, cols := range indexes {
+			if cols["entity_type"] && cols[ref.idCol] {
+				covering = append(covering, cols)
+			}
+		}
+
+		if !ref.dedupe {
+			s.Emptyf(covering,
+				"%s is declared dedupe=false but carries a unique index over its entity "+
+					"reference; the re-point will violate it", ref.table)
+			continue
+		}
+
+		s.Require().NotEmptyf(covering,
+			"%s is declared dedupe=true but has no unique index over (entity_type, %s); the "+
+				"dedupe is deleting rows for no reason", ref.table, ref.idCol)
+
+		matched := false
+		for _, cols := range covering {
+			if len(cols) == len(declared) && subsetOf(cols, declared) {
+				matched = true
+				break
+			}
+		}
+		s.Truef(matched,
+			"%s declares key %v, which matches none of its real unique indexes %v — a dedupe "+
+				"narrower than the index aborts the merge on a collision, a wider one deletes "+
+				"rows the database would have kept", ref.table, ref.key, indexes)
+	}
+}
+
+// uniqueIndexColumnSets returns the column set of every unique index on table
+// that is defined over plain columns (expression indexes are skipped: none of
+// the inventory's dedupe keys is an expression, and one would not be
+// representable as an entityRef.key anyway).
+func (s *ArtistMergeIntegrationSuite) uniqueIndexColumnSets(table string) []map[string]bool {
+	type row struct {
+		IndexName string
+		Columns   string
+	}
+	var rows []row
+	s.Require().NoError(s.db.Raw(`
+		SELECT i.relname AS index_name,
+		       string_agg(a.attname, ',' ORDER BY a.attname) AS columns
+		FROM pg_index x
+		JOIN pg_class i ON i.oid = x.indexrelid
+		JOIN pg_class t ON t.oid = x.indrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(x.indkey)
+		WHERE n.nspname = 'public' AND t.relname = ? AND x.indisunique
+		GROUP BY i.relname, x.indnatts
+		HAVING COUNT(*) = x.indnatts
+	`, table).Scan(&rows).Error)
+
+	out := make([]map[string]bool, 0, len(rows))
+	for _, r := range rows {
+		cols := map[string]bool{}
+		for _, c := range strings.Split(r.Columns, ",") {
+			cols[c] = true
+		}
+		out = append(out, cols)
+	}
+	return out
+}
+
+func subsetOf(got, want map[string]bool) bool {
+	for col := range got {
+		if !want[col] {
+			return false
 		}
 	}
+	return true
 }
 
 // TestArtistForeignKeysAreAllHandled is the second drift guard, and the one that
-// covers the tables the database itself would quietly empty.
+// covers the columns the database itself would quietly empty.
 //
-// Nine of the eleven foreign keys to artists cascade on delete and one sets
-// NULL, so a table this merge does not handle does NOT raise an error when the
-// losing artist goes — its rows are silently destroyed, or silently un-matched.
-// artistFKTables records the decision for each; this asserts the set is still
-// the schema's.
+// Nine of these tables cascade on delete and one sets NULL, so a column this
+// merge does not handle does NOT raise an error when the losing artist goes —
+// its rows are silently destroyed, or silently un-matched.
+//
+// Matched per COLUMN, not per table: artist_relationships and
+// radio_artist_affinity each already carry two artist foreign keys, so a
+// table-level assertion would stay green when a migration added a second artist
+// column to a table already in the list, and the merge would re-point only the
+// first.
 func (s *ArtistMergeIntegrationSuite) TestArtistForeignKeysAreAllHandled() {
-	var tables []string
+	var columns []string
 	s.Require().NoError(s.db.Raw(`
-		SELECT DISTINCT tc.table_name
+		SELECT DISTINCT kcu.table_name || '.' || kcu.column_name
 		FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu
+		  ON tc.constraint_name = kcu.constraint_name
+		 AND tc.table_schema = kcu.table_schema
 		JOIN information_schema.constraint_column_usage ccu
 		  ON tc.constraint_name = ccu.constraint_name
 		WHERE tc.constraint_type = 'FOREIGN KEY'
 		  AND ccu.table_name = 'artists'
 		  AND ccu.column_name = 'id'
-		ORDER BY tc.table_name
-	`).Scan(&tables).Error)
-	s.Require().NotEmpty(tables)
+		ORDER BY 1
+	`).Scan(&columns).Error)
+	s.Require().NotEmpty(columns)
 
-	s.ElementsMatch(artistFKTables, tables,
-		"the set of tables with a foreign key to artists has changed. A new one must be "+
-			"handled explicitly in the merge — most of these CASCADE, so an unhandled table "+
-			"loses its rows silently when the merged artist is deleted.")
+	s.ElementsMatch(artistFKColumns, columns,
+		"the set of columns with a foreign key to artists has changed. A new one must be "+
+			"given a disposition in artistFKColumns — most of these CASCADE, so an unhandled "+
+			"column loses its rows silently when the merged artist is deleted.")
 }
 
 // TestArtistIDColumnsWithoutForeignKeysAreAccountedFor is the third guard, and
@@ -316,6 +438,12 @@ func (s *ArtistMergeIntegrationSuite) TestArtistForeignKeysAreAllHandled() {
 // the same way. Listing them costs one line each and makes "checked, and it is
 // not ours" a recorded decision rather than an omission.
 //
+// The pattern is "contains artist, ends in id or ids" rather than "ends in
+// artist_id", because this schema does not consistently use that suffix:
+// radio_artist_affinity names its pair artist_a_id / artist_b_id. Those two are
+// FK-constrained today and so excluded anyway, but they prove the narrower
+// pattern would have a hole exactly where the naming deviates.
+//
 // The exclusion is "participates in ANY foreign key", not "references artists".
 // That is what drops artist_relationship_votes' source/target columns, whose
 // composite key points at artist_relationships rather than at artists directly:
@@ -327,7 +455,8 @@ func (s *ArtistMergeIntegrationSuite) TestArtistIDColumnsWithoutForeignKeysAreAc
 		SELECT c.table_name || '.' || c.column_name
 		FROM information_schema.columns c
 		WHERE c.table_schema = 'public'
-		  AND (c.column_name LIKE '%artist_id' OR c.column_name LIKE '%artist_ids')
+		  AND c.column_name LIKE '%artist%'
+		  AND (c.column_name LIKE '%id' OR c.column_name LIKE '%ids')
 		  AND NOT EXISTS (
 		        SELECT 1
 		        FROM information_schema.key_column_usage kcu
@@ -403,6 +532,91 @@ func (s *ArtistMergeIntegrationSuite) TestMergeDropsDuplicateContributorPendingE
 	err = s.db.First(&still, dropped).Error
 	s.ErrorIs(err, gorm.ErrRecordNotFound,
 		"the colliding pending edit must be dropped, not carried into a unique violation")
+}
+
+// idx_pending_entity_edits_unique is PARTIAL — it constrains only rows with
+// status='pending'. An approved or rejected edit therefore cannot collide with
+// anything, and the dedupe must leave it alone.
+//
+// This is not bookkeeping: approved pending_entity_edits rows are what the
+// trusted-tier auto-promotion counts, and what its rolling demotion check counts
+// too, so destroying them can silently cost a contributor their tier. The
+// unscoped dedupe this replaces deleted every one of the contributor's rows on
+// the losing artist.
+func (s *ArtistMergeIntegrationSuite) TestMergeKeepsReviewedEditsThatCannotCollide() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	editor := s.createUser("editor")
+
+	// The contributor has a pending edit on the canonical artist, which is what
+	// makes the losing artist's rows candidates for the dedupe at all.
+	s.seedPendingEdit(canonical.ID, editor.ID, adminm.PendingEditStatusPending)
+	approved := s.seedPendingEdit(loser.ID, editor.ID, adminm.PendingEditStatusApproved)
+	rejected := s.seedPendingEdit(loser.ID, editor.ID, adminm.PendingEditStatusRejected)
+	collides := s.seedPendingEdit(loser.ID, editor.ID, adminm.PendingEditStatusPending)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	for _, id := range []uint{approved, rejected} {
+		moved := s.pendingEditByID(id)
+		s.Equal(canonical.ID, moved.EntityID,
+			"a reviewed edit cannot violate a partial index over status='pending' and must survive")
+	}
+
+	var gone adminm.PendingEntityEdit
+	s.ErrorIs(s.db.First(&gone, collides).Error, gorm.ErrRecordNotFound,
+		"only the row that would actually violate the index may be dropped")
+}
+
+// uq_image_enrich_queue_active is PARTIAL over status IN ('pending','processing').
+// A canonical artist whose enrichment already finished holds a 'done' row that
+// constrains nothing, so the losing artist's still-queued job must move rather
+// than be thrown away — nothing re-enqueues it.
+func (s *ArtistMergeIntegrationSuite) TestMergeKeepsQueuedEnrichmentBehindAFinishedOne() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO image_enrich_queue (entity_type, entity_id, status) VALUES ('artist', ?, 'done')",
+		canonical.ID).Error)
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO image_enrich_queue (entity_type, entity_id, status) VALUES ('artist', ?, 'pending')",
+		loser.ID).Error)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var queued int64
+	s.Require().NoError(s.db.Raw(`
+		SELECT COUNT(*) FROM image_enrich_queue
+		WHERE entity_type = 'artist' AND entity_id = ? AND status = 'pending'
+	`, canonical.ID).Scan(&queued).Error)
+	s.Equal(int64(1), queued,
+		"a queued enrichment must not be deleted by a finished row it could never collide with")
+}
+
+// The other direction: two ACTIVE rows really do collide, so one must go.
+func (s *ArtistMergeIntegrationSuite) TestMergeDropsCollidingActiveEnrichmentJobs() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO image_enrich_queue (entity_type, entity_id, status) VALUES ('artist', ?, 'pending')",
+		canonical.ID).Error)
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO image_enrich_queue (entity_type, entity_id, status) VALUES ('artist', ?, 'processing')",
+		loser.ID).Error)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err, "two active jobs must not abort the merge on the partial index")
+
+	var active int64
+	s.Require().NoError(s.db.Raw(`
+		SELECT COUNT(*) FROM image_enrich_queue
+		WHERE entity_type = 'artist' AND entity_id = ? AND status IN ('pending', 'processing')
+	`, canonical.ID).Scan(&active).Error)
+	s.Equal(int64(1), active, "the partial index permits exactly one active job per entity")
 }
 
 // ──────────────────────────────────────────────
@@ -484,9 +698,15 @@ func (s *ArtistMergeIntegrationSuite) TestMergeRepointsAuditLogs() {
 }
 
 // The sweep: after a merge, NOTHING in the polymorphic inventory may still point
-// at the losing artist. Weaker than a per-table fixture and much cheaper to
-// keep, and it grows automatically — a table added to artistEntityRefs is
-// checked here without anyone remembering to.
+// at the losing artist.
+//
+// Honest about its reach: it only proves anything for the four tables seeded
+// below. The other thirteen assertions run against empty tables and pass
+// vacuously, so this is NOT a substitute for the per-table cases above — it is a
+// cheap backstop that catches a whole table dropping out of the loop. What
+// actually keeps the inventory correct is TestArtistEntityRefsCoverSchema (the
+// list covers the schema) and TestArtistEntityRefDedupeKeysMatchTheSchema (each
+// entry describes its real index).
 func (s *ArtistMergeIntegrationSuite) TestMergeLeavesNoDanglingArtistReferences() {
 	canonical := s.createArtist("Canonical Band")
 	loser := s.createArtist("Dupe Band")
@@ -502,7 +722,7 @@ func (s *ArtistMergeIntegrationSuite) TestMergeLeavesNoDanglingArtistReferences(
 	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
 	s.Require().NoError(err)
 
-	for _, ref := range artistEntityRefs {
+	for _, ref := range polymorphicEntityRefs {
 		var remaining int64
 		// #nosec G201 -- table and column come from the hardcoded inventory.
 		query := fmt.Sprintf(
@@ -510,7 +730,7 @@ func (s *ArtistMergeIntegrationSuite) TestMergeLeavesNoDanglingArtistReferences(
 		s.Require().NoError(s.db.Raw(query, loser.ID).Scan(&remaining).Error)
 		s.Zerof(remaining, "%s still points at the merged-away artist", ref.table)
 	}
-	for _, table := range artistRefsRepointedElsewhere {
+	for _, table := range refsRepointedElsewhere {
 		var remaining int64
 		// #nosec G201 -- table comes from the hardcoded inventory.
 		query := fmt.Sprintf(
@@ -518,6 +738,113 @@ func (s *ArtistMergeIntegrationSuite) TestMergeLeavesNoDanglingArtistReferences(
 		s.Require().NoError(s.db.Raw(query, loser.ID).Scan(&remaining).Error)
 		s.Zerof(remaining, "%s still points at the merged-away artist", table)
 	}
+}
+
+// ──────────────────────────────────────────────
+// The unique index that used to abort the whole merge
+// ──────────────────────────────────────────────
+
+// shows_artist_venue_eventdate_uniq is UNIQUE (artist_id, venue_id, event_date)
+// WHERE both are NOT NULL. The merge's original conflict delete keyed on
+// show_id alone, so two DIFFERENT shows at one venue on one date — one billing
+// each artist — survived it and then collided on the UPDATE, aborting the entire
+// merge with an opaque 500.
+//
+// That is not an exotic pairing: duplicate ingest produces a duplicate artist
+// and a duplicate show row together, which is exactly the pair an admin reaches
+// for the merge button on.
+func (s *ArtistMergeIntegrationSuite) TestMergeSurvivesSameVenueAndDateOnDifferentShows() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	venue := s.createVenue("The Rebel Lounge")
+	date := time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC)
+
+	canonicalShow := s.seedShowAt(canonical.ID, venue.ID, date)
+	loserShow := s.seedShowAt(loser.ID, venue.ID, date)
+	s.Require().NotEqual(canonicalShow.ID, loserShow.ID)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err,
+		"two different shows at one venue on one date must not abort the merge")
+
+	var billings int64
+	s.Require().NoError(s.db.Raw(`
+		SELECT COUNT(*) FROM show_artists
+		WHERE artist_id = ? AND venue_id = ? AND event_date = ?
+	`, canonical.ID, venue.ID, date).Scan(&billings).Error)
+	s.Equal(int64(1), billings,
+		"exactly one billing may survive — the index permits no more")
+
+	var stranded int64
+	s.Require().NoError(s.db.Raw(
+		"SELECT COUNT(*) FROM show_artists WHERE artist_id = ?", loser.ID).Scan(&stranded).Error)
+	s.Zero(stranded, "no bill entry may be left on the merged-away artist")
+}
+
+// The pre-existing same-show conflict still has to be dropped: one show billing
+// both artists would violate the (show_id, artist_id) primary key.
+func (s *ArtistMergeIntegrationSuite) TestMergeDropsSameShowBillingConflicts() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	venue := s.createVenue("Valley Bar")
+	date := time.Date(2026, 9, 2, 20, 0, 0, 0, time.UTC)
+
+	show := s.seedShowAt(canonical.ID, venue.ID, date)
+	d := date
+	v := venue.ID
+	s.Require().NoError(s.db.Create(&catalogm.ShowArtist{
+		ShowID: show.ID, ArtistID: loser.ID, Position: 1, SetType: "performer",
+		EventDate: &d, VenueID: &v,
+	}).Error)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var billings int64
+	s.Require().NoError(s.db.Raw(
+		"SELECT COUNT(*) FROM show_artists WHERE show_id = ? AND artist_id = ?",
+		show.ID, canonical.ID).Scan(&billings).Error)
+	s.Equal(int64(1), billings, "one show may bill the canonical artist exactly once")
+}
+
+// ──────────────────────────────────────────────
+// Concurrency
+// ──────────────────────────────────────────────
+
+// Two admins merging the same pair in OPPOSITE directions must resolve to
+// exactly one surviving artist. Before the row lock, each transaction deleted
+// the other's canonical artist and both could commit — leaving ZERO artists
+// where there should be one, silently and irreversibly.
+//
+// The pair here deliberately has no FK-referencing rows: those were the only
+// thing that ever serialized these transactions, so a bare pair is precisely the
+// case the lock has to cover.
+func (s *ArtistMergeIntegrationSuite) TestConcurrentOppositeMergesLeaveExactlyOneArtist() {
+	a := s.createArtist("Band A")
+	b := s.createArtist("Band B")
+
+	results := make(chan error, 2)
+	go func() {
+		_, err := s.svc.MergeArtists(a.ID, b.ID)
+		results <- err
+	}()
+	go func() {
+		_, err := s.svc.MergeArtists(b.ID, a.ID)
+		results <- err
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-results:
+		case <-time.After(30 * time.Second):
+			s.FailNow("concurrent opposite merges deadlocked")
+		}
+	}
+
+	var remaining int64
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).
+		Where("id IN ?", []uint{a.ID, b.ID}).Count(&remaining).Error)
+	s.Equal(int64(1), remaining, "a merge race must not delete both artists")
 }
 
 // ──────────────────────────────────────────────
@@ -554,9 +881,9 @@ func (s *ArtistMergeIntegrationSuite) TestMergeRepointsLinkSuggestions() {
 	canonical := s.createArtist("Canonical Band")
 	loser := s.createArtist("Dupe Band")
 
-	moved := s.seedLinkSuggestion(loser.ID, "https://dupe.bandcamp.com")
-	s.seedLinkSuggestion(canonical.ID, "https://shared.bandcamp.com")
-	colliding := s.seedLinkSuggestion(loser.ID, "https://shared.bandcamp.com")
+	moved := s.seedLinkSuggestion(loser.ID, "https://dupe.bandcamp.com", catalogm.LinkSuggestionStatusPending)
+	s.seedLinkSuggestion(canonical.ID, "https://shared.bandcamp.com", catalogm.LinkSuggestionStatusPending)
+	colliding := s.seedLinkSuggestion(loser.ID, "https://shared.bandcamp.com", catalogm.LinkSuggestionStatusPending)
 
 	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
 	s.Require().NoError(err, "a duplicate suggestion must not abort the merge")
@@ -569,4 +896,90 @@ func (s *ArtistMergeIntegrationSuite) TestMergeRepointsLinkSuggestions() {
 	var gone catalogm.ArtistLinkSuggestion
 	s.ErrorIs(s.db.First(&gone, colliding).Error, gorm.ErrRecordNotFound,
 		"the colliding suggestion must be dropped before the re-point")
+}
+
+// When the two rows disagree, the HUMAN's answer wins. Keeping the canonical
+// artist's still-pending row over a verdict someone already reached would put a
+// triaged URL back in the admin review queue — the opposite of why these rows
+// are rescued from the CASCADE at all.
+func (s *ArtistMergeIntegrationSuite) TestMergeKeepsTheReviewedLinkSuggestion() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+
+	stillPending := s.seedLinkSuggestion(
+		canonical.ID, "https://contested.bandcamp.com", catalogm.LinkSuggestionStatusPending)
+	reviewed := s.seedLinkSuggestion(
+		loser.ID, "https://contested.bandcamp.com", catalogm.LinkSuggestionStatusRejected)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var kept catalogm.ArtistLinkSuggestion
+	s.Require().NoError(s.db.First(&kept, reviewed).Error,
+		"a reviewed verdict must not be discarded in favour of a pending duplicate")
+	s.Equal(canonical.ID, kept.ArtistID)
+	s.Equal(catalogm.LinkSuggestionStatusRejected, kept.Status)
+
+	var superseded catalogm.ArtistLinkSuggestion
+	s.ErrorIs(s.db.First(&superseded, stillPending).Error, gorm.ErrRecordNotFound,
+		"the pending duplicate must give way to the reviewed row")
+}
+
+// artist_communities.label_artist_id is ON DELETE CASCADE, so merging away a
+// community's label artist deletes the whole community row while every member
+// still carries artists.community_id pointing at it — the community renders
+// unlabelled for all of them until the next detection run.
+func (s *ArtistMergeIntegrationSuite) TestMergeRepointsCommunityLabel() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO artist_communities (id, label_artist_id, member_count) VALUES (1, ?, 6)",
+		loser.ID).Error)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var labelID uint
+	s.Require().NoError(s.db.Raw(
+		"SELECT label_artist_id FROM artist_communities WHERE id = 1").Scan(&labelID).Error)
+	s.Equal(canonical.ID, labelID,
+		"the community must keep a label rather than cascade away with the merged artist")
+}
+
+// musicbrainz_artist_id is not a Psychic Homily reference, but radio matching
+// resolves plays by MBID before falling back to name, so dropping the merged
+// artist's MBID silently degrades matching from then on.
+func (s *ArtistMergeIntegrationSuite) TestMergeCarriesMusicBrainzIDWhenCanonicalHasNone() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).Where("id = ?", loser.ID).
+		Update("musicbrainz_artist_id", "mbid-from-loser").Error)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var survivor catalogm.Artist
+	s.Require().NoError(s.db.First(&survivor, canonical.ID).Error)
+	s.Require().NotNil(survivor.MusicBrainzArtistID)
+	s.Equal("mbid-from-loser", *survivor.MusicBrainzArtistID)
+}
+
+// ...but never over one the canonical artist already has. Two MBIDs is a data
+// question for a human, and overwriting is the destructive answer.
+func (s *ArtistMergeIntegrationSuite) TestMergeKeepsTheCanonicalMusicBrainzID() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).Where("id = ?", canonical.ID).
+		Update("musicbrainz_artist_id", "mbid-canonical").Error)
+	s.Require().NoError(s.db.Model(&catalogm.Artist{}).Where("id = ?", loser.ID).
+		Update("musicbrainz_artist_id", "mbid-from-loser").Error)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var survivor catalogm.Artist
+	s.Require().NoError(s.db.First(&survivor, canonical.ID).Error)
+	s.Require().NotNil(survivor.MusicBrainzArtistID)
+	s.Equal("mbid-canonical", *survivor.MusicBrainzArtistID)
 }
