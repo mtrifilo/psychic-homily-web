@@ -770,9 +770,13 @@ func (s *VenueMergeIntegrationSuite) TestVenueForeignKeysAreAllHandled() {
 			"loses its rows silently when the merged venue is deleted.")
 }
 
-// TestVenueEntityRefsCoverSchema is the drift guard. venueEntityRefs is a
+// TestVenueEntityRefsCoverSchema is the drift guard. polymorphicEntityRefs is a
 // hand-maintained list, and the failure mode of falling behind is silent:
 // a new entity_type table simply keeps rows pointing at a deleted venue.
+//
+// The artist merge has its own copy of this assertion against the same list.
+// Both are kept: the list is shared, but each merge should fail on its own terms
+// so a reader of either suite learns that merge is guarded.
 //
 // This fails in CI the moment a migration adds one, which is the only cheap
 // moment to notice.
@@ -785,10 +789,10 @@ func (s *VenueMergeIntegrationSuite) TestVenueEntityRefsCoverSchema() {
 	`).Scan(&tables).Error)
 	s.Require().NotEmpty(tables)
 
-	covered := venueEntityRefTables()
+	covered := entityRefTables()
 	for _, table := range tables {
 		s.Truef(covered[table],
-			"table %q has an entity_type column but is not in venueEntityRefs — a venue merge "+
+			"table %q has an entity_type column but is not in polymorphicEntityRefs — a venue merge "+
 				"would leave its rows pointing at a deleted venue. Add it (with its unique key) "+
 				"or, if it can never hold entity_type='venue', say so there.", table)
 	}
@@ -799,18 +803,18 @@ func (s *VenueMergeIntegrationSuite) TestVenueEntityRefsCoverSchema() {
 	for _, t := range tables {
 		present[t] = true
 	}
-	for _, ref := range venueEntityRefs {
+	for _, ref := range polymorphicEntityRefs {
 		s.Truef(present[ref.table],
-			"venueEntityRefs lists %q, which no longer has an entity_type column", ref.table)
+			"polymorphicEntityRefs lists %q, which no longer has an entity_type column", ref.table)
 	}
 
 	// The tables handled by a dedicated step need the same reverse check. They
-	// left venueEntityRefs to gain a provenance decision, and taking that check
+	// left polymorphicEntityRefs to gain a provenance decision, and taking that check
 	// with them would mean a dropped entity_type column stops failing here and
 	// starts failing at runtime, on every merge.
-	for _, table := range venueRefsRepointedElsewhere {
+	for _, table := range refsRepointedElsewhere {
 		s.Truef(present[table],
-			"venueRefsRepointedElsewhere lists %q, which no longer has an entity_type column", table)
+			"refsRepointedElsewhere lists %q, which no longer has an entity_type column", table)
 	}
 }
 
