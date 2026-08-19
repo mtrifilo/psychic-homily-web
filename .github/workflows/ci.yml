@@ -470,8 +470,11 @@ jobs:
     # outside this workflow.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Safety net against runaway flake; smoke is expected to finish in ~1–2 min.
-    timeout-minutes: 5
+    # Safety net against runaway flake. The tests themselves finish in ~1-2 min,
+    # but setup (bun install + Playwright browser download on a cache miss) can
+    # eat 3-4 min under runner contention; at 5 the job died inside setup on
+    # four concurrent PRs before running a single test (PSY-1862).
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -485,6 +488,15 @@ jobs:
       - name: Install frontend dependencies
         working-directory: ./frontend
         run: bun install --frozen-lockfile
+
+      # Chromium re-downloaded every run was the bulk of the setup cost. Keyed
+      # on the lockfile: coarser than the Playwright version alone, but a miss
+      # only costs the download we paid on every run before.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
 
       - name: Install Playwright browsers
         working-directory: ./frontend
