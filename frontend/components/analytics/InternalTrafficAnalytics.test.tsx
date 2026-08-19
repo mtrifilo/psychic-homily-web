@@ -1,11 +1,26 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import {
-  pageviewWithinDailyCap,
+import { render } from '@testing-library/react'
+import type { BeforeSendEvent } from '@vercel/analytics/react'
+import InternalTrafficAnalytics, {
   syncInternalFlagFromUrl,
 } from './InternalTrafficAnalytics'
+import {
+  DAILY_PAGEVIEW_CAP,
+  PAGEVIEW_COUNT_KEY,
+} from '@/lib/analytics/pageviewDailyCap'
 
 const KEY = 'ph-internal-traffic'
-const COUNT_KEY = 'ph-pv-count'
+
+let capturedBeforeSend: ((event: BeforeSendEvent) => BeforeSendEvent | null) | undefined
+
+vi.mock('@vercel/analytics/react', () => ({
+  Analytics: (props: {
+    beforeSend?: (event: BeforeSendEvent) => BeforeSendEvent | null
+  }) => {
+    capturedBeforeSend = props.beforeSend
+    return null
+  },
+}))
 
 describe('syncInternalFlagFromUrl', () => {
   beforeEach(() => {
@@ -55,64 +70,55 @@ describe('syncInternalFlagFromUrl', () => {
   })
 })
 
-describe('pageviewWithinDailyCap', () => {
-  const TODAY = '2026-08-18'
+// The composed beforeSend chain is behavior the unit tests above cannot see:
+// it is where the internal flag, the daily cap, the event-type gate, and the
+// real UTC date expression meet.
+describe('InternalTrafficAnalytics beforeSend', () => {
+  const pageview = { type: 'pageview', url: '/shows' } as BeforeSendEvent
+  const customEvent = { type: 'event', url: '/shows' } as BeforeSendEvent
 
   beforeEach(() => {
     window.localStorage.clear()
+    capturedBeforeSend = undefined
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('allows the first pageview of the day and starts the counter', () => {
-    expect(pageviewWithinDailyCap(TODAY)).toBe(true)
-    expect(JSON.parse(window.localStorage.getItem(COUNT_KEY)!)).toEqual({
-      d: TODAY,
-      n: 1,
-    })
+  function mountAndGetBeforeSend() {
+    render(<InternalTrafficAnalytics />)
+    expect(capturedBeforeSend).toBeDefined()
+    return capturedBeforeSend!
+  }
+
+  it('passes pageviews through and keys the counter on the real UTC date', () => {
+    const beforeSend = mountAndGetBeforeSend()
+    expect(beforeSend(pageview)).toBe(pageview)
+    const stored = JSON.parse(
+      window.localStorage.getItem(PAGEVIEW_COUNT_KEY)!
+    ) as { d: string; n: number }
+    // Catches a regression in the date expression (e.g. a slice that produces
+    // a month key and turns the cap into 50 events per MONTH).
+    expect(stored.d).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(stored.n).toBe(1)
   })
 
-  it('increments across successive pageviews', () => {
-    pageviewWithinDailyCap(TODAY)
-    pageviewWithinDailyCap(TODAY)
-    pageviewWithinDailyCap(TODAY)
-    expect(JSON.parse(window.localStorage.getItem(COUNT_KEY)!).n).toBe(3)
+  it('drops pageviews past the daily cap but never custom events', () => {
+    const beforeSend = mountAndGetBeforeSend()
+    for (let i = 0; i < DAILY_PAGEVIEW_CAP; i++) {
+      expect(beforeSend(pageview)).toBe(pageview)
+    }
+    expect(beforeSend(pageview)).toBeNull()
+    // A future conversion event must not spend or be blocked by the
+    // pageview budget.
+    expect(beforeSend(customEvent)).toBe(customEvent)
   })
 
-  it('drops pageviews once the daily budget is spent', () => {
-    window.localStorage.setItem(COUNT_KEY, JSON.stringify({ d: TODAY, n: 50 }))
-    expect(pageviewWithinDailyCap(TODAY)).toBe(false)
-    // A refused pageview must not grow the counter.
-    expect(JSON.parse(window.localStorage.getItem(COUNT_KEY)!).n).toBe(50)
-  })
-
-  it('resets the budget when the UTC date rolls over', () => {
-    window.localStorage.setItem(
-      COUNT_KEY,
-      JSON.stringify({ d: '2026-08-17', n: 50 })
-    )
-    expect(pageviewWithinDailyCap(TODAY)).toBe(true)
-    expect(JSON.parse(window.localStorage.getItem(COUNT_KEY)!)).toEqual({
-      d: TODAY,
-      n: 1,
-    })
-  })
-
-  // Corrupt storage must count as a fresh day, not break analytics.
-  it('treats unparseable or misshapen stored values as a fresh counter', () => {
-    window.localStorage.setItem(COUNT_KEY, 'not json')
-    expect(pageviewWithinDailyCap(TODAY)).toBe(true)
-    window.localStorage.setItem(COUNT_KEY, JSON.stringify({ d: TODAY, n: 'x' }))
-    expect(pageviewWithinDailyCap(TODAY)).toBe(true)
-  })
-
-  // Same fail-open posture as the internal flag: no storage, keep counting.
-  it('fails open when localStorage throws', () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('storage disabled')
-    })
-    expect(pageviewWithinDailyCap(TODAY)).toBe(true)
+  it('drops everything, including custom events, for internal browsers', () => {
+    window.localStorage.setItem(KEY, '1')
+    const beforeSend = mountAndGetBeforeSend()
+    expect(beforeSend(pageview)).toBeNull()
+    expect(beforeSend(customEvent)).toBeNull()
   })
 })
