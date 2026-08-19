@@ -248,6 +248,21 @@ describe('ShowVenueModule', () => {
     ).not.toBeInTheDocument()
   })
 
+  // Blank venue names are a modeled case; a Directions bracket pointing at
+  // an EMPTY maps query is a dead verb, not an affordance.
+  it('offers no Directions when there is nothing to search for', () => {
+    render(
+      <ShowVenueModule
+        show={showAt(
+          makeVenue({ name: '  ', address: null, city: '', state: '' })
+        )}
+      />
+    )
+    expect(
+      screen.queryByRole('link', { name: /Directions/ })
+    ).not.toBeInTheDocument()
+  })
+
   // The follow ROUTE segment is plural; the notify VOCABULARY is singular.
   // Getting the follow one wrong 400s every click — the exact bug this pins.
   it('follows through the plural route segment and notifies through the singular vocabulary', () => {

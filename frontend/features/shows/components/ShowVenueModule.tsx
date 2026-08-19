@@ -51,15 +51,21 @@ export function ShowVenueModule({ show }: ShowVenueModuleProps) {
   // venue at all (city/state text, no directions, no embed) because a
   // name + city map search narrows a house show to a door — server-side
   // address redaction is only half that policy, and this affordance is the
-  // other half. Two surfaces, one rule.
-  const mapsUrl = venue.verified
-    ? googleMapsSearchUrl({
-        name: venue.name,
-        address: venueAddress,
-        city: venue.city,
-        state: venue.state,
-      })
-    : null
+  // other half. Two surfaces, one rule. Also requires something to actually
+  // search for: blank venue names are a modeled case in this codebase, and
+  // a [Directions] bracket pointing at an empty maps query is a dead verb.
+  const hasLocatableQuery = Boolean(
+    venue.name.trim() || venueAddress || cityState
+  )
+  const mapsUrl =
+    venue.verified && hasLocatableQuery
+      ? googleMapsSearchUrl({
+          name: venue.name,
+          address: venueAddress,
+          city: venue.city,
+          state: venue.state,
+        })
+      : null
 
   return (
     <div className="mt-4" data-testid="show-venue-module">
