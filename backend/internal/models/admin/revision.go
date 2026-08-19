@@ -28,6 +28,18 @@ type Revision struct {
 	// is handlers/admin.RevisionResponseItem.
 	FromUnverifiedVenue bool `json:"-" gorm:"column:from_unverified_venue;not null;default:false"`
 
+	// FromGatedShow records that a show merge re-pointed this revision off a
+	// NON-APPROVED show onto some other show row.
+	//
+	// The show-side twin of FromUnverifiedVenue, and it exists for the same
+	// reason: show revision visibility is decided at read time from
+	// shows.status for the show the revision currently points at, and
+	// catalog.MergeDuplicateShow deletes the show it was decided from. Written
+	// only by that merge; read only by the visibility gate, which suppresses a
+	// marked row for non-admin callers whatever the current show says. It is
+	// NOT part of any API response.
+	FromGatedShow bool `json:"-" gorm:"column:from_gated_show;not null;default:false"`
+
 	User auth.User `json:"-" gorm:"foreignKey:UserID"`
 }
 

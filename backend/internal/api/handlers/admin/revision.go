@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -106,27 +107,34 @@ func resolveRevisionUserUsername(u *authm.User) *string {
 	return &username
 }
 
-// revisionViewerIsAdmin resolves the caller tier the three read routes serve.
+// revisionViewer resolves the caller the three read routes serve.
 //
 // The routes are PUBLIC but optionally authenticated: they sit behind
 // OptionalHumaJWTMiddleware, which attaches a user when it can validate a
 // session JWT or an API token and otherwise lets the request through with no
 // user at all. So a nil user is the normal anonymous case, not an error, and
-// every way of failing to prove admin — no credential, an invalid or expired
-// one, an inactive or deleted account, a valid credential for a non-admin —
-// lands on the same false. That is the masked tier, so the gate fails closed.
+// every way of failing to prove identity — no credential, an invalid or expired
+// one, an inactive or deleted account — lands on the zero viewer, which is
+// neither an admin nor anybody's submitter. Both gates that read it fail
+// closed on exactly that value.
 //
-// IsAdmin is read off the user the middleware attached, which JWTService
-// loads from the database during validation rather than trusting a claim.
+// Identity is read off the user the middleware attached, which JWTService
+// loads from the database during validation rather than trusting a claim. So a
+// demoted admin, a deactivated account and a deleted user all lose their tier
+// on the next request rather than carrying it in a live token.
 //
 // Mirrors the shape used for optional-auth reads elsewhere — the closest
 // exemplar is catalog.ShowHandler.GetShowHandler, whose route is likewise
-// registered on an optional-auth group. Named here rather than re-spelled
-// because three handlers need it, and an inline `user != nil && user.IsAdmin`
-// is the shape a later edit drops the nil check from.
-func revisionViewerIsAdmin(ctx context.Context) bool {
+// registered on an optional-auth group and keys its own 404 on the same two
+// facts. Named here rather than re-spelled because three handlers need it, and
+// an inline `user != nil && user.IsAdmin` is the shape a later edit drops the
+// nil check from.
+func revisionViewer(ctx context.Context) contracts.RevisionViewer {
 	user := middleware.GetUserFromContext(ctx)
-	return user != nil && user.IsAdmin
+	if user == nil {
+		return contracts.RevisionViewer{}
+	}
+	return contracts.RevisionViewer{UserID: user.ID, IsAdmin: user.IsAdmin}
 }
 
 // mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem.
@@ -139,6 +147,10 @@ func revisionViewerIsAdmin(ctx context.Context) bool {
 // result verbatim. Do not read revisions.field_changes or revisions.summary into
 // a response through any other path, and do not add a tier check here — this
 // function cannot see the caller, which is what keeps the policy in one place.
+//
+// The show gate (PSY-1715) never reaches this function at all: a revision the
+// caller may not see is not passed here to be masked, it is not returned. So
+// everything below describes rows that have already been cleared for serving.
 //
 // Summary is covered by that gate too, but differently from the diff: a gated
 // revision arrives here with a nil Summary, which Deref turns into "" and
@@ -214,7 +226,19 @@ func (h *RevisionHandler) GetEntityHistoryHandler(ctx context.Context, req *GetE
 	}
 
 	revisions, total, err := h.revisionService.GetEntityHistory(
-		req.EntityType, uint(entityID), limit, req.Offset, revisionViewerIsAdmin(ctx))
+		req.EntityType, uint(entityID), limit, req.Offset, revisionViewer(ctx))
+	// An entity this caller may not see answers 404, mirroring the detail route
+	// the gate is copied from (PSY-1715). The message says nothing about WHY,
+	// and is the same one an entity that does not exist would produce, so the
+	// response cannot be used to enumerate unpublished shows. Logged at Info,
+	// not Error: a public route refusing a public request is routine.
+	if errors.Is(err, contracts.ErrRevisionEntityHidden) {
+		logger.FromContext(ctx).Info("revision_history_access_denied",
+			"entity_type", req.EntityType,
+			"entity_id", entityID,
+		)
+		return nil, huma.Error404NotFound("Revision history not found")
+	}
 	if err != nil {
 		logger.FromContext(ctx).Error("revision_get_entity_history_failed",
 			"entity_type", req.EntityType,
@@ -254,7 +278,7 @@ func (h *RevisionHandler) GetRevisionHandler(ctx context.Context, req *GetRevisi
 		return nil, huma.Error400BadRequest("Invalid revision ID")
 	}
 
-	revision, err := h.revisionService.GetRevision(uint(revisionID), revisionViewerIsAdmin(ctx))
+	revision, err := h.revisionService.GetRevision(uint(revisionID), revisionViewer(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("revision_get_failed",
 			"revision_id", revisionID,
@@ -300,7 +324,7 @@ func (h *RevisionHandler) GetUserRevisionsHandler(ctx context.Context, req *GetU
 	}
 
 	revisions, total, err := h.revisionService.GetUserRevisions(
-		uint(userID), limit, req.Offset, revisionViewerIsAdmin(ctx))
+		uint(userID), limit, req.Offset, revisionViewer(ctx))
 	if err != nil {
 		logger.FromContext(ctx).Error("revision_get_user_revisions_failed",
 			"user_id", userID,

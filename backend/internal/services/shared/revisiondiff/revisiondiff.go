@@ -41,10 +41,12 @@
 // Revision history is read through PUBLIC endpoints
 // (GET /revisions/{entity_type}/{entity_id}, GET /revisions/{revision_id},
 // GET /users/{user_id}/revisions), so anything Compare records about an entity
-// is world-readable for the life of the row. A field that the live entity
-// payload withholds must therefore be withheld here too, or the gate on the
-// live payload is decorative: edit the field once and the value is published in
-// the history instead.
+// is world-readable for the life of the row unless a read-time gate says
+// otherwise. A field that the live entity payload withholds must therefore be
+// withheld here too, or the gate on the live payload is decorative: edit the
+// field once and the value is published in the history instead. The two gates
+// that exist are described below — field masking for unverified venues, and
+// whole-entity suppression for non-approved shows.
 //
 // Those endpoints are optionally authenticated rather than strictly anonymous:
 // they never require a credential, but they read one when it is offered, so an
@@ -126,33 +128,47 @@
 // remove that obligation, because the field is still world-readable on every
 // entity that is not a gated venue, which is nearly all of them.
 //
-// ONE KNOWN GAP remains that is not closed by a field list, and it should not be
-// read as covered by the paragraphs above.
+// # Privacy: entities gated whole
 //
-// Shows are gated at the ENTITY level rather than the field level.
-// GET /shows/{id} 404s an anonymous caller for a show whose status is pending,
-// rejected or private, while GET /revisions/show/{id} still publishes every
-// recorded field, and its summary. Unpublishing a show hides the show but not
-// its history.
+// Everything above masks VALUES inside a revision that is still served. One
+// entity is gated the other way, and reading the paragraphs above as covering it
+// would be a mistake: shows are gated at the ENTITY level, so their revisions
+// are not served at all rather than served with fields blanked.
 //
-// One prerequisite for closing it already landed: the three read routes now sit
-// on an optional-auth group (PSY-1717, routes/revisions.go), so a show gate that
-// needs to know WHO is asking — an admin, or the show's own submitter, which is
-// what GET /shows/{id} keys on — can read the caller without changing the
-// routing first.
+// GET /shows/{id} answers 404 for a show whose status is pending, rejected or
+// private unless the caller is an admin or the show's own submitter. Revision
+// history mirrors that rule rather than approximating it (PSY-1715): the entity
+// history route 404s, the single-revision route answers "not found", and the
+// contributions listing omits the rows from the page AND from its total. The
+// mechanism is admin/revision_visibility.go, which states the policy in full and
+// is the file to read before changing it; the routes can see the caller at all
+// because they sit on an optional-auth group (PSY-1717, routes/revisions.go).
 //
-// Closing it has to carry all three of the mechanisms above, because a show
-// equivalent that copies only one of them reopens a hole that is already shut:
+// There is no masked variant because there is nothing coherent to serve: what
+// the 404 withholds is the show's title, date, location, price and ticket url,
+// which is most of what a revision records. Masking the values and publishing
+// the row would still publish the FACT that an unpublished show exists and is
+// being edited.
 //
-//   - The field masking, which is what privacy.go and RedactVenueChanges do.
-//   - The prose withholding, which lives in redactVenueRevision. That function
-//     is venue-named, so a show path has to withhold Summary itself.
-//   - A provenance stamp. A read-time lookup on shows.status reproduces the
-//     venue merge problem verbatim and on a worse path:
-//     catalog.MergeDuplicateShow re-points revisions off a losing show and
-//     deletes it, and it runs from the dedup CLI with no admin in the loop.
-//     Whatever closes this has to stamp there the way the venue merge stamps
-//     from_unverified_venue.
+// This gate does not use privacy.go, RedactVenueChanges or redactVenueRevision.
+// Those are the field-level mechanism and they stay venue-scoped. It DOES need
+// the third mechanism, the provenance stamp, for the same reason the venue merge
+// does and on a worse path: catalog.MergeDuplicateShow re-points a losing show's
+// revisions and then deletes the show a read-time status lookup would have
+// consulted, and it runs from the dedup CLI with no admin in the loop over a
+// candidate set that includes private shows. The merge therefore stamps
+// revisions.from_gated_show (catalog.reassignShowRevisions), and the read gate
+// suppresses a stamped row whatever the show it now points at says.
+//
+// The stamp is coarser than the live gate it preserves: a stamped row is served
+// to admins only, because the submitted_by that would grant the author access
+// was deleted with the losing show.
+//
+// The rule this leaves for the next entity type: a live payload gate that hides
+// FIELDS means adding the field names to privacy.go; a gate that hides the whole
+// ENTITY means adding a case to admin/revision_visibility.go and a provenance
+// value to catalog.repointRevisions. Both are additions in the same change as
+// the gate, not follow-ups.
 package revisiondiff
 
 import (

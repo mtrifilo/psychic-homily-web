@@ -25,6 +25,14 @@ func setupRevisionRoutes(rc RouteContext) {
 	// admin.RevisionService.applyPrivacyRedaction for the policy and for why it
 	// diverges from the tier-less live venue payload.
 	//
+	// A SECOND policy now rides the same credential, and it reads more of it
+	// (PSY-1715). A non-approved show's revisions are withheld ENTIRELY rather
+	// than masked, from everyone except an admin and the show's own submitter,
+	// mirroring what GET /shows/{id} already does with the same two facts. So the
+	// user id matters here and not only the admin bit, and the entity-history
+	// route answers 404 rather than a redacted 200. See
+	// admin/revision_visibility.go.
+	//
 	// CACHING: these three responses now vary by CREDENTIAL, which they did not
 	// before. Two caches matter, and only one of them is currently safe.
 	//
@@ -48,6 +56,14 @@ func setupRevisionRoutes(rc RouteContext) {
 	// "invalidate credential-varying queries on login" change (invalidateQueries
 	// .revisions() already exists and nothing calls it on login), not a patch
 	// here.
+	//
+	// The show gate widens that gap in one direction and narrows it in another.
+	// It can leave a submitter looking at a cached 404 for their own show's
+	// history after signing in without a page load — annoying rather than
+	// unsafe, and React Query refetches an errored query on the next mount. It
+	// cannot go the other way: a cached 200 is a payload the caller was already
+	// served, and a logged-in reader who signs OUT has queryClient.clear() run
+	// for them.
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
 	huma.Get(optionalAuthGroup, "/revisions/{entity_type}/{entity_id}", revisionHandler.GetEntityHistoryHandler)

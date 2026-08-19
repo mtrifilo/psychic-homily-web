@@ -289,14 +289,15 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RepointsCollectionItems() {
 }
 
 // The show dedup CLI runs with no admin in the loop, so its revision re-point
-// goes through the shared helper and has to state a provenance decision. Its
-// decision is noRedactionCarryover — show history is published in full today —
-// so the rows must arrive re-pointed, counted, and UNSTAMPED.
+// goes through the shared helper and has to state a provenance decision. The
+// decision is per merge and turns on the LOSER's status, because the merge
+// deletes the row the read-time visibility gate would have consulted
+// (PSY-1715).
 //
-// When shows gain a read-time gate this is the test that has to change with
-// the call site, because a stamped row is what the gate will need after the
-// losing show is deleted.
-func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RevisionsCarryNoRedactionStamp() {
+// An approved loser was hiding nothing, so its rows arrive re-pointed, counted
+// and UNSTAMPED. The gated case is its twin below, and the pair is what keeps
+// the stamp from degenerating into "always" or "never".
+func (s *ShowDedupTestSuite) TestMergeDuplicateShow_ApprovedLoserRevisionsAreUnstamped() {
 	a := s.seedArtist("Repoint")
 	v := s.seedVenue("Repoint Hall", "Phoenix", "AZ")
 	eventDate := time.Date(2026, 6, 1, 3, 0, 0, 0, time.UTC)
@@ -314,10 +315,49 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RevisionsCarryNoRedactionSta
 	var moved adminm.Revision
 	s.Require().NoError(s.db.First(&moved, revisionID).Error)
 	s.Equal(winner, moved.EntityID, "the revision must be re-pointed at the surviving show")
+	s.False(moved.FromGatedShow,
+		"an approved loser was suppressing nothing, so its history must not be stamped")
 	s.False(moved.FromUnverifiedVenue,
 		"a show merge must not stamp the venue redaction marker on show history")
 	s.Equal(int64(1), summary.RevisionsMoved,
 		"the helper's row count must still reach the dedup summary the CLI reports")
+}
+
+// The leak this stamp closes, end to end at the merge. FindShowDedupClusters
+// selects losers from status IN ('approved','private'), so merging an
+// unpublished show into an approved one is a path the CLI takes. Without the
+// stamp, the loser's history lands on a show whose status says "publish this"
+// and every field it recorded becomes world-readable.
+func (s *ShowDedupTestSuite) TestMergeDuplicateShow_GatedLoserRevisionsAreStamped() {
+	a := s.seedArtist("Gated Repoint")
+	v := s.seedVenue("Gated Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 7, 1, 3, 0, 0, 0, time.UTC)
+	winner := s.seedShow("GW", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("GL", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	u := s.seedUser("gated-revisions@test.com")
+
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", loser).
+		Update("status", catalogm.ShowStatusPrivate).Error)
+
+	revisionID := seedRevision(s.T(), s.db, "show", loser, u.ID, "moved it to the house")
+
+	summary := &ShowDedupSummary{}
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	}))
+
+	var moved adminm.Revision
+	s.Require().NoError(s.db.First(&moved, revisionID).Error)
+	s.Equal(winner, moved.EntityID, "the revision must still be re-pointed at the surviving show")
+	s.True(moved.FromGatedShow,
+		"a private loser's history must stay suppressed after landing on an approved winner")
+	s.Equal(int64(1), summary.RevisionsMoved)
+
+	// The stamp is a marker, not a scrub. Rollback restores stored values, so
+	// the diff has to survive the merge intact.
+	s.Require().NotNil(moved.FieldChanges)
+	s.Contains(string(*moved.FieldChanges), "old_value",
+		"the stored diff must survive the stamp — rollback reads it")
 }
 
 // seedShowPendingEdit records one proposed edit against a show. Written through

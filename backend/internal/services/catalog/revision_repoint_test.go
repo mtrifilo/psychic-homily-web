@@ -48,6 +48,20 @@ func TestRepointRevisions_RejectsVenueStampOnOtherEntities(t *testing.T) {
 	}
 }
 
+// Its twin. from_gated_show is read only by the show visibility gate, so
+// stamping a venue or an artist would record a suppression nothing enforces
+// while making the row look protected to the next reader.
+func TestRepointRevisions_RejectsShowStampOnOtherEntities(t *testing.T) {
+	for _, entity := range []mergeEntityType{mergeEntityArtist, mergeEntityVenue} {
+		t.Run(string(entity), func(t *testing.T) {
+			_, err := repointRevisions(unusableTx(), entity, 1, 2, stampFromGatedShow)
+			if err == nil {
+				t.Fatalf("stampFromGatedShow must be rejected for %q", entity)
+			}
+		})
+	}
+}
+
 func TestRepointRevisions_RejectsUnknownEntityType(t *testing.T) {
 	_, err := repointRevisions(unusableTx(), mergeEntityType("venues"), 1, 2, noRedactionCarryover)
 	if err == nil {

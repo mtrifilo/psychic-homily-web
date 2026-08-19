@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"errors"
 	"time"
 
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -434,15 +435,52 @@ type AdminStatsServiceInterface interface {
 // Revision Service Interface
 // ──────────────────────────────────────────────
 
+// RevisionViewer identifies the caller a revision read is answered for. It is
+// the whole of what the revision service is allowed to know about who is
+// asking, and both gates that read it fail closed on the zero value: an
+// anonymous caller is RevisionViewer{}, which is neither an admin nor anybody's
+// submitter.
+//
+// UserID is 0 for an anonymous caller. Entity ids are serial and start at 1, so
+// 0 matches no submitter row; the submitter comparison is still written to
+// require a non-null submitted_by rather than leaning on that.
+//
+// It is a struct rather than two parameters because the two facts are read
+// together by every call site and a bare (uint, bool) pair is the shape a later
+// edit transposes. The next viewer fact — a trusted tier, a moderator role —
+// belongs here rather than as a fourth positional argument.
+type RevisionViewer struct {
+	// UserID is the authenticated caller's id, or 0 when there is none.
+	UserID uint
+	// IsAdmin is true only for an authenticated admin. It is resolved from the
+	// user row loaded during token validation, never from a claim.
+	IsAdmin bool
+}
+
+// ErrRevisionEntityHidden reports that the entity a revision read names is one
+// the viewer is not allowed to see at all, so its history must not be served.
+//
+// Distinct from "no such revision" only INSIDE the service. The handler maps it
+// to the same 404 an absent entity gets, deliberately: a caller who could tell
+// "hidden" from "absent" could enumerate unpublished shows.
+var ErrRevisionEntityHidden = errors.New("revision entity not visible to viewer")
+
 // RevisionServiceInterface defines the contract for revision history operations.
 type RevisionServiceInterface interface {
 	RecordRevision(entityType string, entityID uint, userID uint, changes []adminm.FieldChange, summary string) error
-	// The three read methods take the caller tier the served copy is redacted
-	// for (PSY-1717): false is the public, masked view, true is the admin one.
-	// False being the zero value is deliberate — the gate fails closed.
-	GetEntityHistory(entityType string, entityID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error)
-	GetRevision(revisionID uint, viewerIsAdmin bool) (*adminm.Revision, error)
-	GetUserRevisions(userID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error)
+	// The three read methods take the caller the served copy is redacted and
+	// gated for. RevisionViewer{} is the public view; see RevisionViewer.
+	//
+	// Two policies ride this parameter, and they are not the same shape.
+	// FIELD-level masking hides an unverified venue's address inside a
+	// revision that is still served (PSY-1717). ENTITY-level gating suppresses
+	// a non-approved show's revisions outright, mirroring GET /shows/{id}
+	// (PSY-1715): GetEntityHistory returns ErrRevisionEntityHidden, GetRevision
+	// returns (nil, nil), and GetUserRevisions omits the rows from both the
+	// page and its total.
+	GetEntityHistory(entityType string, entityID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
+	GetRevision(revisionID uint, viewer RevisionViewer) (*adminm.Revision, error)
+	GetUserRevisions(userID uint, limit, offset int, viewer RevisionViewer) ([]adminm.Revision, int64, error)
 	Rollback(revisionID uint, adminUserID uint) error
 }
 

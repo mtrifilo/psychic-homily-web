@@ -18,12 +18,18 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// viewerPublic and viewerAdmin name the caller tier the read methods redact for
-// (PSY-1717), so a call site says which view it is asserting instead of trailing
-// a bare bool. See the ADMIN TIER section at the foot of this file.
-const (
-	viewerPublic = false
-	viewerAdmin  = true
+// viewerPublic and viewerAdmin name the caller the read methods redact and gate
+// for (PSY-1717/1715), so a call site says which view it is asserting instead of
+// trailing a bare struct literal. See the ADMIN TIER section at the foot of this
+// file.
+//
+// viewerPublic is the ZERO viewer: anonymous, no user id, no admin bit. An
+// authenticated non-admin who is not the show's submitter resolves to the same
+// answers, and where the submitter tier diverges the test names its own viewer
+// rather than reusing these.
+var (
+	viewerPublic = contracts.RevisionViewer{}
+	viewerAdmin  = contracts.RevisionViewer{IsAdmin: true}
 )
 
 // =============================================================================
@@ -52,6 +58,8 @@ func (s *RevisionServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
 	_, _ = sqlDB.Exec("DELETE FROM revisions")
+	// Before users and venues: shows carry FKs to both.
+	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
@@ -989,7 +997,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_NilDBFai
 	raw := json.RawMessage(`[{"field":"address","old_value":"1 Old St","new_value":"1234 Secret St"}]`)
 	revisions := []adminm.Revision{{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: &raw}}
 
-	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerPublic)
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerPublic.IsAdmin)
 
 	s.NotContains(string(*revisions[0].FieldChanges), secretAddress)
 	s.NotContains(string(*revisions[0].FieldChanges), "1 Old St")
@@ -1082,7 +1090,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_Withhold
 		{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: nil, Summary: &summary},
 	}
 
-	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerPublic)
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerPublic.IsAdmin)
 
 	s.Nil(revisions[0].Summary)
 	s.Equal(leakySummary, summary, "the pointed-to string must not be overwritten in place")
@@ -1387,7 +1395,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestApplyPrivacyRedaction_AdminTie
 		{ID: 1, EntityType: "venue", EntityID: 7, FieldChanges: &raw, Summary: &summary},
 	}
 
-	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerAdmin)
+	(&RevisionService{db: nil}).applyPrivacyRedaction(revisions, viewerAdmin.IsAdmin)
 
 	s.Contains(string(*revisions[0].FieldChanges), secretAddress)
 	s.Require().NotNil(revisions[0].Summary)

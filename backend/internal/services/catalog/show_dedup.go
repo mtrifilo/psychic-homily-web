@@ -278,12 +278,10 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	summary.PendingEditsMoved += pendingEditsMoved
 	summary.PendingEditsSkipped += pendingEditsDropped
 
-	// revisions: a plain re-point today, but it has to say so. Show history is
-	// published in full, so there is no redaction to carry — and when that
-	// changes, THIS is the site the revisiondiff package doc names, because
-	// the dedup CLI deletes the show a read-time gate would have consulted.
-	// See noRedactionCarryover.
-	revisionsMoved, err := repointRevisions(tx, mergeEntityShow, winnerID, loserID, noRedactionCarryover)
+	// revisions: stamped when the loser is gated, because this function deletes
+	// the show the read-time visibility gate would have consulted moments from
+	// now. See reassignShowRevisions.
+	revisionsMoved, err := reassignShowRevisions(tx, winnerID, loserID)
 	if err != nil {
 		return err
 	}
@@ -319,6 +317,60 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 
 	summary.LosersMerged++
 	return nil
+}
+
+// reassignShowRevisions moves the losing show's revision history onto the
+// winner, stamping it when that show was gated so the read-time ENTITY
+// suppression survives the re-point. See the privacy section of the
+// revisiondiff package doc for the policy; repointRevisions is the mechanism.
+//
+// Gated means any status other than approved. GET /shows/{id} 404s an
+// unprivileged caller for exactly those, admin.RevisionService mirrors that
+// rule, and both read shows.status for the show a revision currently points
+// at — which this merge is about to delete. Without the stamp, merging a
+// private show into an approved one republishes every field the private show's
+// history recorded. FindShowDedupClusters selects losers from status IN
+// ('approved','private'), so that is a path the dedup CLI takes, not a
+// hypothetical.
+//
+// An approved loser gets noRedactionCarryover rather than a clear: nothing was
+// being suppressed, and any mark already on those rows came off an EARLIER
+// gated show, so a chain of merges cannot launder a private show's history.
+//
+// The status is read here rather than taken as a parameter because the caller
+// has only ids — unlike the venue merge, which already holds the locked row.
+// One read of one column inside the merge transaction, so it cannot observe a
+// status that changes before the delete.
+//
+// FAILS CLOSED: a loser row this cannot read is treated as gated. A missing row
+// means the merge is operating on a show that no longer exists, and any
+// revisions still pointing at it are orphans no read-time lookup could ever
+// gate.
+//
+// This does not scrub anything. The stored diff keeps the real values, which is
+// what rollback reads; only the public read path suppresses the row.
+//
+// KNOWN BOUNDARY, admin-triggered and the same one the venue stamp carries: a
+// stamped row's values can still reach a public reader through Rollback, which
+// writes them onto the show the revision NOW points at and records the rollback
+// as a fresh, unstamped revision. After the merge that show is approved and
+// publishes those fields anyway, so the new revision is consistent with what the
+// show already serves rather than a second leak. Keeping the stored values is
+// what makes rollback possible at all, so this stays an explicit admin action
+// rather than another gate.
+func reassignShowRevisions(tx *gorm.DB, winnerID, loserID uint) (int64, error) {
+	var loser struct{ Status catalogm.ShowStatus }
+	err := tx.Model(&catalogm.Show{}).Select("status").Where("id = ?", loserID).Scan(&loser).Error
+	if err != nil {
+		return 0, fmt.Errorf("read loser show %d status: %w", loserID, err)
+	}
+
+	provenance := stampFromGatedShow
+	if loser.Status == catalogm.ShowStatusApproved {
+		provenance = noRedactionCarryover
+	}
+
+	return repointRevisions(tx, mergeEntityShow, winnerID, loserID, provenance)
 }
 
 // movePolymorphicJunction drops conflicting rows on (show_id, otherCol)
