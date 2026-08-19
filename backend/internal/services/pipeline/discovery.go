@@ -581,26 +581,22 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 		changes = append(changes, fmt.Sprintf("cancelled: %v -> %v", existing.IsCancelled, *event.IsCancelled))
 	}
 
-	// Compare doors / music times. A re-scrape that no longer states a time is
-	// not evidence the time changed, so a nil never clears a stored value --
-	// only a newly stated, readable time writes.
+	// doors_at / music_at are deliberately NOT updated here.
 	//
-	// Guarded on the scrape still describing the stored show's date. This path
-	// never moves event_date, so a postponed listing (same source event ID, new
-	// date) would otherwise stamp doors_at onto a day event_date does not
-	// share. A rescheduled show needs its date reconciled first, which is not
-	// this change's job, so leave its times alone until then.
-	if venueConfig, ok := VenueConfig[event.VenueSlug]; ok && scrapeDescribesStoredDate(existing.EventDate, event.Date, venueConfig.State) {
-		doorsAt, musicAt := resolveShowTimes(event.Date, event.DoorsTime, event.ShowTime, venueConfig.State)
-		if doorsAt != nil && (existing.DoorsAt == nil || !existing.DoorsAt.Equal(*doorsAt)) {
-			updates["doors_at"] = *doorsAt
-			changes = append(changes, fmt.Sprintf("doors: %s -> %s", formatOptionalInstant(existing.DoorsAt), doorsAt.Format(time.RFC3339)))
-		}
-		if musicAt != nil && (existing.MusicAt == nil || !existing.MusicAt.Equal(*musicAt)) {
-			updates["music_at"] = *musicAt
-			changes = append(changes, fmt.Sprintf("music: %s -> %s", formatOptionalInstant(existing.MusicAt), musicAt.Format(time.RFC3339)))
-		}
-	}
+	// This path never moves event_date, and music_at has to keep naming the
+	// same instant. Writing a time onto a row whose event_date stays put
+	// produces a show whose stripe and date disagree -- by 27 hours when the
+	// original scrape stated no time at all, since event_date is then a
+	// midnight-UTC placeholder. It also breaks the doors <= music invariant the
+	// API enforces over stored-plus-incoming values (validateShowTimeOrder in
+	// internal/api/handlers/catalog/show.go), because a scrape stating only one
+	// of the two cannot see the stored other half: a later scrape stating
+	// "12:00 AM" music against a stored 11:00 PM doors would write a row that
+	// 422s the next admin edit.
+	//
+	// Filling times on already-imported shows is a backfill, and a backfill has
+	// to reconcile event_date at the same time. Until something does, times
+	// land on the create path only.
 
 	if len(updates) == 0 {
 		return fmt.Sprintf("DUPLICATE: %s (ID: %s) already imported as show #%d (no changes)", event.Title, event.ID, existing.ID), "duplicate"
@@ -617,44 +613,6 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 	}
 
 	return fmt.Sprintf("UPDATED: %s (show #%d) -- %s", event.Title, existing.ID, changeStr), "updated"
-}
-
-// scrapeDescribesStoredDate reports whether a re-scrape is still talking about
-// the day a stored show is on. It accepts the two shapes importEvent can leave
-// behind:
-//
-//   - the listing stated no show time, so event_date is the bare calendar date
-//     at midnight UTC
-//   - the listing stated one, so event_date is an instant inside that calendar
-//     day read in the venue's zone
-//
-// Anything else means the listing moved, and its times must not be written
-// against a date the stored row does not share.
-func scrapeDescribesStoredDate(storedEventDate time.Time, dateStr, state string) bool {
-	date, err := parseCalendarDate(dateStr)
-	if err != nil {
-		return false
-	}
-
-	bareDate := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
-	if storedEventDate.UTC().Equal(bareDate) {
-		return true
-	}
-
-	loc, err := time.LoadLocation(getTimezoneForState(state))
-	if err != nil {
-		loc = time.UTC
-	}
-	local := storedEventDate.In(loc)
-	return local.Year() == date.Year() && local.Month() == date.Month() && local.Day() == date.Day()
-}
-
-// formatOptionalInstant renders an optional timestamp for a change log line.
-func formatOptionalInstant(t *time.Time) string {
-	if t == nil {
-		return "nil"
-	}
-	return t.Format(time.RFC3339)
 }
 
 // getTimezoneForState delegates to the shared utils.GetTimezoneForState.
@@ -680,18 +638,23 @@ func parseCalendarDate(dateStr string) (time.Time, error) {
 var clockTimeWithMeridiem = regexp.MustCompile(`^(\d{1,2}):(\d{2})([ap])\.?m\.?$`)
 
 // clockTime24Hour matches the 24-hour wall clock a feed can hand through
-// unformatted ("19:00").
+// unformatted ("19:00"). Only hours that CANNOT be a 12-hour reading count:
+// "19:00" is unambiguous, "7:00" is not. emptybottle.formatTime returns its
+// input unchanged when its AM/PM regex misses, so a ".start-time" cell reading
+// "7:00" arrives here verbatim from a 7 PM show -- reading it as 7 AM would
+// fabricate exactly the kind of time this parser exists to refuse.
 var clockTime24Hour = regexp.MustCompile(`^(\d{1,2}):(\d{2})$`)
 
 // parseClockTime reads a wall-clock time of day out of the free text a venue
 // calendar states. It reports ok only when the string is unambiguously a time,
 // so a caller never has to decide what a half-readable value meant.
 //
-// Deliberately strict: "doors at 7" and "7ish" are not times, and neither is
-// "19:00 pm" (a 24-hour clock wearing a meridiem, which the previous Sscanf
-// parser silently turned into hour 31 and rolled into the next day). Rejecting
-// them leaves the caller with "the source did not state a time", which is a
-// truthful answer; accepting them would publish a fabricated one.
+// Deliberately strict. "doors at 7" and "7ish" are not times. Neither is
+// "19:00 pm", a 24-hour clock wearing a meridiem, which the previous Sscanf
+// parser silently turned into hour 31 and rolled into the next day. Neither is
+// a bare "7:00", which could name either half of the day. Rejecting them leaves
+// the caller with "the source did not state a time", which is a truthful
+// answer; accepting them would publish a fabricated one.
 func parseClockTime(raw string) (hour, minute int, ok bool) {
 	// Fold case and drop ALL whitespace so "7:00 PM" and "7:00pm" are one
 	// shape. Unicode-aware on purpose: venue calendars are scraped HTML, and a
@@ -723,7 +686,10 @@ func parseClockTime(raw string) (hour, minute int, ok bool) {
 	if m := clockTime24Hour.FindStringSubmatch(normalized); m != nil {
 		hour, _ = strconv.Atoi(m[1])
 		minute, _ = strconv.Atoi(m[2])
-		if hour > 23 || minute > 59 {
+		// Hours 1 through 12 without a meridiem could mean either half of the
+		// day, so they are not a stated time. Hour 0 and 13 through 23 can only
+		// be a 24-hour clock.
+		if hour > 23 || minute > 59 || (hour >= 1 && hour <= 12) {
 			return 0, 0, false
 		}
 		return hour, minute, true
@@ -770,8 +736,14 @@ func parseEventDate(dateStr string, showTime *string, state string) (time.Time, 
 // pipeline invented.
 //
 // Both instants anchor to the calendar date the source stated, read in the
-// venue's timezone -- the same anchoring parseEventDate uses -- so music_at and
-// event_date name the same instant whenever the source stated a show time.
+// venue's timezone -- the same anchoring parseEventDate uses.
+//
+// A readable SHOW time is required before either column is written, because
+// event_date is derived from that same string. Without one, event_date is a
+// midnight-UTC placeholder that renders as the PREVIOUS day in every US venue
+// zone, so a doors time anchored to the stated day would put the stripe and
+// the date a calendar day apart. Refusing both keeps the show on the
+// date-only rendering it already had.
 //
 // A stated pair whose show time lands before its doors time is contradictory,
 // and the usual cause is a listing that crossed midnight and dropped the day
@@ -783,20 +755,24 @@ func resolveShowTimes(dateStr string, doorsTime, showTime *string, state string)
 		return nil, nil
 	}
 
+	if showTime == nil {
+		return nil, nil
+	}
+	showHour, showMinute, ok := parseClockTime(*showTime)
+	if !ok {
+		return nil, nil
+	}
+	music := venueLocalInstant(date, showHour, showMinute, state)
+	musicAt = &music
+
 	if doorsTime != nil {
 		if hour, minute, ok := parseClockTime(*doorsTime); ok {
 			instant := venueLocalInstant(date, hour, minute, state)
 			doorsAt = &instant
 		}
 	}
-	if showTime != nil {
-		if hour, minute, ok := parseClockTime(*showTime); ok {
-			instant := venueLocalInstant(date, hour, minute, state)
-			musicAt = &instant
-		}
-	}
 
-	if doorsAt != nil && musicAt != nil && musicAt.Before(*doorsAt) {
+	if doorsAt != nil && musicAt.Before(*doorsAt) {
 		return nil, nil
 	}
 
