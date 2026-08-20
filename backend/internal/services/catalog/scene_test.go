@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
@@ -45,6 +46,75 @@ func TestBuildSceneSlug(t *testing.T) {
 			assert.Equal(t, tc.expected, buildSceneSlug(tc.city, tc.state))
 		})
 	}
+}
+
+// PSY-1831. The collision the collapse exists for: a CBSA group and a fallback
+// group whose literal city is that metro's principal city both slugify to
+// "phoenix-az". The CBSA group wins because /scenes/phoenix-az resolves to it.
+func TestCollapseSceneGroupsToCanonicalSlug(t *testing.T) {
+	g := geo.Default()
+	phoenixCBSA := *seedMetro("Phoenix", "AZ")
+	metroGroup := sceneVenueGroup{Metro: phoenixCBSA, City: "Phoenix", State: "AZ", VenueCount: 2, ShowCount: 3}
+	driftedGroup := sceneVenueGroup{City: "Phoenix", State: "AZ", VenueCount: 9, ShowCount: 99}
+	tucsonGroup := sceneVenueGroup{Metro: *seedMetro("Tucson", "AZ"), City: "Tucson", State: "AZ", VenueCount: 4, ShowCount: 5}
+
+	t.Run("uncontested slugs pass through untouched", func(t *testing.T) {
+		in := []sceneVenueGroup{metroGroup, tucsonGroup}
+		assert.Equal(t, in, collapseSceneGroupsToCanonicalSlug(in, g))
+	})
+
+	t.Run("the group the slug resolves to survives, regardless of input order", func(t *testing.T) {
+		for _, in := range [][]sceneVenueGroup{
+			{metroGroup, driftedGroup, tucsonGroup},
+			{driftedGroup, metroGroup, tucsonGroup},
+		} {
+			out := collapseSceneGroupsToCanonicalSlug(in, g)
+			require.Len(t, out, 2)
+			var phoenix sceneVenueGroup
+			for _, grp := range out {
+				if sceneGroupSlug(grp) == "phoenix-az" {
+					phoenix = grp
+				}
+			}
+			assert.Equal(t, metroGroup, phoenix,
+				"the drifted group's larger counts must not win, and must not be summed in")
+		}
+	})
+
+	t.Run("a fallback city with no CBSA is canonical for its own slug", func(t *testing.T) {
+		// Neither group pins a CBSA, so neither is drift and neither collides.
+		nonUS := []sceneVenueGroup{
+			{City: "Montreal", State: "QC", VenueCount: 2, ShowCount: 3},
+			{City: "Toronto", State: "ON", VenueCount: 2, ShowCount: 3},
+		}
+		assert.Equal(t, nonUS, collapseSceneGroupsToCanonicalSlug(nonUS, g))
+	})
+
+	t.Run("two no-CBSA groups collide on spelling, and the lowest literal wins", func(t *testing.T) {
+		// sceneGroupKeySQL only lower/trims; buildSceneSlug also maps ' ' to '-'.
+		// No metro drift is involved, and both groups match their slug scope, so
+		// the CBSA test cannot separate them. ParseSceneSlug falls through to
+		// ORDER BY city, state LIMIT 1, and ' ' sorts before '-'.
+		spaced := sceneVenueGroup{City: "Saint Jerome", State: "QC", VenueCount: 2, ShowCount: 3}
+		hyphenated := sceneVenueGroup{City: "Saint-Jerome", State: "QC", VenueCount: 9, ShowCount: 99}
+		require.Equal(t, sceneGroupSlug(spaced), sceneGroupSlug(hyphenated), "fixture must actually collide")
+
+		for _, in := range [][]sceneVenueGroup{{spaced, hyphenated}, {hyphenated, spaced}} {
+			out := collapseSceneGroupsToCanonicalSlug(in, g)
+			require.Len(t, out, 1)
+			assert.Equal(t, spaced, out[0],
+				"the group the slug resolves to wins; the other's larger counts must not buy it the row")
+		}
+	})
+
+	t.Run("a nil geocoder still collapses deterministically", func(t *testing.T) {
+		// Without a geocoder no group can match its slug scope, so the tiebreak
+		// carries the choice — it must still be one row, and the same one twice.
+		in := []sceneVenueGroup{driftedGroup, metroGroup}
+		first := collapseSceneGroupsToCanonicalSlug(in, nil)
+		require.Len(t, first, 1)
+		assert.Equal(t, first, collapseSceneGroupsToCanonicalSlug([]sceneVenueGroup{metroGroup, driftedGroup}, nil))
+	})
 }
 
 func TestSlugMissCache_ExpiresAndBounds(t *testing.T) {
@@ -170,6 +240,18 @@ func (suite *SceneServiceIntegrationTestSuite) createVerifiedVenue(name, city, s
 	suite.Require().NoError(err)
 	// Explicitly set Verified = true
 	suite.db.Model(venue).Update("verified", true)
+	return venue
+}
+
+// createVerifiedVenueNullMetro seeds a verified venue with a city/state that DOES
+// pin a CBSA but no metro column — the venue-side twin of createArtistInNullMetro,
+// and the drift ReconcileVenueMetros repairs (PSY-1831).
+func (suite *SceneServiceIntegrationTestSuite) createVerifiedVenueNullMetro(name, city, state string) *catalogm.Venue {
+	suite.Require().NotNil(seedMetro(city, state), "fixture is only meaningful for a city that pins a CBSA")
+	venue := &catalogm.Venue{Name: name, City: city, State: state, Verified: true}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+	suite.db.Model(venue).Update("verified", true)
+	suite.Require().Nil(venue.Metro)
 	return venue
 }
 
@@ -944,6 +1026,101 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MultipleScenes() {
 	// Chicago has 7, Phoenix has 5
 	suite.Equal("Chicago", scenes[0].City)
 	suite.Equal("Phoenix", scenes[1].City)
+}
+
+// TestListScenes_DriftedVenueMetroDoesNotSplitTheScene (PSY-1831): verified
+// Phoenix rooms whose denormalized venues.metro was never written form their own
+// fallback group, and its display identity slugifies to the SAME "phoenix-az" as
+// the CBSA group's. Before the collapse the list published both, so /shows
+// rendered two identical rows under one React key.
+//
+// The surviving row is the CBSA group — the scope /scenes/phoenix-az resolves to
+// — and it carries that group's counts alone, unsummed, because the detail page
+// selects its rooms by venues.metro and never shows the drifted ones.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_DriftedVenueMetroDoesNotSplitTheScene() {
+	user := suite.createUser()
+	metroA := suite.createVerifiedVenue("Metro Room A", "Phoenix", "AZ")
+	metroB := suite.createVerifiedVenue("Metro Room B", "Phoenix", "AZ")
+	suite.Require().NotNil(metroA.Metro, "the fixture must carry the CBSA the drifted rooms are missing")
+
+	driftedA := suite.createVerifiedVenueNullMetro("Drifted Room A", "Phoenix", "AZ")
+	driftedB := suite.createVerifiedVenueNullMetro("Drifted Room B", "Phoenix", "AZ")
+
+	band := suite.createArtist("Local Band")
+	future := time.Now().UTC().AddDate(0, 0, 3)
+	// Both halves independently clear sceneMinVenues/sceneMinShows, so both
+	// groups survive the HAVING and the collision is the list's to resolve.
+	suite.createApprovedShow("Metro 1", metroA.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("Metro 2", metroB.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Metro 3", metroA.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+	suite.createApprovedShow("Drift 1", driftedA.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("Drift 2", driftedB.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Drift 3", driftedA.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+
+	slugs := map[string]int{}
+	for _, sc := range scenes {
+		slugs[sc.Slug]++
+	}
+	suite.Equal(1, slugs["phoenix-az"], "one row per scene slug, whatever venues.metro says")
+	suite.Require().Len(scenes, 1)
+	suite.Equal("Phoenix", scenes[0].City)
+	suite.Equal("AZ", scenes[0].State)
+	suite.Equal(2, scenes[0].VenueCount, "the CBSA group's rooms only — the drifted pair is not summed in")
+	suite.Equal(3, scenes[0].TotalShowCount, "counts match what /scenes/phoenix-az will print")
+
+	// The number the surviving row publishes is the number its destination page
+	// serves: the collapse must not leave the directory contradicting the page.
+	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor("Phoenix", "AZ"))
+	suite.Require().NoError(err)
+	suite.Equal(int64(scenes[0].VenueCount), count)
+}
+
+// TestListScenes_SpellingVariantsDoNotSplitTheScene (PSY-1831): the collision
+// that needs no drift at all. sceneGroupKeySQL only lower/trims, while
+// buildSceneSlug also maps spaces to dashes, so two spellings of one non-US city
+// are two venue groups under one slug.
+//
+// The assertion is the CORRESPONDENCE, not a guess at which spelling wins:
+// whichever literal ParseSceneSlug resolves the slug to is the one the list must
+// publish, since that is the pair venuePredicate will serve. Asserting the
+// agreement rather than a hardcoded winner also keeps the test honest about
+// collation — Go compares the group minima byte-wise and Postgres orders under
+// the database's collation, and this fails loudly if those ever disagree.
+func (suite *SceneServiceIntegrationTestSuite) TestListScenes_SpellingVariantsDoNotSplitTheScene() {
+	user := suite.createUser()
+	spacedA := suite.createVerifiedVenue("Spaced A", "Saint Jerome", "QC")
+	spacedB := suite.createVerifiedVenue("Spaced B", "Saint Jerome", "QC")
+	hyphenA := suite.createVerifiedVenue("Hyphen A", "Saint-Jerome", "QC")
+	hyphenB := suite.createVerifiedVenue("Hyphen B", "Saint-Jerome", "QC")
+	suite.Require().Nil(spacedA.Metro, "a non-US city must not pin a CBSA — this collision is not metro drift")
+
+	band := suite.createArtist("Local Band")
+	future := time.Now().UTC().AddDate(0, 0, 3)
+	suite.createApprovedShow("Sp 1", spacedA.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("Sp 2", spacedB.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Sp 3", spacedA.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+	suite.createApprovedShow("Hy 1", hyphenA.ID, band.ID, user.ID, future)
+	suite.createApprovedShow("Hy 2", hyphenB.ID, band.ID, user.ID, future.AddDate(0, 0, 1))
+	suite.createApprovedShow("Hy 3", hyphenA.ID, band.ID, user.ID, future.AddDate(0, 0, 2))
+
+	scenes, err := suite.sceneService.ListScenes()
+	suite.Require().NoError(err)
+	suite.Require().Len(scenes, 1, "one row per scene slug, whatever the spelling variance")
+	suite.Equal("saint-jerome-qc", scenes[0].Slug)
+
+	resolvedCity, resolvedState, err := suite.sceneService.ParseSceneSlug("saint-jerome-qc")
+	suite.Require().NoError(err)
+	suite.Equal(resolvedCity, scenes[0].City, "the listed row must name the city its page will serve")
+	suite.Equal(resolvedState, scenes[0].State)
+
+	// And the counts must be that group's alone, not the pair summed.
+	count, err := suite.sceneService.verifiedVenueCount(suite.sceneService.scopeFor(resolvedCity, resolvedState))
+	suite.Require().NoError(err)
+	suite.Equal(int64(scenes[0].VenueCount), count)
+	suite.Equal(2, scenes[0].VenueCount)
 }
 
 // TestListScenes_MetroRollup is the headline step-C behavior: two cities sharing
