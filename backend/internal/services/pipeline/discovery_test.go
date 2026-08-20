@@ -63,6 +63,24 @@ func TestParseEventDate_ISODateOnly_AnchorsAcrossDST(t *testing.T) {
 	assert.Equal(t, "2026-08-15 20:00", summer.In(newYork).Format("2006-01-02 15:04"))
 }
 
+// The days either side of a spring-forward and a fall-back. 20:00 exists on all
+// of them, so the anchor must simply land on the right evening; a transition
+// must not push it onto an adjacent date, which is the failure mode a fixed
+// +N-hours offset (rather than a real zone) would have.
+func TestParseEventDate_AnchorsAcrossDSTTransitionDays(t *testing.T) {
+	newYork, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skipf("America/New_York unavailable: %v", err)
+	}
+	// US transitions in 2026: spring forward Mar 8, fall back Nov 1.
+	for _, date := range []string{"2026-03-07", "2026-03-08", "2026-03-09", "2026-10-31", "2026-11-01", "2026-11-02"} {
+		got, err := parseEventDate(date, nil, "NY")
+		assert.NoError(t, err)
+		assert.Equal(t, date+" 20:00", got.In(newYork).Format("2006-01-02 15:04"),
+			"date-only import of %s must anchor on that evening in New York", date)
+	}
+}
+
 // An unknown state still anchors — on EventLocation's documented Phoenix
 // default. The anchor must never be skipped for want of a zone, because the
 // fallback for "no zone" was the corrupt midnight value.
