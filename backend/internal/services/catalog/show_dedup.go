@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/utils"
@@ -278,12 +279,10 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	summary.PendingEditsMoved += pendingEditsMoved
 	summary.PendingEditsSkipped += pendingEditsDropped
 
-	// revisions: a plain re-point today, but it has to say so. Show history is
-	// published in full, so there is no redaction to carry — and when that
-	// changes, THIS is the site the revisiondiff package doc names, because
-	// the dedup CLI deletes the show a read-time gate would have consulted.
-	// See noRedactionCarryover.
-	revisionsMoved, err := repointRevisions(tx, mergeEntityShow, winnerID, loserID, noRedactionCarryover)
+	// revisions: stamped when the loser is gated, because this function deletes
+	// the show the read-time visibility gate would have consulted moments from
+	// now. See reassignShowRevisions.
+	revisionsMoved, err := reassignShowRevisions(tx, winnerID, loserID)
 	if err != nil {
 		return err
 	}
@@ -319,6 +318,104 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 
 	summary.LosersMerged++
 	return nil
+}
+
+// reassignShowRevisions moves the losing show's revision history onto the
+// winner, stamping it when that show was gated so the read-time ENTITY
+// suppression survives the re-point. See the privacy section of the
+// revisiondiff package doc for the policy; repointRevisions is the mechanism.
+//
+// Gated means any status other than approved. GET /shows/{id} 404s an
+// unprivileged caller for exactly those, admin.RevisionService mirrors that
+// rule, and both read shows.status for the show a revision currently points
+// at — which this merge is about to delete.
+//
+// BOTH statuses decide the stamp, not just the loser's. The stamp is a
+// permanent override: it suppresses a row for every non-admin caller whatever
+// the show it now points at says, and nothing ever clears it. Paying that price
+// is right when the winner is approved, because the read-time lookup would
+// otherwise publish the loser's history the moment the loser row is deleted.
+// It is WRONG when the winner is gated too, and that case is reachable:
+// FindShowDedupClusters selects candidates from status IN ('approved','private'),
+// so both members of a cluster can be private. Stamping there would suppress the
+// carried history forever, including from the surviving show's own submitter,
+// and the owner publishing the winner through POST /shows/{id}/publish would
+// leave a fully public show whose edit history had been silently erased.
+//
+// So: stamp only when the loser is gated AND the winner is not known to be
+// gated. An unstamped row lands on a gated winner, where the plain status lookup
+// already suppresses it — and keeps tracking that winner, so publishing the
+// merged show restores the history exactly as if the two rows had always been
+// one. That is the behaviour the policy doc claims, and this is what makes the
+// claim true.
+//
+// An approved loser gets noRedactionCarryover rather than a clear: nothing was
+// being suppressed, and any mark already on those rows came off an EARLIER
+// gated show, so a chain of merges cannot launder a private show's history.
+//
+// The statuses are read here rather than taken as parameters because the caller
+// has only ids — unlike the venue merge, which already holds the locked row.
+// The read takes FOR UPDATE for that reason: at READ COMMITTED an unlocked read
+// could see 'approved', have a concurrent transaction unpublish the show and
+// commit, and then delete it — leaving a gated show's history unstamped on an
+// approved winner, which is exactly the leak the stamp exists to prevent. The
+// lock holds until the merge transaction ends, and the loser is deleted inside
+// it, so no writer can move a status out from under the decision.
+//
+// FAILS CLOSED on both reads, in the direction that withholds. A loser row this
+// cannot read is treated as GATED: a missing row means the merge is operating on
+// a show that no longer exists, and any revisions still pointing at it are
+// orphans no read-time lookup could ever gate. A winner row it cannot read is
+// treated as NOT gated, which is the answer that stamps — because the exemption
+// above has to be earned by positively reading a gated winner, never inherited
+// from a failed lookup.
+//
+// This does not scrub anything. The stored diff keeps the real values, which is
+// what rollback reads; only the public read path suppresses the row.
+//
+// KNOWN BOUNDARY, admin-triggered and the same one the venue stamp carries: a
+// stamped row's values can still reach a public reader through Rollback, which
+// writes them onto the show the revision NOW points at and records the rollback
+// as a fresh, unstamped revision. After the merge that show is approved and
+// publishes those fields anyway, so the new revision is consistent with what the
+// show already serves rather than a second leak. Keeping the stored values is
+// what makes rollback possible at all, so this stays an explicit admin action
+// rather than another gate.
+func reassignShowRevisions(tx *gorm.DB, winnerID, loserID uint) (int64, error) {
+	// Both rows in one locked read. Ordered by id so two merges that happen to
+	// share a row cannot take the locks in opposite orders.
+	var rows []struct {
+		ID     uint                `gorm:"column:id"`
+		Status catalogm.ShowStatus `gorm:"column:status"`
+	}
+	err := tx.Model(&catalogm.Show{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id, status").
+		Where("id IN ?", []uint{winnerID, loserID}).
+		Order("id").
+		Scan(&rows).Error
+	if err != nil {
+		return 0, fmt.Errorf("read show statuses for merge %d <- %d: %w", winnerID, loserID, err)
+	}
+
+	// Absent from the result means the row could not be read. The zero value is
+	// not a real status, and each side's default below is the one that withholds.
+	statuses := make(map[uint]catalogm.ShowStatus, len(rows))
+	for _, r := range rows {
+		statuses[r.ID] = r.Status
+	}
+	loserGated := statuses[loserID] != catalogm.ShowStatusApproved
+	winnerGated := false
+	if s, read := statuses[winnerID]; read {
+		winnerGated = s != catalogm.ShowStatusApproved
+	}
+
+	provenance := noRedactionCarryover
+	if loserGated && !winnerGated {
+		provenance = stampFromGatedShow
+	}
+
+	return repointRevisions(tx, mergeEntityShow, winnerID, loserID, provenance)
 }
 
 // movePolymorphicJunction drops conflicting rows on (show_id, otherCol)

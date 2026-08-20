@@ -77,21 +77,37 @@ const (
 	// an address that a single merge withholds.
 	stampFromUnverifiedVenue
 
+	// stampFromGatedShow marks the loser's rows with revisions.from_gated_show
+	// before re-pointing them, so the read-time ENTITY suppression survives a
+	// merge into an approved show.
+	//
+	// SHOW ONLY, for the same reason its venue counterpart is venue-only: the
+	// column and the gate that reads it are show-scoped
+	// (admin.revisionVisibleTo returns early for every other entity_type), so
+	// stamping anything else would record a claim nothing honors.
+	// repointRevisions rejects it.
+	//
+	// The mark only ever goes TRUE and nothing clears it, so a chain of merges
+	// cannot launder a private show's history through an approved one. That is
+	// also why the call site only asks for it when the WINNER is approved: a
+	// stamp applied to rows landing on a gated winner would outlive the reason
+	// for it and survive that show being published. See reassignShowRevisions.
+	//
+	// It is coarser than the live gate it preserves. GET /shows/{id} serves a
+	// gated show to its own submitter; a stamped row is served to admins only,
+	// because the show whose submitted_by would answer the question was deleted
+	// by the merge. Losing an author's access to their own merged-away show's
+	// history is the price of a marker that cannot be laundered.
+	stampFromGatedShow
+
 	// noRedactionCarryover states that the losing entity's revisions carry no
 	// read-time redaction that the re-point would strip, so they move as they
 	// are.
 	//
-	// True today for artists and shows: revision history for both is published
-	// in full, so there is nothing for a stamp to preserve. It is NOT true by
-	// default for anything that gains a gate later.
-	//
-	// The known one is shows. Shows are gated at the ENTITY level — an
-	// anonymous caller 404s on a pending, rejected or private show — while
-	// /revisions/show/{id} publishes its history regardless. Whatever closes
-	// that gap needs a provenance stamp of its own, because MergeDuplicateShow
-	// re-points a losing show's revisions and deletes the show the gate would
-	// read. The call site to change is in MergeDuplicateShow, and it is
-	// spelled out there.
+	// True today for artists, whose revision history is published in full. It
+	// is NOT true by default for anything that gains a gate later, and it is no
+	// longer true for shows: see stampFromGatedShow and the call site in
+	// MergeDuplicateShow, which decides per merge.
 	noRedactionCarryover
 )
 
@@ -101,6 +117,8 @@ func (p revisionProvenance) String() string {
 	switch p {
 	case stampFromUnverifiedVenue:
 		return "stampFromUnverifiedVenue"
+	case stampFromGatedShow:
+		return "stampFromGatedShow"
 	case noRedactionCarryover:
 		return "noRedactionCarryover"
 	case provenanceUndecided:
@@ -136,13 +154,14 @@ func repointRevisions(
 		return 0, fmt.Errorf("repoint revisions: canonical and merge-from ids are required")
 	}
 	// A self-merge is a no-op move but NOT a no-op stamp: it would mark the
-	// surviving entity's own history as carried off an unverified venue.
+	// surviving entity's own history as carried off an unverified venue or a
+	// gated show.
 	if canonicalID == mergeFromID {
 		return 0, fmt.Errorf("repoint revisions: cannot re-point %s %d onto itself", entity, canonicalID)
 	}
 
-	// The provenance decision is the only thing that varies, and it varies by
-	// one hardcoded fragment. Never caller input.
+	// The provenance decision is the only thing that varies, and each stamping
+	// decision appends one hardcoded fragment. Never caller input.
 	setClause := "entity_id = ?"
 	switch provenance {
 	case stampFromUnverifiedVenue:
@@ -152,16 +171,25 @@ func repointRevisions(
 				provenance, string(entity))
 		}
 		setClause += ", from_unverified_venue = TRUE"
+	case stampFromGatedShow:
+		if entity != mergeEntityShow {
+			return 0, fmt.Errorf(
+				"repoint revisions: %s is show-only, but entity type is %q",
+				provenance, string(entity))
+		}
+		setClause += ", from_gated_show = TRUE"
 	case noRedactionCarryover:
 		// Nothing to preserve — see the constant.
 	default:
 		return 0, fmt.Errorf(
 			"repoint revisions: %s is not a provenance decision; pass "+
-				"stampFromUnverifiedVenue or noRedactionCarryover", provenance)
+				"stampFromUnverifiedVenue, stampFromGatedShow or "+
+				"noRedactionCarryover", provenance)
 	}
 
-	// #nosec G201 -- setClause is one of two literals chosen by the switch
-	// above; the ids and the entity type are bound parameters.
+	// #nosec G201 -- setClause is assembled only from the fixed literals in the
+	// switch above, one per provenance decision; the ids and the entity type are
+	// bound parameters. Worded so that adding a decision does not falsify it.
 	sql := fmt.Sprintf(
 		"UPDATE revisions SET %s WHERE entity_type = ? AND entity_id = ?", setClause)
 	r := tx.Exec(sql, canonicalID, string(entity), mergeFromID)

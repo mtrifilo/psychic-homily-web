@@ -359,7 +359,20 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		}
 	}
 
-	// Revisions made
+	// Revisions made.
+	//
+	// KNOWN GAP (PSY-1715), stated here so it is discoverable from this side as
+	// well as from admin/revision_visibility.go. This count is UNFILTERED, while
+	// GET /users/{id}/revisions now suppresses revisions on shows the caller
+	// cannot see and reports a total that matches its page. Both numbers are
+	// public, so differencing them tells an anonymous reader how many of this
+	// author's edits sit on non-approved shows.
+	//
+	// Not fixed with the gate itself because closing it means threading the
+	// viewer through GetContributionStats and the leaderboard's ranking
+	// subquery, which is a change to this service's contract rather than to
+	// revision history. Whoever does it should take the percentile count below
+	// and services/user/leaderboard.go in the same pass.
 	s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID).Count(&stats.RevisionsMade)
 
 	// Pending entity edits submitted

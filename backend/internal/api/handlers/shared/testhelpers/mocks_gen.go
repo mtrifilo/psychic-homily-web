@@ -3122,9 +3122,9 @@ func (m *MockRequestService) ResolveEntityRef(entityType string, entityID uint) 
 
 type MockRevisionService struct {
 	RecordRevisionFn   func(string, uint, uint, []adminm.FieldChange, string) error
-	GetEntityHistoryFn func(string, uint, int, int, bool) ([]adminm.Revision, int64, error)
-	GetRevisionFn      func(uint, bool) (*adminm.Revision, error)
-	GetUserRevisionsFn func(uint, int, int, bool) ([]adminm.Revision, int64, error)
+	GetEntityHistoryFn func(string, uint, int, int, contracts.RevisionViewer) ([]adminm.Revision, int64, error)
+	GetRevisionFn      func(uint, contracts.RevisionViewer) (*adminm.Revision, error)
+	GetUserRevisionsFn func(uint, int, int, contracts.RevisionViewer) ([]adminm.Revision, int64, error)
 	RollbackFn         func(uint, uint) error
 }
 
@@ -3134,21 +3134,21 @@ func (m *MockRevisionService) RecordRevision(entityType string, entityID uint, u
 	}
 	return nil
 }
-func (m *MockRevisionService) GetEntityHistory(entityType string, entityID uint, limit int, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
+func (m *MockRevisionService) GetEntityHistory(entityType string, entityID uint, limit int, offset int, viewer contracts.RevisionViewer) ([]adminm.Revision, int64, error) {
 	if m.GetEntityHistoryFn != nil {
-		return m.GetEntityHistoryFn(entityType, entityID, limit, offset, viewerIsAdmin)
+		return m.GetEntityHistoryFn(entityType, entityID, limit, offset, viewer)
 	}
 	return nil, 0, nil
 }
-func (m *MockRevisionService) GetRevision(revisionID uint, viewerIsAdmin bool) (*adminm.Revision, error) {
+func (m *MockRevisionService) GetRevision(revisionID uint, viewer contracts.RevisionViewer) (*adminm.Revision, error) {
 	if m.GetRevisionFn != nil {
-		return m.GetRevisionFn(revisionID, viewerIsAdmin)
+		return m.GetRevisionFn(revisionID, viewer)
 	}
 	return nil, nil
 }
-func (m *MockRevisionService) GetUserRevisions(userID uint, limit int, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
+func (m *MockRevisionService) GetUserRevisions(userID uint, limit int, offset int, viewer contracts.RevisionViewer) ([]adminm.Revision, int64, error) {
 	if m.GetUserRevisionsFn != nil {
-		return m.GetUserRevisionsFn(userID, limit, offset, viewerIsAdmin)
+		return m.GetUserRevisionsFn(userID, limit, offset, viewer)
 	}
 	return nil, 0, nil
 }

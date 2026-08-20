@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -65,12 +66,21 @@ func (s *RevisionService) RecordRevision(entityType string, entityID uint, userI
 
 // GetEntityHistory returns paginated revision history for a specific entity.
 //
-// viewerIsAdmin selects the caller tier the result is redacted for; see
-// applyPrivacyRedaction. False is the masked view, so a caller that cannot prove
-// admin gets the public one.
-func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
+// viewer selects the caller the result is gated and redacted for; see
+// revision_visibility.go for the entity gate and applyPrivacyRedaction for the
+// field masking. contracts.RevisionViewer{} is the public view, so a caller
+// that cannot prove anything gets it.
+//
+// Returns contracts.ErrRevisionEntityHidden when the entity itself is one this
+// viewer may not see. The handler turns that into the same 404 an absent entity
+// gets.
+func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, limit, offset int, viewer contracts.RevisionViewer) ([]adminm.Revision, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
+	if err := s.requireEntityVisible(entityType, entityID, viewer); err != nil {
+		return nil, 0, err
 	}
 
 	if limit <= 0 {
@@ -80,13 +90,24 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 		limit = 100
 	}
 
+	// Row filtering runs even though the entity gate above already passed: a
+	// visible show can still hold rows a merge carried off a gated one.
+	//
+	// The count error is returned rather than dropped. Since PSY-1715 the total
+	// is a claim about the page beside it, and the page's own query carries a
+	// LIMIT this one does not — so a statement timeout can fail the count while
+	// the page succeeds, answering 200 with rows beside total 0. That inverts the
+	// exact invariant the filter exists to hold.
 	var total int64
-	s.db.Model(&adminm.Revision{}).
-		Where("entity_type = ? AND entity_id = ?", entityType, entityID).
-		Count(&total)
+	if err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).
+		Where("entity_type = ? AND entity_id = ?", entityType, entityID), viewer).
+		Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count entity history: %w", err)
+	}
 
 	var revisions []adminm.Revision
-	err := s.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).
+	err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).
+		Where("entity_type = ? AND entity_id = ?", entityType, entityID), viewer).
 		Preload("User").
 		Order("created_at DESC").
 		Limit(limit).
@@ -96,25 +117,35 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 		return nil, 0, fmt.Errorf("failed to get entity history: %w", err)
 	}
 
-	s.applyPrivacyRedaction(revisions, viewerIsAdmin)
+	s.applyPrivacyRedaction(revisions, viewer.IsAdmin)
 	return revisions, total, nil
 }
 
-// GetRevision retrieves a single revision by ID, redacted for serving.
-// Returns nil, nil if not found.
+// GetRevision retrieves a single revision by ID, gated and redacted for
+// serving. Returns nil, nil if not found.
 //
-// viewerIsAdmin selects the caller tier; see applyPrivacyRedaction.
-func (s *RevisionService) GetRevision(revisionID uint, viewerIsAdmin bool) (*adminm.Revision, error) {
+// viewer selects the caller; see revision_visibility.go and
+// applyPrivacyRedaction.
+//
+// A revision whose entity this viewer may not see returns nil, nil — the same
+// answer a missing row gives, and deliberately indistinguishable from it. This
+// route is the one that takes an opaque id, so a distinguishable "hidden"
+// answer would let a caller sweep the id space for unpublished shows.
+func (s *RevisionService) GetRevision(revisionID uint, viewer contracts.RevisionViewer) (*adminm.Revision, error) {
 	revision, err := s.getRevisionRaw(revisionID)
 	if err != nil || revision == nil {
 		return nil, err
+	}
+
+	if !s.revisionVisibleTo(revision, viewer) {
+		return nil, nil
 	}
 
 	// Redact through a one-element batch so the served copy goes through
 	// exactly the same code path as a list read; there is no second spelling
 	// of the policy to fall out of sync.
 	batch := []adminm.Revision{*revision}
-	s.applyPrivacyRedaction(batch, viewerIsAdmin)
+	s.applyPrivacyRedaction(batch, viewer.IsAdmin)
 	return &batch[0], nil
 }
 
@@ -142,10 +173,16 @@ func (s *RevisionService) getRevisionRaw(revisionID uint) (*adminm.Revision, err
 
 // GetUserRevisions returns paginated revisions made by a specific user.
 //
-// userID names the revision AUTHOR; viewerIsAdmin describes the caller READING
-// the page. The two are unrelated — an admin reading their own contributions
-// gets the admin tier, and a contributor reading an admin's page does not.
-func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewerIsAdmin bool) ([]adminm.Revision, int64, error) {
+// userID names the revision AUTHOR; viewer describes the caller READING the
+// page. The two are unrelated — an admin reading their own contributions gets
+// the admin tier, and a contributor reading an admin's page does not.
+//
+// Authorship is not visibility either. A contributor's edit to a show that was
+// later unpublished drops off their own contributions page, because the page is
+// world-readable and the row would be published to anyone who opened it. The
+// author keeps the edit on any show they SUBMITTED, which is the tier the detail
+// route grants them.
+func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewer contracts.RevisionViewer) ([]adminm.Revision, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -157,11 +194,15 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 		limit = 100
 	}
 
+	// Returned, not dropped — see the note on GetEntityHistory's count.
 	var total int64
-	s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID).Count(&total)
+	if err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID), viewer).
+		Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count user revisions: %w", err)
+	}
 
 	var revisions []adminm.Revision
-	err := s.db.Where("user_id = ?", userID).
+	err := visibleRevisionsOnly(s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID), viewer).
 		Preload("User").
 		Order("created_at DESC").
 		Limit(limit).
@@ -171,7 +212,7 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int, viewe
 		return nil, 0, fmt.Errorf("failed to get user revisions: %w", err)
 	}
 
-	s.applyPrivacyRedaction(revisions, viewerIsAdmin)
+	s.applyPrivacyRedaction(revisions, viewer.IsAdmin)
 	return revisions, total, nil
 }
 
