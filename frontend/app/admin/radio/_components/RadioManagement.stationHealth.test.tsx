@@ -18,11 +18,9 @@ function makeHealth(overrides: Partial<RadioStationHealth> = {}): RadioStationHe
     last_run_at: '2026-06-23T05:00:00Z',
     consecutive_failures: 0,
     breaker_state: 'closed',
-    // Every optional field here maps to a Go pointer with `omitempty`, so an
-    // unset value is OMITTED from the JSON, never sent as `null`. These mocks
-    // said `null` before PSY-1600; `deriveStationHealthLevel` uses `!= null`
-    // and `!h.last_run_at`, so both spellings behave identically.
-    breaker_tripped_at: undefined,
+    // Optional health fields map to Go pointers with `omitempty`: an unset
+    // value is OMITTED from the JSON, never `null`. Overrides below use
+    // `undefined` for the same reason.
     recent_success_rate: 0.95,
     play_match_rate: 0.8,
     zero_play_episode_rate: 0.05,

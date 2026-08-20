@@ -115,9 +115,7 @@ describe('StreamingWorklist', () => {
 
   it('falls back to the artist ID when no slug is present', () => {
     mockWorklistData({
-      // The Go field is `*string` with `omitempty`, so an absent slug is
-      // OMITTED from the JSON, never sent as `null`. The mock said `null`
-      // before PSY-1600; both are falsy so the assertion is unchanged.
+      // `*string` + `omitempty`: an absent slug is omitted, never `null`.
       entries: [makeEntry({ artist_id: 42, artist_slug: undefined })],
       total: 1,
     })

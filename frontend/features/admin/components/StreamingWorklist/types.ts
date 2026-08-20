@@ -1,15 +1,6 @@
 /**
  * Wire-shape types for the admin streaming-discovery worklist endpoints.
- *
- * Sourced from the backend's OpenAPI document, NOT hand-written
- * (PSY-1550/1600). Regenerate with `bun run api:types`; the "API Types
- * Drift" CI gate fails if the committed types drift from the backend.
- * Exported names are kept stable so callers do not churn.
- *
- * These were hand-written until PSY-1600 and had already drifted: the
- * list result declared `entries` as non-nullable, but the Go contract
- * field is a plain `[]StreamingWorklistEntry` with no `omitempty`, so a
- * nil slice serializes as JSON `null`.
+ * Generated, not hand-written — regenerate with `bun run api:types`.
  *
  * The list endpoint surfaces ONLY non-terminal statuses (`unreviewed`,
  * `candidates_pending`). Terminal statuses exist as valid TARGETS for
@@ -61,15 +52,16 @@ export type StreamingWorklistEntry = components['schemas']['StreamingWorklistEnt
  */
 export type StreamingWorklistResult = components['schemas']['StreamingWorklistResult']
 
-/** The JSON body POSTed by the status mutation. */
-export type UpdateStreamingDiscoveryStatusRequestBody =
-  components['schemas']['UpdateStreamingStatusRequestBody']
-
 /**
  * Input to the status-mutation hook. NOT a wire shape: it bundles the
  * `artist_id` PATH parameter with the request-body fields, which the hook
- * splits back apart. The field types are aliased from the generated body
- * so they cannot drift.
+ * splits back apart.
+ *
+ * `status` is deliberately NARROWER than the generated request body, which
+ * types it as a plain `string`. The endpoint accepts only the four values
+ * below — `candidates_pending` is engine-set and rejected here — and this is
+ * a value the CLIENT chooses, so there is no wire shape to be faithful to and
+ * every reason to stop a bad status at compile time.
  *
  * `reason` is only persisted for `no_links_found` and `skipped`; the
  * backend service clears it on re-open to `unreviewed`. `null` is accepted
@@ -79,7 +71,7 @@ export type UpdateStreamingDiscoveryStatusRequestBody =
 export interface UpdateStreamingDiscoveryStatusInput {
   /** Path parameter, NOT part of the request body. */
   artist_id: number
-  status: UpdateStreamingDiscoveryStatusRequestBody['status']
+  status: StreamingWorklistAction | 'unreviewed'
   reason?: string | null
 }
 

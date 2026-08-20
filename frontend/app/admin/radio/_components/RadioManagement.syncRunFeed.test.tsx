@@ -148,11 +148,9 @@ describe('Sync-run feed (PSY-1130)', () => {
     expect(screen.getByText('Recent sync runs')).toBeInTheDocument()
   })
 
-  // PSY-1600: `station_id` / `station_name` carry `omitempty` on the Go DTO and
-  // are absent on global rematch runs, which have no station scope. The
-  // hand-written type declared both as required, so such a row rendered an
-  // EMPTY station label and its click silently no-opped (the station lookup
-  // matched nothing). Adopting the generated type surfaced it.
+  // Global rematch runs have no station scope, so `station_id` / `station_name`
+  // are absent. Such a row must not render a blank label or a button whose
+  // click cannot resolve a station.
   it('global failure row for a station-less (rematch) run is labelled and not clickable', () => {
     recentFailures = {
       runs: [

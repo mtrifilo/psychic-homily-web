@@ -9,7 +9,6 @@ export type {
   UseLinkSuggestionsParams,
 } from './useDiscoveryTriage'
 export type {
-  LinkSuggestionConfidence,
   LinkSuggestionEntry,
   LinkSuggestionListResult,
   LinkSuggestionPlatform,

@@ -10,10 +10,8 @@
  * Reject just marks the row. Both stamp the reviewer and are idempotent on
  * replay; a re-review with a *different* verdict is a 409.
  *
- * The wire shapes below are sourced from the backend's OpenAPI document,
- * NOT hand-written (PSY-1550/1600). Regenerate with `bun run api:types`;
- * the "API Types Drift" CI gate fails if the committed types drift from the
- * backend. Exported names are kept stable so callers do not churn.
+ * The wire shapes below are generated, not hand-written — regenerate with
+ * `bun run api:types`.
  */
 import type { components } from '@/types/api'
 
@@ -25,23 +23,17 @@ import type { components } from '@/types/api'
 export type LinkSuggestionPlatform = 'bandcamp' | 'spotify'
 
 /**
- * Region confidence tier (PSY-1191 semantics, carried through the sweep):
- * `high` = the MusicBrainz candidate's geography aligned with a PH show
- * region; `review` = region mismatch, non-US, or no PH region to compare —
- * a possible touring act or namesake the admin should VERIFY before linking.
- *
- * `review` is NEVER a gate and is NEVER auto-accepted or hidden: the row is
- * still surfaced and the admin can still accept it. The tier only flags the
- * lower certainty so the reviewer slows down.
- *
- * Same caveat as `LinkSuggestionPlatform`: the spec types `confidence` as a
- * plain string, so this is the documented value domain, not the wire type.
- */
-export type LinkSuggestionConfidence = 'high' | 'review'
-
-/**
  * One pending suggestion in the review queue, joined to its artist for
  * direct rendering. Shape is LOCKED.
+ *
+ * `confidence` is the region confidence tier (PSY-1191 semantics, carried
+ * through the sweep): `high` = the MusicBrainz candidate's geography aligned
+ * with a PH show region; `review` = region mismatch, non-US, or no PH region
+ * to compare — a possible touring act or namesake the admin should VERIFY
+ * before linking. `review` is NEVER a gate and is NEVER auto-accepted or
+ * hidden: the row is still surfaced and the admin can still accept it. The
+ * tier only flags the lower certainty so the reviewer slows down. The spec
+ * types the field as a plain string, so it is not a union here.
  */
 export type LinkSuggestionEntry = components['schemas']['LinkSuggestionEntry']
 

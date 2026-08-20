@@ -68,39 +68,42 @@ import {
 
 const STATUS_UNKNOWN_CLASS = 'border-border bg-muted text-muted-foreground'
 
+// Only non-terminal values appear in the list response, but the map covers the
+// full domain so the badge stays correct if a backend tweak ever widens what's
+// surfaced.
+//
 // Bound to the DS categorical palette (`--chart-*`, PSY-943) instead of the
 // prior dark-only amber/blue/green/zinc hues. Hue follows the triage flow:
 // unreviewed = chart-3 (gold, needs attention), candidates_pending =
 // chart-6 (denim, active), linked = chart-2 (green, done), the two terminal
 // dead-ends (no_links_found / skipped) = muted.
-const STATUS_PALETTE: Record<StreamingDiscoveryStatus, string> = {
-  unreviewed: 'border-chart-3/30 bg-chart-3/15 text-chart-3',
-  candidates_pending: 'border-chart-6/30 bg-chart-6/15 text-chart-6',
-  linked: 'border-chart-2/30 bg-chart-2/15 text-chart-2',
-  no_links_found: STATUS_UNKNOWN_CLASS,
-  skipped: STATUS_UNKNOWN_CLASS,
+const STATUS_DISPLAY: Record<StreamingDiscoveryStatus, { label: string; className: string }> = {
+  unreviewed: { label: 'Unreviewed', className: 'border-chart-3/30 bg-chart-3/15 text-chart-3' },
+  candidates_pending: {
+    label: 'Candidates pending',
+    className: 'border-chart-6/30 bg-chart-6/15 text-chart-6',
+  },
+  linked: { label: 'Linked', className: 'border-chart-2/30 bg-chart-2/15 text-chart-2' },
+  no_links_found: { label: 'No links', className: STATUS_UNKNOWN_CLASS },
+  skipped: { label: 'Skipped', className: STATUS_UNKNOWN_CLASS },
 }
 
-const STATUS_LABELS: Record<StreamingDiscoveryStatus, string> = {
-  unreviewed: 'Unreviewed',
-  candidates_pending: 'Candidates pending',
-  linked: 'Linked',
-  no_links_found: 'No links',
-  skipped: 'Skipped',
+// `status` is typed `string` by the generated schema (the OpenAPI document does
+// not enumerate this enum), so an unrecognised value is representable and must
+// degrade to a neutral badge rather than render `undefined` classes and an
+// empty label. Keying the map by the value domain keeps adding a known status a
+// compile error; the widening is confined to this one read.
+function statusDisplay(status: StreamingWorklistEntry['streaming_discovery_status']) {
+  return (
+    STATUS_DISPLAY[status as StreamingDiscoveryStatus] ?? {
+      label: status,
+      className: STATUS_UNKNOWN_CLASS,
+    }
+  )
 }
 
 function StatusBadge({ status }: { status: StreamingWorklistEntry['streaming_discovery_status'] }) {
-  // Only non-terminal values appear in the list response, but the lookups
-  // cover the full domain so the badge stays correct if a backend tweak
-  // ever widens what's surfaced.
-  //
-  // `status` is typed `string` by the generated schema (the OpenAPI document
-  // does not enumerate this enum), so an unrecognised value is representable
-  // and must degrade to a neutral badge rather than render `undefined`
-  // classes and an empty label.
-  const key = status as StreamingDiscoveryStatus
-  const className = STATUS_PALETTE[key] ?? STATUS_UNKNOWN_CLASS
-  const label = STATUS_LABELS[key] ?? status
+  const { label, className } = statusDisplay(status)
   return (
     <span
       className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${className}`}

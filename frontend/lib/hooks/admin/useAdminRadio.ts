@@ -77,38 +77,53 @@ const RADIO_ENDPOINTS = {
 // Types
 // ============================================================================
 //
-// The RESPONSE shapes below are sourced from the backend's OpenAPI document,
-// NOT hand-written (PSY-1550/1600). Regenerate with `bun run api:types`; the
-// "API Types Drift" CI gate fails if the committed types drift from the
-// backend. Exported names are kept stable so callers do not churn.
-//
-// The `Create*Input` / `Update*Input` REQUEST bodies are deliberately still
-// hand-written — see the note above them.
+// The RESPONSE shapes below are generated, not hand-written — regenerate with
+// `bun run api:types`. The `Create*Input` / `Update*Input` REQUEST bodies are
+// deliberately still hand-written; see the note above them.
 
 /**
- * A station's network affiliation.
+ * Restores the nullability of a station's `network` field.
  *
  * SPEC-FIDELITY GAP: the generated `RadioStationListResponse` /
  * `RadioStationDetailResponse` declare `network` as REQUIRED and
- * NON-nullable, but the Go field is `*RadioNetworkInfo` with NO
- * `omitempty`, so a nil pointer marshals to JSON `null` — the common case,
- * since most stations belong to no network. Huma marks pointer-to-primitive
- * fields nullable (`network_id` and `network_slug` right beside it are
- * `| null`) but not pointer-to-struct ones. The `| null` is restored below
- * so no caller can read through a null the spec pretends cannot happen.
- * Backend follow-up: annotate the field so the generator emits the union.
+ * NON-nullable, but the Go field is `*RadioNetworkInfo` with NO `omitempty`,
+ * so a nil pointer marshals to JSON `null` — the common case, since most
+ * stations belong to no network (verified: KEXP and NTS both return
+ * `"network": null`). Huma marks pointer-to-primitive fields nullable
+ * (`network_id` and `network_slug` right beside it are `| null`) but not
+ * pointer-to-struct ones. Aliasing the generated shape verbatim would encode
+ * a fiction, so the union is restored here.
+ *
+ * This is SYSTEMIC, not a radio quirk: ~14 pointer-to-struct DTO fields across
+ * the API have the same defect, several with Go comments that explicitly say
+ * the value is nil. Two consequences worth knowing before copying this helper:
+ * it does NOT compose through envelope schemas (a generated envelope that
+ * `$ref`s the station re-loses the `| null`), and an `Omit<>` patch is
+ * invisible to the `api:types` drift gate — if the backend changes this field,
+ * CI stays green and this override keeps lying.
+ *
+ * Backend fix is NOT a `nullable:"true"` tag — Huma PANICS on that for object
+ * refs (`schema.go`: "nullable is not supported for field ... which is type
+ * object"). The two options that work are `,omitempty` on the JSON tag (making
+ * the field absent rather than null, matching the convention `RadioStationHealth`
+ * already uses below) or a custom `Schema()` method emitting `anyOf: [$ref,
+ * {type: 'null'}]`. Delete this helper once one of those lands.
+ *
+ * Not exported: `features/radio/types.ts` already exports a hand-written
+ * `RadioNetworkInfo`, so re-exporting the generated one under the same name
+ * would create an import-the-wrong-one hazard.
  */
-export type RadioNetworkInfo = components['schemas']['RadioNetworkInfo']
+type WithNullableNetwork<T> = Omit<T, 'network'> & {
+  network: components['schemas']['RadioNetworkInfo'] | null
+}
 
-export type RadioStationListItem = Omit<
-  components['schemas']['RadioStationListResponse'],
-  'network'
-> & { network: RadioNetworkInfo | null }
+export type RadioStationListItem = WithNullableNetwork<
+  components['schemas']['RadioStationListResponse']
+>
 
-export type RadioStationDetail = Omit<
-  components['schemas']['RadioStationDetailResponse'],
-  'network'
-> & { network: RadioNetworkInfo | null }
+export type RadioStationDetail = WithNullableNetwork<
+  components['schemas']['RadioStationDetailResponse']
+>
 
 /**
  * A row in the admin show list. `schedule_locked` (PSY-1186/1193) is true
@@ -129,14 +144,22 @@ export type RadioStats = components['schemas']['RadioStatsResponse']
 // ──────────────────────────────────────────────
 // Request bodies — DEFERRED, still hand-written.
 //
-// The generated `AdminCreateRadioStationRequestBody` /
-// `AdminUpdateRadioStationRequestBody` / `AdminCreateRadioShowRequestBody` /
-// `AdminUpdateRadioShowRequestBody` type every optional field as `?: string`
-// with NO `| null`, while the forms below send explicit `null` to CLEAR a
-// field. Omitting a field and sending `null` are different instructions to
-// the backend (leave unchanged vs. clear), so adopting the generated bodies
-// is a behaviour change, not a mechanical realias — it belongs to the
-// write-path slice of PSY-1600, not this one.
+// The generated `Admin*RadioStation/Show RequestBody` types declare every
+// optional field as `?: string` with NO `| null`. That is CORRECT and these
+// hand-written `?: string | null` types are the fiction: Huma skips a null
+// non-required field during validation, so it decodes to a nil pointer —
+// indistinguishable from omission — and the update service then does
+// `if req.X != nil { ... }`, i.e. nil means LEAVE UNCHANGED. On this endpoint
+// `null` and "absent" are the same instruction.
+//
+// So this is not deferred because the generated types lose a capability. It is
+// deferred because the station form sends `null` for every emptied field
+// (`timezone: timezone.trim() || null` and friends), which means adopting the
+// generated bodies is a compile error until the form is changed to OMIT
+// instead. Doing that also changes behaviour — today, clearing an optional
+// field through the admin station form is a silent no-op — and a type-alias
+// slice must not quietly change what the form transmits. Both belong to the
+// write-path slice of PSY-1600.
 // ──────────────────────────────────────────────
 
 export interface CreateRadioStationInput {
@@ -264,7 +287,12 @@ export function useAdminRadioStations() {
   return useQuery({
     queryKey: radioQueryKeys.stations,
     queryFn: async () => {
-      const data = await apiRequest<{ stations: RadioStationListItem[]; count: number }>(
+      // NOT the generated `ListRadioStationsResponseBody`: its `stations` items
+      // are the raw `RadioStationListResponse`, which carries the non-nullable
+      // `network` defect that `WithNullableNetwork` exists to correct. The
+      // override is leaf-level and does not compose through the envelope, so
+      // this stays hand-written until the backend fix lands.
+      const data = await apiRequest<{ stations: RadioStationListItem[] | null; count: number }>(
         RADIO_ENDPOINTS.STATIONS
       )
       return data
@@ -295,7 +323,7 @@ export function useRadioShows(stationId: number, enabled = true) {
   return useQuery({
     queryKey: radioQueryKeys.shows(stationId),
     queryFn: async () => {
-      const data = await apiRequest<{ shows: RadioShowListItem[]; count: number }>(
+      const data = await apiRequest<components['schemas']['ListRadioShowsResponseBody']>(
         `${RADIO_ENDPOINTS.SHOWS}?station_id=${stationId}`
       )
       return data

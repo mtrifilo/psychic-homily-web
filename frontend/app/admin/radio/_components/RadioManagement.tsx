@@ -866,11 +866,10 @@ function PlaysMatchSummary({
 // hit per-episode/match errors (the old "completed with errors"); `skipped` = the
 // station circuit breaker was open.
 // `run.status` is typed `string` by the generated schema (the OpenAPI document
-// does not enumerate the enum), so these lookups are keyed by the documented
-// value domain and every read goes through a fallback — an unrecognised status
-// must degrade to a neutral badge, not crash on `undefined.color`.
-const SYNC_RUN_STATUS_FALLBACK = { label: 'unknown', color: 'bg-muted text-muted-foreground' }
-
+// does not enumerate the enum). Keying by the documented value domain keeps
+// adding a known status a compile error, and `syncRunStatusDisplay` confines
+// the resulting widening to one place: an unrecognised status degrades to its
+// raw wire value instead of crashing on `undefined.color`.
 const SYNC_RUN_STATUS_DISPLAY: Record<RadioSyncRunStatus, { label: string; color: string }> = {
   running: { label: 'running', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
   success: { label: 'success', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
@@ -878,6 +877,15 @@ const SYNC_RUN_STATUS_DISPLAY: Record<RadioSyncRunStatus, { label: string; color
   failed: { label: 'failed', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
   skipped: { label: 'skipped (breaker)', color: 'bg-muted text-muted-foreground' },
   cancelled: { label: 'cancelled', color: 'bg-muted text-muted-foreground' },
+}
+
+function syncRunStatusDisplay(status: RadioSyncRun['status']) {
+  return (
+    SYNC_RUN_STATUS_DISPLAY[status as RadioSyncRunStatus] ?? {
+      label: status,
+      color: 'bg-muted text-muted-foreground',
+    }
+  )
 }
 
 function SyncRunStatusIcon({ status }: { status: RadioSyncRun['status'] }) {
@@ -890,12 +898,10 @@ function SyncRunStatusIcon({ status }: { status: RadioSyncRun['status'] }) {
       return <AlertCircle className="h-4 w-4 text-amber-500" />
     case 'failed':
       return <AlertCircle className="h-4 w-4 text-destructive" />
-    case 'skipped':
-    case 'cancelled':
-      return <XCircle className="h-4 w-4 text-muted-foreground" />
+    // skipped, cancelled, and — since `status` is `string` on the wire — any
+    // value this build does not know, which still needs a glyph rather than a
+    // hole in the row.
     default:
-      // `status` is `string` on the wire; a value this build does not know
-      // still needs a glyph rather than a hole in the row.
       return <XCircle className="h-4 w-4 text-muted-foreground" />
   }
 }
@@ -913,7 +919,7 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
   const isActive = run.status === 'running'
   const isTerminalGood = run.status === 'success' || run.status === 'partial'
   const display =
-    SYNC_RUN_STATUS_DISPLAY[run.status as RadioSyncRunStatus] ?? SYNC_RUN_STATUS_FALLBACK
+    syncRunStatusDisplay(run.status)
   const progress = run.episodes_found > 0
     ? Math.round((run.episodes_imported / run.episodes_found) * 100)
     : 0
@@ -1152,12 +1158,11 @@ function GlobalFailureRow({
   run: RadioSyncRun
   onOpen: (stationId: number) => void
 }) {
-  const display =
-    SYNC_RUN_STATUS_DISPLAY[run.status as RadioSyncRunStatus] ?? SYNC_RUN_STATUS_FALLBACK
+  const display = syncRunStatusDisplay(run.status)
   const firstError = run.errors?.[0]
   const extraErrors = (run.errors?.length ?? 0) - 1
+  // Narrowed into a local so the check survives into the onClick closure.
   const stationId = run.station_id
-  const className = 'w-full rounded-lg border p-3 text-left'
   const body = (
     <>
       <div className="flex items-center gap-2">
@@ -1180,14 +1185,14 @@ function GlobalFailureRow({
   )
 
   if (stationId === undefined) {
-    return <div className={className}>{body}</div>
+    return <div className="rounded-lg border p-3">{body}</div>
   }
 
   return (
     <button
       type="button"
       onClick={() => onOpen(stationId)}
-      className={`${className} hover:bg-muted/50 transition-colors`}
+      className="w-full rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors"
     >
       {body}
     </button>
@@ -2270,11 +2275,6 @@ function UnmatchedPlayRow({
   successMessage: string | undefined
 }) {
   const suggestions = group.suggested_matches ?? []
-  // Both list fields are nullable on the wire (Go slices, no `omitempty`).
-  // `suggested_matches` genuinely arrives null when nothing matched — it is
-  // built by `append` onto a nil slice. `station_names` is currently always a
-  // non-nil `make`d slice, so this guard is defensive rather than a live fix,
-  // but the wire type permits null and a service-side refactor could regress it.
   const stationNames = group.station_names ?? []
 
   return (

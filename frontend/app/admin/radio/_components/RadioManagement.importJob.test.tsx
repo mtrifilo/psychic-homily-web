@@ -43,9 +43,6 @@ function makeRun(overrides: Partial<RadioSyncRun>): RadioSyncRun {
     plays_imported: 0,
     plays_matched: 0,
     plays_unmatched: 0,
-    // The Go fields carry `omitempty`, so an unset optional is OMITTED from
-    // the JSON, never sent as `null`. These mocks said `null` before PSY-1600.
-    current_episode_date: undefined,
     breaker_skipped: false,
     errors: [],
     started_at: '2025-05-01T10:00:00Z',
