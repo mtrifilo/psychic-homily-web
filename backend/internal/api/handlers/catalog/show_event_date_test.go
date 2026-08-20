@@ -188,22 +188,35 @@ func TestAnchorDateOnlyEventDate_LeavesStatedTimesAlone(t *testing.T) {
 }
 
 func TestShowEventDateState(t *testing.T) {
+	// venuesWithStates builds the submitted venue list; a nil entry is a venue
+	// sent by ID alone, which carries no state at this layer.
+	venuesWithStates := func(states ...*string) []Venue {
+		out := make([]Venue, len(states))
+		for i, s := range states {
+			out[i] = Venue{State: s}
+		}
+		return out
+	}
+	ptr := func(s string) *string { return &s }
+	empty := ""
+
 	cases := []struct {
-		name        string
-		venueStates []string
-		fallbacks   []string
-		want        string
+		name      string
+		venues    []Venue
+		fallbacks []string
+		want      string
 	}{
-		{"venue wins over body", []string{"IL"}, []string{"AZ"}, "IL"},
-		{"first non-empty venue wins", []string{"", "NY"}, []string{"AZ"}, "NY"},
-		{"falls back to body state", []string{""}, []string{"AZ"}, "AZ"},
+		{"venue wins over body", venuesWithStates(ptr("IL")), []string{"AZ"}, "IL"},
+		{"first venue naming a state wins", venuesWithStates(nil, ptr("NY")), []string{"AZ"}, "NY"},
+		{"a blank venue state is skipped", venuesWithStates(&empty, ptr("NY")), []string{"AZ"}, "NY"},
+		{"venue by ID alone falls back to body state", venuesWithStates(nil), []string{"AZ"}, "AZ"},
 		{"falls back past an empty body state", nil, []string{"", "TX"}, "TX"},
 		{"no venues at all", nil, []string{"AZ"}, "AZ"},
 		{"nothing known resolves to empty, not an error", nil, []string{""}, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := showEventDateState(c.venueStates, c.fallbacks...); got != c.want {
+			if got := showEventDateState(c.venues, c.fallbacks...); got != c.want {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})

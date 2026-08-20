@@ -1038,6 +1038,11 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 	// their artist names can be batched into the single fetch below alongside
 	// the source-key matches — keeping CheckEvents at O(1) artist queries.
 	fallbackByEventID := make(map[string]catalogm.Show)
+	// One zone lookup per distinct STATE rather than one per event:
+	// time.LoadLocation re-reads the zoneinfo on every call, and this endpoint
+	// accepts up to 200 events that in practice span a handful of states. Mirrors
+	// the same cache in engagement.upcomingShowsForScene.
+	zones := make(map[string]*time.Location)
 	for _, e := range events {
 		if matchedByEventID[e.ID] {
 			continue // Already matched by source key
@@ -1067,7 +1072,11 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		// calendar date. A UTC midnight-to-midnight window therefore matched the
 		// wrong night: it missed every show on the date asked for and reported
 		// the PREVIOUS night's show under it.
-		loc := utils.EventLocation(nil, venueConfig.State)
+		loc, cached := zones[venueConfig.State]
+		if !cached {
+			loc = utils.EventLocation(nil, venueConfig.State)
+			zones[venueConfig.State] = loc
+		}
 		startOfDay, err := time.ParseInLocation("2006-01-02", e.Date, loc)
 		if err != nil {
 			continue

@@ -542,13 +542,9 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	// service layer that already loads venues; the anchor is a convention rather
 	// than a door time, so a zone that is off by an hour or two still lands on
 	// the intended evening, which is the property this exists to protect.
-	venueStates := make([]string, len(serviceVenues))
-	for i, v := range serviceVenues {
-		venueStates[i] = v.State
-	}
 	eventDate, reanchored := anchorDateOnlyEventDate(
 		req.Body.EventDate,
-		showEventDateState(venueStates, req.Body.State),
+		showEventDateState(req.Body.Venues, req.Body.State),
 	)
 	if reanchored {
 		logger.FromContext(ctx).Info("show_create_event_date_anchored",
@@ -1073,14 +1069,10 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	// submitted state, then the state already stored on the row.
 	updatedEventDate := req.Body.EventDate
 	if req.Body.EventDate != nil {
-		venueStates := make([]string, len(req.Body.Venues))
-		for i, v := range req.Body.Venues {
-			venueStates[i] = shared.Deref(v.State)
-		}
 		anchored, reanchored := anchorDateOnlyEventDate(
 			*req.Body.EventDate,
 			showEventDateState(
-				venueStates,
+				req.Body.Venues,
 				shared.Deref(req.Body.State),
 				shared.Deref(existingShow.State),
 			),

@@ -93,13 +93,15 @@ func anchorDateOnlyEventDate(submitted time.Time, state string) (time.Time, bool
 }
 
 // showEventDateState picks the state whose zone a date-only event_date is
-// anchored in.
+// anchored in: the first billed venue that names one, then the caller's
+// fallbacks in order (typically the show body's state, then the state already
+// stored on the row).
 //
-// The VENUE's state wins over the show body's. utils.EventLocation answers "what
-// zone is this room in", and the show-level city/state is a denormalized
-// convenience that can be blank or stale while the venue row is the thing that
-// actually has a location. This also matches services/pipeline.parseEventDate,
-// which anchors on the scraped venue's configured state.
+// The VENUE's state wins. utils.EventLocation answers "what zone is this room
+// in", and the show-level city/state is a denormalized convenience that can be
+// blank or stale while the venue row is the thing that actually has a location.
+// This also matches services/pipeline.parseEventDate, which anchors on the
+// scraped venue's configured state.
 //
 // The first venue is used when several are billed. Multi-venue shows are rare
 // and their rooms are in one metro in practice, so any of them resolves to the
@@ -108,10 +110,10 @@ func anchorDateOnlyEventDate(submitted time.Time, state string) (time.Time, bool
 // An empty result is fine and is NOT an error: utils.EventLocation defaults it
 // through the state map to America/Phoenix, the same documented fallback every
 // other date-only writer takes.
-func showEventDateState(venueStates []string, fallbacks ...string) string {
-	for _, s := range venueStates {
-		if s != "" {
-			return s
+func showEventDateState(venues []Venue, fallbacks ...string) string {
+	for _, v := range venues {
+		if v.State != nil && *v.State != "" {
+			return *v.State
 		}
 	}
 	for _, s := range fallbacks {
