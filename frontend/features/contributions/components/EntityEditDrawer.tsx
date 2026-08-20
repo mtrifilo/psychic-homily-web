@@ -200,12 +200,8 @@ export function EntityEditDrawer({
     [changes]
   )
 
-  // Hold the in-drawer success flash, then close. Routed through
-  // `useDismissTimer` rather than a bare `setTimeout` so the timer is cleared on
-  // unmount: an untracked one still fires ~1s after the drawer is gone and calls
-  // `onOpenChange` / `onSuccess` into a torn-down React DOM. Harmless in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Hold the in-drawer success flash, then close. Timer must not outlive
+  // unmount, see useDismissTimer (PSY-1664).
   const { schedule: scheduleAppliedClose } = useDismissTimer(() => {
     onOpenChange(false)
     onSuccess?.({ applied: true })

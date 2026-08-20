@@ -29,11 +29,6 @@ import {
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/features/venues'
 import { useDismissTimer } from '@/lib/hooks/common'
-
-// How long the success flash shows before the parent is notified.
-const SUCCESS_NOTIFY_DELAY_MS = 1500
-// How long the success flash shows before redirecting to the submissions list.
-const SUCCESS_REDIRECT_DELAY_MS = 2000
 import type { ShowResponse, VenueResponse, OrphanedArtist } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
@@ -77,6 +72,11 @@ import {
 } from './show-form-utils'
 
 // Form validation schema
+// How long the success flash shows before the parent is notified.
+const SUCCESS_NOTIFY_DELAY_MS = 1500
+// How long the success flash shows before redirecting to the submissions list.
+const SUCCESS_REDIRECT_DELAY_MS = 2000
+
 const showFormSchema = z.object({
   title: z.string(),
   artists: z
@@ -223,12 +223,8 @@ export function ShowForm({
   // first paint after a remount (mirrors the prior effect's setVenueName).
   const [venueName, setVenueName] = useState(() => initialFormValues.venue.name)
 
-  // Both deferred post-submit actions run through `useDismissTimer` rather than
-  // bare `setTimeout`s so they are cleared on unmount. An untracked timer here
-  // still fires seconds after the form is gone and calls `onSuccess` (parent
-  // `setState`) or navigates the user who already left. Harmless-looking in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Timers must not outlive unmount, see useDismissTimer (PSY-1664). A stray
+  // `router.push` would also navigate a user who already left.
   //
   // The two success paths below (update, and create-without-redirect) are
   // mutually exclusive, so they share one timer.

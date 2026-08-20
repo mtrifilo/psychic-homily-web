@@ -71,17 +71,13 @@ export function SaveButton({
     user?.id
   )
   const isDisabled = disabled || isLoading
-  // The auto-hiding error runs on the shared auto-dismiss primitive rather than
-  // a hand-rolled `setTimeout`, which was untracked and still fired ~3s after the
-  // button unmounted — `setState` into a torn-down React DOM. Harmless in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const {
-    value: errorShown,
+    value: showError,
     show: showSaveError,
     clear: clearSaveError,
   } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
-  const showError = errorShown === true
 
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault() // Prevent any parent link clicks

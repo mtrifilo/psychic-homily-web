@@ -60,17 +60,13 @@ export default function AppearanceSettingsPage() {
   // and an unrelated profile refetch (same nav_mode, new object ref) cannot
   // clobber an in-flight choice the way a reference-keyed guard would.
   const [optimistic, setOptimistic] = useState<NavMode | null>(null)
-  // The "saved ✓" blip runs on the shared auto-dismiss primitive rather than a
-  // hand-rolled `setTimeout`, which was untracked and still fired ~3s after the
-  // page unmounted — `setState` into a torn-down React DOM. Harmless in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const {
-    value: savedValue,
+    value: saved,
     show: showSaved,
     clear: clearSaved,
   } = useAutoDismissBanner<true>(SAVED_DISMISS_MS)
-  const saved = savedValue === true
   const [error, setError] = useState<string | null>(null)
   const mode = optimistic ?? accountMode
 

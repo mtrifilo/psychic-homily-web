@@ -37,11 +37,8 @@ export function FollowsActivityFeedSection() {
     token: string
     follows_feed_url: string
   } | null>(null)
-  // The "copied ✓" blip runs on the shared auto-dismiss primitive rather than a
-  // hand-rolled `setTimeout`, which was untracked and still fired ~2s after the
-  // section unmounted — `setState` into a torn-down React DOM. Harmless in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const [copied, showCopied] = useAutoDismissFlag(COPIED_DISMISS_MS)
 
   // Keep plaintext URLs in sync when the sibling Calendar card rotates/revokes

@@ -46,26 +46,21 @@ function formatLastActive(dateString: string): string {
   })
 }
 
+// How long the copy confirmation / failure notice stays up before reverting.
+const SHARE_RESET_MS = 2000
+
 /**
  * Header Share affordance (design boards A/C): copies the profile URL with an
  * inline confirmation — no toast library, per the mutation-feedback
  * convention.
  */
-// How long the copy confirmation / failure notice stays up before reverting.
-const SHARE_RESET_MS = 2000
-
 function ShareButton({ username }: { username: string }) {
-  // Tracked so a rapid re-click extends the confirmation instead of an earlier
-  // timer clipping it short — and so the timer is cleared on unmount. The
-  // previous hand-rolled ref cleared before each restart but never on unmount,
-  // so it still fired ~2s after the button was gone and called `setState` into a
-  // torn-down React DOM. Harmless in the browser; under vitest it lands after
-  // jsdom teardown and fails the whole run with `ReferenceError: window is not
-  // defined`.
-  const { value: shareState, show: showShareState } = useAutoDismissBanner<
+  // A rapid re-click extends the confirmation instead of an earlier timer
+  // clipping it short. The previous hand-rolled ref cleared before each restart
+  // but never on unmount, see useDismissTimer (PSY-1664).
+  const { value: state, show: showShareState } = useAutoDismissBanner<
     'copied' | 'failed'
   >(SHARE_RESET_MS)
-  const state = shareState ?? 'idle'
 
   const handleShare = async () => {
     try {

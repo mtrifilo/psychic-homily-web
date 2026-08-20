@@ -7,9 +7,6 @@ import { Loader2, Edit2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useArtistUpdate } from '@/lib/hooks/admin/useAdminArtists'
 import { useDismissTimer } from '@/lib/hooks/common'
 import type { Artist, ArtistEditRequest } from '../types'
-
-// How long the success flash shows before the dialog closes itself.
-const SUCCESS_CLOSE_DELAY_MS = 1500
 import {
   Dialog,
   DialogContent,
@@ -23,6 +20,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { FieldInfo } from '@/components/forms/FormField'
+
+// How long the success flash shows before the dialog closes itself.
+const SUCCESS_CLOSE_DELAY_MS = 1500
 
 const artistEditSchema = z.object({
   name: z.string().min(1, 'Artist name is required'),
@@ -78,12 +78,8 @@ export function ArtistEditForm({
     setShowSuccess(false)
   }
 
-  // Hold the success flash, then close. Routed through `useDismissTimer` rather
-  // than a bare `setTimeout` so the timer is cleared on unmount: an untracked one
-  // still fires ~1.5s after the dialog is gone and calls `setState` /
-  // `onOpenChange` into a torn-down React DOM. Harmless in the browser; under
-  // vitest it lands after jsdom teardown and fails the whole run with
-  // `ReferenceError: window is not defined`.
+  // Hold the success flash, then close. Timer must not outlive unmount,
+  // see useDismissTimer (PSY-1664).
   const { schedule: scheduleSuccessClose } = useDismissTimer(() => {
     resetDialogState()
     onOpenChange(false)

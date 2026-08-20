@@ -46,17 +46,13 @@ export function SettingsPanel() {
   const [emailSent, setEmailSent] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cliToken, setCLIToken] = useState<string | null>(null)
-  // The "copied ✓" blip runs on the shared auto-dismiss primitive rather than a
-  // hand-rolled `setTimeout`, which was untracked and still fired ~2s after the
-  // panel unmounted — `setState` into a torn-down React DOM. Harmless in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const {
-    value: tokenCopiedValue,
+    value: tokenCopied,
     show: showTokenCopied,
     clear: clearTokenCopied,
   } = useAutoDismissBanner<true>(TOKEN_COPIED_DISMISS_MS)
-  const tokenCopied = tokenCopiedValue === true
 
   const handleSendVerification = async () => {
     try {

@@ -510,13 +510,9 @@ function AddTagPivot({
   const [query, setQuery] = useState('')
   const { data: results, isLoading } = useSearchTags(query.trim(), 8)
 
-  // Defer close so an option click registers first. Routed through
-  // `useDismissTimer` rather than a bare `setTimeout` so the timer is cleared on
-  // unmount: an untracked one still fires ~150ms after the picker is gone and
-  // calls `setOpen` into a torn-down React DOM (harmless in the browser, but
-  // under vitest it lands after jsdom teardown and fails the whole run with
-  // `ReferenceError: window is not defined`). Declared before the `!open` early
-  // return so the hook order stays unconditional.
+  // Defer close so an option click registers first. Timer must not outlive
+  // unmount, see useDismissTimer (PSY-1664). Declared before the `!open`
+  // early return so the hook order stays unconditional.
   const { schedule: scheduleClose } = useDismissTimer(
     () => setOpen(false),
     BLUR_CLOSE_DELAY_MS

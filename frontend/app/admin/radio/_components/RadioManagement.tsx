@@ -2009,12 +2009,8 @@ function RadioMatchingTab() {
   // Per-artist dismiss timers, keyed so two artists linked in quick succession
   // each get a full confirmation window (a single shared timer would let the
   // second link cut the first banner short). Re-linking the same artist re-arms
-  // its own timer rather than stacking a second one.
-  //
-  // Tracked and cleared on unmount: untracked, these still fired ~4s after the
-  // panel was gone and called `setState` into a torn-down React DOM. Harmless in
-  // the browser; under vitest they land after jsdom teardown and fail the whole
-  // run with `ReferenceError: window is not defined`.
+  // its own timer rather than stacking a second one. Cleared on unmount, see
+  // useDismissTimer (PSY-1664).
   const successTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   )

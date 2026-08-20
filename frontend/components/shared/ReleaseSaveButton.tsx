@@ -9,13 +9,13 @@ import { useReleaseSaveCount, useReleaseSaveToggle } from '@/features/releases'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
-
-// How long a save failure stays on screen before auto-hiding.
-const ERROR_DISMISS_MS = 3000
 import {
   resolveBatchedSaveData,
   type BatchedSaveData,
 } from './batchedSaveData'
+
+// How long a save failure stays on screen before auto-hiding.
+const ERROR_DISMISS_MS = 3000
 
 interface ReleaseSaveButtonProps {
   releaseId: number
@@ -66,17 +66,13 @@ export function ReleaseSaveButton({
     isSaved,
     user?.id
   )
-  // The auto-hiding error runs on the shared auto-dismiss primitive rather than
-  // a hand-rolled `setTimeout`, which was untracked and still fired ~3s after the
-  // button unmounted — `setState` into a torn-down React DOM. Harmless in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const {
-    value: errorShown,
+    value: showError,
     show: showSaveError,
     clear: clearSaveError,
   } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
-  const showError = errorShown === true
   const isDisabled = disabled || statusLoading || isLoading
 
   const handleClick = async (event: React.MouseEvent<HTMLButtonElement>) => {

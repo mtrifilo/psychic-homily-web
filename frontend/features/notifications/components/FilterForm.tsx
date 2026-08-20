@@ -62,12 +62,8 @@ function MultiSelectSearch({
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [selectedItems, setSelectedItems] = useState<SearchableItem[]>([])
-  // Delay the close so a click on a result registers first. Routed through
-  // `useDismissTimer` rather than a bare `setTimeout` so the timer is cleared on
-  // unmount: an untracked one still fires ~200ms after the component is gone and
-  // calls `setState` into a torn-down React DOM (harmless in the browser, but
-  // under vitest it lands after jsdom teardown and fails the whole run with
-  // `ReferenceError: window is not defined`).
+  // Delay the close so a click on a dropdown item registers first.
+  // Timer must not outlive unmount, see useDismissTimer (PSY-1664).
   const { schedule: scheduleClose } = useDismissTimer(
     () => setIsOpen(false),
     BLUR_CLOSE_DELAY_MS

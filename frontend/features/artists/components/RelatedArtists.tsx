@@ -1497,12 +1497,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
 
   const artists = (searchResults?.artists ?? []).filter(a => a.id !== centerArtistId)
 
-  // Both deferred actions below run through `useDismissTimer` rather than bare
-  // `setTimeout`s so they are cleared on unmount. An untracked timer here still
-  // fires after the panel is gone and calls `setState` / `onClose` into a
-  // torn-down React DOM — harmless in the browser, but under vitest it lands
-  // after jsdom teardown and fails the whole run with `ReferenceError: window is
-  // not defined`.
+  // Timers must not outlive unmount, see useDismissTimer (PSY-1664).
   const { schedule: scheduleBlurClose } = useDismissTimer(
     () => setIsOpen(false),
     SUGGEST_BLUR_CLOSE_DELAY_MS

@@ -48,17 +48,13 @@ function ProfileTab() {
   const [displayName, setDisplayName] = useState('')
   const [location, setLocation] = useState('')
   const [bio, setBio] = useState('')
-  // The "saved ✓" blip runs on the shared auto-dismiss primitive rather than a
-  // hand-rolled `setTimeout`, which was untracked and still fired ~3s after the
-  // page unmounted — `setState` into a torn-down React DOM. Harmless in the
-  // browser; under vitest it lands after jsdom teardown and fails the whole run
-  // with `ReferenceError: window is not defined`.
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const {
-    value: savedValue,
+    value: saved,
     show: showSaved,
     clear: clearSaved,
   } = useAutoDismissBanner<true>(SAVED_DISMISS_MS)
-  const saved = savedValue === true
   const [error, setError] = useState<string | null>(null)
 
   // Initialize / re-seed form values whenever the user object changes (async

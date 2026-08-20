@@ -80,12 +80,8 @@ export function VenueInput({
     onVenueNameChange?.(value)
   }
 
-  // Delay closing to allow click on dropdown items. Routed through
-  // `useDismissTimer` rather than a bare `setTimeout` so the timer is cleared on
-  // unmount: an untracked one still fires ~150ms after the component is gone and
-  // calls `setState` into a torn-down React DOM (harmless in the browser, but
-  // under vitest it lands after jsdom teardown and fails the whole run with
-  // `ReferenceError: window is not defined`).
+  // Delay closing so a click on a dropdown item registers first.
+  // Timer must not outlive unmount, see useDismissTimer (PSY-1664).
   const { schedule: handleBlur } = useDismissTimer(() => {
     // Skip handleConfirm if a venue was just selected from dropdown —
     // otherwise handleConfirm may call onVenueSelect(null) and wipe city/state

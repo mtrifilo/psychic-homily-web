@@ -72,12 +72,8 @@ export function VenueSearch() {
     }
   }
 
-  // Delay the close so a click on a dropdown item registers first. Routed
-  // through `useDismissTimer` rather than a bare `setTimeout` so the timer is
-  // cleared on unmount: an untracked one still fires ~150ms after the component
-  // is gone and calls `setState` into a torn-down React DOM (harmless in the
-  // browser, but under vitest it lands after jsdom teardown and fails the whole
-  // run with `ReferenceError: window is not defined`).
+  // Delay the close so a click on a dropdown item registers first.
+  // Timer must not outlive unmount, see useDismissTimer (PSY-1664).
   const { schedule: handleBlur } = useDismissTimer(() => {
     setIsOpen(false)
     setActiveIndex(-1)
