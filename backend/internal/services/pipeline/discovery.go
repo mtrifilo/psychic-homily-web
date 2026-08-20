@@ -623,13 +623,21 @@ func getTimezoneForState(state string) string {
 // parseCalendarDate reads the calendar date out of the date string a scrape
 // reports. The returned time carries whatever zone the input expressed, so
 // callers that want the stated Y/M/D read it off directly.
-func parseCalendarDate(dateStr string) (time.Time, error) {
-	for _, layout := range []string{"2006-01-02", "2006-01-02T15:04:05Z", time.RFC3339} {
-		if date, err := time.Parse(layout, dateStr); err == nil {
-			return date, nil
+//
+// dateOnly reports that the input was a bare YYYY-MM-DD, i.e. that it stated no
+// time of day at all. That is NOT the same as "the time is midnight", and the
+// difference is the whole of PSY-1861: a bare date has to be widened onto a real
+// instant by the writer, whereas a full timestamp already named one and must be
+// stored verbatim however unusual it looks. Reported here because this is the
+// only point at which the original representation still exists.
+func parseCalendarDate(dateStr string) (date time.Time, dateOnly bool, err error) {
+	const dateOnlyLayout = "2006-01-02"
+	for _, layout := range []string{dateOnlyLayout, "2006-01-02T15:04:05Z", time.RFC3339} {
+		if parsed, perr := time.Parse(layout, dateStr); perr == nil {
+			return parsed, layout == dateOnlyLayout, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
+	return time.Time{}, false, fmt.Errorf("unable to parse date: %s", dateStr)
 }
 
 // clockTimeWithMeridiem matches the 12-hour wall clock every scraper in
@@ -709,22 +717,36 @@ func venueLocalInstant(date time.Time, hour, minute int, state string) time.Time
 }
 
 // parseEventDate parses the event date and optional show time into a time.Time (UTC).
-// The state parameter is used to interpret the show time in the venue's local timezone.
+// The state parameter is used to interpret the time of day in the venue's local
+// timezone — for a stated show time, and for the date-only anchor below.
 func parseEventDate(dateStr string, showTime *string, state string) (time.Time, error) {
-	date, err := parseCalendarDate(dateStr)
+	date, dateOnly, err := parseCalendarDate(dateStr)
 	if err != nil {
 		return time.Time{}, err
 	}
 
-	// A show time the parser cannot read leaves event_date on the bare calendar
-	// date, exactly as it did before the times were readable at all.
 	if showTime != nil {
 		if hour, minute, ok := parseClockTime(*showTime); ok {
 			return venueLocalInstant(date, hour, minute, state), nil
 		}
 	}
 
-	return date.UTC(), nil
+	// No readable time of day. A full timestamp already stated its own, so only
+	// a date-only input needs anchoring — and it must be anchored rather than
+	// left on the bare calendar date, because that bare date becomes UTC
+	// midnight, which is the PREVIOUS evening in every US zone. Stored that way
+	// the show rendered and sorted a day early and dropped out of every "still
+	// upcoming" bound from 17:00 the day before in Phoenix. See
+	// utils.DateOnlyEventHour.
+	//
+	// A show time that was PRESENT but unreadable lands here too, and takes the
+	// same anchor. That is deliberate: an unreadable time means the scrape did
+	// not state one this parser trusts, which is the same state as not stating
+	// one at all. Anchoring is wrong by hours; the bare date was wrong by a day.
+	if !dateOnly {
+		return date.UTC(), nil
+	}
+	return venueLocalInstant(date, utils.DateOnlyEventHour, 0, state), nil
 }
 
 // resolveShowTimes maps a scraped event's free-text doors/show times onto the
@@ -738,19 +760,22 @@ func parseEventDate(dateStr string, showTime *string, state string) (time.Time, 
 // Both instants anchor to the calendar date the source stated, read in the
 // venue's timezone -- the same anchoring parseEventDate uses.
 //
-// A readable SHOW time is required before either column is written, because
-// event_date is derived from that same string. Without one, event_date is a
-// midnight-UTC placeholder that renders as the PREVIOUS day in every US venue
-// zone, so a doors time anchored to the stated day would put the stripe and
-// the date a calendar day apart. Refusing both keeps the show on the
-// date-only rendering it already had.
+// A readable SHOW time is required before either column is written. The reason
+// is no longer that event_date would otherwise be a midnight-UTC placeholder a
+// calendar day away from the stripe — PSY-1861 removed that placeholder, and a
+// timeless import now anchors on the stated day's evening like everything else.
+// What remains is narrower and still holds: doors_at and music_at are a PAIR
+// describing one evening's schedule, and this function's whole contract is that
+// it never invents a time. With no readable show time there is nothing to
+// order a doors time against, and a lone doors_at would publish half a schedule
+// as if it were the whole one.
 //
 // A stated pair whose show time lands before its doors time is contradictory,
 // and the usual cause is a listing that crossed midnight and dropped the day
 // ("Doors 11:00 PM / Show 12:00 AM"). Recovering that intent would mean
 // inferring a day rollover the source never stated, so neither time is written.
 func resolveShowTimes(dateStr string, doorsTime, showTime *string, state string) (doorsAt, musicAt *time.Time) {
-	date, err := parseCalendarDate(dateStr)
+	date, _, err := parseCalendarDate(dateStr)
 	if err != nil {
 		return nil, nil
 	}
@@ -1013,6 +1038,11 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 	// their artist names can be batched into the single fetch below alongside
 	// the source-key matches — keeping CheckEvents at O(1) artist queries.
 	fallbackByEventID := make(map[string]catalogm.Show)
+	// One zone lookup per distinct STATE rather than one per event:
+	// time.LoadLocation re-reads the zoneinfo on every call, and this endpoint
+	// accepts up to 200 events that in practice span a handful of states. Mirrors
+	// the same cache in engagement.upcomingShowsForScene.
+	zones := make(map[string]*time.Location)
 	for _, e := range events {
 		if matchedByEventID[e.ID] {
 			continue // Already matched by source key
@@ -1026,10 +1056,6 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 			continue
 		}
 
-		eventDate, err := time.Parse("2006-01-02", e.Date)
-		if err != nil {
-			continue
-		}
 		// This is a read-only "does a show already exist at this venue that
 		// day" status lookup for the scraper UI — NOT a dedup-rejection gate.
 		// Unlike the dedup checks above, the CheckEventInput here carries only
@@ -1038,8 +1064,27 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		// (and only feasible) comparison for a date-only input. Surfacing a
 		// same-day match here never rejects an import; importEvent's
 		// full-timestamp dedup checks remain the authoritative gate.
-		startOfDay := eventDate
-		endOfDay := eventDate.Add(24 * time.Hour)
+		//
+		// The day is the VENUE'S day, not a UTC day, and that distinction is the
+		// whole correctness of this branch. Shows are stored on the venue's
+		// evening — an explicit scraped time, or parseEventDate's date-only
+		// anchor — so a US venue's listings sit on the UTC day AFTER their own
+		// calendar date. A UTC midnight-to-midnight window therefore matched the
+		// wrong night: it missed every show on the date asked for and reported
+		// the PREVIOUS night's show under it.
+		loc, cached := zones[venueConfig.State]
+		if !cached {
+			loc = utils.EventLocation(nil, venueConfig.State)
+			zones[venueConfig.State] = loc
+		}
+		startOfDay, err := time.ParseInLocation("2006-01-02", e.Date, loc)
+		if err != nil {
+			continue
+		}
+		// Walked forward by a CALENDAR day rather than 24 hours, so a day
+		// containing a DST transition still closes at local midnight instead of
+		// an hour either side of it.
+		endOfDay := startOfDay.AddDate(0, 0, 1)
 
 		var matchedShow catalogm.Show
 		err = s.db.Joins("JOIN show_venues ON show_venues.show_id = shows.id").
