@@ -70,8 +70,18 @@ Set these in **Project Settings → Environment Variables**:
 |----------|-------|
 | `NEXT_PUBLIC_API_URL` | `https://api.psychichomily.com` |
 | `BACKEND_URL` | `https://api.psychichomily.com` |
+| `NEXT_PUBLIC_OAUTH_BACKEND_URL` | Optional. `https://api.psychichomily.com` |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Generate a secure secret (>=32 chars) |
+
+`NEXT_PUBLIC_OAUTH_BACKEND_URL` is the origin the Google sign-in button
+redirects to. It defaults to `NEXT_PUBLIC_API_URL`, so leaving it unset is
+correct in any environment where the data base is already the backend's own
+origin, which is every deployed environment today. Set it only where the two
+differ: `NEXT_PUBLIC_API_URL` may point at the same-origin `/api` proxy (that
+is what `scripts/dispatch/stack-up.sh --mode=isolated` does, so browser
+requests carry the SameSite=Lax `auth_token`), and a full-page OAuth redirect
+does not survive that proxy. See `frontend/lib/api-base.ts`.
 
 `INTERNAL_API_SECRET` gates `POST /api/internal/revalidate`, which out-of-band
 writers (the `ph` ingest CLI) call to refresh ISR pages they changed. The value
@@ -88,6 +98,7 @@ until their revalidate window expires.
 |----------|-------|
 | `NEXT_PUBLIC_API_URL` | `https://api-stage.psychichomily.com` (or same as prod) |
 | `BACKEND_URL` | `https://api-stage.psychichomily.com` (or same as prod) |
+| `NEXT_PUBLIC_OAUTH_BACKEND_URL` | Optional, as above. Same value as `NEXT_PUBLIC_API_URL` |
 | `ANTHROPIC_API_KEY` | Your API key |
 | `INTERNAL_API_SECRET` | Same or different secret, but it must be SET, and `ph` must export the matching value when targeting this deployment |
 

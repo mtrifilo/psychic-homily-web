@@ -3,6 +3,10 @@
 import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { useOAuthAccounts, useUnlinkOAuthAccount } from '@/features/auth'
+// Direct backend origin, never the Next.js /api proxy: connecting an account
+// is the same full-page OAuth redirect the login button performs. See
+// lib/api-base.ts (PSY-1649).
+import { OAUTH_BACKEND_URL } from '@/lib/api-base'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -19,9 +23,6 @@ import {
   CheckCircle2,
   Loader2,
 } from 'lucide-react'
-
-// Use direct backend URL for OAuth (not the Next.js proxy)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
 // Google "G" logo SVG component
 function GoogleIcon({ className }: { className?: string }) {
@@ -57,7 +58,7 @@ export function OAuthAccounts() {
   const [unlinkProvider, setUnlinkProvider] = useState<string | null>(null)
 
   const handleConnectGoogle = () => {
-    window.location.href = `${API_BASE_URL}/auth/login/google`
+    window.location.href = `${OAUTH_BACKEND_URL}/auth/login/google`
   }
 
   const handleUnlink = async () => {
