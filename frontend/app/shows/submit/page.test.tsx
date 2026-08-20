@@ -2,9 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import { apiRequest } from '@/lib/api'
 import SubmitShowPage from './page'
 
 // --- Mocks ---
+//
+// The REAL useSendVerificationEmail hook runs here, against a mocked
+// apiRequest. Mocking the hook itself would freeze its state at render time, so
+// pending/success/error would be presets rather than consequences of the click,
+// and the tests would still pass with the click handler deleted.
 
 let mockAuth: {
   isAuthenticated: boolean
@@ -25,25 +31,20 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }))
 
-const mockSendVerificationMutateAsync = vi.fn()
-let mockSendVerificationState = {
-  isPending: false,
-  isError: false,
-  isSuccess: false,
-  error: null as Error | null,
-}
-
-vi.mock('@/features/auth', () => ({
-  useSendVerificationEmail: () => ({
-    mutateAsync: mockSendVerificationMutateAsync,
-    ...mockSendVerificationState,
-  }),
+vi.mock('@/lib/api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiRequest: vi.fn(),
 }))
 
 vi.mock('@/features/shows', () => ({
   AIFormFiller: () => <div data-testid="ai-form-filler" />,
   ShowForm: () => <div data-testid="show-form" />,
 }))
+
+const mockApiRequest = vi.mocked(apiRequest)
+
+const resendButton = () =>
+  screen.getByRole('button', { name: /send verification email/i })
 
 // --- Tests ---
 
@@ -55,13 +56,6 @@ describe('SubmitShowPage verification gate', () => {
       isLoading: false,
       user: { email: 'user@example.com', email_verified: false },
     }
-    mockSendVerificationState = {
-      isPending: false,
-      isError: false,
-      isSuccess: false,
-      error: null,
-    }
-    mockSendVerificationMutateAsync.mockReset()
   })
 
   it('blocks an unverified user and offers an inline resend', () => {
@@ -69,53 +63,54 @@ describe('SubmitShowPage verification gate', () => {
 
     expect(screen.getByText('Email Verification Required')).toBeInTheDocument()
     expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /send verification email/i })
-    ).toBeInTheDocument()
+    expect(resendButton()).toBeInTheDocument()
   })
 
   it('sends the verification email and confirms it inline', async () => {
-    mockSendVerificationMutateAsync.mockResolvedValueOnce(undefined)
-    mockSendVerificationState = {
-      isPending: false,
-      isError: false,
-      isSuccess: true,
-      error: null,
-    }
+    mockApiRequest.mockResolvedValueOnce({
+      success: true,
+      message: 'Verification email sent. Please check your inbox.',
+    })
 
     renderWithProviders(<SubmitShowPage />)
-    await userEvent.click(
-      screen.getByRole('button', { name: /send verification email/i })
-    )
+    await userEvent.click(resendButton())
 
-    expect(mockSendVerificationMutateAsync).toHaveBeenCalledTimes(1)
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/verify-email/send'),
+      expect.objectContaining({ method: 'POST' })
+    )
     await waitFor(() => {
       expect(
-        screen.getByText(/verification email sent/i)
+        screen.getByText('Verification email sent! Check your inbox.')
       ).toBeInTheDocument()
     })
   })
 
+  // A throttled resend (the PSY-1871 rate limiter returns 429) must show the
+  // backend's message rather than a success latch.
   it('surfaces a send failure without claiming success', async () => {
-    mockSendVerificationMutateAsync.mockRejectedValueOnce(new Error('boom'))
-    mockSendVerificationState = {
-      isPending: false,
-      isError: true,
-      isSuccess: false,
-      error: new Error('Too many requests. Try again later.'),
-    }
+    mockApiRequest.mockResolvedValueOnce({
+      success: false,
+      message: 'Rate limit exceeded. Please try again in 60 seconds.',
+      error_code: 'SERVICE_UNAVAILABLE',
+    })
 
     renderWithProviders(<SubmitShowPage />)
-    await userEvent.click(
-      screen.getByRole('button', { name: /send verification email/i })
-    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await userEvent.click(resendButton())
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(
-        'Too many requests. Try again later.'
+        'Rate limit exceeded. Please try again in 60 seconds.'
       )
     })
-    expect(screen.queryByText(/verification email sent/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/verification email sent/i)
+    ).not.toBeInTheDocument()
+    // The button stays available so a throttled user can retry after waiting.
+    expect(resendButton()).toBeInTheDocument()
   })
 
   it('renders the submission form once the email is verified', () => {

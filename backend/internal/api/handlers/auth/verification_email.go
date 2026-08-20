@@ -45,7 +45,20 @@ func sendVerificationEmailBestEffort(
 	user *authm.User,
 	trigger verificationEmailTrigger,
 ) {
-	if user == nil || user.Email == nil || *user.Email == "" {
+	if user == nil {
+		return
+	}
+
+	if user.Email == nil || *user.Email == "" {
+		// The one branch that strands a user: the account exists, it is
+		// unverified, and there is no address to send the link to. No
+		// account-creation path produces this today, so it is logged rather
+		// than silently skipped, otherwise a future path that does would
+		// regress invisibly.
+		logger.AuthWarn(ctx, "verification_email_no_address",
+			"user_id", user.ID,
+			"trigger", string(trigger),
+		)
 		return
 	}
 

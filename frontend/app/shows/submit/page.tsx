@@ -87,9 +87,15 @@ function EmailVerificationRequired() {
             </ul>
 
             <div className="pt-4 space-y-3">
+              {/*
+                Deliberately not "we emailed you when you signed up": every
+                account created before this shipped never got one, and that
+                backlog is exactly the population landing on this gate. A send
+                can also be skipped or fail silently by design.
+              */}
               <p className="text-sm text-muted-foreground">
-                We emailed you a verification link when you signed up. If you
-                cannot find it, or it has expired, send yourself a new one.
+                Send yourself a verification link. If you already have one and
+                it has expired, this replaces it.
               </p>
 
               {emailSent && sendVerificationEmail.isSuccess ? (
