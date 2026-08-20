@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'July 26, 2026'
+  const lastUpdated = 'August 18, 2026'
   const effectiveDate = 'February 15, 2026'
 
   return (
@@ -128,12 +128,23 @@ export default function PrivacyPolicyPage() {
               <li><strong>NASA GIBS:</strong> The night-lights satellite imagery shown at globe zoom levels, served by NASA&apos;s Global Imagery Browse Services. <Link href="https://www.earthdata.nasa.gov/privacy" className="underline hover:text-muted-foreground">NASA Earthdata Privacy Policy</Link></li>
             </ul>
 
-            <h3 className="text-lg font-medium mt-4 mb-2">4.5 Discord Notifications</h3>
+            <h3 className="text-lg font-medium mt-4 mb-2">4.5 Images Loaded from Other Sites</h3>
+            <p className="text-foreground/90 leading-relaxed mb-3">
+              Many of the images you see on the site are linked rather than copied. Show flyers, artist photos, release and label artwork, and profile pictures usually live on some other site, and an entry here stores only the web address. Your browser loads each of those images directly from the site that hosts it. Those hosts are picked by whoever added the image, and are not operated by me. A few images are handled the other way around, notably radio station artwork, which my own servers fetch and then serve to you from here.
+            </p>
+            <p className="text-foreground/90 leading-relaxed mb-3">
+              Because the request goes straight from your browser to that host, the host can see your IP address and standard browser headers such as your user agent, and it may set or receive its own cookies. The referrer policy this site sets means an image host is told only that the request came from this site, not which page you were viewing. No identifier for your account is included, and these requests happen whether or not you are signed in.
+            </p>
+            <p className="text-foreground/90 leading-relaxed">
+              I cannot control what those hosts log or how long they keep it, and their own privacy policies apply to anything they collect. If you would rather not load them, most browsers and content blockers can block third-party images.
+            </p>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">4.6 Discord Notifications</h3>
             <p className="text-foreground/90 leading-relaxed">
               I use Discord webhooks to send notifications about new show submissions. No personal user data is shared with Discord users beyond what you include in public submissions.
             </p>
 
-            <h3 className="text-lg font-medium mt-4 mb-2">4.6 I Do NOT Sell Your Data</h3>
+            <h3 className="text-lg font-medium mt-4 mb-2">4.7 I Do NOT Sell Your Data</h3>
             <p className="text-foreground/90 leading-relaxed">
               I do not sell, rent, or trade your personal information to third parties for their marketing purposes. I do not share your data with data brokers.
             </p>
@@ -214,7 +225,7 @@ export default function PrivacyPolicyPage() {
 
             <h3 className="text-lg font-medium mt-4 mb-2">7.2 Third-Party Cookies</h3>
             <p className="text-foreground/90 leading-relaxed">
-              Embedded content from Spotify, Bandcamp, and SoundCloud may set their own cookies. These are governed by their respective privacy policies. You can manage third-party cookies through your browser settings.
+              Embedded content from Spotify, Bandcamp, and SoundCloud may set their own cookies. Images loaded from other sites may also set cookies for their own domains, as described in Section 4.5. These are governed by their respective privacy policies. You can manage third-party cookies through your browser settings.
             </p>
 
             <h3 className="text-lg font-medium mt-4 mb-2">7.3 Managing Cookies</h3>
