@@ -172,6 +172,45 @@ type ShowDedupSummary struct {
 	SlugsRewritten int
 }
 
+// Add folds one cluster's counts into the pass summary.
+//
+// It exists so a caller can run a cluster into its OWN summary and fold that in
+// only after the cluster's transaction commits. Accumulating straight into the
+// pass summary reports work that was rolled back: a cluster with two losers
+// whose second merge fails takes the first merge's deletions down with it, and
+// without this the printed record still claims a loser merged and a bookmark
+// destroyed. These counters are the only record of what a destructive pass
+// destroyed, so they have to describe what committed.
+//
+// TestShowDedupSummaryAddFoldsEveryField fails if a field is added without
+// being folded here.
+func (s *ShowDedupSummary) Add(other *ShowDedupSummary) {
+	if other == nil {
+		return
+	}
+	s.ClustersFound += other.ClustersFound
+	s.LosersMerged += other.LosersMerged
+
+	s.ShowVenuesMoved += other.ShowVenuesMoved
+	s.ShowVenuesSkipped += other.ShowVenuesSkipped
+	s.ShowArtistsMoved += other.ShowArtistsMoved
+	s.ShowArtistsSkipped += other.ShowArtistsSkipped
+	s.ShowReportsMoved += other.ShowReportsMoved
+	s.ShowReportsSkipped += other.ShowReportsSkipped
+	s.EnrichmentMoved += other.EnrichmentMoved
+	s.DuplicateOfRepoint += other.DuplicateOfRepoint
+
+	s.PendingEditsMoved += other.PendingEditsMoved
+	s.PendingEditsSkipped += other.PendingEditsSkipped
+	s.EditAuditLogsMoved += other.EditAuditLogsMoved
+	s.EditAuditLogsSkipped += other.EditAuditLogsSkipped
+	s.RevisionsMoved += other.RevisionsMoved
+
+	s.addEntityRefCounts(other.EntityRefsMoved, other.EntityRefsDropped)
+
+	s.SlugsRewritten += other.SlugsRewritten
+}
+
 // addEntityRefCounts folds one merge's per-table counts into the pass summary.
 //
 // The maps are created on demand so callers can keep building the summary as a
@@ -347,7 +386,14 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		}
 		*ref.moved += moved
 		*ref.skipped += skipped
-		if skipped > 0 {
+		// Only show_reports is logged. A dropped report is a user-authored row
+		// gone with no undo, which is what logDroppedEntityRefs is for. The two
+		// junction drops are not: duplicate shows share an artist and a venue by
+		// definition, since that IS the cluster key, so those two collapse on
+		// essentially every merge. Logging them would bury each real deletion
+		// under two lines of expected bookkeeping. Both counts still reach the
+		// summary the CLI prints.
+		if skipped > 0 && ref.table == "show_reports" {
 			logDroppedEntityRefs(
 				mergeEntityShow, winnerID, loserID, map[string]int64{ref.table: skipped})
 		}

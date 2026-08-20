@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"fmt"
+	"reflect"
+	"testing"
 	"time"
 
 	"gorm.io/gorm"
@@ -413,4 +415,83 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_DoesNotFlagTheWinnerAsItsOwn
 	s.Equal(winner, *third.DuplicateOfShowID,
 		"another show's flag must follow the merged-away show onto the winner")
 	s.Equal(int64(1), summary.DuplicateOfRepoint)
+}
+
+// ──────────────────────────────────────────────
+// The summary's own drift guard (no database)
+// ──────────────────────────────────────────────
+
+// ShowDedupSummary.Add is a hand-written field-by-field fold, which is the same
+// shape of hand-maintained list this ticket removed from the merge. A field
+// added to the struct and forgotten here would silently report zero for work
+// that really happened, and no other test would notice.
+//
+// So the fold is checked generically: fill every field of two summaries with
+// distinct values, fold, and require every field to hold the sum. A new field is
+// covered the moment it is declared.
+func TestShowDedupSummaryAddFoldsEveryField(t *testing.T) {
+	const (
+		left  = 3
+		right = 5
+		key   = "some_table"
+	)
+
+	fill := func(s *ShowDedupSummary, n int64) {
+		v := reflect.ValueOf(s).Elem()
+		for i := 0; i < v.NumField(); i++ {
+			f := v.Field(i)
+			switch f.Kind() {
+			case reflect.Int, reflect.Int64:
+				f.SetInt(n)
+			case reflect.Map:
+				f.Set(reflect.ValueOf(map[string]int64{key: n}))
+			default:
+				t.Fatalf("field %s has kind %s, which this guard does not know how to "+
+					"fill or check; teach it, do not skip it",
+					v.Type().Field(i).Name, f.Kind())
+			}
+		}
+	}
+
+	total := &ShowDedupSummary{}
+	cluster := &ShowDedupSummary{}
+	fill(total, left)
+	fill(cluster, right)
+
+	total.Add(cluster)
+
+	v := reflect.ValueOf(total).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		name := v.Type().Field(i).Name
+		f := v.Field(i)
+		switch f.Kind() {
+		case reflect.Int, reflect.Int64:
+			if f.Int() != left+right {
+				t.Errorf("%s = %d after Add, want %d. ShowDedupSummary.Add does not fold it, "+
+					"so a dedup pass would under-report it.", name, f.Int(), left+right)
+			}
+		case reflect.Map:
+			got := f.Interface().(map[string]int64)
+			if got[key] != left+right {
+				t.Errorf("%s[%q] = %d after Add, want %d", name, key, got[key], left+right)
+			}
+		}
+	}
+
+	// The cluster summary must not be mutated by being folded in: the caller
+	// prints or discards it afterwards.
+	if cluster.LosersMerged != right {
+		t.Errorf("Add mutated the folded-in summary: LosersMerged = %d, want %d",
+			cluster.LosersMerged, right)
+	}
+}
+
+// A nil cluster summary is what a caller passes when nothing ran, and it must
+// not panic in the middle of a CLI pass that has already committed work.
+func TestShowDedupSummaryAddIgnoresNil(t *testing.T) {
+	total := &ShowDedupSummary{LosersMerged: 2}
+	total.Add(nil)
+	if total.LosersMerged != 2 {
+		t.Errorf("LosersMerged = %d, want 2", total.LosersMerged)
+	}
 }

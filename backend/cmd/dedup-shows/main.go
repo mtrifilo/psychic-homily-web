@@ -87,9 +87,19 @@ func main() {
 		// Each cluster runs in its own transaction. A failed merge on
 		// one cluster doesn't roll back the others — keeps the cmd
 		// safe to re-run on partially-completed state.
+		//
+		// The counts go into a per-cluster summary and are folded into the pass
+		// summary only after the transaction commits. A cluster with several
+		// losers can fail on its second merge and take the first one's writes
+		// down with it, and the printed record has to describe what committed:
+		// these counters are the only account of what a destructive pass
+		// destroyed. The merge's own slog lines are written inside the
+		// transaction and cannot be taken back, same as on the venue and artist
+		// merges; the printed summary is the record that stays true.
+		clusterSummary := &catalog.ShowDedupSummary{}
 		err := database.Transaction(func(tx *gorm.DB) error {
 			for _, loserID := range cluster.LoserIDs {
-				if err := catalog.MergeDuplicateShow(tx, cluster.WinnerID, loserID, summary); err != nil {
+				if err := catalog.MergeDuplicateShow(tx, cluster.WinnerID, loserID, clusterSummary); err != nil {
 					return fmt.Errorf("merge loser %d into winner %d: %w", loserID, cluster.WinnerID, err)
 				}
 			}
@@ -99,7 +109,7 @@ func main() {
 					return fmt.Errorf("slug recanonicalise winner %d: %w", cluster.WinnerID, err)
 				}
 				if rewritten {
-					summary.SlugsRewritten++
+					clusterSummary.SlugsRewritten++
 				}
 			}
 			return nil
@@ -108,6 +118,7 @@ func main() {
 			fmt.Printf("  [ERROR] %v\n", err)
 			continue
 		}
+		summary.Add(clusterSummary)
 		fmt.Printf("  [MERGED] winner=%d, losers=%v\n", cluster.WinnerID, cluster.LoserIDs)
 	}
 
