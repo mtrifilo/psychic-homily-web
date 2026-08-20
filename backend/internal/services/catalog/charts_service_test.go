@@ -655,6 +655,33 @@ func (suite *ChartsServiceIntegrationTestSuite) addArtistToShow(showID, artistID
 	suite.Require().NoError(err)
 }
 
+// setSlotSetType overwrites the curated bill role of an existing show_artists
+// row. createApprovedShow seeds position 0 with the uncurated default, so this
+// is how a test states that the FIRST-BILLED act was curated as something else
+// This is the case headlineSlotSQL exists to get right.
+func (suite *ChartsServiceIntegrationTestSuite) setSlotSetType(showID, artistID uint, setType string) {
+	suite.Require().NoError(suite.db.Exec(
+		"UPDATE show_artists SET set_type = ? WHERE show_id = ? AND artist_id = ?",
+		setType, showID, artistID).Error)
+}
+
+// createCuratedHeadlineShow is createApprovedShow with the first-billed act
+// explicitly curated as the headliner, which is what the show form stores: it
+// sends a role for every act and seeds artist 1 as Headliner.
+//
+// Tests that mean "a curated bill" must say so, because headlineSlotSQL judges
+// curation per BILL: leaving the top act on the neutral default makes the bill
+// HALF-described and gives it no headline slot at all, which is a different
+// fixture than the one those tests intend. That half-described shape is real
+// and reachable, not just a fixture slip. See
+// TestGetOpenersToWatch_PartiallyCuratedBillHasNoHeadlineSlot, which asserts
+// it deliberately.
+func (suite *ChartsServiceIntegrationTestSuite) createCuratedHeadlineShow(title string, venueID, artistID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := suite.createApprovedShow(title, venueID, artistID, userID, eventDate)
+	suite.setSlotSetType(show.ID, artistID, contracts.SetTypeHeadliner)
+	return show
+}
+
 func TestChartWindowBounds(t *testing.T) {
 	// Deliberately mid-day: the start bound must truncate to midnight UTC so a
 	// midnight-timestamped show exactly N days ago stays inside the window.
@@ -779,15 +806,20 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Headlin
 	suite.Require().NoError(suite.db.Save(support).Error)
 
 	now := time.Now().UTC()
-	// Show 1: support is position 0 (default set_type) -> headline slot.
+	// Show 1: UNCURATED bill (only support, at position 0, default set_type)
+	// -> the position fallback applies, so support holds a headline slot.
 	suite.createApprovedShow("Own Show", venue.ID, support.ID, user.ID, now.AddDate(0, 0, -40))
-	// Show 2: support opens (position 1, opener) -> not a headline slot.
+	// Show 2: CURATED (support is a stated opener). Nobody is set_type
+	// 'headliner', so this bill has NO headline slot at all, including for
+	// the first-billed act, whose slot nobody stated.
 	s2 := suite.createApprovedShow("Opener Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -30))
 	suite.addArtistToShow(s2.ID, support.ID, 1, "opener")
-	// Show 3: set_type says headliner even at position 2 -> headline slot.
+	// Show 3: CURATED. set_type says headliner even at position 2, so the
+	// headline slot is support's and NOT the first-billed act's.
 	s3 := suite.createApprovedShow("Co-headline Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
 	suite.addArtistToShow(s3.ID, support.ID, 2, "headliner")
-	// Show 4: plain performer slot -> not a headline slot. Most recent show.
+	// Show 4: UNCURATED (every row 'performer') -> position fallback, so the
+	// first-billed act holds the headline slot. Most recent show.
 	s4 := suite.createApprovedShow("Latest Show", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -5))
 	suite.addArtistToShow(s4.ID, support.ID, 1, "performer")
 
@@ -799,16 +831,137 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_Headlin
 	top := artists[0]
 	suite.Equal(support.ID, top.ArtistID)
 	suite.Equal(4, top.ShowCount)
-	suite.Equal(50, top.HeadlinePct, "2 headline slots (position 0 + set_type headliner) of 4")
+	suite.Equal(50, top.HeadlinePct, "2 headline slots (uncurated position 0 + curated set_type headliner) of 4")
 	suite.Equal("Tempe", top.City)
 	suite.Equal("AZ", top.State)
 	suite.Require().NotNil(top.LastShowDate)
 	suite.WithinDuration(now.AddDate(0, 0, -5), *top.LastShowDate, time.Hour)
 	suite.Equal("Headline Venue", top.LastShowVenue)
 
+	// PSY-1704: first-billed on 3 bills, but only the UNCURATED one (show 4)
+	// counts as a headline slot. On shows 2 and 3 somebody described the bill
+	// and did not name this act as the headliner, so list order no longer
+	// speaks for them.
 	suite.Equal(headliner.ID, artists[1].ArtistID)
 	suite.Equal(3, artists[1].ShowCount)
-	suite.Equal(100, artists[1].HeadlinePct)
+	suite.Equal(33, artists[1].HeadlinePct, "only the uncurated bill infers a headliner from position 0")
+}
+
+// PSY-1704: the position heuristic is a per-bill fallback, not a global one.
+// A bill nobody has curated still reads its first-billed act as the headliner,
+// so the charts do not empty out on a corpus that predates the curation
+// surface.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_UncuratedBillKeepsPositionZeroHeadliner() {
+	user := suite.createUser("maa-uncurated@test.com")
+	venue := suite.createVenue("Uncurated Venue", "Phoenix", "AZ")
+	first := suite.createArtist("Uncurated Top")
+	second := suite.createArtist("Uncurated Support")
+
+	now := time.Now().UTC()
+	// Every row 'performer': the GORM default, and what the PSY-1673 backfill
+	// left on rows that predate curation.
+	s1 := suite.createApprovedShow("Silent Bill A", venue.ID, first.ID, user.ID, now.AddDate(0, 0, -10))
+	suite.addArtistToShow(s1.ID, second.ID, 1, "performer")
+	// Raw insert with a NULL set_type: the schema allows it, and three-valued
+	// logic must not make the bill read as curated or drop the slot.
+	s2 := suite.createApprovedShow("Silent Bill B", venue.ID, first.ID, user.ID, now.AddDate(0, 0, -20))
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)",
+		s2.ID, second.ID).Error)
+
+	artists, _, err := suite.chartsService.GetMostActiveArtists(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 2)
+
+	byID := make(map[uint]contracts.MostActiveArtist, len(artists))
+	for _, a := range artists {
+		byID[a.ArtistID] = a
+	}
+	suite.Equal(100, byID[first.ID].HeadlinePct, "uncurated bill: position 0 is still the headline slot")
+	suite.Equal(0, byID[second.ID].HeadlinePct, "uncurated bill: later positions are support")
+}
+
+// PSY-1704 acceptance criterion: a first-billed act a curator marked as an
+// opener must land in the opener chart instead of being excluded from it.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CuratedFirstBilledOpenerCountsAsSupport() {
+	user := suite.createUser("otw-curated-first@test.com")
+	venue := suite.createVenue("Curated Venue", "Phoenix", "AZ")
+	firstBilled := suite.createArtist("First Billed Opener")
+	top := suite.createArtist("Curated Headliner")
+
+	now := time.Now().UTC()
+	for i, daysAgo := range []int{-10, -20} {
+		s := suite.createApprovedShow(
+			fmt.Sprintf("Curated Bill %d", i), venue.ID, firstBilled.ID, user.ID, now.AddDate(0, 0, daysAgo))
+		// Listed first, curated as the opener: the exact shape the old
+		// position-0 predicate misread as a headline slot.
+		suite.setSlotSetType(s.ID, firstBilled.ID, "opener")
+		suite.addArtistToShow(s.ID, top.ID, 1, "headliner")
+	}
+
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1, "the curated headliner must not appear; the curated opener must")
+	suite.Equal(firstBilled.ID, artists[0].ArtistID)
+	suite.Equal(2, artists[0].SupportSlotCount)
+}
+
+// PSY-1704: the same act on a bill nobody curated keeps its inferred headline
+// slot, which excludes it from this chart. Pairs with the test above: the ONLY
+// difference between the two fixtures is whether anybody stated a role.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_UncuratedFirstBilledStaysExcluded() {
+	user := suite.createUser("otw-uncurated-first@test.com")
+	venue := suite.createVenue("Silent Venue", "Phoenix", "AZ")
+	firstBilled := suite.createArtist("Silent First Billed")
+	later := suite.createArtist("Silent Later Slot")
+
+	now := time.Now().UTC()
+	for i, daysAgo := range []int{-10, -20} {
+		s := suite.createApprovedShow(
+			fmt.Sprintf("Silent Bill %d", i), venue.ID, firstBilled.ID, user.ID, now.AddDate(0, 0, daysAgo))
+		suite.addArtistToShow(s.ID, later.ID, 1, "performer")
+	}
+
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 1, "position 0 still headlines an uncurated bill, so it is excluded")
+	suite.Equal(later.ID, artists[0].ArtistID)
+	suite.Equal(2, artists[0].SupportSlotCount)
+}
+
+// PSY-1704, disclosed consequence of the chosen fallback: curation is judged
+// per BILL, not per row. Once anybody states a role, list order stops speaking
+// for the rows nobody described, so a bill with a stated opener and no stated
+// headliner has NO headline slot and both acts count as support.
+//
+// This shape is reachable through POST /shows: initializeArtist defaults a
+// silent act's is_headliner to a non-nil false, so resolveArtistRole's
+// position-0 fallback never fires and the top act is stored 'performer'. The
+// genuine headliner then lands in this chart. Pinned here so the behavior is
+// asserted rather than discovered; see headline_slot.go for why the fix
+// belongs in the write path.
+func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_PartiallyCuratedBillHasNoHeadlineSlot() {
+	user := suite.createUser("otw-partial@test.com")
+	venue := suite.createVenue("Partial Venue", "Phoenix", "AZ")
+	firstBilled := suite.createArtist("Partial First Billed")
+	statedOpener := suite.createArtist("Partial Stated Opener")
+
+	now := time.Now().UTC()
+	for i, daysAgo := range []int{-10, -20} {
+		s := suite.createApprovedShow(
+			fmt.Sprintf("Partial Bill %d", i), venue.ID, firstBilled.ID, user.ID, now.AddDate(0, 0, daysAgo))
+		suite.addArtistToShow(s.ID, statedOpener.ID, 1, "opener")
+	}
+
+	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 2, "no row is set_type 'headliner', so nobody holds a headline slot")
+	counts := make(map[uint]int, len(artists))
+	for _, a := range artists {
+		counts[a.ArtistID] = a.SupportSlotCount
+	}
+	suite.Equal(2, counts[firstBilled.ID])
+	suite.Equal(2, counts[statedOpener.ID])
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) TestGetMostActiveArtists_OrderingAndTiebreak() {
@@ -1018,11 +1171,11 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CountsSupp
 	suite.Require().NoError(suite.db.Save(opener).Error)
 
 	now := time.Now().UTC()
-	s1 := suite.createApprovedShow("Bill 1", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	s1 := suite.createCuratedHeadlineShow("Bill 1", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
 	suite.addArtistToShow(s1.ID, opener.ID, 1, "opener")
-	s2 := suite.createApprovedShow("Bill 2", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
+	s2 := suite.createCuratedHeadlineShow("Bill 2", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
 	suite.addArtistToShow(s2.ID, opener.ID, 1, "performer")
-	s3 := suite.createApprovedShow("Bill 3", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -30))
+	s3 := suite.createCuratedHeadlineShow("Bill 3", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -30))
 	suite.addArtistToShow(s3.ID, opener.ID, 2, "special_guest")
 
 	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
@@ -1042,12 +1195,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_AnyHeadlin
 
 	now := time.Now().UTC()
 	// Two support slots in-window...
-	s1 := suite.createApprovedShow("Support A", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	s1 := suite.createCuratedHeadlineShow("Support A", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
 	suite.addArtistToShow(s1.ID, sometimes.ID, 1, "opener")
-	s2 := suite.createApprovedShow("Support B", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -15))
+	s2 := suite.createCuratedHeadlineShow("Support B", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -15))
 	suite.addArtistToShow(s2.ID, sometimes.ID, 1, "opener")
 	// ...but one co-headline slot (set_type headliner despite position 2) in-window.
-	s3 := suite.createApprovedShow("Co-headline", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
+	s3 := suite.createCuratedHeadlineShow("Co-headline", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
 	suite.addArtistToShow(s3.ID, sometimes.ID, 2, "headliner")
 
 	artists, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
@@ -1065,9 +1218,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_HeadlineEx
 	// Headlined long ago (outside the quarter window)...
 	suite.createApprovedShow("Old Glory", venue.ID, riser.ID, user.ID, now.AddDate(0, 0, -200))
 	// ...but only opens within the quarter.
-	s1 := suite.createApprovedShow("Now Opens A", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	s1 := suite.createCuratedHeadlineShow("Now Opens A", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
 	suite.addArtistToShow(s1.ID, riser.ID, 1, "opener")
-	s2 := suite.createApprovedShow("Now Opens B", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
+	s2 := suite.createCuratedHeadlineShow("Now Opens B", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -20))
 	suite.addArtistToShow(s2.ID, riser.ID, 1, "opener")
 
 	quarter, _, err := suite.chartsService.GetOpenersToWatch(contracts.ChartWindowQuarter, "", 20, 0)
@@ -1088,9 +1241,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetOpenersToWatch_CancelledS
 	opener := suite.createArtist("Cancel Opener")
 
 	now := time.Now().UTC()
-	s1 := suite.createApprovedShow("Kept", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
+	s1 := suite.createCuratedHeadlineShow("Kept", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -10))
 	suite.addArtistToShow(s1.ID, opener.ID, 1, "opener")
-	s2 := suite.createApprovedShow("Called Off", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -5))
+	s2 := suite.createCuratedHeadlineShow("Called Off", venue.ID, headliner.ID, user.ID, now.AddDate(0, 0, -5))
 	suite.addArtistToShow(s2.ID, opener.ID, 1, "opener")
 	suite.Require().NoError(suite.db.Model(s2).Update("is_cancelled", true).Error)
 

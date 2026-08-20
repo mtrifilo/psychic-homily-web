@@ -771,8 +771,11 @@ type billCoBillRow struct {
 //
 // The endpoint mirrors the shape of GetArtistGraph but is derived live from show_artists
 // rather than the stored ArtistRelationship rows — bill-slot data isn't a stored relationship
-// type. is_headliner is derived (position = 0 OR set_type = 'headliner') consistent with
-// the rest of the codebase (see discovery.go logic).
+// type. Headline vs support is classified by the shared headlineSlotSQL predicate
+// (see headline_slot.go), the same rule the charts use: curated set_type decides,
+// and position 0 stands in only on a bill nobody has curated. `a_role`/`co_role`
+// are therefore "headline slot" vs "everything else", not curated role labels:
+// a direct support act and a DJ both bucket as 'opener' here.
 func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, months int) (*contracts.ArtistBillComposition, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -812,12 +815,14 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 		result.Graph.Center.HasPlayableAudio = playable
 	}
 
-	// 2. Stats query — counts headliner vs opener slots over the time window.
+	// 2. Stats query: counts headline vs support slots over the time window.
+	// Both arms read the SAME shared predicate, so every slot lands in exactly
+	// one bucket and the two counts always sum to the slot total.
 	statsSQL := `
 		SELECT
 			COUNT(DISTINCT sa.show_id) AS total_shows,
-			COALESCE(SUM(CASE WHEN (sa.position = 0 OR sa.set_type = 'headliner') THEN 1 ELSE 0 END), 0) AS headliner_count,
-			COALESCE(SUM(CASE WHEN NOT (sa.position = 0 OR sa.set_type = 'headliner') THEN 1 ELSE 0 END), 0) AS opener_count
+			COALESCE(SUM(CASE WHEN ` + headlineSlotSQL("sa") + ` THEN 1 ELSE 0 END), 0) AS headliner_count,
+			COALESCE(SUM(CASE WHEN NOT ` + headlineSlotSQL("sa") + ` THEN 1 ELSE 0 END), 0) AS opener_count
 		FROM show_artists sa
 		JOIN shows s ON s.id = sa.show_id
 		WHERE sa.artist_id = ? AND s.status = 'approved'
@@ -846,8 +851,8 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 	coBillSQL := `
 		SELECT
 			sa2.artist_id AS co_artist_id,
-			CASE WHEN (sa1.position = 0 OR sa1.set_type = 'headliner') THEN 'headliner' ELSE 'opener' END AS a_role,
-			CASE WHEN (sa2.position = 0 OR sa2.set_type = 'headliner') THEN 'headliner' ELSE 'opener' END AS co_role,
+			CASE WHEN ` + headlineSlotSQL("sa1") + ` THEN 'headliner' ELSE 'opener' END AS a_role,
+			CASE WHEN ` + headlineSlotSQL("sa2") + ` THEN 'headliner' ELSE 'opener' END AS co_role,
 			COUNT(DISTINCT sa1.show_id) AS shared_count,
 			MAX(s.event_date) AS last_shared
 		FROM show_artists sa1

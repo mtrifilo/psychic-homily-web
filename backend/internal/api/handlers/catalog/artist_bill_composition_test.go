@@ -245,6 +245,89 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_TimeFilter_E
 	s.Equal(12, recent.TimeFilterMonths)
 }
 
+// --- PSY-1704: headline vs support is classified by curated set_type ---
+
+// A first-billed act curated as the opener must count as a SUPPORT slot, not a
+// headline one. Before PSY-1704 the position-0 heuristic read it as the
+// headliner, which also flattened the co-bill pair to headliner/headliner and
+// emptied both the opens-with and closes-with tables.
+func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_CuratedFirstBilledOpenerIsSupport() {
+	a := s.deps.ArtistRelationshipService
+	firstBilled := s.createArtist("Listed First, Opens")
+	top := s.createArtist("Listed Second, Headlines")
+
+	now := time.Now().UTC()
+	for i := 1; i <= 3; i++ {
+		s.seedShowWithBill(fmt.Sprintf("Curated Bill %d", i), now.AddDate(0, -i, 0), []billLineupEntry{
+			{firstBilled, 0, "opener"}, {top, 1, "headliner"},
+		})
+	}
+
+	bc, err := a.GetArtistBillComposition(firstBilled, 0)
+	s.Require().NoError(err)
+	s.Require().False(bc.BelowThreshold)
+	s.Equal(3, bc.Stats.TotalShows)
+	s.Equal(0, bc.Stats.HeadlinerCount, "curated 'opener' is a support slot even at position 0")
+	s.Equal(3, bc.Stats.OpenerCount)
+
+	// The curated roles make the pair asymmetric, so this act closes-with the
+	// stated headliner rather than sharing a headliner/headliner bucket.
+	s.Empty(bc.OpensWith)
+	s.Require().Len(bc.ClosesWith, 1)
+	s.Equal(top, bc.ClosesWith[0].Artist.ID)
+	s.Equal(3, bc.ClosesWith[0].SharedCount)
+}
+
+// The documented fallback: on a bill where every row is the neutral default,
+// position 0 is still read as the headline slot.
+func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_UncuratedBillFallsBackToPositionZero() {
+	a := s.deps.ArtistRelationshipService
+	firstBilled := s.createArtist("Silent Top")
+	later := s.createArtist("Silent Support")
+
+	now := time.Now().UTC()
+	for i := 1; i <= 3; i++ {
+		s.seedShowWithBill(fmt.Sprintf("Silent Bill %d", i), now.AddDate(0, -i, 0), []billLineupEntry{
+			{firstBilled, 0, "performer"}, {later, 1, "performer"},
+		})
+	}
+
+	bc, err := a.GetArtistBillComposition(firstBilled, 0)
+	s.Require().NoError(err)
+	s.Equal(3, bc.Stats.TotalShows)
+	s.Equal(3, bc.Stats.HeadlinerCount, "uncurated bill: position 0 still headlines")
+	s.Equal(0, bc.Stats.OpenerCount)
+	s.Require().Len(bc.OpensWith, 1)
+	s.Equal(later, bc.OpensWith[0].Artist.ID)
+	s.Empty(bc.ClosesWith)
+}
+
+// The two stat counts partition the slot set: a NULL set_type row (the schema
+// permits it) must land in exactly one bucket, not fall through both arms of
+// the three-valued comparison.
+func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_StatCountsPartitionNullSetTypeSlots() {
+	a := s.deps.ArtistRelationshipService
+	center := s.createArtist("Null Slot Center")
+	top := s.createArtist("Null Slot Top")
+
+	now := time.Now().UTC()
+	for i := 1; i <= 3; i++ {
+		showID := s.seedShowWithBill(fmt.Sprintf("Null Slot Bill %d", i), now.AddDate(0, -i, 0), []billLineupEntry{
+			{top, 0, "headliner"},
+		})
+		s.deps.DB.Exec(
+			"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 1, NULL)",
+			showID, center)
+	}
+
+	bc, err := a.GetArtistBillComposition(center, 0)
+	s.Require().NoError(err)
+	s.Equal(3, bc.Stats.TotalShows)
+	s.Equal(0, bc.Stats.HeadlinerCount)
+	s.Equal(3, bc.Stats.OpenerCount, "NULL set_type below a stated headliner is a support slot")
+	s.Equal(bc.Stats.TotalShows, bc.Stats.HeadlinerCount+bc.Stats.OpenerCount)
+}
+
 // --- Artist not found ---
 
 func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_ArtistNotFound() {
