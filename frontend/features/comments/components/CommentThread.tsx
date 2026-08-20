@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { SignInPrompt } from '@/features/auth/components'
+// Imported from the module rather than the feature barrel: the barrel also
+// re-exports PasskeyRegisterButton, which drags @simplewebauthn/browser onto
+// every entity page that renders a comment thread.
+import { SignInPrompt } from '@/features/auth/components/SignInPrompt'
 import { Button } from '@/components/ui/button'
 import { StatusBanner } from '@/components/shared'
 import {
@@ -143,11 +146,7 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
           />
         </div>
       ) : (
-        <SignInPrompt
-          className="text-sm text-muted-foreground mb-6"
-          testId="auth-gate"
-          returnToHash={COMMENTS_SECTION_ANCHOR}
-        >
+        <SignInPrompt testId="auth-gate" returnToHash={COMMENTS_SECTION_ANCHOR}>
           to join the discussion.
         </SignInPrompt>
       )}

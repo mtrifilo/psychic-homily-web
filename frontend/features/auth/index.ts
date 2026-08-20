@@ -102,7 +102,11 @@ export {
 } from './hooks'
 
 // Components
-export { LoginPromptDialog, PasskeyRegisterButton } from './components'
+export {
+  LoginPromptDialog,
+  PasskeyRegisterButton,
+  SignInPrompt,
+} from './components'
 
 // Components — Account settings (sole consumer: app/profile)
 export { SettingsPanel } from './components/settings'

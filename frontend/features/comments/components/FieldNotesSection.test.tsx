@@ -104,10 +104,11 @@ describe('FieldNotesSection', () => {
       )
 
       expect(screen.getByTestId('field-note-auth-gate')).toBeInTheDocument()
-      // PSY-1870: must point at the real auth route, not the dead `/login`.
+      // PSY-1870: must point at the real auth route, not the dead `/login`,
+      // and must come back to the notes rather than the top of the page.
       expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
         'href',
-        '/auth?returnTo=%2Fshows%2Ftest-show'
+        '/auth?returnTo=%2Fshows%2Ftest-show%23field-notes'
       )
     })
 

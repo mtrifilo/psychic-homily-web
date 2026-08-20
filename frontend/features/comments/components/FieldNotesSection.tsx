@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { SignInPrompt } from '@/features/auth/components'
+// Imported from the module rather than the feature barrel: the barrel also
+// re-exports PasskeyRegisterButton, which drags @simplewebauthn/browser onto
+// every page that renders this section.
+import { SignInPrompt } from '@/features/auth/components/SignInPrompt'
 import { StatusBanner } from '@/components/shared'
 import { hasShowStarted } from '@/lib/utils/showTiming'
 import {
@@ -11,6 +14,7 @@ import {
   useCreateFieldNote,
   formatCommentSubmissionError,
 } from '../hooks'
+import { FIELD_NOTES_SECTION_ANCHOR } from '../anchors'
 import { FieldNoteForm } from './FieldNoteForm'
 import { FieldNoteCard } from './FieldNoteCard'
 import type { Comment, CreateFieldNoteInput } from '../types'
@@ -72,7 +76,11 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
   }
 
   return (
-    <section className="mt-8" data-testid="field-notes-section">
+    <section
+      id={FIELD_NOTES_SECTION_ANCHOR}
+      className="mt-8 scroll-mt-20"
+      data-testid="field-notes-section"
+    >
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -122,8 +130,8 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
             </div>
           ) : (
             <SignInPrompt
-              className="text-sm text-muted-foreground mb-6"
               testId="field-note-auth-gate"
+              returnToHash={FIELD_NOTES_SECTION_ANCHOR}
             >
               to share your experience.
             </SignInPrompt>
