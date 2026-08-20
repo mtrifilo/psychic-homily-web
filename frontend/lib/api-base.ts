@@ -21,8 +21,8 @@
  *                      needs a DIRECT backend origin, never `/api`.
  *
  * PSY-1649: those two requirements were both being read off
- * `NEXT_PUBLIC_API_URL`. On a stack whose backend is not on :8080 — which is
- * what `scripts/dispatch/stack-up.sh --mode=isolated` allocates by design —
+ * `NEXT_PUBLIC_API_URL`. On a stack whose backend is not on :8080 (which is
+ * what `scripts/dispatch/stack-up.sh --mode=isolated` allocates by design)
  * no single value of that variable satisfies both: pointing it at the proxy
  * (`http://localhost:<fe>/api`) fixes the data specs and breaks OAuth, and
  * pointing it at the backend origin does the reverse (measured in PSY-1645).
@@ -44,12 +44,13 @@
  */
 
 /**
- * Where a backend lives when nothing is configured. Only ever reachable in a
- * non-production build (see getOAuthBackendUrl) — before PSY-1649 the OAuth
- * readers each carried their own `|| 'http://localhost:8080'`, which was a
- * localhost literal compiled into the production bundle and inert only
- * because `NEXT_PUBLIC_API_URL` happens to always be set on Vercel. That
- * invariant is now enforced by construction rather than assumed.
+ * Where the backend lives when nothing is configured. Both resolvers below
+ * reach this only on a non-production build.
+ *
+ * That guard is the point: before PSY-1649 each OAuth reader carried its own
+ * `|| 'http://localhost:8080'`, a localhost literal compiled into the
+ * production bundle and inert only because `NEXT_PUBLIC_API_URL` happens to
+ * always be set on Vercel. The invariant is now enforced rather than assumed.
  */
 const DEVELOPMENT_BACKEND_ORIGIN = 'http://localhost:8080'
 const PRODUCTION_BACKEND_ORIGIN = 'https://api.psychichomily.com'
@@ -59,8 +60,9 @@ const PRODUCTION_BACKEND_ORIGIN = 'https://api.psychichomily.com'
  * relative one, and a non-http scheme in a `window.location.href` assignment
  * is a navigation we never want to make. Every value checked here comes from
  * build/deploy configuration, not from a request, so this is a
- * misconfiguration check rather than a defence against untrusted input — but
- * the OAuth entry point is the wrong place to discover a typo at runtime.
+ * misconfiguration check rather than a defence against untrusted input.
+ * Still worth doing: the OAuth entry point is the wrong place to discover a
+ * typo at runtime.
  */
 const isAbsoluteHttpUrl = (value: string): boolean => {
   try {
@@ -73,7 +75,10 @@ const isAbsoluteHttpUrl = (value: string): boolean => {
 
 // Get the API base URL
 const getApiBaseUrl = (): string => {
-  // Check for environment-specific API URL first
+  // Check for environment-specific API URL first. Deliberately NOT run
+  // through isAbsoluteHttpUrl: a relative value is legitimate here (`/api`
+  // is the whole point of the proxy) and only the OAuth base, which feeds a
+  // full-page navigation, requires an absolute origin.
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL
   }
@@ -85,14 +90,14 @@ const getApiBaseUrl = (): string => {
   }
 
   // Server-side in development. The browser returned above, so this branch
-  // only ever runs on the server — which means BACKEND_URL is readable here.
+  // only ever runs on the server, which means BACKEND_URL is readable here.
   // It is not a NEXT_PUBLIC_ var, so Next never inlines it into the client
   // bundle; the `typeof window` guard states that rather than relying on it.
   //
   // PSY-1649: following BACKEND_URL is what makes a backend on a non-default
   // port work end to end. Browser traffic goes through the same-origin /api
-  // proxy, which already forwards to BACKEND_URL — but SSR bypasses the proxy
-  // and used to hardcode :8080, so with the backend on :8099 every
+  // proxy, which already forwards to BACKEND_URL. SSR bypasses the proxy and
+  // used to hardcode :8080, so with the backend on :8099 every
   // server-rendered fetch hit a dead port. That surfaced as pages rendering
   // logged-out or empty, and it failed the authenticated E2E specs on any
   // non-default port while the same specs passed on :8080 (measured here).
@@ -124,7 +129,7 @@ const warnIfOAuthBaseLooksProxied = (base: string, source: string): void => {
   } catch {
     return
   }
-  if (pathname === '/' || pathname === '') return
+  if (pathname === '/') return
   console.warn(
     `[api-base] OAuth requests will go to ${base}, resolved from ${source}, ` +
       `which is mounted under a path and so is probably the Next.js /api ` +
@@ -138,8 +143,8 @@ const warnIfOAuthBaseLooksProxied = (base: string, source: string): void => {
  * Direct backend origin for OAuth full-page redirects. Never the `/api` proxy.
  *
  * Resolution order:
- *   1. NEXT_PUBLIC_OAUTH_BACKEND_URL — the dedicated OAuth origin.
- *   2. NEXT_PUBLIC_API_URL — so an environment that sets only the data base
+ *   1. NEXT_PUBLIC_OAUTH_BACKEND_URL, the dedicated OAuth origin.
+ *   2. NEXT_PUBLIC_API_URL, so an environment that sets only the data base
  *      (every deployed environment today) keeps its current behaviour.
  *   3. localhost in non-production builds; the production API origin
  *      otherwise, so a production bundle can never carry a localhost auth
@@ -179,7 +184,7 @@ const getOAuthBackendUrl = (): string => {
 export const API_BASE_URL = getApiBaseUrl()
 
 /**
- * Direct backend origin for OAuth full-page redirects — see
+ * Direct backend origin for OAuth full-page redirects. See
  * getOAuthBackendUrl. Import this, not API_BASE_URL, anywhere the browser is
  * about to leave the app for the backend's `/auth/login/...` endpoints.
  */

@@ -77,7 +77,7 @@ Set these in **Project Settings → Environment Variables**:
 `NEXT_PUBLIC_OAUTH_BACKEND_URL` is the origin the Google sign-in button
 redirects to. It defaults to `NEXT_PUBLIC_API_URL`, so leaving it unset is
 correct in any environment where the data base is already the backend's own
-origin — which is every deployed environment today. Set it only where the two
+origin, which is every deployed environment today. Set it only where the two
 differ: `NEXT_PUBLIC_API_URL` may point at the same-origin `/api` proxy (that
 is what `scripts/dispatch/stack-up.sh --mode=isolated` does, so browser
 requests carry the SameSite=Lax `auth_token`), and a full-page OAuth redirect
