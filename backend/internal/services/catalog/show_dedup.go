@@ -3,7 +3,6 @@ package catalog
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -12,6 +11,114 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/utils"
 )
+
+// This file is the show dedup's reference inventory: which tables point at a
+// show, and what MergeDuplicateShow does with each.
+//
+// It exists because this merge kept its own hand-maintained list of re-points
+// with nothing guarding it. That is the drift PSY-1745 closed for the venue
+// merge and PSY-1834 for the artist merge; taking the inventory here found
+// seven of the seventeen polymorphic entity_type tables unhandled.
+//
+// A show reference comes in the same three shapes the artist merge names, and
+// each has a list plus a drift guard in show_dedup_refs_test.go that fails in CI
+// the moment a migration adds something this merge does not handle:
+//
+//   - polymorphic (entity_type, entity_id): polymorphicEntityRefs in
+//     entity_ref_repoint.go, shared with the venue and artist merges because a
+//     unique index is a property of the table and not of the entity pointing at
+//     it. Guard: TestShowEntityRefsCoverSchema. The keys those refs declare are
+//     checked against the real pg_index rows by
+//     TestArtistEntityRefDedupeKeysMatchTheSchema, which needs only the one copy
+//     because the inventory it reads is entity-independent.
+//   - a real foreign key to shows.id: showFKColumns, guarded by
+//     TestShowForeignKeysAreAllHandled.
+//   - a bare show id with neither: showUnconstrainedIDColumns, guarded by
+//     TestShowIDColumnsWithoutForeignKeysAreAccountedFor.
+
+// showFKColumns is every COLUMN holding a real foreign key to shows.id, spelled
+// "table.column".
+//
+// Column-granular rather than table-granular, matching artistFKColumns: shows
+// already references itself, so a guard keyed on table names alone would stay
+// green when a migration added a second show column to a table already listed.
+//
+// Keeping this list is not redundant with the database's own constraints. It is
+// the guard for the shape that fails most quietly: four of these five CASCADE
+// and the fifth sets NULL, so a column this merge does NOT handle makes no noise
+// when the losing show is deleted. Its rows silently disappear, or silently lose
+// the show they pointed at.
+//
+// What each one gets, and why:
+//
+//   - show_venues.show_id, show_artists.show_id, show_reports.show_id are
+//     re-pointed by moveShowFKRows, which first drops the loser's row when the
+//     winner already holds one with the same partner column. (show_id, venue_id)
+//     and (show_id, artist_id) are primary keys, and show_reports is UNIQUE
+//     (show_id, reported_by).
+//
+//     show_reports moved with a BARE UPDATE until PSY-1869, which could not
+//     survive its own index: one user who reported BOTH duplicates aborted the
+//     entire cluster transaction with a unique violation. That is a diligent
+//     user rather than an exotic one, since a duplicate cluster is one event
+//     listed twice and every report type ('cancelled', 'sold_out',
+//     'inaccurate') describes the EVENT, so the same defect is visible on both
+//     rows. The winner's report wins, matching this function's stated conflict
+//     policy.
+//
+//     show_artists ALSO carries shows_artist_venue_eventdate_uniq, UNIQUE
+//     (artist_id, venue_id, event_date) over its denormalized columns, which the
+//     artist merge has to dedupe against separately (dropCollidingShowArtists).
+//     This merge does not, and cannot need to: it moves a row without touching
+//     any of those three columns, so the only row that could collide with the
+//     moved one is a row the index would already have rejected before the merge
+//     ran. syncShowArtistDedupColumns then re-stamps the winner's rows, because
+//     moved rows arrive carrying the loser's denorm.
+//
+//   - enrichment_queue.show_id takes a bare re-point. It has no unique index at
+//     all, so one show legitimately holds several queued jobs.
+//
+//   - shows.duplicate_of_show_id is re-pointed, EXCLUDING the winner's own row.
+//     Without that exclusion a winner already flagged as a duplicate of the
+//     loser comes out of the merge flagged as a duplicate of ITSELF, and that
+//     column is served to clients on the show payload.
+//
+// TestShowForeignKeysAreAllHandled fails if a migration adds another.
+var showFKColumns = []string{
+	"enrichment_queue.show_id",
+	"show_artists.show_id",
+	"show_reports.show_id",
+	"show_venues.show_id",
+	"shows.duplicate_of_show_id",
+}
+
+// showFKColumnListed reports whether "table.column" carries a recorded
+// disposition in showFKColumns.
+func showFKColumnListed(qualified string) bool {
+	for _, col := range showFKColumns {
+		if col == qualified {
+			return true
+		}
+	}
+	return false
+}
+
+// showUnconstrainedIDColumns is the third class of show reference: a column
+// holding show ids with no foreign key and no entity_type discriminator.
+// Nothing in the database enforces it and nothing in the schema marks it, so the
+// only way such a column stays handled is by being written down.
+//
+// EMPTY TODAY, which is exactly why it is asserted rather than left out: the
+// artist merge found notification_filters.artist_ids hiding in this shape, and a
+// show equivalent would be just as invisible to the other two guards.
+// notification_filters carries artist_ids and venue_ids but no show_ids, and
+// nothing else stores a bare show id.
+//
+// TestShowIDColumnsWithoutForeignKeysAreAccountedFor fails if a migration adds
+// one. It matches on the column NAME, so an unconstrained RADIO show id would
+// trip it too; recording such a column here with "checked, not a catalog show"
+// is the intended outcome rather than a hole in the pattern.
+var showUnconstrainedIDColumns = []string{}
 
 // ShowDedupKey identifies a cluster of duplicate shows by the
 // (artist, venue, event_date) tuple. Time-of-day is part of the key so
@@ -37,32 +144,101 @@ type ShowDedupCluster struct {
 // ShowDedupSummary summarises the work performed (or planned) by a
 // dedup pass. Used by both --dry-run and --confirm flows so reviewers
 // can audit the merge before live writes.
+//
+// The polymorphic references are counted in a MAP keyed by table rather than in
+// a field per table. A field per table is the same hand-maintained list this
+// merge stopped keeping: a migration that added a reference table would move
+// rows the summary had no way to mention, so the report would understate what a
+// destructive pass had done. The map is filled straight from the shared
+// inventory, so a table added there reports itself.
 type ShowDedupSummary struct {
-	ClustersFound       int
-	LosersMerged        int
-	ShowVenuesMoved     int64
-	ShowVenuesSkipped   int64
-	ShowArtistsMoved    int64
-	ShowArtistsSkipped  int64
-	ShowReportsMoved    int64
-	EnrichmentMoved     int64
-	BookmarksMoved      int64
-	BookmarksSkipped    int64
-	CommentsRepointed   int64
-	SubsRepointed       int64
-	SubsSkipped         int64
-	EntityTagsMoved     int64
-	EntityTagsSkipped   int64
-	EntityReportsMoved  int64
-	PendingEditsMoved   int64
-	PendingEditsSkipped int64
-	RevisionsMoved      int64
-	RequestsMoved       int64
-	AuditLogsMoved      int64
-	CollectionsMoved    int64
-	CollectionsSkipped  int64
-	DuplicateOfRepoint  int64
-	SlugsRewritten      int
+	ClustersFound int
+	LosersMerged  int
+
+	// Direct foreign keys to shows.id. One step each; see showFKColumns.
+	ShowVenuesMoved    int64
+	ShowVenuesSkipped  int64
+	ShowArtistsMoved   int64
+	ShowArtistsSkipped int64
+	ShowReportsMoved   int64
+	ShowReportsSkipped int64
+	EnrichmentMoved    int64
+	DuplicateOfRepoint int64
+
+	// History tables, which move through a provenance decision rather than
+	// through the inventory loop. See refsRepointedElsewhere.
+	PendingEditsMoved    int64
+	PendingEditsSkipped  int64
+	EditAuditLogsMoved   int64
+	EditAuditLogsSkipped int64
+	RevisionsMoved       int64
+
+	// Every table in polymorphicEntityRefs, keyed by table name. A table that
+	// matched no rows is present with a zero, so the CLI prints the full
+	// coverage of the pass rather than only the tables that happened to hold
+	// data. "Audited and empty" and "never looked at" are different answers.
+	EntityRefsMoved   map[string]int64
+	EntityRefsDropped map[string]int64
+
+	SlugsRewritten int
+}
+
+// Add folds one cluster's counts into the pass summary.
+//
+// It exists so a caller can run a cluster into its OWN summary and fold that in
+// only after the cluster's transaction commits. Accumulating straight into the
+// pass summary reports work that was rolled back: a cluster with two losers
+// whose second merge fails takes the first merge's deletions down with it, and
+// without this the printed record still claims a loser merged and a bookmark
+// destroyed. These counters are the only record of what a destructive pass
+// destroyed, so they have to describe what committed.
+//
+// TestShowDedupSummaryAddFoldsEveryField fails if a field is added without
+// being folded here.
+func (s *ShowDedupSummary) Add(other *ShowDedupSummary) {
+	if other == nil {
+		return
+	}
+	s.ClustersFound += other.ClustersFound
+	s.LosersMerged += other.LosersMerged
+
+	s.ShowVenuesMoved += other.ShowVenuesMoved
+	s.ShowVenuesSkipped += other.ShowVenuesSkipped
+	s.ShowArtistsMoved += other.ShowArtistsMoved
+	s.ShowArtistsSkipped += other.ShowArtistsSkipped
+	s.ShowReportsMoved += other.ShowReportsMoved
+	s.ShowReportsSkipped += other.ShowReportsSkipped
+	s.EnrichmentMoved += other.EnrichmentMoved
+	s.DuplicateOfRepoint += other.DuplicateOfRepoint
+
+	s.PendingEditsMoved += other.PendingEditsMoved
+	s.PendingEditsSkipped += other.PendingEditsSkipped
+	s.EditAuditLogsMoved += other.EditAuditLogsMoved
+	s.EditAuditLogsSkipped += other.EditAuditLogsSkipped
+	s.RevisionsMoved += other.RevisionsMoved
+
+	s.addEntityRefCounts(other.EntityRefsMoved, other.EntityRefsDropped)
+
+	s.SlugsRewritten += other.SlugsRewritten
+}
+
+// addEntityRefCounts folds one merge's per-table counts into the pass summary.
+//
+// The maps are created on demand so callers can keep building the summary as a
+// bare struct literal, which all of them do.
+func (s *ShowDedupSummary) addEntityRefCounts(moved, dropped map[string]int64) {
+	if s.EntityRefsMoved == nil {
+		s.EntityRefsMoved = make(map[string]int64, len(moved))
+	}
+	if s.EntityRefsDropped == nil {
+		s.EntityRefsDropped = make(map[string]int64, len(dropped))
+	}
+	for table, count := range moved {
+		s.EntityRefsMoved[table] += count
+	}
+	for table, count := range dropped {
+		s.EntityRefsDropped[table] += count
+	}
 }
 
 // FindShowDedupClusters finds groups of shows that share the same
@@ -180,13 +356,18 @@ func FindShowDedupClusters(db *gorm.DB) ([]ShowDedupCluster, error) {
 	return clusters, nil
 }
 
-// MergeDuplicateShow merges loser into winner inside an existing
-// transaction. All FKs (direct + polymorphic) are repointed with
-// conflict-aware semantics. The loser is then deleted.
+// MergeDuplicateShow merges loser into winner inside an existing transaction,
+// re-points every reference this file's inventory names, and deletes the loser.
 //
-// Conflict policy: when a UNIQUE / PK conflict would occur on the
-// winner, the loser's row is dropped (the winner's pre-existing row
-// wins). This matches the tag_merge.go pattern.
+// Conflict policy: when a UNIQUE or PK conflict would occur on the winner, the
+// loser's row is dropped and the winner's pre-existing row survives. This
+// matches the tag_merge.go pattern.
+//
+// The steps run in the order of the inventory at the top of this file: foreign
+// keys to shows.id first, then the two history tables that require a provenance
+// decision, then the shared polymorphic inventory, then the delete. Only the
+// delete depends on that order; the rest reads in inventory order so a reader
+// can check the code against the list.
 func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupSummary) error {
 	if winnerID == 0 || loserID == 0 {
 		return fmt.Errorf("winnerID and loserID must be non-zero")
@@ -194,21 +375,40 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	if winnerID == loserID {
 		return fmt.Errorf("winnerID == loserID")
 	}
-
-	// Junction tables with composite PK (show_id, otherCol).
-	moved, skipped, err := movePolymorphicJunction(tx, "show_venues", "show_id", "venue_id", winnerID, loserID)
-	if err != nil {
-		return fmt.Errorf("show_venues: %w", err)
+	if summary == nil {
+		return fmt.Errorf("summary is required")
 	}
-	summary.ShowVenuesMoved += moved
-	summary.ShowVenuesSkipped += skipped
 
-	moved, skipped, err = movePolymorphicJunction(tx, "show_artists", "show_id", "artist_id", winnerID, loserID)
-	if err != nil {
-		return fmt.Errorf("show_artists: %w", err)
+	// Junction tables keyed (show_id, otherCol), plus show_reports, which is
+	// UNIQUE (show_id, reported_by) and needs the same collision delete.
+	for _, ref := range []struct {
+		table    string
+		dedupeOn string
+		moved    *int64
+		skipped  *int64
+	}{
+		{"show_venues", "venue_id", &summary.ShowVenuesMoved, &summary.ShowVenuesSkipped},
+		{"show_artists", "artist_id", &summary.ShowArtistsMoved, &summary.ShowArtistsSkipped},
+		{"show_reports", "reported_by", &summary.ShowReportsMoved, &summary.ShowReportsSkipped},
+	} {
+		moved, skipped, err := moveShowFKRows(tx, ref.table, "show_id", ref.dedupeOn, winnerID, loserID)
+		if err != nil {
+			return fmt.Errorf("%s: %w", ref.table, err)
+		}
+		*ref.moved += moved
+		*ref.skipped += skipped
+		// Only show_reports is logged. A dropped report is a user-authored row
+		// gone with no undo, which is what logDroppedEntityRefs is for. The two
+		// junction drops are not: duplicate shows share an artist and a venue by
+		// definition, since that IS the cluster key, so those two collapse on
+		// essentially every merge. Logging them would bury each real deletion
+		// under two lines of expected bookkeeping. Both counts still reach the
+		// summary the CLI prints.
+		if skipped > 0 && ref.table == "show_reports" {
+			logDroppedEntityRefs(
+				mergeEntityShow, winnerID, loserID, map[string]int64{ref.table: skipped})
+		}
 	}
-	summary.ShowArtistsMoved += moved
-	summary.ShowArtistsSkipped += skipped
 
 	// Re-stamp denormalized (event_date, venue_id) on the winner's
 	// show_artists rows after the merge. Moved rows carried the loser's
@@ -219,65 +419,69 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		return fmt.Errorf("show_artists dedup-column resync: %w", err)
 	}
 
-	// Plain FK repoints — no unique constraint to worry about.
-	for _, op := range []struct {
-		name string
-		sql  string
-		dst  *int64
-	}{
-		{"show_reports", `UPDATE show_reports SET show_id = ? WHERE show_id = ?`, &summary.ShowReportsMoved},
-		{"enrichment_queue", `UPDATE enrichment_queue SET show_id = ? WHERE show_id = ?`, &summary.EnrichmentMoved},
-		{"duplicate_of_show_id", `UPDATE shows SET duplicate_of_show_id = ? WHERE duplicate_of_show_id = ?`, &summary.DuplicateOfRepoint},
-	} {
-		res := tx.Exec(op.sql, winnerID, loserID)
-		if res.Error != nil {
-			return fmt.Errorf("%s: %w", op.name, res.Error)
-		}
-		*op.dst += res.RowsAffected
+	// enrichment_queue has no unique index over show_id, so it takes a bare
+	// re-point.
+	res := tx.Exec(`UPDATE enrichment_queue SET show_id = ? WHERE show_id = ?`, winnerID, loserID)
+	if res.Error != nil {
+		return fmt.Errorf("enrichment_queue: %w", res.Error)
 	}
+	summary.EnrichmentMoved += res.RowsAffected
 
-	// Polymorphic FK repoints (entity_type='show'). Tables with no
-	// uniqueness constraint on (entity_type, entity_id) just need a
-	// straight UPDATE.
-	for _, op := range []struct {
-		name string
-		sql  string
-		dst  *int64
-	}{
-		{"comments", `UPDATE comments SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.CommentsRepointed},
-		{"entity_reports", `UPDATE entity_reports SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.EntityReportsMoved},
-		{"audit_logs", `UPDATE audit_logs SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.AuditLogsMoved},
-		// requests uses requested_entity_id, not entity_id.
-		{"requests", `UPDATE requests SET requested_entity_id = ? WHERE entity_type = 'show' AND requested_entity_id = ?`, &summary.RequestsMoved},
-	} {
-		res := tx.Exec(op.sql, winnerID, loserID)
-		if res.Error != nil {
-			return fmt.Errorf("%s: %w", op.name, res.Error)
-		}
-		*op.dst += res.RowsAffected
+	// shows.duplicate_of_show_id is the self-reference, so the winner's own row
+	// has to be excluded: a winner already flagged as a duplicate of the loser
+	// would otherwise come out of the merge flagged as a duplicate of ITSELF,
+	// and that column is served to clients on the show payload.
+	res = tx.Exec(
+		`UPDATE shows SET duplicate_of_show_id = ? WHERE duplicate_of_show_id = ? AND id <> ?`,
+		winnerID, loserID, winnerID)
+	if res.Error != nil {
+		return fmt.Errorf("duplicate_of_show_id: %w", res.Error)
 	}
+	summary.DuplicateOfRepoint += res.RowsAffected
 
-	// pending_entity_edits: a plain re-point today, but it has to say so, for
-	// the same reason revisions does below — this CLI deletes the show a
-	// read-time gate would have consulted. See editHistoryCarriesNoRedaction.
+	// The two history tables move through repointEditHistory, which will not run
+	// without a provenance decision. They need one for the same reason revisions
+	// does below: this CLI deletes the show a read-time gate would have
+	// consulted. See editHistoryCarriesNoRedaction for why neither carries a
+	// redaction today, and what has to change if either gains an entity-scoped
+	// gate.
 	//
-	// It moved with the no-uniqueness group above until PSY-1788, which was
-	// wrong on the facts: idx_pending_entity_edits_unique is UNIQUE on
-	// (entity_type, entity_id, submitted_by) WHERE status = 'pending', so a bare
-	// UPDATE aborted the whole dedup transaction whenever one contributor had a
-	// pending edit on both shows. The helper dedupes first, which is this
-	// function's stated conflict policy — the winner's row wins.
+	// pending_entity_edits moved as a bare UPDATE until PSY-1788, which was wrong
+	// on the facts: idx_pending_entity_edits_unique is UNIQUE on
+	// (entity_type, entity_id, submitted_by) WHERE status = 'pending', so one
+	// contributor with a pending edit on both shows aborted the whole dedup
+	// transaction.
 	//
-	// entity_edit_audit_logs is deliberately NOT re-pointed here: this merge has
-	// never touched it, and adding a re-point is a separate change from routing
-	// the ones that exist.
-	pendingEditsMoved, pendingEditsDropped, err := repointEditHistory(
-		tx, pendingEditsHistory, mergeEntityShow, winnerID, loserID, editHistoryCarriesNoRedaction)
-	if err != nil {
-		return err
+	// entity_edit_audit_logs was not re-pointed at all until PSY-1869. That has
+	// orphaned nothing YET, and the reason is worth writing down rather than
+	// discovering later: no writer records entity_type='show' there today
+	// (LogEntityEdit is called for artist, label, release, festival and scene,
+	// and the show update path does not call it). Nothing in the schema says so
+	// though. There is no CHECK, the table is in the shared inventory, and the
+	// day a show edit route logs one, the merge that would have orphaned it is
+	// the last place anyone would think to look. It moves for the same reason the
+	// CHECK-forbidden tables are still walked: the inventory decides, not a fact
+	// about today's callers.
+	for _, h := range []struct {
+		table   editHistoryTable
+		moved   *int64
+		dropped *int64
+	}{
+		{pendingEditsHistory, &summary.PendingEditsMoved, &summary.PendingEditsSkipped},
+		{entityEditAuditHistory, &summary.EditAuditLogsMoved, &summary.EditAuditLogsSkipped},
+	} {
+		moved, dropped, err := repointEditHistory(
+			tx, h.table, mergeEntityShow, winnerID, loserID, editHistoryCarriesNoRedaction)
+		if err != nil {
+			return err
+		}
+		*h.moved += moved
+		*h.dropped += dropped
+		if dropped > 0 {
+			logDroppedEntityRefs(
+				mergeEntityShow, winnerID, loserID, map[string]int64{h.table.name: dropped})
+		}
 	}
-	summary.PendingEditsMoved += pendingEditsMoved
-	summary.PendingEditsSkipped += pendingEditsDropped
 
 	// revisions: stamped when the loser is gated, because this function deletes
 	// the show the read-time visibility gate would have consulted moments from
@@ -288,32 +492,42 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	}
 	summary.RevisionsMoved += revisionsMoved
 
-	// Polymorphic FK repoints WITH a uniqueness constraint —
-	// conflict-correlation columns vary per table.
-	for _, op := range []struct {
-		name        string
-		correlation []string
-		moved       *int64
-		skipped     *int64
-	}{
-		{"comment_subscriptions", []string{"user_id"}, &summary.SubsRepointed, &summary.SubsSkipped},
-		{"entity_tags", []string{"tag_id"}, &summary.EntityTagsMoved, &summary.EntityTagsSkipped},
-		{"collection_items", []string{"collection_id"}, &summary.CollectionsMoved, &summary.CollectionsSkipped},
-		{"user_bookmarks", []string{"user_id", "action"}, &summary.BookmarksMoved, &summary.BookmarksSkipped},
-	} {
-		moved, skipped, err = movePolymorphicEntity(tx, op.name, op.correlation, winnerID, loserID)
-		if err != nil {
-			return fmt.Errorf("%s: %w", op.name, err)
-		}
-		*op.moved += moved
-		*op.skipped += skipped
+	// Everything with a polymorphic (entity_type, entity_id) reference, from the
+	// inventory the venue and artist merges read. This replaced two hand-written
+	// loops that between them covered ten of the seventeen tables:
+	// comment_last_read, entity_requests, image_enrich_queue, notification_log,
+	// source_configs and tag_votes were never touched by a show merge
+	// (entity_edit_audit_logs, the seventh, moves with the history tables above).
+	//
+	// Two of those six can never hold entity_type='show' because a CHECK forbids
+	// it (image_enrich_queue is artist/release, source_configs is venue/label),
+	// so their statements match zero rows. They are walked anyway: one exhaustive
+	// list is cheaper to keep correct than a list plus a set of per-entity
+	// exceptions that has to be re-verified every time a CHECK changes.
+	entityRefsMoved, entityRefsDropped, err := repointEntityRefs(
+		tx, polymorphicEntityRefs, mergeEntityShow, winnerID, loserID)
+	if err != nil {
+		return err
 	}
+	summary.addEntityRefCounts(entityRefsMoved, entityRefsDropped)
+	logDroppedEntityRefs(mergeEntityShow, winnerID, loserID, entityRefsDropped)
 
-	// Delete the loser show. CASCADE handles anything left in
-	// show_venues / show_artists / show_reports / enrichment_queue
-	// (i.e. nothing — all repointed above).
-	if err := tx.Delete(&catalogm.Show{}, loserID).Error; err != nil {
-		return fmt.Errorf("delete loser show %d: %w", loserID, err)
+	// Delete the loser show. Nothing should be left to CASCADE: every foreign key
+	// to shows.id is named in showFKColumns, and every one of them was re-pointed
+	// above.
+	//
+	// A delete that matches no row is an ERROR, not a no-op. GORM reports no
+	// error for it, so without this a merge against a show that had already been
+	// deleted returned success and incremented LosersMerged, and the CLI printed
+	// a merge that never happened. Every re-point above matched zero rows in that
+	// case too, so failing here costs nothing real and rolls the cluster back.
+	res = tx.Delete(&catalogm.Show{}, loserID)
+	if res.Error != nil {
+		return fmt.Errorf("delete loser show %d: %w", loserID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("loser show %d no longer exists; nothing was merged into %d",
+			loserID, winnerID)
 	}
 
 	summary.LosersMerged++
@@ -418,72 +632,64 @@ func reassignShowRevisions(tx *gorm.DB, winnerID, loserID uint) (int64, error) {
 	return repointRevisions(tx, mergeEntityShow, winnerID, loserID, provenance)
 }
 
-// movePolymorphicJunction drops conflicting rows on (show_id, otherCol)
-// where the winner already has an entry, then re-points the rest to
-// the winner. Used for show_venues and show_artists.
-func movePolymorphicJunction(tx *gorm.DB, table, primaryCol, otherCol string, winnerID, loserID uint) (moved, skipped int64, err error) {
-	// Drop loser rows whose otherCol value already exists on the winner.
+// moveShowFKRows re-points one table's foreign key to shows.id, dropping the
+// loser's rows first when the winner already holds a row the unique key would
+// collide with.
+//
+// dedupeOn is the OTHER column in that unique key: venue_id and artist_id for
+// the show_venues and show_artists primary keys, reported_by for show_reports'
+// UNIQUE (show_id, reported_by). It is a property of the TABLE, never of the
+// call site, for the same reason editHistoryTable.dedupeOn is: letting a caller
+// choose whether to dodge an index is what left show_reports moving with a bare
+// UPDATE that its own index could reject.
+//
+// Every dedupeOn column is NOT NULL today, so the delete's `w.col = l.col`
+// correlation needs no NULL handling. A nullable one would need the same care
+// notification_log's does in repointEntityRefs: a unique index treats NULLs as
+// distinct, so the equality that skips them matches the index rather than
+// missing rows.
+func moveShowFKRows(tx *gorm.DB, table, showCol, dedupeOn string, winnerID, loserID uint) (moved, skipped int64, err error) {
+	if table == "" || showCol == "" || dedupeOn == "" {
+		return 0, 0, fmt.Errorf("move show fk rows: table, show column and dedupe column are required")
+	}
+	// The column being re-pointed must be one the inventory names. This makes
+	// showFKColumns load-bearing rather than documentary: a re-point of a column
+	// with no recorded disposition cannot run, and the interpolated identifiers
+	// are pinned to a package-level list instead of merely being literals today.
+	if !showFKColumnListed(table + "." + showCol) {
+		return 0, 0, fmt.Errorf(
+			"move show fk rows: %s.%s is not in showFKColumns, so it has no recorded disposition",
+			table, showCol)
+	}
+	if winnerID == 0 || loserID == 0 {
+		return 0, 0, fmt.Errorf("move show fk rows: winner and loser ids are required")
+	}
+	// A self-merge would correlate every row against itself and delete the
+	// surviving show's own rows before the no-op move ran.
+	if winnerID == loserID {
+		return 0, 0, fmt.Errorf("move show fk rows: cannot re-point show %d onto itself", winnerID)
+	}
+
+	// Drop loser rows whose dedupeOn value already exists on the winner.
+	// #nosec G201 -- table and column names come from the hardcoded call sites in
+	// MergeDuplicateShow, never from caller input; the ids are bound parameters.
 	delSQL := fmt.Sprintf(`
-		DELETE FROM %s
-		WHERE %s = ?
+		DELETE FROM %[1]s l
+		WHERE l.%[2]s = ?
 		  AND EXISTS (
-			SELECT 1 FROM %s w
-			WHERE w.%s = ?
-			  AND w.%s = %s.%s
-		  )
-	`, table, primaryCol, table, primaryCol, otherCol, table, otherCol)
+		        SELECT 1 FROM %[1]s w
+		        WHERE w.%[2]s = ?
+		          AND w.%[3]s = l.%[3]s
+		      )
+	`, table, showCol, dedupeOn)
 	del := tx.Exec(delSQL, loserID, winnerID)
 	if del.Error != nil {
 		return 0, 0, del.Error
 	}
 	skipped = del.RowsAffected
 
-	updSQL := fmt.Sprintf(`UPDATE %s SET %s = ? WHERE %s = ?`, table, primaryCol, primaryCol)
-	upd := tx.Exec(updSQL, winnerID, loserID)
-	if upd.Error != nil {
-		return 0, 0, upd.Error
-	}
-	moved = upd.RowsAffected
-	return moved, skipped, nil
-}
-
-// movePolymorphicEntity is a conflict-aware FK repoint for tables
-// keyed on `(<correlation columns>, entity_type='show', entity_id)`.
-// Loser rows whose `<correlation>` already collides with a winner
-// row are deleted (winner wins); remaining rows are repointed to the
-// winner. Used for comment_subscriptions, entity_tags,
-// collection_items and user_bookmarks — `correlation` differs per
-// table (e.g. `["user_id", "action"]` for user_bookmarks).
-func movePolymorphicEntity(tx *gorm.DB, table string, correlation []string, winnerID, loserID uint) (moved, skipped int64, err error) {
-	if len(correlation) == 0 {
-		return 0, 0, fmt.Errorf("correlation must not be empty")
-	}
-	conds := make([]string, len(correlation))
-	for i, col := range correlation {
-		conds[i] = fmt.Sprintf("t2.%s = %s.%s", col, table, col)
-	}
-	delSQL := fmt.Sprintf(`
-		DELETE FROM %s
-		WHERE entity_type = 'show'
-		  AND entity_id = ?
-		  AND EXISTS (
-			SELECT 1 FROM %s t2
-			WHERE t2.entity_type = 'show'
-			  AND t2.entity_id = ?
-			  AND %s
-		  )
-	`, table, table, strings.Join(conds, " AND "))
-	del := tx.Exec(delSQL, loserID, winnerID)
-	if del.Error != nil {
-		return 0, 0, del.Error
-	}
-	skipped = del.RowsAffected
-
-	updSQL := fmt.Sprintf(`
-		UPDATE %s
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, table)
+	// #nosec G201 -- see above.
+	updSQL := fmt.Sprintf(`UPDATE %[1]s SET %[2]s = ? WHERE %[2]s = ?`, table, showCol)
 	upd := tx.Exec(updSQL, winnerID, loserID)
 	if upd.Error != nil {
 		return 0, 0, upd.Error

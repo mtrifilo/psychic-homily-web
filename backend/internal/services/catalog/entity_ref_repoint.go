@@ -8,16 +8,17 @@ import (
 )
 
 // This file holds the inventory of polymorphic (entity_type, entity_id) tables
-// and the mechanism that moves them, shared by the venue merge and the artist
-// merge so there are not two copies to drift apart.
+// and the mechanism that moves them, shared by all three merges in this package
+// so there are not three copies to drift apart.
 //
 // The tables carry NO foreign key to the entity, so a row left behind does not
-// fail loudly — it silently points at an id that no longer exists.
+// fail loudly: it silently points at an id that no longer exists.
 //
-// NOT every merge in this package goes through here yet: MergeDuplicateShow
-// (show_dedup.go) still walks its own shorter, unguarded list. That is the next
-// instance of the drift this file exists to end, tracked separately rather than
-// folded into the artist ticket that created the file.
+// Every merge that deletes an entity now reads this list. MergeVenues (PSY-1745)
+// came first, MergeArtists (PSY-1834) second, and MergeDuplicateShow (PSY-1869)
+// last, which had been walking its own shorter list covering ten of the
+// seventeen tables. A merge that does NOT read it is the drift this file exists
+// to end.
 
 // entityRef describes one polymorphic (entity_type, entity_id) reference table.
 //
@@ -66,9 +67,9 @@ type entityRef struct {
 // one exhaustive list is cheaper to keep correct than a list plus a set of
 // per-entity exceptions that has to be re-verified every time a CHECK changes.
 //
-// TestVenueEntityRefsCoverSchema and TestArtistEntityRefsCoverSchema fail if a
-// migration adds an entity_type table that is not listed here, so this cannot
-// silently fall behind.
+// TestVenueEntityRefsCoverSchema, TestArtistEntityRefsCoverSchema and
+// TestShowEntityRefsCoverSchema fail if a migration adds an entity_type table
+// that is not listed here, so this cannot silently fall behind.
 var polymorphicEntityRefs = []entityRef{
 	// Unique on (entity_type, entity_id) plus the listed columns.
 	{table: "collection_items", idCol: "entity_id", dedupe: true, key: []string{"collection_id"}},
@@ -253,6 +254,23 @@ func movedCount(moved map[string]int64, table string) (int64, error) {
 			"merge summary wants %s, which is not in the entity-ref inventory", table)
 	}
 	return count, nil
+}
+
+// unhandledEntityRefTables names the schema's entity_type tables that no merge
+// handles: absent from polymorphicEntityRefs AND from refsRepointedElsewhere.
+//
+// Split out of the suite guards that call it so the guard's own logic can be
+// exercised without a database, against a deliberately incomplete inventory
+// (TestUnhandledEntityRefTablesNamesTheGap). A drift guard nobody has ever
+// watched fail is a guard nobody knows works.
+func unhandledEntityRefTables(schemaTables []string, covered map[string]bool) []string {
+	var out []string
+	for _, table := range schemaTables {
+		if !covered[table] {
+			out = append(out, table)
+		}
+	}
+	return out
 }
 
 // entityRefTables is every entity_type table the merges handle, for the

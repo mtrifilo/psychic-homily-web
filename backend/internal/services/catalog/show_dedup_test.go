@@ -40,9 +40,10 @@ func (s *ShowDedupTestSuite) TearDownTest() {
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
 	for _, t := range []string{
-		"comment_subscriptions", "comment_votes", "comment_edits", "comments",
-		"entity_tags", "entity_reports", "pending_entity_edits",
-		"revisions", "requests", "audit_logs", "collection_items",
+		"comment_subscriptions", "comment_votes", "comment_edits", "comment_last_read", "comments",
+		"tag_votes", "entity_tags", "tags", "entity_reports", "pending_entity_edits",
+		"entity_edit_audit_logs", "notification_log", "entity_requests",
+		"revisions", "requests", "audit_logs", "collection_items", "collections",
 		"user_bookmarks", "show_reports", "enrichment_queue",
 		"show_artists", "show_venues", "shows", "artists", "venues", "users",
 	} {
@@ -244,8 +245,8 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RepointsBookmarks() {
 		Count(&loserCount)
 	s.Equal(int64(0), loserCount)
 
-	s.Equal(int64(1), summary.BookmarksMoved)
-	s.Equal(int64(1), summary.BookmarksSkipped)
+	s.Equal(int64(1), summary.EntityRefsMoved["user_bookmarks"])
+	s.Equal(int64(1), summary.EntityRefsDropped["user_bookmarks"])
 }
 
 // TestMergeDuplicateShow_RepointsCollectionItems confirms collection
@@ -285,7 +286,7 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RepointsCollectionItems() {
 		Where("collection_id = ? AND entity_type = 'show' AND entity_id = ?", collectionID, winner).
 		Count(&n)
 	s.Equal(int64(1), n, "exactly one item should remain on winner per collection")
-	s.Equal(int64(1), summary.CollectionsSkipped)
+	s.Equal(int64(1), summary.EntityRefsDropped["collection_items"])
 }
 
 // The show dedup CLI runs with no admin in the loop, so its revision re-point
