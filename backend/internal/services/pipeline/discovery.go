@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"gorm.io/gorm"
 
@@ -317,20 +319,21 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			scrapedAt = time.Now().UTC()
 		}
 
+		// Resolve the doors/music instants the source stated. Nil means the
+		// source said nothing readable, and the column stays empty.
+		doorsAt, musicAt := resolveShowTimes(event.Date, event.DoorsTime, event.ShowTime, venueConfig.State)
+
 		// Build description from available info.
 		//
-		// KNOWN GAP: DoorsTime/ShowTime are stringified into the description
-		// here and NOT written to shows.doors_at / shows.music_at, so imported
-		// shows leave those columns NULL even though the scraped data is right
-		// there. Wiring it up needs the free-text time ("6:30 pm") parsed
-		// against the venue's timezone, which is a separate change from adding
-		// the columns. Until then this string is the only record of the times,
-		// so do not delete it assuming the columns cover it.
+		// A time that reached its own column is NOT repeated here: the status
+		// stripe renders doors_at/music_at, so keeping the string as well shows
+		// the same fact twice. A time the parser could not read still goes in,
+		// because then the string is the only record that survives the import.
 		var descParts []string
-		if event.DoorsTime != nil && *event.DoorsTime != "" {
+		if doorsAt == nil && event.DoorsTime != nil && *event.DoorsTime != "" {
 			descParts = append(descParts, fmt.Sprintf("Doors: %s", *event.DoorsTime))
 		}
-		if event.ShowTime != nil && *event.ShowTime != "" {
+		if musicAt == nil && event.ShowTime != nil && *event.ShowTime != "" {
 			descParts = append(descParts, fmt.Sprintf("Show: %s", *event.ShowTime))
 		}
 		if event.TicketURL != nil && *event.TicketURL != "" {
@@ -356,6 +359,8 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		show := &catalogm.Show{
 			Title:             event.Title,
 			EventDate:         eventDate.UTC(),
+			DoorsAt:           doorsAt,
+			MusicAt:           musicAt,
 			City:              &venueConfig.City,
 			State:             &venueConfig.State,
 			Description:       description,
@@ -576,6 +581,23 @@ func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *c
 		changes = append(changes, fmt.Sprintf("cancelled: %v -> %v", existing.IsCancelled, *event.IsCancelled))
 	}
 
+	// doors_at / music_at are deliberately NOT updated here.
+	//
+	// This path never moves event_date, and music_at has to keep naming the
+	// same instant. Writing a time onto a row whose event_date stays put
+	// produces a show whose stripe and date disagree -- by 27 hours when the
+	// original scrape stated no time at all, since event_date is then a
+	// midnight-UTC placeholder. It also breaks the doors <= music invariant the
+	// API enforces over stored-plus-incoming values (validateShowTimeOrder in
+	// internal/api/handlers/catalog/show.go), because a scrape stating only one
+	// of the two cannot see the stored other half: a later scrape stating
+	// "12:00 AM" music against a stored 11:00 PM doors would write a row that
+	// 422s the next admin edit.
+	//
+	// Filling times on already-imported shows is a backfill, and a backfill has
+	// to reconcile event_date at the same time. Until something does, times
+	// land on the create path only.
+
 	if len(updates) == 0 {
 		return fmt.Sprintf("DUPLICATE: %s (ID: %s) already imported as show #%d (no changes)", event.Title, event.ID, existing.ID), "duplicate"
 	}
@@ -598,48 +620,163 @@ func getTimezoneForState(state string) string {
 	return utils.GetTimezoneForState(state)
 }
 
+// parseCalendarDate reads the calendar date out of the date string a scrape
+// reports. The returned time carries whatever zone the input expressed, so
+// callers that want the stated Y/M/D read it off directly.
+func parseCalendarDate(dateStr string) (time.Time, error) {
+	for _, layout := range []string{"2006-01-02", "2006-01-02T15:04:05Z", time.RFC3339} {
+		if date, err := time.Parse(layout, dateStr); err == nil {
+			return date, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
+}
+
+// clockTimeWithMeridiem matches the 12-hour wall clock every scraper in
+// discovery/src/server/providers emits ("7:00 pm", "6:30PM"). The trailing
+// periods cover the "7:00 p.m." a raw passthrough can leak.
+var clockTimeWithMeridiem = regexp.MustCompile(`^(\d{1,2}):(\d{2})([ap])\.?m\.?$`)
+
+// clockTime24Hour matches the 24-hour wall clock a feed can hand through
+// unformatted ("19:00"). Only hours that CANNOT be a 12-hour reading count:
+// "19:00" is unambiguous, "7:00" is not. emptybottle.formatTime returns its
+// input unchanged when its AM/PM regex misses, so a ".start-time" cell reading
+// "7:00" arrives here verbatim from a 7 PM show -- reading it as 7 AM would
+// fabricate exactly the kind of time this parser exists to refuse.
+var clockTime24Hour = regexp.MustCompile(`^(\d{1,2}):(\d{2})$`)
+
+// parseClockTime reads a wall-clock time of day out of the free text a venue
+// calendar states. It reports ok only when the string is unambiguously a time,
+// so a caller never has to decide what a half-readable value meant.
+//
+// Deliberately strict. "doors at 7" and "7ish" are not times. Neither is
+// "19:00 pm", a 24-hour clock wearing a meridiem, which the previous Sscanf
+// parser silently turned into hour 31 and rolled into the next day. Neither is
+// a bare "7:00", which could name either half of the day. Rejecting them leaves
+// the caller with "the source did not state a time", which is a truthful
+// answer; accepting them would publish a fabricated one.
+func parseClockTime(raw string) (hour, minute int, ok bool) {
+	// Fold case and drop ALL whitespace so "7:00 PM" and "7:00pm" are one
+	// shape. Unicode-aware on purpose: venue calendars are scraped HTML, and a
+	// "7:00&nbsp;PM" reaches ticketweb.parseTime, whose capture group hands the
+	// U+00A0 through verbatim. Stripping only the ASCII space would drop that
+	// listing's times on the floor.
+	normalized := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return unicode.ToLower(r)
+	}, raw)
+
+	if m := clockTimeWithMeridiem.FindStringSubmatch(normalized); m != nil {
+		hour, _ = strconv.Atoi(m[1])
+		minute, _ = strconv.Atoi(m[2])
+		if hour < 1 || hour > 12 || minute > 59 {
+			return 0, 0, false
+		}
+		switch {
+		case m[3] == "p" && hour != 12:
+			hour += 12
+		case m[3] == "a" && hour == 12:
+			hour = 0
+		}
+		return hour, minute, true
+	}
+
+	if m := clockTime24Hour.FindStringSubmatch(normalized); m != nil {
+		hour, _ = strconv.Atoi(m[1])
+		minute, _ = strconv.Atoi(m[2])
+		// Hours 1 through 12 without a meridiem could mean either half of the
+		// day, so they are not a stated time. Hour 0 and 13 through 23 can only
+		// be a 24-hour clock.
+		if hour > 23 || minute > 59 || (hour >= 1 && hour <= 12) {
+			return 0, 0, false
+		}
+		return hour, minute, true
+	}
+
+	return 0, 0, false
+}
+
+// venueLocalInstant anchors a wall-clock time to a stated calendar date, read
+// in the venue's local zone, and returns the UTC instant it names.
+func venueLocalInstant(date time.Time, hour, minute int, state string) time.Time {
+	loc, err := time.LoadLocation(getTimezoneForState(state))
+	if err != nil {
+		loc = time.UTC
+	}
+	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, loc).UTC()
+}
+
 // parseEventDate parses the event date and optional show time into a time.Time (UTC).
 // The state parameter is used to interpret the show time in the venue's local timezone.
 func parseEventDate(dateStr string, showTime *string, state string) (time.Time, error) {
-	// Try parsing ISO date format (2026-01-25)
-	date, err := time.Parse("2006-01-02", dateStr)
+	date, err := parseCalendarDate(dateStr)
 	if err != nil {
-		// Try other common formats
-		date, err = time.Parse("2006-01-02T15:04:05Z", dateStr)
-		if err != nil {
-			date, err = time.Parse(time.RFC3339, dateStr)
-			if err != nil {
-				return time.Time{}, fmt.Errorf("unable to parse date: %s", dateStr)
-			}
-		}
+		return time.Time{}, err
 	}
 
-	// If show time is provided, try to parse and combine with date
-	if showTime != nil && *showTime != "" {
-		// Parse time like "7:00 pm" or "7:00 PM"
-		timeStr := strings.ToLower(strings.TrimSpace(*showTime))
-		timeStr = strings.ReplaceAll(timeStr, " ", "")
-
-		var hour, minute int
-		var period string
-
-		_, err := fmt.Sscanf(timeStr, "%d:%d%s", &hour, &minute, &period)
-		if err == nil {
-			if strings.HasPrefix(period, "pm") && hour != 12 {
-				hour += 12
-			} else if strings.HasPrefix(period, "am") && hour == 12 {
-				hour = 0
-			}
-			// Interpret the time in the venue's local timezone
-			loc, locErr := time.LoadLocation(getTimezoneForState(state))
-			if locErr != nil {
-				loc = time.UTC
-			}
-			date = time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, loc)
+	// A show time the parser cannot read leaves event_date on the bare calendar
+	// date, exactly as it did before the times were readable at all.
+	if showTime != nil {
+		if hour, minute, ok := parseClockTime(*showTime); ok {
+			return venueLocalInstant(date, hour, minute, state), nil
 		}
 	}
 
 	return date.UTC(), nil
+}
+
+// resolveShowTimes maps a scraped event's free-text doors/show times onto the
+// shows.doors_at / shows.music_at instants.
+//
+// Explicit only. A time the source did not state, or stated in a form
+// parseClockTime cannot read unambiguously, comes back nil so the column stays
+// empty. The show page would rather render a date alone than a door time the
+// pipeline invented.
+//
+// Both instants anchor to the calendar date the source stated, read in the
+// venue's timezone -- the same anchoring parseEventDate uses.
+//
+// A readable SHOW time is required before either column is written, because
+// event_date is derived from that same string. Without one, event_date is a
+// midnight-UTC placeholder that renders as the PREVIOUS day in every US venue
+// zone, so a doors time anchored to the stated day would put the stripe and
+// the date a calendar day apart. Refusing both keeps the show on the
+// date-only rendering it already had.
+//
+// A stated pair whose show time lands before its doors time is contradictory,
+// and the usual cause is a listing that crossed midnight and dropped the day
+// ("Doors 11:00 PM / Show 12:00 AM"). Recovering that intent would mean
+// inferring a day rollover the source never stated, so neither time is written.
+func resolveShowTimes(dateStr string, doorsTime, showTime *string, state string) (doorsAt, musicAt *time.Time) {
+	date, err := parseCalendarDate(dateStr)
+	if err != nil {
+		return nil, nil
+	}
+
+	if showTime == nil {
+		return nil, nil
+	}
+	showHour, showMinute, ok := parseClockTime(*showTime)
+	if !ok {
+		return nil, nil
+	}
+	music := venueLocalInstant(date, showHour, showMinute, state)
+	musicAt = &music
+
+	if doorsTime != nil {
+		if hour, minute, ok := parseClockTime(*doorsTime); ok {
+			instant := venueLocalInstant(date, hour, minute, state)
+			doorsAt = &instant
+		}
+	}
+
+	if doorsAt != nil && musicAt.Before(*doorsAt) {
+		return nil, nil
+	}
+
+	return doorsAt, musicAt
 }
 
 // parseArtistsFromTitle extracts artist names from event title
