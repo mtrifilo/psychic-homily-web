@@ -264,11 +264,12 @@ func curatedShowArtistSetType(index int, value *string) (*string, error) {
 }
 
 // parseShowEventDate parses a show payload's event_date. An RFC3339 value is
-// taken as-is; a date-only value (YYYY-MM-DD) is anchored at 20:00 in the
-// state's assumed IANA zone (utils.EventLocation, which defaults unknown/empty
-// states per its documented fallback) — the same "date-only means that
-// evening, venue-local" convention the ingest CLI and the PSY-987 re-anchor
-// logic use, so a date-only show doesn't render as the previous day.
+// taken as-is; a date-only value (YYYY-MM-DD) is anchored at
+// utils.DateOnlyEventHour in the state's assumed IANA zone (utils.EventLocation,
+// which defaults unknown/empty states per its documented fallback) — the same
+// "date-only means that evening, venue-local" convention the ingest CLI and the
+// PSY-987 re-anchor logic use, so a date-only show doesn't render as the
+// previous day.
 func parseShowEventDate(value, state string) (time.Time, error) {
 	trimmed := strings.TrimSpace(value)
 	if t, err := time.Parse(time.RFC3339, trimmed); err == nil {
@@ -276,7 +277,7 @@ func parseShowEventDate(value, state string) (time.Time, error) {
 	}
 	if d, err := time.Parse("2006-01-02", trimmed); err == nil {
 		loc := utils.EventLocation(nil, state)
-		return time.Date(d.Year(), d.Month(), d.Day(), 20, 0, 0, 0, loc), nil
+		return time.Date(d.Year(), d.Month(), d.Day(), utils.DateOnlyEventHour, 0, 0, 0, loc), nil
 	}
 	return time.Time{}, fmt.Errorf("show event_date %q is not an RFC3339 timestamp or YYYY-MM-DD date", trimmed)
 }

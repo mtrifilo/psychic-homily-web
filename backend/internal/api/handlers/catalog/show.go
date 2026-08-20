@@ -531,10 +531,37 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	ticketURL := shared.Deref(req.Body.TicketURL)
 	isPrivate := shared.Deref(req.Body.IsPrivate)
 
+	// A bare calendar date is widened to the venue-local evening before it can
+	// be stored as UTC midnight, which no reader could later tell apart from a
+	// genuine 8pm Eastern show. See show_event_date.go for why this is the last
+	// layer that can make the distinction at all.
+	//
+	// A venue submitted by ID alone carries no state here, so such a show falls
+	// back to the body's state and then to EventLocation's default. Resolving the
+	// room's real state would mean a database read in the handler, ahead of the
+	// service layer that already loads venues; the anchor is a convention rather
+	// than a door time, so a zone that is off by an hour or two still lands on
+	// the intended evening, which is the property this exists to protect.
+	venueStates := make([]string, len(serviceVenues))
+	for i, v := range serviceVenues {
+		venueStates[i] = v.State
+	}
+	eventDate, reanchored := anchorDateOnlyEventDate(
+		req.Body.EventDate,
+		showEventDateState(venueStates, req.Body.State),
+	)
+	if reanchored {
+		logger.FromContext(ctx).Info("show_create_event_date_anchored",
+			"submitted", req.Body.EventDate.Format(time.RFC3339),
+			"stored", eventDate.UTC().Format(time.RFC3339),
+			"request_id", requestID,
+		)
+	}
+
 	// Convert request to service request with user context
 	serviceReq := &contracts.CreateShowRequest{
 		Title:             title,
-		EventDate:         req.Body.EventDate,
+		EventDate:         eventDate,
 		DoorsAt:           req.Body.DoorsAt,
 		MusicAt:           req.Body.MusicAt,
 		City:              req.Body.City,
@@ -1037,12 +1064,44 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		}
 	}
 
+	// Same date-only anchoring the create path applies, for the same reason: a
+	// PATCH that moves a show to a bare date would otherwise reintroduce exactly
+	// the UTC-midnight row the create path now refuses to write.
+	//
+	// The zone falls back further here than on create, because a partial update
+	// need not carry venues or a state at all: submitted venues, then the
+	// submitted state, then the state already stored on the row.
+	updatedEventDate := req.Body.EventDate
+	if req.Body.EventDate != nil {
+		venueStates := make([]string, len(req.Body.Venues))
+		for i, v := range req.Body.Venues {
+			venueStates[i] = shared.Deref(v.State)
+		}
+		anchored, reanchored := anchorDateOnlyEventDate(
+			*req.Body.EventDate,
+			showEventDateState(
+				venueStates,
+				shared.Deref(req.Body.State),
+				shared.Deref(existingShow.State),
+			),
+		)
+		if reanchored {
+			logger.FromContext(ctx).Info("show_update_event_date_anchored",
+				"show_id", showID,
+				"submitted", req.Body.EventDate.Format(time.RFC3339),
+				"stored", anchored.UTC().Format(time.RFC3339),
+				"request_id", requestID,
+			)
+		}
+		updatedEventDate = &anchored
+	}
+
 	// Build typed update request for basic show fields. The service writes
 	// only the non-nil fields, converts EventDate to UTC, and normalizes an
 	// empty ImageURL to SQL NULL.
 	serviceUpdates := &contracts.UpdateShowRequest{
 		Title:          req.Body.Title,
-		EventDate:      req.Body.EventDate,
+		EventDate:      updatedEventDate,
 		DoorsAt:        req.Body.DoorsAt,
 		MusicAt:        req.Body.MusicAt,
 		City:           req.Body.City,

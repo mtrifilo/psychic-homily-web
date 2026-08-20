@@ -79,6 +79,31 @@ var StateTimezones = map[string]string{
 	"HI": "Pacific/Honolulu",
 }
 
+// DateOnlyEventHour is the venue-local hour a show carrying a DATE but no time
+// of day is anchored at.
+//
+// The alternative is storing bare UTC midnight, and that is the bug this
+// constant exists to keep closed. shows.event_date is a TIMESTAMPTZ with no
+// companion precision flag, so once a date-only value is written as 00:00:00Z
+// nothing downstream can recover the fact that its time was never known. In
+// every US zone that instant is the PREVIOUS evening local, so the show sorts
+// and renders under the wrong calendar day, and any "still upcoming" bound drops
+// it from the moment UTC midnight passes — 17:00 the day before in Phoenix.
+// PSY-1780, PSY-1849 and PSY-1861 are three separate bites of that one wound.
+//
+// 20:00 is not a guess at any particular door time; it is a convention chosen so
+// that the anchored instant lands unambiguously on the intended calendar EVENING
+// in every US zone, which is the only property readers depend on.
+//
+// Exported and referenced by every writer rather than restated as a literal:
+// discovery imports (services/pipeline.parseEventDate), community request
+// fulfillment (handlers/community.parseShowEventDate) and the show create/update
+// API (handlers/catalog.anchorDateOnlyEventDate) must agree, or a reader
+// inspecting a row cannot tell which writer produced it. The ph CLI's
+// cli/src/lib/timezone.ts is the fourth writer and is NOT compile-checked
+// against this — keep it in sync by hand, exactly as StateTimezones warns above.
+const DateOnlyEventHour = 20
+
 // GetTimezoneForState returns the IANA timezone for a US state abbreviation.
 // Defaults to "America/Phoenix" if the state is not found.
 func GetTimezoneForState(state string) string {

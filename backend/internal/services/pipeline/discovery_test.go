@@ -23,10 +23,53 @@ import (
 // UNIT TESTS — parseEventDate
 // =============================================================================
 
-func TestParseEventDate_ISODateOnly(t *testing.T) {
+// A scraped date with no time is anchored at the venue-local evening, NOT at
+// bare UTC midnight. Midnight UTC is 17:00 the PREVIOUS day in Phoenix, so the
+// old behaviour filed the show under the wrong calendar day and dropped it from
+// every upcoming bound 31 hours early (PSY-1780/PSY-1849/PSY-1861).
+func TestParseEventDate_ISODateOnly_AnchorsVenueLocalEvening(t *testing.T) {
 	result, err := parseEventDate("2026-01-25", nil, "AZ")
 	assert.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
+	// 20:00 Phoenix (UTC-7, no DST) on the 25th = 03:00 UTC on the 26th.
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
+
+	// The property that actually matters: read back in the venue's own zone, the
+	// stored instant is the evening of the date that was scraped.
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	assert.NoError(t, err)
+	assert.Equal(t, "2026-01-25 20:00", result.In(phoenix).Format("2006-01-02 15:04"))
+}
+
+// The same date-only input across a DST boundary in a zone that observes one.
+// Both must land on the scraped evening; only the UTC instant differs.
+func TestParseEventDate_ISODateOnly_AnchorsAcrossDST(t *testing.T) {
+	newYork, err := time.LoadLocation("America/New_York")
+	assert.NoError(t, err)
+
+	winter, err := parseEventDate("2026-01-25", nil, "NY")
+	assert.NoError(t, err)
+	// 20:00 EST (UTC-5) = 01:00 UTC next day.
+	assert.Equal(t, time.Date(2026, 1, 26, 1, 0, 0, 0, time.UTC), winter)
+	assert.Equal(t, "2026-01-25 20:00", winter.In(newYork).Format("2006-01-02 15:04"))
+
+	summer, err := parseEventDate("2026-08-15", nil, "NY")
+	assert.NoError(t, err)
+	// 20:00 EDT (UTC-4) is EXACTLY UTC midnight on the 16th. This is the case
+	// that makes a read-side repair impossible: a correctly anchored date-only
+	// show and a genuine 8pm Eastern show are the same instant, and the stored
+	// row carries nothing else to tell them apart. It is also why the fix has to
+	// happen at the write boundary, where the submitted offset still exists.
+	assert.Equal(t, time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC), summer)
+	assert.Equal(t, "2026-08-15 20:00", summer.In(newYork).Format("2006-01-02 15:04"))
+}
+
+// An unknown state still anchors — on EventLocation's documented Phoenix
+// default. The anchor must never be skipped for want of a zone, because the
+// fallback for "no zone" was the corrupt midnight value.
+func TestParseEventDate_UnknownState_AnchorsOnDefaultZone(t *testing.T) {
+	result, err := parseEventDate("2026-01-25", nil, "XX")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_ISOTimestamp(t *testing.T) {
@@ -94,7 +137,8 @@ func TestParseEventDate_EmptyShowTime(t *testing.T) {
 	showTime := ""
 	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
 	assert.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
+	// Indistinguishable from no show time at all: anchored, not UTC midnight.
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_InvalidDate(t *testing.T) {
@@ -106,15 +150,32 @@ func TestParseEventDate_InvalidDate(t *testing.T) {
 func TestParseEventDate_NilShowTime(t *testing.T) {
 	result, err := parseEventDate("2026-01-25", nil, "AZ")
 	assert.NoError(t, err)
-	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
+}
+
+// A FULL timestamp states its own time of day and is never re-anchored, however
+// that time was written. This is the guard that keeps the date-only rule from
+// rewriting scraped instants: without it, a feed publishing midnight-UTC
+// timestamps would be pushed a further 20 hours.
+func TestParseEventDate_FullTimestampIsNeverReanchored(t *testing.T) {
+	midnightUTC, err := parseEventDate("2026-01-25T00:00:00Z", nil, "AZ")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), midnightUTC)
+
+	withOffset, err := parseEventDate("2026-01-25T20:00:00-07:00", nil, "AZ")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), withOffset)
 }
 
 func TestParseEventDate_UnparseableTime(t *testing.T) {
 	showTime := "doors at 7"
 	result, err := parseEventDate("2026-01-25", &showTime, "AZ")
 	assert.NoError(t, err)
-	// Unparseable time is silently ignored, date is returned without time
-	assert.Equal(t, time.Date(2026, 1, 25, 0, 0, 0, 0, time.UTC), result)
+	// An unparseable time is still ignored, but the date no longer falls through
+	// as bare UTC midnight — it takes the same venue-local evening anchor a
+	// missing time takes. A scraper emitting an unknown format now produces an
+	// imprecise instant instead of one that is wrong by a calendar day.
+	assert.Equal(t, time.Date(2026, 1, 26, 3, 0, 0, 0, time.UTC), result)
 }
 
 func TestParseEventDate_UnknownStateDefaultsToPhoenix(t *testing.T) {
@@ -343,6 +404,9 @@ func TestResolveShowTimes_AnchorsToTheStatedCalendarDate(t *testing.T) {
 // UNIT TESTS — getTimezoneForState
 // =============================================================================
 
+// The zone map this package's date parsing depends on, including the date-only
+// anchor: a state that silently resolved to the wrong zone would anchor a
+// timeless import on the wrong evening.
 func TestGetTimezoneForState(t *testing.T) {
 	assert.Equal(t, "America/Phoenix", getTimezoneForState("AZ"))
 	assert.Equal(t, "America/Phoenix", getTimezoneForState("az"))
@@ -756,9 +820,11 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped
 	err := suite.db.Create(venue).Error
 	suite.Require().NoError(err)
 
+	// 20:00 Phoenix on 2026-10-01, the instant a date-only import of that date
+	// now produces — the rejected-show check matches on the full timestamp.
 	show := &catalogm.Show{
 		Title:     "Old Rejected Show",
-		EventDate: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+		EventDate: time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC),
 		Status:    catalogm.ShowStatusRejected,
 		Source:    catalogm.ShowSourceUser,
 	}
@@ -1109,14 +1175,15 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_
 	artist.Slug = &slug
 	suite.Require().NoError(suite.db.Create(artist).Error)
 
-	// Store the existing show at midnight UTC so it matches the exact
-	// event_date a date-only import produces (parseEventDate with no ShowTime
-	// yields 00:00 UTC). The dedup key is the FULL timestamp (PSY-559), so the
-	// fixture must share the import's exact event_date to be a true duplicate —
-	// a different time-of-day would be a distinct (matinee/evening) show.
+	// Store the existing show at the exact event_date a date-only import
+	// produces: parseEventDate anchors a bare date at 20:00 in the venue's zone,
+	// so 2026-11-15 at a Phoenix (UTC-7) venue is 2026-11-16T03:00Z. The dedup
+	// key is the FULL timestamp (PSY-559), so the fixture must share the
+	// import's exact event_date to be a true duplicate — a different time-of-day
+	// would be a distinct (matinee/evening) show.
 	show := &catalogm.Show{
 		Title:     "Existing Show",
-		EventDate: time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC),
+		EventDate: time.Date(2026, 11, 16, 3, 0, 0, 0, time.UTC),
 		Status:    catalogm.ShowStatusApproved,
 		Source:    catalogm.ShowSourceUser,
 	}
@@ -1129,7 +1196,8 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_
 		show.ID, artist.ID).Error)
 
 	// Now try to import an event with the same artist at the same venue at the
-	// same exact event_date (date-only import → 00:00 UTC, matching the fixture)
+	// same exact event_date (date-only import → 20:00 venue-local, matching the
+	// fixture above)
 	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-pos0-001", "Position Zero Band Live", "valley-bar", "2026-11-15", []string{"Position Zero Band"}),
 	}
@@ -1325,5 +1393,44 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_BatchesArtistFetch_F
 		suite.Require().True(ok, "fallback event for %s should be found", date)
 		suite.Require().NotNil(status.CurrentData)
 		suite.Equal(want, status.CurrentData.Artists, "artist names/order for %s", date)
+	}
+}
+
+// The venue+date fallback window is the VENUE'S calendar day, not a UTC one.
+//
+// A Phoenix venue's evening sits on the following UTC day, so a UTC
+// midnight-to-midnight window reported the previous night's show under the date
+// asked for and missed the date's own show entirely — an off-by-one-night answer
+// in the scraper UI's "already have this?" column.
+func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_FallbackWindowIsVenueLocalDay() {
+	venue := &catalogm.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	suite.Require().NoError(suite.db.Create(venue).Error)
+
+	// 20:00 Phoenix on 2026-12-04 — stored as 2026-12-05T03:00Z, i.e. the UTC
+	// day AFTER its own calendar date. This is where every US evening show sits.
+	show := &catalogm.Show{
+		Title:     "Venue Local Night",
+		EventDate: time.Date(2026, 12, 5, 3, 0, 0, 0, time.UTC),
+		Status:    catalogm.ShowStatusApproved,
+		Source:    catalogm.ShowSourceUser,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	suite.Require().NoError(suite.db.Exec(
+		"INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID).Error)
+
+	result, err := suite.svc.CheckEvents([]contracts.CheckEventInput{
+		{ID: "local-day-hit", VenueSlug: "valley-bar", Date: "2026-12-04"},
+		{ID: "local-day-miss", VenueSlug: "valley-bar", Date: "2026-12-05"},
+	})
+	suite.Require().NoError(err)
+
+	hit, ok := result.Events["local-day-hit"]
+	suite.Require().True(ok, "the show must be found under its own venue-local date")
+	suite.True(hit.Exists, "2026-12-04 is the night this show happens on")
+
+	// And it must NOT also answer for the following date, which is the failure
+	// the old UTC window produced: one show reported under two different nights.
+	if miss, ok := result.Events["local-day-miss"]; ok {
+		suite.False(miss.Exists, "2026-12-05 is a different night and has no show")
 	}
 }
