@@ -1481,6 +1481,9 @@ type ShowStatusFilter = 'current' | 'all' | 'active' | 'dormant' | 'retired'
 type ShowSort = 'name' | 'episodes' | 'latest'
 const SHOW_PAGE_SIZE = 25
 
+// How long a per-artist "Linked N plays" confirmation stays up.
+const SUCCESS_MESSAGE_DISMISS_MS = 4000
+
 // The navigable per-station show list: client-side search/filter/sort/paginate over the
 // already-loaded shows (counts are small per station; move to server-side if a station
 // ever holds hundreds). Default hides retired (active-first); 0-episode shows are
@@ -2003,6 +2006,42 @@ function RadioMatchingTab() {
   const [selectedArtists, setSelectedArtists] = useState<Record<string, number>>({})
   const [successMessages, setSuccessMessages] = useState<Record<string, string>>({})
 
+  // Per-artist dismiss timers, keyed so two artists linked in quick succession
+  // each get a full confirmation window (a single shared timer would let the
+  // second link cut the first banner short). Re-linking the same artist re-arms
+  // its own timer rather than stacking a second one.
+  //
+  // Tracked and cleared on unmount: untracked, these still fired ~4s after the
+  // panel was gone and called `setState` into a torn-down React DOM. Harmless in
+  // the browser; under vitest they land after jsdom teardown and fail the whole
+  // run with `ReferenceError: window is not defined`.
+  const successTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map()
+  )
+  useEffect(() => {
+    const timers = successTimersRef.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
+
+  const scheduleSuccessDismiss = useCallback((artistName: string) => {
+    const existing = successTimersRef.current.get(artistName)
+    if (existing !== undefined) clearTimeout(existing)
+    successTimersRef.current.set(
+      artistName,
+      setTimeout(() => {
+        successTimersRef.current.delete(artistName)
+        setSuccessMessages((prev) => {
+          const next = { ...prev }
+          delete next[artistName]
+          return next
+        })
+      }, SUCCESS_MESSAGE_DISMISS_MS)
+    )
+  }, [])
+
   const stations = stationsData?.stations ?? []
   const groups = unmatchedData?.groups ?? []
   const total = unmatchedData?.total ?? 0
@@ -2037,14 +2076,7 @@ function RadioMatchingTab() {
               return next
             })
             setLinkingGroup(null)
-            // Clear success message after 4 seconds
-            setTimeout(() => {
-              setSuccessMessages((prev) => {
-                const next = { ...prev }
-                delete next[artistName]
-                return next
-              })
-            }, 4000)
+            scheduleSuccessDismiss(artistName)
           },
           onError: () => {
             setLinkingGroup(null)
@@ -2052,7 +2084,7 @@ function RadioMatchingTab() {
         }
       )
     },
-    [selectedArtists, bulkLink]
+    [selectedArtists, bulkLink, scheduleSuccessDismiss]
   )
 
   // Reset page when station filter changes

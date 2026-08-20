@@ -21,7 +21,11 @@ import {
   TierAdvancementCard,
 } from '@/features/profile'
 import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { profileHref } from '@/components/layout/nav/navData'
+
+// How long the "saved ✓" confirmation stays up after a profile save.
+const SAVED_DISMISS_MS = 3000
 
 // Sentinel for the adjust-during-render form seeding below: a value guaranteed
 // distinct from any real `user`, so the guard also fires on the FIRST render
@@ -44,7 +48,17 @@ function ProfileTab() {
   const [displayName, setDisplayName] = useState('')
   const [location, setLocation] = useState('')
   const [bio, setBio] = useState('')
-  const [saved, setSaved] = useState(false)
+  // The "saved ✓" blip runs on the shared auto-dismiss primitive rather than a
+  // hand-rolled `setTimeout`, which was untracked and still fired ~3s after the
+  // page unmounted — `setState` into a torn-down React DOM. Harmless in the
+  // browser; under vitest it lands after jsdom teardown and fails the whole run
+  // with `ReferenceError: window is not defined`.
+  const {
+    value: savedValue,
+    show: showSaved,
+    clear: clearSaved,
+  } = useAutoDismissBanner<true>(SAVED_DISMISS_MS)
+  const saved = savedValue === true
   const [error, setError] = useState<string | null>(null)
 
   // Initialize / re-seed form values whenever the user object changes (async
@@ -82,7 +96,7 @@ function ProfileTab() {
 
   const handleSave = async () => {
     setError(null)
-    setSaved(false)
+    clearSaved()
 
     const wasUsernameEmpty = !user?.username
     const claimedUsername = username.trim()
@@ -105,8 +119,7 @@ function ProfileTab() {
         return
       }
 
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      showSaved(true)
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message)

@@ -10,9 +10,12 @@ import {
   resolveBatchedSaveData,
   type BatchedSaveData,
 } from './batchedSaveData'
-import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
+
+// How long a save failure stays on screen before auto-hiding.
+const ERROR_DISMISS_MS = 3000
 
 interface SaveButtonProps {
   showId: number
@@ -68,7 +71,17 @@ export function SaveButton({
     user?.id
   )
   const isDisabled = disabled || isLoading
-  const [showError, setShowError] = useState(false)
+  // The auto-hiding error runs on the shared auto-dismiss primitive rather than
+  // a hand-rolled `setTimeout`, which was untracked and still fired ~3s after the
+  // button unmounted — `setState` into a torn-down React DOM. Harmless in the
+  // browser; under vitest it lands after jsdom teardown and fails the whole run
+  // with `ReferenceError: window is not defined`.
+  const {
+    value: errorShown,
+    show: showSaveError,
+    clear: clearSaveError,
+  } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
+  const showError = errorShown === true
 
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault() // Prevent any parent link clicks
@@ -84,12 +97,10 @@ export function SaveButton({
     if (isDisabled) return
 
     try {
-      setShowError(false)
+      clearSaveError()
       await toggle()
     } catch {
-      setShowError(true)
-      // Auto-hide error after 3 seconds
-      setTimeout(() => setShowError(false), 3000)
+      showSaveError(true)
     }
   }
 

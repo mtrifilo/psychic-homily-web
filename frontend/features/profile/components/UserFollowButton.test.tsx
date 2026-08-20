@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, act } from '@testing-library/react'
+import { screen, waitFor, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient } from '@tanstack/react-query'
 import { renderWithProviders } from '@/test/utils'
@@ -155,6 +155,32 @@ describe('UserFollowButton', () => {
     renderWithProviders(<UserFollowButton username="alice" />)
     await user.click(screen.getByRole('button', { name: /^follow$/i }))
     expect(screen.getByText('Failed to follow')).toBeInTheDocument()
+  })
+
+  // The failure notice's auto-hide used to be an untracked `setTimeout`, so it
+  // still fired ~3s after the button unmounted and called `setState` into a
+  // torn-down React DOM. Under vitest that lands after jsdom teardown and
+  // throws `ReferenceError: window is not defined`, failing the whole run with
+  // every test passing. No timer may outlive the component.
+  it('leaves no pending failure-notice timer behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      mockFollowMutate.mockImplementation(
+        (_username: string, opts?: { onError?: () => void }) => {
+          opts?.onError?.()
+        }
+      )
+      const { unmount } = renderWithProviders(
+        <UserFollowButton username="alice" />
+      )
+      fireEvent.click(screen.getByRole('button', { name: /^follow$/i }))
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   describe('optimistic cache (real hooks)', () => {

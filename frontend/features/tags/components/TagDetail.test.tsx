@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type {
@@ -653,5 +653,33 @@ describe('TagDetail', () => {
     // enabled=false is passed through as the 3rd arg.
     const lastCall = mockUseTagIntersection.mock.calls.at(-1)
     expect(lastCall?.[2]).toEqual({ enabled: false })
+  })
+
+  // The pivot picker's blur delay used to be an untracked `setTimeout`, so it
+  // still fired ~150ms after unmount and called `setOpen` into a torn-down
+  // React DOM. Under vitest that lands after jsdom teardown and throws
+  // `ReferenceError: window is not defined`, failing the whole run.
+  it('leaves no pending pivot-picker blur timer behind on unmount', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail(),
+      isLoading: false,
+      error: null,
+    })
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<TagDetail slug="shoegaze" />)
+      fireEvent.click(screen.getByTestId('add-tag-pivot-trigger'))
+      // Baseline-delta rather than an absolute 0: react-query keeps its own
+      // timers alive past unmount, which this test is not about.
+      const baseline = vi.getTimerCount()
+      const picker = screen.getByTestId('add-tag-pivot-picker')
+      fireEvent.blur(within(picker).getByLabelText('Search tags to filter'))
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+
+      unmount()
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(baseline)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

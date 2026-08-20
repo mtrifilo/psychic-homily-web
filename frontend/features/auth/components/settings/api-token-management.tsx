@@ -29,6 +29,10 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { formatTokenDate, formatTokenDateTime, isTokenExpiringSoon } from './api-token-utils'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
+
+// How long the "copied ✓" confirmation stays up after copying a token.
+const TOKEN_COPIED_DISMISS_MS = 2000
 
 function TokenRow({ token, onRevoke, isRevoking }: {
   token: APIToken
@@ -124,7 +128,17 @@ export function APITokenManagement() {
   const [description, setDescription] = useState('')
   const [expirationDays, setExpirationDays] = useState('90')
   const [newToken, setNewToken] = useState<string | null>(null)
-  const [tokenCopied, setTokenCopied] = useState(false)
+  // The "copied ✓" blip runs on the shared auto-dismiss primitive rather than a
+  // hand-rolled `setTimeout`, which was untracked and still fired ~2s after the
+  // panel unmounted — `setState` into a torn-down React DOM. Harmless in the
+  // browser; under vitest it lands after jsdom teardown and fails the whole run
+  // with `ReferenceError: window is not defined`.
+  const {
+    value: tokenCopiedValue,
+    show: showTokenCopied,
+    clear: clearTokenCopied,
+  } = useAutoDismissBanner<true>(TOKEN_COPIED_DISMISS_MS)
+  const tokenCopied = tokenCopiedValue === true
 
   const handleCreateToken = async () => {
     try {
@@ -146,15 +160,14 @@ export function APITokenManagement() {
   const handleCopyToken = async () => {
     if (newToken) {
       await navigator.clipboard.writeText(newToken)
-      setTokenCopied(true)
-      setTimeout(() => setTokenCopied(false), 2000)
+      showTokenCopied(true)
     }
   }
 
   const handleCloseCreateDialog = () => {
     setIsCreateDialogOpen(false)
     setNewToken(null)
-    setTokenCopied(false)
+    clearTokenCopied()
   }
 
   const handleRevoke = async (tokenId: number) => {

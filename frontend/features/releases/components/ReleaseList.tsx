@@ -69,6 +69,17 @@ export function ReleaseList() {
   const [yearInput, setYearInput] = useState(yearParam ?? '')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // The search debounce was cleared before each restart but never on unmount, so
+  // the last keystroke's timer still fired ~300ms after the list was gone and
+  // pushed a `setState` into a torn-down React DOM. Harmless in the browser;
+  // under vitest it lands after jsdom teardown and fails the whole run with
+  // `ReferenceError: window is not defined`.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [])
+
   // Sync search input when URL changes externally
   useEffect(() => {
     setSearchInput(searchParam)

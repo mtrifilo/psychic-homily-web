@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { useForm } from '@tanstack/react-form'
@@ -127,5 +127,23 @@ describe('ArtistInput ARIA combobox attributes', () => {
     await user.type(input, 'Radio')
 
     expect(input).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  // The blur confirm delay used to be an untracked `setTimeout`, so it still
+  // fired ~150ms after unmount and called `setState` into a torn-down React
+  // DOM. Under vitest that lands after jsdom teardown and throws
+  // `ReferenceError: window is not defined`, failing the whole run.
+  it('leaves no pending blur timer behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<TestArtistInput />)
+      fireEvent.blur(screen.getByPlaceholderText('Enter artist name'))
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

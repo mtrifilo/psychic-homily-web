@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Hash, Loader2, X } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { Button } from '@/components/ui/button'
 import { Breadcrumb, FollowButton } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
@@ -20,6 +21,10 @@ import {
 import type { TagIntersectionGroup, TagSummary } from '../types'
 import { TagOfficialIndicator } from './TagOfficialIndicator'
 import { TaggedEntityRow } from './TaggedEntityCards'
+
+// Grace period between blur and closing the tag-pivot picker, so a mousedown on
+// an option is not raced by the close.
+const BLUR_CLOSE_DELAY_MS = 150
 
 interface TagDetailProps {
   slug: string
@@ -505,6 +510,18 @@ function AddTagPivot({
   const [query, setQuery] = useState('')
   const { data: results, isLoading } = useSearchTags(query.trim(), 8)
 
+  // Defer close so an option click registers first. Routed through
+  // `useDismissTimer` rather than a bare `setTimeout` so the timer is cleared on
+  // unmount: an untracked one still fires ~150ms after the picker is gone and
+  // calls `setOpen` into a torn-down React DOM (harmless in the browser, but
+  // under vitest it lands after jsdom teardown and fails the whole run with
+  // `ReferenceError: window is not defined`). Declared before the `!open` early
+  // return so the hook order stays unconditional.
+  const { schedule: scheduleClose } = useDismissTimer(
+    () => setOpen(false),
+    BLUR_CLOSE_DELAY_MS
+  )
+
   const matches = (results?.tags ?? []).filter(
     (t) => !activeSlugs.includes(t.slug)
   )
@@ -529,10 +546,7 @@ function AddTagPivot({
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        onBlur={() => {
-          // Defer close so an option click registers first.
-          window.setTimeout(() => setOpen(false), 150)
-        }}
+        onBlur={scheduleClose}
         placeholder="Search tags to filter…"
         aria-label="Search tags to filter"
         className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"

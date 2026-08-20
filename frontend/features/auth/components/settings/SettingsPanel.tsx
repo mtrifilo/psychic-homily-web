@@ -26,6 +26,10 @@ import { FavoriteCitiesSettings } from './favorite-cities'
 import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
 import { CalendarFeedSection, FollowsActivityFeedSection } from '@/features/collections'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
+
+// How long the "copied ✓" confirmation stays up after copying the CLI token.
+const TOKEN_COPIED_DISMISS_MS = 2000
 
 /**
  * Settings tab — board J card order (PSY-1414 / PSY-1508):
@@ -42,7 +46,17 @@ export function SettingsPanel() {
   const [emailSent, setEmailSent] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cliToken, setCLIToken] = useState<string | null>(null)
-  const [tokenCopied, setTokenCopied] = useState(false)
+  // The "copied ✓" blip runs on the shared auto-dismiss primitive rather than a
+  // hand-rolled `setTimeout`, which was untracked and still fired ~2s after the
+  // panel unmounted — `setState` into a torn-down React DOM. Harmless in the
+  // browser; under vitest it lands after jsdom teardown and fails the whole run
+  // with `ReferenceError: window is not defined`.
+  const {
+    value: tokenCopiedValue,
+    show: showTokenCopied,
+    clear: clearTokenCopied,
+  } = useAutoDismissBanner<true>(TOKEN_COPIED_DISMISS_MS)
+  const tokenCopied = tokenCopiedValue === true
 
   const handleSendVerification = async () => {
     try {
@@ -82,7 +96,7 @@ export function SettingsPanel() {
     try {
       const response = await generateCLIToken.mutateAsync()
       setCLIToken(response.token ?? null)
-      setTokenCopied(false)
+      clearTokenCopied()
     } catch (error) {
       Sentry.captureException(error, {
         level: 'error',
@@ -94,8 +108,7 @@ export function SettingsPanel() {
   const handleCopyToken = async () => {
     if (cliToken) {
       await navigator.clipboard.writeText(cliToken)
-      setTokenCopied(true)
-      setTimeout(() => setTokenCopied(false), 2000)
+      showTokenCopied(true)
     }
   }
 

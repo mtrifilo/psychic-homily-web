@@ -1,12 +1,12 @@
 'use client'
 
-import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Lock, Pencil } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { UserTierBadge } from './UserTierBadge'
 import { GetStartedChecklist } from './GetStartedChecklist'
@@ -51,25 +51,33 @@ function formatLastActive(dateString: string): string {
  * inline confirmation — no toast library, per the mutation-feedback
  * convention.
  */
+// How long the copy confirmation / failure notice stays up before reverting.
+const SHARE_RESET_MS = 2000
+
 function ShareButton({ username }: { username: string }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
-  // Track the reset timer so a rapid re-click extends the confirmation
-  // instead of an earlier timer clipping it short.
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // Tracked so a rapid re-click extends the confirmation instead of an earlier
+  // timer clipping it short — and so the timer is cleared on unmount. The
+  // previous hand-rolled ref cleared before each restart but never on unmount,
+  // so it still fired ~2s after the button was gone and called `setState` into a
+  // torn-down React DOM. Harmless in the browser; under vitest it lands after
+  // jsdom teardown and fails the whole run with `ReferenceError: window is not
+  // defined`.
+  const { value: shareState, show: showShareState } = useAutoDismissBanner<
+    'copied' | 'failed'
+  >(SHARE_RESET_MS)
+  const state = shareState ?? 'idle'
 
   const handleShare = async () => {
     try {
       await navigator.clipboard.writeText(
         `${window.location.origin}/users/${username}`
       )
-      setState('copied')
+      showShareState('copied')
     } catch {
       // Clipboard unavailable (permissions / insecure context): say so
       // inline rather than silently doing nothing.
-      setState('failed')
+      showShareState('failed')
     }
-    clearTimeout(resetTimer.current)
-    resetTimer.current = setTimeout(() => setState('idle'), 2000)
   }
 
   return (

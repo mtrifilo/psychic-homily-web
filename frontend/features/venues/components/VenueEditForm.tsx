@@ -11,8 +11,12 @@ import {
 } from 'lucide-react'
 import { useVenueUpdate } from '../hooks/useVenueEdit'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useDismissTimer } from '@/lib/hooks/common'
 import type { VenueWithShowCount, Venue } from '../types'
 import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
+
+// How long the success flash shows before the dialog closes itself.
+const SUCCESS_CLOSE_DELAY_MS = 1500
 import {
   Dialog,
   DialogContent,
@@ -76,6 +80,18 @@ export function VenueEditForm({
     setShowSuccess(false)
   }
 
+  // Hold the success flash, then close. Routed through `useDismissTimer` rather
+  // than a bare `setTimeout` so the timer is cleared on unmount: an untracked one
+  // still fires ~1.5s after the dialog is gone and calls `setState` /
+  // `onOpenChange` into a torn-down React DOM. Harmless in the browser; under
+  // vitest it lands after jsdom teardown and fails the whole run with
+  // `ReferenceError: window is not defined`.
+  const { schedule: scheduleSuccessClose } = useDismissTimer(() => {
+    resetDialogState()
+    onOpenChange(false)
+    onSuccess?.()
+  }, SUCCESS_CLOSE_DELAY_MS)
+
   const isAdmin = user?.is_admin ?? false
 
   // Initialize form with venue data
@@ -112,11 +128,7 @@ export function VenueEditForm({
         {
           onSuccess: () => {
             setShowSuccess(true)
-            setTimeout(() => {
-              resetDialogState()
-              onOpenChange(false)
-              onSuccess?.()
-            }, 1500)
+            scheduleSuccessClose()
           },
           onError: err => {
             setError(

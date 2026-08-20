@@ -5,7 +5,11 @@ import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { Loader2, Edit2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useArtistUpdate } from '@/lib/hooks/admin/useAdminArtists'
+import { useDismissTimer } from '@/lib/hooks/common'
 import type { Artist, ArtistEditRequest } from '../types'
+
+// How long the success flash shows before the dialog closes itself.
+const SUCCESS_CLOSE_DELAY_MS = 1500
 import {
   Dialog,
   DialogContent,
@@ -74,6 +78,18 @@ export function ArtistEditForm({
     setShowSuccess(false)
   }
 
+  // Hold the success flash, then close. Routed through `useDismissTimer` rather
+  // than a bare `setTimeout` so the timer is cleared on unmount: an untracked one
+  // still fires ~1.5s after the dialog is gone and calls `setState` /
+  // `onOpenChange` into a torn-down React DOM. Harmless in the browser; under
+  // vitest it lands after jsdom teardown and fails the whole run with
+  // `ReferenceError: window is not defined`.
+  const { schedule: scheduleSuccessClose } = useDismissTimer(() => {
+    resetDialogState()
+    onOpenChange(false)
+    onSuccess?.()
+  }, SUCCESS_CLOSE_DELAY_MS)
+
   const initialValues: FormValues = {
     name: artist.name,
     city: artist.city || '',
@@ -128,11 +144,7 @@ export function ArtistEditForm({
         {
           onSuccess: () => {
             setShowSuccess(true)
-            setTimeout(() => {
-              resetDialogState()
-              onOpenChange(false)
-              onSuccess?.()
-            }, 1500)
+            scheduleSuccessClose()
           },
           onError: err => {
             setError(

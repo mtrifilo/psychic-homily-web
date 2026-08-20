@@ -12,6 +12,10 @@ import {
 } from '@/lib/hooks/common/useUserFollow'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
+
+// How long a follow/unfollow failure stays on screen before auto-hiding.
+const ERROR_DISMISS_MS = 3000
 
 interface UserFollowButtonProps {
   username: string
@@ -32,9 +36,16 @@ export function UserFollowButton({
   const pathname = usePathname()
   const { isAuthenticated } = useAuthContext()
   const [isHovering, setIsHovering] = useState(false)
-  const [errorAction, setErrorAction] = useState<'follow' | 'unfollow' | null>(
-    null
-  )
+  // The auto-hiding failure notice runs on the shared auto-dismiss primitive
+  // rather than a hand-rolled `setTimeout`, which was untracked and still fired
+  // ~3s after the button unmounted — `setState` into a torn-down React DOM.
+  // Harmless in the browser; under vitest it lands after jsdom teardown and
+  // fails the whole run with `ReferenceError: window is not defined`.
+  const {
+    value: errorAction,
+    show: showErrorAction,
+    clear: clearErrorAction,
+  } = useAutoDismissBanner<'follow' | 'unfollow'>(ERROR_DISMISS_MS)
 
   const { data, isLoading: statusLoading } = useUserFollowStatus(username)
   const follow = useUserFollow()
@@ -53,11 +64,10 @@ export function UserFollowButton({
 
     if (isDisabled) return
 
-    setErrorAction(null)
+    clearErrorAction()
     const action = isFollowing ? 'unfollow' : 'follow'
     const onError = () => {
-      setErrorAction(action)
-      setTimeout(() => setErrorAction(null), 3000)
+      showErrorAction(action)
     }
 
     if (isFollowing) {

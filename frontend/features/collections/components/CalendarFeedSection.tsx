@@ -25,6 +25,10 @@ import {
 } from '@/lib/utils/calendarFeedUrls'
 import type { CalendarTokenCreateResponse } from '@/features/shows'
 import { PERSONAL_FEED_TOKEN_ROTATED_EVENT, PERSONAL_FEED_TOKEN_REVOKED_EVENT } from './personalFeedTokenEvents'
+import { useAutoDismissFlag } from '@/lib/hooks/common'
+
+// How long the "copied ✓" confirmation stays up after copying the feed URL.
+const COPIED_DISMISS_MS = 2000
 
 export type CalendarFeedVariant = 'settings' | 'library'
 
@@ -43,7 +47,12 @@ export function CalendarFeedSection({
     token: string
     feed_url: string
   } | null>(null)
-  const [copied, setCopied] = useState(false)
+  // The "copied ✓" blip runs on the shared auto-dismiss primitive rather than a
+  // hand-rolled `setTimeout`, which was untracked and still fired ~2s after the
+  // section unmounted — `setState` into a torn-down React DOM. Harmless in the
+  // browser; under vitest it lands after jsdom teardown and fails the whole run
+  // with `ReferenceError: window is not defined`.
+  const [copied, showCopied] = useAutoDismissFlag(COPIED_DISMISS_MS)
 
   // Keep plaintext URLs in sync when the sibling Follows card rotates/revokes
   // the shared personal feed token (PSY-1505).
@@ -100,8 +109,7 @@ export function CalendarFeedSection({
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      showCopied()
     } catch {
       // Fallback: select the input text
     }

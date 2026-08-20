@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ReleaseListItem } from '../types'
@@ -460,5 +460,27 @@ describe('ReleaseList', () => {
     renderWithProviders(<ReleaseList />)
 
     expect(mockReplace).not.toHaveBeenCalled()
+  })
+
+  // The search debounce was cleared before each restart but never on unmount,
+  // so the last keystroke's timer still fired ~300ms after the list was gone
+  // and pushed a `setState` into a torn-down React DOM. Under vitest that lands
+  // after jsdom teardown and throws `ReferenceError: window is not defined`,
+  // failing the whole run with every test passing.
+  it('leaves no pending search debounce behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<ReleaseList />)
+      fireEvent.change(
+        screen.getByPlaceholderText('Search by title or artist...'),
+        { target: { value: 'rainbows' } }
+      )
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

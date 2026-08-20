@@ -41,6 +41,10 @@ import { Switch } from '@/components/ui/switch'
 import { InlineErrorBanner } from '@/components/shared'
 import { parseNavMode, setNavModeCookie, type NavMode } from '@/lib/nav-mode'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
+
+// How long the "saved ✓" confirmation stays up after a nav-mode save.
+const SAVED_DISMISS_MS = 3000
 
 export default function AppearanceSettingsPage() {
   const { isAuthenticated, isLoading, user } = useAuthContext()
@@ -56,7 +60,17 @@ export default function AppearanceSettingsPage() {
   // and an unrelated profile refetch (same nav_mode, new object ref) cannot
   // clobber an in-flight choice the way a reference-keyed guard would.
   const [optimistic, setOptimistic] = useState<NavMode | null>(null)
-  const [saved, setSaved] = useState(false)
+  // The "saved ✓" blip runs on the shared auto-dismiss primitive rather than a
+  // hand-rolled `setTimeout`, which was untracked and still fired ~3s after the
+  // page unmounted — `setState` into a torn-down React DOM. Harmless in the
+  // browser; under vitest it lands after jsdom teardown and fails the whole run
+  // with `ReferenceError: window is not defined`.
+  const {
+    value: savedValue,
+    show: showSaved,
+    clear: clearSaved,
+  } = useAutoDismissBanner<true>(SAVED_DISMISS_MS)
+  const saved = savedValue === true
   const [error, setError] = useState<string | null>(null)
   const mode = optimistic ?? accountMode
 
@@ -84,7 +98,7 @@ export default function AppearanceSettingsPage() {
     const next: NavMode = checked ? 'side' : 'top'
 
     setError(null)
-    setSaved(false)
+    clearSaved()
     setOptimistic(next) // instant switch feedback
 
     try {
@@ -94,8 +108,7 @@ export default function AppearanceSettingsPage() {
       // authenticated flip (the account drives that). Writing it before the
       // save confirmed would persist a choice the account never accepted.
       setNavModeCookie(next)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      showSaved(true)
       // Re-render the server shell so the nav chrome flips to the saved account.
       router.refresh()
     } catch (err: unknown) {

@@ -6,9 +6,14 @@ import { X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { getArtistLocation } from '../types'
 import { FieldInfo } from '@/components/forms/FormField'
+
+// Grace period between blur and resolving the field, so a mousedown on a
+// dropdown option is not raced by the close.
+const BLUR_CONFIRM_DELAY_MS = 150
 
 interface ArtistInputProps {
   field: AnyFieldApi
@@ -77,18 +82,21 @@ export function ArtistInput({
     onArtistMatch?.(undefined)
   }
 
-  const handleBlur = () => {
-    // Delay closing to allow click on dropdown items
-    setTimeout(() => {
-      if (field.state.value?.trim()) {
-        handleConfirm()
-      } else {
-        setIsOpen(false)
-        setSearchValue('')
-      }
-      field.handleBlur()
-    }, 150)
-  }
+  // Delay closing to allow click on dropdown items. Routed through
+  // `useDismissTimer` rather than a bare `setTimeout` so the timer is cleared on
+  // unmount: an untracked one still fires ~150ms after the component is gone and
+  // calls `setState` into a torn-down React DOM (harmless in the browser, but
+  // under vitest it lands after jsdom teardown and fails the whole run with
+  // `ReferenceError: window is not defined`).
+  const { schedule: handleBlur } = useDismissTimer(() => {
+    if (field.state.value?.trim()) {
+      handleConfirm()
+    } else {
+      setIsOpen(false)
+      setSearchValue('')
+    }
+    field.handleBlur()
+  }, BLUR_CONFIRM_DELAY_MS)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
