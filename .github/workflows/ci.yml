@@ -502,13 +502,25 @@ jobs:
           path: ~/.cache/ms-playwright
           key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
 
+      # The runner's default azure.archive.ubuntu.com mirror degrades routinely
+      # (2026-08-19: 8 identical install-deps timeouts across one PR wave), and
+      # apt burns the step budget cycling Ign retries before each fallback
+      # fetch. Point the mirrorlist straight at archive.ubuntu.com and let apt
+      # retry transient fetch failures instead of dying on them.
+      - name: Pin apt to a reliable mirror
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+          fi
+          echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/80-retries
+
       # System libraries for chromium. Runs every time — the runner is
       # ephemeral, so apt state is never cached — and this is also the only
       # `apt-get update` in the job, which the postgresql-client install below
       # depends on.
       - name: Install Playwright system deps
         working-directory: ./frontend
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: bunx playwright install-deps chromium
 
       - name: Install Playwright browsers
@@ -590,8 +602,18 @@ jobs:
           path: ~/.cache/ms-playwright
           key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
 
+      # Same mirror hardening as e2e-smoke above; without a step timeout a
+      # degraded mirror would hang a shard until the 6h job default.
+      - name: Pin apt to a reliable mirror
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+          fi
+          echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/80-retries
+
       - name: Install Playwright system deps
         working-directory: ./frontend
+        timeout-minutes: 6
         run: bunx playwright install-deps chromium
 
       - name: Install Playwright browsers
