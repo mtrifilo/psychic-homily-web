@@ -502,17 +502,10 @@ jobs:
           path: ~/.cache/ms-playwright
           key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
 
-      # The runner's default azure.archive.ubuntu.com mirror degrades routinely
-      # (2026-08-19: 8 identical install-deps timeouts across one PR wave), and
-      # apt burns the step budget cycling Ign retries before each fallback
-      # fetch. Point the mirrorlist straight at archive.ubuntu.com and let apt
-      # retry transient fetch failures instead of dying on them.
-      - name: Pin apt to a reliable mirror
-        run: |
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
-          fi
-          echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/80-retries
+      # Drops the flaky Azure apt mirror and bounds per-fetch stalls; see the
+      # action for the 2026-08-19 incident this hardens against.
+      - name: Harden apt against mirror stalls
+        uses: ./.github/actions/harden-apt
 
       # System libraries for chromium. Runs every time — the runner is
       # ephemeral, so apt state is never cached — and this is also the only
@@ -520,7 +513,7 @@ jobs:
       # depends on.
       - name: Install Playwright system deps
         working-directory: ./frontend
-        timeout-minutes: 6
+        timeout-minutes: 4
         run: bunx playwright install-deps chromium
 
       - name: Install Playwright browsers
@@ -566,6 +559,10 @@ jobs:
     name: E2E Tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Push-to-main runs unwatched; without a job cap a stalled network step
+    # (apt, browser CDN, or a hung test) pins a shard for the 6h default.
+    # PSY-417 baseline: the whole job is minutes, so 30 is generous.
+    timeout-minutes: 30
     # PSY-418: split the full E2E suite across 4 parallel shards. Each shard
     # spins its own Docker stack + backend (via global-setup.ts) on an
     # isolated runner, so there's no cross-shard port / DB contention.
@@ -602,18 +599,12 @@ jobs:
           path: ~/.cache/ms-playwright
           key: v1-playwright-${{ runner.os }}-${{ hashFiles('frontend/bun.lock') }}
 
-      # Same mirror hardening as e2e-smoke above; without a step timeout a
-      # degraded mirror would hang a shard until the 6h job default.
-      - name: Pin apt to a reliable mirror
-        run: |
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
-          fi
-          echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/80-retries
+      - name: Harden apt against mirror stalls
+        uses: ./.github/actions/harden-apt
 
       - name: Install Playwright system deps
         working-directory: ./frontend
-        timeout-minutes: 6
+        timeout-minutes: 4
         run: bunx playwright install-deps chromium
 
       - name: Install Playwright browsers

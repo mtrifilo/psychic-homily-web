@@ -1,0 +1,34 @@
+name: Harden apt
+description: >-
+  Remove the degraded Azure apt mirror and bound apt fetch stalls before any
+  apt-consuming step runs. Shared by e2e-smoke and e2e-tests so the two jobs
+  cannot drift.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        # The runner's intra-Azure mirror (priority:1 in the image's mirrorlist)
+        # degrades routinely; on 2026-08-19 it produced 8 identical
+        # `playwright install-deps` timeouts in one PR wave while apt cycled
+        # Ign retries against it. Deleting the line promotes the https
+        # archive.ubuntu.com and security.ubuntu.com entries the image already
+        # lists, keeping real multi-host failover. Median fetch latency rises a
+        # little on healthy runs; that is the accepted trade for not losing
+        # whole CI waves to the flaky mirror. Fail loud rather than silently
+        # no-op if a future image reshapes the mirrorlist.
+        if [ -f /etc/apt/apt-mirrors.txt ]; then
+          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          if grep -q 'azure\.archive\.ubuntu\.com' /etc/apt/apt-mirrors.txt; then
+            echo "::error::azure mirror still present in apt-mirrors.txt after pin"
+            exit 1
+          fi
+        else
+          echo "::warning::/etc/apt/apt-mirrors.txt missing; apt mirror not pinned"
+        fi
+        # Bound per-fetch stalls: apt's default Acquire::http::Timeout is 120s,
+        # so a single hung fetch can eat minutes before retry/failover kicks
+        # in. Retries need no configuration (apt defaults to 3; the image also
+        # writes 80-retries). New file, so the image-owned config stays intact.
+        printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' \
+          | sudo tee /etc/apt/apt.conf.d/99-fetch-timeout
