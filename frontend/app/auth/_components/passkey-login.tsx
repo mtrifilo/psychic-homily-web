@@ -6,7 +6,9 @@ import * as Sentry from '@sentry/nextjs'
 import { startAuthentication } from '@simplewebauthn/browser'
 import { Fingerprint, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { refreshViewerTierQueries } from '@/lib/queryClient'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -24,6 +26,7 @@ export function PasskeyLoginButton({
 }: PasskeyLoginButtonProps) {
   const router = useRouter()
   const { setUser } = useAuthContext()
+  const queryClient = useQueryClient()
   const [isLoading, setIsLoading] = useState(false)
 
   const supportsWebAuthn = useWebAuthnSupport()
@@ -84,6 +87,11 @@ export function PasskeyLoginButton({
           is_admin: finishData.user.is_admin,
         })
       }
+
+      // This path establishes a session with a raw fetch rather than the
+      // `useLogin` mutation, so nothing else drops the caches whose payload
+      // depends on the viewer's privilege tier (PSY-1857).
+      void refreshViewerTierQueries(queryClient)
 
       router.push(returnTo)
     } catch (error) {

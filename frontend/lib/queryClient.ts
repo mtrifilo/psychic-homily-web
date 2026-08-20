@@ -158,6 +158,15 @@ export function getQueryClient() {
 // update in useSaveShowToggle patches exactly the keys the query writes.
 const SAVED_SHOWS_COUNT_BATCH_PREFIX = ['savedShows', 'countBatch'] as const
 
+// Prefixes shared between a key factory below and VIEWER_TIER_QUERY_KEYS, for
+// the same reason SAVED_SHOWS_COUNT_BATCH_PREFIX exists: these families are
+// invalidated by prefix on an auth change, and a rename on only one side would
+// silently stop matching and quietly restore the stale-payload bug.
+const ENTITY_TAGS_PREFIX = ['tags', 'entityTags'] as const
+const CONTRIBUTOR_PREFIX = ['contributor'] as const
+const LEADERBOARD_PREFIX = ['community', 'leaderboard'] as const
+const CONTRIBUTE_OPPORTUNITIES_PREFIX = ['contribute', 'opportunities'] as const
+
 // Query key factory for consistent key generation
 export const queryKeys = {
   // Authentication queries
@@ -322,8 +331,9 @@ export const queryKeys = {
 
   // Contributor profile queries
   contributor: {
+    all: CONTRIBUTOR_PREFIX,
     profile: (username: string) =>
-      ['contributor', 'profile', username] as const,
+      [...CONTRIBUTOR_PREFIX, 'profile', username] as const,
     ownProfile: ['contributor', 'ownProfile'] as const,
     // PSY-1087: next-tier advancement progress for the profile card.
     advancement: ['contributor', 'advancement'] as const,
@@ -412,8 +422,9 @@ export const queryKeys = {
     lowQuality: (params?: Record<string, unknown>) =>
       ['tags', 'low-quality', params] as const,
     genreHierarchy: ['tags', 'hierarchy', 'genre'] as const,
+    entityTagsAll: ENTITY_TAGS_PREFIX,
     entityTags: (entityType: string, entityId: number) =>
-      ['tags', 'entityTags', entityType, entityId] as const,
+      [...ENTITY_TAGS_PREFIX, entityType, entityId] as const,
     tagEntities: (
       idOrSlug: string | number,
       params?: Record<string, unknown>
@@ -492,10 +503,21 @@ export const queryKeys = {
       ['scenes', 'graph', slug, types ?? null, clusterBy ?? 'venue'] as const,
   },
 
-  // Community queries (public)
+  // Community queries. The leaderboard route is optional-auth: it appends the
+  // caller's own `user_rank`, so it is viewer-tier dependent despite the rest
+  // of this group being public.
   community: {
+    leaderboardAll: LEADERBOARD_PREFIX,
     leaderboard: (dimension: string, period: string, limit?: number) =>
-      ['community', 'leaderboard', dimension, period, limit] as const,
+      [...LEADERBOARD_PREFIX, dimension, period, limit] as const,
+  },
+
+  // Contribute worklist (PSY-1857: the `followed_artists_missing_links`
+  // category is served only to signed-in viewers, and item order is per-viewer)
+  contribute: {
+    opportunities: CONTRIBUTE_OPPORTUNITIES_PREFIX,
+    category: (category: string) =>
+      [...CONTRIBUTE_OPPORTUNITIES_PREFIX, category] as const,
   },
 
   // Charts queries (public)
@@ -565,15 +587,24 @@ export const queryKeys = {
  * families that are DELIBERATELY absent, and why, are recorded here too so
  * the next person does not have to redo the audit:
  *
- *   - `savedShows.count` / `savedShows.countBatch`, and every `follows.*`
- *     key: already carry a viewer segment (`isAuthenticated` plus user id),
- *     so an auth change moves them to a different key and the previous
- *     viewer's entry can never be served in the new viewer's place.
+ *   - `savedShows.count` / `savedShows.countBatch`, `follows.entity`,
+ *     `follows.batch`, `follows.libraryCounts`, `follows.libraryFollowing`,
+ *     `follows.user`: already carry a viewer segment (`isAuthenticated` plus
+ *     user id), so an auth change moves them to a different key and the
+ *     previous viewer's entry can never be served in the new viewer's place.
+ *   - `follows.followers` is the one follow key with NO viewer segment, and it
+ *     is served by an optional-auth route. It is absent for a different
+ *     reason: it has no consumer anywhere in the frontend, so it is dead key
+ *     surface rather than a live cache. Add it here the moment something
+ *     mounts it.
  *   - `shows.detail`: the only viewer-dependent behaviour is a 404 on a
  *     non-approved show for viewers who are neither admin nor the submitter.
  *     On a show page the viewer can already see, the bytes are identical.
- *   - `artists.graph`: the payload carries a `user_votes` map, but nothing in
- *     the UI reads it. Add the key here if that changes.
+ *   - `artists.graph`: `/artists/{id}/graph` IS an optional-auth route and its
+ *     payload carries a `user_votes` map, but nothing in the UI reads it. Add
+ *     the key here if that changes. Its siblings `/artists/{id}/related` (no
+ *     consumer today), `/bill-composition` and `/relationships/{id}/provenance`
+ *     are also optional-auth but read no viewer.
  *   - `field-notes`: `GET /shows/{id}/field-notes` reads no viewer at all, so
  *     the `user_vote` its comment-shaped rows can carry is never populated.
  *   - `admin.*`, `contributor.own*`, `collections.my`, personal `charts`,
@@ -581,9 +612,9 @@ export const queryKeys = {
  *     only, with no anonymous variant to be confused with. Logout drops them
  *     wholesale via `queryClient.clear()`.
  *   - `tags` list/detail/search/entities, public `charts`, and the venue /
- *     artist / release / label / festival / scene / radio / graph / explore
- *     families: served by routes registered without auth middleware, so the
- *     backend cannot see a viewer and the payload cannot vary.
+ *     release / label / festival / scene / radio / graph / explore families:
+ *     served by routes registered without auth middleware, so the backend
+ *     cannot see a viewer and the payload cannot vary.
  */
 const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
   // Revision history. Non-privileged viewers get the stored `address` and
@@ -600,7 +631,7 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
   // Entity tags carry `user_vote` the same way. Scoped to the `entityTags`
   // branch on purpose: the rest of the `tags` family is served by unauthed
   // routes and would only be refetched for nothing.
-  ['tags', 'entityTags'],
+  queryKeys.tags.entityTagsAll,
   // Collections vary the most: a private collection 403s for anyone but its
   // creator, `user_likes_this` and `is_subscribed` are per-viewer, the
   // entity-collections list unions in the viewer's own private collections,
@@ -609,15 +640,15 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
   // Contributor profiles gate per-field on owner-versus-not: stats, last
   // active, sections, contributions, rankings and following each collapse to
   // a count or vanish for a non-owner, and a private profile 404s.
-  ['contributor'],
+  queryKeys.contributor.all,
   // Entity requests carry the caller's `user_vote` per row.
   queryKeys.requests.all,
   // The leaderboard appends the caller's own `user_rank`.
-  ['community', 'leaderboard'],
+  queryKeys.community.leaderboardAll,
   // The contribute worklist hides the `followed_artists_missing_links`
   // category from anonymous viewers, which also changes `total_items`, and
   // orders items per-viewer.
-  ['contribute', 'opportunities'],
+  queryKeys.contribute.opportunities,
 ]
 
 /**
@@ -629,19 +660,49 @@ const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
  * payload is a subset of what the new viewer may see, so keeping it painted
  * during the refetch is a seamless upgrade rather than a loading flash.
  *
- * There is no matching helper for the way DOWN. Logout already drops all of
- * these through `queryClient.clear()` in `useLogout`, and adding a reset
- * alongside it measurably makes things worse: `clear()` destroys the query
- * behind a mounted observer, so a reset issued afterwards matches an empty
- * cache and does nothing, while a reset issued before is orphaned by the
- * `clear()` that follows it. Either way the mounted panel repaints from the
- * rebuilt query on the next render, which the logout state change guarantees.
+ * Safe to leave unawaited: `invalidateQueries` swallows per-query fetch
+ * errors into query state and resolves rather than rejecting, so a floating
+ * call here cannot produce an unhandled rejection.
+ *
+ * See `resetViewerTierQueries` for the other direction.
  */
 export function refreshViewerTierQueries(queryClient: QueryClient) {
   return Promise.all(
     VIEWER_TIER_QUERY_KEYS.map(queryKey =>
       queryClient.invalidateQueries({ queryKey })
     )
+  )
+}
+
+/**
+ * Discard every viewer-tier-dependent cache after the viewer LOSES privilege
+ * (logout).
+ *
+ * `resetQueries` rather than `invalidateQueries`: on the way DOWN the cached
+ * payload is data the new viewer must not see, so it has to leave the screen
+ * rather than keep being painted until an anonymous refetch lands.
+ *
+ * ORDER MATTERS, and it is the opposite of what it looks like. This must run
+ * BEFORE `queryClient.clear()` in `useLogout`, not after. `clear()` empties
+ * the cache but does not notify query OBSERVERS: it destroys each query and
+ * notifies cache-level listeners, while a `useQuery` observer is subscribed to
+ * the query itself. So a still-mounted observer goes on rendering the payload
+ * it last saw, and a reset issued after the clear matches an empty cache and
+ * does nothing at all. Running the reset first pushes the observer into a
+ * pending state, and that notification is what re-renders the component and
+ * rebuilds its query once `clear()` has destroyed the old one.
+ *
+ * The `clear()` cannot be relied on to do this by itself. It only self-heals
+ * where some ANCESTOR of the panel consumes `useAuthContext` and re-renders on
+ * the logout state change (VenueDetail, ShowDetail). Components that read auth
+ * through `useIsAuthenticated` instead — ReleaseDetail and LabelDetail, both of
+ * which render `<RevisionHistory>` — hold a `useProfile` query observer, which
+ * `clear()` orphans in exactly the same way, so nothing re-renders them and the
+ * privileged rows stay on screen for as long as the page is mounted.
+ */
+export function resetViewerTierQueries(queryClient: QueryClient) {
+  return Promise.all(
+    VIEWER_TIER_QUERY_KEYS.map(queryKey => queryClient.resetQueries({ queryKey }))
   )
 }
 

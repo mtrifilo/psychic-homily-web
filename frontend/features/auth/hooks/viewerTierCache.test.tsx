@@ -52,7 +52,8 @@ vi.mock('@/lib/utils/authLogger', () => ({
 
 import { useLogin, useLogout } from './useAuth'
 import { useEntityRevisions } from '@/lib/hooks/common/useRevisions'
-import { refreshViewerTierQueries } from '@/lib/queryClient'
+import { refreshViewerTierQueries, queryKeys } from '@/lib/queryClient'
+import { commentQueryKeys } from '@/features/comments/api'
 
 const MASKED_HISTORY = {
   revisions: [
@@ -205,12 +206,12 @@ describe('viewer-tier caches across an auth-state change', () => {
       await logout.result.current.mutateAsync()
     })
 
-    // `queryClient.clear()` drops the privileged payload; the re-render that
-    // the logout state change causes rebuilds the query and refetches it as
-    // anonymous. Re-render explicitly here because this hook has no auth
-    // consumer above it, unlike the entity pages that host the real panel.
-    history.rerender()
-
+    // Deliberately NO explicit re-render here. `queryClient.clear()` on its own
+    // does not notify a mounted observer, so the panel would keep painting the
+    // privileged payload on any page whose ancestors do not consume
+    // `useAuthContext` (ReleaseDetail and LabelDetail read auth through
+    // `useIsAuthenticated`, whose own observer `clear()` orphans the same way).
+    // The reset that runs before the clear is what re-drives this.
     await waitFor(() =>
       expect(history.result.current.data).toEqual(MASKED_HISTORY)
     )
@@ -269,15 +270,18 @@ describe('refreshViewerTierQueries', () => {
 
   it('covers every audited viewer-tier family', async () => {
     const client = createClient()
-    const audited: [string, unknown[]][] = [
-      ['revisions', ['revisions', 'entity', 'venue', '7']],
-      ['comments', ['comments', 'venue', 7]],
-      ['entity tags', ['tags', 'entityTags', 'venue', 7]],
-      ['collections', ['collections', 'detail', 'best-of-2026']],
-      ['contributor profile', ['contributor', 'profile', 'alice']],
-      ['requests', ['requests', 'list', undefined]],
-      ['leaderboard', ['community', 'leaderboard', 'edits', 'month', 10]],
-      ['contribute', ['contribute', 'opportunities']],
+    // Built through the real key factories, not hand-written literals, so a
+    // rename that moves a family out from under its prefix in
+    // VIEWER_TIER_QUERY_KEYS fails here instead of silently un-covering it.
+    const audited: [string, readonly unknown[]][] = [
+      ['revisions', queryKeys.revisions.entity('venue', 7)],
+      ['comments', commentQueryKeys.entity('venue', 7)],
+      ['entity tags', queryKeys.tags.entityTags('venue', 7)],
+      ['collections', queryKeys.collections.detail('best-of-2026')],
+      ['contributor profile', queryKeys.contributor.profile('alice')],
+      ['requests', queryKeys.requests.list()],
+      ['leaderboard', queryKeys.community.leaderboard('edits', 'month', 10)],
+      ['contribute', queryKeys.contribute.category('missing-links')],
     ]
     for (const [, key] of audited) client.setQueryData(key, { seeded: true })
 
@@ -293,11 +297,11 @@ describe('refreshViewerTierQueries', () => {
 
   it('does not touch the unauthed families that cannot vary by viewer', async () => {
     const client = createClient()
-    const exempt: [string, unknown[]][] = [
-      ['tag detail', ['tags', 'detail', 'shoegaze']],
-      ['public charts', ['charts', 'artists', 'month']],
-      ['artist detail', ['artists', 'detail', 'sundressed']],
-      ['scene shows', ['scenes', 'shows', 'phoenix', 7, 20]],
+    const exempt: [string, readonly unknown[]][] = [
+      ['tag detail', queryKeys.tags.detail('shoegaze')],
+      ['artist detail', queryKeys.artists.detail('sundressed')],
+      ['venue detail', queryKeys.venues.detail('the-rebel-lounge')],
+      ['scene shows', queryKeys.scenes.shows('phoenix', 7, 20)],
     ]
     for (const [, key] of exempt) client.setQueryData(key, { seeded: true })
 

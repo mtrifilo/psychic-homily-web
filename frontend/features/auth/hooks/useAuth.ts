@@ -18,6 +18,7 @@ import {
   queryKeys,
   createInvalidateQueries,
   refreshViewerTierQueries,
+  resetViewerTierQueries,
 } from '@/lib/queryClient'
 import { authLogger } from '@/lib/utils/authLogger'
 import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
@@ -148,6 +149,20 @@ interface RefreshTokenResponse {
 async function refreshCachesForNewSession(queryClient: QueryClient) {
   await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
   void refreshViewerTierQueries(queryClient)
+}
+
+/**
+ * Cache work for the transition OUT of an authenticated session.
+ *
+ * The reset must precede the clear, and it is not redundant with it. See
+ * `resetViewerTierQueries` for why `clear()` alone leaves a still-mounted
+ * panel painting the payload the signed-in viewer could see.
+ */
+function dropSignedInCaches(queryClient: QueryClient) {
+  void resetViewerTierQueries(queryClient)
+  // HTTP-only cookie is cleared by the server; drop everything else the
+  // signed-in viewer could see.
+  queryClient.clear()
 }
 
 // Login mutation
@@ -286,17 +301,12 @@ export const useLogout = () => {
     },
     onSuccess: () => {
       authLogger.logout()
-      // Clear all cached data (HTTP-only cookie is cleared by server). This is
-      // also the logout half of the viewer-tier problem `refreshViewerTierQueries`
-      // solves for login: it drops every privileged payload, and the state
-      // change this mutation causes re-renders the panels holding one, which
-      // rebuilds their cleared queries and refetches them as anonymous.
-      queryClient.clear()
+      dropSignedInCaches(queryClient)
     },
     onError: error => {
       authLogger.error('Logout failed', error)
       // Clear cached data even on error (in case of network issues)
-      queryClient.clear()
+      dropSignedInCaches(queryClient)
     },
   })
 }
