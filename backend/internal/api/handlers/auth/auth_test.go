@@ -1401,6 +1401,214 @@ func TestRegisterHandler_TokenFails(t *testing.T) {
 	}
 }
 
+// --- RegisterHandler verification-email tests (PSY-1871) ---
+
+// registerHandlerWithEmail builds a RegisterHandler wired for a successful
+// account creation, so each verification-email test only has to vary the email
+// and JWT mocks.
+func registerHandlerWithEmail(created *authm.User, email *testhelpers.MockEmailService, jwt *testhelpers.MockJWTService) *AuthHandler {
+	return authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(e, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+				return created, nil
+			},
+		}
+		ah.emailService = email
+		ah.jwtService = jwt
+	})
+}
+
+func validRegisterInput(email string) *RegisterRequest {
+	input := &RegisterRequest{}
+	input.Body.Email = email
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
+	return input
+}
+
+// TestRegisterHandler_SendsVerificationEmail is the core PSY-1871 assertion:
+// a successful signup mints an email-verification token for the new account and
+// sends it to the address that just registered. Before this, registration
+// created an unverified account and sent nothing, so the user was silently
+// locked out of show submission with no link to fix it.
+func TestRegisterHandler_SendsVerificationEmail(t *testing.T) {
+	created := &authm.User{ID: 42, Email: strPtr("new@example.com")}
+
+	var tokenUserID uint
+	var tokenEmail string
+	var sentTo, sentToken string
+	h := registerHandlerWithEmail(
+		created,
+		&testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
+			SendVerificationEmailFn: func(to, token string) error {
+				sentTo, sentToken = to, token
+				return nil
+			},
+		},
+		&testhelpers.MockJWTService{
+			CreateTokenFn: func(u *authm.User) (string, error) { return "session-token", nil },
+			CreateVerificationTokenFn: func(userID uint, e string) (string, error) {
+				tokenUserID, tokenEmail = userID, e
+				return "verify-token", nil
+			},
+		},
+	)
+
+	resp, err := h.RegisterHandler(context.Background(), validRegisterInput("new@example.com"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+	}
+	// The token must be minted for the account that was just created, not for
+	// the request body, so a normalized/aliased email cannot mint a token that
+	// ConfirmVerificationHandler's email-match check would then reject.
+	if tokenUserID != created.ID {
+		t.Errorf("expected verification token minted for user_id=%d, got %d", created.ID, tokenUserID)
+	}
+	if tokenEmail != *created.Email {
+		t.Errorf("expected verification token minted for email=%q, got %q", *created.Email, tokenEmail)
+	}
+	if sentTo != *created.Email {
+		t.Errorf("expected verification email sent to %q, got %q", *created.Email, sentTo)
+	}
+	if sentToken != "verify-token" {
+		t.Errorf("expected the minted token to be the one sent, got %q", sentToken)
+	}
+}
+
+// TestRegisterHandler_VerificationEmailFailureStillSucceeds pins the
+// best-effort contract: the account and session cookie already exist by the
+// time the email is attempted, so an email-service outage must not turn a
+// completed signup into a failure response. The user recovers via the resend
+// affordance, which DOES surface failures.
+func TestRegisterHandler_VerificationEmailFailureStillSucceeds(t *testing.T) {
+	created := &authm.User{ID: 7, Email: strPtr("new@example.com")}
+	h := registerHandlerWithEmail(
+		created,
+		&testhelpers.MockEmailService{
+			IsConfiguredFn:          func() bool { return true },
+			SendVerificationEmailFn: func(string, string) error { return errors.New("resend 503") },
+		},
+		&testhelpers.MockJWTService{
+			CreateTokenFn:             func(u *authm.User) (string, error) { return "session-token", nil },
+			CreateVerificationTokenFn: func(uint, string) (string, error) { return "verify-token", nil },
+		},
+	)
+
+	resp, err := h.RegisterHandler(context.Background(), validRegisterInput("new@example.com"))
+	if err != nil {
+		t.Fatalf("expected nil error (signup already completed), got %v", err)
+	}
+	if !resp.Body.Success {
+		t.Errorf("expected success=true despite email failure, got message=%q", resp.Body.Message)
+	}
+	if resp.Body.Token != "session-token" {
+		t.Errorf("expected session token still issued, got %q", resp.Body.Token)
+	}
+	if resp.SetCookie.Name != config.AuthCookieName {
+		t.Errorf("expected auth cookie still set, got name=%s", resp.SetCookie.Name)
+	}
+}
+
+// TestRegisterHandler_VerificationTokenFailureStillSucceeds is the same
+// best-effort contract one step earlier in the helper: a JWT-mint failure must
+// not fail signup either, and must not attempt a send with an empty token.
+func TestRegisterHandler_VerificationTokenFailureStillSucceeds(t *testing.T) {
+	created := &authm.User{ID: 8, Email: strPtr("new@example.com")}
+	var sendAttempted bool
+	h := registerHandlerWithEmail(
+		created,
+		&testhelpers.MockEmailService{
+			IsConfiguredFn:          func() bool { return true },
+			SendVerificationEmailFn: func(string, string) error { sendAttempted = true; return nil },
+		},
+		&testhelpers.MockJWTService{
+			CreateTokenFn:             func(u *authm.User) (string, error) { return "session-token", nil },
+			CreateVerificationTokenFn: func(uint, string) (string, error) { return "", errors.New("jwt down") },
+		},
+	)
+
+	resp, err := h.RegisterHandler(context.Background(), validRegisterInput("new@example.com"))
+	if err != nil {
+		t.Fatalf("expected nil error (signup already completed), got %v", err)
+	}
+	if !resp.Body.Success {
+		t.Errorf("expected success=true despite token-mint failure, got message=%q", resp.Body.Message)
+	}
+	if sendAttempted {
+		t.Error("expected no send attempt when the verification token could not be minted")
+	}
+}
+
+// TestRegisterHandler_UnconfiguredEmailServiceSkipsSend covers the local/dev
+// stack, where RESEND_API_KEY is unset: the helper must short-circuit rather
+// than call into a client that is nil.
+func TestRegisterHandler_UnconfiguredEmailServiceSkipsSend(t *testing.T) {
+	created := &authm.User{ID: 9, Email: strPtr("new@example.com")}
+	var sendAttempted, tokenMinted bool
+	h := registerHandlerWithEmail(
+		created,
+		&testhelpers.MockEmailService{
+			// IsConfiguredFn omitted — the mock defaults to false.
+			SendVerificationEmailFn: func(string, string) error { sendAttempted = true; return nil },
+		},
+		&testhelpers.MockJWTService{
+			CreateTokenFn:             func(u *authm.User) (string, error) { return "session-token", nil },
+			CreateVerificationTokenFn: func(uint, string) (string, error) { tokenMinted = true; return "t", nil },
+		},
+	)
+
+	resp, err := h.RegisterHandler(context.Background(), validRegisterInput("new@example.com"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Errorf("expected success=true, got message=%q", resp.Body.Message)
+	}
+	if sendAttempted {
+		t.Error("expected no send attempt when the email service is unconfigured")
+	}
+	if tokenMinted {
+		t.Error("expected no token minted when the email service is unconfigured")
+	}
+}
+
+// TestRegisterHandler_NoVerificationEmailWithoutAddress guards the nil-email
+// branch of the helper. CreateUserWithPassword always yields an email today,
+// but the helper is shared with the passkey path and must never dereference a
+// nil pointer.
+func TestRegisterHandler_NoVerificationEmailWithoutAddress(t *testing.T) {
+	created := &authm.User{ID: 10, Email: nil}
+	var sendAttempted bool
+	h := registerHandlerWithEmail(
+		created,
+		&testhelpers.MockEmailService{
+			IsConfiguredFn:          func() bool { return true },
+			SendVerificationEmailFn: func(string, string) error { sendAttempted = true; return nil },
+		},
+		&testhelpers.MockJWTService{
+			CreateTokenFn: func(u *authm.User) (string, error) { return "session-token", nil },
+		},
+	)
+
+	resp, err := h.RegisterHandler(context.Background(), validRegisterInput("new@example.com"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Errorf("expected success=true, got message=%q", resp.Body.Message)
+	}
+	if sendAttempted {
+		t.Error("expected no send attempt for an account with no email address")
+	}
+}
+
 // --- GetProfileHandler mock tests ---
 
 func TestGetProfileHandler_Success(t *testing.T) {

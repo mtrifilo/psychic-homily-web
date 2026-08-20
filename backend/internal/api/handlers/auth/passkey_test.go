@@ -18,11 +18,21 @@ import (
 // ============================================================================
 
 func testPasskeyHandler() *PasskeyHandler {
-	return NewPasskeyHandler(nil, nil, nil, testConfig())
+	return NewPasskeyHandler(nil, nil, nil, nil, testConfig())
 }
 
+// testPasskeyHandlerWithMocks builds a handler whose email service is present
+// but unconfigured (MockEmailService.IsConfigured defaults to false), so the
+// signup verification send short-circuits without touching the mock.
+//
+// No test here reaches the FinishSignupHandler success path where that send
+// happens: it sits behind ParseCredentialCreationResponseBody, and the repo has
+// no valid WebAuthn attestation fixture, so every existing FinishSignup test
+// stops at the parse-failure branch. The passkey send is covered instead by
+// TestSendVerificationEmailBestEffort (the shared logic) plus compile-time
+// wiring of the constructor.
 func testPasskeyHandlerWithMocks(wa *testhelpers.MockWebAuthnService, jwt *testhelpers.MockJWTService, us *testhelpers.MockUserService) *PasskeyHandler {
-	return NewPasskeyHandler(wa, jwt, us, testConfig())
+	return NewPasskeyHandler(wa, jwt, us, &testhelpers.MockEmailService{}, testConfig())
 }
 
 // ============================================================================
