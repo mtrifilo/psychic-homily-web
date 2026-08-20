@@ -1,34 +1,49 @@
 name: Harden apt
 description: >-
   Remove the degraded Azure apt mirror and bound apt fetch stalls before any
-  apt-consuming step runs. Shared by e2e-smoke and e2e-tests so the two jobs
-  cannot drift.
+  apt-consuming step runs. Keeps the apt-hardening logic in one place for the
+  jobs that consume apt.
 runs:
   using: composite
   steps:
     - shell: bash
       run: |
-        # The runner's intra-Azure mirror (priority:1 in the image's mirrorlist)
-        # degrades routinely; on 2026-08-19 it produced 8 identical
-        # `playwright install-deps` timeouts in one PR wave while apt cycled
-        # Ign retries against it. Deleting the line promotes the https
-        # archive.ubuntu.com and security.ubuntu.com entries the image already
-        # lists, keeping real multi-host failover. Median fetch latency rises a
-        # little on healthy runs; that is the accepted trade for not losing
-        # whole CI waves to the flaky mirror. Fail loud rather than silently
-        # no-op if a future image reshapes the mirrorlist.
+        # Two distinct incident classes on 2026-08-19 (PSY-1877), diagnosed
+        # from the run logs rather than one hypothesis:
+        #   1. azure.archive.ubuntu.com serving ~53 kB/s (21.1 MB in 6m38s,
+        #      job 95976410062). Removing the azure mirrorlist entry promotes
+        #      the https archive/security entries the image also lists.
+        #   2. A silent 3m32s stall on archive.ubuntu.com AFTER apt had
+        #      already failed over past azure (job 96001080157). Bounded by
+        #      the 20s idle timeout + explicit retries below, and ultimately
+        #      by the caller's step timeout.
+        # On image drift this WARNS and degrades (to the image default, or to
+        # no hardening at all) instead of hard-failing every consumer job;
+        # the warning annotation is the signal to revisit this action.
         if [ -f /etc/apt/apt-mirrors.txt ]; then
-          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-          if grep -q 'azure\.archive\.ubuntu\.com' /etc/apt/apt-mirrors.txt; then
-            echo "::error::azure mirror still present in apt-mirrors.txt after pin"
-            exit 1
+          if ! grep -q 'azure\.archive\.ubuntu\.com' /etc/apt/apt-mirrors.txt; then
+            echo "::warning::azure mirror not present in apt-mirrors.txt; runner image reshaped, revisit PSY-1877"
           fi
+          sudo cp /etc/apt/apt-mirrors.txt /etc/apt/apt-mirrors.txt.bak
+          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          if ! grep -qE '^[[:space:]]*[a-z]+://' /etc/apt/apt-mirrors.txt; then
+            echo "::warning::no mirrors left after removing azure; restoring the image default"
+            sudo cp /etc/apt/apt-mirrors.txt.bak /etc/apt/apt-mirrors.txt
+          fi
+          echo "apt-mirrors.txt after pin:"
+          cat /etc/apt/apt-mirrors.txt
         else
-          echo "::warning::/etc/apt/apt-mirrors.txt missing; apt mirror not pinned"
+          echo "::warning::/etc/apt/apt-mirrors.txt missing; apt mirror not pinned. azure references elsewhere:"
+          grep -rl 'azure\.archive\.ubuntu\.com' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
+            || echo "(none found)"
         fi
-        # Bound per-fetch stalls: apt's default Acquire::http::Timeout is 120s,
-        # so a single hung fetch can eat minutes before retry/failover kicks
-        # in. Retries need no configuration (apt defaults to 3; the image also
-        # writes 80-retries). New file, so the image-owned config stays intact.
-        printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' \
-          | sudo tee /etc/apt/apt.conf.d/99-fetch-timeout
+        # The 20s value bounds CONNECT/IDLE stalls only; a slow-but-flowing
+        # fetch is bounded by the caller's step timeout, not by this.
+        # Retries are set explicitly rather than relied on: the image's
+        # 80-retries file uses the APT:: prefix apt does not read for this
+        # key, and apt's own built-in default has moved between releases.
+        # Worst case per item is roughly 20s x 3 retries x surviving
+        # mirrors, which must stay well inside the consumer's install step
+        # timeout in ci.yml; change the two together.
+        printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "3";\n' \
+          | sudo tee /etc/apt/apt.conf.d/99-fetch-timeout > /dev/null
