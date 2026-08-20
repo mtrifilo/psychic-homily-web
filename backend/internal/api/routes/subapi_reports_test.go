@@ -3,6 +3,9 @@ package routes
 import (
 	"fmt"
 	"net/http"
+	"regexp"
+	"sort"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/middleware"
@@ -32,8 +35,9 @@ import (
 //     middleware it ran before Huma saw the request; unauthenticated floods were
 //     rejected without touching the auth path.
 
-// entityReportPaths are the eight operations that moved. They share one limiter,
-// so a test that needs a fresh budget must use a fresh source address.
+// entityReportPaths are the eight operations that moved, as spec templates. They
+// share one limiter, so a test that needs a fresh budget must use a fresh source
+// address.
 var entityReportPaths = []string{
 	"/artists/{entity_id}/report",
 	"/venues/{entity_id}/report",
@@ -45,16 +49,20 @@ var entityReportPaths = []string{
 	"/labels/{entity_id}/report",
 }
 
-// entityReportRequestPaths are the same operations as concrete request paths.
-var entityReportRequestPaths = []string{
-	"/artists/1/report",
-	"/venues/1/report",
-	"/festivals/1/report",
-	"/shows/1/entity-report",
-	"/comments/1/report",
-	"/collections/1/report",
-	"/releases/1/report",
-	"/labels/1/report",
+// entityReportRequestPath turns a spec template into a concrete request path.
+// Derived rather than kept as a second hand-maintained slice, so the two cannot
+// drift out of alignment.
+func entityReportRequestPath(specPath string) string {
+	return strings.ReplaceAll(specPath, "{entity_id}", "1")
+}
+
+// entityReportRequestPaths is the concrete-request view of entityReportPaths.
+func entityReportRequestPaths() []string {
+	out := make([]string, 0, len(entityReportPaths))
+	for _, p := range entityReportPaths {
+		out = append(out, entityReportRequestPath(p))
+	}
+	return out
 }
 
 // The point of the change: eight operations that were reachable but undocumented
@@ -97,6 +105,55 @@ func TestEntityReportSiblingsSurviveTheMove(t *testing.T) {
 	}
 }
 
+// TestEveryReportSubmitPathIsRateLimited is the one test here that does NOT read
+// from entityReportPaths, and that is the point.
+//
+// Every other test in this file iterates a hardcoded list, so a NINTH report
+// route added below the group in reports.go — an easy mistake, since 20 lines of
+// per-route commentary are interleaved between the eight registrations and the
+// group's extent is not visually obvious — would be completely uncovered and
+// completely unlimited. This derives its cases from the served spec instead, so a
+// new report-submit path is covered the moment it is registered.
+//
+// Discovering paths from the spec is only sound because the spec is now the whole
+// API; before PSY-1598 these operations were not in it to discover.
+func TestEveryReportSubmitPathIsRateLimited(t *testing.T) {
+	router := newTestRouter(t)
+	shape := regexp.MustCompile(`^/[a-z-]+/\{entity_id\}/(report|entity-report)$`)
+
+	var found []string
+	for p, item := range servedSpecPaths(t, router) {
+		if _, isPost := item["post"]; isPost && shape.MatchString(p) {
+			found = append(found, p)
+		}
+	}
+	sort.Strings(found)
+
+	if len(found) < len(entityReportPaths) {
+		t.Fatalf("found %d report-submit paths in the spec, want at least %d — the discovery regexp has "+
+			"drifted from the routes and this test is no longer covering anything", len(found), len(entityReportPaths))
+	}
+
+	for i, specPath := range found {
+		path := entityReportRequestPath(specPath)
+		// A fresh source per path, because all of these are expected to share one
+		// budget; without it every path after the first would 429 for the wrong
+		// reason and the test would pass vacuously.
+		ip := fmt.Sprintf("198.51.100.%d:5000", 150+i)
+
+		limit := middleware.ReportRequestsPerMinute
+		for n := 0; n < limit; n++ {
+			if code := send(t, router, "POST", path, ip, nil); code == http.StatusTooManyRequests {
+				t.Fatalf("%s: request %d/%d limited early", path, n+1, limit)
+			}
+		}
+		if code := send(t, router, "POST", path, ip, nil); code != http.StatusTooManyRequests {
+			t.Errorf("%s returned %d past the cap, want 429 — this report path is registered OUTSIDE the "+
+				"rate-limited group, so it can be flooded freely", path, code)
+		}
+	}
+}
+
 func TestEntityReportStillRateLimited(t *testing.T) {
 	router := newTestRouter(t)
 	const ip = "203.0.113.61:1234"
@@ -117,16 +174,18 @@ func TestEntityReportRateLimitIsSharedAcrossTheGroup(t *testing.T) {
 	const ip = "203.0.113.62:1234"
 	limit := middleware.ReportRequestsPerMinute
 
+	paths := entityReportRequestPaths()
+
 	// Spend the budget across DIFFERENT paths, one request each.
 	for i := 0; i < limit; i++ {
-		p := entityReportRequestPaths[i%len(entityReportRequestPaths)]
+		p := paths[i%len(paths)]
 		if code := send(t, router, "POST", p, ip, nil); code == http.StatusTooManyRequests {
 			t.Fatalf("%s (request %d/%d) was limited early", p, i+1, limit)
 		}
 	}
 
 	// A path not yet touched must already be out of budget.
-	next := entityReportRequestPaths[limit%len(entityReportRequestPaths)]
+	next := paths[limit%len(paths)]
 	if code := send(t, router, "POST", next, ip, nil); code != http.StatusTooManyRequests {
 		t.Errorf("%s returned %d after the group budget was spent, want 429 — the eight operations "+
 			"no longer share one counter, so rotating entity types multiplies the budget", next, code)
@@ -225,7 +284,7 @@ func TestEntityReportLimiterRunsBeforeTheAuthGate(t *testing.T) {
 func TestEntityReportGroupStillRequiresAuthentication(t *testing.T) {
 	router := newTestRouter(t)
 
-	for i, path := range entityReportRequestPaths {
+	for i, path := range entityReportRequestPaths() {
 		// Fresh source per path: the eight operations share ONE 5/min budget, so
 		// reusing an address would start returning 429 on the sixth path and hide
 		// whatever the auth gate would have said.
@@ -235,6 +294,10 @@ func TestEntityReportGroupStillRequiresAuthentication(t *testing.T) {
 			t.Errorf("unauthenticated POST %s = %d, want 401 — the JWT middleware did not survive the move; body: %s",
 				path, code, body)
 		}
-		assertReachedHandler(t, code, body, path)
 	}
+	// The 401 above is also the humaFromHTTP no-swallow proof, which is why there
+	// is no assertReachedHandler call here: 401 comes from the JWT middleware,
+	// which is INNER to the limiter, so it is only reachable if the bridge called
+	// next(). A swallowed request would surface as 200 with an empty body and fail
+	// the assertion above.
 }

@@ -3,9 +3,15 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -647,8 +653,8 @@ func TestRouteRegistration(t *testing.T) {
 //
 // TestSetupRoutes already fetched this endpoint and only asserted an "openapi"
 // key was present, which a fragment satisfies just as well. Hence the title,
-// volume, and cross-group sampling below: a future sub-API that forgets
-// subAPIConfig has to fail something.
+// volume, and cross-group sampling below: a second Huma instance that shadowed
+// the spec would have to fail something here.
 func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 	cfg := testConfig()
 	sc := testContainer(cfg)
@@ -673,8 +679,8 @@ func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 	}
 
 	if spec.Info.Title != "Psychic Homily" {
-		t.Errorf("served spec title = %q, want %q — a sub-API instance has shadowed the main spec; "+
-			"every extra humachi.New must use subAPIConfig", spec.Info.Title, "Psychic Homily")
+		t.Errorf("served spec title = %q, want %q — a second Huma instance has shadowed the main spec. "+
+			"This package must contain exactly one; see TestNoSubAPIInstancesRemain", spec.Info.Title, "Psychic Homily")
 	}
 
 	// Volume check. The real surface is in the hundreds; the shadowing fragment
@@ -684,15 +690,14 @@ func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 		t.Errorf("served spec describes %d paths, want >=100 — this looks like a fragment, not the API", len(spec.Paths))
 	}
 
-	// Cross-group sampling across route groups, so a future sub-API that shadows
-	// the spec makes whole groups disappear here.
+	// Cross-group sampling across route groups, so a second Huma instance that
+	// shadowed the spec would make whole groups disappear here.
 	//
-	// The last two are the FLIPPED assertions from TestSubAPIOperationsAreAbsentFromSpec
-	// (PSY-1554), which pinned them as known-absent while the entity-report group
-	// still lived on its own humachi.New. PSY-1598 moved that group onto the main
-	// API, so the characterization test's own instruction applied: move these paths
-	// here rather than delete the coverage. Their full behaviour — limiter, budget
-	// sharing, auth gate — is covered in subapi_reports_test.go.
+	// The two report paths are here because PSY-1554 pinned them as known-ABSENT
+	// while the entity-report group still lived on its own Huma instance, with the
+	// standing instruction to flip rather than delete that coverage once the group
+	// moved. PSY-1598 moved it, so they are asserted present here. Their full
+	// behaviour — limiter, budget sharing, auth gate — is in subapi_reports_test.go.
 	for _, path := range []string{
 		"/shows",
 		"/artists",
@@ -709,8 +714,8 @@ func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 	}
 }
 
-// TestNoSubAPIInstancesRemain replaces two tests that PSY-1598 made obsolete, and
-// is deliberately stronger than either.
+// TestNoSubAPIInstancesRemain pins the invariant PSY-1598 earned: this package
+// builds exactly ONE Huma instance.
 //
 // The history: rate-limited endpoints used to be registered on extra humachi.New
 // instances, because a chi.Group gave them a middleware stack and a Huma instance
@@ -721,57 +726,133 @@ func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 // fragment titled "Psychic Homily Entity Reports" (PSY-1554). And its operations
 // never reached the real document: 27 of them, the entire auth surface included.
 //
-// PSY-1554 patched the first failure with subAPIConfig, which blanked the doc
-// paths so a sub-API could not shadow anything, and TestSubAPIsDoNotRegisterDocRoutes
-// guarded that helper. PSY-1598 fixed the second by moving every group onto the
-// main API behind huma.NewGroup + humaFromHTTP, which removed the last caller of
-// subAPIConfig — so "make a sub-API safe" is no longer the policy, and both the
-// helper and its guard are gone with it.
+// PSY-1554 patched the first failure with subAPIConfig, a config helper that
+// blanked the doc paths so a sub-API could not shadow anything. PSY-1598 fixed
+// the second by moving every group onto the main API behind huma.NewGroup +
+// humaFromHTTP, which removed that helper's last caller — so "make a sub-API
+// safe" stopped being the policy, and the helper and its guard test went with it.
+// Both are recoverable from git history if a second instance is ever genuinely
+// warranted.
 //
-// What replaces them is the stronger invariant the consolidation earned: there is
-// exactly ONE Huma instance, so neither failure can recur. Scanning source is
-// crude, but it is the only place the constraint is visible — a second instance
-// is a compile-time-legal, test-passing change whose damage shows up only in the
-// published spec, and TestServedOpenAPISpecIsTheWholeAPI catches shadowing but
-// not the silent absence of operations.
+// This test is the replacement, and it is a TRADE, not a pure win. It is stronger
+// on the axis that mattered least to PSY-1554 and most to PSY-1598: it catches
+// operations going silently missing from the spec, which no runtime assertion
+// can see. It is weaker on the axis subAPIConfig covered: there is no longer a
+// runtime backstop making an accidental second instance harmless, so a sub-API
+// that slips past this scan shadows the served spec immediately.
+// TestServedOpenAPISpecIsTheWholeAPI is what would catch that, after the fact.
+//
+// Parsing rather than grepping is deliberate. A text scan is defeated by an
+// import alias (`import hc ".../humachi"` then `hc.New(...)`), and it trips over
+// this package's own comments, which discuss humachi.New by name.
 //
 // Test files are excluded: they build throwaway Huma instances to exercise single
 // handlers in isolation, which is unrelated to the routing tree this pins.
 func TestNoSubAPIInstancesRemain(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read package dir: %v", err)
+	// Both ways to build an instance. humachi.New is literally a wrapper around
+	// huma.NewAPI with a chi adapter, so matching only the former leaves
+	// `huma.NewAPI(cfg, humachi.NewAdapter(r))` as a silent bypass.
+	constructors := map[string]string{
+		"github.com/danielgtaylor/huma/v2/adapters/humachi": "New",
+		"github.com/danielgtaylor/huma/v2":                  "NewAPI",
 	}
 
-	found := map[string]int{}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(name)
+	type site struct {
+		file string
+		line int
+	}
+	var sites []site
+
+	// Walk the tree rather than one directory, so splitting routes into
+	// subpackages does not silently drop the guard.
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			return err
 		}
-		// Comments in this package discuss humachi.New by name (that is the point
-		// of those comments), so count call sites only.
-		if n := strings.Count(string(src), "humachi.New("); n > 0 {
-			found[name] = n
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
 		}
+
+		fset := token.NewFileSet()
+		// Comments deliberately not parsed: only real call expressions count.
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return fmt.Errorf("parse %s: %w", path, err)
+		}
+
+		// Resolve this file's import names, so an alias cannot hide a call.
+		names := map[string]string{} // local name -> constructor func
+		for _, imp := range f.Imports {
+			importPath, uerr := strconv.Unquote(imp.Path.Value)
+			if uerr != nil {
+				continue
+			}
+			fn, ok := constructors[importPath]
+			if !ok {
+				continue
+			}
+			local := defaultImportName(importPath)
+			if imp.Name != nil {
+				local = imp.Name.Name
+			}
+			names[local] = fn
+		}
+
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkg, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if names[pkg.Name] == sel.Sel.Name {
+				sites = append(sites, site{file: path, line: fset.Position(call.Pos()).Line})
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan package sources: %v", err)
 	}
 
-	// routes.go holds the one legitimate instance: the main API.
-	if found["routes.go"] != 1 {
-		t.Errorf("routes.go has %d humachi.New call sites, want exactly 1 (the main API)", found["routes.go"])
+	if len(sites) != 1 {
+		for _, s := range sites {
+			t.Logf("  instance constructed at %s:%d", s.file, s.line)
+		}
+		t.Fatalf("found %d Huma instance constructions in non-test sources, want exactly 1 (the main API "+
+			"in SetupRoutes). A second instance owns a second OpenAPI document: its operations are "+
+			"reachable but ABSENT from /openapi.json, and its own doc-route registration can shadow the "+
+			"served spec. Use huma.NewGroup(rc.API, \"\") instead, with humaFromHTTP to carry any "+
+			"net/http middleware onto it — see reports.go or auth.go.", len(sites))
 	}
-	delete(found, "routes.go")
 
-	for file, n := range found {
-		t.Errorf("%s calls humachi.New %d time(s). A second Huma instance owns a second OpenAPI "+
-			"document: its operations will be reachable but ABSENT from /openapi.json, and its own "+
-			"doc-route registration can shadow the served spec. Use huma.NewGroup(rc.API, \"\") instead, "+
-			"with humaFromHTTP to carry any net/http middleware onto it — see reports.go or auth.go.", file, n)
+	// Pin WHERE it is, so the one instance cannot drift out of SetupRoutes
+	// unnoticed. Update this deliberately if SetupRoutes is ever split.
+	if got := filepath.Base(sites[0].file); got != "routes.go" {
+		t.Errorf("the single Huma instance is constructed in %s, want routes.go (SetupRoutes)", got)
 	}
+}
+
+// defaultImportName is the identifier an unaliased import binds. Usually the last
+// path segment, EXCEPT for a Go module version suffix: `huma/v2` binds `huma`,
+// not `v2`. Getting this wrong silently disables whichever constructor is
+// version-suffixed, which is exactly what a negative control caught here.
+func defaultImportName(importPath string) string {
+	segments := strings.Split(importPath, "/")
+	last := len(segments) - 1
+	if last > 0 && len(segments[last]) > 1 && segments[last][0] == 'v' {
+		if _, err := strconv.Atoi(segments[last][1:]); err == nil {
+			last--
+		}
+	}
+	return segments[last]
 }
 
 // --- PSY-1598: rate-limited operations moved onto the main API ---
@@ -781,8 +862,8 @@ func TestNoSubAPIInstancesRemain(t *testing.T) {
 //
 // Before PSY-1598 this route lived on its own humachi.New inside a chi.Group,
 // and a separate instance owns a separate OpenAPI document — so the operation
-// was reachable but undocumented. TestSubAPIOperationsAreAbsentFromSpec pins
-// the ones still in that state; this is the first to graduate out of it.
+// was reachable but undocumented. It was the first to graduate out of that
+// state; subapi_reports_test.go covers the eight that graduated last.
 func TestReportSubmitIsInMainSpec(t *testing.T) {
 	cfg := testConfig()
 	sc := testContainer(cfg)

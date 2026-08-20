@@ -24,6 +24,10 @@ func setupShowReportRoutes(rc RouteContext) {
 	// The limiter is the same httprate middleware as before, bridged by
 	// humaFromHTTP — see its doc for why the existing one is reused rather than
 	// reimplemented.
+	//
+	// No HumaRequestIDMiddleware here: the main API already applies it (routes.go)
+	// and a Huma group inherits its parent's middleware. See the note on the
+	// entity-report group below for why re-applying it is not merely redundant.
 	reportSubmitGroup := huma.NewGroup(rc.API, "")
 	reportSubmitGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
 		middleware.ReportRequestsPerMinute,
@@ -31,7 +35,6 @@ func setupShowReportRoutes(rc RouteContext) {
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
 		httprate.WithLimitHandler(rateLimitHandler),
 	)))
-	reportSubmitGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	reportSubmitGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 	huma.Post(reportSubmitGroup, "/shows/{show_id}/report", showReportHandler.ReportShowHandler)
 
@@ -61,27 +64,39 @@ func setupEntityReportRoutes(rc RouteContext) {
 
 	// Rate-limited report submission: 5 requests per minute per IP.
 	//
-	// PSY-1598 (final step): on the MAIN api via a Huma group rather than its own
-	// humachi.New. A separate instance owns a separate OpenAPI document, so these
-	// eight operations were reachable but undocumented — and this was the very
-	// instance whose spec fragment ("Psychic Homily Entity Reports", 8 paths) once
-	// shadowed the published document in production (PSY-1554).
+	// PSY-1598: on the MAIN api via a Huma group rather than its own humachi.New.
+	// A separate instance owns a separate OpenAPI document, so these eight
+	// operations were reachable but undocumented — and this was the very instance
+	// whose spec fragment ("Psychic Homily Entity Reports", 8 paths) once shadowed
+	// the published document in production (PSY-1554).
 	//
-	// Three properties this conversion must preserve, each easy to break silently:
+	// Three properties this conversion had to preserve, each easy to break
+	// silently. All three are pinned in subapi_reports_test.go rather than trusted
+	// to this comment:
 	//
 	//  1. ONE limiter for the whole group. The eight operations shared a single
 	//     chi group, hence a single counter; building the limiter once here and
-	//     attaching it to one Huma group keeps that. A per-operation limiter would
-	//     look identical and multiply the budget eightfold for anyone willing to
-	//     rotate entity types.
+	//     attaching it to one group keeps that. A per-operation limiter would look
+	//     identical in review and multiply the budget eightfold for anyone willing
+	//     to rotate entity types.
 	//  2. The limiter stays OUTER of the JWT middleware (PSY-1397 layered
-	//     ordering). It ran as chi middleware, i.e. before Huma saw the request at
-	//     all, so unauthenticated floods were rejected without touching the auth
-	//     path. UseMiddleware order is outer-to-inner, so the limiter must be
-	//     registered first — as it is below.
+	//     ordering), so an unauthenticated flood is counted and rejected rather
+	//     than being waved through the auth path for free. Huma resolves a group's
+	//     middleware parent-first and then in registration order, outermost first,
+	//     so the limiter has to be registered before the JWT gate — as it is below.
 	//  3. NO bypass. Unlike show-create and tag-create this group has never had an
 	//     API-token or admin hatch, and reports are the admin queue's inbox: a
 	//     bypass appearing here would be an abuse regression, not a convenience.
+	//
+	// Deliberately NOT re-registering HumaRequestIDMiddleware. The sub-API needed
+	// its own copy because a separate instance inherits nothing; a group inherits
+	// the main API's. Adding it again is not inert — HumaRequestIDMiddleware reads
+	// the inbound X-Request-ID *request* header, which the first pass never sets,
+	// so a second pass mints a fresh UUID and overwrites both the response header
+	// and the context value. Sentry would then tag the event with the first ID
+	// while the client and the handler logs carry the second, and nothing would
+	// correlate. The groups converted in shows.go, tags.go and auth.go still carry
+	// the redundant copy; removing it there is a follow-up.
 	entityReportGroup := huma.NewGroup(rc.API, "")
 	entityReportGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
 		middleware.ReportRequestsPerMinute,
@@ -89,7 +104,6 @@ func setupEntityReportRoutes(rc RouteContext) {
 		httprate.WithKeyFuncs(middleware.KeyByClientIP),
 		httprate.WithLimitHandler(rateLimitHandler),
 	)))
-	entityReportGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
 	entityReportGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
 
 	huma.Post(entityReportGroup, "/artists/{entity_id}/report", entityReportHandler.ReportArtistHandler)
@@ -99,8 +113,9 @@ func setupEntityReportRoutes(rc RouteContext) {
 	// The generic entity report handler + service support shows, so the admin queue
 	// can display show reports submitted through the existing endpoint or this one.
 	//
-	// The two live on SEPARATE limiters, as they did when one was a chi group and
-	// the other a Huma group — same cap, independent counters. Unchanged here.
+	// The two show-report surfaces have INDEPENDENT counters at the same cap, and
+	// must keep them: merging the budgets would halve the effective allowance for
+	// a user who legitimately reports a show and then an artist.
 	huma.Post(entityReportGroup, "/shows/{entity_id}/entity-report", entityReportHandler.ReportShowHandler)
 	huma.Post(entityReportGroup, "/comments/{entity_id}/report", entityReportHandler.ReportCommentHandler)
 	// PSY-357: report a collection. EntityID is the numeric collection ID

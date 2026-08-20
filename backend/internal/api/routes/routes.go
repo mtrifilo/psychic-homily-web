@@ -37,7 +37,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	//
 	// The replacement for a sub-API is a Huma group carrying its own middleware:
 	// huma.NewGroup(api, "") plus humaFromHTTP for any net/http middleware (a
-	// rate limiter, typically). See reports.go, shows.go, tags.go and auth.go.
+	// rate limiter, typically). See the rate-limited groups in this package.
 	api := humachi.New(router, huma.DefaultConfig("Psychic Homily", "1.0.0"))
 
 	// Add request ID middleware to all Huma routes
