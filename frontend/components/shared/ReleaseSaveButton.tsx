@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { Bookmark, Loader2 } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -9,10 +8,14 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useReleaseSaveCount, useReleaseSaveToggle } from '@/features/releases'
 import { cn } from '@/lib/utils'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
+import { useAutoDismissBanner } from '@/lib/hooks/common'
 import {
   resolveBatchedSaveData,
   type BatchedSaveData,
 } from './batchedSaveData'
+
+// How long a save failure stays on screen before auto-hiding.
+const ERROR_DISMISS_MS = 3000
 
 interface ReleaseSaveButtonProps {
   releaseId: number
@@ -63,7 +66,13 @@ export function ReleaseSaveButton({
     isSaved,
     user?.id
   )
-  const [showError, setShowError] = useState(false)
+  // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
+  // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
+  const {
+    value: showError,
+    show: showSaveError,
+    clear: clearSaveError,
+  } = useAutoDismissBanner<true>(ERROR_DISMISS_MS)
   const isDisabled = disabled || statusLoading || isLoading
 
   const handleClick = async (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -76,11 +85,10 @@ export function ReleaseSaveButton({
     }
     if (isDisabled) return
     try {
-      setShowError(false)
+      clearSaveError()
       await toggle()
     } catch {
-      setShowError(true)
-      setTimeout(() => setShowError(false), 3000)
+      showSaveError(true)
     }
   }
 

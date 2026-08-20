@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { BracketLink, SectionHeader } from '@/components/shared'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useIsAuthenticated } from '@/features/auth'
 import { useArtistGraph, useFetchArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
 import { useArtistSearch } from '../hooks/useArtistSearch'
@@ -1477,6 +1478,12 @@ interface SuggestSimilarArtistProps {
   onClose: () => void
 }
 
+// Grace period between blur and closing the suggestion dropdown, so a mousedown
+// on an option is not raced by the close.
+const SUGGEST_BLUR_CLOSE_DELAY_MS = 150
+// How long the "suggested" confirmation shows before the panel closes itself.
+const SUGGEST_SUCCESS_DISMISS_MS = 2000
+
 function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: SuggestSimilarArtistProps) {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
@@ -1489,6 +1496,16 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
   const createRelationship = useCreateArtistRelationship()
 
   const artists = (searchResults?.artists ?? []).filter(a => a.id !== centerArtistId)
+
+  // Timers must not outlive unmount, see useDismissTimer (PSY-1664).
+  const { schedule: scheduleBlurClose } = useDismissTimer(
+    () => setIsOpen(false),
+    SUGGEST_BLUR_CLOSE_DELAY_MS
+  )
+  const { schedule: scheduleSuccessClose } = useDismissTimer(() => {
+    setSuccess(false)
+    onClose()
+  }, SUGGEST_SUCCESS_DISMISS_MS)
 
   const handleSelect = useCallback(
     (selectedId: number) => {
@@ -1505,10 +1522,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
             setSuccess(true)
             setQuery('')
             setIsOpen(false)
-            setTimeout(() => {
-              setSuccess(false)
-              onClose()
-            }, 2000)
+            scheduleSuccessClose()
           },
           onError: (err: Error) => {
             const message = err.message || 'Failed to create relationship'
@@ -1521,7 +1535,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
         }
       )
     },
-    [centerArtistId, centerArtistSlug, createRelationship, onClose]
+    [centerArtistId, centerArtistSlug, createRelationship, scheduleSuccessClose]
   )
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1571,7 +1585,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
             value={query}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            onBlur={() => setTimeout(() => setIsOpen(false), 150)}
+            onBlur={scheduleBlurClose}
             placeholder="Search for a similar artist..."
             autoFocus
             autoComplete="off"

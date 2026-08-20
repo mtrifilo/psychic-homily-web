@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { ArtistEditForm } from './ArtistEditForm'
@@ -339,6 +339,62 @@ describe('ArtistEditForm', () => {
       )
 
       expect(screen.getByLabelText(/Name \*/i)).toHaveValue('Dirty Edit')
+    })
+  })
+
+  describe('timer cleanup (PSY-1664)', () => {
+    // A successful save flashes the success alert, then closes the dialog on a
+    // delay. That delay used to be a bare `setTimeout`, so it still fired after
+    // the dialog unmounted and called `setState` / `onOpenChange` into a
+    // torn-down React DOM. No timer may survive unmount.
+    it('leaves no pending success-close timer behind on unmount', async () => {
+      vi.useFakeTimers()
+      try {
+        mockMutate.mockImplementation((_vars, { onSuccess }) => {
+          onSuccess()
+        })
+
+        const onOpenChange = vi.fn()
+        const artist = makeArtist()
+        const { unmount } = renderWithProviders(
+          <ArtistEditForm
+            artist={artist}
+            open
+            onOpenChange={onOpenChange}
+            onSuccess={vi.fn()}
+          />
+        )
+
+        fireEvent.change(screen.getByLabelText(/Name \*/i), {
+          target: { value: 'Artist B' },
+        })
+
+        const baseline = vi.getTimerCount()
+
+        // TanStack Form's submit is async, so the mutation (and the timer it
+        // arms) only lands after the promise continuation runs.
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: /Save Changes/i }))
+        })
+
+        expect(mockMutate).toHaveBeenCalledTimes(1)
+        expect(
+          screen.getByText(/Artist updated successfully/i)
+        ).toBeInTheDocument()
+        expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+
+        unmount()
+        // Baseline-delta rather than an absolute zero: Radix's focus scope arms
+        // its own timers on mount and on unmount, which never reach zero here.
+        expect(vi.getTimerCount()).toBeLessThanOrEqual(baseline)
+
+        // Well past the 1500ms close delay: the callback must never land after
+        // the form is gone.
+        await vi.advanceTimersByTimeAsync(5000)
+        expect(onOpenChange).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 })

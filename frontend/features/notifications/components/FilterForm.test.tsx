@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { NotificationFilter } from '../types'
@@ -390,5 +390,28 @@ describe('FilterForm', () => {
       return label?.textContent === 'Email'
     })
     expect(emailSwitch).toBeTruthy()
+  })
+
+  // MultiSelectSearch's blur delay used to be an untracked `setTimeout`, so it
+  // still fired ~200ms after unmount and called `setState` into a torn-down
+  // React DOM. Under vitest that lands after jsdom teardown and throws
+  // `ReferenceError: window is not defined`, failing the whole run.
+  it('leaves no pending blur timer behind on unmount', () => {
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(
+        <FilterForm open={true} onOpenChange={mockOnOpenChange} />
+      )
+      // Baseline-delta rather than an absolute 0: react-query and Radix keep
+      // their own timers alive past unmount, which this test is not about.
+      const baseline = vi.getTimerCount()
+      fireEvent.blur(screen.getByPlaceholderText('Search artists...'))
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline)
+
+      unmount()
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(baseline)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -28,6 +28,7 @@ import {
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/features/venues'
+import { useDismissTimer } from '@/lib/hooks/common'
 import type { ShowResponse, VenueResponse, OrphanedArtist } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
@@ -71,6 +72,11 @@ import {
 } from './show-form-utils'
 
 // Form validation schema
+// How long the success flash shows before the parent is notified.
+const SUCCESS_NOTIFY_DELAY_MS = 1500
+// How long the success flash shows before redirecting to the submissions list.
+const SUCCESS_REDIRECT_DELAY_MS = 2000
+
 const showFormSchema = z.object({
   title: z.string(),
   artists: z
@@ -217,6 +223,18 @@ export function ShowForm({
   // first paint after a remount (mirrors the prior effect's setVenueName).
   const [venueName, setVenueName] = useState(() => initialFormValues.venue.name)
 
+  // Timers must not outlive unmount, see useDismissTimer (PSY-1664). A stray
+  // `router.push` would also navigate a user who already left.
+  //
+  // The two success paths below (update, and create-without-redirect) are
+  // mutually exclusive, so they share one timer.
+  const { schedule: scheduleSuccessNotify } = useDismissTimer(() => {
+    onSuccess?.()
+  }, SUCCESS_NOTIFY_DELAY_MS)
+  const { schedule: scheduleSubmissionsRedirect } = useDismissTimer(() => {
+    router.push('/contribute/submissions')
+  }, SUCCESS_REDIRECT_DELAY_MS)
+
   const form = useForm({
     defaultValues: initialFormValues,
     onSubmit: async ({ value }) => {
@@ -261,9 +279,7 @@ export function ShowForm({
                 setOrphanedArtists(data.orphaned_artists)
                 setShowOrphanDialog(true)
               } else {
-                setTimeout(() => {
-                  onSuccess?.()
-                }, 1500)
+                scheduleSuccessNotify()
               }
             },
           }
@@ -304,14 +320,10 @@ export function ShowForm({
             } else if (redirectOnCreate) {
               // Approved submissions show brief success then redirect
               setShowSuccess(true)
-              setTimeout(() => {
-                router.push('/contribute/submissions')
-              }, 2000)
+              scheduleSubmissionsRedirect()
             } else {
               setShowSuccess(true)
-              setTimeout(() => {
-                onSuccess?.()
-              }, 1500)
+              scheduleSuccessNotify()
             }
           },
         })

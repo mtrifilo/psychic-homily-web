@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { SettingsPanel } from './SettingsPanel'
@@ -554,6 +554,61 @@ describe('SettingsPanel', () => {
     })
 
     writeTextSpy.mockRestore()
+  })
+
+  // The "copied ✓" confirmation used to arm an untracked `setTimeout`, so it
+  // still fired ~2s after the panel unmounted and called `setState` into a
+  // torn-down React DOM (under vitest that lands after jsdom teardown and fails
+  // the whole run). No timer may survive unmount; the symptom itself is not
+  // reproducible from inside a test.
+  it('leaves no pending copied-confirmation timer behind on unmount', async () => {
+    mockUser = {
+      email: 'admin@example.com',
+      email_verified: true,
+      is_admin: true,
+    }
+    mockGenerateCLITokenMutateAsync.mockResolvedValueOnce({
+      token: 'cli-unmount-token',
+    })
+
+    // fireEvent (not userEvent) means no userEvent clipboard stub, so install
+    // one directly and restore the original descriptor afterwards.
+    const originalClipboard = navigator.clipboard
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
+    vi.useFakeTimers()
+    try {
+      const { unmount } = renderWithProviders(<SettingsPanel />)
+
+      // Issue a token first so the Copy button mounts. Both the generation and
+      // the copy arm their state from awaited continuations, so each click has
+      // to be flushed inside act().
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: /Generate CLI token/ })
+        )
+      })
+      const copyBtn = screen
+        .getByText('cli-unmount-token')
+        .parentElement?.querySelector('button')
+      expect(copyBtn).toBeTruthy()
+
+      await act(async () => {
+        fireEvent.click(copyBtn!)
+      })
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard,
+      })
+    }
   })
 
   it('renders board J vertical order: account → … → oauth → passkeys → change password', () => {

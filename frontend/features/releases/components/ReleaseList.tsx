@@ -5,7 +5,6 @@ import {
   useMemo,
   useState,
   useEffect,
-  useRef,
   useTransition,
 } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -16,6 +15,7 @@ import { useLabels } from '@/features/labels/hooks/useLabels'
 import { ReleaseCard } from './ReleaseCard'
 import { LoadingSpinner, DensityToggle, Pagination } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,6 +33,8 @@ import {
 } from '@/features/tags'
 
 const PAGE_SIZE = 50
+// How long typing settles before the search filter is pushed to the URL.
+const SEARCH_DEBOUNCE_MS = 300
 
 export function ReleaseList() {
   const router = useRouter()
@@ -67,8 +69,6 @@ export function ReleaseList() {
   // Local state for debounced search
   const [searchInput, setSearchInput] = useState(searchParam)
   const [yearInput, setYearInput] = useState(yearParam ?? '')
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   // Sync search input when URL changes externally
   useEffect(() => {
     setSearchInput(searchParam)
@@ -215,15 +215,18 @@ export function ReleaseList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeParam, yearParam, searchParam, sortParam, labelIdParam])
 
-  // Debounced search
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value
-    setSearchInput(value)
+  // Debounced search. `schedule` cancels any pending run before re-arming and
+  // clears on unmount, so the last keystroke's timer cannot fire into a
+  // torn-down tree (see useDismissTimer, PSY-1664). The callback reads
+  // `searchInput` through the hook's latest-ref, so it sees the value committed
+  // by this render rather than a stale capture.
+  const { schedule: scheduleSearch } = useDismissTimer(() => {
+    updateFilters({ search: searchInput || null, page: null })
+  }, SEARCH_DEBOUNCE_MS)
 
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      updateFilters({ search: value || null, page: null })
-    }, 300)
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchInput(e.target.value)
+    scheduleSearch()
   }
 
   const handleTypeChange = (type: string | null) => {

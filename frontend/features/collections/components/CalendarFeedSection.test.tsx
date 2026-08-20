@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 const mockCreateToken = vi.fn()
@@ -98,5 +98,37 @@ describe('CalendarFeedSection', () => {
     const layout = container.firstElementChild?.firstElementChild as HTMLElement
     expect(layout.className).toContain('flex-col')
     expect(layout.className).toContain('sm:flex-row')
+  })
+
+  // The "copied ✓" blip used to reset via an untracked `setTimeout`, so it
+  // still fired ~2s after the section unmounted and called `setState` into a
+  // torn-down React DOM. Under vitest that lands after jsdom teardown and
+  // throws `ReferenceError: window is not defined`, failing the whole run with
+  // every test passing. No timer may outlive the component.
+  it('leaves no pending copied timer behind on unmount', async () => {
+    vi.useFakeTimers()
+    try {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { clipboard: { writeText } })
+
+      const { unmount } = renderWithProviders(
+        <CalendarFeedSection variant="library" />
+      )
+
+      // Enabling reveals the plaintext URL (the only state with a copy button).
+      // Both handlers are async, so drain microtasks after each click.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
+      })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Copy feed URL' }))
+      })
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

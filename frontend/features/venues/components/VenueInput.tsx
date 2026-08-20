@@ -4,10 +4,15 @@ import { useRef, useState } from 'react'
 import { type AnyFieldApi } from '@tanstack/react-form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useVenueSearch } from '../hooks/useVenueSearch'
 import { getVenueLocation } from '../types'
 import type { Venue } from '../types'
 import { FieldInfo } from '@/components/forms/FormField'
+
+// Grace period between blur and resolving the field, so a mousedown on a
+// dropdown option is not raced by the close.
+const BLUR_CONFIRM_DELAY_MS = 150
 
 interface VenueInputProps {
   field: AnyFieldApi
@@ -75,24 +80,23 @@ export function VenueInput({
     onVenueNameChange?.(value)
   }
 
-  const handleBlur = () => {
-    // Delay closing to allow click on dropdown items
-    setTimeout(() => {
-      // Skip handleConfirm if a venue was just selected from dropdown —
-      // otherwise handleConfirm may call onVenueSelect(null) and wipe city/state
-      if (justSelectedRef.current) {
-        justSelectedRef.current = false
-        setIsOpen(false)
-        setSearchValue('')
-      } else if (field.state.value?.trim()) {
-        handleConfirm()
-      } else {
-        setIsOpen(false)
-        setSearchValue('')
-      }
-      field.handleBlur()
-    }, 150)
-  }
+  // Delay closing so a click on a dropdown item registers first.
+  // Timer must not outlive unmount, see useDismissTimer (PSY-1664).
+  const { schedule: handleBlur } = useDismissTimer(() => {
+    // Skip handleConfirm if a venue was just selected from dropdown —
+    // otherwise handleConfirm may call onVenueSelect(null) and wipe city/state
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false
+      setIsOpen(false)
+      setSearchValue('')
+    } else if (field.state.value?.trim()) {
+      handleConfirm()
+    } else {
+      setIsOpen(false)
+      setSearchValue('')
+    }
+    field.handleBlur()
+  }, BLUR_CONFIRM_DELAY_MS)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {

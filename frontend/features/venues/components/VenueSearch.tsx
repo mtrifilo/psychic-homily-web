@@ -4,8 +4,13 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { useDismissTimer } from '@/lib/hooks/common'
 import { useVenueSearch } from '../hooks/useVenueSearch'
 import { getVenueLocation } from '../types'
+
+// Grace period between blur and closing the dropdown, so a mousedown on an
+// option is not raced by the close.
+const BLUR_CLOSE_DELAY_MS = 150
 
 /**
  * Venue search with autocomplete dropdown.
@@ -67,13 +72,12 @@ export function VenueSearch() {
     }
   }
 
-  const handleBlur = () => {
-    // Delay to allow click on dropdown items
-    setTimeout(() => {
-      setIsOpen(false)
-      setActiveIndex(-1)
-    }, 150)
-  }
+  // Delay the close so a click on a dropdown item registers first.
+  // Timer must not outlive unmount, see useDismissTimer (PSY-1664).
+  const { schedule: handleBlur } = useDismissTimer(() => {
+    setIsOpen(false)
+    setActiveIndex(-1)
+  }, BLUR_CLOSE_DELAY_MS)
 
   return (
     <div className="relative w-full max-w-sm">

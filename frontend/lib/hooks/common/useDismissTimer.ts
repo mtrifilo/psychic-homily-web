@@ -19,7 +19,25 @@ import { useCallback, useEffect, useRef } from 'react'
  * (e.g. one that reads current state) without re-creating `schedule` / `cancel` —
  * their identities stay stable across renders. `delayMs`, by contrast, is captured by
  * `schedule` at call time and is NOT re-applied to an already-pending timer, so pass
- * a stable value (the sole caller uses a module constant).
+ * a stable value (callers use module constants).
+ *
+ * ## Why a bare `setTimeout` is not good enough (PSY-1664)
+ *
+ * This is the canonical explanation; call sites just point here.
+ *
+ * An untracked `setTimeout` in a blur/dismiss handler still fires after the
+ * component unmounts, and its `setState` then runs against a React DOM that no
+ * longer has a document. In the browser that is a harmless no-op warning. Under
+ * vitest it lands after the jsdom environment has been torn down and throws
+ * `ReferenceError: window is not defined` from `resolveUpdatePriority`, which
+ * vitest reports as an unhandled error and fails the ENTIRE run — with every
+ * test passing, and the stack trace blaming whatever PR happens to be in flight.
+ * It is a race against teardown, so it stays invisible on a fast machine and
+ * surfaces on a loaded CI runner (PR #1757 was failed by exactly this).
+ *
+ * Scope note: this and `useAutoDismissBanner` are the two shared timer
+ * lifecycles for the app. PSY-1664 swept the frontend onto them. New deferred
+ * UI actions should use one of these primitives, not a hand-rolled timer.
  */
 export function useDismissTimer(onDismiss: () => void, delayMs: number) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
