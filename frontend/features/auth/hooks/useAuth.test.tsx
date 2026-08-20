@@ -6,6 +6,8 @@ import { AuthErrorCode, AuthError } from '@/lib/errors'
 // Create a mock for apiRequest that we can control
 const mockApiRequest = vi.fn()
 const mockInvalidateAuth = vi.fn()
+const mockRefreshViewerTierQueries = vi.fn()
+const mockResetViewerTierQueries = vi.fn()
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -70,6 +72,14 @@ vi.mock('@/lib/queryClient', () => ({
   createInvalidateQueries: () => ({
     auth: mockInvalidateAuth,
   }),
+  // PSY-1857: every transition into an authenticated session drops the caches
+  // whose payload depends on the viewer's privilege tier. Behaviour against
+  // the real implementation is covered in viewerTierCache.test.tsx; here it is
+  // a spy so these tests can assert it fired.
+  refreshViewerTierQueries: (...args: unknown[]) =>
+    mockRefreshViewerTierQueries(...args),
+  resetViewerTierQueries: (...args: unknown[]) =>
+    mockResetViewerTierQueries(...args),
 }))
 
 // Import hooks after mocks are set up
@@ -185,6 +195,50 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    })
+
+    it('drops the viewer-tier caches the previous viewer filled', async () => {
+      mockApiRequest.mockResolvedValue({
+        success: true,
+        message: 'Login successful',
+        user: { id: '1', email: 'test@example.com' },
+      })
+
+      const { result } = renderHook(() => useLogin(), {
+        wrapper: createWrapperWithClient(createTestQueryClient()),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          email: 'test@example.com',
+          password: 'password123',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockRefreshViewerTierQueries).toHaveBeenCalled()
+    })
+
+    it('does not touch the viewer-tier caches when login fails', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        success: false,
+        message: 'Invalid credentials',
+        error_code: AuthErrorCode.INVALID_CREDENTIALS,
+      })
+
+      const { result } = renderHook(() => useLogin(), {
+        wrapper: createWrapperWithClient(createTestQueryClient()),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          email: 'test@example.com',
+          password: 'wrong',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(mockRefreshViewerTierQueries).not.toHaveBeenCalled()
     })
   })
 
@@ -313,6 +367,12 @@ describe('useAuth hooks', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(clearSpy).toHaveBeenCalled()
+      // PSY-1857: the viewer-tier reset has to run BEFORE the clear, or it
+      // matches an already-empty cache and never re-drives a mounted panel.
+      expect(mockResetViewerTierQueries).toHaveBeenCalled()
+      expect(
+        mockResetViewerTierQueries.mock.invocationCallOrder[0]
+      ).toBeLessThan(clearSpy.mock.invocationCallOrder[0])
     })
 
     it('clears query cache even on error', async () => {

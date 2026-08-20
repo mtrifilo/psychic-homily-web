@@ -18,7 +18,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { refreshViewerTierQueries } from '@/lib/queryClient'
 import { useWebAuthnSupport } from '@/features/auth/hooks/useWebAuthnSupport'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
@@ -44,6 +46,7 @@ export function PasskeySignupButton({
 }: PasskeySignupButtonProps) {
   const router = useRouter()
   const { setUser } = useAuthContext()
+  const queryClient = useQueryClient()
   const [isLoading, setIsLoading] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [showBackupPrompt, setShowBackupPrompt] = useState(false)
@@ -146,6 +149,11 @@ export function PasskeySignupButton({
           email_verified: finishData.user.email_verified,
         })
       }
+
+      // This path establishes a session with a raw fetch rather than the
+      // `useRegister` mutation, so nothing else drops the caches whose payload
+      // depends on the viewer's privilege tier (PSY-1857).
+      void refreshViewerTierQueries(queryClient)
 
       // Close signup dialog and show backup prompt
       setIsDialogOpen(false)
