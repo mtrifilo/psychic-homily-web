@@ -21,6 +21,10 @@ const station: RadioStationListItem = {
   logo_url: null,
   is_active: true,
   show_count: 0,
+  network_id: null,
+  network_slug: null,
+  network: null,
+  sibling_stations: null,
 }
 
 function makeRun(overrides: Partial<RadioSyncRun> = {}): RadioSyncRun {
@@ -142,6 +146,35 @@ describe('Sync-run feed (PSY-1130)', () => {
     fireEvent.click(screen.getByRole('button', { name: /fetch_failed/i }))
     // Station detail renders the per-station feed.
     expect(screen.getByText('Recent sync runs')).toBeInTheDocument()
+  })
+
+  // PSY-1600: `station_id` / `station_name` carry `omitempty` on the Go DTO and
+  // are absent on global rematch runs, which have no station scope. The
+  // hand-written type declared both as required, so such a row rendered an
+  // EMPTY station label and its click silently no-opped (the station lookup
+  // matched nothing). Adopting the generated type surfaced it.
+  it('global failure row for a station-less (rematch) run is labelled and not clickable', () => {
+    recentFailures = {
+      runs: [
+        makeRun({
+          id: 13,
+          status: 'failed',
+          station_id: undefined,
+          station_name: undefined,
+          run_type: 'rematch',
+          errors: [{ category: 'rematch_failed' }],
+        }),
+      ],
+      isLoading: false,
+      isError: false,
+    }
+    renderMgmt()
+
+    // The row is labelled rather than blank...
+    expect(screen.getByText('All stations')).toBeInTheDocument()
+    expect(screen.getByText(/rematch_failed/)).toBeInTheDocument()
+    // ...and it is not offered as a clickable affordance that would do nothing.
+    expect(screen.queryByRole('button', { name: /rematch_failed/i })).toBeNull()
   })
 
   it('per-station feed: empty state when the station has no runs', () => {

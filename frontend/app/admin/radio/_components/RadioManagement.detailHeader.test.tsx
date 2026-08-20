@@ -25,6 +25,10 @@ const listItem: RadioStationListItem = {
   logo_url: null,
   is_active: false,
   show_count: 2,
+  network_id: null,
+  network_slug: null,
+  network: null,
+  sibling_stations: null,
 }
 
 // Fresh detail — differs from the list snapshot in every header field.
@@ -51,6 +55,10 @@ const freshDetail: RadioStationDetail = {
   last_playlist_fetch_at: null,
   is_active: true,
   show_count: 7,
+  network_id: null,
+  network_slug: null,
+  network: null,
+  sibling_stations: null,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
 }

@@ -9,9 +9,19 @@
  * the PSY-1190 profile→embed resolver, which runs server-side async).
  * Reject just marks the row. Both stamp the reviewer and are idempotent on
  * replay; a re-review with a *different* verdict is a 409.
+ *
+ * The wire shapes below are sourced from the backend's OpenAPI document,
+ * NOT hand-written (PSY-1550/1600). Regenerate with `bun run api:types`;
+ * the "API Types Drift" CI gate fails if the committed types drift from the
+ * backend. Exported names are kept stable so callers do not churn.
  */
+import type { components } from '@/types/api'
 
-/** Streaming platform a suggestion targets. */
+/**
+ * Streaming platform a suggestion targets. A DOCUMENTATION type, not a wire
+ * type: the OpenAPI document types `platform` as a plain string, so the
+ * generated entry carries `string` and this records the value domain.
+ */
 export type LinkSuggestionPlatform = 'bandcamp' | 'spotify'
 
 /**
@@ -23,54 +33,29 @@ export type LinkSuggestionPlatform = 'bandcamp' | 'spotify'
  * `review` is NEVER a gate and is NEVER auto-accepted or hidden: the row is
  * still surfaced and the admin can still accept it. The tier only flags the
  * lower certainty so the reviewer slows down.
+ *
+ * Same caveat as `LinkSuggestionPlatform`: the spec types `confidence` as a
+ * plain string, so this is the documented value domain, not the wire type.
  */
 export type LinkSuggestionConfidence = 'high' | 'review'
 
 /**
  * One pending suggestion in the review queue, joined to its artist for
- * direct rendering. Mirrors `contracts.LinkSuggestionEntry`. Shape is
- * LOCKED.
+ * direct rendering. Shape is LOCKED.
  */
-export interface LinkSuggestionEntry {
-  id: number
-  artist_id: number
-  artist_name: string
-  artist_slug?: string | null
-  platform: LinkSuggestionPlatform
-  url: string
-  source: string
-  mb_artist_id?: string | null
-  mb_artist_name?: string | null
-  confidence: LinkSuggestionConfidence
-  region_match: boolean
-  live: boolean
-  notes?: string | null
-  /** Always `pending` in the list response. */
-  status: string
-  created_at: string
-}
+export type LinkSuggestionEntry = components['schemas']['LinkSuggestionEntry']
 
 /**
- * Paginated review-queue response. Mirrors
- * `contracts.LinkSuggestionListResult`. Shape is LOCKED.
+ * Paginated review-queue response. Shape is LOCKED.
+ *
+ * `suggestions` is nullable on the wire: the Go field is
+ * `[]LinkSuggestionEntry` with no `omitempty`, so a nil slice marshals to
+ * JSON `null`, not `[]`. Consumers must guard.
  */
-export interface LinkSuggestionListResult {
-  suggestions: LinkSuggestionEntry[]
-  total: number
-}
+export type LinkSuggestionListResult = components['schemas']['LinkSuggestionListResult']
 
-/**
- * Response from accept/reject. Mirrors
- * `contracts.LinkSuggestionReviewResult`. Shape is LOCKED.
- */
-export interface LinkSuggestionReviewResult {
-  id: number
-  artist_id: number
-  /** Resulting status: `accepted` or `rejected`. */
-  status: string
-  reviewed_at?: string | null
-  reviewed_by_user_id?: number | null
-}
+/** Response from accept/reject. Shape is LOCKED. */
+export type LinkSuggestionReviewResult = components['schemas']['LinkSuggestionReviewResult']
 
 /**
  * Pagination default. Backend caps `limit` at 200; the UI uses 25 so the

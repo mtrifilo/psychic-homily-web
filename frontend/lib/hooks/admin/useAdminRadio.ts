@@ -11,6 +11,7 @@ import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_BASE_URL } from '@/lib/api'
 import { createInvalidateQueries } from '@/lib/queryClient'
+import type { components } from '@/types/api'
 
 // ============================================================================
 // Query Keys
@@ -75,98 +76,68 @@ const RADIO_ENDPOINTS = {
 // ============================================================================
 // Types
 // ============================================================================
+//
+// The RESPONSE shapes below are sourced from the backend's OpenAPI document,
+// NOT hand-written (PSY-1550/1600). Regenerate with `bun run api:types`; the
+// "API Types Drift" CI gate fails if the committed types drift from the
+// backend. Exported names are kept stable so callers do not churn.
+//
+// The `Create*Input` / `Update*Input` REQUEST bodies are deliberately still
+// hand-written — see the note above them.
 
-export interface RadioStationListItem {
-  id: number
-  name: string
-  slug: string
-  city: string | null
-  state: string | null
-  country: string | null
-  broadcast_type: string
-  frequency_mhz: number | null
-  logo_url: string | null
-  is_active: boolean
-  show_count: number
-}
+/**
+ * A station's network affiliation.
+ *
+ * SPEC-FIDELITY GAP: the generated `RadioStationListResponse` /
+ * `RadioStationDetailResponse` declare `network` as REQUIRED and
+ * NON-nullable, but the Go field is `*RadioNetworkInfo` with NO
+ * `omitempty`, so a nil pointer marshals to JSON `null` — the common case,
+ * since most stations belong to no network. Huma marks pointer-to-primitive
+ * fields nullable (`network_id` and `network_slug` right beside it are
+ * `| null`) but not pointer-to-struct ones. The `| null` is restored below
+ * so no caller can read through a null the spec pretends cannot happen.
+ * Backend follow-up: annotate the field so the generator emits the union.
+ */
+export type RadioNetworkInfo = components['schemas']['RadioNetworkInfo']
 
-export interface RadioStationDetail {
-  id: number
-  name: string
-  slug: string
-  description: string | null
-  city: string | null
-  state: string | null
-  country: string | null
-  timezone: string | null
-  stream_url: string | null
-  stream_urls: Record<string, string> | null
-  website: string | null
-  donation_url: string | null
-  donation_embed_url: string | null
-  logo_url: string | null
-  social: Record<string, string> | null
-  broadcast_type: string
-  frequency_mhz: number | null
-  playlist_source: string | null
-  playlist_config: Record<string, unknown> | null
-  last_playlist_fetch_at: string | null
-  is_active: boolean
-  show_count: number
-  created_at: string
-  updated_at: string
-}
+export type RadioStationListItem = Omit<
+  components['schemas']['RadioStationListResponse'],
+  'network'
+> & { network: RadioNetworkInfo | null }
 
-export interface RadioShowListItem {
-  id: number
-  station_id: number
-  station_name: string
-  name: string
-  slug: string
-  host_name: string | null
-  genre_tags: string[] | null
-  image_url: string | null
-  is_active: boolean
-  // schedule_locked (PSY-1186/1193): true when the schedule is hand-curated and the
-  // weekly WFMU scrape leaves it alone. Surfaced as a badge in the admin list.
-  schedule_locked: boolean
-  // lifecycle_state (active | dormant | retired) + latest_air_date (YYYY-MM-DD or null)
-  // are already emitted by the backend list (PSY-1155/1048); surfaced here for the
-  // navigable show list's filter / sort / lifecycle badge / bulk actions (PSY-1122).
-  lifecycle_state: string
-  latest_air_date: string | null
-  episode_count: number
-}
+export type RadioStationDetail = Omit<
+  components['schemas']['RadioStationDetailResponse'],
+  'network'
+> & { network: RadioNetworkInfo | null }
 
-export interface RadioShowDetail {
-  id: number
-  station_id: number
-  station_name: string
-  station_slug: string
-  name: string
-  slug: string
-  host_name: string | null
-  description: string | null
-  schedule_display: string | null
-  schedule: Record<string, unknown> | null
-  schedule_locked: boolean
-  genre_tags: string[] | null
-  archive_url: string | null
-  image_url: string | null
-  is_active: boolean
-  episode_count: number
-  created_at: string
-  updated_at: string
-}
+/**
+ * A row in the admin show list. `schedule_locked` (PSY-1186/1193) is true
+ * when the schedule is hand-curated and the weekly WFMU scrape leaves it
+ * alone. `lifecycle_state` + `latest_air_date` back the navigable show
+ * list's filter / sort / lifecycle badge / bulk actions (PSY-1122).
+ *
+ * `genre_tags` is typed `unknown`: the Go field is `*json.RawMessage`, which
+ * Huma cannot describe further. No admin caller reads it.
+ */
+export type RadioShowListItem = components['schemas']['RadioShowListResponse']
 
-export interface RadioStats {
-  total_stations: number
-  total_shows: number
-  total_episodes: number
-  total_plays: number
-  matched_plays: number
-  unique_artists: number
-}
+/** Same `unknown` caveat as `RadioShowListItem` for `genre_tags` and `schedule`. */
+export type RadioShowDetail = components['schemas']['RadioShowDetailResponse']
+
+export type RadioStats = components['schemas']['RadioStatsResponse']
+
+// ──────────────────────────────────────────────
+// Request bodies — DEFERRED, still hand-written.
+//
+// The generated `AdminCreateRadioStationRequestBody` /
+// `AdminUpdateRadioStationRequestBody` / `AdminCreateRadioShowRequestBody` /
+// `AdminUpdateRadioShowRequestBody` type every optional field as `?: string`
+// with NO `| null`, while the forms below send explicit `null` to CLEAR a
+// field. Omitting a field and sending `null` are different instructions to
+// the backend (leave unchanged vs. clear), so adopting the generated bodies
+// is a behaviour change, not a mechanical realias — it belongs to the
+// write-path slice of PSY-1600, not this one.
+// ──────────────────────────────────────────────
 
 export interface CreateRadioStationInput {
   name: string
@@ -230,9 +201,17 @@ export interface UpdateRadioShowInput {
   schedule_locked?: boolean
 }
 
-// Status of a radio_sync_runs row (PSY-1135). `partial` = the run imported data
-// but hit per-episode/match errors (replaces the old import-job "completed with
-// errors" error_log header); `skipped` = the circuit breaker was open.
+/**
+ * Status of a radio_sync_runs row (PSY-1135). `partial` = the run imported
+ * data but hit per-episode/match errors (replaces the old import-job
+ * "completed with errors" error_log header); `skipped` = the circuit breaker
+ * was open.
+ *
+ * A DOCUMENTATION type, not a wire type: the OpenAPI document types
+ * `status` (and `run_type`, and `trigger`) as plain strings, so the generated
+ * `RadioSyncRun` carries `string`. Consumers keying a lookup off any of the
+ * three must tolerate an unrecognised value.
+ */
 export type RadioSyncRunStatus =
   | 'running'
   | 'success'
@@ -241,62 +220,38 @@ export type RadioSyncRunStatus =
   | 'skipped'
   | 'cancelled'
 
-// One categorized error recorded against a sync run (radio_sync_run_errors).
-export interface RadioSyncRunError {
-  category: string
-  detail?: string | null
-  episode_ref?: string | null
-}
+/** One categorized error recorded against a sync run (radio_sync_run_errors). */
+export type RadioSyncRunError = components['schemas']['RadioSyncRunErrorResponse']
 
-// A radio_sync_runs row — the unified trace of any ingestion run, returned by the
-// station-sync / show-backfill triggers and the run-poll endpoint (PSY-1135).
-// Replaces RadioImportJob. show_id/show_name are set only for backfill runs;
-// window_start/window_end (YYYY-MM-DD) only for backfill.
-export interface RadioSyncRun {
-  id: number
-  station_id: number
-  station_name: string
-  show_id?: number | null
-  show_name?: string | null
-  run_type: 'discover' | 'fetch' | 'backfill'
-  trigger: 'scheduled' | 'manual' | 'auto_backfill'
-  status: RadioSyncRunStatus
-  window_start?: string | null
-  window_end?: string | null
-  episodes_found: number
-  episodes_imported: number
-  plays_imported: number
-  plays_matched: number
-  plays_unmatched: number
-  current_episode_date?: string | null
-  breaker_skipped: boolean
-  errors?: RadioSyncRunError[]
-  started_at: string
-  finished_at?: string | null
-  created_at: string
-  updated_at: string
-}
+/**
+ * A radio_sync_runs row — the unified trace of any ingestion run, returned by
+ * the station-sync / show-backfill triggers and the run-poll endpoint
+ * (PSY-1135). `show_id`/`show_name` are set for show-scoped runs (backfills
+ * and PSY-1333 slot fetches); `window_start`/`window_end` (YYYY-MM-DD) only
+ * for backfill.
+ *
+ * NOTE `station_id` and `station_name` are OPTIONAL: the Go fields carry
+ * `omitempty` and are deliberately absent on global rematch runs, which have
+ * no station scope. This type declared both as required until PSY-1600,
+ * which hid a real rendering bug in the global failures feed.
+ */
+export type RadioSyncRun = components['schemas']['RadioSyncRunResponse']
 
 // ──────────────────────────────────────────────
 // Matching types
 // ──────────────────────────────────────────────
 
-export interface SuggestedMatch {
-  artist_id: number
-  artist_name: string
-  artist_slug: string
-}
+export type SuggestedMatch = components['schemas']['SuggestedMatch']
 
-export interface UnmatchedPlayGroup {
-  artist_name: string
-  play_count: number
-  station_names: string[]
-  suggested_matches: SuggestedMatch[]
-}
+/**
+ * `station_names` and `suggested_matches` are both nullable on the wire (Go
+ * slices with no `omitempty`). In practice the service assigns a non-nil
+ * `make`d slice to `station_names`, but `suggested_matches` is built with
+ * `append` onto a nil slice and IS null when nothing matches.
+ */
+export type UnmatchedPlayGroup = components['schemas']['UnmatchedPlayGroup']
 
-export interface BulkLinkResult {
-  updated: number
-}
+export type BulkLinkResult = components['schemas']['BulkLinkResult']
 
 // ============================================================================
 // Query Hooks
@@ -623,12 +578,11 @@ export function useSyncRun(runId: number, enabled = true) {
 // Sync-run history feeds (PSY-1130) — recent runs over radio_sync_runs.
 // ============================================================================
 
-/** Envelope returned by the sync-run feed endpoints (matches AdminSyncRunListResponse). */
-export interface SyncRunListResult {
-  sync_runs: RadioSyncRun[]
-  total: number
-  count: number
-}
+/**
+ * Envelope returned by the sync-run feed endpoints. `sync_runs` is nullable
+ * on the wire (Go slice, no `omitempty`); consumers must guard.
+ */
+export type SyncRunListResult = components['schemas']['AdminSyncRunListResponseBody']
 
 /**
  * Row scope for the sync-run feeds (PSY-1343): 'sweep' hides the show-scoped
@@ -713,34 +667,20 @@ export function useRecentFailedRuns(perStatusLimit = 10) {
 // ============================================================================
 
 /**
- * A station's operational health rollup (matches RadioStationHealthResponse). Rate
- * fields are null when never computed (distinct from 0.0). Note: as of PSY-1129/1201 the
- * rates are populated on each run; a station that has never run reads them as null and
- * has a null last_run_at ("never run").
+ * A station's operational health rollup. Rate fields are absent when never
+ * computed (distinct from 0.0): they map to backend pointer fields with
+ * `,omitempty`, so they are OMITTED from the JSON (i.e. `undefined`, never
+ * `null`) when nil. As of PSY-1129/1201 the rates are populated on each run;
+ * a station that has never run omits them and omits `last_run_at`.
  */
-export interface RadioStationHealth {
-  station_id: number
-  station_name: string
-  station_slug: string
-  consecutive_failures: number
-  breaker_state: string
-  // These map to backend pointer fields with `,omitempty`, so they are OMITTED from the
-  // JSON (i.e. `undefined`, not `null`) when nil — optional here so the type matches the
-  // wire and a strict `=== null` / unguarded use can't silently break never-run stations.
-  last_success_at?: string | null
-  last_run_at?: string | null
-  breaker_tripped_at?: string | null
-  recent_success_rate?: number | null
-  play_match_rate?: number | null
-  zero_play_episode_rate?: number | null
-  updated_at?: string | null
-}
+export type RadioStationHealth = components['schemas']['RadioStationHealthResponse']
 
-/** Bulk station-health envelope (one card per station). */
-export interface StationHealthListResult {
-  stations: RadioStationHealth[]
-  count: number
-}
+/**
+ * Bulk station-health envelope (one card per station). `stations` is nullable
+ * on the wire (Go slice, no `omitempty`); consumers must guard.
+ */
+export type StationHealthListResult =
+  components['schemas']['AdminListStationHealthResponseBody']
 
 /** One station's health rollup (for the detail-panel health card). */
 export function useStationHealth(stationId: number, enabled = true) {

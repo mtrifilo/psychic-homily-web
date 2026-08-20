@@ -43,7 +43,9 @@ function makeRun(overrides: Partial<RadioSyncRun>): RadioSyncRun {
     plays_imported: 0,
     plays_matched: 0,
     plays_unmatched: 0,
-    current_episode_date: null,
+    // The Go fields carry `omitempty`, so an unset optional is OMITTED from
+    // the JSON, never sent as `null`. These mocks said `null` before PSY-1600.
+    current_episode_date: undefined,
     breaker_skipped: false,
     errors: [],
     started_at: '2025-05-01T10:00:00Z',
@@ -128,7 +130,7 @@ describe('SyncRunRow — partial (completed-with-errors) run (PSY-1119/1120/1136
   })
 
   it('renders a cancelled body line (not just the badge)', () => {
-    const run = makeRun({ status: 'cancelled', finished_at: null })
+    const run = makeRun({ status: 'cancelled', finished_at: undefined })
     render(<SyncRunRow run={run} />)
 
     expect(screen.getByText('cancelled')).toBeInTheDocument()
@@ -149,7 +151,7 @@ describe('SyncRunRow — partial (completed-with-errors) run (PSY-1119/1120/1136
 
   it('shows the Cancel button only for a running run and calls cancel with the run id', () => {
     cancelMutate.mockClear()
-    const run = makeRun({ id: 99, status: 'running', finished_at: null })
+    const run = makeRun({ id: 99, status: 'running', finished_at: undefined })
     render(<SyncRunRow run={run} />)
 
     const cancelBtn = screen.getByRole('button', { name: /Cancel/i })
@@ -219,7 +221,7 @@ describe('SyncRunRow — 0-plays match display (PSY-1120/1136)', () => {
       episodes_imported: 1,
       plays_imported: 0,
       plays_matched: 0,
-      finished_at: null,
+      finished_at: undefined,
     })
     render(<SyncRunRow run={run} />)
 
@@ -228,7 +230,7 @@ describe('SyncRunRow — 0-plays match display (PSY-1120/1136)', () => {
   })
 
   it('renders window dates for a backfill run', () => {
-    const run = makeRun({ status: 'running', finished_at: null })
+    const run = makeRun({ status: 'running', finished_at: undefined })
     render(<SyncRunRow run={run} />)
     expect(screen.getByText(/2025-04-01 to 2025-04-30/)).toBeInTheDocument()
   })
