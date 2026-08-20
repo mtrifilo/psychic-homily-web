@@ -1,11 +1,16 @@
 /**
- * The scene page's calendar spine: the pure half.
+ * The scene surfaces' shared date and labelling helpers: the pure half.
  *
- * The detail page is a calendar with identity wrapped around it, so the day
- * bucketing, the "which night is tonight" question and the header's counts all
- * have to be decidable without a DOM. They live here so they can be tested
- * against a pinned clock and a pinned zone, which is the only way to catch the
- * off-by-one-day faults this module exists to avoid.
+ * This module was named for a calendar the detail page no longer has. PSY-1850
+ * made the root the front page of the scene — two whole dates from the day
+ * endpoint, already bucketed by the backend — so the day BUCKETING that used to
+ * live here is gone with it (see the note above `formatSliceDateHeading`).
+ *
+ * What remains is everything still decidable without a DOM: the
+ * "which night is tonight" question the window pages ask, the zone resolution a
+ * row needs to print an honest time, and the header's counts. They live here so
+ * they can be tested against a pinned clock and a pinned zone, which is the only
+ * way to catch the off-by-one-day faults this module exists to avoid.
  */
 
 import {
@@ -16,38 +21,22 @@ import {
 import { parseCalendarDate } from './sceneWeek'
 import type { SceneShowSummary } from './types'
 
-/**
- * The detail page's window: four weeks ahead.
- *
- * The detail page POINTS at `/scenes/{slug}/week` rather than absorbing it
- * (brief decision 2), and the two only genuinely differ if this page looks
- * further than seven days. Four weeks also sits inside the endpoint's own
- * `maximum: 30` on `days`, so it is servable without touching the handler.
- */
-export const SCENE_CALENDAR_WINDOW_DAYS = 28
-
-/**
- * How many rows the page renders.
- *
- * Sized so "next 4 weeks" is a claim the page can keep. At roughly seven shows
- * a night, the endpoint's old 20-row ceiling covered under three days on a
- * scene like Phoenix, so a section headed "next 4 weeks" could never render
- * four weeks. That ceiling was raised to 200 for this surface; 60 rows is a
- * month of a normal scene and over a week of a very dense one, without asking
- * a reader to scroll three hundred rows.
- */
-export const SCENE_CALENDAR_ROW_CAP = 60
-
-/**
- * What we actually ASK for: one more row than we will draw.
- *
- * The extra row is the truncation sentinel. Inferring truncation from
- * `rows.length === cap` cannot tell "the endpoint cut the list" from "this
- * scene happens to have exactly that many", and getting that wrong deletes a
- * complete date from a page whose whole job is listing them. Asking for one
- * more makes truncation an observed fact.
- */
-export const SCENE_CALENDAR_FETCH_LIMIT = SCENE_CALENDAR_ROW_CAP + 1
+// A TOMBSTONE, deliberately written with `//` rather than `/** */`: it belongs
+// to no declaration, and as a JSDoc block it would be silently adopted as the
+// docstring of whatever a later edit adds beneath it.
+//
+// The root's 28-day window and its 60-row cap are GONE (PSY-1850). The root is
+// the front page of the scene now, not a calendar window: it renders tonight
+// and the next full day from the day endpoint (`sceneSlice.ts`) and points at
+// `/week` and `/next-4-weeks` for anything longer. The four-week window lives
+// on `/next-4-weeks`, which carries its own `NEXT_4_WEEKS_DAYS` and
+// `SCENE_WINDOW_ROW_CAP` in `sceneWindow.ts`.
+//
+// The client-side date BUCKETING that window needed went with it, for the same
+// reason: the day endpoint returns rows already bucketed into whole scene-local
+// dates, so nothing on the root re-derives a date from an instant any more.
+// `calendarDateInZone` and `sceneTonightDate` survive because the window pages
+// still need them (`sceneWindowPage.tsx`).
 
 /**
  * The scene-local hour at which a new night begins.
@@ -59,13 +48,6 @@ export const SCENE_CALENDAR_FETCH_LIMIT = SCENE_CALENDAR_ROW_CAP + 1
  * not widen a group, whose contents stay a strict calendar day.
  */
 const NIGHT_START_HOUR = 6
-
-/** One date's worth of rows, in the order the endpoint returned them. */
-export interface SceneShowGroup {
-  /** `YYYY-MM-DD`, resolved in the scene's own zone. */
-  date: string
-  shows: SceneShowSummary[]
-}
 
 interface ZonedParts {
   year: number
@@ -162,92 +144,42 @@ export function rowTimeZone(show: SceneShowSummary): string | undefined {
 }
 
 /**
- * The zone the scene's rows should be read in.
+ * `SUNDAY, AUGUST 17` — the slice's date-group heading.
  *
- * The rows themselves are the only source: `GET /scenes/{slug}` carries no
- * timezone, and `GET /scenes/{slug}/shows` renders `event_date` in **UTC**
- * (`GetSceneUpcomingShows` passes `time.UTC` as its location), so an evening
- * show west of Greenwich arrives labelled with the FOLLOWING day. Every date on
- * this surface is therefore derived from `starts_at` in the venue's own zone,
- * never from the payload's `event_date`.
+ * Spelled OUT, and the locked mock is why: the root now shows two dates instead
+ * of a month of them, so each one is read as a statement about a night rather
+ * than scanned as a column key, and `SUN · AUG 17` is a column key. The window
+ * pages keep their own compact headings, which is correct — they list seven or
+ * twenty-eight of these.
  *
- * `venues.timezone` is nullable and a geocode miss leaves it NULL, so a real
- * scene can arrive with no zone on any row. Such rows contribute nothing here
- * and the caller degrades: no zone in the status band, and no TONIGHT tag.
- *
- * The most common zone wins, not the first: a metro scene can include a member
- * city across a zone line, and the majority room is the one the page speaks for.
+ * NO year, also per the mock. Both dates the root can render are within a day of
+ * now, so a year would be noise on the one surface where it can never
+ * disambiguate anything. `formatDayFull` (which does carry the year) stays the
+ * spelling for the DATED permalinks, where a reader really can arrive at a page
+ * about January 2020.
  */
-export function resolveSceneTimeZone(shows: SceneShowSummary[]): string | undefined {
-  const counts = new Map<string, number>()
-  for (const show of shows) {
-    const zone = rowTimeZone(show)
-    if (!zone) continue
-    counts.set(zone, (counts.get(zone) ?? 0) + 1)
-  }
-  let best: string | undefined
-  let bestCount = 0
-  for (const [zone, count] of counts) {
-    if (count > bestCount) {
-      best = zone
-      bestCount = count
-    }
-  }
-  return best
-}
-
 /**
- * The calendar date one row belongs to, in the scene's zone.
+ * `Wednesday` — one slice date said the way a person would say it.
  *
- * Prefers the row's OWN venue zone so a member city across a zone line files
- * under the date its patrons experienced. Falls back to the payload's
- * `event_date` only when there is no usable instant at all. A UTC-rendered
- * date is still better than dropping the row.
+ * For prose, where the heading's shouted form would not fit. Deliberately a
+ * WEEKDAY and never "tomorrow": between midnight and 06:00 the scene's night
+ * boundary puts tonight on yesterday's calendar date, so the day after it is
+ * TODAY, and any relative word for it is wrong in exactly the window this
+ * surface exists to get right. Both dates the root can render are inside a week,
+ * so a bare weekday is never ambiguous.
  */
-export function showCalendarDate(
-  show: SceneShowSummary,
-  sceneTimeZone?: string
-): string {
-  const startedAt = Date.parse(show.starts_at)
-  if (!Number.isFinite(startedAt)) return show.event_date
-  const zone = rowTimeZone(show) ?? sceneTimeZone
-  if (!zone) return show.event_date
-  return calendarDateInZone(new Date(startedAt), zone)
+export function formatSliceWeekday(iso: string): string {
+  return parseCalendarDate(iso).toLocaleDateString('en-US', { weekday: 'long' })
 }
 
-/**
- * Rows bucketed by date, earliest first, order preserved inside each bucket.
- *
- * The endpoint already sorts by event date then id, so this only has to keep
- * what it was given. Re-sorting inside a bucket would put this page's bills in
- * a different order from the nightly page's.
- */
-export function groupShowsByDate(
-  shows: SceneShowSummary[],
-  sceneTimeZone?: string
-): SceneShowGroup[] {
-  const groups: SceneShowGroup[] = []
-  const byDate = new Map<string, SceneShowGroup>()
-  for (const show of shows) {
-    const date = showCalendarDate(show, sceneTimeZone)
-    const existing = byDate.get(date)
-    if (existing) {
-      existing.shows.push(show)
-      continue
-    }
-    const group: SceneShowGroup = { date, shows: [show] }
-    byDate.set(date, group)
-    groups.push(group)
-  }
-  return groups.sort((a, b) => a.date.localeCompare(b.date))
-}
-
-/** `SAT · AUG 8`, the date-group heading. */
-export function formatCalendarDateHeading(iso: string): string {
-  const date = parseCalendarDate(iso)
-  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
-  const month = date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
-  return `${weekday} · ${month} ${date.getDate()}`
+export function formatSliceDateHeading(iso: string): string {
+  // ONE formatter, and the locale supplies the comma. `formatDayChip` composes
+  // its parts from three calls to AVOID the punctuation a single call adds;
+  // here that punctuation is exactly what the mock draws, so the reason
+  // inverts and the assembled separator would only be a copy that can drift.
+  return parseCalendarDate(iso)
+    .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    .toUpperCase()
 }
 
 /**

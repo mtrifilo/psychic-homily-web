@@ -81,6 +81,20 @@ function SuggestARoom() {
   )
 }
 
+/**
+ * How many rooms the front page lists before it offers the rest.
+ *
+ * The root is an index into the scene now, not a directory of it (PSY-1850), and
+ * eight is what the locked mock draws. It is also the number that keeps this
+ * section O(1) tall: Chicago tracks 32 rooms, and a 32-row block here would put
+ * everything below it back under the fold the restructure just cleared.
+ *
+ * The withheld rooms are one click away and never a fetch away — `scene.venues`
+ * already carries all of them, so "show all" is a local reveal rather than a
+ * promise this component has to keep against an endpoint.
+ */
+export const ROOMS_FRONT_PAGE_LIMIT = 8
+
 export function SceneRooms({ scene }: { scene: SceneDetail }) {
   const rooms = scene.venues ?? []
   const naturalOrder = defaultRoomOrder(rooms)
@@ -88,6 +102,7 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
   // null = "the reader has not chosen", so the default tracks the data rather
   // than freezing whatever it was on first render.
   const [chosenOrder, setChosenOrder] = useState<RoomOrder | null>(null)
+  const [showAll, setShowAll] = useState(false)
   // A choice only survives while the choice EXISTS. If a refetch drops the
   // scene below the rankable threshold, the toggle disappears with it, and a
   // retained `ranked` would leave the list sorted by counts it no longer prints
@@ -117,6 +132,11 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
   }
 
   const ordered = orderRooms(rooms, order)
+  // Sliced AFTER ordering, so the eight shown are the eight the current order
+  // actually ranks first — flipping to alphabetical re-picks them rather than
+  // re-sorting whichever eight the ranked order happened to surface.
+  const visible = showAll ? ordered : ordered.slice(0, ROOMS_FRONT_PAGE_LIMIT)
+  const hasMore = visible.length < ordered.length
 
   return (
     <section className="border-t border-border pt-4">
@@ -142,7 +162,7 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
       />
 
       <ul className="mt-2">
-        {ordered.map(room => (
+        {visible.map(room => (
           <RoomRow
             key={room.id}
             room={room}
@@ -151,6 +171,20 @@ export function SceneRooms({ scene }: { scene: SceneDetail }) {
           />
         ))}
       </ul>
+
+      {/* Names the TOTAL, not the remainder: "Show all 32 rooms" tells a reader
+          how wide this page's coverage is, which is the question the control is
+          really answering. One-way on purpose — there is no "show fewer". A
+          reader who expanded a 32-room list wanted the list, and the collapse
+          control would be one more thing to draw for the reader who did not. */}
+      {hasMore && (
+        <p className="mt-3">
+          <BracketLink
+            label={`Show all ${rooms.length} rooms →`}
+            onClick={() => setShowAll(true)}
+          />
+        </p>
+      )}
 
       <SuggestARoom />
     </section>

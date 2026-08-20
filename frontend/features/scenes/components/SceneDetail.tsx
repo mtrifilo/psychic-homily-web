@@ -9,7 +9,6 @@ import { ShareButton } from '@/components/shared/ShareButton'
 import { SceneNotifyModeToggle } from './SceneNotifyModeToggle'
 import { SceneAddToCalendar } from './SceneAddToCalendar'
 import { SceneGraph, SCENE_ARTISTS_ANCHOR } from './SceneGraph'
-import { SceneCalendar, useSceneCalendarWindow } from './SceneCalendar'
 import { SceneRooms } from './SceneRooms'
 import { SceneNewBands } from './SceneNewBands'
 import { SceneRoster } from './SceneRoster'
@@ -18,6 +17,28 @@ import type { SceneDetail } from '../types'
 
 interface SceneDetailProps {
   slug: string
+  /**
+   * The calendar slice, rendered on the SERVER and handed in as a slot.
+   *
+   * A slot rather than a `slice` data prop: the slice has no interactivity, so
+   * passing its rows through this client boundary would serialize every one of
+   * them into the flight payload on top of the HTML they already produce. As a
+   * slot they cost HTML only. See `app/scenes/[slug]/page.tsx`.
+   *
+   * REQUIRED. The calendar is the first thing under the header and the reason
+   * the page exists; an optional slot would let a caller drop it silently, and
+   * the render below would leave no trace that anything was missing.
+   */
+  calendarSlot: React.ReactNode
+  /**
+   * IANA zone the slice's times are printed in, from the day payload.
+   *
+   * Passed as a plain string because the status band is inside this client
+   * component. It comes from the BACKEND's answer for the scene rather than the
+   * modal vote over fetched rows the old calendar hook had to make, so a scene
+   * with nothing booked still names its clock.
+   */
+  timeZone?: string
 }
 
 /**
@@ -46,18 +67,29 @@ interface SceneDetailProps {
  *    `GET /scenes` does (`shows_calendar_week`). Labelling `upcoming_show_count`
  *    "this week" would put 328 against a week page that says 22, the exact
  *    defect PSY-1623 removed from two other surfaces. Counting the fetched rows
- *    would be wrong the other way, because the window is capped.
- *  - `TONIGHT n SHOWS` / `NOTHING TONIGHT`. The calendar window opens at NOW,
- *    so a show whose doors have opened is already out of the payload, and
+ *    would have been wrong the other way, because that window was capped.
+ *  - `TONIGHT n SHOWS` / `NOTHING TONIGHT`. The calendar window opened at NOW,
+ *    so a show whose doors had opened was already out of the payload, and
  *    between midnight and 6am the night named by the boundary is yesterday,
  *    which a forward window can never contain. Every spelling of this clause
  *    was therefore either an undercount or a flat "nothing tonight" on a night
  *    that had shows, contradicting `/scenes/{slug}/tonight` one click away in
- *    the window strip. Give the detail payload a real tonight count, or read
- *    the day payload, and the clause can come back (PSY-1807).
+ *    the window strip.
+ *
+ *    NOW UNBLOCKED, and deliberately not taken here. PSY-1850 moved this page
+ *    onto the day payload, so an honest tonight count is one field away
+ *    (`slice.days[0].shows.length`) and the PSY-1807 objection no longer holds.
+ *    What is missing is the COPY decision — which of the mock's spellings, and
+ *    what it says on a scene whose night is quiet — and inventing one here
+ *    would be exactly the speculative call this band's history warns against.
  */
-function SceneStatusBand({ scene }: { scene: SceneDetail }) {
-  const { timeZone } = useSceneCalendarWindow(scene.slug)
+function SceneStatusBand({
+  scene,
+  timeZone,
+}: {
+  scene: SceneDetail
+  timeZone?: string
+}) {
   const zoneLabel = timeZone ? formatTimeZoneLabel(new Date(), timeZone) : null
 
   const { stats } = scene
@@ -83,7 +115,7 @@ function SceneStatusBand({ scene }: { scene: SceneDetail }) {
   )
 }
 
-export function SceneDetailView({ slug }: SceneDetailProps) {
+export function SceneDetailView({ slug, calendarSlot, timeZone }: SceneDetailProps) {
   const { data: scene, isLoading, error } = useSceneDetail(slug)
 
   if (isLoading) {
@@ -118,7 +150,7 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
 
   return (
     <div>
-      <SceneStatusBand scene={scene} />
+      <SceneStatusBand scene={scene} timeZone={timeZone} />
 
       <header>
         <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
@@ -176,9 +208,7 @@ export function SceneDetailView({ slug }: SceneDetailProps) {
             is absent rather than an empty header over blank space. */}
       </header>
 
-      <div className="mt-6">
-        <SceneCalendar scene={scene} />
-      </div>
+      <div className="mt-6">{calendarSlot}</div>
 
       {/* The identity around the calendar, in the mock's order: the rooms this
           page speaks for, the bands that just appeared, the bands that live

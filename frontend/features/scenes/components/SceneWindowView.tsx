@@ -37,8 +37,9 @@ import {
  * The CURRENT window is not drawn. That follows the sibling pages, whose strips
  * are a set of places to go rather than a tab bar — `/week` offers "Tonight",
  * `/tonight` offers "Full week", and neither restates where the reader already
- * is. Repointing the scene page's own strip is PSY-1850; unifying all four
- * strips into one component is PSY-1786.
+ * is. The scene ROOT's strip is the one exception, and deliberately: it draws
+ * all four as links because the root is not one of these windows (PSY-1850,
+ * done). Unifying all four strips into one component is still PSY-1786.
  */
 function SceneWindowNav({ slug, current }: { slug: string; current: SceneWindowKey }) {
   return (

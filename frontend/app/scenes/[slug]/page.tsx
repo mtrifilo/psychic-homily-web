@@ -11,8 +11,15 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
 import { fetchSceneWeek } from '@/features/scenes/sceneWeekApi'
+import { fetchSceneSlice } from '@/features/scenes/sceneSliceApi'
 import { buildSceneWeekJsonLd } from '@/features/scenes/sceneWeekJsonLd'
 import { sceneDetailOgImages } from '@/features/scenes/sceneDetailShare'
+// Deep-imported from the component FILE for the same reason SceneDetailView is:
+// the `@/features/scenes/components` barrel is a `'use client'` barrel, and
+// Turbopack does not tree-shake those per-export (PSY-1772). This one is a
+// SERVER component, so it is rendered here and handed down as a slot rather
+// than imported by SceneDetail.
+import { SceneCalendar } from '@/features/scenes/components/SceneCalendar'
 
 // Imported from the component FILE, never a `@/features/scenes` barrel — see
 // the note in features/scenes/components/index.ts for why the barrel would undo
@@ -88,6 +95,22 @@ const getScene = cache(async (slug: string): Promise<SceneDetail | null> => {
 const getSceneWeek = cache((slug: string) =>
   fetchSceneWeek(slug, undefined, 'scene-week')
 )
+
+/**
+ * The root's calendar slice: tonight and the next full day (PSY-1850).
+ *
+ * Replaces a 28-day / 61-row CLIENT fetch. Server-side, so the rows arrive as
+ * HTML in the first response instead of after hydration, and the reader
+ * downloads no calendar JSON at all.
+ *
+ * The sequencing and the empty-`next_date` trap live in `sceneSliceApi` rather
+ * than here, so a second consumer cannot re-derive them; this wrapper only adds
+ * the per-request dedupe its two neighbours above already have. `cache()` is
+ * currently redundant — the page body is the only caller — and kept for the
+ * caller this page will plausibly grow: `generateMetadata` can now state a real
+ * tonight count, which the old forward window could not supply (PSY-1807).
+ */
+const getSceneSlice = cache((slug: string) => fetchSceneSlice(slug))
 
 export async function generateMetadata({
   params,
@@ -185,18 +208,37 @@ export default async function ScenePage({ params }: ScenePageProps) {
     notFound()
   }
 
-  // `cache()` above guarantees the fetch already happened, so this is a no-op
-  // cache write that seeds the entry `useSceneDetail` will pick up.
-  const dehydratedState = await prefetchEntity(
-    queryKeys.scenes.detail(slug),
-    scene,
-  )
+  // CONCURRENT, because none of the three needs another's answer. Awaited in
+  // sequence they would stack the week fetch in front of the slice's own chain;
+  // this leaves that chain as the only thing on the critical path.
+  //
+  // That chain is THREE calls, not two, and the extra one is not ours: the
+  // next-day leg is fetched with a KEY, so `fetchScenePeriod` runs its
+  // two-phase freshness probe, and a future date is never `is_past_day`, so the
+  // fall-through fires every time. See the follow-up noted on the PR — the fix
+  // belongs in that shared caching layer, which `/next-4-weeks` already pays
+  // five times over.
+  //
+  //  - `prefetchEntity`: `cache()` above guarantees the scene fetch already
+  //    happened, so this is a no-op cache write seeding the entry
+  //    `useSceneDetail` picks up.
+  //  - the WEEK feeds the structured data only, and that is now a KNOWN
+  //    MISMATCH left deliberately in place. `buildSceneWeekJsonLd` emits an
+  //    ItemList plus MusicEvent[] for seven days while the page visibly renders
+  //    two, and because the week is Monday-anchored the slice's second day is
+  //    outside it every Sunday — so the markup can both over- and under-state
+  //    what a reader sees. Structured data is supposed to describe visible
+  //    content, so this wants re-scoping to the slice; doing it here would mean
+  //    reopening the scene-SEO decisions documented in `sceneDayPage.tsx`
+  //    (canonical-to-week, the sitemap families), which this ticket has no
+  //    mandate to change on a guess. Raised on the PR for its own ticket.
+  //  - the SLICE is what the page actually renders.
+  const [dehydratedState, week, slice] = await Promise.all([
+    prefetchEntity(queryKeys.scenes.detail(slug), scene),
+    getSceneWeek(slug),
+    getSceneSlice(slug),
+  ])
 
-  // Reuse the week builder (BreadcrumbList + ItemList + MusicEvent[]) rather
-  // than inventing a fourth scene JSON-LD shape. The detail page POINTS at
-  // `/week`; the structured data describes that same week so a crawler that
-  // landed here and one that landed on `/week` cannot disagree about a show.
-  const week = await getSceneWeek(slug)
   const jsonLd = week ? buildSceneWeekJsonLd(week) : null
 
   return (
@@ -211,7 +253,11 @@ export default async function ScenePage({ params }: ScenePageProps) {
         )}
         <HydrationBoundary state={dehydratedState}>
           <Suspense fallback={<SceneLoadingFallback />}>
-            <SceneDetailView slug={slug} />
+            <SceneDetailView
+              slug={slug}
+              timeZone={slice?.timezone}
+              calendarSlot={<SceneCalendar scene={scene} slice={slice} />}
+            />
           </Suspense>
         </HydrationBoundary>
       </main>

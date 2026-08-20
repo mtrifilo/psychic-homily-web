@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
+import { buildSceneSlice, type SceneSliceData } from '../sceneSlice'
+import type { SceneDayResponse } from '../sceneDay'
 import type { SceneDetail, SceneShowSummary } from '../types'
 
 vi.mock('next/link', () => ({
@@ -18,17 +20,18 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-const mockUseSceneShows = vi.fn()
-vi.mock('../hooks', () => ({
-  useSceneShows: (slug: string, options?: { days?: number; limit?: number }) =>
-    mockUseSceneShows(slug, options),
-}))
-
 import { SceneCalendar } from './SceneCalendar'
 
-// 20:00 Saturday Aug 8 2026 in Phoenix. Every fixture below is anchored to this
-// instant so "tonight" is a fact of the test, not of the machine running it.
-const SATURDAY_EVENING = new Date('2026-08-09T03:00:00Z')
+/**
+ * The root's calendar slice (PSY-1850).
+ *
+ * Note what these tests no longer do: mock a fetch, pin a clock, or assert a
+ * window length. The slice is a pure function of two day payloads the SERVER
+ * resolved, so "which night is tonight" is a fact of the fixture rather than of
+ * the machine running the suite — which is the entire point of moving off the
+ * forward-only window. The boundary itself is the backend's, covered in
+ * `sceneSlice.test.ts` and in the Go `scene_day` suite.
+ */
 
 function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
   return {
@@ -51,9 +54,6 @@ function buildScene(overrides: Partial<SceneDetail> = {}): SceneDetail {
       active_venues_this_month: 0,
       shows_by_month: [],
     },
-    // The calendar reads rows from its own endpoint, never from this list
-    // (PSY-1780 added it; rendering the rooms leaderboard is Wave 1B). Present
-    // so the fixture is a real `SceneDetail` rather than a cast.
     venues: [],
     ...overrides,
   }
@@ -64,7 +64,7 @@ function buildShow(overrides: Partial<SceneShowSummary> = {}): SceneShowSummary 
     id: 1,
     title: '',
     artist_names: ['Gatecreeper'],
-    event_date: '2026-08-09',
+    event_date: '2026-08-08',
     starts_at: '2026-08-09T03:00:00Z', // 20:00 Aug 8, Phoenix
     price: 28,
     is_cancelled: false,
@@ -78,475 +78,351 @@ function buildShow(overrides: Partial<SceneShowSummary> = {}): SceneShowSummary 
   }
 }
 
-function mockShows(shows: SceneShowSummary[], isLoading = false) {
-  mockUseSceneShows.mockReturnValue({ data: { shows }, isLoading, isError: false })
+function buildDay(overrides: Partial<SceneDayResponse> = {}): SceneDayResponse {
+  return {
+    slug: 'phoenix-az',
+    scene_name: 'Phoenix, AZ',
+    city: 'Phoenix',
+    state: 'AZ',
+    date: '2026-08-08',
+    timezone: 'America/Phoenix',
+    iso_week: '2026-W32',
+    prev_date: '2026-08-07',
+    next_date: '2026-08-09',
+    is_tonight: true,
+    is_past_day: false,
+    show_count: 0,
+    shows: [],
+    tracked_venues: [],
+    ...overrides,
+  }
 }
 
-function mockShowsError(shows: SceneShowSummary[] = []) {
-  mockUseSceneShows.mockReturnValue({
-    data: shows.length > 0 ? { shows } : undefined,
-    isLoading: false,
-    isError: true,
-  })
+/** Tonight with rows, plus the next full day with rows. */
+function buildSlice(
+  tonightShows: SceneShowSummary[],
+  nextShows: SceneShowSummary[] = []
+): SceneSliceData {
+  return buildSceneSlice(
+    buildDay({ shows: tonightShows }),
+    buildDay({ date: '2026-08-09', is_tonight: false, shows: nextShows })
+  )!
 }
 
 describe('SceneCalendar', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.useFakeTimers()
-    vi.setSystemTime(SATURDAY_EVENING)
-    mockShows([])
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  describe('the window request', () => {
-    it("asks for four weeks and the endpoint's full row cap", () => {
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(mockUseSceneShows).toHaveBeenCalledWith('phoenix-az', {
-        days: 28,
-        limit: 61,
-      })
-    })
-  })
-
-  describe('window nav strip', () => {
-    it('links the windows that already have routes', () => {
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const nav = screen.getByRole('navigation', { name: 'Show windows' })
-      expect(within(nav).getByRole('link', { name: 'Tonight' })).toHaveAttribute(
-        'href',
-        '/scenes/phoenix-az/tonight'
+  describe('the window strip', () => {
+    // The re-lock in one assertion: the root is not one of these windows, so
+    // none of them may be marked current.
+    it('renders all four windows as links, none of them active', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([buildShow()])} />
       )
-      expect(within(nav).getByRole('link', { name: 'This week' })).toHaveAttribute(
-        'href',
-        '/scenes/phoenix-az/week'
+
+      const nav = screen.getByRole('navigation', { name: /show windows/i })
+      const links = within(nav).getAllByRole('link')
+
+      expect(links.map(a => a.textContent)).toEqual([
+        'Tonight',
+        'This weekend',
+        'This week',
+        'Next 4 weeks',
+      ])
+      expect(within(nav).queryByText(/next 4 weeks/i)?.tagName).toBe('A')
+      expect(nav.querySelector('[aria-current]')).toBeNull()
+    })
+
+    // The shipped defect this retires: `This weekend` and `This week` pointed
+    // at the SAME /week href, because /this-weekend did not exist yet.
+    it('gives each window its own path segment', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([buildShow()])} />
       )
-    })
 
-    // `/scenes/{slug}/this-weekend` is Wave 2 work. Until it exists the chip
-    // points at the nearest existing page that CONTAINS the weekend rather than
-    // at a URL this site 404s. The ticket asks for exactly this.
-    it('points "This weekend" at the nearest existing route', () => {
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const nav = screen.getByRole('navigation', { name: 'Show windows' })
-      expect(
-        within(nav).getByRole('link', { name: 'This weekend' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
-    })
+      const nav = screen.getByRole('navigation', { name: /show windows/i })
+      const hrefs = within(nav)
+        .getAllByRole('link')
+        .map(a => a.getAttribute('href'))
 
-    it("marks the page's own window current rather than linking it", () => {
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const nav = screen.getByRole('navigation', { name: 'Show windows' })
-      expect(
-        within(nav).queryByRole('link', { name: 'Next 4 weeks' })
-      ).not.toBeInTheDocument()
-      expect(within(nav).getByText('Next 4 weeks')).toHaveAttribute(
-        'aria-current',
-        'true'
-      )
-    })
-
-    // The nav NEVER degrades: a window that is empty is still an answer, so a
-    // one-show scene gets the same strip a 328-show one does.
-    it('renders the full strip on a scene with nothing in the window', () => {
-      mockShows([])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const nav = screen.getByRole('navigation', { name: 'Show windows' })
-      expect(within(nav).getAllByText(/Tonight|This weekend|This week|Next 4 weeks/))
-        .toHaveLength(4)
-    })
-
-    it('builds every href from the canonical scene slug', () => {
-      // A metro member spelling resolves to its principal city, so the payload's
-      // slug is the only one that must appear in a link.
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const nav = screen.getByRole('navigation', { name: 'Show windows' })
-      for (const link of within(nav).getAllByRole('link')) {
-        expect(link.getAttribute('href')).toMatch(/^\/scenes\/phoenix-az\//)
-      }
+      expect(hrefs).toEqual([
+        '/scenes/phoenix-az/tonight',
+        '/scenes/phoenix-az/this-weekend',
+        '/scenes/phoenix-az/week',
+        '/scenes/phoenix-az/next-4-weeks',
+      ])
+      expect(new Set(hrefs).size).toBe(hrefs.length)
     })
   })
 
-  describe('date-grouped rows', () => {
-    it('renders a heading, a count and one row per show', () => {
-      mockShows([
-        buildShow({ id: 1, artist_names: ['Gatecreeper', 'Enforced'] }),
-        buildShow({
-          id: 2,
-          artist_names: ['Playboy Manbaby'],
-          starts_at: '2026-08-09T04:00:00Z', // 21:00 Aug 8
-          venue_name: 'The Rebel Lounge',
-          venue_city: 'Phoenix',
-          price: 18,
-        }),
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-
-      expect(screen.getByText(/SAT · AUG 8/)).toBeInTheDocument()
-      expect(screen.getByText('2 shows')).toBeInTheDocument()
-      expect(screen.getByText('Gatecreeper, Enforced')).toBeInTheDocument()
-      expect(screen.getByText('Playboy Manbaby')).toBeInTheDocument()
-    })
-
-    it('carries time, price and the room with its sub-locality on the row', () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-
-      const row = screen.getByText('Gatecreeper').closest('a')!
-      expect(row).toHaveAttribute('href', '/shows/1')
-      expect(within(row).getByText('8:00 PM')).toBeInTheDocument()
-      expect(within(row).getByText('$28.00')).toBeInTheDocument()
-      // The sub-locality is what lets a metro scene read as a region.
-      expect(within(row).getByText('Nile Theater (Mesa)')).toBeInTheDocument()
-    })
-
-    // ONE outer link per row. The mock draws the room as its own link, but a
-    // nested anchor is invalid HTML and a row with two targets is a row the
-    // reader has to aim at.
-    it('is a single anchor, not a row of competing targets', () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const row = screen.getByText('Gatecreeper').closest('li')!
-      expect(within(row).getAllByRole('link')).toHaveLength(1)
-    })
-
-    // The endpoint renders `event_date` in UTC, so a 20:00 Phoenix show arrives
-    // labelled with the FOLLOWING day. Grouping off that field would file every
-    // evening show under tomorrow.
-    it("groups by the scene-local date, not the payload's UTC event_date", () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.getByText(/SAT · AUG 8/)).toBeInTheDocument()
-      expect(screen.queryByText(/SUN · AUG 9/)).not.toBeInTheDocument()
-    })
-
-    // A row with no zone of its own is read in the scene's resolved zone, so a
-    // heading and the start time beside it can never disagree about the day.
-    it("falls back to the scene's majority zone for a row with no zone", () => {
-      mockShows([
-        buildShow({ id: 1 }),
-        buildShow({ id: 2 }),
-        buildShow({
-          id: 3,
-          artist_names: ['Sundressed'],
-          venue_timezone: undefined,
-          venue_state: undefined,
-          venue_city: undefined,
-          starts_at: '2026-08-09T04:30:00Z', // 21:30 Aug 8 in Phoenix
-        }),
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.getByText('3 shows')).toBeInTheDocument()
-      expect(screen.queryByText(/SUN · AUG 9/)).not.toBeInTheDocument()
-    })
-
-    it("tags tonight's group and leaves later dates untagged", () => {
-      mockShows([
-        buildShow({ id: 1 }),
-        buildShow({ id: 2, starts_at: '2026-08-23T03:00:00Z' }), // Aug 22
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-
-      const tonight = screen.getByText(/SAT · AUG 8/)
-      expect(within(tonight).getByText('· TONIGHT')).toBeInTheDocument()
-      const later = screen.getByText(/SAT · AUG 22/)
-      expect(within(later).queryByText('· TONIGHT')).not.toBeInTheDocument()
-    })
-
-    // A same-day claim needs a zone. `Intl` treats an absent zone as the
-    // READER's, so tagging on a guess would tell someone in Tokyo that a
-    // different night was tonight in Phoenix.
-    it('tags no night at all when no row carries a resolvable zone', () => {
-      mockShows([
-        buildShow({
-          venue_timezone: undefined,
-          venue_state: undefined,
-          venue_city: undefined,
-        }),
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.queryByText('· TONIGHT')).not.toBeInTheDocument()
-    })
-
-    // `formatShowStartTime` alone ends at `resolveShowTimezone`, which answers
-    // America/Phoenix for anything outside the US state map. A zone-less London
-    // row would file under a UTC-derived date and print an Arizona clock under
-    // it: two authoritative-looking values, only one of which can be right.
-    it('prints no time rather than an Arizona time for a zone-less row', () => {
-      mockShows([
-        buildShow({
-          artist_names: ['Alien Boy'],
-          venue_timezone: undefined,
-          venue_state: undefined,
-          venue_city: undefined,
-        }),
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const row = screen.getByText('Alien Boy').closest('li')!
-      expect(row.textContent).not.toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/)
-    })
-
-    it('marks a sold-out and a cancelled row', () => {
-      mockShows([
-        buildShow({ id: 1, is_sold_out: true }),
-        buildShow({ id: 2, is_cancelled: true, artist_names: ['Diners'] }),
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
-      expect(screen.getByText('CANCELLED')).toBeInTheDocument()
-    })
-  })
-
-  // The page's only honesty disclosure. Coverage is a curated slice of each
-  // city's rooms, and a page that let a reader assume otherwise would be lying
-  // by omission.
-  describe('the accuracy caveat', () => {
-    it('speaks in a human voice above the rows', () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByText(
-          'Shows change all the time. We do our best to keep up, but check with the room before you head out.'
-        )
-      ).toBeInTheDocument()
-    })
-  })
-
-  describe('the honest zero', () => {
-    // NO synthesized empty tonight bucket. The window opens at NOW, so a show
-    // whose doors have opened is already out of the payload, and between
-    // midnight and 6am the night the boundary names is YESTERDAY, which a
-    // forward window can never contain. Drawing an empty bucket for such a date
-    // published "nothing on our calendar tonight" in our own voice on nights
-    // that demonstrably had shows, one click from /scenes/{slug}/tonight.
-    it('draws no tonight bucket for a date the window never answered for', () => {
-      mockShows([
-        buildShow({
-          id: 1,
-          starts_at: '2026-08-23T03:00:00Z',
-          venue_timezone: 'America/Los_Angeles',
-          venue_state: 'OR',
-          venue_city: 'Portland',
-          venue_name: 'Mississippi Studios',
-        }),
-      ])
+  describe('the slice boundary', () => {
+    it('renders exactly the two whole dates the payloads answered for', () => {
       renderWithProviders(
         <SceneCalendar
-          scene={buildScene({
-            city: 'Portland',
-            state: 'OR',
-            slug: 'portland-or',
-            stats: {
-              venue_count: 3,
-              artist_count: 9,
-              upcoming_show_count: 1,
-              festival_count: 0,
-            },
-          })}
+          scene={buildScene()}
+          slice={buildSlice([buildShow({ id: 1 })], [buildShow({ id: 2 })])}
         />
       )
 
-      expect(screen.queryByText(/SAT · AUG 8/)).not.toBeInTheDocument()
-      expect(screen.queryByText('0 shows listed')).not.toBeInTheDocument()
-      expect(
-        screen.queryByText(/Nothing on our calendar .* tonight/)
-      ).not.toBeInTheDocument()
-      // The date the window DID answer for still renders.
-      expect(screen.getByText(/SAT · AUG 22/)).toBeInTheDocument()
+      const headings = screen.getAllByRole('heading', { level: 3 })
+      expect(headings).toHaveLength(2)
+      expect(headings[0]).toHaveTextContent('SATURDAY, AUGUST 8')
+      expect(headings[1]).toHaveTextContent('SUNDAY, AUGUST 9')
     })
 
-    it('states the zero and offers a way onward when the whole window is empty', () => {
-      mockShows([])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+    // Tonight comes from the backend's `is_tonight`, so a night in progress is
+    // tagged correctly at 01:00 — the case the old forward-only window could
+    // not see at all.
+    it('tags only the night the payload calls tonight', () => {
+      renderWithProviders(
+        <SceneCalendar
+          scene={buildScene()}
+          slice={buildSlice([buildShow({ id: 1 })], [buildShow({ id: 2 })])}
+        />
+      )
 
-      expect(
-        screen.getByText(
-          'Nothing on our calendar for the 12 Phoenix rooms we track in the next four weeks. A room may have shows we have not listed.'
-        )
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: 'All upcoming in Phoenix' })
-      ).toHaveAttribute('href', '/shows?cities=Phoenix%2CAZ')
-      expect(
-        screen.getByRole('link', { name: 'Suggest a venue' })
-      ).toHaveAttribute('href', '/contribute')
+      const headings = screen.getAllByRole('heading', { level: 3 })
+      expect(headings[0]).toHaveTextContent('TONIGHT')
+      expect(headings[1]).not.toHaveTextContent('TONIGHT')
     })
 
-    // The window footer does not render without rows to count, so the empty
-    // state carries the week link itself. The scene with nothing on it is the
-    // one that most needs an onward path, so it must not be the state that
-    // loses one.
-    it('keeps the week link in the empty state', () => {
-      mockShows([])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByRole('link', { name: 'Full week in Phoenix' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+    it('renders one date when there is no next day to show', () => {
+      const slice = buildSceneSlice(
+        buildDay({ next_date: '', shows: [buildShow()] }),
+        null
+      )!
+      renderWithProviders(<SceneCalendar scene={buildScene()} slice={slice} />)
+
+      expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(1)
     })
 
-    it('still offers the scene .ics feed when the window is empty', () => {
-      mockShows([])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByRole('button', { name: /subscribe: \.ics/i })
-      ).toBeInTheDocument()
-    })
-
-    // No scaffolding under an empty window: the footer counts rows, and there
-    // are none to count.
-    it('renders no window footer when there is nothing in the window', () => {
-      mockShows([])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.queryByText(/^Showing /)).not.toBeInTheDocument()
+    // The root must not grow a third date. A window is what the other four
+    // routes are for.
+    it('never renders a date beyond the two the slice carries', () => {
+      renderWithProviders(
+        <SceneCalendar
+          scene={buildScene()}
+          slice={buildSlice([buildShow({ id: 1 })], [buildShow({ id: 2 })])}
+        />
+      )
+      expect(screen.queryByText(/AUGUST 10/i)).toBeNull()
     })
   })
 
-  describe('the window footer', () => {
-    it('says so in words when the whole window fits', () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByText('Showing everything we have in the next four weeks')
-      ).toBeInTheDocument()
-    })
-
-    // Truncation is an OBSERVED fact: the hook asks for one row more than it
-    // draws, so a scene holding exactly the cap is not mistaken for a cut list
-    // and does not silently lose its last date.
-    it('does not claim truncation when the scene holds exactly the cap', () => {
-      mockShows(
-        Array.from({ length: 60 }, (_, i) =>
-          buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
-        )
+  describe('the rows', () => {
+    it('lists every show of a date, with its time, price and room', () => {
+      renderWithProviders(
+        <SceneCalendar
+          scene={buildScene()}
+          slice={buildSlice([
+            buildShow({ id: 1, artist_names: ['Gatecreeper'] }),
+            buildShow({
+              id: 2,
+              artist_names: ['Destruction Unit'],
+              price: 12,
+              starts_at: '2026-08-09T04:30:00Z', // 21:30 Aug 8, Phoenix
+            }),
+          ])}
+        />
       )
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByText('Showing everything we have in the next four weeks')
-      ).toBeInTheDocument()
-      expect(screen.getByText('60 shows')).toBeInTheDocument()
-    })
 
-    // The mock's wording. `of {n} upcoming` scopes the denominator to what is
-    // UPCOMING, not to what this window holds.
-    it('names the scale of what was cut when the sentinel row comes back', () => {
-      mockShows(
-        Array.from({ length: 61 }, (_, i) =>
-          buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
-        )
-      )
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.getByText('Showing 60 of 328 upcoming')).toBeInTheDocument()
-    })
-
-    // A cut date's row count is not that date's total. Printing it in the same
-    // register as every verified count would state a per-day figure nobody
-    // checked, which is exactly what a single dense night used to do.
-    it('suppresses the count on the date the row cap cut in half', () => {
-      mockShows(
-        Array.from({ length: 61 }, (_, i) =>
-          buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
-        )
-      )
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.getByText(/SAT · AUG 8/)).toBeInTheDocument()
-      expect(screen.queryByText('60 shows')).not.toBeInTheDocument()
-    })
-
-    it('keeps verified counts on the dates the cap did not reach', () => {
-      mockShows([
-        ...Array.from({ length: 59 }, (_, i) =>
-          buildShow({ id: i + 1, starts_at: '2026-08-09T03:00:00Z' })
-        ),
-        buildShow({ id: 60, starts_at: '2026-08-10T03:00:00Z' }), // Aug 9
-        buildShow({ id: 61, starts_at: '2026-08-10T04:00:00Z' }), // Aug 9
-      ])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.getByText('59 shows')).toBeInTheDocument()
-    })
-
-    // The mock draws the week link at both ends of the list. The nav strip
-    // already carries a THIS WEEK chip above the header, so only the footer
-    // copy ships and there is exactly one link with this name.
-    it('points at the week exactly once', () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      const weekLinks = screen.getAllByRole('link', { name: 'Full week in Phoenix' })
-      expect(weekLinks).toHaveLength(1)
-      expect(weekLinks[0]).toHaveAttribute('href', '/scenes/phoenix-az/week')
-    })
-
-    it('points at everything upcoming', () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByRole('link', { name: 'All upcoming in Phoenix' })
-      ).toHaveAttribute('href', '/shows?cities=Phoenix%2CAZ')
-    })
-
-    it('offers the scene .ics feed in the footer', () => {
-      mockShows([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByRole('button', { name: /subscribe: \.ics/i })
-      ).toBeInTheDocument()
-    })
-  })
-
-  // A failed request is not an empty calendar. Claiming the honest zero here
-  // would state, in our own voice and with a room count attached, that nothing
-  // is on tonight, a claim the page never actually checked.
-  describe('when the window request fails', () => {
-    it('never claims the zero it did not verify', () => {
-      mockShowsError()
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(screen.queryByText(/Nothing on our calendar/)).not.toBeInTheDocument()
-      expect(screen.queryByText(/^Showing /)).not.toBeInTheDocument()
-    })
-
-    it('says what happened and still offers the week', () => {
-      mockShowsError()
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByText(/could not load this scene's calendar/i)
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: /the full week in Phoenix/i })
-      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
-    })
-
-    it('keeps the window nav intact', () => {
-      mockShowsError()
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
-      expect(
-        screen.getByRole('navigation', { name: 'Show windows' })
-      ).toBeInTheDocument()
-    })
-
-    // A background refetch that fails keeps the rows it already had. Replacing
-    // four correct weeks with an apology because a reconnect blipped would be a
-    // worse answer than the rows.
-    it('keeps rows it already has when a refetch fails', () => {
-      mockShowsError([buildShow()])
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
       expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
-      expect(
-        screen.queryByText(/could not load this scene's calendar/i)
-      ).not.toBeInTheDocument()
+      expect(screen.getByText('Destruction Unit')).toBeInTheDocument()
+      expect(screen.getByText('8:00 PM')).toBeInTheDocument()
+      expect(screen.getByText('9:30 PM')).toBeInTheDocument()
+      expect(screen.getByText('$28.00')).toBeInTheDocument()
+      expect(screen.getByText('$12.00')).toBeInTheDocument()
+    })
+
+    // The sub-locality is what lets a metro scene read as a region.
+    it('prints the room city beside the room', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([buildShow()])} />
+      )
+      expect(screen.getByText(/Nile Theater \(Mesa\)/)).toBeInTheDocument()
+    })
+
+    it('marks cancelled and sold-out rows', () => {
+      renderWithProviders(
+        <SceneCalendar
+          scene={buildScene()}
+          slice={buildSlice([
+            buildShow({ id: 1, is_cancelled: true }),
+            buildShow({ id: 2, is_sold_out: true }),
+          ])}
+        />
+      )
+      expect(screen.getByText('CANCELLED')).toBeInTheDocument()
+      expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
+    })
+
+    // The payoff of reading the day endpoint: the backend answered for the
+    // whole date, so this count is that date's real total rather than however
+    // many rows survived a window cap. Nothing has to be suppressed.
+    it('states each date total without qualification', () => {
+      renderWithProviders(
+        <SceneCalendar
+          scene={buildScene()}
+          slice={buildSlice(
+            [buildShow({ id: 1 }), buildShow({ id: 2 })],
+            [buildShow({ id: 3 })]
+          )}
+        />
+      )
+      expect(screen.getByText('2 shows')).toBeInTheDocument()
+      expect(screen.getByText('1 show')).toBeInTheDocument()
+    })
+
+    it('says a date is empty rather than hiding it', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([buildShow()], [])} />
+      )
+      expect(screen.getByText('0 shows listed')).toBeInTheDocument()
+      expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(2)
     })
   })
 
-  describe('while the window is loading', () => {
-    it('renders the nav but no rows and no zero claim', () => {
-      mockShows([], true)
-      renderWithProviders(<SceneCalendar scene={buildScene()} />)
+  describe('the footer', () => {
+    it('offers the week and the four weeks, and claims nothing about them', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([buildShow()])} />
+      )
+
       expect(
-        screen.getByRole('navigation', { name: 'Show windows' })
+        screen.getByRole('link', { name: /full week in phoenix/i })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+      expect(
+        screen.getByRole('link', { name: /next 4 weeks →/i })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/next-4-weeks')
+    })
+
+    // The claims the old windowed footer made, which this page is no longer
+    // entitled to make. A section that shows two nights must not describe a
+    // month.
+    it('makes no "next four weeks" claim about what it rendered', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([buildShow()])} />
+      )
+      expect(screen.queryByText(/showing everything we have/i)).toBeNull()
+      expect(screen.queryByText(/of 328 upcoming/i)).toBeNull()
+      expect(screen.queryByText(/shows \/ next 4 weeks/i)).toBeNull()
+    })
+
+    // Share and .ics already sit in the header's action row a screen above.
+    it('does not repeat the header actions', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([buildShow()])} />
+      )
+      expect(screen.queryByRole('button', { name: /share this scene/i })).toBeNull()
+    })
+  })
+
+  describe('a quiet slice', () => {
+    it('states the zero honestly and names the rooms it checked', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([], [])} />
+      )
+
+      expect(
+        screen.getByText(/nothing on our calendar for the 12 phoenix rooms we track/i)
       ).toBeInTheDocument()
-      expect(screen.queryByText(/Nothing on our calendar/)).not.toBeInTheDocument()
-      expect(screen.queryByText(/^Showing /)).not.toBeInTheDocument()
+      // Never a claim about the CITY, only about our calendar.
+      expect(screen.getByText(/a room may have shows we have not listed/i)).toBeInTheDocument()
+    })
+
+    // The old copy said "in the next four weeks" here. Two quiet nights say
+    // nothing whatever about the month.
+    it('names the two nights it actually checked', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([], [])} />
+      )
+      expect(screen.getByText(/tonight or Sunday/i)).toBeInTheDocument()
+      expect(screen.queryByText(/next four weeks/i)).toBeNull()
+    })
+
+    // The case the "tomorrow" spelling got wrong. Between midnight and 06:00 the
+    // scene's night boundary puts tonight on YESTERDAY's date, so the second day
+    // the slice checked is TODAY — and calling it "tomorrow" would be false in
+    // exactly the window this ticket moved to the day endpoint to render right.
+    it('names the second night rather than calling it tomorrow', () => {
+      const slice = buildSceneSlice(
+        buildDay({ date: '2026-08-08', is_tonight: true, next_date: '2026-08-09', shows: [] }),
+        buildDay({ date: '2026-08-09', is_tonight: false, shows: [] })
+      )!
+      renderWithProviders(<SceneCalendar scene={buildScene()} slice={slice} />)
+
+      const copy = screen.getByText(/nothing on our calendar/i)
+      expect(copy).toHaveTextContent(/tonight or Sunday/i)
+      expect(copy).not.toHaveTextContent(/tomorrow/i)
+    })
+
+    it('says only tonight when only tonight was checked', () => {
+      const slice = buildSceneSlice(buildDay({ next_date: '', shows: [] }), null)!
+      renderWithProviders(<SceneCalendar scene={buildScene()} slice={slice} />)
+
+      const copy = screen.getByText(/nothing on our calendar/i)
+      expect(copy).toHaveTextContent(/we track tonight\./i)
+      expect(copy).not.toHaveTextContent(/tomorrow/i)
+    })
+
+    // Honest zero plus one step wider, and a second door: the scene that is
+    // quiet for two nights may well have a quiet week too.
+    it('offers a way onward rather than a dead end', () => {
+      renderWithProviders(
+        <SceneCalendar scene={buildScene()} slice={buildSlice([], [])} />
+      )
+
+      expect(screen.getByRole('link', { name: /full week in phoenix/i })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /next 4 weeks →/i })).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: /all upcoming in phoenix/i })
+      ).toHaveAttribute('href', '/shows?cities=Phoenix%2CAZ')
+      expect(screen.getByRole('link', { name: /suggest a venue/i })).toBeInTheDocument()
+    })
+
+    it('drops the room count rather than printing a zero one', () => {
+      renderWithProviders(
+        <SceneCalendar
+          scene={buildScene({
+            stats: {
+              venue_count: 0,
+              artist_count: 0,
+              upcoming_show_count: 0,
+              festival_count: 0,
+            },
+          })}
+          slice={buildSlice([], [])}
+        />
+      )
+      expect(
+        screen.getByText(/nothing on our calendar for the phoenix rooms we track/i)
+      ).toBeInTheDocument()
+    })
+  })
+
+  describe('a slice that could not be loaded', () => {
+    // A failed request is NOT an empty calendar. Falling through to the
+    // honest-zero copy would state, in our own voice and with a room count
+    // attached, that nothing is on tonight — a claim we never checked.
+    it('says what happened instead of asserting a zero', () => {
+      renderWithProviders(<SceneCalendar scene={buildScene()} slice={null} />)
+
+      expect(screen.getByText(/could not load this scene's calendar/i)).toBeInTheDocument()
+      expect(screen.queryByText(/nothing on our calendar/i)).toBeNull()
+      expect(screen.queryByText(/0 shows listed/i)).toBeNull()
+    })
+
+    it('still offers the week', () => {
+      renderWithProviders(<SceneCalendar scene={buildScene()} slice={null} />)
+      expect(
+        screen.getByRole('link', { name: /the full week in phoenix/i })
+      ).toHaveAttribute('href', '/scenes/phoenix-az/week')
+    })
+
+    // The strip is the reader's way out of a broken calendar, so it must not
+    // depend on the calendar having loaded.
+    it('keeps the window strip', () => {
+      renderWithProviders(<SceneCalendar scene={buildScene()} slice={null} />)
+      const nav = screen.getByRole('navigation', { name: /show windows/i })
+      expect(within(nav).getAllByRole('link')).toHaveLength(4)
     })
   })
 })

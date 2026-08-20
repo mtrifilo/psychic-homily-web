@@ -34,9 +34,10 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
   [
     '@/features/scenes/components',
     () => import('@/features/scenes/components'),
-    // SceneCalendar joins the eviction list (PSY-1783): SceneDetail deep-imports
-    // it, and listing it here would put four weeks of calendar rendering into
-    // the chunk every route loads.
+    // SceneCalendar joins the eviction list (PSY-1783). It is now a SERVER
+    // component deep-imported by `app/scenes/[slug]/page.tsx` (PSY-1850), which
+    // makes listing it here worse than it was: a `'use client'` barrel export
+    // would drag a server-only module into the client chunk every route loads.
     //
     // SceneRooms / SceneNewBands / SceneRoster join it for the same reason
     // (PSY-1784). They are named HERE and not only in the barrel's own comment
