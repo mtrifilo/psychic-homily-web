@@ -187,21 +187,62 @@ describe('SceneGraph', () => {
     expect(within(overlay).getByText(/Top 4 of 90 artists/)).toBeInTheDocument()
   })
 
-  it('hides the canvas below the 640px breakpoint and shows the teaser card (PSY-1446)', () => {
+  // PSY-1855: below 640px the section collapses to one line of link. The
+  // canvas gate itself is unchanged (PSY-369/511) — what changed is that the
+  // page no longer renders a titled section whose whole body is an apology.
+  it('collapses to a one-line /graph teaser below the 640px breakpoint', () => {
     resizeObserver.setWidth(500)
     renderWithProviders(<SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />)
-    // PSY-516: header copy is gated by `nodeCount === 0`, not by mobile gating,
-    // so it may still render. The canvas + cluster legend must be absent.
+
     expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
     expect(screen.queryByText(/Valley Bar \(6\)/)).not.toBeInTheDocument()
-    // PSY-1472: the teaser card carries the connectedness pitch + a link-out
-    // that scrolls to the scene's artist list on this page.
+
+    // No section chrome: no heading, no scale line, and none of the retired
+    // "needs a larger screen" card or its in-page link-out.
+    expect(screen.queryByText('Scene graph')).not.toBeInTheDocument()
+    expect(screen.queryByText(/4 artists/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/needs a larger screen/i)).not.toBeInTheDocument()
     expect(
-      screen.getByText(/The Phoenix, AZ scene is a map of who plays with whom/i),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: /Browse Phoenix artists/i }),
-    ).toHaveAttribute('href', '#scene-artists')
+      screen.queryByRole('link', { name: /Browse Phoenix artists/i }),
+    ).not.toBeInTheDocument()
+
+    // The knowledge-graph cross-link is the one thing that survives, and it is
+    // the ONLY link left in the section.
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveTextContent(
+      'See how Phoenix artists connect on the music map →',
+    )
+    expect(links[0]).toHaveAttribute('href', '/graph')
+  })
+
+  // The `#graph` deep-link target (Cmd+K, PSY-366) has to survive the collapse
+  // — a palette entry that scrolls nowhere is worse than no entry.
+  it('keeps the #graph anchor on the collapsed mobile teaser', () => {
+    resizeObserver.setWidth(500)
+    const { container } = renderWithProviders(
+      <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
+    )
+    expect(container.querySelector('#graph')).not.toBeNull()
+  })
+
+  // The mobile teaser inherits the edge gate rather than bypassing it: a scene
+  // with nothing to map gets no line either (locked decision 14 unchanged).
+  it('renders nothing below 640px when edge_count is under 8', () => {
+    resizeObserver.setWidth(500)
+    vi.mocked(useSceneGraph).mockImplementation(
+      () =>
+        ({
+          data: { ...mockData, scene: { ...mockData.scene, edge_count: 7 } },
+          isLoading: false,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any,
+    )
+    const { container } = renderWithProviders(
+      <SceneGraph slug="phoenix-az" city="Phoenix" state="AZ" />,
+    )
+    expect(container.firstChild).toBeNull()
   })
 
   it('renders canvas + cluster legend at desktop width', () => {
@@ -291,6 +332,11 @@ describe('SceneGraph', () => {
     expect(screen.getByText('Scene graph')).toBeInTheDocument()
     expect(container.querySelector('.animate-pulse')).not.toBeNull()
     expect(screen.queryByTestId('scene-graph-canvas')).not.toBeInTheDocument()
+    // PSY-1855: the reservation is viewport-gated. Below 640px the settled
+    // tree is a single line, so a 240px titled box here would paint a phantom
+    // section and then shift the page when it collapses. jsdom applies no CSS,
+    // so the class itself is the assertion.
+    expect(container.querySelector('#graph')).toHaveClass('hidden', 'sm:block')
   })
 
   describe('fullscreen overlay (PSY-517)', () => {

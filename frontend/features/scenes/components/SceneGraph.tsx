@@ -38,6 +38,14 @@
  * imported with `ssr: false`, the layout pre-settles synchronously via
  * warmupTicks (cooldownTicks=0, so the engine never runs a post-mount tick
  * loop), and mobile already gates it off.
+ *
+ * PSY-1855: below 640px the section is a single line of link, not a titled
+ * section. The canvas gate itself is untouched (that lives in the Map of the
+ * Scene program, PSY-369/PSY-511); what changed is what the page renders in
+ * its place. A header, a scale line, and a 240px card whose entire body says
+ * "needs a larger screen" is a module that exists to apologise for itself,
+ * and on a dense scene it buried the page's only /graph cross-link many
+ * screens down. The one line keeps the cross-link at the cost of one row.
  */
 
 import { useState, useMemo } from 'react'
@@ -45,11 +53,7 @@ import Link from 'next/link'
 import { Maximize2, X } from 'lucide-react'
 import { ClusterLegend } from '@/components/graph/ClusterLegend'
 import { GraphSkeleton } from '@/components/graph/GraphSkeleton'
-import {
-  GraphStateCard,
-  GRAPH_BOX_HEIGHT_CLASS,
-  GRAPH_TEASER_HEIGHT_CLASS,
-} from '@/components/graph/GraphStateCard'
+import { GraphStateCard, GRAPH_BOX_HEIGHT_CLASS } from '@/components/graph/GraphStateCard'
 import { useContainerWidth, GRAPH_BREAKPOINT_PX } from '@/components/graph/useContainerWidth'
 import { useFullscreenGraphOverlay } from '@/components/graph/useFullscreenGraphOverlay'
 import { useSceneGraph, type SceneGraphClusterBy } from '../hooks/useScenes'
@@ -59,15 +63,50 @@ import { sentenceCase } from '@/components/graph/truncatedCountPhrase'
 
 const MIN_GRAPH_EDGES = 8
 
+/**
+ * The one knowledge-graph cross-link this section offers, at either width.
+ *
+ * Locked P4: plain `/graph`, not a URL re-rooted on a scene artist. The
+ * Observatory's centre is in-session state (`startAt`) and `/graph` reads no
+ * searchParams, so there is no re-rooted URL shape to link to — the same
+ * degradation this link has taken since PSY-1472. Single-sourced so the
+ * desktop foot link and the sub-640px teaser can't drift onto different
+ * targets.
+ */
+const WHOLE_MAP_HREF = '/graph'
+
+/**
+ * The whole-map link, as both widths render it: same target, same treatment,
+ * only the wording and the surrounding spacing differ. Sharing the element
+ * rather than just the href is deliberate — two hand-written copies of the
+ * same link are two things to keep in step, and this section has exactly one
+ * cross-link to offer either way.
+ */
+function WholeMapLink({ children }: { children: string }) {
+  return (
+    <Link
+      href={WHOLE_MAP_HREF}
+      className="underline underline-offset-4 hover:text-foreground"
+    >
+      {children}
+    </Link>
+  )
+}
+
 const CLUSTER_MODES: { value: SceneGraphClusterBy; label: string }[] = [
   { value: 'venue', label: 'Venue' },
   { value: 'community', label: 'Community' },
 ]
 
 /**
- * The scroll-anchor id for the mobile teaser's "Browse artists" link-out
- * (PSY-1472). Single-sourced here so this component's `linkHref` and the
- * SceneDetail wrapper's `id` can't drift apart.
+ * The scroll-anchor id hung off the scene's artist roster (SceneDetail).
+ *
+ * It was introduced as the mobile teaser card's "Browse artists" link-out
+ * target (PSY-1472); PSY-1855 replaced that card with a one-line /graph link,
+ * so nothing links to it from here any more. It stays exported because
+ * SceneDetail still stamps it on the roster and a stable `#scene-artists`
+ * deep link is worth keeping on its own — removing it is a SceneDetail-side
+ * call, not this component's.
  */
 export const SCENE_ARTISTS_ANCHOR = 'scene-artists'
 
@@ -116,6 +155,12 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // `containerWidth === null` (pre-measurement) also gates off.
   const graphAvailable =
     hasEnoughForGraph && containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+  // Measured narrow. Distinct from `!graphAvailable`, which is also true before
+  // measurement and below the edge gate: this is specifically "we know the
+  // container is too narrow for a canvas", which is the only state that should
+  // collapse the section to the one-line teaser (PSY-1855).
+  const isBelowGraphBreakpoint =
+    containerWidth !== null && containerWidth < GRAPH_BREAKPOINT_PX
 
   // Overlay lifecycle (scroll lock, Esc, viewport tracking, auto-close when
   // graphAvailable flips false mid-overlay) lives in the shared hook.
@@ -130,9 +175,17 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
   // Loading reserves the graph box (shared GraphSkeleton, PSY-1347) instead
   // of returning null — a null here shifts every section below when the
   // canvas lands. The header stays put so only the box swaps on settle.
+  //
+  // `hidden sm:block`: this branch has no measured container (the measuring
+  // ref lives on the settled tree), so the reservation is viewport-keyed —
+  // the same accepted viewport-vs-container mismatch documented on
+  // GRAPH_BOX_HEIGHT_CLASS. Below 640px the settled tree is one line of link
+  // (PSY-1855), so reserving a 240px titled box here would be reserving space
+  // for something that is never going to arrive: it would paint a phantom
+  // section and then shift the page when it collapses.
   if (isLoading) {
     return (
-      <div id="graph" className="mt-2 scroll-mt-20">
+      <div id="graph" className="mt-2 scroll-mt-20 hidden sm:block">
         <h2 className="text-lg font-semibold mb-2">Scene graph</h2>
         <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
       </div>
@@ -304,75 +357,72 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
         aria-hidden={isFullscreen || undefined}
         inert={isFullscreen || undefined}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          {sceneHeader}
-          {expandButton}
-        </div>
-
-        {/* Pre-measurement: hold the box height so the settle can't shift
-            the sections below (HomeSceneGraph precedent). */}
-        {containerWidth === null && hasEnoughForGraph && (
-          <GraphSkeleton className={GRAPH_BOX_HEIGHT_CLASS} />
-        )}
-
-        {/* Sub-640px: shared teaser card instead of the old silent hide
-            (PSY-369/511 kept the canvas off; the card says WHY + gives a way
-            forward, PSY-1472). Link-out scrolls to the scene's artist list on
-            this page (#scene-artists, SceneDetail). */}
-        {containerWidth !== null &&
-          containerWidth < GRAPH_BREAKPOINT_PX &&
-          hasEnoughForGraph && (
-            <GraphStateCard
-              className={GRAPH_TEASER_HEIGHT_CLASS}
-              message={`The ${city}${state ? `, ${state}` : ''} scene is a map of who plays with whom. Needs a larger screen.`}
-              linkHref={`#${SCENE_ARTISTS_ANCHOR}`}
-              linkLabel={`Browse ${city} artists →`}
-            />
-          )}
-
-        {graphAvailable && !isFullscreen && (
-          <div className="space-y-3">
-            {showClusterByToggle && clusterByToggle}
-
-            <div className={`space-y-3 ${transitionDim}`} aria-busy={isPlaceholderData}>
-              {/* Cluster legend — click a row to toggle that cluster's visibility.
-                  "Other" stays clickable so users can hide the long tail at will. */}
-              {clusterLegend}
-
-              <SceneGraphVisualization
-                data={data}
-                // Safe non-null: graphAvailable requires containerWidth !== null
-                containerWidth={containerWidth!}
-                hiddenClusterIDs={hiddenClusters}
-              />
-
-              {/* PSY-1296: the roster is BASED-IN artists ranked by approved-show
-                  activity here (post-PSY-1233 re-key + PSY-1277 cap) — the old
-                  "who've played approved shows in" copy described a played-here
-                  population and contradicted the truncation hint above it.
-                  "the X scene" (not "in and around X") because the roster's
-                  geographic scope varies: metro rollup for CBSA scenes, exact
-                  city for the fallback — the FE can't tell which, and "scene"
-                  is the product term that covers both. The cluster sentence is
-                  mode-dependent (PSY-1320). */}
-              <p className="text-xs text-muted-foreground">
-                Showing artists based in the {city}, {state} scene, ranked by their
-                approved shows here. {clusterCaption} Click a cluster pill above to hide
-                it; click any artist for their details.
-              </p>
+        {isBelowGraphBreakpoint ? (
+          /* Sub-640px (PSY-1855). The canvas is gated off here and always has
+             been (PSY-369/511); what this branch decides is what the page puts
+             in its place. Not a titled section: no header, no scale line, no
+             240px card. The one thing worth carrying at this width is the
+             cross-link into the knowledge graph, so that is all this renders,
+             and it renders as a line of text rather than a module. */
+          <p className="text-xs text-muted-foreground">
+            <WholeMapLink>{`See how ${city} artists connect on the music map →`}</WholeMapLink>
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              {sceneHeader}
+              {expandButton}
             </div>
-          </div>
-        )}
 
-        {/* Locked P4: one /graph link at the section foot. /graph overview does
-            not accept an artist query today (GraphObservatory's startAt is
-            in-session only; the page has no searchParams), so this degrades to
-            plain /graph rather than a re-rooted URL. */}
-        <p className="mt-3 text-xs text-muted-foreground">
-          <Link href="/graph" className="underline underline-offset-4 hover:text-foreground">
-            View this scene on the whole map →
-          </Link>
-        </p>
+            {/* Pre-measurement: hold the box height so the settle can't shift
+                the sections below (HomeSceneGraph precedent). Viewport-gated
+                for the same reason the loading branch is: below 640px the
+                settled tree is one line, so there is no box to reserve.
+                `hasEnoughForGraph` is not re-checked — the edge gate above
+                already returned null for everything that fails it. */}
+            {containerWidth === null && (
+              <GraphSkeleton className={`hidden sm:block ${GRAPH_BOX_HEIGHT_CLASS}`} />
+            )}
+
+            {graphAvailable && !isFullscreen && (
+              <div className="space-y-3">
+                {showClusterByToggle && clusterByToggle}
+
+                <div className={`space-y-3 ${transitionDim}`} aria-busy={isPlaceholderData}>
+                  {/* Cluster legend — click a row to toggle that cluster's visibility.
+                      "Other" stays clickable so users can hide the long tail at will. */}
+                  {clusterLegend}
+
+                  <SceneGraphVisualization
+                    data={data}
+                    // Safe non-null: graphAvailable requires containerWidth !== null
+                    containerWidth={containerWidth!}
+                    hiddenClusterIDs={hiddenClusters}
+                  />
+
+                  {/* PSY-1296: the roster is BASED-IN artists ranked by approved-show
+                      activity here (post-PSY-1233 re-key + PSY-1277 cap) — the old
+                      "who've played approved shows in" copy described a played-here
+                      population and contradicted the truncation hint above it.
+                      "the X scene" (not "in and around X") because the roster's
+                      geographic scope varies: metro rollup for CBSA scenes, exact
+                      city for the fallback — the FE can't tell which, and "scene"
+                      is the product term that covers both. The cluster sentence is
+                      mode-dependent (PSY-1320). */}
+                  <p className="text-xs text-muted-foreground">
+                    Showing artists based in the {city}, {state} scene, ranked by their
+                    approved shows here. {clusterCaption} Click a cluster pill above to hide
+                    it; click any artist for their details.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <p className="mt-3 text-xs text-muted-foreground">
+              <WholeMapLink>View this scene on the whole map →</WholeMapLink>
+            </p>
+          </>
+        )}
       </div>
 
       {isFullscreen && graphAvailable && (
