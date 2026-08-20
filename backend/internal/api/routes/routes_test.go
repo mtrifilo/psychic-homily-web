@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -685,6 +686,13 @@ func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 
 	// Cross-group sampling across route groups, so a future sub-API that shadows
 	// the spec makes whole groups disappear here.
+	//
+	// The last two are the FLIPPED assertions from TestSubAPIOperationsAreAbsentFromSpec
+	// (PSY-1554), which pinned them as known-absent while the entity-report group
+	// still lived on its own humachi.New. PSY-1598 moved that group onto the main
+	// API, so the characterization test's own instruction applied: move these paths
+	// here rather than delete the coverage. Their full behaviour — limiter, budget
+	// sharing, auth gate — is covered in subapi_reports_test.go.
 	for _, path := range []string{
 		"/shows",
 		"/artists",
@@ -692,6 +700,8 @@ func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 		"/radio-stations",
 		"/auth/profile",
 		"/venues",
+		"/artists/{entity_id}/report",
+		"/venues/{entity_id}/report",
 	} {
 		if _, ok := spec.Paths[path]; !ok {
 			t.Errorf("served spec is missing %q", path)
@@ -699,86 +709,68 @@ func TestServedOpenAPISpecIsTheWholeAPI(t *testing.T) {
 	}
 }
 
-// TestSubAPIOperationsAreAbsentFromSpec is a CHARACTERIZATION test: it documents
-// a real, known gap rather than asserting desired behaviour.
+// TestNoSubAPIInstancesRemain replaces two tests that PSY-1598 made obsolete, and
+// is deliberately stronger than either.
 //
-// Suppressing the sub-APIs' doc routes stops them shadowing the main spec, but it
-// does NOT merge their operations into it — each humachi.New owns a separate
-// OpenAPI document, so the 27 operations registered on rate-limited sub-instances
-// remain undocumented. That includes the whole auth surface (login, register,
-// magic-link, passkey, account recovery), show create, tag create/vote, and the
-// report endpoints.
+// The history: rate-limited endpoints used to be registered on extra humachi.New
+// instances, because a chi.Group gave them a middleware stack and a Huma instance
+// was the only way to hang Huma operations off one. Each instance owns a SEPARATE
+// OpenAPI document, which produced two distinct failures. Its /openapi.json
+// registration shadowed the main one — chi replaces a duplicate method+path
+// rather than erroring, so the LAST registration wins and production served a
+// fragment titled "Psychic Homily Entity Reports" (PSY-1554). And its operations
+// never reached the real document: 27 of them, the entire auth surface included.
 //
-// PSY-1554 deliberately scoped to restoring a correct spec; merging these
-// requires moving rate limiting from chi middleware onto huma groups, which
-// touches auth and is its own change. This test pins the gap so it stays visible
-// and cannot silently grow.
+// PSY-1554 patched the first failure with subAPIConfig, which blanked the doc
+// paths so a sub-API could not shadow anything, and TestSubAPIsDoNotRegisterDocRoutes
+// guarded that helper. PSY-1598 fixed the second by moving every group onto the
+// main API behind huma.NewGroup + humaFromHTTP, which removed the last caller of
+// subAPIConfig — so "make a sub-API safe" is no longer the policy, and both the
+// helper and its guard are gone with it.
 //
-// WHEN THE CONSOLIDATION LANDS, THIS TEST SHOULD FAIL — flip the assertions
-// rather than deleting the coverage.
-func TestSubAPIOperationsAreAbsentFromSpec(t *testing.T) {
-	cfg := testConfig()
-	sc := testContainer(cfg)
-	router := chi.NewRouter()
-	SetupRoutes(router, sc, cfg)
-
-	req := httptest.NewRequest("GET", "/openapi.json", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	var spec struct {
-		Paths map[string]map[string]interface{} `json:"paths"`
+// What replaces them is the stronger invariant the consolidation earned: there is
+// exactly ONE Huma instance, so neither failure can recur. Scanning source is
+// crude, but it is the only place the constraint is visible — a second instance
+// is a compile-time-legal, test-passing change whose damage shows up only in the
+// published spec, and TestServedOpenAPISpecIsTheWholeAPI catches shadowing but
+// not the silent absence of operations.
+//
+// Test files are excluded: they build throwaway Huma instances to exercise single
+// handlers in isolation, which is unrelated to the routing tree this pins.
+func TestNoSubAPIInstancesRemain(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
-		t.Fatalf("parse spec: %v", err)
-	}
 
-	// Shrinks as groups graduate. Only the entity-report SUBMIT group remains on
-	// its own humachi.New instance:
-	//
-	//   step 2 — shows + tags   → TestShowsAndTagsOperationsAreInMainSpec
-	//   step 3 — auth + passkey → TestAuthOperationsAreInMainSpec
-	//
-	// Those tests pin presence AND the limiter/bypass behaviour each move had to
-	// preserve, which is the coverage this characterization test hands off to.
-	//
-	// PSY-1633 cleared the blocker that kept this group off the main API: there
-	// used to be TWO registrations of the artist report path with different
-	// parameter names, so publishing both would have described a contract chi
-	// could not serve. There is now one route per path — `/artists/{entity_id}/report`,
-	// asserted in TestArtistReportRoutesAreRegisteredOnce — so this group is
-	// merely un-converted, not blocked. Converting it is PSY-1598's remaining step.
-	for _, path := range []string{
-		"/artists/{entity_id}/report",
-		"/venues/{entity_id}/report",
-	} {
-		if _, ok := spec.Paths[path]; ok {
-			t.Errorf("%q is now IN the served spec — the sub-API consolidation appears to have landed; "+
-				"move this path into TestServedOpenAPISpecIsTheWholeAPI instead of leaving it asserted absent", path)
+	found := map[string]int{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		// Comments in this package discuss humachi.New by name (that is the point
+		// of those comments), so count call sites only.
+		if n := strings.Count(string(src), "humachi.New("); n > 0 {
+			found[name] = n
 		}
 	}
-}
 
-// TestSubAPIsDoNotRegisterDocRoutes is the direct unit-level guard on the fix:
-// subAPIConfig must leave the documentation paths empty, which is what makes
-// Huma skip registering them (`if config.OpenAPIPath != ""`).
-func TestSubAPIsDoNotRegisterDocRoutes(t *testing.T) {
-	c := subAPIConfig("Psychic Homily Test Sub-API")
+	// routes.go holds the one legitimate instance: the main API.
+	if found["routes.go"] != 1 {
+		t.Errorf("routes.go has %d humachi.New call sites, want exactly 1 (the main API)", found["routes.go"])
+	}
+	delete(found, "routes.go")
 
-	if c.OpenAPIPath != "" {
-		t.Errorf("subAPIConfig OpenAPIPath = %q, want empty so Huma skips registering it", c.OpenAPIPath)
-	}
-	if c.DocsPath != "" {
-		t.Errorf("subAPIConfig DocsPath = %q, want empty", c.DocsPath)
-	}
-	// Deliberately still set: the SchemaLinkTransformer built from it injects
-	// `$schema` into response BODIES, so blanking it would change the wire
-	// contract. See subAPIConfig's doc comment.
-	if c.SchemasPath == "" {
-		t.Error("subAPIConfig must NOT blank SchemasPath — it feeds the response-body $schema transformer")
-	}
-	if c.Info == nil || c.Info.Title != "Psychic Homily Test Sub-API" {
-		t.Error("subAPIConfig must preserve the title it was given")
+	for file, n := range found {
+		t.Errorf("%s calls humachi.New %d time(s). A second Huma instance owns a second OpenAPI "+
+			"document: its operations will be reachable but ABSENT from /openapi.json, and its own "+
+			"doc-route registration can shadow the served spec. Use huma.NewGroup(rc.API, \"\") instead, "+
+			"with humaFromHTTP to carry any net/http middleware onto it — see reports.go or auth.go.", file, n)
 	}
 }
 

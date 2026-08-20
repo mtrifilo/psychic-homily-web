@@ -4,8 +4,6 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/danielgtaylor/huma/v2/adapters/humachi"
-	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 
 	communityh "psychic-homily-backend/internal/api/handlers/community"
@@ -61,37 +59,61 @@ func setupShowReportRoutes(rc RouteContext) {
 func setupEntityReportRoutes(rc RouteContext) {
 	entityReportHandler := communityh.NewEntityReportHandler(rc.SC.EntityReport, rc.SC.AuditLog)
 
-	// Rate-limited report submission: 5 requests per minute per IP
-	rc.Router.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(
-			middleware.ReportRequestsPerMinute,
-			time.Minute,
-			httprate.WithKeyFuncs(middleware.KeyByClientIP),
-			httprate.WithLimitHandler(rateLimitHandler),
-		))
-		reportAPI := humachi.New(r, subAPIConfig("Psychic Homily Entity Reports"))
-		reportAPI.UseMiddleware(middleware.HumaRequestIDMiddleware)
-		reportAPI.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
-		huma.Post(reportAPI, "/artists/{entity_id}/report", entityReportHandler.ReportArtistHandler)
-		huma.Post(reportAPI, "/venues/{entity_id}/report", entityReportHandler.ReportVenueHandler)
-		huma.Post(reportAPI, "/festivals/{entity_id}/report", entityReportHandler.ReportFestivalHandler)
-		// Note: shows already have /shows/{show_id}/report in setupShowReportRoutes.
-		// The generic entity report handler + service support shows, so the admin queue
-		// can display show reports submitted through the existing endpoint or this one.
-		huma.Post(reportAPI, "/shows/{entity_id}/entity-report", entityReportHandler.ReportShowHandler)
-		huma.Post(reportAPI, "/comments/{entity_id}/report", entityReportHandler.ReportCommentHandler)
-		// PSY-357: report a collection. EntityID is the numeric collection ID
-		// (the slug-based detail endpoints elsewhere are unrelated — this
-		// stays on the generic /{type}/{id}/report shape so the moderation
-		// queue can ingest collection reports through the same pipeline.)
-		huma.Post(reportAPI, "/collections/{entity_id}/report", entityReportHandler.ReportCollectionHandler)
-		// PSY-661: report a release. EntityID is the numeric release ID; the
-		// moderation queue deep-links via the resolved slug.
-		huma.Post(reportAPI, "/releases/{entity_id}/report", entityReportHandler.ReportReleaseHandler)
-		// PSY-666: report a label. EntityID is the numeric label ID; the
-		// moderation queue deep-links via the resolved slug.
-		huma.Post(reportAPI, "/labels/{entity_id}/report", entityReportHandler.ReportLabelHandler)
-	})
+	// Rate-limited report submission: 5 requests per minute per IP.
+	//
+	// PSY-1598 (final step): on the MAIN api via a Huma group rather than its own
+	// humachi.New. A separate instance owns a separate OpenAPI document, so these
+	// eight operations were reachable but undocumented — and this was the very
+	// instance whose spec fragment ("Psychic Homily Entity Reports", 8 paths) once
+	// shadowed the published document in production (PSY-1554).
+	//
+	// Three properties this conversion must preserve, each easy to break silently:
+	//
+	//  1. ONE limiter for the whole group. The eight operations shared a single
+	//     chi group, hence a single counter; building the limiter once here and
+	//     attaching it to one Huma group keeps that. A per-operation limiter would
+	//     look identical and multiply the budget eightfold for anyone willing to
+	//     rotate entity types.
+	//  2. The limiter stays OUTER of the JWT middleware (PSY-1397 layered
+	//     ordering). It ran as chi middleware, i.e. before Huma saw the request at
+	//     all, so unauthenticated floods were rejected without touching the auth
+	//     path. UseMiddleware order is outer-to-inner, so the limiter must be
+	//     registered first — as it is below.
+	//  3. NO bypass. Unlike show-create and tag-create this group has never had an
+	//     API-token or admin hatch, and reports are the admin queue's inbox: a
+	//     bypass appearing here would be an abuse regression, not a convenience.
+	entityReportGroup := huma.NewGroup(rc.API, "")
+	entityReportGroup.UseMiddleware(humaFromHTTP(httprate.Limit(
+		middleware.ReportRequestsPerMinute,
+		time.Minute,
+		httprate.WithKeyFuncs(middleware.KeyByClientIP),
+		httprate.WithLimitHandler(rateLimitHandler),
+	)))
+	entityReportGroup.UseMiddleware(middleware.HumaRequestIDMiddleware)
+	entityReportGroup.UseMiddleware(middleware.HumaJWTMiddleware(rc.SC.JWT, rc.Cfg.Session))
+
+	huma.Post(entityReportGroup, "/artists/{entity_id}/report", entityReportHandler.ReportArtistHandler)
+	huma.Post(entityReportGroup, "/venues/{entity_id}/report", entityReportHandler.ReportVenueHandler)
+	huma.Post(entityReportGroup, "/festivals/{entity_id}/report", entityReportHandler.ReportFestivalHandler)
+	// Note: shows already have /shows/{show_id}/report in setupShowReportRoutes.
+	// The generic entity report handler + service support shows, so the admin queue
+	// can display show reports submitted through the existing endpoint or this one.
+	//
+	// The two live on SEPARATE limiters, as they did when one was a chi group and
+	// the other a Huma group — same cap, independent counters. Unchanged here.
+	huma.Post(entityReportGroup, "/shows/{entity_id}/entity-report", entityReportHandler.ReportShowHandler)
+	huma.Post(entityReportGroup, "/comments/{entity_id}/report", entityReportHandler.ReportCommentHandler)
+	// PSY-357: report a collection. EntityID is the numeric collection ID
+	// (the slug-based detail endpoints elsewhere are unrelated — this
+	// stays on the generic /{type}/{id}/report shape so the moderation
+	// queue can ingest collection reports through the same pipeline.)
+	huma.Post(entityReportGroup, "/collections/{entity_id}/report", entityReportHandler.ReportCollectionHandler)
+	// PSY-661: report a release. EntityID is the numeric release ID; the
+	// moderation queue deep-links via the resolved slug.
+	huma.Post(entityReportGroup, "/releases/{entity_id}/report", entityReportHandler.ReportReleaseHandler)
+	// PSY-666: report a label. EntityID is the numeric label ID; the
+	// moderation queue deep-links via the resolved slug.
+	huma.Post(entityReportGroup, "/labels/{entity_id}/report", entityReportHandler.ReportLabelHandler)
 
 	// Read back the caller's own pending report (no additional rate limiting).
 	huma.Get(rc.Protected, "/artists/{entity_id}/my-report", entityReportHandler.GetMyArtistReportHandler)
