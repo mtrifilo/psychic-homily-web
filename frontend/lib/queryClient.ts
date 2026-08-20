@@ -27,6 +27,7 @@ import { labelQueryKeys } from '@/features/labels/api'
 import { festivalQueryKeys } from '@/features/festivals/api'
 import { radioQueryKeys } from '@/features/radio/api'
 import { chartQueryKeys } from '@/features/charts/api'
+import { commentQueryKeys } from '@/features/comments/api'
 
 // Default query options for all queries
 const defaultQueryOptions: DefaultOptions = {
@@ -552,6 +553,97 @@ export const queryKeys = {
     health: ['system', 'health'] as const,
   },
 } as const
+
+/**
+ * Query families whose PAYLOAD varies with the caller's privilege tier while
+ * their cache key carries no viewer dimension. For these, one key means
+ * different data before and after an auth change, so a cached entry outlives
+ * the viewer it was fetched for: an admin who opened a panel while signed out
+ * keeps the anonymous answer for the whole 15-minute `staleTime` above.
+ *
+ * Every entry below was checked against the backend route it reads. The
+ * families that are DELIBERATELY absent, and why, are recorded here too so
+ * the next person does not have to redo the audit:
+ *
+ *   - `savedShows.count` / `savedShows.countBatch`, and every `follows.*`
+ *     key: already carry a viewer segment (`isAuthenticated` plus user id),
+ *     so an auth change moves them to a different key and the previous
+ *     viewer's entry can never be served in the new viewer's place.
+ *   - `shows.detail`: the only viewer-dependent behaviour is a 404 on a
+ *     non-approved show for viewers who are neither admin nor the submitter.
+ *     On a show page the viewer can already see, the bytes are identical.
+ *   - `artists.graph`: the payload carries a `user_votes` map, but nothing in
+ *     the UI reads it. Add the key here if that changes.
+ *   - `field-notes`: `GET /shows/{id}/field-notes` reads no viewer at all, so
+ *     the `user_vote` its comment-shaped rows can carry is never populated.
+ *   - `admin.*`, `contributor.own*`, `collections.my`, personal `charts`,
+ *     `passkeys`, `mySubmissions`, `calendar`, `savedShows.list`: signed-in
+ *     only, with no anonymous variant to be confused with. Logout drops them
+ *     wholesale via `queryClient.clear()`.
+ *   - `tags` list/detail/search/entities, public `charts`, and the venue /
+ *     artist / release / label / festival / scene / radio / graph / explore
+ *     families: served by routes registered without auth middleware, so the
+ *     backend cannot see a viewer and the payload cannot vary.
+ */
+const VIEWER_TIER_QUERY_KEYS: readonly (readonly unknown[])[] = [
+  // Revision history. Non-privileged viewers get the stored `address` and
+  // `zipcode` values replaced with "(hidden)" on unverified venues and lose
+  // the summary entirely (PSY-1717), and a non-approved show 404s its history
+  // outright (PSY-1715) — so a tier flip changes both the values shown and
+  // which rows exist at all. The family prefix also covers the
+  // `{ limit, offset }`-suffixed entity/user keys and the
+  // `{ attribution: true }` key that useEntityAttribution appends.
+  queryKeys.revisions.all,
+  // Every comment node carries the caller's own `user_vote`, so an anonymous
+  // payload reports "not voted" on threads the viewer has voted in.
+  commentQueryKeys.all,
+  // Entity tags carry `user_vote` the same way. Scoped to the `entityTags`
+  // branch on purpose: the rest of the `tags` family is served by unauthed
+  // routes and would only be refetched for nothing.
+  ['tags', 'entityTags'],
+  // Collections vary the most: a private collection 403s for anyone but its
+  // creator, `user_likes_this` and `is_subscribed` are per-viewer, the
+  // entity-collections list unions in the viewer's own private collections,
+  // and nested tags carry `user_vote`.
+  queryKeys.collections.all,
+  // Contributor profiles gate per-field on owner-versus-not: stats, last
+  // active, sections, contributions, rankings and following each collapse to
+  // a count or vanish for a non-owner, and a private profile 404s.
+  ['contributor'],
+  // Entity requests carry the caller's `user_vote` per row.
+  queryKeys.requests.all,
+  // The leaderboard appends the caller's own `user_rank`.
+  ['community', 'leaderboard'],
+  // The contribute worklist hides the `followed_artists_missing_links`
+  // category from anonymous viewers, which also changes `total_items`, and
+  // orders items per-viewer.
+  ['contribute', 'opportunities'],
+]
+
+/**
+ * Refresh every viewer-tier-dependent cache after the viewer GAINS privilege
+ * (login, registration, magic-link sign-in, email verification, account
+ * recovery).
+ *
+ * `invalidateQueries` rather than `resetQueries`: on the way UP the cached
+ * payload is a subset of what the new viewer may see, so keeping it painted
+ * during the refetch is a seamless upgrade rather than a loading flash.
+ *
+ * There is no matching helper for the way DOWN. Logout already drops all of
+ * these through `queryClient.clear()` in `useLogout`, and adding a reset
+ * alongside it measurably makes things worse: `clear()` destroys the query
+ * behind a mounted observer, so a reset issued afterwards matches an empty
+ * cache and does nothing, while a reset issued before is orphaned by the
+ * `clear()` that follows it. Either way the mounted panel repaints from the
+ * rebuilt query on the next render, which the logout state change guarantees.
+ */
+export function refreshViewerTierQueries(queryClient: QueryClient) {
+  return Promise.all(
+    VIEWER_TIER_QUERY_KEYS.map(queryKey =>
+      queryClient.invalidateQueries({ queryKey })
+    )
+  )
+}
 
 // Utility function to invalidate related queries
 export const createInvalidateQueries = (queryClient: QueryClient) => ({

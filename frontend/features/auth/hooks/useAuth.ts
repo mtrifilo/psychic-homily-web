@@ -7,9 +7,18 @@
  * Uses proper caching, error handling, structured logging, and typed errors.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import {
+  queryKeys,
+  createInvalidateQueries,
+  refreshViewerTierQueries,
+} from '@/lib/queryClient'
 import { authLogger } from '@/lib/utils/authLogger'
 import { AuthError, AuthErrorCode, type AuthErrorCodeType } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
@@ -121,6 +130,26 @@ interface RefreshTokenResponse {
   request_id?: string
 }
 
+/**
+ * Cache work shared by every transition INTO an authenticated session: login,
+ * registration, magic-link sign-in, email verification, and account recovery.
+ *
+ * The profile refetch is awaited because the rest of the app reads identity
+ * from that one query, and the login response is a thinner payload than
+ * `/auth/profile` returns.
+ *
+ * The viewer-tier refresh is deliberately NOT awaited. Any panel already on
+ * screen whose payload depends on privilege (revision history, comments)
+ * still holds the previous viewer's answer, and would keep serving it for the
+ * rest of the 15-minute `staleTime` because those cache keys carry no viewer
+ * dimension. Refreshing them is a background correction, so the sign-in flow
+ * must not block on it.
+ */
+async function refreshCachesForNewSession(queryClient: QueryClient) {
+  await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+  void refreshViewerTierQueries(queryClient)
+}
+
 // Login mutation
 export const useLogin = () => {
   const queryClient = useQueryClient()
@@ -167,7 +196,7 @@ export const useLogin = () => {
         // Refetch profile to ensure we have complete user data including is_admin
         // This is more reliable than caching the login response since the profile
         // endpoint returns the full user object from the database
-        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+        await refreshCachesForNewSession(queryClient)
       }
     },
   })
@@ -226,7 +255,7 @@ export const useRegister = () => {
         )
 
         // Refetch profile to ensure we have complete user data
-        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+        await refreshCachesForNewSession(queryClient)
       }
     },
   })
@@ -257,7 +286,11 @@ export const useLogout = () => {
     },
     onSuccess: () => {
       authLogger.logout()
-      // Clear all cached data (HTTP-only cookie is cleared by server)
+      // Clear all cached data (HTTP-only cookie is cleared by server). This is
+      // also the logout half of the viewer-tier problem `refreshViewerTierQueries`
+      // solves for login: it drops every privileged payload, and the state
+      // change this mutation causes re-renders the panels holding one, which
+      // rebuilds their cleared queries and refetches them as anonymous.
       queryClient.clear()
     },
     onError: error => {
@@ -541,8 +574,9 @@ export const useConfirmVerification = () => {
         { message: data.message },
         data.request_id
       )
-      // Refetch profile to update email_verified status
-      await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+      // Refetch profile to update email_verified status. Verification is a
+      // privilege gain, so the viewer-tier caches go with it.
+      await refreshCachesForNewSession(queryClient)
     },
   })
 }
@@ -667,7 +701,7 @@ export const useVerifyMagicLink = () => {
           data.request_id
         )
         // Refetch profile to get complete user data
-        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+        await refreshCachesForNewSession(queryClient)
       }
     },
   })
@@ -1183,7 +1217,7 @@ export const useRecoverAccount = () => {
           data.request_id
         )
         // Refetch profile to get complete user data
-        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+        await refreshCachesForNewSession(queryClient)
       }
     },
   })
@@ -1264,7 +1298,7 @@ export const useConfirmAccountRecovery = () => {
           data.request_id
         )
         // Refetch profile to get complete user data
-        await queryClient.refetchQueries({ queryKey: queryKeys.auth.profile })
+        await refreshCachesForNewSession(queryClient)
       }
     },
   })
