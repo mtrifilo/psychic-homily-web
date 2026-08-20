@@ -228,11 +228,7 @@ func TestAuthGroupDoesNotRequireAuthentication(t *testing.T) {
 	}
 }
 
-func TestAuthPathsNoLongerAssertedAbsent(t *testing.T) {
-	paths := servedSpecPaths(t, newTestRouter(t))
-	for _, p := range []string{"/auth/login", "/auth/register"} {
-		if _, ok := paths[p]; !ok {
-			t.Errorf("%s should now be in the spec; TestSubAPIOperationsAreAbsentFromSpec must have been flipped for it", p)
-		}
-	}
-}
+// PSY-1598 removed TestAuthPathsNoLongerAssertedAbsent here. It existed to prove
+// two paths had been flipped out of the characterization test that pinned the
+// remaining sub-API operations as absent; that test is gone now that no sub-APIs
+// remain, and TestAuthOperationsAreInMainSpec above already asserts both paths.

@@ -2203,6 +2203,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/artists/{entity_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post artists by entity ID report */
+        post: operations["post-artists-by-entity-id-report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/artists/{entity_id}/suggest-edit": {
         parameters: {
             query?: never;
@@ -3450,6 +3467,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/collections/{entity_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post collections by entity ID report */
+        post: operations["post-collections-by-entity-id-report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/collections/{slug}": {
         parameters: {
             query?: never;
@@ -3759,6 +3793,23 @@ export interface paths {
         post: operations["post-comments-by-comment-id-vote"];
         /** Delete comments by comment ID vote */
         delete: operations["delete-comments-by-comment-id-vote"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comments/{entity_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post comments by entity ID report */
+        post: operations["post-comments-by-entity-id-report"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4335,6 +4386,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/festivals/{entity_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post festivals by entity ID report */
+        post: operations["post-festivals-by-entity-id-report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/festivals/{entity_id}/suggest-edit": {
         parameters: {
             query?: never;
@@ -4609,6 +4677,23 @@ export interface paths {
         get: operations["get-labels-search"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/labels/{entity_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post labels by entity ID report */
+        post: operations["post-labels-by-entity-id-report"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5209,6 +5294,23 @@ export interface paths {
         get: operations["get-releases-search"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/releases/{entity_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post releases by entity ID report */
+        post: operations["post-releases-by-entity-id-report"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5943,6 +6045,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shows/{entity_id}/entity-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post shows by entity ID entity report */
+        post: operations["post-shows-by-entity-id-entity-report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/shows/{show_id}": {
         parameters: {
             query?: never;
@@ -6626,6 +6745,23 @@ export interface paths {
         get: operations["get-venues-search"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/venues/{entity_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post venues by entity ID report */
+        post: operations["post-venues-by-entity-id-report"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14887,6 +15023,18 @@ export interface components {
             /** @description Items with new positions */
             items: components["schemas"]["ReorderItem"][] | null;
         };
+        ReportEntityRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/ReportEntityRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Optional details about the issue */
+            details?: string | null;
+            /** @description Type of report */
+            report_type: string;
+        };
         ReportShowRequestBody: {
             /**
              * Format: uri
@@ -22673,6 +22821,42 @@ export interface operations {
             };
         };
     };
+    "post-artists-by-entity-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "put-artists-by-entity-id-suggest-edit": {
         parameters: {
             query?: never;
@@ -25348,6 +25532,42 @@ export interface operations {
             };
         };
     };
+    "post-collections-by-entity-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-collections-by-slug": {
         parameters: {
             query?: never;
@@ -26294,6 +26514,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommentVoteResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-comments-by-entity-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
                 };
             };
             /** @description Error */
@@ -27961,6 +28217,42 @@ export interface operations {
             };
         };
     };
+    "post-festivals-by-entity-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "put-festivals-by-entity-id-suggest-edit": {
         parameters: {
             query?: never;
@@ -28845,6 +29137,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchLabelsResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-labels-by-entity-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
                 };
             };
             /** @description Error */
@@ -30353,6 +30681,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchReleasesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-releases-by-entity-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
                 };
             };
             /** @description Error */
@@ -32394,6 +32758,42 @@ export interface operations {
             };
         };
     };
+    "post-shows-by-entity-id-entity-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-shows-by-show-id": {
         parameters: {
             query?: never;
@@ -34235,6 +34635,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchVenuesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-venues-by-entity-id-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportEntityRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityReportResponse"];
                 };
             };
             /** @description Error */
