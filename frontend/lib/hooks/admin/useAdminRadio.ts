@@ -230,10 +230,20 @@ export interface UpdateRadioShowInput {
  * "completed with errors" error_log header); `skipped` = the circuit breaker
  * was open.
  *
- * A DOCUMENTATION type, not a wire type: the OpenAPI document types
- * `status` (and `run_type`, and `trigger`) as plain strings, so the generated
- * `RadioSyncRun` carries `string`. Consumers keying a lookup off any of the
- * three must tolerate an unrecognised value.
+ * A DOCUMENTATION type, not a wire type: the OpenAPI document types `status`
+ * as a plain string, so the generated `RadioSyncRun` carries `string` and a
+ * consumer keying a lookup off it must tolerate an unrecognised value.
+ *
+ * `run_type` (discover | fetch | backfill | rematch) and `trigger` (scheduled
+ * | manual | auto_backfill) are strings on the wire for the same reason, but
+ * get no union here because nothing looks them up — both are rendered raw.
+ * Note the hand-written type this replaced declared `run_type` WITHOUT
+ * `rematch`, which is a real value the backend writes.
+ *
+ * None of these are covered by the `api:types` drift gate: if the backend adds
+ * a status, CI stays green and the badge silently falls back. The durable fix
+ * is an `enum:"..."` tag on the Go field (a convention this API already uses
+ * elsewhere), which would make the generator emit a real union.
  */
 export type RadioSyncRunStatus =
   | 'running'

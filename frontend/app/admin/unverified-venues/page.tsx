@@ -203,6 +203,10 @@ function UnverifiedVenueCard({ venue }: UnverifiedVenueCardProps) {
 export default function UnverifiedVenuesPage() {
   const { user } = useAuthContext()
   const { data, isLoading, error } = useUnverifiedVenues({ enabled: !!user?.is_admin })
+  // `venues` is nullable on the wire (Go slice, no `omitempty`). The service
+  // always builds a `make`d slice today, so null is not reachable — this is
+  // the same defensive guard the contract now requires everywhere else.
+  const venues = data?.venues ?? []
 
   return (
     <div className="space-y-4">
@@ -229,7 +233,7 @@ export default function UnverifiedVenuesPage() {
         </div>
       )}
 
-      {!isLoading && !error && data?.venues.length === 0 && (
+      {!isLoading && !error && data && venues.length === 0 && (
         <AdminEmptyState
           icon={BadgeCheck}
           title="All Venues Verified"
@@ -237,13 +241,13 @@ export default function UnverifiedVenuesPage() {
         />
       )}
 
-      {!isLoading && !error && data?.venues && data.venues.length > 0 && (
+      {!isLoading && !error && venues.length > 0 && (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            {data.total} unverified{' '}
-            {data.total === 1 ? 'venue' : 'venues'} awaiting review
+            {data?.total} unverified{' '}
+            {data?.total === 1 ? 'venue' : 'venues'} awaiting review
           </p>
-          {data.venues.map(venue => (
+          {venues.map(venue => (
             <UnverifiedVenueCard key={venue.id} venue={venue} />
           ))}
         </div>
