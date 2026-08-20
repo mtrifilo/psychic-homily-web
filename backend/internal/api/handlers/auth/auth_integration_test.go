@@ -94,6 +94,43 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 	)
 }
 
+// newAuthHandlerCapturingEmail builds the handler with the REAL jwt + user
+// services (so tokens are genuinely signed and validated) but a capturing email
+// service, which is the only way to observe the verification token that
+// registration puts in the user's inbox. Returns the handler plus a pointer to
+// the captured token.
+func (s *AuthHandlerIntegrationSuite) newAuthHandlerCapturingEmail() (*AuthHandler, *string) {
+	cfg := &config.Config{
+		JWT:     s.cfg.JWT,
+		Session: s.cfg.Session,
+		Email: config.EmailConfig{
+			ResendAPIKey: "re_fake_key_for_testing",
+			FromEmail:    "test@psychichomily.com",
+			FrontendURL:  "http://localhost:3000",
+		},
+	}
+
+	captured := new(string)
+	emailSvc := &testhelpers.MockEmailService{
+		IsConfiguredFn: func() bool { return true },
+		SendVerificationEmailFn: func(_ string, token string) error {
+			*captured = token
+			return nil
+		},
+	}
+
+	h := NewAuthHandler(
+		auth.NewAuthService(s.deps.DB, cfg, s.deps.UserService),
+		auth.NewJWTService(s.deps.DB, cfg, s.deps.UserService),
+		s.deps.UserService,
+		emailSvc,
+		notification.NewDiscordService(cfg),
+		auth.NewPasswordValidator(),
+		cfg,
+	)
+	return h, captured
+}
+
 func (s *AuthHandlerIntegrationSuite) createUserWithPassword(email, password string) *authm.User {
 	user, err := s.deps.UserService.CreateUserWithPassword(email, password, "Test", "User")
 	s.Require().NoError(err)
@@ -376,6 +413,45 @@ func (s *AuthHandlerIntegrationSuite) TestSendVerification_SendFails() {
 	s.Equal(autherrors.CodeServiceUnavailable, authErr.Code)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+}
+
+// TestRegisterThenVerify_RoundTrip is the PSY-1871 acceptance test: signing up
+// must put a working verification link in the inbox, and following that link
+// must flip email_verified in the database (which is what unlocks show
+// submission). It exercises the real JWT service end to end rather than a
+// stubbed token, so a mismatch between what CreateVerificationToken mints and
+// what ValidateVerificationToken accepts would fail here.
+func (s *AuthHandlerIntegrationSuite) TestRegisterThenVerify_RoundTrip() {
+	h, capturedToken := s.newAuthHandlerCapturingEmail()
+
+	input := &RegisterRequest{}
+	input.Body.Email = "roundtrip-v@test.com"
+	input.Body.Password = "strong-password-123!"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
+
+	regResp, err := h.RegisterHandler(context.Background(), input)
+	s.Require().NoError(err)
+	s.Require().True(regResp.Body.Success, regResp.Body.Message)
+	s.Require().NotNil(regResp.Body.User)
+
+	// The account starts unverified, which is what gates submission.
+	s.False(s.reloadUser(regResp.Body.User.ID).EmailVerified)
+
+	// Registration must have sent a verification token.
+	s.Require().NotEmpty(*capturedToken, "signup must send a verification email")
+
+	confirm := &ConfirmVerificationRequest{}
+	confirm.Body.Token = *capturedToken
+
+	confirmResp, err := h.ConfirmVerificationHandler(context.Background(), confirm)
+	s.Require().NoError(err)
+	s.True(confirmResp.Body.Success, confirmResp.Body.Message)
+
+	s.True(s.reloadUser(regResp.Body.User.ID).EmailVerified,
+		"following the emailed link must verify the account")
 }
 
 // --- ConfirmVerificationHandler ---

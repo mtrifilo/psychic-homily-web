@@ -3,15 +3,18 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import * as Sentry from '@sentry/nextjs'
 import {
   Loader2,
   Music,
   AlertCircle,
+  CheckCircle2,
   Mail,
   Settings,
   ArrowRight,
 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { useSendVerificationEmail } from '@/features/auth'
 import {
   Card,
   CardContent,
@@ -23,7 +26,30 @@ import { Button } from '@/components/ui/button'
 import { AIFormFiller, ShowForm } from '@/features/shows'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
+/**
+ * Gate shown to a signed-in but unverified user.
+ *
+ * The resend button is here, at the point of blockage, rather than only in
+ * Settings (PSY-1871). Signup now emails the link, so the common case is "it
+ * expired" or "I never got it", and sending the user two hops away to Settings
+ * to fix that loses most of them.
+ */
 function EmailVerificationRequired() {
+  const sendVerificationEmail = useSendVerificationEmail()
+  const [emailSent, setEmailSent] = useState(false)
+
+  const handleResend = async () => {
+    try {
+      await sendVerificationEmail.mutateAsync()
+      setEmailSent(true)
+    } catch (error) {
+      Sentry.captureException(error, {
+        level: 'error',
+        tags: { service: 'shows_submit', error_type: 'verification_email' },
+      })
+    }
+  }
+
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-lg">
@@ -61,10 +87,50 @@ function EmailVerificationRequired() {
             </ul>
 
             <div className="pt-4 space-y-3">
-              <Button asChild className="w-full gap-2">
+              <p className="text-sm text-muted-foreground">
+                We emailed you a verification link when you signed up. If you
+                cannot find it, or it has expired, send yourself a new one.
+              </p>
+
+              {emailSent && sendVerificationEmail.isSuccess ? (
+                <div className="flex items-center gap-2 text-sm text-success-foreground">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Verification email sent! Check your inbox.</span>
+                </div>
+              ) : (
+                <Button
+                  onClick={handleResend}
+                  disabled={sendVerificationEmail.isPending}
+                  className="w-full gap-2"
+                >
+                  {sendVerificationEmail.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Mail className="h-4 w-4" />
+                  )}
+                  {sendVerificationEmail.isPending
+                    ? 'Sending...'
+                    : 'Send verification email'}
+                </Button>
+              )}
+
+              {sendVerificationEmail.isError && (
+                <div
+                  role="alert"
+                  className="flex items-center gap-2 text-sm text-destructive"
+                >
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>
+                    {sendVerificationEmail.error?.message ||
+                      'Failed to send verification email. Please try again.'}
+                  </span>
+                </div>
+              )}
+
+              <Button asChild variant="outline" className="w-full gap-2">
                 <Link href="/profile?tab=settings">
                   <Settings className="h-4 w-4" />
-                  Go to Settings to Verify Email
+                  Manage email in Settings
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>

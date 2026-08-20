@@ -179,7 +179,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 		return
 	}
 
-	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.Cfg)
+	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.Cfg)
 
 	// Create rate limiter for passkey endpoints: 20 requests per minute per IP
 	// Slightly more lenient than auth due to multi-step WebAuthn flow.
