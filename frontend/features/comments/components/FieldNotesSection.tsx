@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { SignInPrompt } from '@/features/auth/components'
 import { StatusBanner } from '@/components/shared'
 import { hasShowStarted } from '@/lib/utils/showTiming'
 import {
@@ -120,12 +121,12 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
               />
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground mb-6" data-testid="field-note-auth-gate">
-              <a href="/login" className="text-primary hover:underline">
-                Sign in
-              </a>{' '}
+            <SignInPrompt
+              className="text-sm text-muted-foreground mb-6"
+              testId="field-note-auth-gate"
+            >
               to share your experience.
-            </p>
+            </SignInPrompt>
           )}
 
           {/* PSY-513 / PSY-575: pending-review confirmation banner via the
