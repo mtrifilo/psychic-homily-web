@@ -3,6 +3,7 @@ package notification
 import (
 	"fmt"
 	"html"
+	"net/http"
 	"strings"
 	"time"
 
@@ -21,11 +22,24 @@ type EmailService struct {
 	frontendURL string
 }
 
+// sendTimeout bounds every outbound Resend API call.
+//
+// resend.NewClient hands the SDK http.DefaultClient, which has NO timeout, so a
+// hung Resend endpoint blocks the calling goroutine forever. That was survivable
+// while email only went out from low-traffic flows; PSY-1871 puts a send on the
+// signup request path, where an unbounded call would hang every registration.
+// The sends are all best-effort or fail-closed, so timing out is strictly better
+// than blocking.
+const sendTimeout = 15 * time.Second
+
 // NewEmailService creates a new email service instance
 func NewEmailService(cfg *config.Config) *EmailService {
 	var client *resend.Client
 	if cfg.Email.ResendAPIKey != "" {
-		client = resend.NewClient(cfg.Email.ResendAPIKey)
+		client = resend.NewCustomClient(
+			&http.Client{Timeout: sendTimeout},
+			cfg.Email.ResendAPIKey,
+		)
 	}
 
 	return &EmailService{
