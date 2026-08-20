@@ -12,7 +12,9 @@ runs:
         # from the run logs rather than one hypothesis:
         #   1. azure.archive.ubuntu.com serving ~53 kB/s (21.1 MB in 6m38s,
         #      job 95976410062). Removing the azure mirrorlist entry promotes
-        #      the https archive/security entries the image also lists.
+        #      the https archive/security entries the image also lists. The
+        #      removal is PROVISIONAL, not a permanent verdict on the mirror:
+        #      PSY-1881 tracks re-measuring it and reverting if healthy.
         #   2. A silent 3m32s stall on archive.ubuntu.com AFTER apt had
         #      already failed over past azure (job 96001080157). Bounded by
         #      the 20s idle timeout + explicit retries below, and ultimately
@@ -24,16 +26,16 @@ runs:
           if ! grep -q 'azure\.archive\.ubuntu\.com' /etc/apt/apt-mirrors.txt; then
             echo "::warning::azure mirror not present in apt-mirrors.txt; runner image reshaped, revisit PSY-1877"
           fi
-          sudo cp /etc/apt/apt-mirrors.txt /etc/apt/apt-mirrors.txt.bak
+          cp /etc/apt/apt-mirrors.txt "${RUNNER_TEMP:-/tmp}/apt-mirrors.txt.bak"
           sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
           if ! grep -qE '^[[:space:]]*[a-z]+://' /etc/apt/apt-mirrors.txt; then
             echo "::warning::no mirrors left after removing azure; restoring the image default"
-            sudo cp /etc/apt/apt-mirrors.txt.bak /etc/apt/apt-mirrors.txt
+            sudo cp "${RUNNER_TEMP:-/tmp}/apt-mirrors.txt.bak" /etc/apt/apt-mirrors.txt
           fi
-          echo "apt-mirrors.txt after pin:"
+          echo "apt-mirrors.txt after removing azure:"
           cat /etc/apt/apt-mirrors.txt
         else
-          echo "::warning::/etc/apt/apt-mirrors.txt missing; apt mirror not pinned. azure references elsewhere:"
+          echo "::warning::/etc/apt/apt-mirrors.txt missing; azure mirror not removed. azure references elsewhere:"
           grep -rl 'azure\.archive\.ubuntu\.com' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
             || echo "(none found)"
         fi
@@ -42,8 +44,11 @@ runs:
         # Retries are set explicitly rather than relied on: the image's
         # 80-retries file uses the APT:: prefix apt does not read for this
         # key, and apt's own built-in default has moved between releases.
-        # Worst case per item is roughly 20s x 3 retries x surviving
-        # mirrors, which must stay well inside the consumer's install step
-        # timeout in ci.yml; change the two together.
+        # Honest worst case: ONE fully-stalling item costs about
+        # Timeout x (Retries+1) x surviving mirrors = 20 x 4 x 2 = 160s;
+        # the TOTAL across many items is unbounded by design, and cutting
+        # that is exactly what the consumers' step timeouts in ci.yml are
+        # for. Size a consumer's step timeout comfortably above 160s plus
+        # its normal traffic; change these numbers together.
         printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "3";\n' \
           | sudo tee /etc/apt/apt.conf.d/99-fetch-timeout > /dev/null
