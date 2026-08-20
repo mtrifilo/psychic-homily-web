@@ -14,9 +14,11 @@ import (
 // revisions is not the only history table a merge moves. pending_entity_edits
 // is the one the venue READ side actually treats as history — venueEditCounts
 // builds the venue provenance stamp from it, not from entity_edit_audit_logs —
-// and two merge paths re-point it: MergeVenues, and MergeDuplicateShow, which
-// runs from cmd/dedup-shows with no admin in the loop. entity_edit_audit_logs
-// is re-pointed by MergeVenues.
+// and every merge path re-points it: MergeVenues, MergeArtists, and
+// MergeDuplicateShow, which runs from cmd/dedup-shows with no admin in the loop.
+// entity_edit_audit_logs travels with it on all three (PSY-1869 was the last to
+// pick it up; before that a show merge left the audit trail of a contributor's
+// applied edits pointing at a deleted show).
 //
 // Both moved through UPDATEs that answered no provenance question at all. That
 // is the same setup PSY-1716 walked into on revisions: the moment pending-edit

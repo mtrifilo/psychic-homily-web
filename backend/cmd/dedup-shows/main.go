@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
@@ -159,6 +160,29 @@ func printCluster(database *gorm.DB, cluster catalog.ShowDedupCluster) {
 	}
 }
 
+// printEntityRefCounts prints one line per polymorphic reference table, in a
+// stable alphabetical order so two runs of the CLI can be diffed.
+//
+// Tables that matched no rows are printed with their zero. "Audited and empty"
+// and "never looked at" are different answers, and this pass is destructive
+// enough that the reviewer should be able to tell them apart.
+func printEntityRefCounts(s *catalog.ShowDedupSummary) {
+	tables := make([]string, 0, len(s.EntityRefsMoved))
+	for table := range s.EntityRefsMoved {
+		tables = append(tables, table)
+	}
+	sort.Strings(tables)
+
+	if len(tables) == 0 {
+		fmt.Println("  (none; no merge ran)")
+		return
+	}
+	for _, table := range tables {
+		fmt.Printf("  %-22s moved=%d skipped=%d\n",
+			table+":", s.EntityRefsMoved[table], s.EntityRefsDropped[table])
+	}
+}
+
 func printSummary(s *catalog.ShowDedupSummary) {
 	fmt.Println()
 	fmt.Println("=== Summary ===")
@@ -168,20 +192,18 @@ func printSummary(s *catalog.ShowDedupSummary) {
 	fmt.Println("FK repointing:")
 	fmt.Printf("  show_venues:            moved=%d skipped=%d\n", s.ShowVenuesMoved, s.ShowVenuesSkipped)
 	fmt.Printf("  show_artists:           moved=%d skipped=%d\n", s.ShowArtistsMoved, s.ShowArtistsSkipped)
-	fmt.Printf("  show_reports:           moved=%d\n", s.ShowReportsMoved)
+	fmt.Printf("  show_reports:           moved=%d skipped=%d\n", s.ShowReportsMoved, s.ShowReportsSkipped)
 	fmt.Printf("  enrichment_queue:       moved=%d\n", s.EnrichmentMoved)
 	fmt.Printf("  duplicate_of_show_id:   repointed=%d\n", s.DuplicateOfRepoint)
-	fmt.Println("Polymorphic refs:")
-	fmt.Printf("  comments:               moved=%d\n", s.CommentsRepointed)
-	fmt.Printf("  comment_subscriptions:  moved=%d skipped=%d\n", s.SubsRepointed, s.SubsSkipped)
-	fmt.Printf("  entity_tags:            moved=%d skipped=%d\n", s.EntityTagsMoved, s.EntityTagsSkipped)
-	fmt.Printf("  entity_reports:         moved=%d\n", s.EntityReportsMoved)
+	fmt.Println("Edit history:")
 	fmt.Printf("  pending_entity_edits:   moved=%d skipped=%d\n", s.PendingEditsMoved, s.PendingEditsSkipped)
+	fmt.Printf("  entity_edit_audit_logs: moved=%d skipped=%d\n", s.EditAuditLogsMoved, s.EditAuditLogsSkipped)
 	fmt.Printf("  revisions:              moved=%d\n", s.RevisionsMoved)
-	fmt.Printf("  requests:               moved=%d\n", s.RequestsMoved)
-	fmt.Printf("  audit_logs:             moved=%d\n", s.AuditLogsMoved)
-	fmt.Printf("  collection_items:       moved=%d skipped=%d\n", s.CollectionsMoved, s.CollectionsSkipped)
-	fmt.Printf("  user_bookmarks:         moved=%d skipped=%d\n", s.BookmarksMoved, s.BookmarksSkipped)
+	// Printed from the shared inventory rather than from a line per table, so a
+	// migration that adds a reference table reports itself here instead of
+	// silently moving rows this summary never mentions.
+	fmt.Println("Polymorphic refs:")
+	printEntityRefCounts(s)
 	fmt.Println()
 	fmt.Printf("Slugs recanonicalised:    %d\n", s.SlugsRewritten)
 	fmt.Println()

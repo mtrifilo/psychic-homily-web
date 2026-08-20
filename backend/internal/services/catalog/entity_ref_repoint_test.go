@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -123,6 +124,54 @@ func TestOnlyThePartiallyIndexedRefCarriesADedupeScope(t *testing.T) {
 				t.Errorf("%s declares dedupeWhen %q but its unique index is not partial",
 					ref.table, ref.dedupeWhen)
 			}
+		}
+	}
+}
+
+// The drift guards are the whole point of the inventory, and until this test
+// they had only ever been watched to PASS. Three suites assert the schema is
+// covered, and all three would keep passing if the predicate underneath them
+// were inverted or emptied.
+//
+// So the predicate is exercised directly, against an inventory deliberately
+// missing a table: it must name that table and no other.
+func TestUnhandledEntityRefTablesNamesTheGap(t *testing.T) {
+	schema := []string{"audit_logs", "comments", "revisions", "user_bookmarks"}
+
+	covered := entityRefTables()
+	if got := unhandledEntityRefTables(schema, covered); len(got) != 0 {
+		t.Fatalf("the real inventory covers this schema; unhandled = %v", got)
+	}
+
+	// A migration adds a table and nobody dispositions it.
+	if got := unhandledEntityRefTables(append(schema, "show_setlists"), covered); len(got) != 1 ||
+		got[0] != "show_setlists" {
+		t.Errorf("unhandledEntityRefTables = %v, want exactly [show_setlists]", got)
+	}
+
+	// And the shape the guards actually protect against: a table dropped out of
+	// the inventory while the schema still has it.
+	delete(covered, "comments")
+	if got := unhandledEntityRefTables(schema, covered); len(got) != 1 || got[0] != "comments" {
+		t.Errorf("unhandledEntityRefTables = %v, want exactly [comments] after dropping it "+
+			"from the inventory", got)
+	}
+}
+
+// The show merge's foreign-key inventory is a plain list of strings, so nothing
+// but this stops a duplicate or a bare table name from being added to it. Both
+// would weaken TestShowForeignKeysAreAllHandled without failing it: ElementsMatch
+// compares multisets, so a duplicate entry silently demands a duplicate
+// constraint that information_schema will never report.
+func TestShowFKColumnsAreWellFormed(t *testing.T) {
+	seen := map[string]bool{}
+	for _, col := range showFKColumns {
+		if seen[col] {
+			t.Errorf("showFKColumns lists %q twice", col)
+		}
+		seen[col] = true
+		if strings.Count(col, ".") != 1 || strings.HasPrefix(col, ".") || strings.HasSuffix(col, ".") {
+			t.Errorf("showFKColumns entry %q is not spelled table.column", col)
 		}
 	}
 }
