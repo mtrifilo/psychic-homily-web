@@ -472,11 +472,12 @@ jobs:
     runs-on: ubuntu-latest
     # Outer safety net only; the step-level timeouts below name the phase that
     # dies. Arithmetic, kept explicit because the cap must exceed the SUM of
-    # the step budgets plus setup or the job cap fires first and un-names the
-    # phase: bounded steps 10+4+4+5 = 23, plus setup (checkout/go/bun/install/
-    # cache — observed at 5+ minutes under runner contention, PSY-1862) and
-    # the cache-save tail. 30 leaves ~7 minutes of slack over the step sum.
-    timeout-minutes: 30
+    # the step budgets PLUS setup or the job cap fires first and un-names the
+    # phase: bounded steps 10+4+4+5 = 23, setup ~5 (checkout/go/bun/install/
+    # cache — observed at 5+ under runner contention, PSY-1862, and UNBOUNDED
+    # by step caps), cache-save tail ~2. 35 = 23 + 5 + 2 + ~5 slack over the
+    # TOTAL. Re-derive this before raising any step budget.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -557,9 +558,10 @@ jobs:
           PLAYWRIGHT_HTML_OPEN: never
 
       - name: Upload Playwright HTML report (on failure)
-        # cancelled() included: a job-cap kill must not silently drop the
-        # triage artifact for a red PR.
-        if: ${{ failure() || cancelled() }}
+        # !success(): true on failure AND on a job-cap kill, without betting
+        # on step-scoped vs run-scoped cancelled() semantics, and it still
+        # skips on green. The triage artifact must survive a job-cap kill.
+        if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-smoke
@@ -573,15 +575,19 @@ jobs:
     # Push-to-main runs unwatched; without a job cap a stalled step pinned
     # shards for the full 6h default (observed three times on 2026-08-19).
     # Outer net of last resort: every stall-prone step below carries its own
-    # timeout so failures are named at the step. Arithmetic: bounded steps
-    # 10+4+4+20 = 38, plus ~5 minutes of setup; 45 keeps ~7 minutes of slack
-    # so a step cap always fires first.
-    timeout-minutes: 45
+    # timeout so failures are named at the step. Arithmetic against the
+    # TOTAL, not just the step sum: bounded steps 10+4+4+20 = 38, setup ~5
+    # (unbounded by step caps), cache-save tail ~2. 55 = 38 + 5 + 2 + ~10
+    # slack, so a step cap fires first even under the runner contention that
+    # inflates setup. Re-derive this before raising any step budget.
+    timeout-minutes: 55
     # PSY-418: split the full E2E suite across 4 parallel shards. Each shard
     # spins its own Docker stack + backend (via global-setup.ts) on an
     # isolated runner, so there's no cross-shard port / DB contention.
     # Shard count chosen from the PSY-417 baseline (93s test phase,
     # 372s cumulative test-time) — 4 shards roughly quarters the test phase.
+    # Changing the shard count also requires updating the blob-count assert
+    # in e2e-report ("Require a blob from every shard").
     strategy:
       fail-fast: false
       matrix:
@@ -677,7 +683,9 @@ jobs:
     needs: [e2e-tests]
     runs-on: ubuntu-latest
     # Every step here is network-bound; without a cap this job carries the
-    # same 6h-hang exposure the shard caps above just closed.
+    # same 6h-hang exposure the shard caps above just closed. Step-level
+    # naming is deliberately skipped here (unlike the e2e jobs): the job is
+    # short and single-purpose, so the job cap is attribution enough.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -695,18 +703,6 @@ jobs:
           pattern: blob-report-*
           merge-multiple: true
 
-      # A shard killed mid-run writes no blob at all (the blob reporter only
-      # writes at end-of-run), and merge-reports would silently publish a
-      # complete-looking report over the missing shard. Fail here instead so
-      # the gap is named and notify-main-failure fires.
-      - name: Require a blob from every shard
-        run: |
-          count=$(find all-blob-reports -name '*.zip' | wc -l)
-          if [ "$count" -ne 4 ]; then
-            echo "::error::expected 4 shard blobs, found $count; a shard died before writing its report"
-            exit 1
-          fi
-
       - name: Merge into HTML report
         working-directory: ./frontend
         run: bunx playwright merge-reports --reporter html ../all-blob-reports
@@ -717,6 +713,23 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
+
+      # A shard killed mid-run writes no blob at all (the blob reporter only
+      # writes at end-of-run), and merge-reports silently publishes a
+      # complete-looking report over the missing shard. This assert runs
+      # AFTER the merge and upload on purpose: the (partial) report for the
+      # surviving shards is the only per-test output CI produces, so it must
+      # publish first; then the job goes red here, the gap is named, and
+      # notify-main-failure fires.
+      # Keep the expected count in sync with strategy.matrix.shardTotal in
+      # e2e-tests (currently 4).
+      - name: Require a blob from every shard
+        run: |
+          count=$(find all-blob-reports -name '*.zip' | wc -l)
+          if [ "$count" -ne 4 ]; then
+            echo "::error::expected 4 shard blobs, found $count; either a shard died before writing its report, or the shard count changed without updating this guard"
+            exit 1
+          fi
 
   # PSY-411: post-merge CI failures on `main` used to silently go
   # unnoticed — the 000071 duplicate-migration collision lived on main
@@ -733,11 +746,13 @@ jobs:
     # `!cancelled()` (not `always()`): still runs when upstream `needs:`
     # failed — the whole point — but a human cancelling the RUN no longer
     # files a spurious issue. A job killed by its own `timeout-minutes` does
-    # NOT set the run-level cancelled() flag, so timeout-cancelled e2e jobs
-    # still page via the `!= 'success'` clauses (which also sidestep any
-    # assumption about how a 4-leg matrix aggregates one cancelled shard —
-    # both e2e jobs run unconditionally on main pushes, so 'skipped' is not
-    # a reachable false positive here). Scoped to main-branch push events.
+    # NOT set the RUN-level cancelled() flag this job-level `if:` reads, so
+    # timeout-cancelled e2e jobs still page via the `!= 'success'` clauses
+    # (which also sidestep any assumption about how a 4-leg matrix
+    # aggregates one cancelled shard). 'skipped' is not a reachable false
+    # positive: e2e-tests has no needs and shares this job's push+main gate,
+    # and e2e-report skips only under the same `!cancelled()` guard this
+    # job carries, so the two skip together. Scoped to main-branch pushes.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.api-types-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.frontend-lint.result == 'failure' || needs.e2e-tests.result != 'success' || needs.e2e-report.result != 'success') }}
     needs:
       - migration-lint
