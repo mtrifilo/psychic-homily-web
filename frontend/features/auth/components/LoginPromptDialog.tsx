@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { buildAuthHref } from '@/lib/auth-href'
 
 interface LoginPromptDialogProps {
   open: boolean
@@ -26,7 +27,7 @@ export function LoginPromptDialog({
   description = 'You need to be signed in to perform this action.',
   returnTo = '/',
 }: LoginPromptDialogProps) {
-  const encodedReturnTo = encodeURIComponent(returnTo)
+  const authHref = buildAuthHref(returnTo)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -38,14 +39,14 @@ export function LoginPromptDialog({
 
         <div className="flex flex-col gap-3 pt-4">
           <Button asChild>
-            <Link href={`/auth?returnTo=${encodedReturnTo}`}>
+            <Link href={authHref}>
               <LogIn className="h-4 w-4 mr-2" />
               Sign in
             </Link>
           </Button>
 
           <Button variant="outline" asChild>
-            <Link href={`/auth?returnTo=${encodedReturnTo}#signup`}>
+            <Link href={`${authHref}#signup`}>
               <UserPlus className="h-4 w-4 mr-2" />
               Create account
             </Link>

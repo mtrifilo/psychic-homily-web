@@ -15,3 +15,10 @@ export function commentAnchorId(commentId: number): string {
 
 /** DOM id of the whole comments section — the deep-link fallback target. */
 export const COMMENTS_SECTION_ANCHOR = 'comments'
+
+/**
+ * DOM id of the field notes section. Unlike the comments anchor this is not a
+ * notification target; it exists so the logged-out sign-in prompt can send a
+ * reader back to the notes rather than the top of a long show page.
+ */
+export const FIELD_NOTES_SECTION_ANCHOR = 'field-notes'

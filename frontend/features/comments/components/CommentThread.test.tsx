@@ -36,6 +36,12 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockUseAuthContext(),
 }))
 
+// PSY-1870: the logged-out prompt builds its returnTo from the current
+// pathname, so the navigation hook needs a value outside a router context.
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/shows/test-show',
+}))
+
 // PSY-1512: the deep-link hook owns hash parsing + resolution queries; mock
 // it so CommentThread tests don't need a QueryClientProvider. Its own logic
 // is covered in hooks/useCommentDeepLink.test.tsx.
@@ -98,7 +104,12 @@ describe('CommentThread', () => {
     render(<CommentThread {...defaultProps} />)
 
     expect(screen.getByTestId('auth-gate')).toBeInTheDocument()
-    expect(screen.getByText('Sign in')).toBeInTheDocument()
+    // PSY-1870: must point at the real auth route. `/login` does not exist
+    // and 404d, dead-ending signup from every show page.
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/auth?returnTo=%2Fshows%2Ftest-show%23comments'
+    )
   })
 
   it('renders comment form for authenticated users', () => {

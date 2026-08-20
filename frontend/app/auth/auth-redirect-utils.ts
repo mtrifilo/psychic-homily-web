@@ -1,3 +1,10 @@
+/**
+ * Reads `returnTo` back out of the auth page's URL and decides whether to
+ * trust it. The other half of the contract, which builds those links, is
+ * `buildAuthHref` in `lib/auth-href.ts` — change one and check the other.
+ * `lib/auth-href.test.ts` pins the round trip between them.
+ */
+
 const FALLBACK_RETURN_TO = '/'
 const BASE_ORIGIN = 'https://psychichomily.com'
 
