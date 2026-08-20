@@ -53,15 +53,25 @@ import {
 import {
   LINK_SUGGESTIONS_DEFAULT_LIMIT,
   type LinkSuggestionEntry,
+  type LinkSuggestionPlatform,
 } from './types'
 
 // ──────────────────────────────────────────────
 // Platform label — small visual marker per row
 // ──────────────────────────────────────────────
 
-const PLATFORM_LABEL: Record<LinkSuggestionEntry['platform'], string> = {
+// `platform` is typed `string` by the generated schema (the OpenAPI document
+// does not enumerate the enum), so this is keyed by the documented value
+// domain and read through a fallback — an unrecognised platform must degrade
+// to its raw wire value, not render the literal string "undefined" at the
+// admin. Same treatment as the status lookups on the sibling admin surfaces.
+const PLATFORM_LABEL: Record<LinkSuggestionPlatform, string> = {
   bandcamp: 'Bandcamp',
   spotify: 'Spotify',
+}
+
+function platformLabel(platform: LinkSuggestionEntry['platform']): string {
+  return PLATFORM_LABEL[platform as LinkSuggestionPlatform] ?? platform
 }
 
 // ──────────────────────────────────────────────
@@ -75,7 +85,7 @@ function successMessage(
   verdict: LinkSuggestionVerdict
 ): string {
   if (verdict === 'reject') {
-    return `Rejected ${PLATFORM_LABEL[entry.platform]} suggestion for ${entry.artist_name}.`
+    return `Rejected ${platformLabel(entry.platform)} suggestion for ${entry.artist_name}.`
   }
   if (entry.platform === 'spotify') {
     return `Linked Spotify for ${entry.artist_name} — the embed renders on the artist page now.`
@@ -180,7 +190,7 @@ function SuggestionRow({ entry, onReviewSuccess }: SuggestionRowProps) {
               <span className="truncate">{entry.artist_name}</span>
             </Link>
             <span className="text-xs text-muted-foreground">
-              {PLATFORM_LABEL[entry.platform]}
+              {platformLabel(entry.platform)}
             </span>
             {isHigh ? (
               <Badge variant="accent">High confidence</Badge>

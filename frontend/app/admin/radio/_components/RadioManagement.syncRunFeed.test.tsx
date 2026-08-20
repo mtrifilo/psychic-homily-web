@@ -21,6 +21,10 @@ const station: RadioStationListItem = {
   logo_url: null,
   is_active: true,
   show_count: 0,
+  network_id: null,
+  network_slug: null,
+  network: null,
+  sibling_stations: null,
 }
 
 function makeRun(overrides: Partial<RadioSyncRun> = {}): RadioSyncRun {
@@ -142,6 +146,33 @@ describe('Sync-run feed (PSY-1130)', () => {
     fireEvent.click(screen.getByRole('button', { name: /fetch_failed/i }))
     // Station detail renders the per-station feed.
     expect(screen.getByText('Recent sync runs')).toBeInTheDocument()
+  })
+
+  // Global rematch runs have no station scope, so `station_id` / `station_name`
+  // are absent. Such a row must not render a blank label or a button whose
+  // click cannot resolve a station.
+  it('global failure row for a station-less (rematch) run is labelled and not clickable', () => {
+    recentFailures = {
+      runs: [
+        makeRun({
+          id: 13,
+          status: 'failed',
+          station_id: undefined,
+          station_name: undefined,
+          run_type: 'rematch',
+          errors: [{ category: 'rematch_failed' }],
+        }),
+      ],
+      isLoading: false,
+      isError: false,
+    }
+    renderMgmt()
+
+    // The row is labelled rather than blank...
+    expect(screen.getByText('All stations')).toBeInTheDocument()
+    expect(screen.getByText(/rematch_failed/)).toBeInTheDocument()
+    // ...and it is not offered as a clickable affordance that would do nothing.
+    expect(screen.queryByRole('button', { name: /rematch_failed/i })).toBeNull()
   })
 
   it('per-station feed: empty state when the station has no runs', () => {

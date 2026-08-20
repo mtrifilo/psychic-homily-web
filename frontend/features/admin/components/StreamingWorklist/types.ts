@@ -1,11 +1,19 @@
 /**
  * Wire-shape types for the admin streaming-discovery worklist endpoints.
- * Mirrors `backend/internal/api/handlers/pipeline/streaming_worklist.go`
- * and `backend/internal/services/contracts/pipeline.go`.
+ * Generated, not hand-written — regenerate with `bun run api:types`.
  *
  * The list endpoint surfaces ONLY non-terminal statuses (`unreviewed`,
  * `candidates_pending`). Terminal statuses exist as valid TARGETS for
  * the status-mutation endpoint — see `STATUS_TRANSITION_TARGETS`.
+ */
+import type { components } from '@/types/api'
+
+/**
+ * The status value domain. A DOCUMENTATION type, not a wire type: the
+ * OpenAPI document types `streaming_discovery_status` as a plain string
+ * (Huma does not emit an enum for it), so the generated shapes carry
+ * `string`. Consumers that key a lookup off the status must therefore
+ * tolerate an unrecognised value rather than assume exhaustiveness.
  */
 export type StreamingDiscoveryStatus =
   | 'unreviewed'
@@ -30,52 +38,51 @@ export const STREAMING_WORKLIST_STATUS_FILTER_OPTIONS: ReadonlyArray<{
 ] as const
 
 /**
- * Mirror of `contracts.StreamingWorklistEntry`. Soonest event date is an
- * ISO timestamp string after JSON serialisation. Venue name + city are
- * nullable because the LATERAL subquery may surface a show that lacks
- * those fields (rare; usually a data-quality nit).
+ * One worklist row. Soonest event date is an ISO timestamp string after
+ * JSON serialisation. Venue name + city are optional because the LATERAL
+ * subquery may surface a show that lacks those fields (rare; usually a
+ * data-quality nit).
  */
-export interface StreamingWorklistEntry {
-  artist_id: number
-  artist_name: string
-  artist_slug?: string | null
-  streaming_discovery_status: StreamingDiscoveryStatus
-  soonest_event_date: string
-  venue_name?: string | null
-  venue_city?: string | null
-  upcoming_show_count: number
-}
-
-export interface StreamingWorklistResult {
-  entries: StreamingWorklistEntry[]
-  total: number
-}
+export type StreamingWorklistEntry = components['schemas']['StreamingWorklistEntry']
 
 /**
- * Input shape for the status mutation. `reason` is only persisted for
- * `no_links_found` and `skipped`; the backend service clears it on
- * re-open to `unreviewed`.
+ * Paginated worklist response. `entries` is nullable on the wire — the Go
+ * field is `[]StreamingWorklistEntry` with no `omitempty`, so a nil slice
+ * marshals to `null`, not `[]`. Consumers must guard.
+ */
+export type StreamingWorklistResult = components['schemas']['StreamingWorklistResult']
+
+/**
+ * Input to the status-mutation hook. NOT a wire shape: it bundles the
+ * `artist_id` PATH parameter with the request-body fields, which the hook
+ * splits back apart.
+ *
+ * `status` is deliberately NARROWER than the generated request body, which
+ * types it as a plain `string`. The endpoint accepts only the four values
+ * below — `candidates_pending` is engine-set and rejected here — and this is
+ * a value the CLIENT chooses, so there is no wire shape to be faithful to and
+ * every reason to stop a bad status at compile time.
+ *
+ * `reason` is only persisted for `no_links_found` and `skipped`; the
+ * backend service clears it on re-open to `unreviewed`. `null` is accepted
+ * here (and sent) as the explicit "clear it" signal — the wire field is
+ * `omitempty`, so the generated type has no `null` in it.
  */
 export interface UpdateStreamingDiscoveryStatusInput {
+  /** Path parameter, NOT part of the request body. */
   artist_id: number
-  status: StreamingDiscoveryStatus
+  status: StreamingWorklistAction | 'unreviewed'
   reason?: string | null
 }
 
 /**
- * Backend response after a successful status mutation. Huma's
- * response struct has a `Body` field but the framework serializes that
- * field's value AS the HTTP body — there is no `{body: ...}` envelope
- * on the wire. This type mirrors what the client receives directly.
+ * Backend response after a successful status mutation. Huma's response
+ * struct has a `Body` field but the framework serializes that field's
+ * value AS the HTTP body — there is no `{body: ...}` envelope on the
+ * wire, which is why this aliases the body schema directly.
  */
-export interface UpdateStreamingDiscoveryStatusResponseBody {
-  id: number
-  name: string
-  slug?: string | null
-  streaming_discovery_status: StreamingDiscoveryStatus
-  streaming_discovery_reason?: string | null
-  updated_at: string
-}
+export type UpdateStreamingDiscoveryStatusResponseBody =
+  components['schemas']['StreamingDiscoveryArtistResponse']
 
 /**
  * Targets surfaced as buttons on each worklist row. Engine seam: the

@@ -18,7 +18,9 @@ function makeHealth(overrides: Partial<RadioStationHealth> = {}): RadioStationHe
     last_run_at: '2026-06-23T05:00:00Z',
     consecutive_failures: 0,
     breaker_state: 'closed',
-    breaker_tripped_at: null,
+    // Optional health fields map to Go pointers with `omitempty`: an unset
+    // value is OMITTED from the JSON, never `null`. Overrides below use
+    // `undefined` for the same reason.
     recent_success_rate: 0.95,
     play_match_rate: 0.8,
     zero_play_episode_rate: 0.05,
@@ -29,7 +31,7 @@ function makeHealth(overrides: Partial<RadioStationHealth> = {}): RadioStationHe
 
 describe('deriveStationHealthLevel (PSY-1200)', () => {
   it('is unknown for a station that has never run', () => {
-    expect(deriveStationHealthLevel(makeHealth({ last_run_at: null }))).toBe('unknown')
+    expect(deriveStationHealthLevel(makeHealth({ last_run_at: undefined }))).toBe('unknown')
   })
 
   it('is healthy with recent success, good rates, no failures', () => {
@@ -73,9 +75,9 @@ describe('deriveStationHealthLevel (PSY-1200)', () => {
     expect(
       deriveStationHealthLevel(
         makeHealth({
-          recent_success_rate: null,
-          play_match_rate: null,
-          zero_play_episode_rate: null,
+          recent_success_rate: undefined,
+          play_match_rate: undefined,
+          zero_play_episode_rate: undefined,
         })
       )
     ).toBe('healthy')
@@ -96,6 +98,10 @@ const station: RadioStationListItem = {
   logo_url: null,
   is_active: true,
   show_count: 0,
+  network_id: null,
+  network_slug: null,
+  network: null,
+  sibling_stations: null,
 }
 
 let singleHealth: RadioStationHealth = makeHealth()
@@ -154,7 +160,7 @@ describe('Station health UI (PSY-1200)', () => {
   })
 
   it('renders a nil rate as an em-dash, not 0%', () => {
-    singleHealth = makeHealth({ play_match_rate: null })
+    singleHealth = makeHealth({ play_match_rate: undefined })
     renderMgmt()
     fireEvent.click(screen.getByRole('button', { name: /Station: WFMU/i }))
     expect(screen.getByText('—')).toBeInTheDocument()
