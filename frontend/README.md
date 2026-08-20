@@ -34,6 +34,25 @@ The frontend for [psychichomily.com](https://psychichomily.com) - a platform for
    Required variables:
    - `ANTHROPIC_API_KEY` - API key for Claude AI features
 
+   Backend-origin variables (all optional locally; the defaults assume a
+   backend on `http://localhost:8080`):
+
+   | Variable | What reads it |
+   |----------|---------------|
+   | `BACKEND_URL` | The `/api` catch-all proxy (`app/api/[...path]/route.ts`) — where it forwards to |
+   | `NEXT_PUBLIC_API_URL` | The **data** base (`lib/api-base.ts`). Unset in the browser during development means the same-origin `/api` proxy, which is what lets the SameSite=Lax `auth_token` cookie ride along |
+   | `NEXT_PUBLIC_OAUTH_BACKEND_URL` | The **OAuth** base (`lib/api-base.ts`). The Google button is a full-page redirect to the backend's `/auth/login/google`, and that redirect does not survive the proxy — so it needs the backend's own origin. Defaults to `NEXT_PUBLIC_API_URL`, then to `http://localhost:8080` |
+
+   Set `NEXT_PUBLIC_OAUTH_BACKEND_URL` only when the data base is *not* the
+   backend origin — most commonly a backend on a non-default port, where
+   `NEXT_PUBLIC_API_URL` points at the proxy. Running the E2E suite that way
+   needs no extra configuration; `playwright.config.ts` derives it from
+   `BACKEND_URL`:
+
+   ```bash
+   BACKEND_URL=http://localhost:8099 bun run test:e2e
+   ```
+
 3. Run the development server:
    ```bash
    bun dev

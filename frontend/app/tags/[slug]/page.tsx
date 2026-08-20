@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react'
 import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import type { TagEnrichedDetailResponse } from '@/features/tags/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
+import { API_BASE_URL } from '@/lib/api-base'
 
 // Imported from the component FILE, never a `@/features/tags` barrel — see the
 // note in features/tags/components/index.ts for why the barrel would undo this.
@@ -19,12 +20,6 @@ const TagDetail = dynamic(
     })),
   { ssr: true },
 )
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
 
 interface TagPageProps {
   params: Promise<{ slug: string }>
