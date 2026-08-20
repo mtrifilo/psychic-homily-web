@@ -16,9 +16,10 @@ import (
 // builds the venue provenance stamp from it, not from entity_edit_audit_logs —
 // and every merge path re-points it: MergeVenues, MergeArtists, and
 // MergeDuplicateShow, which runs from cmd/dedup-shows with no admin in the loop.
-// entity_edit_audit_logs travels with it on all three (PSY-1869 was the last to
-// pick it up; before that a show merge left the audit trail of a contributor's
-// applied edits pointing at a deleted show).
+// entity_edit_audit_logs travels with it on all three. PSY-1869 was the last to
+// pick it up, and picked it up before it was needed rather than after: no writer
+// records entity_type='show' there today, so a show merge has orphaned nothing,
+// but nothing in the schema keeps it that way.
 //
 // Both moved through UPDATEs that answered no provenance question at all. That
 // is the same setup PSY-1716 walked into on revisions: the moment pending-edit

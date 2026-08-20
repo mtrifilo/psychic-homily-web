@@ -264,6 +264,7 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_MovesEveryInventoriedReferen
 	seeded := map[string]bool{}
 	for _, ref := range polymorphicEntityRefs {
 		if refsThatCannotHoldAShow[ref.table] {
+			s.assertCheckForbidsShow(ref.table)
 			continue
 		}
 		s.seedShowRefRow(ref.table, loser, f)
@@ -296,6 +297,35 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_MovesEveryInventoriedReferen
 	s.Equal(int64(1), summary.EditAuditLogsMoved,
 		"entity_edit_audit_logs was never re-pointed by a show merge before PSY-1869")
 	s.Equal(int64(1), summary.RevisionsMoved)
+}
+
+// assertCheckForbidsShow re-earns the sweep's permission to skip a table.
+//
+// refsThatCannotHoldAShow is a claim about a CHECK constraint, and a migration
+// that relaxed one would leave the sweep silently skipping a table that CAN now
+// hold a show, which is the exact silent narrowing these guards exist to
+// prevent. So the claim is verified against the live constraint rather than
+// trusted.
+func (s *ShowDedupTestSuite) assertCheckForbidsShow(table string) {
+	var clauses []string
+	s.Require().NoError(s.db.Raw(`
+		SELECT pg_get_constraintdef(con.oid)
+		FROM pg_constraint con
+		JOIN pg_class rel ON rel.oid = con.conrelid
+		JOIN pg_namespace n ON n.oid = rel.relnamespace
+		WHERE n.nspname = 'public' AND con.contype = 'c' AND rel.relname = ?
+		  AND pg_get_constraintdef(con.oid) LIKE '%entity_type%'
+	`, table).Scan(&clauses).Error)
+	s.Require().NotEmptyf(clauses,
+		"%s is listed in refsThatCannotHoldAShow but has no CHECK on entity_type at all, "+
+			"so the sweep is skipping a table it should be seeding", table)
+
+	for _, clause := range clauses {
+		s.NotContainsf(clause, "'show'",
+			"%s's entity_type CHECK now admits 'show': %s. Remove it from "+
+				"refsThatCannotHoldAShow and add a seed case, or the sweep skips a table the "+
+				"merge really has to move.", table, clause)
+	}
 }
 
 // assertShowRefMoved checks one table both ways: nothing is left pointing at the
@@ -493,5 +523,83 @@ func TestShowDedupSummaryAddIgnoresNil(t *testing.T) {
 	total.Add(nil)
 	if total.LosersMerged != 2 {
 		t.Errorf("LosersMerged = %d, want 2", total.LosersMerged)
+	}
+}
+
+// A merge whose loser is already gone used to return success: every re-point
+// matched zero rows, GORM reports no error for a delete that matches nothing,
+// and LosersMerged was incremented anyway. The CLI then printed a merge that
+// never happened, in the one report anyone has of a destructive pass.
+func (s *ShowDedupTestSuite) TestMergeDuplicateShow_RejectsAVanishedLoser() {
+	a := s.seedArtist("Vanished")
+	v := s.seedVenue("Vanished Hall", "Phoenix", "AZ")
+	eventDate := time.Date(2026, 12, 1, 3, 0, 0, 0, time.UTC)
+	winner := s.seedShow("VW", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	loser := s.seedShow("VL", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+
+	s.Require().NoError(s.db.Exec(`DELETE FROM show_artists WHERE show_id = ?`, loser).Error)
+	s.Require().NoError(s.db.Exec(`DELETE FROM show_venues WHERE show_id = ?`, loser).Error)
+	s.Require().NoError(s.db.Exec(`DELETE FROM shows WHERE id = ?`, loser).Error)
+
+	summary := &ShowDedupSummary{}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner, loser, summary)
+	})
+	s.Require().Error(err, "merging a show that no longer exists must fail, not report success")
+	s.Contains(err.Error(), "no longer exists")
+	s.Zero(summary.LosersMerged, "a merge that did not happen must not be counted")
+}
+
+// ──────────────────────────────────────────────
+// moveShowFKRows' own guards (no database)
+// ──────────────────────────────────────────────
+
+// The re-point is refused for a column with no recorded disposition, which is
+// what makes showFKColumns load-bearing rather than documentary. It is also the
+// SQL-injection fence: the table and column are interpolated into the statement,
+// and this pins them to a package-level list rather than to "every call site
+// happens to pass a literal today".
+func TestMoveShowFKRowsRejectsAnUndispositionedColumn(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		table, showCol string
+		dedupeOn       string
+	}{
+		{"unlisted table", "shows_backup", "show_id", "venue_id"},
+		{"listed table, wrong column", "show_venues", "id", "venue_id"},
+		{"injection attempt", "show_venues; DROP TABLE shows --", "show_id", "venue_id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := moveShowFKRows(unusableTx(), tc.table, tc.showCol, tc.dedupeOn, 1, 2)
+			if err == nil {
+				t.Fatalf("%s.%s must be refused: it has no disposition in showFKColumns",
+					tc.table, tc.showCol)
+			}
+		})
+	}
+
+	// And the fence must not be so tight that the real call sites cannot pass it.
+	// Checked against the predicate rather than through moveShowFKRows, because
+	// an accepted column goes on to execute and a zero *gorm.DB panics there.
+	for _, table := range []string{"show_venues", "show_artists", "show_reports"} {
+		if !showFKColumnListed(table + ".show_id") {
+			t.Errorf("%s.show_id is a real call site in MergeDuplicateShow and must be listed "+
+				"in showFKColumns, or every merge fails", table)
+		}
+	}
+}
+
+// The self-merge and zero-id rejections matter for the same reason they do on
+// the shared helpers: the delete correlates rows against their own table, so a
+// self-merge would drop the surviving show's rows before a no-op move.
+func TestMoveShowFKRowsRejectsSelfMergeAndZeroIDs(t *testing.T) {
+	if _, _, err := moveShowFKRows(unusableTx(), "show_venues", "show_id", "venue_id", 7, 7); err == nil {
+		t.Error("a self-merge would delete the surviving show's own rows")
+	}
+	if _, _, err := moveShowFKRows(unusableTx(), "show_venues", "show_id", "venue_id", 0, 2); err == nil {
+		t.Error("a zero winner id must be rejected")
+	}
+	if _, _, err := moveShowFKRows(unusableTx(), "show_venues", "show_id", "venue_id", 1, 0); err == nil {
+		t.Error("a zero loser id must be rejected")
 	}
 }

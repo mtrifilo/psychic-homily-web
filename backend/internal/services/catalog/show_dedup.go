@@ -21,8 +21,8 @@ import (
 // seven of the seventeen polymorphic entity_type tables unhandled.
 //
 // A show reference comes in the same three shapes the artist merge names, and
-// each has a list plus a drift guard in show_dedup_test.go that fails in CI the
-// moment a migration adds something this merge does not handle:
+// each has a list plus a drift guard in show_dedup_refs_test.go that fails in CI
+// the moment a migration adds something this merge does not handle:
 //
 //   - polymorphic (entity_type, entity_id): polymorphicEntityRefs in
 //     entity_ref_repoint.go, shared with the venue and artist merges because a
@@ -90,6 +90,17 @@ var showFKColumns = []string{
 	"show_reports.show_id",
 	"show_venues.show_id",
 	"shows.duplicate_of_show_id",
+}
+
+// showFKColumnListed reports whether "table.column" carries a recorded
+// disposition in showFKColumns.
+func showFKColumnListed(qualified string) bool {
+	for _, col := range showFKColumns {
+		if col == qualified {
+			return true
+		}
+	}
+	return false
 }
 
 // showUnconstrainedIDColumns is the third class of show reference: a column
@@ -439,11 +450,18 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	// on the facts: idx_pending_entity_edits_unique is UNIQUE on
 	// (entity_type, entity_id, submitted_by) WHERE status = 'pending', so one
 	// contributor with a pending edit on both shows aborted the whole dedup
-	// transaction. entity_edit_audit_logs was not re-pointed at all until
-	// PSY-1869, leaving the audit trail of a contributor's applied edits pointing
-	// at a show id deleted in the same transaction. Both tables move on the venue
-	// and artist merges, and the read paths that make the decision safe are not
-	// show-specific, so there was never a reason for this merge to differ.
+	// transaction.
+	//
+	// entity_edit_audit_logs was not re-pointed at all until PSY-1869. That has
+	// orphaned nothing YET, and the reason is worth writing down rather than
+	// discovering later: no writer records entity_type='show' there today
+	// (LogEntityEdit is called for artist, label, release, festival and scene,
+	// and the show update path does not call it). Nothing in the schema says so
+	// though. There is no CHECK, the table is in the shared inventory, and the
+	// day a show edit route logs one, the merge that would have orphaned it is
+	// the last place anyone would think to look. It moves for the same reason the
+	// CHECK-forbidden tables are still walked: the inventory decides, not a fact
+	// about today's callers.
 	for _, h := range []struct {
 		table   editHistoryTable
 		moved   *int64
@@ -497,8 +515,19 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	// Delete the loser show. Nothing should be left to CASCADE: every foreign key
 	// to shows.id is named in showFKColumns, and every one of them was re-pointed
 	// above.
-	if err := tx.Delete(&catalogm.Show{}, loserID).Error; err != nil {
-		return fmt.Errorf("delete loser show %d: %w", loserID, err)
+	//
+	// A delete that matches no row is an ERROR, not a no-op. GORM reports no
+	// error for it, so without this a merge against a show that had already been
+	// deleted returned success and incremented LosersMerged, and the CLI printed
+	// a merge that never happened. Every re-point above matched zero rows in that
+	// case too, so failing here costs nothing real and rolls the cluster back.
+	res = tx.Delete(&catalogm.Show{}, loserID)
+	if res.Error != nil {
+		return fmt.Errorf("delete loser show %d: %w", loserID, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("loser show %d no longer exists; nothing was merged into %d",
+			loserID, winnerID)
 	}
 
 	summary.LosersMerged++
@@ -622,6 +651,15 @@ func reassignShowRevisions(tx *gorm.DB, winnerID, loserID uint) (int64, error) {
 func moveShowFKRows(tx *gorm.DB, table, showCol, dedupeOn string, winnerID, loserID uint) (moved, skipped int64, err error) {
 	if table == "" || showCol == "" || dedupeOn == "" {
 		return 0, 0, fmt.Errorf("move show fk rows: table, show column and dedupe column are required")
+	}
+	// The column being re-pointed must be one the inventory names. This makes
+	// showFKColumns load-bearing rather than documentary: a re-point of a column
+	// with no recorded disposition cannot run, and the interpolated identifiers
+	// are pinned to a package-level list instead of merely being literals today.
+	if !showFKColumnListed(table + "." + showCol) {
+		return 0, 0, fmt.Errorf(
+			"move show fk rows: %s.%s is not in showFKColumns, so it has no recorded disposition",
+			table, showCol)
 	}
 	if winnerID == 0 || loserID == 0 {
 		return 0, 0, fmt.Errorf("move show fk rows: winner and loser ids are required")
