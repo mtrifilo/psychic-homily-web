@@ -15,8 +15,9 @@ import { HeroLightning } from './scrying-grid/HeroLightning'
  * two-line subtext, then a dominant search field and a "Find a show" primary
  * CTA. The concrete "what is this" work rests on the search placeholder, the
  * Discover quick-links row, and the sections below — the dominant actions stay
- * value-first (value-before-contribution). The only contribution prompt is the
- * quiet, secondary sign-up nudge at the bottom of the section.
+ * value-first (value-before-contribution). The quiet, secondary sign-up nudge
+ * at the bottom leads with what a fan gets (save shows, follow artists and
+ * venues), not with contributing.
  *
  * The search field reuses the existing command-palette mechanism
  * (`openCommandPalette`, same as the nav `SearchTrigger`); it is presented
@@ -113,7 +114,7 @@ export function HomeHero() {
         >
           Sign up
         </Link>{' '}
-        to contribute, and never miss a show again.
+        to save shows, follow artists and venues, and never miss a show.
       </p>
     </section>
   )

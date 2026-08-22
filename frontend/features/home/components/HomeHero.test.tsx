@@ -73,7 +73,9 @@ describe('HomeHero', () => {
       '/auth'
     )
     expect(
-      screen.getByText(/to contribute, and never miss a show again\./)
+      screen.getByText(
+        /to save shows, follow artists and venues, and never miss a show\./
+      )
     ).toBeInTheDocument()
   })
 })
