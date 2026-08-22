@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -595,9 +596,13 @@ func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limi
 		Slug       string
 		FollowedAt time.Time
 		SortName   string
+		// Settings is the follow row's settings JSONB rendered as text (PSY-1893).
+		// Text, not a JSONB-typed destination: this is a raw Scan into an
+		// ad-hoc struct, and ::text keeps the driver out of the decision.
+		Settings string
 	}
 	var rows []libraryFollowingRow
-	selectSQL := fmt.Sprintf("ub.entity_type, ub.entity_id, %s AS name, %s AS slug, ub.created_at AS followed_at, LOWER(%s) AS sort_name", source.nameExpression, source.slugExpression, source.nameExpression)
+	selectSQL := fmt.Sprintf("ub.entity_type, ub.entity_id, %s AS name, %s AS slug, ub.created_at AS followed_at, LOWER(%s) AS sort_name, COALESCE(ub.settings::text, '') AS settings", source.nameExpression, source.slugExpression, source.nameExpression)
 	orderSQL := fmt.Sprintf("LOWER(%s) ASC, %s ASC, ub.entity_id ASC", source.nameExpression, source.nameExpression)
 	if err := base.Select(selectSQL).Order(orderSQL).Limit(limit + 1).Scan(&rows).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to get library following: %w", err)
@@ -616,13 +621,21 @@ func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limi
 
 	following := make([]*contracts.LibraryFollowingEntityResponse, 0, len(rows))
 	for _, row := range rows {
-		following = append(following, &contracts.LibraryFollowingEntityResponse{
+		entry := &contracts.LibraryFollowingEntityResponse{
 			EntityType: row.EntityType,
 			EntityID:   row.EntityID,
 			Name:       row.Name,
 			Slug:       row.Slug,
 			FollowedAt: row.FollowedAt,
-		})
+		}
+		// Resolve the row's alert subscription inline (PSY-1893) so the Library
+		// per-row alerts control renders from the page it already fetched
+		// instead of one request per row. Only alert-capable types carry it.
+		if followAlertEntityTypes[row.EntityType] {
+			settings := json.RawMessage(row.Settings)
+			entry.Alerts = resolveFollowAlerts(row.EntityType, row.EntityID, &settings)
+		}
+		following = append(following, entry)
 	}
 	return following, nextCursor, nil
 }

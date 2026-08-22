@@ -2030,6 +2030,8 @@ type MockFollowService struct {
 	GetFollowerCountFn          func(string, uint) (int64, error)
 	SetSceneNotifyModeFn        func(uint, uint, string) error
 	SceneNotifyModeFn           func(uint, uint) (string, error)
+	GetFollowAlertSettingsFn    func(uint, string, uint) (*contracts.FollowAlertSettings, error)
+	SetFollowAlertSettingsFn    func(uint, string, uint, contracts.FollowAlertUpdate) (*contracts.FollowAlertSettings, error)
 	GetBatchFollowerCountsFn    func(string, []uint) (map[uint]int64, error)
 	GetBatchUserFollowingFn     func(uint, string, []uint) (map[uint]bool, error)
 	GetUserFollowingFn          func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error)
@@ -2073,6 +2075,18 @@ func (m *MockFollowService) SceneNotifyMode(userID uint, sceneID uint) (string, 
 		return m.SceneNotifyModeFn(userID, sceneID)
 	}
 	return "", nil
+}
+func (m *MockFollowService) GetFollowAlertSettings(userID uint, entityType string, entityID uint) (*contracts.FollowAlertSettings, error) {
+	if m.GetFollowAlertSettingsFn != nil {
+		return m.GetFollowAlertSettingsFn(userID, entityType, entityID)
+	}
+	return nil, nil
+}
+func (m *MockFollowService) SetFollowAlertSettings(userID uint, entityType string, entityID uint, update contracts.FollowAlertUpdate) (*contracts.FollowAlertSettings, error) {
+	if m.SetFollowAlertSettingsFn != nil {
+		return m.SetFollowAlertSettingsFn(userID, entityType, entityID, update)
+	}
+	return nil, nil
 }
 func (m *MockFollowService) GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error) {
 	if m.GetBatchFollowerCountsFn != nil {
