@@ -178,6 +178,53 @@ func TestMergeFollowAlertSettings_EmptyPreferenceUpdateWritesNothing(t *testing.
 	}))
 }
 
+// The write path names its keys as literals while the read path names them as
+// struct tags. If those ever drift, a write would land under a key the read
+// never looks at and the setting would silently stop applying, so every axis
+// has to survive a merge-then-resolve round trip.
+func TestMergeFollowAlertSettings_EveryAxisRoundTrips(t *testing.T) {
+	everywhere := contracts.FollowAlertScopeEverywhere
+	settings := json.RawMessage(`{}`)
+
+	merged, err := mergeFollowAlertSettings(&settings, contracts.FollowAlertUpdate{
+		Shows: &contracts.FollowAlertPreferenceUpdate{
+			Enabled: boolPtr(false),
+			InApp:   boolPtr(false),
+			Email:   boolPtr(true),
+			Scope:   &everywhere,
+		},
+		Releases: &contracts.FollowAlertPreferenceUpdate{
+			Enabled: boolPtr(false),
+			InApp:   boolPtr(false),
+			Email:   boolPtr(true),
+		},
+	})
+	assert.NoError(t, err)
+
+	raw := json.RawMessage(merged)
+	resolved := resolveFollowAlerts("artist", 42, &raw)
+	assert.False(t, resolved.Shows.Enabled)
+	assert.False(t, resolved.Shows.InApp)
+	assert.True(t, resolved.Shows.Email)
+	assert.Equal(t, everywhere, resolved.Shows.Scope)
+	assert.False(t, resolved.Releases.Enabled)
+	assert.False(t, resolved.Releases.InApp)
+	assert.True(t, resolved.Releases.Email)
+}
+
+// Bad data in one alert type must not take its sibling's overrides with it:
+// a whole-object decode would turn one unusable key into "every override on
+// this follow disappeared", silently discarding an email opt-in the user made.
+func TestResolveFollowAlerts_BadAlertTypeDoesNotPoisonItsSibling(t *testing.T) {
+	settings := json.RawMessage(`{"alerts":{"shows":{"email":"not-a-bool"},"releases":{"email":true}}}`)
+
+	resolved := resolveFollowAlerts("artist", 42, &settings)
+
+	assert.False(t, resolved.Shows.Email, "the unusable alert type falls back to the default")
+	assert.True(t, resolved.Shows.InApp)
+	assert.True(t, resolved.Releases.Email, "the healthy sibling keeps its override")
+}
+
 // A malformed nested value is unusable to every reader, so the write path is
 // the one chance to repair it — without taking the document down with it.
 func TestMergeFollowAlertSettings_RepairsMalformedNestedValues(t *testing.T) {

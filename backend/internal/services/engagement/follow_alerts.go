@@ -63,6 +63,13 @@ var followAlertEntityTypes = map[string]bool{
 
 // storedFollowAlertPreference is one alert type's stored overrides. Pointers,
 // not values: nil is "inherit the default", which a bool cannot express.
+//
+// These structs are the READ shape only. Writes go through raw key maps
+// (mergeFollowAlertSettings) because re-marshalling a struct would delete
+// every key the struct does not model, and settings is an additive shared
+// document. The JSON tags here and the key literals there must stay in step;
+// TestMergeFollowAlertSettings_EveryAxisRoundTrips is what notices if they
+// drift.
 type storedFollowAlertPreference struct {
 	Enabled *bool   `json:"enabled,omitempty"`
 	InApp   *bool   `json:"in_app,omitempty"`
@@ -138,24 +145,42 @@ func followAlertHasScopeAxis(entityType, alertType string) bool {
 }
 
 // decodeStoredFollowAlerts extracts the alerts object from a settings
-// document. A missing key, a NULL column and an unparseable alerts value all
-// mean "no overrides" — settings is a shared, forward-compatible document, so
-// one malformed key must not fail the read of a follow's subscription.
+// document. A missing key, a NULL column and an unparseable value all mean "no
+// overrides" — settings is a shared, forward-compatible document, so bad data
+// must not fail the read of a follow's subscription.
+//
+// Each alert type is decoded on its own, so damage stays proportional: a value
+// the typed shape cannot hold silently reverts THAT alert type to the account
+// defaults rather than taking its sibling down with it. A whole-object decode
+// would turn one bad key into "every override on this follow disappeared",
+// which for the email axis means silently re-subscribing nobody but also
+// silently discarding an opt-in the user made.
 func decodeStoredFollowAlerts(settings *json.RawMessage) storedFollowAlerts {
 	var alerts storedFollowAlerts
-	if settings == nil || len(*settings) == 0 {
+	doc, err := decodeJSONObject(settings)
+	if err != nil {
 		return alerts
 	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(*settings, &doc); err != nil {
+	byType, err := decodeJSONObject(rawMessageOrNil(doc[followAlertsKey]))
+	if err != nil {
 		return alerts
 	}
-	raw, ok := doc[followAlertsKey]
-	if !ok {
-		return alerts
-	}
-	_ = json.Unmarshal(raw, &alerts)
+	alerts.Shows = decodeStoredFollowAlertPreference(byType[contracts.FollowAlertTypeShows])
+	alerts.Releases = decodeStoredFollowAlertPreference(byType[contracts.FollowAlertTypeReleases])
 	return alerts
+}
+
+// decodeStoredFollowAlertPreference decodes one alert type's stored overrides,
+// or nil when it is absent or unusable.
+func decodeStoredFollowAlertPreference(raw json.RawMessage) *storedFollowAlertPreference {
+	if len(raw) == 0 {
+		return nil
+	}
+	var pref storedFollowAlertPreference
+	if err := json.Unmarshal(raw, &pref); err != nil {
+		return nil
+	}
+	return &pref
 }
 
 // resolveFollowAlertPreference layers a follow's stored overrides over the
