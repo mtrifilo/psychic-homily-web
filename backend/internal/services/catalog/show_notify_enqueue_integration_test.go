@@ -65,6 +65,11 @@ func (s *ShowNotifyEnqueueSuite) createShow(title string, private bool) *contrac
 		City:      "Phoenix",
 		State:     "AZ",
 		IsPrivate: private,
+		// Admin-submitted, i.e. the INGEST shape the trust gate admits: the `ph`
+		// CLI's phk_ token resolves to an admin user, and the markdown import and
+		// entity-request fulfiller both pass true. Self-serve submissions are covered
+		// separately by TestSelfServeSubmissionDoesNotEnqueue.
+		SubmitterIsAdmin: true,
 		Venues: []contracts.CreateShowVenue{
 			{Name: fmt.Sprintf("Venue %d", unique), City: "Phoenix", State: "AZ"},
 		},
@@ -122,12 +127,12 @@ func (s *ShowNotifyEnqueueSuite) TestNonApprovedStatusesAreNotEnqueued() {
 		catalogm.ShowStatusPrivate,
 	} {
 		show.Status = st
-		EnqueueShowNotify(s.db, show)
+		EnqueueShowNotify(s.db, show, ShowNotifyIngest)
 		s.Equal(int64(0), s.queueCount(), "status %q must not enqueue", st)
 	}
 
 	show.Status = catalogm.ShowStatusApproved
-	EnqueueShowNotify(s.db, show)
+	EnqueueShowNotify(s.db, show, ShowNotifyIngest)
 	s.Equal(int64(1), s.queueCount())
 }
 
@@ -140,14 +145,14 @@ func (s *ShowNotifyEnqueueSuite) TestCancelledShowIsNotEnqueued() {
 
 	show := s.loadShow(resp.ID)
 	show.IsCancelled = true
-	EnqueueShowNotify(s.db, show)
+	EnqueueShowNotify(s.db, show, ShowNotifyIngest)
 	s.Equal(int64(0), s.queueCount())
 
 	// Sold out is deliberately NOT a blocker: it is real information a follower
 	// still wants, and the admin approve path has always notified for it.
 	show.IsCancelled = false
 	show.IsSoldOut = true
-	EnqueueShowNotify(s.db, show)
+	EnqueueShowNotify(s.db, show, ShowNotifyIngest)
 	s.Equal(int64(1), s.queueCount())
 }
 
@@ -159,12 +164,13 @@ func (s *ShowNotifyEnqueueSuite) TestCancelledShowIsNotEnqueued() {
 func (s *ShowNotifyEnqueueSuite) TestPastShowIsNotEnqueued() {
 	unique := time.Now().UnixNano()
 	resp, err := s.svc.CreateShow(&contracts.CreateShowRequest{
-		Title:     "Archival 2019 show",
-		EventDate: time.Now().Add(-6 * 365 * 24 * time.Hour),
-		City:      "Phoenix",
-		State:     "AZ",
-		Venues:    []contracts.CreateShowVenue{{Name: fmt.Sprintf("Venue %d", unique), City: "Phoenix", State: "AZ"}},
-		Artists:   []contracts.CreateShowArtist{{Name: fmt.Sprintf("Artist %d", unique)}},
+		Title:            "Archival 2019 show",
+		EventDate:        time.Now().Add(-6 * 365 * 24 * time.Hour),
+		City:             "Phoenix",
+		State:            "AZ",
+		SubmitterIsAdmin: true,
+		Venues:           []contracts.CreateShowVenue{{Name: fmt.Sprintf("Venue %d", unique), City: "Phoenix", State: "AZ"}},
+		Artists:          []contracts.CreateShowArtist{{Name: fmt.Sprintf("Artist %d", unique)}},
 	})
 	s.Require().NoError(err)
 
@@ -172,6 +178,68 @@ func (s *ShowNotifyEnqueueSuite) TestPastShowIsNotEnqueued() {
 	s.Require().NoError(s.db.First(&show, resp.ID).Error)
 	s.Require().Equal(catalogm.ShowStatusApproved, show.Status, "the show itself still imports normally")
 	s.Equal(int64(0), s.queueCount(), "a show that already happened must not be announced")
+}
+
+// TestSelfServeSubmissionDoesNotEnqueue is the abuse gate. POST /shows is a public
+// endpoint any email-verified user can call, and determineShowStatus makes every
+// non-private submission `approved`. Without this split, one user could email every
+// matching subscriber and scene follower with an unmoderated title. Untrusted
+// submissions keep their pre-ticket behaviour: visible on the site, notifying
+// nobody until a human approves them.
+func (s *ShowNotifyEnqueueSuite) TestSelfServeSubmissionDoesNotEnqueue() {
+	unique := time.Now().UnixNano()
+	resp, err := s.svc.CreateShow(&contracts.CreateShowRequest{
+		Title:     "Submitted by a regular user",
+		EventDate: time.Now().Add(30 * 24 * time.Hour),
+		City:      "Phoenix",
+		State:     "AZ",
+		// The whole point: a non-admin submitter through the very same funnel.
+		SubmitterIsAdmin: false,
+		Venues:           []contracts.CreateShowVenue{{Name: fmt.Sprintf("Venue %d", unique), City: "Phoenix", State: "AZ"}},
+		Artists:          []contracts.CreateShowArtist{{Name: fmt.Sprintf("Artist %d", unique)}},
+	})
+	s.Require().NoError(err)
+
+	var show catalogm.Show
+	s.Require().NoError(s.db.First(&show, resp.ID).Error)
+	s.Require().Equal(catalogm.ShowStatusApproved, show.Status,
+		"the show is still created and publicly visible — only the notification is withheld")
+	s.Equal(int64(0), s.queueCount())
+}
+
+// TestUntrustedTrustValueNeverEnqueues pins the gate itself, so a future call site
+// passing the zero value cannot silently opt into mass email.
+func (s *ShowNotifyEnqueueSuite) TestUntrustedTrustValueNeverEnqueues() {
+	resp := s.createShow("Trust gate", false)
+	s.Require().NoError(s.db.Exec("DELETE FROM show_notify_queue").Error)
+
+	EnqueueShowNotify(s.db, s.loadShow(resp.ID), ShowNotifyUntrusted)
+	s.Equal(int64(0), s.queueCount())
+
+	var zeroValue ShowNotifyTrust
+	s.Equal(ShowNotifyUntrusted, zeroValue, "the zero value must be the safe one")
+
+	EnqueueShowNotify(s.db, s.loadShow(resp.ID), ShowNotifyIngest)
+	s.Equal(int64(1), s.queueCount())
+}
+
+// TestStaleShowIsRefused is the structural half of the no-backfill guarantee. The
+// empty table keeps the ROLLOUT silent; this keeps a future call site — one line
+// added to PublishShow, to an update path, or to a backfill CLI — from
+// mass-enqueuing the existing catalogue.
+func (s *ShowNotifyEnqueueSuite) TestStaleShowIsRefused() {
+	resp := s.createShow("Old enough to refuse", false)
+	s.Require().NoError(s.db.Exec("DELETE FROM show_notify_queue").Error)
+
+	show := s.loadShow(resp.ID)
+	show.CreatedAt = time.Now().Add(-2 * maxEnqueueShowAge)
+	EnqueueShowNotify(s.db, show, ShowNotifyIngest)
+	s.Equal(int64(0), s.queueCount(), "a show created long ago is not a show becoming visible")
+
+	// The boundary is generous enough that a real create transaction is never near it.
+	show.CreatedAt = time.Now().Add(-time.Minute)
+	EnqueueShowNotify(s.db, show, ShowNotifyIngest)
+	s.Equal(int64(1), s.queueCount())
 }
 
 // TestReEnqueueIsANoOp is the DEDUP acceptance criterion. Re-ingesting the same
@@ -184,7 +252,7 @@ func (s *ShowNotifyEnqueueSuite) TestReEnqueueIsANoOp() {
 	s.Require().Equal(int64(1), s.queueCount())
 
 	for i := 0; i < 3; i++ {
-		EnqueueShowNotify(s.db, s.loadShow(resp.ID))
+		EnqueueShowNotify(s.db, s.loadShow(resp.ID), ShowNotifyIngest)
 	}
 	s.Equal(int64(1), s.queueCount())
 }
@@ -199,7 +267,7 @@ func (s *ShowNotifyEnqueueSuite) TestTerminalRowBlocksReEnqueue() {
 		Where("show_id = ?", resp.ID).
 		Update("status", catalogm.ShowNotifyStatusDone).Error)
 
-	EnqueueShowNotify(s.db, s.loadShow(resp.ID))
+	EnqueueShowNotify(s.db, s.loadShow(resp.ID), ShowNotifyIngest)
 
 	var items []catalogm.ShowNotifyQueueItem
 	s.Require().NoError(s.db.Where("show_id = ?", resp.ID).Find(&items).Error)
@@ -211,7 +279,7 @@ func (s *ShowNotifyEnqueueSuite) TestTerminalRowBlocksReEnqueue() {
 // not just drained. Gating only the drain would accumulate a backlog that fans out
 // in one burst when the flag flips back on.
 func (s *ShowNotifyEnqueueSuite) TestDisabledFlagSuppressesEnqueue() {
-	s.T().Setenv("ENABLE_SHOW_NOTIFY_OUTBOX", "0")
+	s.T().Setenv(catalogm.ShowNotifyOutboxDisableFlag, "1")
 
 	resp := s.createShow("Flagged off", false)
 
@@ -237,7 +305,7 @@ func (s *ShowNotifyEnqueueSuite) TestEnqueueRidesTheShowTransaction() {
 			return err
 		}
 		showID = show.ID
-		EnqueueShowNotify(tx, show)
+		EnqueueShowNotify(tx, show, ShowNotifyIngest)
 		return sentinel
 	})
 	s.Require().ErrorIs(err, sentinel)
@@ -274,8 +342,9 @@ func (s *ShowNotifyEnqueueSuite) TestEnqueueFailureDoesNotPoisonTheShowWrite() {
 			ID:        999999999,
 			Title:     "Not a real show",
 			EventDate: time.Now().Add(24 * time.Hour),
+			CreatedAt: time.Now(),
 			Status:    catalogm.ShowStatusApproved,
-		})
+		}, ShowNotifyIngest)
 		return nil
 	})
 	s.Require().NoError(err, "outer transaction must still commit")

@@ -2,6 +2,28 @@ package catalog
 
 import "time"
 
+// ShowNotifyOutboxDisableFlag is the kill switch for the PSY-1894 notification
+// outbox: set it to "1" to stop the feature.
+//
+// DISABLE_*, not ENABLE_*, because this feature ships ON — making ingest-created
+// shows notify IS the ticket, so an opt-in flag would ship it dormant — and
+// DISABLE_*=1 is precisely how every other default-ON background service in
+// cmd/server/main.go is switched off. An ENABLE_* name here would have matched
+// NEITHER convention (the two existing ENABLE_* flags are default-OFF opt-ins),
+// and the natural misreading — "ENABLE_ is present, so the thing must be off" — is
+// the reading an on-call operator would make while trying to stop outbound mail.
+//
+// It is spelled ONCE, here, because it must gate BOTH halves of the outbox and
+// those halves live in different packages: the enqueue in services/catalog and the
+// poller in services/notification. Both already import this package for the queue
+// model, so this is the one place neither has to reach across to. A literal
+// repeated in two packages is exactly how a rename silently un-gates one half —
+// leaving, in the worse direction, an enqueue writing rows that nothing drains
+// until the flag flips back and they all fan out at once.
+//
+// Read it through shared.EnvServiceDisabled, never a hand-rolled parse.
+const ShowNotifyOutboxDisableFlag = "DISABLE_SHOW_NOTIFY_OUTBOX"
+
 // Show-notify outbox status values (PSY-1894).
 //
 //	pending → processing (claimed) → done   — MatchAndNotify ran for the show
@@ -85,12 +107,23 @@ const (
 //   - Publicly visible. Only `approved` shows are on the site; announcing a
 //     `private`, `pending`, or `rejected` one would either leak a user's own list
 //     or advertise something moderation has not passed.
-//   - Not cancelled. Discovery scrapes cancellation straight off venue calendars
-//     (createShowFromEvent sets IsCancelled from the feed, and also recovers it
-//     from a "*CANCELLED*" title marker), and still writes the row `approved`.
-//     Without this rule an automated import would email "New show" for an event
-//     the venue has already called off. Sold-out is deliberately NOT a blocker: a
-//     sold-out show is real information a follower still wants.
+//
+//   - Not cancelled. Discovery scrapes cancellation off venue calendars
+//     (createShowFromEvent sets IsCancelled from the feed's own flag) and still
+//     writes the row `approved`, so without this rule an automated import would
+//     email "New show" for an event the venue has already called off. Sold-out is
+//     deliberately NOT a blocker: a sold-out show is real information a follower
+//     still wants.
+//
+//     KNOWN GAP, stated rather than papered over: this rule is only as good as
+//     IsCancelled, and discovery sets that from the feed FLAG only. A venue that
+//     encodes cancellation in the listing TITLE instead ("*CANCELLED* Band X")
+//     still lands IsCancelled=false — stripStatusMarkers recognises those markers
+//     but discards them, returning only a sold-out signal. Such a show is a
+//     pre-existing display bug (the site's cancelled badge is wrong for it too),
+//     which is why fixing it belongs in its own ticket rather than here, but it is
+//     ALSO now a wrong notification. Do not read this rule as complete coverage.
+//
 //   - Not already over. This is the guard against an ARCHIVAL ingest. CreateShow
 //     does no past-date validation, so importing a venue's back catalogue through
 //     POST /shows or the admin markdown import would otherwise fan thousands of

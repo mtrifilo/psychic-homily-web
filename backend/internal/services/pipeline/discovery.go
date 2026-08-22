@@ -540,10 +540,16 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		// The whole `show` is passed rather than a hardcoded "approved", because
 		// catalogm.ShowAnnounceable — the one predicate the poller re-runs at
 		// delivery — reads more than the status. It matters most here: this function
-		// sets IsCancelled straight from the scrape (both the feed's flag and a
-		// "*CANCELLED*" title marker) and still writes the row `approved`, so
-		// without that predicate an automated calendar import would email "New show"
-		// for an event the venue has already called off.
+		// sets IsCancelled from the feed's own flag above and still writes the row
+		// `approved`, so without that predicate an automated calendar import would
+		// email "New show" for an event the venue has already called off.
+		//
+		// That coverage is NOT complete, and the gap is worth knowing before trusting
+		// it: a venue that marks cancellation in the listing TITLE rather than a
+		// field still lands IsCancelled=false, because stripStatusMarkers recognises
+		// "*cancelled*" / "cancelled:" (eventOtherMarkers) but discards them and
+		// reports only sold-out. Note the sold-out recovery just above does exactly
+		// what cancellation does not. See ShowAnnounceable's KNOWN GAP note.
 		//
 		// Reading show.Status rather than assuming it also keeps the duplicate
 		// branch above honest. That branch (`status = pending` when
@@ -551,7 +557,11 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		// passes nil — real duplicates are rejected before a show is created at all.
 		// Should it be revived, the enqueue already does the right thing instead of
 		// announcing a flagged duplicate.
-		catalog.EnqueueShowNotify(tx, show)
+		// ShowNotifyIngest unconditionally: every route into this function is
+		// operator-driven (cmd/discovery-import, or the admin-only
+		// POST /admin/discovery/import). There is no self-serve path here, so
+		// unlike CreateShow there is no per-request trust decision to make.
+		catalog.EnqueueShowNotify(tx, show, catalog.ShowNotifyIngest)
 
 		return nil
 	})

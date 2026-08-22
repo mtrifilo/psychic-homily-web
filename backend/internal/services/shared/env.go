@@ -5,8 +5,30 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// EnvServiceDisabled reports whether a default-ON background service has been
+// switched off through its DISABLE_* flag.
+//
+// The semantics are exactly the repo's existing convention, deliberately not a new
+// one: disabled IFF the value is the string "1"; any other value, including unset,
+// leaves the service running. cmd/server/main.go's nine DISABLE_* flags all read
+// this way, the frontend E2E harness sets them to "1", and the README documents
+// them as one table. A default-ON service that invented its own spelling — an
+// ENABLE_* name, or a truthy-string parse accepting "false"/"off" — would be found
+// by nobody: an operator hunting for the off switch during an incident scans the
+// DISABLE_* table, and an ENABLE_* name reads as "not on yet" even when it is.
+//
+// This exists as a shared function rather than an inline os.Getenv because a kill
+// switch is typically consulted from BOTH halves of the thing it gates — the
+// producer and the consumer, which usually sit in different packages. Two
+// hand-rolled parses eventually disagree, and then one half is writing work the
+// other never drains.
+func EnvServiceDisabled(key string) bool {
+	return strings.TrimSpace(os.Getenv(key)) == "1"
+}
 
 // EnvPositiveInt returns os.Getenv(key) parsed as a positive integer, or def when the
 // variable is unset or not a positive integer. Used by background services for their

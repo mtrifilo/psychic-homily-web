@@ -70,9 +70,10 @@ func (s *ShowDedupTestSuite) TestShowEntityRefsCoverSchema() {
 // TestShowForeignKeysAreAllHandled is the second drift guard, and the one that
 // covers the columns the database itself would quietly empty.
 //
-// Four of these five CASCADE and the fifth sets NULL, so a column this merge
-// does not handle raises nothing when the losing show goes: its rows are
-// silently destroyed, or silently lose the show they pointed at.
+// All but one of these CASCADE and the remaining one sets NULL, so a column this
+// merge does not handle raises nothing when the losing show goes: its rows are
+// silently destroyed, or silently lose the show they pointed at. (Deliberately
+// not a count — the count drifted the first time a migration added a column.)
 //
 // Matched per COLUMN, not per table, matching TestArtistForeignKeysAreAllHandled:
 // shows already carries a foreign key to itself, so a table-level assertion
@@ -576,6 +577,21 @@ func TestMoveShowFKRowsRejectsAnUndispositionedColumn(t *testing.T) {
 					tc.table, tc.showCol)
 			}
 		})
+	}
+
+	// A column whose recorded disposition is "drop" must be refused even though the
+	// completeness inventory lists it. Listing it there is mandatory (the FK guard
+	// asserts the inventory equals the schema), so without this second fence the
+	// listing itself would grant permission to do the one thing that column's
+	// disposition forbids.
+	for _, table := range showFKColumnsNeverRepointed {
+		if !showFKColumnListed(table) {
+			t.Errorf("%s is drop-only but missing from showFKColumns, which the FK guard requires", table)
+		}
+	}
+	if _, _, err := moveShowFKRows(unusableTx(), "show_notify_queue", "show_id", "id", 1, 2); err == nil {
+		t.Error("show_notify_queue.show_id is drop-only: re-pointing it would either abort the " +
+			"merge on UNIQUE (show_id) or let a merge announce a show that predates the feature")
 	}
 
 	// And the fence must not be so tight that the real call sites cannot pass it.

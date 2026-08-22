@@ -199,15 +199,30 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 
 		// Enqueue the follower-notification outbox job for a show that is born
 		// publicly visible (PSY-1894). Runs INSIDE this transaction, which is what
-		// makes the job and the show it describes commit or vanish together: the
-		// poller claims with FOR UPDATE SKIP LOCKED and so cannot see the row until
-		// the venues, artists, and slug above have committed alongside it. That
-		// matters because MatchAndNotify matches on the show's artists and venues —
-		// a job visible ahead of its associations would match an empty bill.
+		// makes the job and the show it describes commit or vanish together: under
+		// ordinary READ COMMITTED visibility no other session can see the row until
+		// this transaction commits, and by then the venues, artists, and slug above
+		// have committed with it. That matters because MatchAndNotify matches on the
+		// show's artists and venues — a job visible ahead of its associations would
+		// match an empty bill. (The poller's FOR UPDATE SKIP LOCKED is a separate
+		// concern: it stops two pollers claiming the same row, not this.)
 		//
 		// Best-effort in the other direction: it runs in a SAVEPOINT and never
 		// returns an error, so a notification problem cannot roll back the show.
-		EnqueueShowNotify(tx, show)
+		//
+		// SubmitterIsAdmin is what separates INGEST from self-serve here, because
+		// this one funnel serves both. It is true for the `ph` CLI (its phk_ token
+		// resolves to an admin user), for the admin markdown import, and for the
+		// community entity-request fulfiller — the paths PSY-1894 is about. It is
+		// false for a self-serve or anonymous POST /shows, which keeps its
+		// pre-ticket behaviour of notifying nobody until a human approves it.
+		// Without that split, any verified account could email every matching
+		// subscriber with unmoderated content. See ShowNotifyTrust.
+		trust := ShowNotifyUntrusted
+		if req.SubmitterIsAdmin {
+			trust = ShowNotifyIngest
+		}
+		EnqueueShowNotify(tx, show, trust)
 
 		// Build response
 		response = &contracts.ShowResponse{

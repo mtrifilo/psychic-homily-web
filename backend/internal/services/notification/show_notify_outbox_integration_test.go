@@ -93,6 +93,9 @@ func (s *ShowNotifyOutboxSuite) ingestShow(title string) (showID uint, artistID 
 		EventDate: time.Now().Add(30 * 24 * time.Hour),
 		City:      "Phoenix",
 		State:     "AZ",
+		// Admin-submitted, i.e. the INGEST shape the trust gate admits (the `ph`
+		// CLI's phk_ token resolves to an admin user).
+		SubmitterIsAdmin: true,
 		Venues: []contracts.CreateShowVenue{
 			{Name: fmt.Sprintf("Ingest Venue %d", unique), City: "Phoenix", State: "AZ"},
 		},
@@ -160,7 +163,7 @@ func (s *ShowNotifyOutboxSuite) TestReIngestDoesNotReNotify() {
 	s.Require().Equal(int64(1), s.notificationCount(userID, showID))
 
 	// Re-ingest: the same show is written again by the same funnel.
-	catalogsvc.EnqueueShowNotify(s.db, s.loadShow(showID))
+	catalogsvc.EnqueueShowNotify(s.db, s.loadShow(showID), catalogsvc.ShowNotifyIngest)
 	s.poller.RunNow(context.Background())
 
 	s.Equal(int64(1), s.notificationCount(userID, showID))
@@ -257,7 +260,7 @@ func (s *ShowNotifyOutboxSuite) TestAdminApprovalIsUnchangedForModeratedShows() 
 		Update("status", catalogm.ShowStatusPending).Error)
 	s.Require().NoError(s.db.Exec("DELETE FROM show_notify_queue").Error)
 
-	catalogsvc.EnqueueShowNotify(s.db, s.loadShow(showID))
+	catalogsvc.EnqueueShowNotify(s.db, s.loadShow(showID), catalogsvc.ShowNotifyIngest)
 	s.poller.RunNow(context.Background())
 	s.Require().Equal(int64(0), s.notificationCount(userID, showID), "the outbox must stay out of the moderation queue")
 
@@ -273,25 +276,13 @@ func (s *ShowNotifyOutboxSuite) TestAdminApprovalIsUnchangedForModeratedShows() 
 
 // --- delivery-time safety ---
 
-// TestPulledShowIsSkipped: a show made private (or rejected) between enqueue and
-// delivery must not be announced. The window is one poll interval, and longer
-// after a poller outage.
-func (s *ShowNotifyOutboxSuite) TestPulledShowIsSkipped() {
-	userID := s.createUser()
-	showID, artistID := s.ingestShow("Pulled before delivery")
-	s.subscribe(userID, artistID)
-
-	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", showID).
-		Update("status", catalogm.ShowStatusPrivate).Error)
-
-	s.poller.RunNow(context.Background())
-
-	s.Equal(int64(0), s.notificationCount(userID, showID))
-	job := s.jobFor(showID)
-	s.Equal(catalogm.ShowNotifyStatusSkipped, job.Status)
-	s.Require().NotNil(job.LastError)
-	s.Equal(catalogm.NotAnnounceableNotPublic, *job.LastError)
-}
+// A show pulled between enqueue and delivery must not be announced. The two cases
+// are covered separately below rather than here, because "not publicly visible" is
+// the one non-announceable reason that routinely un-happens:
+// TestTransientUnpublishDoesNotBurnTheOnlyChance (retried, then delivered) and
+// TestPermanentlyUnpublishedJobExpiresRatherThanRetryingForever (bounded by
+// maxJobAge). Cancelled and deleted shows, which do not un-happen, are terminal
+// and are covered by their own tests.
 
 // TestDeletedShowIsSkipped pins the defensive branch for a job whose show no
 // longer exists.
@@ -352,11 +343,17 @@ type failingMatcher struct {
 	failures int
 	calls    int
 	delegate showMatcher
+	// failWith overrides the default error, so a test can drive the
+	// cancellation-classification path with a real context error.
+	failWith error
 }
 
 func (m *failingMatcher) MatchAndNotify(show *catalogm.Show) error {
 	m.calls++
 	if m.calls <= m.failures {
+		if m.failWith != nil {
+			return m.failWith
+		}
 		return errors.New("transient match failure")
 	}
 	if m.delegate != nil {
@@ -464,6 +461,210 @@ func (s *ShowNotifyOutboxSuite) TestSoldOutShowStillNotifies() {
 	s.poller.RunNow(context.Background())
 
 	s.Equal(int64(1), s.notificationCount(userID, showID))
+	s.Equal(catalogm.ShowNotifyStatusDone, s.jobFor(showID).Status)
+}
+
+// TestMissingMatcherLeavesJobsPending: a wiring bug must not consume the queue.
+// If the tick claimed rows and then failed each one, every job would burn its
+// attempts against a condition no retry can fix and land `failed` — which is
+// terminal, so those shows could never be notified even after the config was
+// corrected.
+func (s *ShowNotifyOutboxSuite) TestMissingMatcherLeavesJobsPending() {
+	showID, _ := s.ingestShow("Poller misconfigured")
+
+	NewShowNotifyOutboxPoller(s.db, nil).RunNow(context.Background())
+
+	job := s.jobFor(showID)
+	s.Equal(catalogm.ShowNotifyStatusPending, job.Status)
+	s.Equal(0, job.Attempts, "a misconfigured poller must not burn attempts")
+
+	// A correctly wired poller then picks the job up untouched.
+	s.poller.RunNow(context.Background())
+	s.Equal(catalogm.ShowNotifyStatusDone, s.jobFor(showID).Status)
+}
+
+// TestTransientUnpublishDoesNotBurnTheOnlyChance: unpublish, fix a typo, republish
+// is an ordinary user correction flow, and the window is a whole poll interval. A
+// terminal skip there would spend the show's only notification silently — the
+// whole-table UNIQUE blocks re-enqueue and PublishShow does not enqueue — so
+// "not publicly visible" must be retried rather than given up on.
+func (s *ShowNotifyOutboxSuite) TestTransientUnpublishDoesNotBurnTheOnlyChance() {
+	userID := s.createUser()
+	showID, artistID := s.ingestShow("Briefly unpublished")
+	s.subscribe(userID, artistID)
+
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", showID).
+		Update("status", catalogm.ShowStatusPrivate).Error)
+	s.poller.RunNow(context.Background())
+
+	job := s.jobFor(showID)
+	s.Require().Equal(catalogm.ShowNotifyStatusPending, job.Status, "must stay retryable, not go terminal")
+	s.Equal(1, job.Attempts, "the retry burns an attempt, which is what keeps it self-limiting")
+	s.Equal(int64(0), s.notificationCount(userID, showID))
+
+	// Republished: the next tick delivers.
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", showID).
+		Update("status", catalogm.ShowStatusApproved).Error)
+	s.poller.RunNow(context.Background())
+
+	s.Equal(catalogm.ShowNotifyStatusDone, s.jobFor(showID).Status)
+	s.Equal(int64(1), s.notificationCount(userID, showID))
+}
+
+// TestPermanentlyUnpublishedJobGoesTerminalAfterMaxAttempts: the retry above must
+// be SELF-LIMITING. Claim orders by created_at ASC and never rewrites it, so a row
+// re-pended without burning an attempt sits at the head of the queue forever.
+// Burning the attempt caps it at max_attempts ticks, after which it is `skipped`
+// (nothing malfunctioned) rather than `failed`.
+func (s *ShowNotifyOutboxSuite) TestPermanentlyUnpublishedJobGoesTerminalAfterMaxAttempts() {
+	showID, _ := s.ingestShow("Unpublished for good")
+
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", showID).
+		Update("status", catalogm.ShowStatusPrivate).Error)
+
+	for i := 0; i < 5; i++ {
+		s.poller.RunNow(context.Background())
+	}
+
+	job := s.jobFor(showID)
+	s.Equal(catalogm.ShowNotifyStatusSkipped, job.Status)
+	s.Equal(3, job.Attempts, "the retry must stop at max_attempts, not cycle forever")
+	s.Require().NotNil(job.LastError)
+	s.Equal(catalogm.NotAnnounceableNotPublic, *job.LastError)
+}
+
+// TestKillSwitchStopsDrainingWithoutARestart: an operator setting the flag during
+// an incident wants sending to stop NOW. cmd/server only consults it at boot, so a
+// boot-time-only gate would keep draining the backlog after they believed they had
+// stopped it.
+func (s *ShowNotifyOutboxSuite) TestKillSwitchStopsDrainingWithoutARestart() {
+	userID := s.createUser()
+	showID, artistID := s.ingestShow("Enqueued before the brake")
+	s.subscribe(userID, artistID)
+
+	// The poller was constructed while the feature was on, as it is at boot.
+	s.T().Setenv(catalogm.ShowNotifyOutboxDisableFlag, "1")
+	s.poller.RunNow(context.Background())
+
+	s.Equal(int64(0), s.notificationCount(userID, showID))
+	s.Equal(catalogm.ShowNotifyStatusPending, s.jobFor(showID).Status,
+		"the job is held, not consumed, so clearing the flag resumes it")
+}
+
+// TestStuckJobsDoNotStarveNewerOnes is the regression test for the failure the
+// round-2 panel found: a full batch of rows that keep re-pending would monopolise
+// every claim, because the queue is FIFO on created_at and those rows are the
+// oldest. Newer shows would then sit unclaimed until maxJobAge discarded them
+// silently, which is the exact opposite of what this feature is for.
+//
+// Deliberately seeded with `batch` stuck rows, since any smaller number cannot
+// expose it.
+func (s *ShowNotifyOutboxSuite) TestStuckJobsDoNotStarveNewerOnes() {
+	userID := s.createUser()
+
+	// A full batch of shows that are enqueued and then unpublished, so every one of
+	// them is claimable but undeliverable.
+	stuck := make([]uint, 0, defaultShowNotifyBatch)
+	for i := 0; i < defaultShowNotifyBatch; i++ {
+		showID, _ := s.ingestShow(fmt.Sprintf("Stuck %d", i))
+		s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", showID).
+			Update("status", catalogm.ShowStatusPrivate).Error)
+		stuck = append(stuck, showID)
+	}
+
+	// One good show enqueued AFTER them, so FIFO order puts it behind all five.
+	freshID, freshArtist := s.ingestShow("Behind the stuck ones")
+	s.subscribe(userID, freshArtist)
+
+	// max_attempts ticks retire the stuck rows; the next tick reaches the fresh one.
+	for i := 0; i < 5; i++ {
+		s.poller.RunNow(context.Background())
+	}
+
+	for _, showID := range stuck {
+		s.Equal(catalogm.ShowNotifyStatusSkipped, s.jobFor(showID).Status,
+			"stuck show %d must go terminal instead of camping the queue", showID)
+	}
+	s.Equal(catalogm.ShowNotifyStatusDone, s.jobFor(freshID).Status)
+	s.Equal(int64(1), s.notificationCount(userID, freshID),
+		"a newer announcement must not be starved by undeliverable older rows")
+}
+
+// TestExpiredBacklogIsReapedAsASetBeforeClaiming: expired rows must never occupy a
+// batch slot. Reaping them one-at-a-time through the claim would cap backlog
+// recovery at batch-per-tick, so a large backlog would spend hours draining rows
+// that were never going to be delivered while newer, deliverable ones aged out
+// behind them.
+func (s *ShowNotifyOutboxSuite) TestExpiredBacklogIsReapedAsASetBeforeClaiming() {
+	userID := s.createUser()
+
+	// A backlog several times the batch size, all aged out.
+	expired := make([]uint, 0, defaultShowNotifyBatch*3)
+	for i := 0; i < defaultShowNotifyBatch*3; i++ {
+		showID, _ := s.ingestShow(fmt.Sprintf("Aged out %d", i))
+		expired = append(expired, showID)
+	}
+	s.Require().NoError(s.db.Model(&catalogm.ShowNotifyQueueItem{}).
+		Where("show_id IN ?", expired).
+		Update("created_at", time.Now().Add(-72*time.Hour)).Error)
+
+	// One deliverable show behind them all.
+	freshID, freshArtist := s.ingestShow("Still worth sending")
+	s.subscribe(userID, freshArtist)
+
+	// ONE tick must clear the whole backlog and still deliver the fresh show.
+	s.poller.RunNow(context.Background())
+
+	for _, showID := range expired {
+		job := s.jobFor(showID)
+		s.Equal(catalogm.ShowNotifyStatusSkipped, job.Status)
+		s.Require().NotNil(job.LastError)
+		s.Equal(skipJobTooOld, *job.LastError)
+	}
+	s.Equal(int64(1), s.notificationCount(userID, freshID),
+		"backlog recovery must not delay a deliverable announcement")
+}
+
+// TestStaleBacklogIsDroppedRatherThanBurst is the burst fail-safe. However a
+// backlog accumulated — a poller outage, a deploy freeze, or the kill switch set on
+// the server while a separately-configured ingest process kept writing rows —
+// clearing the condition must not fan a week of announcements out at once.
+func (s *ShowNotifyOutboxSuite) TestStaleBacklogIsDroppedRatherThanBurst() {
+	userID := s.createUser()
+	showID, artistID := s.ingestShow("Queued a week ago")
+	s.subscribe(userID, artistID)
+
+	// A perfectly announceable show (future date, approved, not cancelled) whose job
+	// simply waited too long.
+	s.Require().NoError(s.db.Model(&catalogm.ShowNotifyQueueItem{}).Where("show_id = ?", showID).
+		Update("created_at", time.Now().Add(-7*24*time.Hour)).Error)
+
+	s.poller.RunNow(context.Background())
+
+	s.Equal(int64(0), s.notificationCount(userID, showID))
+	job := s.jobFor(showID)
+	s.Equal(catalogm.ShowNotifyStatusSkipped, job.Status)
+	s.Require().NotNil(job.LastError)
+	s.Equal(skipJobTooOld, *job.LastError)
+}
+
+// TestMidItemCancellationDoesNotBurnAnAttempt closes the one-item-wide hole in
+// processTick's between-items cancellation check: a SIGTERM landing DURING
+// loadShow or MatchAndNotify surfaces as context.Canceled, and counting that as a
+// failed attempt would let rolling restarts walk a row to terminal `failed`
+// without the match ever having been tried.
+func (s *ShowNotifyOutboxSuite) TestMidItemCancellationDoesNotBurnAnAttempt() {
+	showID, _ := s.ingestShow("Canceled mid-item")
+
+	poller := NewShowNotifyOutboxPoller(s.db, &failingMatcher{failures: 1, failWith: context.Canceled})
+	poller.RunNow(context.Background())
+
+	job := s.jobFor(showID)
+	s.Equal(catalogm.ShowNotifyStatusPending, job.Status)
+	s.Equal(0, job.Attempts, "a cancellation is a deploy, not an attempt")
+
+	// And the work is not lost.
+	s.poller.RunNow(context.Background())
 	s.Equal(catalogm.ShowNotifyStatusDone, s.jobFor(showID).Status)
 }
 

@@ -26,6 +26,7 @@ import (
 	"psychic-homily-backend/internal/auth"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/catalog"
@@ -443,11 +444,13 @@ func main() {
 	// for shows that become visible via INGEST, which never enter the admin
 	// approval flow that owns the only other MatchAndNotify call sites).
 	//
-	// ON by default, unlike the image-enrich pair above: making ingest-created
-	// shows notify IS the feature, so an opt-in default would ship it dormant.
-	// ENABLE_SHOW_NOTIFY_OUTBOX=0 is the kill switch, and it gates the ENQUEUE side
-	// too — turning it off stops rows being written rather than letting them pile
-	// up for a burst when it is turned back on.
+	// ON by default, so it takes a DISABLE_* flag like the other default-ON
+	// services above rather than the ENABLE_* opt-in the image-enrich pair uses:
+	// making ingest-created shows notify IS the feature, so an opt-in default would
+	// ship it dormant. DISABLE_SHOW_NOTIFY_OUTBOX=1 gates the ENQUEUE side too, so
+	// turning it off stops rows being written rather than letting them pile up for
+	// a burst when it is turned back on. Note it is read per PROCESS: an ingest CLI
+	// run elsewhere needs the flag in its own environment.
 	//
 	// Starting this on a deploy cannot notify anyone about the existing catalogue:
 	// show_notify_queue ships empty and nothing backfills it, so the poller has
@@ -457,7 +460,8 @@ func main() {
 		showNotifyOutboxCtx, showNotifyOutboxCancel = context.WithCancel(context.Background())
 		sc.ShowNotifyOutbox.Start(showNotifyOutboxCtx)
 	} else {
-		log.Printf("show notify outbox disabled (ENABLE_SHOW_NOTIFY_OUTBOX=0); ingest-created shows will not notify followers")
+		log.Printf("show notify outbox disabled (%s=1); ingest-created shows will not notify followers",
+			catalogm.ShowNotifyOutboxDisableFlag)
 	}
 
 	// Start artist-location sweep (PSY-1250: Phase-A background job filling missing
