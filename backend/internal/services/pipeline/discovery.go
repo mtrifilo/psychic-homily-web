@@ -532,6 +532,27 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		})
 		tx.Model(show).Update("slug", showSlug)
 
+		// Enqueue the follower-notification outbox job (PSY-1894). Discovery is the
+		// highest-volume ingest path and, until now, notified nobody: shows land
+		// here already `approved` and never enter the admin moderation queue that
+		// owns the only MatchAndNotify call sites.
+		//
+		// The whole `show` is passed rather than a hardcoded "approved", because
+		// catalogm.ShowAnnounceable — the one predicate the poller re-runs at
+		// delivery — reads more than the status. It matters most here: this function
+		// sets IsCancelled straight from the scrape (both the feed's flag and a
+		// "*CANCELLED*" title marker) and still writes the row `approved`, so
+		// without that predicate an automated calendar import would email "New show"
+		// for an event the venue has already called off.
+		//
+		// Reading show.Status rather than assuming it also keeps the duplicate
+		// branch above honest. That branch (`status = pending` when
+		// duplicateOfShowID is set) is unreachable from the only caller today, which
+		// passes nil — real duplicates are rejected before a show is created at all.
+		// Should it be revived, the enqueue already does the right thing instead of
+		// announcing a flagged duplicate.
+		catalog.EnqueueShowNotify(tx, show)
+
 		return nil
 	})
 }

@@ -197,6 +197,18 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			return fmt.Errorf("failed to update show slug: %w", err)
 		}
 
+		// Enqueue the follower-notification outbox job for a show that is born
+		// publicly visible (PSY-1894). Runs INSIDE this transaction, which is what
+		// makes the job and the show it describes commit or vanish together: the
+		// poller claims with FOR UPDATE SKIP LOCKED and so cannot see the row until
+		// the venues, artists, and slug above have committed alongside it. That
+		// matters because MatchAndNotify matches on the show's artists and venues —
+		// a job visible ahead of its associations would match an empty bill.
+		//
+		// Best-effort in the other direction: it runs in a SAVEPOINT and never
+		// returns an error, so a notification problem cannot roll back the show.
+		EnqueueShowNotify(tx, show)
+
 		// Build response
 		response = &contracts.ShowResponse{
 			ID:              show.ID,

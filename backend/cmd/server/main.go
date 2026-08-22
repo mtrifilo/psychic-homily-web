@@ -29,6 +29,7 @@ import (
 	"psychic-homily-backend/internal/observability"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/notification"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
@@ -330,6 +331,7 @@ func main() {
 		sceneDigestCancel            context.CancelFunc
 		imageEnrichSweepCancel       context.CancelFunc
 		imageEnrichOutboxCancel      context.CancelFunc
+		showNotifyOutboxCancel       context.CancelFunc
 		artistLocationSweepCancel    context.CancelFunc
 		artistDiscographySweepCancel context.CancelFunc
 		artistLinksSweepCancel       context.CancelFunc
@@ -435,6 +437,27 @@ func main() {
 		sc.ImageEnrichOutbox.Start(imageEnrichOutboxCtx)
 	} else {
 		log.Printf("image enrichment sweep + outbox disabled (set ENABLE_IMAGE_ENRICH_SWEEP=1 to enable)")
+	}
+
+	// Start the show-notify outbox poller (PSY-1894: fires follower notifications
+	// for shows that become visible via INGEST, which never enter the admin
+	// approval flow that owns the only other MatchAndNotify call sites).
+	//
+	// ON by default, unlike the image-enrich pair above: making ingest-created
+	// shows notify IS the feature, so an opt-in default would ship it dormant.
+	// ENABLE_SHOW_NOTIFY_OUTBOX=0 is the kill switch, and it gates the ENQUEUE side
+	// too — turning it off stops rows being written rather than letting them pile
+	// up for a burst when it is turned back on.
+	//
+	// Starting this on a deploy cannot notify anyone about the existing catalogue:
+	// show_notify_queue ships empty and nothing backfills it, so the poller has
+	// literally nothing to find until a new show becomes visible.
+	if notification.ShowNotifyOutboxEnabled() {
+		var showNotifyOutboxCtx context.Context
+		showNotifyOutboxCtx, showNotifyOutboxCancel = context.WithCancel(context.Background())
+		sc.ShowNotifyOutbox.Start(showNotifyOutboxCtx)
+	} else {
+		log.Printf("show notify outbox disabled (ENABLE_SHOW_NOTIFY_OUTBOX=0); ingest-created shows will not notify followers")
 	}
 
 	// Start artist-location sweep (PSY-1250: Phase-A background job filling missing
@@ -621,6 +644,10 @@ func main() {
 	if imageEnrichOutboxCancel != nil {
 		imageEnrichOutboxCancel()
 		sc.ImageEnrichOutbox.Stop()
+	}
+	if showNotifyOutboxCancel != nil {
+		showNotifyOutboxCancel()
+		sc.ShowNotifyOutbox.Stop()
 	}
 	if artistLocationSweepCancel != nil {
 		artistLocationSweepCancel()

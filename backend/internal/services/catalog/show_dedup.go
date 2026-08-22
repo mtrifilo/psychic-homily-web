@@ -83,10 +83,25 @@ import (
 //     loser comes out of the merge flagged as a duplicate of ITSELF, and that
 //     column is served to clients on the show payload.
 //
+//   - show_notify_queue.show_id is the one column here that is DROPPED rather
+//     than re-pointed, and the reason is a correctness requirement of PSY-1894
+//     rather than convenience. That table's UNIQUE (show_id) means "this show has
+//     already been considered for follower notification", and its emptiness at
+//     deploy is what guarantees the rollout never notified anyone about the
+//     pre-existing catalogue. Re-pointing a loser's still-`pending` job onto a
+//     winner that has no row would manufacture exactly the thing that guarantee
+//     forbids: a merge, months later, announcing a show that predates the
+//     feature. Nor could the row be re-pointed onto a winner that HAS one — the
+//     UNIQUE would reject it. Dropping is therefore both the only shape that
+//     fits the index and the only shape that preserves the no-backfill property.
+//     What is lost is at most one notification for a duplicate listing of an
+//     event the winner already represents.
+//
 // TestShowForeignKeysAreAllHandled fails if a migration adds another.
 var showFKColumns = []string{
 	"enrichment_queue.show_id",
 	"show_artists.show_id",
+	"show_notify_queue.show_id",
 	"show_reports.show_id",
 	"show_venues.show_id",
 	"shows.duplicate_of_show_id",
@@ -164,6 +179,11 @@ type ShowDedupSummary struct {
 	ShowReportsSkipped int64
 	EnrichmentMoved    int64
 	DuplicateOfRepoint int64
+	// NotifyJobsDropped counts show_notify_queue rows deleted with the loser. It
+	// is a DROP rather than a move (see showFKColumns), and it is reported so a
+	// reviewer can see when a merge discarded a notification that had not gone
+	// out yet, rather than having that happen invisibly under the FK cascade.
+	NotifyJobsDropped int64
 
 	// History tables, which move through a provenance decision rather than
 	// through the inventory loop. See refsRepointedElsewhere.
@@ -210,6 +230,7 @@ func (s *ShowDedupSummary) Add(other *ShowDedupSummary) {
 	s.ShowReportsSkipped += other.ShowReportsSkipped
 	s.EnrichmentMoved += other.EnrichmentMoved
 	s.DuplicateOfRepoint += other.DuplicateOfRepoint
+	s.NotifyJobsDropped += other.NotifyJobsDropped
 
 	s.PendingEditsMoved += other.PendingEditsMoved
 	s.PendingEditsSkipped += other.PendingEditsSkipped
@@ -426,6 +447,20 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		return fmt.Errorf("enrichment_queue: %w", res.Error)
 	}
 	summary.EnrichmentMoved += res.RowsAffected
+
+	// show_notify_queue is DROPPED, not re-pointed. See its entry in
+	// showFKColumns for the argument: the row means "already considered for
+	// follower notification", its UNIQUE is on show_id alone so it cannot be
+	// moved onto a winner that has one, and moving it onto a winner that has none
+	// would let a merge announce a show that predates the feature. Deleting it
+	// explicitly rather than leaving it to the FK cascade keeps this function's
+	// stated invariant true — every foreign key to shows.id is handled here — so
+	// the delete below can go on meaning "nothing was silently destroyed".
+	res = tx.Exec(`DELETE FROM show_notify_queue WHERE show_id = ?`, loserID)
+	if res.Error != nil {
+		return fmt.Errorf("show_notify_queue: %w", res.Error)
+	}
+	summary.NotifyJobsDropped += res.RowsAffected
 
 	// shows.duplicate_of_show_id is the self-reference, so the winner's own row
 	// has to be excluded: a winner already flagged as a duplicate of the loser

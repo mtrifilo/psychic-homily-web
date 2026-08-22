@@ -112,7 +112,10 @@ type ServiceContainer struct {
 	StreetGeocodeSweep     *catalog.StreetGeocodeSweep
 	VenueTimezoneSweep     *catalog.VenueTimezoneSweep
 	ImageEnrichOutbox      *imageenrich.ImageEnrichOutboxPoller
-	AutoPromotion          *adminsvc.AutoPromotionService
+	// PSY-1894: drains show_notify_queue so ingest-created shows fire follower
+	// notifications, not just admin-approved ones.
+	ShowNotifyOutbox *notification.ShowNotifyOutboxPoller
+	AutoPromotion    *adminsvc.AutoPromotionService
 	// PSY-350: weekly collection-subscription digest emails (opt-IN).
 	CollectionDigest *engagement.CollectionDigestService
 	// PSY-1342: weekly followed-scenes digest emails (opt-IN).
@@ -176,6 +179,14 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	imageEnricher := imageenrich.NewEnricher(database, mbClient, cfg.Discogs.Token)
 	imageEnrichSweep := imageenrich.NewImageEnrichmentSweep(database, imageEnricher)
 	imageEnrichOutbox := imageenrich.NewImageEnrichOutboxPoller(database, imageEnricher)
+
+	// PSY-1894: the show-notify outbox poller drains show_notify_queue and runs the
+	// SAME MatchAndNotify the admin approve handlers run, so ingest-created shows
+	// reach subscribers instead of only admin-approved ones. It is handed the very
+	// instance the handlers hold — one implementation of "who wants this show", not
+	// a second copy that could drift.
+	notificationFilter := notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL)
+	showNotifyOutbox := notification.NewShowNotifyOutboxPoller(database, notificationFilter)
 
 	// PSY-1250: artist-location sweep (Phase A). Reuses the SAME shared mbClient
 	// (PSY-1208) so its MusicBrainz traffic stays under the one ~1 req/s throttle; a
@@ -343,7 +354,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		// Config-only services
 		Discord:            discord,
 		Email:              email,
-		NotificationFilter: notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL),
+		NotificationFilter: notificationFilter,
 
 		// No-param services
 		PasswordValidator: auth.NewPasswordValidator(),
@@ -362,6 +373,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		EnrichmentWorker:       enrichmentWorker,
 		ImageEnrichSweep:       imageEnrichSweep,
 		ImageEnrichOutbox:      imageEnrichOutbox,
+		ShowNotifyOutbox:       showNotifyOutbox,
 		ArtistLocationSweep:    artistLocationSweep,
 		ArtistDiscographySweep: artistDiscographySweep,
 		ArtistLinksSweep:       artistLinksSweep,
