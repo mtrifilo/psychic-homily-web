@@ -179,23 +179,50 @@ func TestUpdateFollowAlertsHandler_PassesOnlySetFields(t *testing.T) {
 	}
 }
 
-func TestUpdateFollowAlertsHandler_EmptyBodyIsNoOp(t *testing.T) {
-	var captured contracts.FollowAlertUpdate
-	mock := &testhelpers.MockFollowService{
-		SetFollowAlertSettingsFn: func(_ uint, _ string, _ uint, update contracts.FollowAlertUpdate) (*contracts.FollowAlertSettings, error) {
-			captured = update
-			return artistShowAlerts(), nil
-		},
-	}
-	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+// An absent alert type arrives as a nil update. What a present-but-empty one
+// means is the service's call, so the handler passes it through faithfully
+// rather than deciding on the transport's behalf.
+func TestUpdateFollowAlertsHandler_MapsBodyFaithfully(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body    *FollowAlertPreferenceBody
+		wantNil bool
+	}{
+		"absent shows":        {body: nil, wantNil: true},
+		"present but all-nil": {body: &FollowAlertPreferenceBody{}, wantNil: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var captured contracts.FollowAlertUpdate
+			mock := &testhelpers.MockFollowService{
+				SetFollowAlertSettingsFn: func(_ uint, _ string, _ uint, update contracts.FollowAlertUpdate) (*contracts.FollowAlertSettings, error) {
+					captured = update
+					return artistShowAlerts(), nil
+				},
+			}
+			h := NewFollowHandler(mock)
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
-	if _, err := h.UpdateFollowAlertsHandler(ctx,
-		&UpdateFollowAlertsRequest{EntityType: "artists", EntityID: "42"}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if captured.Shows != nil || captured.Releases != nil {
-		t.Errorf("empty body must produce an empty update, got %+v", captured)
+			req := &UpdateFollowAlertsRequest{EntityType: "artists", EntityID: "42"}
+			req.Body.Shows = tc.body
+
+			if _, err := h.UpdateFollowAlertsHandler(ctx, req); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if captured.Releases != nil {
+				t.Errorf("omitted releases must arrive as a nil update, got %+v", captured.Releases)
+			}
+			if tc.wantNil && captured.Shows != nil {
+				t.Errorf("absent shows must arrive as a nil update, got %+v", captured.Shows)
+			}
+			if !tc.wantNil {
+				if captured.Shows == nil {
+					t.Fatal("present shows must arrive as a non-nil update")
+				}
+				if captured.Shows.Enabled != nil || captured.Shows.InApp != nil ||
+					captured.Shows.Email != nil || captured.Shows.Scope != nil {
+					t.Errorf("no axis was set, so every axis must be nil, got %+v", captured.Shows)
+				}
+			}
+		})
 	}
 }
 

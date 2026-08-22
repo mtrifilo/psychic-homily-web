@@ -25,6 +25,11 @@ const (
 	// CodeFollowNotFound indicates the follow whose sub-resource was addressed
 	// does not exist. Never returned by follow/unfollow themselves.
 	CodeFollowNotFound = "FOLLOW_NOT_FOUND"
+	// CodeFollowInvalidAlertSettings indicates an alert-subscription update the
+	// follow's entity type cannot carry (an axis it does not have, or an
+	// unrecognized value). Distinct from CodeFollowInvalidEntityType: the
+	// entity type is followable, the requested setting is not valid for it.
+	CodeFollowInvalidAlertSettings = "FOLLOW_INVALID_ALERT_SETTINGS"
 )
 
 // FollowError represents a follow-related error with additional context.
@@ -60,6 +65,15 @@ func ErrFollowNotFound(entityType string, entityID uint) *FollowError {
 	return &FollowError{
 		Code:    CodeFollowNotFound,
 		Message: fmt.Sprintf("not following %s %d", entityType, entityID),
+	}
+}
+
+// ErrFollowInvalidAlertSettings creates an invalid-alert-settings error. The
+// message is the caller's verbatim, since it is user-visible detail on a 422.
+func ErrFollowInvalidAlertSettings(message string) *FollowError {
+	return &FollowError{
+		Code:    CodeFollowInvalidAlertSettings,
+		Message: message,
 	}
 }
 

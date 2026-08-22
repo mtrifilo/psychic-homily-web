@@ -116,7 +116,7 @@ func MapFollowError(err error) error {
 	var followErr *apperrors.FollowError
 	if errors.As(err, &followErr) {
 		switch followErr.Code {
-		case apperrors.CodeFollowInvalidEntityType:
+		case apperrors.CodeFollowInvalidEntityType, apperrors.CodeFollowInvalidAlertSettings:
 			return huma.Error422UnprocessableEntity(followErr.Message)
 		case apperrors.CodeFollowNotFound:
 			return huma.Error404NotFound(followErr.Message)

@@ -53,7 +53,8 @@ type UpdateFollowAlertsRequest struct {
 }
 
 // toPreferenceUpdate converts an optional request body preference to the
-// service-layer partial update.
+// service-layer partial update, faithfully: what an update that sets no field
+// means is the service's call, not the transport's.
 func (b *FollowAlertPreferenceBody) toPreferenceUpdate() *contracts.FollowAlertPreferenceUpdate {
 	if b == nil {
 		return nil

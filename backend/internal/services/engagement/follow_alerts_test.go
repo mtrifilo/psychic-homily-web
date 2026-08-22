@@ -121,9 +121,18 @@ func TestResolveFollowAlerts_IgnoresScopeOnAxislessAlertType(t *testing.T) {
 	assert.Empty(t, resolveFollowAlerts("venue", 9, &settings).Shows.Scope)
 }
 
-// Merging must preserve every key it does not own, at both levels.
-func TestMergeFollowAlertSettings_PreservesForeignAndSiblingKeys(t *testing.T) {
-	settings := json.RawMessage(`{"scene_notify_mode":"off","alerts":{"releases":{"email":true}}}`)
+// Merging must preserve every key it does not own, at all three levels:
+// the document, the alerts object, and one alert type's preference. settings
+// is explicitly an additive shared document, so the first sibling key anyone
+// adds must survive a write from this control.
+func TestMergeFollowAlertSettings_PreservesUnmodelledKeysAtEveryLevel(t *testing.T) {
+	settings := json.RawMessage(`{
+		"scene_notify_mode":"off",
+		"alerts":{
+			"digest":{"weekly":true},
+			"releases":{"email":true},
+			"shows":{"future_axis":"keep-me"}
+		}}`)
 
 	merged, err := mergeFollowAlertSettings(&settings, contracts.FollowAlertUpdate{
 		Shows: &contracts.FollowAlertPreferenceUpdate{InApp: boolPtr(false)},
@@ -132,12 +141,59 @@ func TestMergeFollowAlertSettings_PreservesForeignAndSiblingKeys(t *testing.T) {
 
 	var doc map[string]json.RawMessage
 	assert.NoError(t, json.Unmarshal(merged, &doc))
-	assert.JSONEq(t, `"off"`, string(doc["scene_notify_mode"]))
+	assert.JSONEq(t, `"off"`, string(doc["scene_notify_mode"]), "document-level sibling")
+
+	var alerts map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(doc["alerts"], &alerts))
+	assert.JSONEq(t, `{"weekly":true}`, string(alerts["digest"]), "unmodelled alert type")
+
+	var shows map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(alerts["shows"], &shows))
+	assert.JSONEq(t, `"keep-me"`, string(shows["future_axis"]), "unmodelled axis")
 
 	raw := json.RawMessage(merged)
 	resolved := resolveFollowAlerts("artist", 42, &raw)
 	assert.False(t, resolved.Shows.InApp, "new override applied")
 	assert.True(t, resolved.Releases.Email, "sibling alert type preserved")
+}
+
+// An update that sets no axis is not an override, whether the alert type is
+// absent or present-but-empty: a stored empty object would say exactly what
+// inheriting already says.
+func TestMergeFollowAlertSettings_EmptyPreferenceUpdateWritesNothing(t *testing.T) {
+	settings := json.RawMessage(`{}`)
+
+	merged, err := mergeFollowAlertSettings(&settings, contracts.FollowAlertUpdate{
+		Shows: &contracts.FollowAlertPreferenceUpdate{},
+	})
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{}`, string(merged))
+
+	assert.True(t, followAlertUpdateSetsNothing(contracts.FollowAlertUpdate{
+		Shows:    &contracts.FollowAlertPreferenceUpdate{},
+		Releases: nil,
+	}))
+	assert.False(t, followAlertUpdateSetsNothing(contracts.FollowAlertUpdate{
+		Releases: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
+	}))
+}
+
+// A malformed nested value is unusable to every reader, so the write path is
+// the one chance to repair it — without taking the document down with it.
+func TestMergeFollowAlertSettings_RepairsMalformedNestedValues(t *testing.T) {
+	settings := json.RawMessage(`{"scene_notify_mode":"off","alerts":{"shows":"nonsense"}}`)
+
+	merged, err := mergeFollowAlertSettings(&settings, contracts.FollowAlertUpdate{
+		Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
+	})
+	assert.NoError(t, err)
+
+	var doc map[string]json.RawMessage
+	assert.NoError(t, json.Unmarshal(merged, &doc))
+	assert.JSONEq(t, `"off"`, string(doc["scene_notify_mode"]))
+
+	raw := json.RawMessage(merged)
+	assert.True(t, resolveFollowAlerts("artist", 42, &raw).Shows.Email)
 }
 
 // An unparseable settings document is never overwritten: doing so would drop
@@ -169,32 +225,46 @@ func TestValidateFollowAlertUpdate(t *testing.T) {
 	nearMe := contracts.FollowAlertScopeNearMe
 	bogus := "somewhere"
 
+	// A rejected setting is a settings error, not an entity-type error: the
+	// entity type is followable, the requested axis or value is not valid for
+	// it. Sharing the entity-type constructor would prefix every one of these
+	// with "invalid entity type for follow:" on a user-visible 422.
+	assertAlertSettingsError := func(t *testing.T, err error, wantContains string) {
+		t.Helper()
+		var followErr *apperrors.FollowError
+		if assert.ErrorAs(t, err, &followErr) {
+			assert.Equal(t, apperrors.CodeFollowInvalidAlertSettings, followErr.Code)
+			assert.Equal(t, wantContains, followErr.Message)
+			assert.NotContains(t, followErr.Message, "invalid entity type")
+		}
+	}
+
 	t.Run("venue rejects scope", func(t *testing.T) {
 		err := validateFollowAlertUpdate("venue", contracts.FollowAlertUpdate{
 			Shows: &contracts.FollowAlertPreferenceUpdate{Scope: &nearMe},
 		})
-		assert.ErrorContains(t, err, "no scope axis")
+		assertAlertSettingsError(t, err, "venue shows alerts have no scope axis")
 	})
 
 	t.Run("venue rejects releases", func(t *testing.T) {
 		err := validateFollowAlertUpdate("venue", contracts.FollowAlertUpdate{
 			Releases: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
 		})
-		assert.ErrorContains(t, err, "no release alerts")
+		assertAlertSettingsError(t, err, "venue follows have no release alerts")
 	})
 
 	t.Run("releases reject scope", func(t *testing.T) {
 		err := validateFollowAlertUpdate("artist", contracts.FollowAlertUpdate{
 			Releases: &contracts.FollowAlertPreferenceUpdate{Scope: &nearMe},
 		})
-		assert.ErrorContains(t, err, "no scope axis")
+		assertAlertSettingsError(t, err, "artist releases alerts have no scope axis")
 	})
 
 	t.Run("unknown scope rejected", func(t *testing.T) {
 		err := validateFollowAlertUpdate("artist", contracts.FollowAlertUpdate{
 			Shows: &contracts.FollowAlertPreferenceUpdate{Scope: &bogus},
 		})
-		assert.ErrorContains(t, err, "invalid alert scope")
+		assertAlertSettingsError(t, err, "invalid alert scope: somewhere")
 	})
 
 	t.Run("venue channel update accepted", func(t *testing.T) {
@@ -202,6 +272,15 @@ func TestValidateFollowAlertUpdate(t *testing.T) {
 			Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(true)},
 		}))
 	})
+}
+
+// The scope axis must be read from its predicate, never inferred from whether
+// the default scope happens to be non-empty: a default that legitimately
+// resolves to no scope would otherwise silently drop every stored override.
+func TestFollowAlertHasScopeAxis(t *testing.T) {
+	assert.True(t, followAlertHasScopeAxis("artist", contracts.FollowAlertTypeShows))
+	assert.False(t, followAlertHasScopeAxis("artist", contracts.FollowAlertTypeReleases))
+	assert.False(t, followAlertHasScopeAxis("venue", contracts.FollowAlertTypeShows))
 }
 
 // =============================================================================
@@ -439,13 +518,18 @@ func (suite *FollowServiceIntegrationTestSuite) TestSetFollowAlertSettings_Empty
 	artistID := suite.createTestArtist("noop-artist")
 	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
 
-	settings, err := suite.followService.SetFollowAlertSettings(user.ID, "artist", artistID,
-		contracts.FollowAlertUpdate{})
-	suite.Require().NoError(err)
-	suite.True(settings.Shows.InApp)
-	suite.False(settings.Shows.Email)
-	suite.Empty(suite.rawSettings(user.ID, "artist", artistID),
-		"an update that sets nothing must not dirty the row")
+	for name, update := range map[string]contracts.FollowAlertUpdate{
+		"no alert types":           {},
+		"present but all-axes-nil": {Shows: &contracts.FollowAlertPreferenceUpdate{}},
+		"both present, all-nil":    {Shows: &contracts.FollowAlertPreferenceUpdate{}, Releases: &contracts.FollowAlertPreferenceUpdate{}},
+	} {
+		settings, err := suite.followService.SetFollowAlertSettings(user.ID, "artist", artistID, update)
+		suite.Require().NoError(err, name)
+		suite.True(settings.Shows.InApp, name)
+		suite.False(settings.Shows.Email, name)
+		suite.Empty(suite.rawSettings(user.ID, "artist", artistID),
+			"%s: an update that sets nothing must not dirty the row", name)
+	}
 }
 
 // The whole point of the source column: follow/unfollow must not create,
