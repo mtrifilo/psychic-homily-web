@@ -371,7 +371,7 @@ function HomeSceneGraphSection() {
           aria-live="polite"
           className="text-2xl font-semibold tracking-tight text-foreground"
         >
-          {scene.city}, this week
+          The {scene.city} scene graph
         </h2>
         <div className="flex items-center gap-4 text-sm">
           {scenes.length > 1 && (
@@ -392,10 +392,19 @@ function HomeSceneGraphSection() {
         </div>
       </div>
 
+      {/* No time window in this copy: the payload is the scene's artist
+          RELATIONSHIP graph (metro-tied artists linked by shared bills and
+          labels), not a dated slice. "Playing soon" is a per-node accent (the
+          green dot and the show chip), never a filter, so any wording implying
+          "this week" or "this month" is a claim the data cannot back. Same
+          rule as the PSY-1732 note on CommunityPulseResponse in
+          features/home/types.ts. Applies to the heading above and the canvas
+          aria-label below too. */}
       {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
         <p className="text-xs text-muted-foreground">
-          The {connectedArtistCount} most connected artists playing or tied to{' '}
-          {scene.city} this month — every name is clickable.
+          The {connectedArtistCount} most connected artists tied to{' '}
+          {scene.city}. Shared bills and labels link them; every name is
+          clickable.
         </p>
       )}
 

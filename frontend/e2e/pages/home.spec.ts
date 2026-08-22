@@ -88,8 +88,9 @@ test.describe('Homepage', () => {
     ).toBeVisible()
 
     // Scene-graph section (PSY-1344/1450). Lazy-mounted on scroll intent, and
-    // the heading names whichever seeded scene is liveliest — assert the
-    // show-anchored suffix. The e2e seed carries a metro'd
+    // the heading names whichever seeded scene is liveliest, so assert the
+    // graph-anchored suffix (the copy carries no time window: PSY-1904).
+    // The e2e seed carries a metro'd
     // Phoenix scene (PSY-1319), so the section must not self-hide. Scroll
     // deterministically to the section BELOW it (radio renders immediately)
     // rather than a magic wheel delta, so content growth can't strand the
@@ -98,7 +99,7 @@ test.describe('Homepage', () => {
       .getByRole('heading', { name: /latest radio shows/i })
       .scrollIntoViewIfNeeded()
     await expect(
-      page.getByRole('heading', { name: /, this week$/i })
+      page.getByRole('heading', { name: /^the .+ scene graph$/i })
     ).toBeVisible({ timeout: 10_000 })
     await expect(
       page.getByRole('link', { name: /open the graph/i })
@@ -115,7 +116,7 @@ test.describe('Homepage', () => {
     // Count copy is truthful only when a settled canvas roster exists; the
     // fallback deliberately carries no synthetic "0 artists" caption.
     const graphCaption = page.getByText(
-      /most connected artists playing or tied to .* this month/i
+      /most connected artists tied to .*\. Shared bills and labels link them/i
     )
     if (await graph.isVisible()) await expect(graphCaption).toBeVisible()
     else await expect(graphCaption).toHaveCount(0)
