@@ -262,10 +262,15 @@ describe('HomeSceneGraph', () => {
     expect(
       screen.getByRole('link', { name: /open the graph/i })
     ).toHaveAttribute('href', '/scenes/chicago-il#graph')
+    // Match the load-bearing clauses, not the punctuation between them: the
+    // count phrase must stay non-superlative ("3 of the most"), and the edge
+    // phrase must stay an example ("Ties like"), because neither ranking nor
+    // the edge-type allowlist backs the stronger reading.
     expect(
-      screen.getByText(
-        /the 3 most connected artists tied to chicago\. shared bills and labels link them; every name is clickable\./i
-      )
+      screen.getByText(/3 of the most connected artists tied to chicago/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/ties like shared bills and labels link them/i)
     ).toBeInTheDocument()
     const graph = await screen.findByTestId('force-graph-view')
     expect(graph).toHaveAttribute('data-force-labels', 'true')
@@ -280,18 +285,30 @@ describe('HomeSceneGraph', () => {
     )
   })
 
-  it('claims no time window anywhere in the section (PSY-1904)', async () => {
-    // The payload is the scene's artist relationship graph, not a dated
-    // slice, so neither the heading, the caption, nor the canvas aria-label
-    // may imply one. Guards the regression this ticket fixed.
-    render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
+  it('claims no time window anywhere in the section', async () => {
+    // The payload is the scene's artist relationship graph, not a dated slice,
+    // so neither the heading, the caption, nor the canvas aria-label may imply
+    // one. outerHTML rather than textContent on purpose: the aria-label is an
+    // ATTRIBUTE, and a textContent-only assertion passes while a screen-reader
+    // -only "…scene this week…" regression ships (verified by mutation).
+    // The section is located structurally, not by its accessible name, so a
+    // copy regression fails on THIS assertion rather than on a setup query.
+    const { container } = render(<HomeSceneGraph />)
     await screen.findByTestId('force-graph-view')
-    const section = screen.getByRole('region', { name: /chicago scene graph/i })
-    expect(section.textContent).not.toMatch(/this (week|month)/i)
-    expect(
-      screen.getByLabelText(/knowledge graph of the chicago scene/i)
-    ).toBeInTheDocument()
+    const section = container.querySelector('section')
+    expect(section).not.toBeNull()
+    expect(section?.outerHTML).not.toMatch(/this (week|month)/i)
+  })
+
+  it('claims no time window in the small-screen teaser state either', async () => {
+    // Below the canvas gate the heading still renders (with the static teaser
+    // instead of a canvas), so the rule has to hold in that branch too.
+    setContainerWidth(500)
+    const { container } = render(<HomeSceneGraph />)
+    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
+    expect(container.querySelector('section')?.outerHTML).not.toMatch(
+      /this (week|month)/i
+    )
   })
 
   it('requests the graph in static-viewport (click-select only) mode with the CONNECTED count in the aria-label', async () => {

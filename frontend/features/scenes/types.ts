@@ -251,6 +251,26 @@ export interface SceneGraphLink {
   is_cross_cluster: boolean
 }
 
+/**
+ * GET /scenes/{slug}/graph: the scene's artist RELATIONSHIP graph.
+ *
+ * Three things it is NOT, each of which has already shipped as false UI copy
+ * on some surface. Anything rendered from this payload has to respect all
+ * three, on every surface (the same rule the `shows_this_week` notes carry for
+ * the pulse/scene stats payloads):
+ *
+ *  1. NOT a dated slice. There is no date predicate anywhere in the roster or
+ *     the edge query, so no wording may imply "this week", "this month", or
+ *     any other window. `upcoming_show_count` and `next_show` are per-node
+ *     accents, never filters, and `next_show` can be a year out.
+ *  2. NOT ranked by connectivity. The roster is the top-N metro artists by
+ *     approved show count; edges are fetched afterwards. Copy may say "of the
+ *     most connected", never "THE N most connected".
+ *  3. NOT limited to bill and label edges. The server allowlist also passes
+ *     `member_of` and `side_project` (plus `on_label` hub spokes), so a scene
+ *     can arrive with no bill or label edge at all. Enumerate edge types only
+ *     as examples, or derive the list from `links`.
+ */
 export interface SceneGraphResponse {
   scene: SceneGraphInfo
   clusters: SceneGraphCluster[]

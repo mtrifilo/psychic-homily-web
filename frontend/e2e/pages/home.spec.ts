@@ -88,9 +88,10 @@ test.describe('Homepage', () => {
     ).toBeVisible()
 
     // Scene-graph section (PSY-1344/1450). Lazy-mounted on scroll intent, and
-    // the heading names whichever seeded scene is liveliest, so assert the
-    // graph-anchored suffix (the copy carries no time window: PSY-1904).
-    // The e2e seed carries a metro'd
+    // the heading names whichever seeded scene is liveliest, so match the whole
+    // heading with the city as the wildcard. Fully anchored on purpose: the
+    // section's copy must carry no time window, and an unanchored pattern would
+    // still pass on a reintroduced one. The e2e seed carries a metro'd
     // Phoenix scene (PSY-1319), so the section must not self-hide. Scroll
     // deterministically to the section BELOW it (radio renders immediately)
     // rather than a magic wheel delta, so content growth can't strand the
@@ -115,8 +116,10 @@ test.describe('Homepage', () => {
     await expect(graph.or(emptyGraph)).toBeVisible({ timeout: 15_000 })
     // Count copy is truthful only when a settled canvas roster exists; the
     // fallback deliberately carries no synthetic "0 artists" caption.
+    // `[^.]*` rather than `.*` for the city: a greedy wildcard would happily
+    // swallow a reintroduced "… tied to Phoenix this month." and still pass.
     const graphCaption = page.getByText(
-      /most connected artists tied to .*\. Shared bills and labels link them/i
+      /of the most connected artists tied to [^.]*\. Ties like shared bills and labels link them/i
     )
     if (await graph.isVisible()) await expect(graphCaption).toBeVisible()
     else await expect(graphCaption).toHaveCount(0)
