@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
@@ -35,6 +35,14 @@ vi.mock('@/features/auth', () => ({
   useSendMagicLink: () => ({
     mutate: vi.fn(),
     isPending: false,
+  }),
+  // Pulled in by the check-your-inbox interstitial (PSY-1900).
+  useSendVerificationEmail: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    error: null as Error | null,
   }),
 }))
 
@@ -245,6 +253,58 @@ describe('SignupForm deferred validation', () => {
         },
         expect.any(Object),
       )
+    })
+  })
+
+  // PSY-1900: a successful signup no longer navigates. It swaps the card for
+  // the check-your-inbox interstitial, which is the only place the new account
+  // learns a verification email is already waiting.
+  describe('post-signup handoff', () => {
+    async function submitValidSignup() {
+      const { user } = await renderSignupForm()
+
+      await user.type(screen.getByLabelText('Email'), 'test@example.com')
+      await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+      await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+      await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+      await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+      await waitFor(() => {
+        expect(mockRegisterMutate).toHaveBeenCalled()
+      })
+
+      return mockRegisterMutate.mock.calls[0][1] as {
+        onSuccess: (data: unknown) => void
+      }
+    }
+
+    it('shows the interstitial for the registered address instead of navigating', async () => {
+      const options = await submitValidSignup()
+
+      act(() => {
+        options.onSuccess({
+          user: { id: '1', email: 'test@example.com' },
+        })
+      })
+
+      expect(
+        await screen.findByRole('heading', { name: 'Check your inbox.' })
+      ).toBeInTheDocument()
+      expect(screen.getByText('test@example.com')).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
+    })
+
+    it('leaves the form in place when the response carries no user', async () => {
+      const options = await submitValidSignup()
+
+      act(() => {
+        options.onSuccess({ success: true })
+      })
+
+      expect(
+        screen.queryByRole('heading', { name: 'Check your inbox.' })
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument()
     })
   })
 

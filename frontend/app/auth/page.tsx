@@ -24,6 +24,11 @@ import { PasswordStrengthMeter } from '@/components/ui/password-strength-meter'
 import { PasskeyLoginButton } from '@/app/auth/_components/passkey-login'
 import { PasskeySignupButton } from '@/app/auth/_components/passkey-signup'
 import { GoogleOAuthButton } from '@/app/auth/_components/google-oauth-button'
+import {
+  SignupIntentFooter,
+  SignupIntentPanel,
+} from '@/app/auth/_components/signup-intent-panel'
+import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
@@ -308,8 +313,17 @@ function LoginForm({ returnTo }: { returnTo: string }) {
   )
 }
 
-function SignupForm({ returnTo }: { returnTo: string }) {
-  const router = useRouter()
+interface SignupFormProps {
+  returnTo: string
+  /**
+   * Called with the address the account was created under, once the register
+   * mutation succeeds. The page swaps in the check-your-inbox interstitial
+   * rather than navigating, so the email never has to travel through the URL.
+   */
+  onRegistered: (email: string) => void
+}
+
+function SignupForm({ returnTo, onRegistered }: SignupFormProps) {
   const registerMutation = useRegister()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
@@ -346,7 +360,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
                 last_name: data.user.last_name,
                 email_verified: false,
               })
-              router.push(returnTo)
+              onRegistered(data.user.email || value.email)
             }
           },
         }
@@ -590,6 +604,8 @@ function AuthPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isAuthenticated, isLoading } = useAuthContext()
+  const [activeTab, setActiveTab] = useState('login')
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
 
   // Get error from URL query params (e.g., OAuth errors)
   const urlError = safeDecodeQueryParam(searchParams.get('error'))
@@ -597,18 +613,33 @@ function AuthPageContent() {
   // Get returnTo from URL query params (for redirecting after login)
   const returnTo = sanitizeReturnTo(searchParams.get('returnTo'))
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated.
+  //
+  // A just-registered user IS authenticated, so the interstitial has to hold
+  // this back — otherwise the redirect fires the instant `setUser` lands and
+  // the user never learns an email is waiting. On a reload `registeredEmail`
+  // is gone and the redirect resumes, so the state cannot strand anyone.
   useEffect(() => {
-    if (isAuthenticated && !isLoading) {
+    if (isAuthenticated && !isLoading && !registeredEmail) {
       router.push(returnTo)
     }
-  }, [isAuthenticated, isLoading, router, returnTo])
+  }, [isAuthenticated, isLoading, router, returnTo, registeredEmail])
 
   // Show loading state while checking auth
   if (isLoading) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (registeredEmail) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md">
+          <CheckInboxInterstitial email={registeredEmail} returnTo={returnTo} />
+        </div>
       </div>
     )
   }
@@ -647,7 +678,7 @@ function AuthPageContent() {
         {/* Auth Card with Tabs */}
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-4">
-            <Tabs defaultValue="login" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login">Sign in</TabsTrigger>
                 <TabsTrigger value="signup">Create account</TabsTrigger>
@@ -666,12 +697,17 @@ function AuthPageContent() {
               </TabsContent>
 
               <TabsContent value="signup" className="mt-6">
-                <CardTitle className="text-lg">Create an account</CardTitle>
-                <CardDescription className="mt-1">
-                  Sign up to submit shows and join the community
-                </CardDescription>
+                <SignupIntentPanel />
+                <div className="mt-6">
+                  <SignupForm
+                    returnTo={returnTo}
+                    onRegistered={setRegisteredEmail}
+                  />
+                </div>
                 <div className="mt-4">
-                  <SignupForm returnTo={returnTo} />
+                  <SignupIntentFooter
+                    onSignInClick={() => setActiveTab('login')}
+                  />
                 </div>
               </TabsContent>
             </Tabs>

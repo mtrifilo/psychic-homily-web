@@ -35,6 +35,16 @@ vi.mock('@/features/auth', () => ({
   useLogin: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
   useSendMagicLink: () => ({ mutate: vi.fn(), isPending: false }),
+  // Pulled in by the check-your-inbox interstitial (PSY-1900). Mocking the
+  // module wholesale means every export the page's tree imports has to exist
+  // here or the import throws before a single test runs.
+  useSendVerificationEmail: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    error: null as Error | null,
+  }),
 }))
 
 // Capture the props the auth surfaces hand down to their child auth buttons.
@@ -109,7 +119,9 @@ describe('AuthPage', () => {
 
       await user.click(screen.getByRole('tab', { name: 'Create account' }))
 
-      expect(screen.getByText('Create an account')).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Never miss a show.' })
+      ).toBeInTheDocument()
       expect(screen.getByTestId('passkey-signup')).toBeInTheDocument()
       expect(screen.queryByTestId('passkey-login')).not.toBeInTheDocument()
     })
@@ -139,6 +151,49 @@ describe('AuthPage', () => {
         'true'
       )
       expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+    })
+  })
+
+  // PSY-1900: the signup tab leads with what an account is FOR instead of the
+  // old "Sign up to submit shows and join the community" line.
+  describe('signup intent panel', () => {
+    it('renders the value ledger and the profile-visibility footer', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+
+      expect(screen.getByText('shows you plan to catch')).toBeInTheDocument()
+      expect(
+        screen.getByText('artists and venues you care about')
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('hear when they announce something near you')
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('for completists: add what we are missing')
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(/You choose what shows on your public profile/)
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Sign up to submit shows and join the community')
+      ).not.toBeInTheDocument()
+    })
+
+    it('returns to the sign-in tab from the footer link without navigating', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AuthPage />)
+
+      await user.click(screen.getByRole('tab', { name: 'Create account' }))
+      await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+      expect(screen.getByRole('tab', { name: 'Sign in' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      )
+      expect(screen.getByText('Sign in to your account')).toBeInTheDocument()
+      expect(mockPush).not.toHaveBeenCalled()
     })
   })
 
