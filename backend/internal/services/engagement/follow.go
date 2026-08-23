@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -619,6 +620,18 @@ func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limi
 		}
 	}
 
+	// One read of the account alert matrix for the whole page: every row on it
+	// belongs to the same user, and the matrix is what an unconfigured follow
+	// inherits (PSY-1907). Skipped entirely for the entity types that carry no
+	// subscription, so a Library page of labels or tags costs no extra query.
+	var account authm.AccountAlertDefaults
+	if followAlertEntityTypes[entityType] {
+		account, err = accountAlertDefaults(s.db, userID)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	following := make([]*contracts.LibraryFollowingEntityResponse, 0, len(rows))
 	for _, row := range rows {
 		entry := &contracts.LibraryFollowingEntityResponse{
@@ -633,7 +646,7 @@ func (s *FollowService) GetLibraryFollowing(userID uint, entityType string, limi
 		// instead of one request per row. Only alert-capable types carry it.
 		if followAlertEntityTypes[row.EntityType] {
 			settings := json.RawMessage(row.Settings)
-			entry.Alerts = resolveFollowAlerts(row.EntityType, row.EntityID, &settings)
+			entry.Alerts = resolveFollowAlerts(row.EntityType, row.EntityID, &settings, account)
 		}
 		following = append(following, entry)
 	}

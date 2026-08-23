@@ -179,6 +179,18 @@ func (n *nilDBUserService) SetNotifyOnEditNotifications(userID uint, enabled boo
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) GetAlertPreferences(userID uint) (*authm.AlertPreferences, error) {
+	return nil, fmt.Errorf("database not initialized")
+}
+
+func (n *nilDBUserService) SetHomeMetro(userID uint, metro *string) error {
+	return fmt.Errorf("database not initialized")
+}
+
+func (n *nilDBUserService) SetAccountAlertDefaults(userID uint, update authm.AccountAlertDefaultsUpdate) error {
+	return fmt.Errorf("database not initialized")
+}
+
 // newNilDBUserService returns a UserServiceInterface that returns
 // "database not initialized" for every DB-dependent method.
 func newNilDBUserService() contracts.UserServiceInterface {

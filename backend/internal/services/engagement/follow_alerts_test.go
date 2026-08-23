@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/lib/pq"
@@ -9,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
@@ -23,11 +25,19 @@ import (
 
 func boolPtr(b bool) *bool { return &b }
 
+// shippedAlertDefaults is the account matrix a user who has configured nothing
+// resolves to: the shipped defaults, which is what a NULL alert_defaults
+// column means (PSY-1907). Most cases below are about the per-follow layer, so
+// they hold the account layer at its untouched value.
+func shippedAlertDefaults() authm.AccountAlertDefaults {
+	return authm.ResolveAccountAlertDefaults(nil)
+}
+
 // The owner-locked defaults (PSY-1892 decision 4): in-app on, email off.
 func TestDefaultFollowAlertPreference_InAppOnEmailOff(t *testing.T) {
 	for _, entityType := range []string{"artist", "venue"} {
 		for _, alertType := range []string{contracts.FollowAlertTypeShows, contracts.FollowAlertTypeReleases} {
-			pref := defaultFollowAlertPreference(entityType, alertType)
+			pref := defaultFollowAlertPreference(entityType, alertType, shippedAlertDefaults())
 			assert.True(t, pref.Enabled, "%s/%s should default enabled", entityType, alertType)
 			assert.True(t, pref.InApp, "%s/%s in-app should default ON", entityType, alertType)
 			assert.False(t, pref.Email, "%s/%s email should default OFF", entityType, alertType)
@@ -39,9 +49,63 @@ func TestDefaultFollowAlertPreference_InAppOnEmailOff(t *testing.T) {
 // releases have no scope axis at all.
 func TestDefaultFollowAlertPreference_ScopeAxis(t *testing.T) {
 	assert.Equal(t, contracts.FollowAlertScopeNearMe,
-		defaultFollowAlertPreference("artist", contracts.FollowAlertTypeShows).Scope)
-	assert.Empty(t, defaultFollowAlertPreference("artist", contracts.FollowAlertTypeReleases).Scope)
-	assert.Empty(t, defaultFollowAlertPreference("venue", contracts.FollowAlertTypeShows).Scope)
+		defaultFollowAlertPreference("artist", contracts.FollowAlertTypeShows, shippedAlertDefaults()).Scope)
+	assert.Empty(t, defaultFollowAlertPreference("artist", contracts.FollowAlertTypeReleases, shippedAlertDefaults()).Scope)
+	assert.Empty(t, defaultFollowAlertPreference("venue", contracts.FollowAlertTypeShows, shippedAlertDefaults()).Scope)
+}
+
+// PSY-1907: the channels a follow inherits come from the ACCOUNT matrix, so a
+// user who turned email on (or in-app off) in settings gets that on every
+// follow they never configured, with no data migration and no stamped rows.
+func TestDefaultFollowAlertPreference_TakesChannelsFromAccountMatrix(t *testing.T) {
+	raw := json.RawMessage(`{"shows":{"email":true},"releases":{"in_app":false}}`)
+	account := authm.ResolveAccountAlertDefaults(&raw)
+
+	shows := defaultFollowAlertPreference("artist", contracts.FollowAlertTypeShows, account)
+	assert.True(t, shows.Email, "account email default reaches the follow")
+	assert.True(t, shows.InApp, "channel the account left alone still inherits shipped ON")
+
+	releases := defaultFollowAlertPreference("artist", contracts.FollowAlertTypeReleases, account)
+	assert.False(t, releases.InApp, "per-alert-type, not one value for both")
+	assert.False(t, releases.Email, "the shows override does not leak to releases")
+}
+
+// The account matrix is per alert type x CHANNEL only: it has no master switch
+// and no area axis, so those two stay where PSY-1892 put them.
+func TestDefaultFollowAlertPreference_AccountMatrixHasNoEnabledOrScopeAxis(t *testing.T) {
+	raw := json.RawMessage(`{"shows":{"in_app":false,"email":false}}`)
+	account := authm.ResolveAccountAlertDefaults(&raw)
+
+	pref := defaultFollowAlertPreference("artist", contracts.FollowAlertTypeShows, account)
+	assert.True(t, pref.Enabled, "both channels off is not the same as unsubscribed")
+	assert.Equal(t, contracts.FollowAlertScopeNearMe, pref.Scope)
+}
+
+// Three layers, narrowest wins: a follow's own override beats the account
+// default, which beats the shipped default.
+func TestResolveFollowAlerts_FollowOverrideBeatsAccountDefault(t *testing.T) {
+	accountRaw := json.RawMessage(`{"shows":{"email":true}}`)
+	account := authm.ResolveAccountAlertDefaults(&accountRaw)
+	settings := json.RawMessage(`{"alerts":{"shows":{"email":false}}}`)
+
+	resolved := resolveFollowAlerts("artist", 42, &settings, account)
+
+	assert.False(t, resolved.Shows.Email, "the follow's explicit opt-out wins")
+	assert.False(t, resolved.Releases.Email, "releases inherit the shipped default")
+}
+
+// The account matrix's storage keys live in models/auth; the alert-type
+// constants live in contracts. If those drift, an account default would be
+// written under a key follow resolution never reads and the setting would
+// silently stop applying with nothing failing.
+func TestAccountAlertChannelsFor_KeysMatchFollowAlertTypes(t *testing.T) {
+	for _, alertType := range []string{contracts.FollowAlertTypeShows, contracts.FollowAlertTypeReleases} {
+		raw := json.RawMessage(fmt.Sprintf(`{%q:{"email":true}}`, alertType))
+		account := authm.ResolveAccountAlertDefaults(&raw)
+
+		assert.True(t, accountAlertChannelsFor(account, alertType).Email,
+			"alert type %q must resolve through the account matrix", alertType)
+	}
 }
 
 // Near me with no home area would scope to nothing and deliver nothing, so
@@ -59,7 +123,7 @@ func TestEffectiveShowScope_NearMeFallsBackWithoutHomeArea(t *testing.T) {
 
 // A follow with no settings at all is already a full subscription.
 func TestResolveFollowAlerts_AbsentSettingsInheritDefaults(t *testing.T) {
-	resolved := resolveFollowAlerts("artist", 42, nil)
+	resolved := resolveFollowAlerts("artist", 42, nil, shippedAlertDefaults())
 
 	assert.Equal(t, "artist", resolved.EntityType)
 	assert.Equal(t, uint(42), resolved.EntityID)
@@ -75,7 +139,7 @@ func TestResolveFollowAlerts_AbsentSettingsInheritDefaults(t *testing.T) {
 
 // A venue emits shows and nothing else, and its shows have no scope axis.
 func TestResolveFollowAlerts_VenueHasNoReleasesAndNoScope(t *testing.T) {
-	resolved := resolveFollowAlerts("venue", 9, nil)
+	resolved := resolveFollowAlerts("venue", 9, nil, shippedAlertDefaults())
 
 	assert.Nil(t, resolved.Releases)
 	assert.Empty(t, resolved.Shows.Scope)
@@ -87,7 +151,7 @@ func TestResolveFollowAlerts_VenueHasNoReleasesAndNoScope(t *testing.T) {
 func TestResolveFollowAlerts_PartialOverrideLeavesSiblingsInherited(t *testing.T) {
 	settings := json.RawMessage(`{"alerts":{"shows":{"email":true}}}`)
 
-	resolved := resolveFollowAlerts("artist", 42, &settings)
+	resolved := resolveFollowAlerts("artist", 42, &settings, shippedAlertDefaults())
 
 	assert.True(t, resolved.Shows.Email, "explicit override applies")
 	assert.True(t, resolved.Shows.InApp, "unset sibling still inherits")
@@ -107,7 +171,7 @@ func TestResolveFollowAlerts_ToleratesForeignAndMalformedSettings(t *testing.T) 
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
 			settings := json.RawMessage(raw)
-			resolved := resolveFollowAlerts("artist", 42, &settings)
+			resolved := resolveFollowAlerts("artist", 42, &settings, shippedAlertDefaults())
 			assert.True(t, resolved.Shows.InApp)
 			assert.False(t, resolved.Shows.Email)
 		})
@@ -118,7 +182,7 @@ func TestResolveFollowAlerts_ToleratesForeignAndMalformedSettings(t *testing.T) 
 func TestResolveFollowAlerts_IgnoresScopeOnAxislessAlertType(t *testing.T) {
 	settings := json.RawMessage(`{"alerts":{"shows":{"scope":"near_me"}}}`)
 
-	assert.Empty(t, resolveFollowAlerts("venue", 9, &settings).Shows.Scope)
+	assert.Empty(t, resolveFollowAlerts("venue", 9, &settings, shippedAlertDefaults()).Shows.Scope)
 }
 
 // Merging must preserve every key it does not own, at all three levels:
@@ -152,7 +216,7 @@ func TestMergeFollowAlertSettings_PreservesUnmodelledKeysAtEveryLevel(t *testing
 	assert.JSONEq(t, `"keep-me"`, string(shows["future_axis"]), "unmodelled axis")
 
 	raw := json.RawMessage(merged)
-	resolved := resolveFollowAlerts("artist", 42, &raw)
+	resolved := resolveFollowAlerts("artist", 42, &raw, shippedAlertDefaults())
 	assert.False(t, resolved.Shows.InApp, "new override applied")
 	assert.True(t, resolved.Releases.Email, "sibling alert type preserved")
 }
@@ -202,7 +266,7 @@ func TestMergeFollowAlertSettings_EveryAxisRoundTrips(t *testing.T) {
 	assert.NoError(t, err)
 
 	raw := json.RawMessage(merged)
-	resolved := resolveFollowAlerts("artist", 42, &raw)
+	resolved := resolveFollowAlerts("artist", 42, &raw, shippedAlertDefaults())
 	assert.False(t, resolved.Shows.Enabled)
 	assert.False(t, resolved.Shows.InApp)
 	assert.True(t, resolved.Shows.Email)
@@ -218,7 +282,7 @@ func TestMergeFollowAlertSettings_EveryAxisRoundTrips(t *testing.T) {
 func TestResolveFollowAlerts_BadAlertTypeDoesNotPoisonItsSibling(t *testing.T) {
 	settings := json.RawMessage(`{"alerts":{"shows":{"email":"not-a-bool"},"releases":{"email":true}}}`)
 
-	resolved := resolveFollowAlerts("artist", 42, &settings)
+	resolved := resolveFollowAlerts("artist", 42, &settings, shippedAlertDefaults())
 
 	assert.False(t, resolved.Shows.Email, "the unusable alert type falls back to the default")
 	assert.True(t, resolved.Shows.InApp)
@@ -240,7 +304,7 @@ func TestMergeFollowAlertSettings_RepairsMalformedNestedValues(t *testing.T) {
 	assert.JSONEq(t, `"off"`, string(doc["scene_notify_mode"]))
 
 	raw := json.RawMessage(merged)
-	assert.True(t, resolveFollowAlerts("artist", 42, &raw).Shows.Email)
+	assert.True(t, resolveFollowAlerts("artist", 42, &raw, shippedAlertDefaults()).Shows.Email)
 }
 
 // An unparseable settings document is never overwritten: doing so would drop
@@ -645,4 +709,67 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetLibraryFollowing_CarriesA
 	suite.Require().NoError(err)
 	suite.Require().Len(labels, 1)
 	suite.Nil(labels[0].Alerts, "alert-less types carry no subscription")
+}
+
+// setAccountAlertDefaults writes the user's account alert matrix directly.
+// Written as raw JSON rather than through the user service because that
+// service imports this package; the point under test is that this package
+// READS the column, so the fixture stays at the storage layer.
+func (suite *FollowServiceIntegrationTestSuite) setAccountAlertDefaults(userID uint, document string) {
+	prefs := authm.UserPreferences{UserID: userID}
+	suite.Require().NoError(suite.db.Create(&prefs).Error)
+	suite.Require().NoError(suite.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update("alert_defaults", gorm.Expr("?::jsonb", document)).Error)
+}
+
+// PSY-1907: the account matrix is the layer a follow with no overrides
+// inherits, so changing it in settings reaches follows that already exist,
+// including the ones made before the setting was ever touched.
+func (suite *FollowServiceIntegrationTestSuite) TestFollowAlerts_InheritAccountDefaults() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("account-defaults-artist")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
+
+	// The follow exists first, at the shipped defaults.
+	before, err := suite.followService.GetFollowAlertSettings(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.False(before.Shows.Email)
+
+	suite.setAccountAlertDefaults(user.ID, `{"shows":{"email":true},"releases":{"in_app":false}}`)
+
+	after, err := suite.followService.GetFollowAlertSettings(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.True(after.Shows.Email, "the account email opt-in reaches an existing follow")
+	suite.True(after.Shows.InApp, "a channel the account left alone still inherits shipped ON")
+	suite.Require().NotNil(after.Releases)
+	suite.False(after.Releases.InApp, "per alert type, not one value for both")
+
+	suite.Empty(suite.rawSettings(user.ID, "artist", artistID),
+		"inheritance is resolved at read time; nothing is stamped onto the follow row")
+
+	rows, _, err := suite.followService.GetLibraryFollowing(user.ID, "artist", 50, nil)
+	suite.Require().NoError(err)
+	suite.Require().Len(rows, 1)
+	suite.Require().NotNil(rows[0].Alerts)
+	suite.True(rows[0].Alerts.Shows.Email, "the Library row resolves against the same matrix")
+}
+
+// A per-follow override is the narrower layer and must win over the account
+// default, including when it opts OUT of an account-wide opt-in.
+func (suite *FollowServiceIntegrationTestSuite) TestFollowAlerts_OverrideBeatsAccountDefault() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("account-override-artist")
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
+	suite.setAccountAlertDefaults(user.ID, `{"shows":{"email":true}}`)
+
+	resolved, err := suite.followService.SetFollowAlertSettings(user.ID, "artist", artistID,
+		contracts.FollowAlertUpdate{Shows: &contracts.FollowAlertPreferenceUpdate{Email: boolPtr(false)}})
+	suite.Require().NoError(err)
+	suite.False(resolved.Shows.Email, "the write response already reflects the override")
+
+	read, err := suite.followService.GetFollowAlertSettings(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.False(read.Shows.Email, "this follow opted out of an account-wide opt-in")
+	suite.True(read.Releases.InApp, "the untouched sibling still inherits")
 }

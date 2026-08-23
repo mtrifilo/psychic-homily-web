@@ -4053,6 +4053,9 @@ type MockUserService struct {
 	SetNotifyOnSceneDigestFn          func(uint, bool) error
 	SetNotifyOnTierNotificationsFn    func(uint, bool) error
 	SetNotifyOnEditNotificationsFn    func(uint, bool) error
+	GetAlertPreferencesFn             func(uint) (*authm.AlertPreferences, error)
+	SetHomeMetroFn                    func(uint, *string) error
+	SetAccountAlertDefaultsFn         func(uint, authm.AccountAlertDefaultsUpdate) error
 }
 
 func (m *MockUserService) ListUsers(limit int, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
@@ -4310,6 +4313,24 @@ func (m *MockUserService) SetNotifyOnTierNotifications(userID uint, enabled bool
 func (m *MockUserService) SetNotifyOnEditNotifications(userID uint, enabled bool) error {
 	if m.SetNotifyOnEditNotificationsFn != nil {
 		return m.SetNotifyOnEditNotificationsFn(userID, enabled)
+	}
+	return nil
+}
+func (m *MockUserService) GetAlertPreferences(userID uint) (*authm.AlertPreferences, error) {
+	if m.GetAlertPreferencesFn != nil {
+		return m.GetAlertPreferencesFn(userID)
+	}
+	return nil, nil
+}
+func (m *MockUserService) SetHomeMetro(userID uint, metro *string) error {
+	if m.SetHomeMetroFn != nil {
+		return m.SetHomeMetroFn(userID, metro)
+	}
+	return nil
+}
+func (m *MockUserService) SetAccountAlertDefaults(userID uint, update authm.AccountAlertDefaultsUpdate) error {
+	if m.SetAccountAlertDefaultsFn != nil {
+		return m.SetAccountAlertDefaultsFn(userID, update)
 	}
 	return nil
 }

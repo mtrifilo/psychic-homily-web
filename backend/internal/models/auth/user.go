@@ -107,8 +107,22 @@ type UserPreferences struct {
 	FavoriteCities    *json.RawMessage `json:"favorite_cities" gorm:"type:jsonb;default:'[]'"`
 	// PSY-1423: saved /charts window + scene. NULL = no saved defaults.
 	ChartDefaults *json.RawMessage `json:"chart_defaults" gorm:"type:jsonb"`
-	CreatedAt     time.Time        `json:"created_at"`
-	UpdatedAt     time.Time        `json:"updated_at"`
+
+	// HomeMetro is the ONE metro the user calls home (PSY-1892 decision 9),
+	// stored as a US Census CBSA code in the same code space as venues.metro so
+	// near-me alert scoping compares codes rather than city strings. NULL means
+	// no home area, the state that makes engagement.EffectiveShowScope's near-me
+	// fallback reachable.
+	HomeMetro *string `json:"home_metro" gorm:"column:home_metro;size:10"`
+
+	// AlertDefaults is the account-level alert matrix, per alert type x channel.
+	// NULL, and any absent key inside it, mean "inherit the shipped defaults".
+	// See ResolveAccountAlertDefaults in alert_defaults.go for why absent has to
+	// stay representable.
+	AlertDefaults *json.RawMessage `json:"alert_defaults" gorm:"column:alert_defaults;type:jsonb"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relationships
 	User User `json:"-" gorm:"foreignKey:UserID"`
