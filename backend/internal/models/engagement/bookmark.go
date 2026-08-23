@@ -49,10 +49,22 @@ type UserBookmark struct {
 	Action         BookmarkAction     `gorm:"not null;column:action"`
 	CreatedAt      time.Time          `gorm:"not null;column:created_at"`
 	ReminderSentAt *time.Time         `gorm:"column:reminder_sent_at"`
-	// Settings holds follow-scoped preferences (PSY-1341, +off in PSY-1466).
-	// First key: "scene_notify_mode" — "all" (default when absent),
-	// "followed_bands_only", or "off" for scene follows' new-show
-	// notifications. Does not affect the separate weekly scene digest opt-in.
+	// Settings holds follow-scoped preferences. It is a shared, additive
+	// document: each key belongs to one follow entity type and readers must
+	// leave keys they do not own alone.
+	//
+	//   "scene_notify_mode" (PSY-1341, +off in PSY-1466) — "all" (default when
+	//   absent), "followed_bands_only", or "off" for scene follows' new-show
+	//   notifications. Does not affect the weekly scene digest opt-in.
+	//
+	//   "alerts" (PSY-1893) — per-follow overrides of the alert subscription an
+	//   artist or venue follow carries:
+	//     {"shows": {"enabled": bool, "scope": "near_me"|"everywhere",
+	//                "in_app": bool, "email": bool},
+	//      "releases": {"enabled": bool, "in_app": bool, "email": bool}}
+	//   Every key is optional and absent means "inherit the account default"
+	//   (in-app on, email off, near-me scope), so a follow with no settings is
+	//   already a full subscription. See services/engagement/follow_alerts.go.
 	Settings *json.RawMessage `gorm:"type:jsonb;column:settings"`
 	// SceneDigestSentAt is the per-scene-follow weekly-digest cursor (PSY-1342):
 	// the digest job includes new bands with created_at after this. NULL until

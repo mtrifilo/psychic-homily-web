@@ -21,6 +21,12 @@ func setupFollowRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/{entity_type}/{entity_id}/follow", followHandler.FollowEntityHandler)
 	huma.Delete(rc.Protected, "/{entity_type}/{entity_id}/follow", followHandler.UnfollowEntityHandler)
 
+	// Alert subscription carried by a follow (PSY-1893). A distinct 4-segment
+	// shape, so it shares no routing node with /{entity_type}/{entity_id}/follow
+	// or /{entity_type}/{entity_id}/followers/list.
+	huma.Get(rc.Protected, "/{entity_type}/{entity_id}/follow/alerts", followHandler.GetFollowAlertsHandler)
+	huma.Patch(rc.Protected, "/{entity_type}/{entity_id}/follow/alerts", followHandler.UpdateFollowAlertsHandler)
+
 	// Scene follows (PSY-1339): scenes are slug-addressed (the registry row
 	// materializes lazily on first follow), so they get dedicated routes
 	// instead of joining the generic id-keyed shape — /scenes/{slug}/follow

@@ -182,7 +182,9 @@ func TestSetupFollowRoutesOpenAPI(t *testing.T) {
 	}
 	pageSchema := resolveSchema(response.Content["application/json"].Schema)
 	assertProperties(pageSchema, "following", "limit", "next_cursor")
-	assertProperties(pageSchema.Properties["following"].Items, "entity_type", "entity_id", "name", "slug", "followed_at")
+	// alerts (PSY-1893): the row's resolved alert subscription, so the per-row
+	// alerts control renders without a request per row.
+	assertProperties(pageSchema.Properties["following"].Items, "entity_type", "entity_id", "name", "slug", "followed_at", "alerts")
 
 	countsOperation := api.OpenAPI().Paths["/me/library/following/counts"].Get
 	countsResponse := countsOperation.Responses["200"].Content["application/json"].Schema

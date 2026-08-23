@@ -159,6 +159,9 @@ func (suite *FollowServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM radio_episodes")
 	_, _ = sqlDB.Exec("DELETE FROM radio_shows")
 	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
+	// Before users: the alert-subscription cases assert that follow/unfollow
+	// leave notification_filters alone, so they leave rows referencing users.
+	_, _ = sqlDB.Exec("DELETE FROM notification_filters")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 

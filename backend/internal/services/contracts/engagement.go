@@ -119,6 +119,71 @@ type LibraryFollowingEntityResponse struct {
 	Name       string    `json:"name"`
 	Slug       string    `json:"slug"`
 	FollowedAt time.Time `json:"followed_at"`
+
+	// Alerts is the follow's resolved alert subscription (PSY-1893), so the
+	// Library per-row alerts control renders without a request per row. Nil for
+	// entity types that carry no alert subscription (scene, label, festival,
+	// tag).
+	Alerts *FollowAlertSettings `json:"alerts,omitempty"`
+}
+
+// ──────────────────────────────────────────────
+// Follow alert subscription types (PSY-1893)
+// ──────────────────────────────────────────────
+
+// Alert types a follow can subscribe to. A venue emits new shows; an artist
+// emits new shows and new releases.
+const (
+	FollowAlertTypeShows    = "shows"
+	FollowAlertTypeReleases = "releases"
+)
+
+// Scopes for artist show alerts (PSY-1892 decision 2). Venue show alerts have
+// no scope axis (a venue sits in one place) and releases are never scoped (a
+// record has no location).
+const (
+	// FollowAlertScopeNearMe limits artist show alerts to the user's home area.
+	FollowAlertScopeNearMe = "near_me"
+	// FollowAlertScopeEverywhere alerts on every show the artist announces.
+	FollowAlertScopeEverywhere = "everywhere"
+)
+
+// FollowAlertPreference is the RESOLVED delivery preference for one alert type
+// on one follow: each field is the effective value after the follow's stored
+// overrides are applied over the account defaults. Scope is empty for alert
+// types that have no scope axis.
+type FollowAlertPreference struct {
+	// Enabled is the master switch for this alert type on this follow. False
+	// silences it on every channel regardless of InApp/Email.
+	Enabled bool   `json:"enabled"`
+	InApp   bool   `json:"in_app"`
+	Email   bool   `json:"email"`
+	Scope   string `json:"scope,omitempty"`
+}
+
+// FollowAlertSettings is the resolved alert subscription carried by one follow.
+// Releases is nil for entity types that never emit releases (venues).
+type FollowAlertSettings struct {
+	EntityType string                 `json:"entity_type"`
+	EntityID   uint                   `json:"entity_id"`
+	Shows      FollowAlertPreference  `json:"shows"`
+	Releases   *FollowAlertPreference `json:"releases,omitempty"`
+}
+
+// FollowAlertPreferenceUpdate is a partial update to one alert type's
+// preference. A nil field leaves that axis untouched, which is what keeps an
+// axis the user never configured inheriting the account default.
+type FollowAlertPreferenceUpdate struct {
+	Enabled *bool
+	InApp   *bool
+	Email   *bool
+	Scope   *string
+}
+
+// FollowAlertUpdate is a partial update to a follow's alert subscription.
+type FollowAlertUpdate struct {
+	Shows    *FollowAlertPreferenceUpdate
+	Releases *FollowAlertPreferenceUpdate
 }
 
 // LibraryFollowingCursor is the stable keyset boundary for an alphabetical
@@ -196,6 +261,13 @@ type FollowServiceInterface interface {
 	// "followed_bands_only", stored on the follow row's settings JSONB.
 	SetSceneNotifyMode(userID uint, sceneID uint, mode string) error
 	SceneNotifyMode(userID uint, sceneID uint) (string, error)
+	// Follow-driven alert subscription (PSY-1893): following an artist or a
+	// venue subscribes the user to that entity's alerts, and unfollowing
+	// unsubscribes. Overrides live on the follow row's settings JSONB under
+	// "alerts"; absent keys inherit the account defaults. Both methods report
+	// CodeFollowNotFound when the user does not follow the entity.
+	GetFollowAlertSettings(userID uint, entityType string, entityID uint) (*FollowAlertSettings, error)
+	SetFollowAlertSettings(userID uint, entityType string, entityID uint, update FollowAlertUpdate) (*FollowAlertSettings, error)
 	GetBatchFollowerCounts(entityType string, entityIDs []uint) (map[uint]int64, error)
 	GetBatchUserFollowing(userID uint, entityType string, entityIDs []uint) (map[uint]bool, error)
 	GetUserFollowing(userID uint, entityType string, limit, offset int) ([]*FollowingEntityResponse, int64, error)

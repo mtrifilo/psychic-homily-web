@@ -6941,6 +6941,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/{entity_type}/{entity_id}/follow/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get by entity type by entity ID follow alerts */
+        get: operations["get-by-entity-type-by-entity-id-follow-alerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch by entity type by entity ID follow alerts */
+        patch: operations["patch-by-entity-type-by-entity-id-follow-alerts"];
+        trace?: never;
+    };
     "/{entity_type}/{entity_id}/followers": {
         parameters: {
             query?: never;
@@ -11209,6 +11227,38 @@ export interface components {
             /** @description Created user */
             user?: components["schemas"]["User"];
         };
+        FollowAlertPreference: {
+            email: boolean;
+            enabled: boolean;
+            in_app: boolean;
+            scope?: string;
+        };
+        FollowAlertPreferenceBody: {
+            /** @description Deliver by email (opt-in) */
+            email?: boolean;
+            /** @description Whether this alert type is on for this follow */
+            enabled?: boolean;
+            /** @description Deliver to the in-app feed */
+            in_app?: boolean;
+            /**
+             * @description Artist show alerts only: near me (home area) or everywhere
+             * @enum {string}
+             */
+            scope?: "near_me" | "everywhere";
+        };
+        FollowAlertSettings: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/FollowAlertSettings.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            entity_id: number;
+            entity_type: string;
+            releases?: components["schemas"]["FollowAlertPreference"];
+            shows: components["schemas"]["FollowAlertPreference"];
+        };
         FollowResponseBody: {
             /**
              * Format: uri
@@ -12977,6 +13027,7 @@ export interface components {
             venues: number;
         };
         LibraryFollowingEntityResponse: {
+            alerts?: components["schemas"]["FollowAlertSettings"];
             /** Format: int64 */
             entity_id: number;
             entity_type: string;
@@ -16989,6 +17040,18 @@ export interface components {
             tag_ids?: number[];
             /** @description Venue IDs to match */
             venue_ids?: number[];
+        };
+        UpdateFollowAlertsRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/UpdateFollowAlertsRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description New-release alerts (artist follows only) */
+            releases?: components["schemas"]["FollowAlertPreferenceBody"];
+            /** @description New-show alerts for this follow */
+            shows?: components["schemas"]["FollowAlertPreferenceBody"];
         };
         UpdateItemHandlerRequestBody: {
             /**
@@ -35164,6 +35227,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnfollowResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-by-entity-type-by-entity-id-follow-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity type (artists, venues) */
+                entity_type: string;
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowAlertSettings"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "patch-by-entity-type-by-entity-id-follow-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Entity type (artists, venues) */
+                entity_type: string;
+                /** @description Entity ID */
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFollowAlertsRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowAlertSettings"];
                 };
             };
             /** @description Error */
