@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { BACKEND_BASE_URL } from './e2e/backend-url'
 
 export default defineConfig({
   testDir: './e2e',
@@ -47,5 +48,22 @@ export default defineConfig({
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
+    // PSY-1649: the OAuth button leaves the app entirely. It is a full-page
+    // redirect to the backend's /auth/login/google, which does not survive
+    // the same-origin /api proxy the data path deliberately uses. So it reads
+    // its own variable, and the harness has to point that variable at the
+    // backend `global-setup.ts` actually started. Without this, moving the
+    // backend off :8080 with BACKEND_URL fixed the data specs (they go
+    // through the proxy, which follows BACKEND_URL) while oauth-google.spec
+    // kept redirecting to a stale :8080. No single value of
+    // NEXT_PUBLIC_API_URL satisfied both (measured in PSY-1645).
+    //
+    // Merged over process.env by Playwright, and BACKEND_BASE_URL is
+    // http://localhost:8080 when BACKEND_URL is unset, so a default run is
+    // unchanged. Note `reuseExistingServer` above: locally this only takes
+    // effect when Playwright is the one starting the dev server.
+    env: {
+      NEXT_PUBLIC_OAUTH_BACKEND_URL: BACKEND_BASE_URL,
+    },
   },
 })

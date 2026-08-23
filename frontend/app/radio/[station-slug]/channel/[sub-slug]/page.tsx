@@ -1,12 +1,7 @@
 import { Metadata } from 'next'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from '../../_components/StationDetail'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import { API_BASE_URL } from '@/lib/api-base'
 
 interface SubStationPageProps {
   params: Promise<{ 'station-slug': string; 'sub-slug': string }>

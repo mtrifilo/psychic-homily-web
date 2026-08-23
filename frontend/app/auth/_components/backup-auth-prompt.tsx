@@ -11,9 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-
-// Use direct backend URL for OAuth (browser redirect, not AJAX)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+// Direct backend origin, never the Next.js /api proxy: this is the same
+// full-page OAuth redirect the login button performs. See lib/api-base.ts
+// (PSY-1649).
+import { OAUTH_BACKEND_URL } from '@/lib/api-base'
 
 // Google "G" logo SVG component
 function GoogleIcon({ className }: { className?: string }) {
@@ -56,7 +57,7 @@ export function BackupAuthPrompt({ open, onOpenChange, onComplete }: BackupAuthP
     setIsConnectingGoogle(true)
     // Redirect to Google OAuth - after connecting, they'll be redirected back
     // The OAuth callback will redirect to home page
-    window.location.href = `${API_BASE_URL}/auth/login/google`
+    window.location.href = `${OAUTH_BACKEND_URL}/auth/login/google`
   }
 
   const handleSkip = () => {

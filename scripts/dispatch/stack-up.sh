@@ -26,6 +26,16 @@
 #   we point `NEXT_PUBLIC_API_URL` at `$STACK_FRONTEND_URL/api` so SSR
 #   resolves to the same proxy instead of hardcoding :8080.
 #
+#   OAuth is the exception (PSY-1649). The Google button is a full-page
+#   redirect to the backend's /auth/login/google, and that redirect chain
+#   does not survive the proxy, so it reads a SEPARATE variable,
+#   `NEXT_PUBLIC_OAUTH_BACKEND_URL`, which must be the backend's own
+#   origin. In isolated mode that is `$STACK_BACKEND_URL`; in shared mode
+#   it is left unset so `lib/api-base.ts` falls back to :8080, which IS
+#   the user's dev backend there. Before the split both requirements were
+#   read off `NEXT_PUBLIC_API_URL`, and no single value satisfied both on
+#   a non-default backend port.
+#
 # Output:
 #   Writes <worktree>/dispatch-stack/.env with STACK_* vars + .pid files.
 #   Prints the .env contents to stdout for the calling agent.
@@ -107,7 +117,8 @@ if [ "$MODE" = "shared" ]; then
     # NEXT_PUBLIC_API_URL is intentionally left unset: SSR pages fall back to
     # http://localhost:8080 in NODE_ENV=development, which IS the user's dev
     # backend in shared mode; browser-side `lib/api-base.ts` then routes
-    # through the same-origin /api proxy.
+    # through the same-origin /api proxy. NEXT_PUBLIC_OAUTH_BACKEND_URL is
+    # left unset for the same reason: its fallback is that same :8080.
     nohup env BACKEND_URL="http://localhost:8080" \
       bun run dev --port "$FRONTEND_PORT" \
       </dev/null >"$STACK_DIR/frontend.log" 2>&1 &
@@ -215,6 +226,7 @@ STACK_FRONTEND_URL=$STACK_FRONTEND_URL
 STACK_FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_URL=$STACK_BACKEND_URL
 NEXT_PUBLIC_API_URL=$STACK_FRONTEND_URL/api
+NEXT_PUBLIC_OAUTH_BACKEND_URL=$STACK_BACKEND_URL
 EOF
 
 log "Starting frontend on :$FRONTEND_PORT..."
@@ -223,8 +235,10 @@ cd "$WORKTREE_PATH/frontend"
 # SSR + browser at the frontend's own /api proxy; BACKEND_URL is what that
 # proxy (and the per-route admin/AI proxies under app/api/admin/* and
 # app/api/ai/*) forwards to. Without BACKEND_URL the proxy defaults to :8080
-# and misses the per-worktree backend port.
+# and misses the per-worktree backend port. NEXT_PUBLIC_OAUTH_BACKEND_URL
+# deliberately bypasses the proxy. See the header (PSY-1649).
 nohup env NEXT_PUBLIC_API_URL="$STACK_FRONTEND_URL/api" \
+  NEXT_PUBLIC_OAUTH_BACKEND_URL="$STACK_BACKEND_URL" \
   BACKEND_URL="$STACK_BACKEND_URL" \
   bun run dev --port "$FRONTEND_PORT" \
   </dev/null >"$STACK_DIR/frontend.log" 2>&1 &

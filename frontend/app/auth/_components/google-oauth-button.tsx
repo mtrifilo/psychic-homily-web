@@ -1,10 +1,10 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-
-// Use direct backend URL for OAuth (not the Next.js proxy)
-// OAuth requires full redirect, not AJAX calls
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+// Direct backend origin, never the Next.js /api proxy: OAuth is a full-page
+// redirect and the redirect chain does not survive the proxy. See
+// lib/api-base.ts for the resolution order (PSY-1649).
+import { OAUTH_BACKEND_URL } from '@/lib/api-base'
 
 interface GoogleOAuthButtonProps {
   className?: string
@@ -42,7 +42,7 @@ export function GoogleOAuthButton({
 
     // Redirect to backend OAuth endpoint
     // The backend will redirect to Google, then back to callback, then to frontend
-    const loginUrl = new URL(`${API_BASE_URL}/auth/login/google`)
+    const loginUrl = new URL(`${OAUTH_BACKEND_URL}/auth/login/google`)
     if (variant === 'signup') {
       loginUrl.searchParams.set('signup_intent', '1')
       loginUrl.searchParams.set('terms_accepted', 'true')
