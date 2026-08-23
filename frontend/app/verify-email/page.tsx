@@ -85,26 +85,39 @@ function RadarRow({
   )
 }
 
+/**
+ * Post-verification landing.
+ *
+ * The copy deliberately anchors on submissions rather than on alerts. The mock
+ * announces "EMAIL ALERTS AVAILABLE" and "in-app on now", but no send path
+ * consults `email_verified` (`sendFilterEmail` pulls the address with a bare
+ * `Pluck("email")`), and a plain follow drives no delivery at all: PSY-1893
+ * stored the subscription and `EffectiveShowScope` still has no non-test
+ * caller, with the matcher parked in PSY-1896. Submitting is the one thing
+ * verification genuinely opens, and it is enforced server-side
+ * (`catalog/show.go` blocks unverified non-admins with a 403), so that is what
+ * the page claims. The ALERTS rung stays highlighted as the next step to take,
+ * not as a switch that just flipped.
+ */
 function VerifiedLanding() {
   return (
     <LandingCard>
       <p className={`${KICKER} text-success-foreground`}>
-        Email confirmed · Email alerts available
+        Email confirmed · Submissions open
       </p>
       <h1 className="font-display text-[28px] font-bold text-foreground">
         Welcome to the index.
       </h1>
       <p className="text-sm leading-[22px] text-foreground">
-        Your email is verified. In-app alerts are already on for what you
-        follow; email alerts are yours to switch on. From here:
+        Your email is verified, and show submissions are open to you. From here:
       </p>
 
       <div className="flex w-full flex-col border border-border">
         <RadarRow label="SAVE" detail="shows you plan to catch, kept in one place" />
-        <RadarRow label="FOLLOW" detail="artists and venues; announcements find you" />
+        <RadarRow label="FOLLOW" detail="artists and venues you want to keep track of" />
         <RadarRow
           label="ALERTS"
-          detail="in-app on now; switch on email in Settings"
+          detail="choose what gets emailed to you in Settings"
           highlighted
         />
         <RadarRow label="SUBMIT" detail="spotted a missing show? add it any time" />
@@ -112,7 +125,7 @@ function VerifiedLanding() {
 
       <div className="flex flex-wrap gap-3">
         <Button asChild>
-          <Link href="/shows">Browse shows near you</Link>
+          <Link href="/shows">Browse upcoming shows</Link>
         </Button>
         <Button asChild variant="outline">
           <Link href="/artists">Explore artists</Link>
@@ -172,9 +185,12 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
           ? 'That link has expired.'
           : 'That link is not valid.'}
       </h1>
+      {/* Not "each one replaces the last": verification tokens are stateless
+          24-hour JWTs with no revocation (CreateVerificationToken in
+          services/auth/jwt.go), so every unexpired link still works. */}
       <p className="text-sm leading-[22px] text-foreground">
-        Verification links last 24 hours, and each one replaces the last. Send
-        yourself a fresh link and use the newest email in your inbox.
+        Verification links last 24 hours. Send yourself a fresh one and use the
+        newest email in your inbox.
       </p>
 
       {isAuthenticated ? (

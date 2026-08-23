@@ -66,16 +66,16 @@ describe('VerifyEmailPage', () => {
     })
 
     expect(
-      screen.getByText(/Email confirmed · Email alerts available/i)
+      screen.getByText(/Email confirmed · Submissions open/i)
     ).toBeInTheDocument()
     for (const rung of ['SAVE', 'FOLLOW', 'ALERTS', 'SUBMIT']) {
       expect(screen.getByText(rung)).toBeInTheDocument()
     }
     expect(
-      screen.getByText('in-app on now; switch on email in Settings')
+      screen.getByText('choose what gets emailed to you in Settings')
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Browse shows near you' })
+      screen.getByRole('link', { name: 'Browse upcoming shows' })
     ).toHaveAttribute('href', '/shows')
     expect(screen.getByRole('link', { name: 'Explore artists' })).toHaveAttribute(
       'href',

@@ -33,7 +33,7 @@ test.describe('Email Verification', () => {
     ).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText('ALERTS', { exact: true })).toBeVisible()
     await expect(
-      page.getByRole('main').getByRole('link', { name: 'Browse shows near you' })
+      page.getByRole('main').getByRole('link', { name: 'Browse upcoming shows' })
     ).toBeVisible()
     await expect(
       page.getByRole('main').getByRole('link', { name: 'Explore artists' })

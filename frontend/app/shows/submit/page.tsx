@@ -76,10 +76,14 @@ function EmailVerificationRequired() {
           <h1 className="font-display text-[26px] font-bold text-foreground">
             One step before you post.
           </h1>
+          {/* Two softenings from the mock. "Straight onto" overstated it:
+              lower-tier submissions land in the review queue first. And "we
+              sent you a link at signup" is only true for accounts created
+              after PSY-1871 shipped, which is not the backlog landing here. */}
           <p className="text-sm leading-[22px] text-foreground">
-            Submissions go straight onto the shared calendar, so we confirm
-            every submitter&rsquo;s email once. We sent you a link at signup; if
-            it is buried or expired, send a fresh one.
+            Submissions go onto the shared calendar, so we confirm every
+            submitter&rsquo;s email once. If your link is buried or expired,
+            send yourself a fresh one.
           </p>
 
           <div className="flex w-full flex-col gap-2.5">
