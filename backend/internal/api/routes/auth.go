@@ -178,6 +178,11 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	huma.Patch(rc.Protected, "/auth/preferences/scene-digest", userPrefsHandler.SetSceneDigestHandler)
 	// Tier-change + edit-review notification toggles (opt-OUT).
 	huma.Patch(rc.Protected, "/auth/preferences/tier-edit-notifications", userPrefsHandler.SetTierEditNotificationsHandler)
+	// PSY-1907: home area + account-level alert defaults. One read serves the
+	// whole alerts settings surface; each preference keeps its own write.
+	huma.Get(rc.Protected, "/auth/preferences/alerts", userPrefsHandler.GetAlertPreferencesHandler)
+	huma.Put(rc.Protected, "/auth/preferences/home-metro", userPrefsHandler.SetHomeMetroHandler)
+	huma.Patch(rc.Protected, "/auth/preferences/alert-defaults", userPrefsHandler.SetAlertDefaultsHandler)
 
 	// Public unsubscribe endpoint (HMAC-signed, no auth required)
 	huma.Post(rc.API, "/auth/unsubscribe/show-reminders", userPrefsHandler.UnsubscribeShowRemindersHandler)

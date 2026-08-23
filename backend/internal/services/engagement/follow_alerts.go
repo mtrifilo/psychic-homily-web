@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -83,22 +84,72 @@ type storedFollowAlerts struct {
 	Releases *storedFollowAlertPreference `json:"releases,omitempty"`
 }
 
-// defaultFollowAlertPreference returns the account-level default for one alert
-// type, which is what a follow with no stored override resolves to.
+// defaultFollowAlertPreference returns the default for one alert type, which is
+// what a follow with no stored override resolves to.
 //
-// PSY-1892 owner decisions (2026-08-22): in-app alerts default ON; ALL email
-// alerts default OFF and require an intentional opt-in (decision 4); a new
-// artist follow defaults to near-me scope (decision 2).
+// The channels come from the user's ACCOUNT alert matrix (PSY-1907), which is
+// itself the shipped defaults under whatever the user changed in settings: the
+// shipped values are in-app ON and email OFF, and email stays an intentional
+// opt-in on every alert type (PSY-1892 decision 4). Because a follow stores
+// nothing it never overrode, editing the account matrix reaches every such
+// follow with no data migration.
 //
-// This is the single place those defaults live. When the account-level alert
-// matrix ships it replaces this function's body, and every follow that never
-// overrode a key picks the new value up with no data migration.
-func defaultFollowAlertPreference(entityType, alertType string) contracts.FollowAlertPreference {
-	pref := contracts.FollowAlertPreference{Enabled: true, InApp: true, Email: false}
+// Enabled and Scope have no account-level axis: the account matrix is per alert
+// type x CHANNEL, and a master switch or an area choice made once for every
+// entity the user follows is not a setting PSY-1892 decided on. A new artist
+// follow defaults to near-me scope (decision 2).
+func defaultFollowAlertPreference(entityType, alertType string, account authm.AccountAlertDefaults) contracts.FollowAlertPreference {
+	channels := accountAlertChannelsFor(account, alertType)
+	pref := contracts.FollowAlertPreference{
+		Enabled: true,
+		InApp:   channels.InApp,
+		Email:   channels.Email,
+	}
 	if followAlertHasScopeAxis(entityType, alertType) {
 		pref.Scope = contracts.FollowAlertScopeNearMe
 	}
 	return pref
+}
+
+// accountAlertChannelsFor maps a follow alert type onto the matching field of
+// the account matrix. This switch is the ONE place the contracts alert-type
+// constants meet the account matrix's fields, which
+// TestAccountAlertChannelsFor_KeysMatchFollowAlertTypes pins to the storage
+// keys in models/auth.
+func accountAlertChannelsFor(account authm.AccountAlertDefaults, alertType string) authm.AlertChannelDefaults {
+	switch alertType {
+	case contracts.FollowAlertTypeReleases:
+		return account.Releases
+	case contracts.FollowAlertTypeShows:
+		return account.Shows
+	default:
+		// Unreachable: every caller passes one of the two constants above. A
+		// third alert type must add its case HERE as well as its field in
+		// models/auth, or it silently inherits the show row's channels.
+		return account.Shows
+	}
+}
+
+// accountAlertDefaults loads a user's resolved account alert matrix.
+//
+// A user with no preferences row is not an error: they have overridden nothing,
+// which is what a NULL document resolves to. Any other read failure propagates,
+// because silently substituting the shipped defaults would report a
+// subscription the user may not have, and on the email axis it would misreport
+// an opt-in in either direction.
+//
+// Takes the handle rather than reading s.db so a caller inside a transaction
+// sees the same snapshot as the follow row it just locked.
+func accountAlertDefaults(db *gorm.DB, userID uint) (authm.AccountAlertDefaults, error) {
+	var prefs authm.UserPreferences
+	err := db.Select("alert_defaults").Where("user_id = ?", userID).Take(&prefs).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return authm.ResolveAccountAlertDefaults(nil), nil
+	}
+	if err != nil {
+		return authm.AccountAlertDefaults{}, fmt.Errorf("failed to read account alert defaults: %w", err)
+	}
+	return authm.ResolveAccountAlertDefaults(prefs.AlertDefaults), nil
 }
 
 // EffectiveShowScope applies the no-home-area fallback to a recorded artist
@@ -188,8 +239,9 @@ func decodeStoredFollowAlertPreference(raw json.RawMessage) *storedFollowAlertPr
 func resolveFollowAlertPreference(
 	entityType, alertType string,
 	stored *storedFollowAlertPreference,
+	account authm.AccountAlertDefaults,
 ) contracts.FollowAlertPreference {
-	pref := defaultFollowAlertPreference(entityType, alertType)
+	pref := defaultFollowAlertPreference(entityType, alertType, account)
 	if stored == nil {
 		return pref
 	}
@@ -210,16 +262,24 @@ func resolveFollowAlertPreference(
 	return pref
 }
 
-// resolveFollowAlerts builds the resolved subscription for one follow row.
-func resolveFollowAlerts(entityType string, entityID uint, settings *json.RawMessage) *contracts.FollowAlertSettings {
+// resolveFollowAlerts builds the resolved subscription for one follow row by
+// layering its stored overrides over the user's account defaults. The account
+// matrix is passed in rather than loaded here so a page of follows costs one
+// read of it, not one per row.
+func resolveFollowAlerts(
+	entityType string,
+	entityID uint,
+	settings *json.RawMessage,
+	account authm.AccountAlertDefaults,
+) *contracts.FollowAlertSettings {
 	stored := decodeStoredFollowAlerts(settings)
 	resolved := &contracts.FollowAlertSettings{
 		EntityType: entityType,
 		EntityID:   entityID,
-		Shows:      resolveFollowAlertPreference(entityType, contracts.FollowAlertTypeShows, stored.Shows),
+		Shows:      resolveFollowAlertPreference(entityType, contracts.FollowAlertTypeShows, stored.Shows, account),
 	}
 	if followAlertsSupportsReleases(entityType) {
-		releases := resolveFollowAlertPreference(entityType, contracts.FollowAlertTypeReleases, stored.Releases)
+		releases := resolveFollowAlertPreference(entityType, contracts.FollowAlertTypeReleases, stored.Releases, account)
 		resolved.Releases = &releases
 	}
 	return resolved
@@ -246,7 +306,12 @@ func (s *FollowService) GetFollowAlertSettings(userID uint, entityType string, e
 	if err != nil {
 		return nil, apperrors.ErrFollowInternal(fmt.Errorf("failed to read follow alert settings: %w", err))
 	}
-	return resolveFollowAlerts(entityType, entityID, bookmark.Settings), nil
+
+	account, err := accountAlertDefaults(s.db, userID)
+	if err != nil {
+		return nil, apperrors.ErrFollowInternal(err)
+	}
+	return resolveFollowAlerts(entityType, entityID, bookmark.Settings, account), nil
 }
 
 // SetFollowAlertSettings applies a partial update to a follow's alert
@@ -288,11 +353,16 @@ func (s *FollowService) SetFollowAlertSettings(
 			return apperrors.ErrFollowInternal(fmt.Errorf("failed to load follow: %w", err))
 		}
 
+		account, err := accountAlertDefaults(tx, userID)
+		if err != nil {
+			return apperrors.ErrFollowInternal(err)
+		}
+
 		// An update that sets nothing is a read: writing an empty alerts object
 		// would dirty the row (and its inheritance) for no reason. This covers
 		// both an absent alert type and a present one with every axis unset.
 		if followAlertUpdateSetsNothing(update) {
-			resolved = resolveFollowAlerts(entityType, entityID, bookmark.Settings)
+			resolved = resolveFollowAlerts(entityType, entityID, bookmark.Settings, account)
 			return nil
 		}
 
@@ -310,7 +380,7 @@ func (s *FollowService) SetFollowAlertSettings(
 		}
 
 		raw := json.RawMessage(merged)
-		resolved = resolveFollowAlerts(entityType, entityID, &raw)
+		resolved = resolveFollowAlerts(entityType, entityID, &raw, account)
 		return nil
 	})
 	if err != nil {

@@ -357,6 +357,13 @@ type UserServiceInterface interface {
 	// Per-category tier-change + edit-review email toggles (opt-OUT).
 	SetNotifyOnTierNotifications(userID uint, enabled bool) error
 	SetNotifyOnEditNotifications(userID uint, enabled bool) error
+	// PSY-1907: home area + account-level alert matrix. GetAlertPreferences
+	// returns the matrix RESOLVED (shipped defaults under the user's stored
+	// overrides); SetAccountAlertDefaults is a partial merge, so an unset
+	// channel keeps inheriting rather than being pinned.
+	GetAlertPreferences(userID uint) (*authm.AlertPreferences, error)
+	SetHomeMetro(userID uint, metro *string) error
+	SetAccountAlertDefaults(userID uint, update authm.AccountAlertDefaultsUpdate) error
 }
 
 // ──────────────────────────────────────────────

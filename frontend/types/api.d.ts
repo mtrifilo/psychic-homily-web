@@ -2662,6 +2662,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/preferences/alert-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch auth preferences alert defaults */
+        patch: operations["patch-auth-preferences-alert-defaults"];
+        trace?: never;
+    };
+    "/auth/preferences/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get auth preferences alerts */
+        get: operations["get-auth-preferences-alerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/preferences/chart-defaults": {
         parameters: {
             query?: never;
@@ -2740,6 +2774,23 @@ export interface paths {
         get?: never;
         /** Put auth preferences favorite cities */
         put: operations["put-auth-preferences-favorite-cities"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/preferences/home-metro": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put auth preferences home metro */
+        put: operations["put-auth-preferences-home-metro"];
         post?: never;
         delete?: never;
         options?: never;
@@ -7027,6 +7078,10 @@ export interface components {
             last_used_at: string | null;
             scope: string;
         };
+        AccountAlertDefaults: {
+            releases: components["schemas"]["AlertChannelDefaults"];
+            shows: components["schemas"]["AlertChannelDefaults"];
+        };
         ActiveVenueResponse: {
             city: string;
             /** Format: int64 */
@@ -8018,6 +8073,29 @@ export interface components {
              * @description Required threshold (numeric requirements only)
              */
             threshold?: number;
+        };
+        AlertChannelDefaults: {
+            email: boolean;
+            in_app: boolean;
+        };
+        AlertChannelDefaultsInput: {
+            /** @description Deliver this alert type by email by default */
+            email?: boolean;
+            /** @description Deliver this alert type in-app by default */
+            in_app?: boolean;
+        };
+        AlertPreferencesResponseBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/AlertPreferencesResponseBody.json
+             */
+            readonly $schema?: string;
+            /** @description Resolved account-level alert defaults, per alert type and channel */
+            alert_defaults: components["schemas"]["AccountAlertDefaults"];
+            /** @description Home metro CBSA code, or null when no home area is set */
+            home_metro: string | null;
+            success: boolean;
         };
         AppleCallbackRequestBody: {
             /**
@@ -15951,6 +16029,18 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        SetAlertDefaultsRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SetAlertDefaultsRequestBody.json
+             */
+            readonly $schema?: string;
+            /** @description Default channels for new-release alerts */
+            releases?: components["schemas"]["AlertChannelDefaultsInput"];
+            /** @description Default channels for new-show alerts */
+            shows?: components["schemas"]["AlertChannelDefaultsInput"];
+        };
         SetChartDefaultsRequestBody: {
             /**
              * Format: uri
@@ -16068,6 +16158,19 @@ export interface components {
             readonly $schema?: string;
             /** @description Whether the collection should be featured */
             featured: boolean;
+        };
+        SetHomeMetroRequestBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/schemas/SetHomeMetroRequestBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Metro CBSA code (e.g. 38060); null or empty clears the home area
+             * @example 38060
+             */
+            metro?: string | null;
         };
         SetSceneDigestRequestBody: {
             /**
@@ -17517,11 +17620,13 @@ export interface components {
             username: string;
         };
         UserPreferences: {
+            alert_defaults: unknown;
             chart_defaults: unknown;
             /** Format: date-time */
             created_at: string;
             default_reply_permission: string;
             favorite_cities: unknown;
+            home_metro: string | null;
             /** Format: int64 */
             id: number;
             language: string;
@@ -23798,6 +23903,68 @@ export interface operations {
             };
         };
     };
+    "patch-auth-preferences-alert-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAlertDefaultsRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPreferencesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-auth-preferences-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPreferencesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "put-auth-preferences-chart-defaults": {
         parameters: {
             query?: never;
@@ -23950,6 +24117,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetFavoriteCitiesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-auth-preferences-home-metro": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetHomeMetroRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPreferencesResponseBody"];
                 };
             };
             /** @description Error */
