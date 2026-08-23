@@ -371,7 +371,7 @@ function HomeSceneGraphSection() {
           aria-live="polite"
           className="text-2xl font-semibold tracking-tight text-foreground"
         >
-          {scene.city}, this week
+          The {scene.city} scene graph
         </h2>
         <div className="flex items-center gap-4 text-sm">
           {scenes.length > 1 && (
@@ -392,10 +392,31 @@ function HomeSceneGraphSection() {
         </div>
       </div>
 
+      {/* Three claims this caption is deliberately careful NOT to make. Same
+          rule as the PSY-1732 note on CommunityPulseResponse in
+          features/home/types.ts; it binds the heading above and the canvas
+          aria-label below just as much as this paragraph.
+
+          1. NO time window. The payload is the scene's artist RELATIONSHIP
+             graph, not a dated slice. "Playing soon" is a per-node accent (the
+             green dot and the show chip), never a filter, so any wording
+             implying "this week" or "this month" is unbacked.
+          2. "N OF the most connected", not "THE N most connected". Neither
+             ranking stage sorts on connectivity alone: the backend picks the
+             roster by approved show count (scene.go ranked_roster), and
+             buildHomeSceneGraphMap then ranks on degree + upcoming_show_count
+             and admits nodes in connected pairs. A strict superlative would be
+             false whenever a well-booked artist outranks a better-connected one.
+          3. "Ties LIKE shared bills and labels" is an example, not the set.
+             allowedSceneEdgeTypes (scene.go) also passes member_of and
+             side_project, so a scene can render with no bill or label edge at
+             all. The legend below names whichever types actually appear; this
+             sentence must not contradict it. */}
       {graphAvailable && settledGraphData && hasEnoughConnectedNodes && (
         <p className="text-xs text-muted-foreground">
-          The {connectedArtistCount} most connected artists playing or tied to{' '}
-          {scene.city} this month — every name is clickable.
+          {connectedArtistCount} of the most connected artists tied to{' '}
+          {scene.city}. Ties like shared bills and labels link them; every name
+          is clickable.
         </p>
       )}
 

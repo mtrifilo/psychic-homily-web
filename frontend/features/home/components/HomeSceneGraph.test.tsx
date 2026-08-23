@@ -254,18 +254,23 @@ beforeEach(() => {
 })
 
 describe('HomeSceneGraph', () => {
-  it('renders the show-anchored heading, caption, CTA, tiered labels, and headline chip', async () => {
+  it('renders the graph-anchored heading, caption, CTA, tiered labels, and headline chip', async () => {
     render(<HomeSceneGraph />)
     expect(
-      await screen.findByRole('heading', { name: 'Chicago, this week' })
+      await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: /open the graph/i })
     ).toHaveAttribute('href', '/scenes/chicago-il#graph')
+    // Match the load-bearing clauses, not the punctuation between them: the
+    // count phrase must stay non-superlative ("3 of the most"), and the edge
+    // phrase must stay an example ("Ties like"), because neither ranking nor
+    // the edge-type allowlist backs the stronger reading.
     expect(
-      screen.getByText(
-        /the 3 most connected artists playing or tied to chicago/i
-      )
+      screen.getByText(/3 of the most connected artists tied to chicago/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/ties like shared bills and labels link them/i)
     ).toBeInTheDocument()
     const graph = await screen.findByTestId('force-graph-view')
     expect(graph).toHaveAttribute('data-force-labels', 'true')
@@ -277,6 +282,32 @@ describe('HomeSceneGraph', () => {
     )
     expect(screen.getByLabelText('Graph legend')).toHaveTextContent(
       'playable audio'
+    )
+  })
+
+  it('claims no time window anywhere in the section', async () => {
+    // The payload is the scene's artist relationship graph, not a dated slice,
+    // so neither the heading, the caption, nor the canvas aria-label may imply
+    // one. outerHTML rather than textContent on purpose: the aria-label is an
+    // ATTRIBUTE, and a textContent-only assertion passes while a screen-reader
+    // -only "…scene this week…" regression ships (verified by mutation).
+    // The section is located structurally, not by its accessible name, so a
+    // copy regression fails on THIS assertion rather than on a setup query.
+    const { container } = render(<HomeSceneGraph />)
+    await screen.findByTestId('force-graph-view')
+    const section = container.querySelector('section')
+    expect(section).not.toBeNull()
+    expect(section?.outerHTML).not.toMatch(/this (week|month)/i)
+  })
+
+  it('claims no time window in the small-screen teaser state either', async () => {
+    // Below the canvas gate the heading still renders (with the static teaser
+    // instead of a canvas), so the rule has to hold in that branch too.
+    setContainerWidth(500)
+    const { container } = render(<HomeSceneGraph />)
+    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
+    expect(container.querySelector('section')?.outerHTML).not.toMatch(
+      /this (week|month)/i
     )
   })
 
@@ -378,7 +409,7 @@ describe('HomeSceneGraph', () => {
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
     render(<HomeSceneGraph />)
     expect(
-      await screen.findByRole('heading', { name: 'Phoenix, this week' })
+      await screen.findByRole('heading', { name: 'The Phoenix scene graph' })
     ).toBeInTheDocument()
   })
 
@@ -391,7 +422,7 @@ describe('HomeSceneGraph', () => {
       screen.getByRole('region', { name: 'About Alpha' })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Chicago, this week' })
+      screen.getByRole('heading', { name: 'The Chicago scene graph' })
     ).toBeInTheDocument()
 
     // Geo resolves LATE to Phoenix — but the visitor already engaged a node, so
@@ -400,7 +431,7 @@ describe('HomeSceneGraph', () => {
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
     rerender(<HomeSceneGraph />)
     expect(
-      screen.getByRole('heading', { name: 'Chicago, this week' })
+      screen.getByRole('heading', { name: 'The Chicago scene graph' })
     ).toBeInTheDocument()
     expect(
       screen.getByRole('region', { name: 'About Alpha' })
@@ -411,21 +442,21 @@ describe('HomeSceneGraph', () => {
     // Geo would default to Phoenix; a surprise rotation must still move off it.
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'Phoenix, this week' })
+    await screen.findByRole('heading', { name: 'The Phoenix scene graph' })
     fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
     // Only one other scene exists, so the rotation is deterministic.
     expect(
-      screen.getByRole('heading', { name: 'Chicago, this week' })
+      screen.getByRole('heading', { name: 'The Chicago scene graph' })
     ).toBeInTheDocument()
   })
 
   it('"Surprise me" rotates to another scene', async () => {
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'Chicago, this week' })
+    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
     // Only one other scene exists, so the rotation is deterministic.
     expect(
-      screen.getByRole('heading', { name: 'Phoenix, this week' })
+      screen.getByRole('heading', { name: 'The Phoenix scene graph' })
     ).toBeInTheDocument()
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ slug: 'phoenix-az' })
@@ -439,7 +470,7 @@ describe('HomeSceneGraph', () => {
       isError: true,
     })
     const { container } = render(<HomeSceneGraph />)
-    expect(screen.queryByRole('heading', { name: /this week/i })).toBeNull()
+    expect(screen.queryByRole('heading', { name: /scene graph/i })).toBeNull()
     // The wrapper stays (observer target) but carries no section content.
     expect(container.querySelector('section')).toBeNull()
   })
@@ -457,7 +488,7 @@ describe('HomeSceneGraph', () => {
   it('renders the small-screen teaser (no canvas) below the graph breakpoint', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'Chicago, this week' })
+    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
     expect(
       screen.getByRole('link', { name: /see the chicago scene/i })
@@ -474,7 +505,7 @@ describe('HomeSceneGraph', () => {
       isPlaceholderData: true, // …but stale for the current key
     })
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'Chicago, this week' })
+    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
     expect(screen.queryByText(/not enough connected artists/i)).toBeNull()
   })
@@ -553,7 +584,7 @@ describe('HomeSceneGraph', () => {
   it('does not fetch the graph payload below the canvas gate (teaser never reads it)', async () => {
     setContainerWidth(500)
     render(<HomeSceneGraph />)
-    await screen.findByRole('heading', { name: 'Chicago, this week' })
+    await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     expect(useSceneGraph).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false })
     )
