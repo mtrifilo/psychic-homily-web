@@ -1,44 +1,133 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderWithProviders, waitFor } from '@/test/utils'
+import { screen, waitFor } from '@testing-library/react'
+import { renderWithProviders } from '@/test/utils'
+import { apiRequest } from '@/lib/api'
 import VerifyEmailPage from './page'
 
-const mockMutate = vi.fn()
-const mockUseConfirmVerification = vi.fn()
+// --- Mocks ---
+//
+// The REAL verification hooks run here, against a mocked apiRequest, so the
+// landing states are consequences of the request rather than presets.
 
+let mockToken: string | null = 'verify-token'
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams('token=verify-token'),
+  useSearchParams: () =>
+    new URLSearchParams(mockToken ? `token=${mockToken}` : ''),
 }))
 
-vi.mock('@/features/auth', () => ({
-  useConfirmVerification: () => mockUseConfirmVerification(),
+let mockIsAuthenticated = true
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated }),
 }))
+
+vi.mock('@/lib/api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  apiRequest: vi.fn(),
+}))
+
+const mockApiRequest = vi.mocked(apiRequest)
 
 describe('VerifyEmailPage', () => {
   beforeEach(() => {
-    mockMutate.mockReset()
-    mockUseConfirmVerification.mockReset()
-
-    mockUseConfirmVerification.mockImplementation(() => ({
-      mutate: mockMutate,
-      isPending: false,
-      isError: false,
-      isSuccess: false,
-      error: null,
-    }))
+    vi.clearAllMocks()
+    mockToken = 'verify-token'
+    mockIsAuthenticated = true
   })
 
-  it('verifies email only once per token across re-renders', async () => {
+  it('confirms the token only once across re-renders', async () => {
+    mockApiRequest.mockResolvedValue({ success: true })
+
     const { rerender } = renderWithProviders(<VerifyEmailPage />)
 
     await waitFor(() => {
-      expect(mockMutate).toHaveBeenCalledTimes(1)
-      expect(mockMutate).toHaveBeenCalledWith('verify-token')
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
     })
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/verify-email/confirm'),
+      expect.objectContaining({ body: JSON.stringify({ token: 'verify-token' }) })
+    )
 
     rerender(<VerifyEmailPage />)
 
     await waitFor(() => {
-      expect(mockMutate).toHaveBeenCalledTimes(1)
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
     })
+  })
+
+  it('lands a confirmed email on the radar block with ALERTS called out', async () => {
+    mockApiRequest.mockResolvedValue({ success: true })
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Welcome to the index.' })
+      ).toBeInTheDocument()
+    })
+
+    expect(
+      screen.getByText(/Email confirmed · Email alerts available/i)
+    ).toBeInTheDocument()
+    for (const rung of ['SAVE', 'FOLLOW', 'ALERTS', 'SUBMIT']) {
+      expect(screen.getByText(rung)).toBeInTheDocument()
+    }
+    expect(
+      screen.getByText('in-app on now; switch on email in Settings')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Browse shows near you' })
+    ).toHaveAttribute('href', '/shows')
+    expect(screen.getByRole('link', { name: 'Explore artists' })).toHaveAttribute(
+      'href',
+      '/artists'
+    )
+  })
+
+  it('shows the expired card with a fresh-link action when confirmation fails', async () => {
+    mockApiRequest.mockResolvedValue({
+      success: false,
+      message: 'token expired',
+    })
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'That link has expired.' })
+      ).toBeInTheDocument()
+    })
+    expect(
+      screen.getByText(/Contributor record · Link expired/i)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Send a fresh link/i })
+    ).toBeInTheDocument()
+    // The backend's raw failure text never reaches the reader.
+    expect(screen.queryByText(/token expired/)).not.toBeInTheDocument()
+  })
+
+  it('does not claim expiry when the URL carries no token at all', () => {
+    mockToken = null
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    expect(
+      screen.getByRole('heading', { name: 'That link is not valid.' })
+    ).toBeInTheDocument()
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('routes a signed-out visitor through sign-in instead of a dead resend', () => {
+    mockToken = null
+    mockIsAuthenticated = false
+
+    renderWithProviders(<VerifyEmailPage />)
+
+    expect(
+      screen.getByRole('link', { name: /Sign in to send a fresh link/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Send a fresh link/i })
+    ).not.toBeInTheDocument()
   })
 })

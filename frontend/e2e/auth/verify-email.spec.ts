@@ -26,38 +26,45 @@ test.describe('Email Verification', () => {
     // Navigate to the verify-email page with the token
     await page.goto(`/verify-email?token=${token}`)
 
-    // Assert success state. Scope CTA assertions to <main> so the sidebar's
-    // "Submit a Show" nav link (PSY-600) doesn't trip strict-mode resolution.
-    await expect(page.getByText('Email Verified!')).toBeVisible({
-      timeout: 15_000,
-    })
+    // Assert success state. Scope CTA assertions to <main> so sidebar nav links
+    // (PSY-600) don't trip strict-mode resolution.
     await expect(
-      page.getByRole('main').getByRole('link', { name: 'Submit a Show' })
+      page.getByRole('heading', { name: 'Welcome to the index.' })
+    ).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('ALERTS', { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('main').getByRole('link', { name: 'Browse shows near you' })
     ).toBeVisible()
     await expect(
-      page.getByRole('main').getByRole('link', { name: 'Go to My Library' })
+      page.getByRole('main').getByRole('link', { name: 'Explore artists' })
     ).toBeVisible()
   })
 
-  test('shows error for invalid token', async ({ page }) => {
+  test('shows the expired card for an invalid token', async ({ page }) => {
     await page.goto('/verify-email?token=invalid-garbage-token')
 
-    await expect(page.getByText('Verification Failed')).toBeVisible({
-      timeout: 15_000,
-    })
     await expect(
-      page.getByRole('link', { name: 'Request New Verification Email' })
+      page.getByRole('heading', { name: 'That link has expired.' })
+    ).toBeVisible({ timeout: 15_000 })
+    // Signed out, so the fresh-link action routes through sign-in rather than
+    // offering a resend the API would only 401.
+    await expect(
+      page.getByRole('main').getByRole('link', {
+        name: 'Sign in to send a fresh link',
+      })
     ).toBeVisible()
   })
 
-  test('shows invalid link when no token provided', async ({ page }) => {
+  test('does not claim expiry when no token is provided', async ({ page }) => {
     await page.goto('/verify-email')
 
-    await expect(page.getByText('Invalid Verification Link')).toBeVisible({
-      timeout: 10_000,
-    })
     await expect(
-      page.getByRole('link', { name: 'Go to Settings' })
+      page.getByRole('heading', { name: 'That link is not valid.' })
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(
+      page.getByRole('main').getByRole('link', {
+        name: 'Sign in to send a fresh link',
+      })
     ).toBeVisible()
   })
 })

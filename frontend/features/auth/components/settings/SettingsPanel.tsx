@@ -4,6 +4,14 @@ import { useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useSendVerificationEmail, useExportData, useGenerateCLIToken } from '@/features/auth'
+// Relative import rather than the feature barrel: the barrel is mocked wholesale
+// by this component's own suite, and the countdown is worth exercising for real.
+import {
+  VERIFICATION_RESEND_COOLDOWN_SECONDS,
+  resendStatusAnnouncement,
+  useVerificationResendCooldown,
+  verificationResendRetryAfter,
+} from '../../hooks/useVerificationResendCooldown'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -44,6 +52,8 @@ export function SettingsPanel() {
   const exportData = useExportData()
   const generateCLIToken = useGenerateCLIToken()
   const [emailSent, setEmailSent] = useState(false)
+  const [resendFailed, setResendFailed] = useState(false)
+  const resendCooldown = useVerificationResendCooldown()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cliToken, setCLIToken] = useState<string | null>(null)
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
@@ -54,11 +64,35 @@ export function SettingsPanel() {
     clear: clearTokenCopied,
   } = useAutoDismissBanner<true>(TOKEN_COPIED_DISMISS_MS)
 
+  // Terser than the /shows/submit gate's status line by design: this row sits in
+  // a dense settings column, not on a dedicated landing surface.
+  const resendStatus =
+    [
+      emailSent ? 'Sent' : null,
+      resendCooldown.isCoolingDown
+        ? `Again in ${resendCooldown.secondsRemaining}s`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || null
+
   const handleSendVerification = async () => {
+    if (sendVerificationEmail.isPending || resendCooldown.isCoolingDown) {
+      return
+    }
+    setResendFailed(false)
     try {
       await sendVerificationEmail.mutateAsync()
       setEmailSent(true)
+      resendCooldown.start(VERIFICATION_RESEND_COOLDOWN_SECONDS)
     } catch (error) {
+      const retryAfter = verificationResendRetryAfter(error)
+      if (retryAfter !== null) {
+        // Throttled, not broken: park the control rather than raise an alert.
+        resendCooldown.start(retryAfter)
+        return
+      }
+      setResendFailed(true)
       Sentry.captureException(error, {
         level: 'error',
         tags: { service: 'settings', error_type: 'verification_email' },
@@ -121,44 +155,56 @@ export function SettingsPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-mono text-sm">{user?.email}</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-semibold">Email</span>
+            <span className="font-mono text-[13px]">{user?.email}</span>
             {isEmailVerified ? (
-              <Badge variant="outline">Verified</Badge>
+              <Badge variant="outline" className="uppercase">
+                Verified
+              </Badge>
             ) : (
-              <Badge variant="outline">Not verified</Badge>
+              <Badge className="uppercase">Unverified</Badge>
             )}
           </div>
 
           {!isEmailVerified && (
-            <div className="space-y-2">
-              {emailSent && sendVerificationEmail.isSuccess ? (
-                <div className="flex items-center gap-2 text-sm text-success-foreground">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <span>Verification email sent! Check your inbox.</span>
-                </div>
-              ) : (
-                <Button
-                  onClick={handleSendVerification}
-                  disabled={sendVerificationEmail.isPending}
-                  variant="outline"
-                  size="sm"
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Button
+                onClick={handleSendVerification}
+                disabled={
+                  sendVerificationEmail.isPending || resendCooldown.isCoolingDown
+                }
+                variant="outline"
+                size="sm"
+              >
+                {sendVerificationEmail.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Resend verification
+              </Button>
+
+              {/* The seconds are hidden from assistive tech so the live region
+                  announces the state, not each tick. */}
+              {resendStatus && (
+                <span
+                  role="status"
+                  className="font-mono text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
                 >
-                  {sendVerificationEmail.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Resend verification
-                </Button>
+                  <span className="sr-only">
+                    {resendStatusAnnouncement(
+                      emailSent,
+                      resendCooldown.isCoolingDown
+                    )}
+                  </span>
+                  <span aria-hidden="true">{resendStatus}</span>
+                </span>
               )}
 
-              {sendVerificationEmail.isError && (
-                <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>
-                    {sendVerificationEmail.error?.message ||
-                      'Failed to send verification email. Please try again.'}
-                  </span>
-                </div>
+              {resendFailed && (
+                <span role="alert" className="text-sm text-destructive">
+                  We could not send that email just now. Please try again in a
+                  moment.
+                </span>
               )}
             </div>
           )}

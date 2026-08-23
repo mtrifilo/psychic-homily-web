@@ -205,10 +205,10 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('user@example.com')).toBeInTheDocument()
   })
 
-  it('shows "Not verified" badge when email is not verified', () => {
+  it('shows "Unverified" badge when email is not verified', () => {
     renderWithProviders(<SettingsPanel />)
 
-    expect(screen.getByText('Not verified')).toBeInTheDocument()
+    expect(screen.getByText('Unverified')).toBeInTheDocument()
   })
 
   it('shows "Verified" badge when email is verified', () => {
@@ -259,16 +259,70 @@ describe('SettingsPanel', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows verification error when send fails', () => {
+  // The resend failure line is owned by the click handler, not by the mutation's
+  // own error state: a 429 leaves `isError` latched true, and rendering off it
+  // would flash "that failed" over a control that is merely waiting. It also
+  // kept leaking backend wording ("Email service is not configured") to readers.
+  it('does not render the mutation error state as a failure line', () => {
     mockSendVerificationState = {
       isPending: false,
       isError: true,
       isSuccess: false,
-      error: new Error('Too many requests'),
+      error: new Error('Email service is not configured'),
     }
     renderWithProviders(<SettingsPanel />)
 
-    expect(screen.getByText('Too many requests')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Email service is not configured')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows generic copy when a resend genuinely fails', async () => {
+    mockSendVerificationMutateAsync.mockRejectedValueOnce(
+      Object.assign(new Error('Email service is not configured'), {
+        status: 500,
+      })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<SettingsPanel />)
+
+    await user.click(screen.getByRole('button', { name: /Resend verification/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'We could not send that email just now. Please try again in a moment.'
+      )
+    })
+    expect(
+      screen.queryByText('Email service is not configured')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Resend verification/ })
+    ).toBeEnabled()
+  })
+
+  it('renders a throttled resend as a cooldown, not an error', async () => {
+    mockSendVerificationMutateAsync.mockRejectedValueOnce(
+      Object.assign(new Error('Rate limit exceeded.'), {
+        status: 429,
+        retryAfter: 45,
+      })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<SettingsPanel />)
+
+    await user.click(screen.getByRole('button', { name: /Resend verification/ }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Again in 45s')
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Rate limit exceeded/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Sent/)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Resend verification/ })
+    ).toBeDisabled()
   })
 
   // --- Data Export Section ---
@@ -437,7 +491,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Token generation failed')).toBeInTheDocument()
   })
 
-  it('shows "Verification email sent!" success UI after Resend verification is clicked', async () => {
+  it('confirms a sent verification email and parks the control on a cooldown', async () => {
     mockSendVerificationMutateAsync.mockResolvedValueOnce(undefined)
     mockSendVerificationState = {
       isPending: false,
@@ -454,13 +508,12 @@ describe('SettingsPanel', () => {
 
     expect(mockSendVerificationMutateAsync).toHaveBeenCalled()
     await waitFor(() => {
-      expect(
-        screen.getByText('Verification email sent! Check your inbox.')
-      ).toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent('Sent · Again in 60s')
     })
+    // The control stays on the row so the state reads as a wait, not a vanish.
     expect(
-      screen.queryByRole('button', { name: /Resend verification/ })
-    ).not.toBeInTheDocument()
+      screen.getByRole('button', { name: /Resend verification/ })
+    ).toBeDisabled()
   })
 
   it('triggers data-export download flow when Export JSON is clicked', async () => {
