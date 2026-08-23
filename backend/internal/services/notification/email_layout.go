@@ -50,13 +50,15 @@ const emailRowGap = "20px"
 // elements.
 //
 // The layout is nested tables rather than flexbox because Outlook renders mail
-// through the Word engine, which supports neither flexbox nor grid. The single
-// <style> block carries only a narrow-viewport padding reduction: clients that
-// strip <style> (Outlook desktop) are always wide enough not to need it.
+// through the Word engine, which supports neither flexbox nor grid.
 //
-// The frame is width:100% capped at max-width:600px so it shrinks on a phone
-// instead of forcing a sideways scroll, with the legacy width="600" attribute
-// kept for Outlook, which ignores max-width and needs the fixed number.
+// The frame is a fixed 600px inline, and only the <style> block widens it to
+// 100% and tightens the padding below 600px. Doing it in that order rather than
+// declaring width:100% inline is what keeps Outlook correct: the Word engine
+// ignores max-width, so an inline width:100% would override the width="600"
+// attribute sitting beside it and stretch the column across a maximized window.
+// The same engine ignores <style> entirely, which is harmless here because the
+// only rules in it are the ones a desktop window never needs.
 //
 // color-scheme is declared "light" because only the light palette ships here; a
 // dark variant belongs with the suite-wide restyle, not with one message.
@@ -75,6 +77,7 @@ func emailShell(kicker, bodyRows string) string {
 <meta name="supported-color-schemes" content="light" />
 <style type="text/css">
 @media only screen and (max-width: 599px) {
+  .ph-frame { width: 100%% !important; }
   .ph-frame-pad { padding: 32px 24px 20px 24px !important; }
 }
 </style>
@@ -83,7 +86,7 @@ func emailShell(kicker, bodyRows string) string {
 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="width:100%%; background-color:%[1]s;">
 <tr>
 <td align="center" style="padding:0;">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%%; max-width:600px; background-color:%[1]s; border:1px solid %[2]s;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="ph-frame" style="width:600px; max-width:600px; background-color:%[1]s; border:1px solid %[2]s;">
 <tr>
 <td class="ph-frame-pad" style="padding:48px 48px 20px 48px;">
 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="width:100%%;">
@@ -106,6 +109,13 @@ func emailShell(kicker, bodyRows string) string {
 // border, because Outlook drops borders on zero-height elements. The label cell
 // is width="1%" + nowrap so the table gives it exactly its intrinsic width and
 // hands the remainder to the rule.
+//
+// nowrap makes the kicker the table's minimum width, so it has a length budget:
+// roughly 34 characters, which is about 250px at 11px mono plus the 12px gutter,
+// against the ~270px a 320px phone leaves after the mobile padding. Past that
+// the frame starts scrolling sideways. Keep new kickers at or under the length
+// of "YOUR ALERTS · PENDING VERIFICATION" or give the rule its own wrapping
+// treatment first.
 func emailMasthead(kicker string) string {
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[7]s 0; font-family:%[1]s; font-size:22px; font-weight:700; line-height:27px; letter-spacing:3.08px; color:%[2]s; background-color:%[8]s;">PSYCHIC HOMILY</td>
@@ -145,16 +155,21 @@ func emailParagraph(text string) string {
 
 // emailButton renders the primary call to action.
 //
-// The colored surface is a table cell rather than the anchor's own background
-// so Outlook, which ignores padding on inline elements, still paints the full
-// button; the anchor carries the padding for every other client and repeats the
-// radius and background so its label never ends up on an undeclared surface.
+// The colored surface is a table cell rather than the anchor's own background,
+// and the anchor repeats the radius and background so its label never ends up on
+// an undeclared surface.
+//
+// The button's shape is declared twice on purpose. The anchor's padding gives
+// every standards-based client a full-size click target. Outlook's Word engine
+// drops padding on inline elements, which would collapse the painted chip to the
+// text box, so the cell restates the same inset as mso-padding-alt, a property
+// only that engine reads.
 func emailButton(href, label string) string {
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[6]s 0;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td bgcolor="%[1]s" style="background-color:%[1]s; border-radius:2px;">
+<td bgcolor="%[1]s" style="background-color:%[1]s; border-radius:2px; mso-padding-alt:13px 28px;">
 <a href="%[4]s" style="display:inline-block; padding:13px 28px; border-radius:2px; background-color:%[1]s; font-family:%[3]s; font-size:15px; font-weight:600; line-height:18px; color:%[2]s; text-decoration:none;">%[5]s</a>
 </td>
 </tr>
@@ -176,12 +191,19 @@ func emailMonoNote(text string) string {
 // emailFineprint renders the closing lines: the "not you" reassurance and the
 // plain-link fallback for recipients whose client swallows the button.
 //
-// overflow-wrap keeps a long token such as a tokenized URL inside the frame
+// The three wrap declarations are one behavior spelled three ways for three
+// generations of client: overflow-wrap is the current property, word-break is
+// the WebKit-era spelling, and word-wrap is the only one Outlook's Word engine
+// reads. All of them keep a long token such as a tokenized URL inside the frame
 // without breaking ordinary prose mid-word the way word-break:break-all would.
+// Outlook matters most here, since this block exists for recipients whose client
+// swallowed the button.
 func emailFineprint(lines []string) string {
 	var b strings.Builder
 	for _, line := range lines {
-		fmt.Fprintf(&b, `<div style="word-break:break-word; overflow-wrap:anywhere;">%s</div>`, htmlEscape(line))
+		fmt.Fprintf(&b,
+			`<div style="word-wrap:break-word; word-break:break-word; overflow-wrap:anywhere;">%s</div>`,
+			htmlEscape(line))
 	}
 	return fmt.Sprintf(`<tr>
 <td style="padding:0 0 %[4]s 0; font-family:%[1]s; font-size:12px; font-weight:400; line-height:18px; color:%[2]s; background-color:%[5]s;">%[3]s</td>
